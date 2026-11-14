@@ -26,8 +26,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions
   VarkaSameAnswer, VarkaTestWatchdog}
 import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DataType, DateType, DoubleType, FloatType, IntegerType,
-  LongType, ShortType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, DateType, DayTimeIntervalType, DoubleType,
+  FloatType, IntegerType, LongType, ShortType, StructField, StructType, YearMonthIntervalType}
 
 /**
  * The floating lanes' first nodes, end to end: a `DOUBLE` or `FLOAT` column read from Varka's
@@ -146,6 +146,8 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     super.beforeAll()
     cacheFixtures(spark)
     cacheFixtures(varkaSpark)
+    cacheIntervals(spark)
+    cacheIntervals(varkaSpark)
   }
 
   /** The answer's cells, floating ones as their raw bits, so a NaN's payload and a sign count. */
@@ -380,6 +382,65 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   // -----------------------------------------------------------------------------------------
+  // Signum over the interval types, and the interval products and quotients by a floating
+  // factor, which decline until the conversions to an integral lane exist (VARKA-342 5.2).
+  // -----------------------------------------------------------------------------------------
+
+  private val intervals = "varka_float_intervals"
+
+  /** Each interval type's ends, -1, 0 and 1, and nulls in each column, beside a factor. */
+  private def cacheIntervals(session: SparkSession): Unit = {
+    def ym(months: Int): java.time.Period = java.time.Period.ofMonths(months)
+    def dt(micros: Long): java.time.Duration =
+      java.time.Duration.of(micros, java.time.temporal.ChronoUnit.MICROS)
+    val rows = Seq(Row(ym(Int.MinValue), dt(Long.MinValue), 0.5), Row(ym(-1), dt(-1L), -1.0),
+      Row(ym(0), dt(0L), 1.5), Row(ym(1), dt(1L), 2.5),
+      Row(ym(Int.MaxValue), dt(Long.MaxValue), 0.25), Row(null, dt(0L), 1.0),
+      Row(ym(0), null, null), Row(null, null, null))
+    val schema = StructType(Seq(StructField("ym", YearMonthIntervalType()),
+      StructField("dt", DayTimeIntervalType()), StructField("x", DoubleType)))
+    session.createDataFrame(spark.sparkContext.parallelize(rows, 1), schema)
+      .createOrReplaceTempView(intervals)
+    session.catalog.cacheTable(intervals)
+  }
+
+  test("signum over both interval types fuses and answers the row engine's doubles bit for bit "
+      + "at each type's ends, at zero and on nulls, generated and interpreted alike") {
+    val q = s"SELECT signum(ym) AS a, signum(dt) AS b FROM $intervals"
+    def d(v: Double): (String, Long) = ("double", java.lang.Double.doubleToRawLongBits(v))
+    // A zero count answers +0.0, never -0.0, and a null count null.
+    val want = Seq(Seq(d(-1.0), d(-1.0)), Seq(d(-1.0), d(-1.0)), Seq(d(0.0), d(0.0)),
+      Seq(d(1.0), d(1.0)), Seq(d(1.0), d(1.0)), Seq(null, d(0.0)), Seq(d(0.0), null),
+      Seq(null, null))
+    val actual = varkaSpark.sql(q)
+    assertFused(actual.queryExecution.executedPlan)
+    assert(bits(actual) === want)
+    assertKernelsRan(actual.queryExecution.executedPlan)
+    // Spark's generated code calls Math.signum on the int or long count, which resolves to the
+    // float overload, and its interpreted path Math.signum of the count's double: the two agree
+    // because each answer is -1, +0.0 or 1, and the kernel holds to both.
+    for (interpreted <- Seq(false, true)) {
+      val confs = if (!interpreted) Nil else Seq(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false",
+        SQLConf.CODEGEN_FACTORY_MODE.key -> "NO_CODEGEN")
+      withSQLConf(confs: _*) {
+        assert(bits(spark.sql(q)) === want, s"interpreted=$interpreted")
+      }
+    }
+  }
+
+  test("an interval product or quotient by a floating factor plans no Varka node") {
+    // Planned only, not run: the fixture's ends overflow the quotients, which the row engine
+    // raises on. The compiler suite pins the reason each declines with; a literal factor
+    // declines as a column does.
+    for (e <- Seq("ym * x", "ym / x", "dt * x", "dt / x", "ym / 4.0D")) {
+      val q = s"SELECT $e AS v FROM $intervals"
+      withClue(q) {
+        assertNotFused(varkaSpark.sql(q).queryExecution.executedPlan)
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------
   // What still declines, by name: the casts, the remainder, and a floating value beside an
   // integral one in a kernel.
   // -----------------------------------------------------------------------------------------
@@ -454,6 +515,118 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
       Add(Cast(l, DoubleType), Literal(1.5d)), "c")()), Seq(l, y), options(withDq))
     assert(withLiteral.isPresent, "CAST(l AS DOUBLE) + 1.5D did not compile at level 3")
     // VarkaDifferentialHarnessSuite runs it at level 3 against the row engine, beside the casts.
+  }
+
+  test("an aarch64 host fuses a bigint cast to DOUBLE and to FLOAT, and no other host's level " +
+      "moves") {
+    // VARKA-584. aarch64's matcher lowers L2D and L2F with no feature predicate, so a session
+    // asking for the host's level names level 3 there, NEON or SVE, and both casts fuse as one
+    // convertShape each. Catches: an aarch64 host left at the unknown level, where both decline;
+    // an aarch64 answer that asks for a feature; an unread list, which may be a JVM that is not
+    // HotSpot, or another architecture moved off the unknown level; an x86 level moved; and an
+    // explicit level the aarch64 host overrides.
+    val conf = new SQLConf
+    // The two-lane refusal is resolved from the same reading; set off, it reads no JVM lanes.
+    conf.setConfString(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, "false")
+    conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
+    def reading(arch: String, features: String, failure: String, bits: Int): VarkaHostIsa.Reading =
+      new VarkaHostIsa.Reading(arch, features, failure, bits)
+    val three = VarkaEmitOptions.AVX512_LEVEL
+    val unknown = VarkaEmitOptions.USE_AVX_UNKNOWN
+    val neon = reading("aarch64", "fp, asimd", null, 128)
+    val hosts = Seq(
+      neon -> three,
+      reading("aarch64", "fp, asimd, sve, sve2", null, 256) -> three,
+      reading("aarch64", "", "no such method", 128) -> unknown,
+      reading("riscv64", "rv64, v", null, 128) -> unknown,
+      reading("ppc64le", "", null, 128) -> unknown,
+      reading("amd64", "", "IllegalAccessException: no export", 256) -> unknown,
+      reading("amd64", "avx, avx2, fma", null, 128) -> unknown,
+      reading("amd64", "avx, avx2, fma", null, 256) -> 2,
+      reading("amd64", "avx2, avx512f, avx512dq", null, 512) -> three)
+    // A session at the unknown level keeps the base options' level, and the option matrix's
+    // useAVX configurations put a level there, so the cast is checked twice: over the defaults,
+    // where the session's level alone decides, and over the base, at the level it composes to.
+    def checkCasts(session: VarkaSessionEmit, clue: String): Unit = {
+      val base = VarkaColumnarToRowExec.currentEmitOptions
+      val options = VarkaColumnarToRowExec.emitOptions(session)
+      val expected = if (session.useAVX == unknown) base.useAVX else session.useAVX
+      assert(options.useAVX === expected, clue)
+      val overDefaults = session.apply(VarkaEmitOptions.DEFAULTS)
+      for (to <- Seq(DoubleType, FloatType); opts <- Seq(overDefaults, options)) {
+        val decline = castDecline(l, to, opts)
+        if (opts.useAVX == unknown) {
+          assert(decline.exists(_.contains("unknown emit level")), s"$clue to $to: $decline")
+        } else {
+          assert(decline.isEmpty, s"$clue to $to at level ${opts.useAVX}")
+        }
+      }
+    }
+    // An unread x86 reading would write the once-per-JVM warning, which another test watches.
+    val loggedBefore = VarkaSessionEmit.setUnreadableLoggedForTesting(true)
+    try {
+      for ((host, level) <- hosts) {
+        val session = VarkaSessionEmit.of(conf, host)
+        assert(session.useAVX === level, host)
+        checkCasts(session, host.toString)
+      }
+    } finally {
+      VarkaSessionEmit.setUnreadableLoggedForTesting(loggedBefore)
+    }
+    for (level <- Seq(unknown, 2, three)) {
+      conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, level)
+      val session = VarkaSessionEmit.of(conf, neon)
+      assert(session.useAVX === level, s"level $level")
+      checkCasts(session, s"aarch64 at level $level")
+    }
+  }
+
+  // varka-session-lint: allow a path: the planner resolving a planted host's level, which no
+  // harness has, to a kernel; the level-3 answers are VarkaDifferentialHarnessSuite's.
+  test("on a planted aarch64 host a session at the host's level fuses CAST(l AS DOUBLE) and " +
+      "CAST(l AS FLOAT), and this JVM's kernel matches the row engine bit for bit") {
+    // VARKA-584 end to end: the planner resolves the planted host, as the driver of an aarch64
+    // cluster would, and the kernel converts on this JVM - an x86 one in the Build, so this holds
+    // the plan and level 3's bytes to Spark, while aarch64's own scvtf lowering is checked by
+    // VarkaEmitterFloatingCastSuite on the Arm runner (varka-sweeps). The cells are the casts'
+    // traps: the extremes, 2^53 + 2^29 + 1, which rounds to 2^53 through DOUBLE and to
+    // 2^53 + 2^30 in one rounding to FLOAT, 2^53 + 1 and 2^24 + 1, the first values each type
+    // cannot hold, and 4275361147, which a split-and-add form misrounds, on ids 1 to 10; then
+    // 64-bit hashes, one row in 17 null.
+    val view = "varka_bigint_casts"
+    val cells = Seq("-9223372036854775808", "9223372036854775807", "9007199791611905",
+      "-9007199791611905", "9007199254740993", "16777217", "4275361147", "4503599627370497",
+      "-1", "0").map(v => s"CAST('$v' AS BIGINT)").mkString(", ")
+    val table =
+      s"""SELECT CASE WHEN id % 17 = 0 THEN NULL
+         |            WHEN id <= 10 THEN element_at(array($cells), CAST(id AS INT))
+         |            ELSE hash(id) * 4294967296L + (hash(id, 1) & 4294967295L) END AS l
+         |FROM range(0, 2000, 1, 2)""".stripMargin
+    val sessions = Seq(spark, varkaSpark)
+    VarkaSessionEmit.setHostForTesting(new VarkaHostIsa.Reading("aarch64", "fp, asimd", null,
+      128))
+    try {
+      for (session <- sessions) {
+        session.sql(table).createOrReplaceTempView(view)
+        session.catalog.cacheTable(view)
+      }
+      withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, VarkaSessionEmit.USE_AVX_FROM_HOST.toString) {
+        val q = s"SELECT CAST(l AS DOUBLE) AS a, CAST(l AS FLOAT) AS b FROM $view"
+        val actual = varkaSpark.sql(q)
+        val expected = expectedSql(q, actual)
+        val plan = actual.queryExecution.executedPlan
+        assertFused(plan)
+        checkAnswer(actual, expected)
+        assert(bits(actual).sortBy(_.toString) === bits(expected).sortBy(_.toString))
+        assertKernelsRan(plan)
+      }
+    } finally {
+      VarkaSessionEmit.setHostForTesting(null)
+      for (session <- sessions if session.catalog.tableExists(view)) {
+        session.catalog.uncacheTable(view)
+        session.catalog.dropTempView(view)
+      }
+    }
   }
 
   test("a smallint read for its validity alone fuses as a DOUBLE and as a FLOAT") {

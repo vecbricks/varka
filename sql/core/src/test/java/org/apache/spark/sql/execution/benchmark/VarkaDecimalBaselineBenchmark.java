@@ -118,9 +118,8 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * each section's plan on the Varka session against the section's {@link Fusion} class, the
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). A
- * section is {@code NONE} when no Varka node plans it, {@code NULL_TESTS} when Varka nodes fuse
- * only {@code IS NOT NULL} and {@code IS NULL} tests while a row operator evaluates the rest,
- * and {@code WHOLE} when no row operator evaluates any of it. Row 347's reader fuses the
+ * section is {@code NONE} when no Varka node plans it and {@code WHOLE} when no row operator
+ * evaluates any of it. Row 347's reader fuses the
  * comparison at precisions 9 and 18, whose two columns share a scale, and {@code x <=> y}
  * there, and with row 27's boolean output the projected {@code x < y}, so those twelve
  * sections are {@code WHOLE} and time a kernel on the varka on arm. Row 348 fuses the rescaled
@@ -130,13 +129,14 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * arithmetic filters at both densities (VARKA-349). The lane pair's reading half (VARKA-359)
  * fuses whole the comparison at precision 38 and, at 38 and 20, {@code x <=> y},
  * {@code x IS NULL} and the projected {@code x < y}; its {@code -x < y} and {@code abs(x) < y}
- * filters are {@code NULL_TESTS}, the inferred null tests fused below them, and so are the
- * two filters of rows 360 and 361, whose sum and product no lowering computes yet. A session that
+ * filters are {@code NONE}, and so are the two filters of rows 360 and 361, whose sum and product
+ * no lowering computes yet: of each, only the null tests Spark infers would fuse, and a filter
+ * fusing nothing else stays whole on the row path (VARKA-598). A session that
  * refuses a filter's condition in a kernel driven at 64 bits ({@code declinesLongConditions},
- * VARKA-503), the 128-bit companion's host by default, leaves every one of those filters to the
- * row path, the lane pair's among them, since its words are on the long lane, so they are
- * {@code NONE} there; the projected {@code x < y} sections and the time producers stay
- * {@code WHOLE}.
+ * VARKA-503), the 128-bit companion's host by default, leaves every fused filter to the
+ * row path, the lane pair's among them, since its words are on the long lane, and the projected
+ * {@code x < y} sections too, a boolean output over a decimal column (VARKA-596), so they are
+ * {@code NONE} there; the time producers stay {@code WHOLE}.
  * Every other section is {@code NONE}. A row that fuses more of a section sets its new class,
  * so that its fusion cannot turn a baseline section into a fused one unnoticed, and the results
  * file notes the class of each section that fuses.
@@ -488,12 +488,13 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * two remainders, each remainder precision, then each null density; then the widening
    * arithmetic's eleven at each null density. Every filter that fuses
    * is {@code NONE} when the session refuses its condition ({@code declinesLongConditions}),
-   * since every decimal lane, the lane pair's words among them, is a 64-bit one.
+   * since every decimal lane, the lane pair's words among them, is a 64-bit one, and so is every
+   * comparison as a value, a boolean output over a decimal column.
    */
   static List<Section> sections(boolean declinesLongConditions) {
-    // A filter that fuses whole, or not at all where the session refuses its condition.
+    // A filter, or a comparison as a value, that fuses whole, or not at all where the session
+    // refuses its condition.
     Fusion fusedFilter = declinesLongConditions ? Fusion.NONE : Fusion.WHOLE;
-    Fusion fusedNullTests = declinesLongConditions ? Fusion.NONE : Fusion.NULL_TESTS;
     List<Section> out = new ArrayList<>();
     for (Precision p : PRECISIONS) {
       for (Density d : Density.values()) {
@@ -527,28 +528,31 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
           "SELECT extract(SECOND FROM " + t + ") AS a FROM varka_decimal", Fusion.WHOLE));
     }
     // The lane pair's <=>, IS NULL and projected comparison fuse whole over the words
-    // (VARKA-359); its negation and abs are 359b's, under the null tests Spark infers, and so is
-    // its IN, under none, since Spark infers no null test from an IN. The filters decline where
-    // the session refuses a 64-bit condition, the null tests too.
+    // (VARKA-359). Its negation, abs and IN are 359b's, so none of them fuses: of the first two
+    // only the null tests Spark infers would, and such a filter stays whole on the row path
+    // (VARKA-598), and Spark infers none from an IN. The <=> and IS NULL filters decline where
+    // the session refuses a 64-bit condition, and so does the projected comparison, a boolean
+    // output over a decimal column (VARKA-596).
     Map<ComparisonShape, Fusion> pairFusion = Map.of(
         ComparisonShape.IN, Fusion.NONE,
         ComparisonShape.NULL_SAFE, fusedFilter,
         ComparisonShape.IS_NULL, fusedFilter,
-        ComparisonShape.NEGATED, fusedNullTests,
-        ComparisonShape.ABS, fusedNullTests,
-        ComparisonShape.VALUE, Fusion.WHOLE);
+        ComparisonShape.NEGATED, Fusion.NONE,
+        ComparisonShape.ABS, Fusion.NONE,
+        ComparisonShape.VALUE, fusedFilter);
     for (Precision p : PAIR_PRECISIONS) {
       addComparisons(out, p, Optional.empty(), pairFusion::get);
     }
     // The rescaled comparison, IN, the negation, abs, <=> and the projected comparison fuse
-    // whole (VARKA-348), the filters only where the session takes a 64-bit condition.
+    // whole (VARKA-348), each only where the session takes a 64-bit condition, the projected
+    // comparison as a boolean output over a decimal column (VARKA-596).
     Map<ComparisonShape, Fusion> longFusion = Map.of(
         ComparisonShape.RESCALED, fusedFilter,
         ComparisonShape.IN, fusedFilter,
         ComparisonShape.NULL_SAFE, fusedFilter,
         ComparisonShape.NEGATED, fusedFilter,
         ComparisonShape.ABS, fusedFilter,
-        ComparisonShape.VALUE, Fusion.WHOLE);
+        ComparisonShape.VALUE, fusedFilter);
     for (Precision p : List.of(precision(9), precision(18))) {
       addComparisons(out, p, Optional.of(rescaledPartner(p)), longFusion::get);
     }
@@ -591,7 +595,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       }
     }
     for (Density d : Density.values()) {
-      addWidening(out, d, fusedNullTests);
+      addWidening(out, d);
     }
     return out;
   }
@@ -599,10 +603,10 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
   /**
    * Adds the widening arithmetic's sections at density {@code d}: row 360's five sums and its
    * filter, then row 361's four products and its filter. No lowering computes a sum or a product
-   * past a long yet, so the projections are {@code NONE} and the filters fuse only the null tests
-   * Spark infers below them, {@code nullTests}.
+   * past a long yet, so every section is {@code NONE}: of the filters only the null tests Spark
+   * infers would fuse, and such a filter stays whole on the row path (VARKA-598).
    */
-  private static void addWidening(List<Section> out, Density d, Fusion nullTests) {
+  private static void addWidening(List<Section> out, Density d) {
     String x9 = d.column("x9");
     String x18 = d.column("x18");
     String x20 = d.column("x20");
@@ -631,7 +635,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     out.add(new Section("BIGINT l + x as a value, x a DECIMAL(18, 4)" + tail,
         "SELECT " + l + " + " + x18 + value, Fusion.NONE));
     out.add(new Section(d20 + "x + y < z filter" + tail,
-        "SELECT " + x20 + filter + x20 + " + " + y20 + " < " + z20, nullTests));
+        "SELECT " + x20 + filter + x20 + " + " + y20 + " < " + z20, Fusion.NONE));
     out.add(new Section(d15 + "x * y as a value" + tail,
         "SELECT " + x15 + " * " + y15 + value, Fusion.NONE));
     out.add(new Section(d15 + "x * (1 - y) as a value" + tail,
@@ -641,7 +645,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     out.add(new Section("BIGINT l * x as a value, x a DECIMAL(18, 4)" + tail,
         "SELECT " + l + " * " + x18 + value, Fusion.NONE));
     out.add(new Section(d15 + "x * y < z filter" + tail,
-        "SELECT " + x15 + filter + x15 + " * " + y15 + " < " + z15, nullTests));
+        "SELECT " + x15 + filter + x15 + " * " + y15 + " < " + z15, Fusion.NONE));
   }
 
   /** The column at another scale {@code p}'s {@code x} is compared with, which it must have. */

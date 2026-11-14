@@ -31,6 +31,7 @@ VARKA-241 added the long lane's division forms, and VARKA-242 the calendar's div
 | `decimal_scale.smt2` | the `HALF_UP` division of a decimal's unscaled value by `10^k` (`VarkaDecimalScale`), over integers at full width: identity (1), `floor(floor(n / 2^(k-1)) / 5^k) = floor(2n / 10^k)`, and (2), the `+ 1` and halving as `HALF_UP`, at every `k` from 1 to 39; per table entry (`k` and one of ten dividend bounds) the round-up multiplier's claim `floor(N * c / 2^L) = floor(N / 5^k)` to its computed first failure minus one, which is past the pre-shifted bound, and its failure there; Spark's product cut to 39 digits before the rounding (`MathContext(39, DOWN)`) and the exact product round to one quotient, or both overflow, per digit count and `k`; and the rounded quotient of a `d + k` digit value at most `10^d`, reaching `10^38` at `d = 38` (VARKA-363) | `VarkaProofFiles` |
 | `casts.smt2` | the narrowings of a `BIGINT` to `INT`, `SMALLINT` and `TINYINT` (VARKA-332): under `LEGACY` the kernel's `L2I` and narrow store are the reduction mod `2^w` for every long, and under `ANSI` the range guard's two compares, the target's range read from `VarkaTypes.integralRange`, hold exactly where the long differs from its narrowing, where Spark raises `CAST_OVERFLOW`; the 32-bit sources are exhausted, and the int lane's guard is `narrow_range.smt2`'s | `VarkaProofFiles` |
 | `round_to_odd.smt2` | the AVX2 conversions from a long (VARKA-343, `VARKA-343.md` 2.3), over SMT-LIB's floating-point theory: the split `L2D` as three lemmas - both halves exact, and `hi * 2^32 + lo = v` - so the one rounding of their sum is `(double) v`; the bounded magic `(double) v` for `|v| <= 2^51` and wrong one past either end; `L2F`'s round-to-odd form `(float) v` for every long, by the sign (refuted without the `- s` in `m`) and per magnitude binade, beside Boldo and Melquiond's Theorem 3 at its instance per binade and its bound `k >= 2` shown tight; each check after a `(reset)` (below); about 5 s under each of Z3 and cvc5 on the laptop | `VarkaProofFiles` |
+| `fp_half_up.smt2` | the interval products and quotients' `HALF_UP` by a floating factor (VARKA-342, `VARKA-342.md` 2.4), over SMT-LIB's floating-point theory against Guava's `roundToInt` and `roundToLong`: per type the inclusive guard holds exactly the doubles Guava answers, inside it the truncation plus the tie's bump away from zero is Guava's answer, and the long's fraction is zero past `2^52`; each guard one double wider and the tie taken by `f > 0.5` refuted; the ties and row 103's product cells pinned; each check after a `(reset)`. It runs in the nightly CI workflow `varka-fuzz.yml` (its proofs job) under both solvers; PR Builds render and drift-check it only, `--lint` skipping it as `NIGHTLY_ONLY` lists it. The bounds are `VarkaIntervalCompiler`'s `HALF_UP_*` constants, held there ahead of the lowering, which waits for row 343's part 343b2 | `VarkaProofFiles` |
 | `decimal128.smt2` | the 128-bit decimal's ring layer: a value as its two words, `hi * 2^64 + lo` with the low word unsigned, and the word lowerings of `<`, `<=`, `=`, `>`, `>=` and `<=>` equal to the comparisons of the values, a signed low compare refuted; and for every precision from 19 to 38 the load's check, two 128-bit compares against the constant pairs of `DecimalWords.bound`, declining exactly where `\|v\| > 10^p - 1`, a bound one off either way refuted (VARKA-359) | `VarkaProofFiles` |
 | `fp_round.smt2` | `RoundToIntegral(RINT)`, the `2^(p-1)` construction of `VarkaRoundingLowering` with its sign restored, equal to `fp.roundToIntegral RNE` for every `binary32` and `binary64` value over SMT-LIB's floating-point theory, signed zeros and NaN included, and refuted with the constant a binade lower or the sign dropped; each check after a `(reset)`, as `round_to_odd.smt2` runs them; a few seconds under each of Z3 and cvc5 on the laptop (VARKA-344) | `VarkaProofFiles` |
 | `int_round.smt2` | `round`, `bround` and `truncate` at scale `-k` on the int lane (`VarkaRoundingCompiler`): the signed remainder of the truncating quotient by `10^k`, wrapped, equal to `BigDecimal.setScale(-k, mode)`'s low 32 bits for every int and `k` from 1 to 9 (the quotient by each `10^k` proven in `int_mulhi_divide.smt2`), `bround` refuted with `round`'s steps or without its odd test, every value 0 past the type's digits, and each ANSI window of `TINYINT`, `SMALLINT` and `INT` exact, one past either end leaving the type (VARKA-344) | `VarkaProofFiles` |
@@ -54,7 +55,12 @@ VARKA-241 added the long lane's division forms, and VARKA-242 the calendar's div
 
 A worktree without its own `target/varka-solvers/` takes the solvers from the machine's shared
 directory, `$VARKA_SOLVERS_DIR` or by default `~/.cache/varka-solvers/`, so one
-`dev/varka_prove.sh --install-shared both` serves every worktree; CI keeps installing per run.
+`dev/varka_prove.sh --install-shared both` serves every worktree. An install downloads the
+archives into `downloads/` beside the solvers, checks each against its pinned SHA-256 before use,
+and tries a failed or mismatched download four times; the linters' job restores that folder from
+the Actions cache under `dev/varka_prove.sh --cache-key`, so a run whose cache hit needs no
+network. Only master's runs save that cache, and every branch restores master's entry. CI and the
+shared directory keep the archives; a worktree's own install elsewhere deletes them once done.
 
 A file whose header has a line `; prelude: <name>.smt2` before its `set-logic` gets that file of
 this directory inserted after `java.smt2` (VARKA-506 2.5). A file named so is a prelude, which the
@@ -142,6 +148,8 @@ serves; before, it was assumed, and a cached far day was served wrong.
    `CVC5_IN_LINT` names it, which it does for a file one solver proves much faster than the other:
    `long_divide.smt2` takes Z3 63 s on the laptop and cvc5 20 s (1914 checks, 6 November 2026,
    after VARKA-332 added the truncating division and the sub-day divisors; 28 s and 8 s before).
+   A file past the minute under both goes in `NIGHTLY_ONLY`, which `--lint` skips and the nightly
+   CI workflow `varka-fuzz.yml` runs (`--nightly-only`).
 4. cvc5 is the fragile one (`VARKA-242.md` 2.2 and 9). Where it answers `unknown`, try in order:
    `(set-logic ALL)` in place of `QF_NIA`; one lemma per step over named digits or quotients, so
    each check is linear arithmetic over a few small variables; a residue written as 7 times a
@@ -152,5 +160,6 @@ serves; before, it was assumed, and a cached far day was served wrong.
 ## The solvers
 
 Z3 5.1.0 (MIT) from PyPI's `z3-solver`, whose wheel ships the binary, and cvc5 1.4.1 (BSD-3-Clause)
-from its GitHub release archive, its SHA-256 checked. `dev/varka_prove.sh` pins both and refuses
+from its GitHub release archive, each SHA-256 checked (Z3's for the Linux x86_64 wheel; another
+platform installs Z3 from the index by version). `dev/varka_prove.sh` pins both and refuses
 other versions. They are development tools: nothing here is compiled, packaged or shipped.

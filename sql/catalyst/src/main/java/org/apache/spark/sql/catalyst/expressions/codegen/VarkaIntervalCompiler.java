@@ -510,6 +510,20 @@ public final class VarkaIntervalCompiler {
   }
 
   /**
+   * The guard of the HALF_UP interval lowering, by which an interval times or over a floating
+   * factor rounds the double product or quotient {@code p} to the interval's int or long
+   * (`VARKA-342.md` 2.4): the inclusive bounds of the doubles whose HALF_UP lands in the int,
+   * {@code (-2^31 - 0.5, 2^31 - 0.5)} exclusive, and in the long, {@code [-2^63, 2^63)}. The
+   * lowering waits for the conversions from a floating lane to an integral one (row 343's part
+   * 343b2); {@code VarkaProofFiles} renders {@code fp_half_up.smt2} from these values, which is
+   * why they and this class are public.
+   */
+  public static final double HALF_UP_INT_LO = Math.nextUp(-0x1p31 - 0.5);
+  public static final double HALF_UP_INT_HI = Math.nextDown(0x1p31 - 0.5);
+  public static final double HALF_UP_LONG_LO = -0x1p63;
+  public static final double HALF_UP_LONG_HI = Math.nextDown(0x1p63);
+
+  /**
    * The shared body of the binary interval arms. Spark computes {@code ym + ym} and
    * {@code ym - ym} with {@code IntervalMathUtils.addExact}/{@code subtractExact}, which throw in
    * every evaluation mode - there is no {@code LEGACY} wrapping form for an interval and no

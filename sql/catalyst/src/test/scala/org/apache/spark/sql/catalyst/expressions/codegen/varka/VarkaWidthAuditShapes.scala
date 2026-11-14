@@ -24,8 +24,8 @@ import scala.jdk.OptionConverters._
 
 import com.fasterxml.jackson.databind.ObjectMapper
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, In, InSet, Literal}
-import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, In, InSet, Literal, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.codegen.{VarkaExpressionCompiler, VarkaOutputSpec}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
@@ -121,7 +121,12 @@ object VarkaWidthAuditShapes {
     y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
     d9s4, d16s9, d8, d19, d38, d38b, d3810)
 
-  /** The row as the optimizer would hand it to the compiler; `VarkaEmittedBytesSuite`'s rule. */
+  /**
+   * The row as the optimizer would hand it to the compiler, for a copy of the rewrite that row 607
+   * removes: unlike `VarkaSqlResolve.inSetAsClaimed`, which the other test suites call, this one
+   * matches only `Literal` elements, so a decimal row whose elements arrive under a cast reaches
+   * the width audit as an `In`.
+   */
   private def asCatalystClaims(expr: Expression, catalyst: Set[String]): Expression = expr match {
     case In(value, list) if catalyst.contains("InSet") && list.forall(_.isInstanceOf[Literal]) =>
       InSet(value, list.map(_.asInstanceOf[Literal].value).toSet)
@@ -149,14 +154,25 @@ object VarkaWidthAuditShapes {
       if (form == "predicate") {
         predicateRow(sql, resolved)
       } else {
-        VarkaExpressionCompiler.compile(Seq(Alias(resolved, "c")()), columns).toScala match {
+        // On the host's terms too: a two-lane x86 host refuses a BOOLEAN row over a decimal
+        // column (VARKA-596) and a checked BIGINT operation (VARKA-104), as a predicate row's
+        // 64-bit condition is.
+        val list = Seq[NamedExpression](Alias(resolved, "c")())
+        VarkaExpressionCompiler.compilePartial(list, columns, VarkaEmitOptions.DEFAULTS,
+            hostAdmission).toScala
+          .filter(_.specs.asScala.forall(_.isInstanceOf[VarkaOutputSpec.FusedOutput]))
+          .map(_.fused) match {
           case Some(c) => Shape(sql, c.outputs.asScala.toSeq, c.inputOrdinals.size, c.numLiterals)
-          case None => Declined(sql, VarkaExpressionCompiler.declines(
-            Seq(Alias(resolved, "c")()), columns).asScala.values.map(_.reason).mkString("; "))
+          case None => Declined(sql, VarkaExpressionCompiler.declines(list, columns,
+            VarkaEmitOptions.DEFAULTS, hostAdmission).asScala.values.map(_.reason).mkString("; "))
         }
       }
     }
   }
+
+  /** Every family on, and the two-lane refusals as this host answers them (VARKA-503). */
+  private def hostAdmission: VarkaAdmission = new VarkaAdmission(java.util.Set.of(),
+    VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host()))
 
   /**
    * A predicate row on the host's own terms: an x86 host at two 64-bit lanes or fewer refuses a
@@ -170,9 +186,7 @@ object VarkaWidthAuditShapes {
    */
   private def predicateRow(sql: String, resolved: Expression): Entry = {
     val explained = VarkaExpressionCompiler.explainAndCompilePredicate(resolved, columns,
-      VarkaEmitOptions.DEFAULTS,
-      new VarkaAdmission(java.util.Set.of(),
-        VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host())))
+      VarkaEmitOptions.DEFAULTS, hostAdmission)
     val specs = explained.specs.asScala.toSeq
     val refused = specs.filterNot(_.fused)
     // The spec carries the reason and not the refusal's kind; the reason is the kind's alone.
@@ -226,6 +240,17 @@ object VarkaWidthAuditShapes {
       Shape("construction: NOT (l < l2) OR l2 IS NOT NULL, as a selection",
         Seq(new Or(new Not(new Compare(CompareOp.LT, lc, lc2)), new IsNotNull(lc2))), 2, 0),
       Shape("construction: greatest(l, l2)", Seq(new Greatest(lc, lc2)), 2, 0),
+      // The comparisons as values, which the compiler refuses over decimals at two long lanes on
+      // x86 (VARKA-596): what C2 refuses in each, the decimal slots' load and check among them.
+      Shape("construction: l < l2, as a boolean output",
+        Seq(new BoolOutput(new Compare(CompareOp.LT, lc, lc2))), 2, 0),
+      Shape("construction: d9 < d9b, as a boolean output",
+        Seq(new BoolOutput(new Compare(CompareOp.LT, new DecimalColumn(0, LaneType.LONG, 9),
+          new DecimalColumn(1, LaneType.LONG, 9)))), 2, 0),
+      Shape("construction: d38 < d38b, as a boolean output",
+        Seq(new BoolOutput(DecimalWords.compare(CompareOp.LT,
+          new DecimalWord(0, Word.LOW, 38), new DecimalWord(0, Word.HIGH, 38),
+          new DecimalWord(1, Word.LOW, 38), new DecimalWord(1, Word.HIGH, 38)))), 2, 0),
       Shape("construction: i + i2, ANSI checked (int lane)",
         Seq(arith(IntOp.ADD, Overflow.FAIL, ic, ic2)), 2, 0),
       Shape("construction: i < i2, as a selection (int lane)",

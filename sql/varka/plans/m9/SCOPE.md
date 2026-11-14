@@ -399,6 +399,17 @@ two-vector `selectFrom`, and optionally `compress` - all currently unused, and
 `rearrange`/`selectFrom` are milestone 4's item 9 territory pulled forward for a
 non-string reason.
 
+*Added 11 November 2026 by the owner's word, a note further out.* Above 18 digits milestone 8 builds
+the 128-bit lane pair one operation at a time: the pair itself (row 359), sums and differences
+(360), products (361 and 362), the division that cuts a scale (363) and the casts over it (364),
+each with its own limb arithmetic and checks. A general multi-word integer lane - a value of k
+64-bit limbs, with add, multiply, compare and the power-of-ten division written once over k - would
+make the next decimal operation one more client of that lane rather than another network, and would
+reach past 128 bits, where an exact product needs up to 253 (row 362). It is a direction, not a
+design. **Done when** a plan compares such a lane with rows 359 to 364's forms on lines of code and
+on `VarkaDecimalBaselineBenchmark`'s committed sections, or records why the per-operation form
+stays.
+
 ### Item 2. Decimal arithmetic semantics
 
 **Spark surface.** `+`, `-`, `*`, `/` over decimals, and the result-type rules
@@ -3181,6 +3192,11 @@ for bit, as a measured option arm, the default only where it measures faster; th
 than that call exists for the host-dependent five is open, the owner's, licence first
 (`m8/VARKA-345.md` 8 point 11).*
 
+*9 November 2026, as row 345's first part recorded it (`m8/VARKA-345.md` 2.10, 10): this item's
+emitted-fdlibm option is the `PORT` arm, emitted as IR and costed without FMA as above; item 98
+stays the route to one bit pattern for the opt-in library, not for the exact default. The
+configuration and its emit option exist; no math function fuses yet.*
+
 ### Item 37. A third AVX2 lowering for the 64-bit divide, from 32-bit converts
 
 *Opened 19 September 2026, from reading SLEEF for
@@ -3414,6 +3430,28 @@ VARKA-28, the lane-width conversion, is already in item 39's table; the
 retrospective adds a third reason to take it first when the long lane's
 arithmetic re-enters: `time_from_seconds(i)` declines, `hour(t) + 1` declines,
 and the coverage differential had to change a row because of it.
+
+*Added 11 November 2026 by the owner's word.* The second case this item waits for has arrived in
+another form: facts that a node's consumers need are hand-written lists, and each new node or mode
+is a chance to miss one. The 11 November review of #1462 (`rint`'s canonical NaN, open) found
+`mayHoldOtherNaN` skipping its NaN blend for any `RoundToIntegral` child without checking the
+child's mode, fixed on the branch; #1478 (row 596, open) decides that a kernel reads a decimal by an
+`instanceof` test on `DecimalColumn` and `DecimalWord`, which row 597 records as missing row 360's
+`bigintPair`, a lane pair with no decimal leaf; and whether a residual conjunct may raise is
+`VarkaConjunctOrder.errorFreeNode`, a list over Catalyst expressions outside which everything is
+assumed to raise. Row 489 (`m8/PLAN.md`) is the descriptor for the switches the passes already hold,
+built on 27 October 2026 on the unmerged branch `varka-489-descriptor`; that branch predates #1329's
+hash component on every node with a child and the lane pair's nodes (rows 359 to 363), so finishing
+the row means rebuilding it over master, and the row's own order, before row 359, is already
+overtaken. The proposal: finish row 489, then derive such facts in the analysis from each node's
+descriptor and its children's facts, bottom-up as `dayRange` is - cannot produce a non-canonical
+NaN, may raise within a fused subtree, reads a decimal slot, needs a mask at two lanes - so a new
+node states its own entries and every consumer reads the derived fact. `errorFreeNode` itself stays
+a list over Catalyst expressions, since a residual conjunct never becomes an IR node; only the IR
+side of that fact is derived. Item 51's mapping type is one more field of the same record. **Done
+when** row 489 has merged, the NaN and decimal-reading tests that #1462 and #1478 bring to master
+(or their successors there) read derived facts with every decision and generated file unchanged, and
+a test plants a node whose descriptor flips each fact and sees its consumer follow.
 
 ### Item 48. What `validityOrFirst` is for
 
@@ -5791,6 +5829,23 @@ to run), or shard each by family or row so that two rows touch different files. 
 pull requests that each add coverage rows merge with master in either order without a conflict in a
 generated file, and a stale file fails CI with its regeneration command.
 
+*Added 11 November 2026 by the owner's word; this part stays in milestone 9, outside row 546's
+done-when.* Row 546's merge driver (#1293) merges the generated files per key, and a merge of master
+into an open branch still pays for them: the driver leaves `option_arms`, the rows' places and the
+docs blocks to `dev/varka_regen_generated.sh`, so each such merge is a regeneration on the laptop
+and another Build. A digest can also go stale with no conflict at all: each of
+`emitted_bytes.json`'s option-arm digests is one hash over every coverage shape, and #1448's body
+records four of them stale on master after two merges that each added shapes. Row 546's plan
+excluded a CI job that commits the regenerated files, since the fork has no token for one. Two
+directions, to be measured against each other: split each generated file and each digest per shape
+or family, so two rows in different families touch different files and a digest moves only with its
+own shapes; or commit a digest of the generated files' inputs and have CI regenerate and compare,
+failing a stale branch with its command. **Done when** a merge of master into a branch that adds
+coverage rows needs no regeneration unless master moved the branch's own family, and a stale digest
+fails before it reaches master. Since each branch can be fresh at its own head while the merge of
+two is stale, that last check runs on the merge result, which is item 129's build of
+`refs/pull/N/merge`; this note depends on it.
+
 ### Item 122. The option matrix only where a change can move it
 
 *Added 27 October 2026 on the owner's word.* A pull request's option matrix is twelve jobs of
@@ -5924,6 +5979,23 @@ cost-model work after row 335a, so a scope item rather than a row. **Done when**
 decline is the cost model's prediction, it reproduces #1262's decisions on its measured cases, and
 a new refused rule needs a record field and a measurement, not a new decline.
 
+*Added 11 November 2026 by the owner's word, widened from the two-lane case.* The two-lane decline
+has become a family of rules, one per row: row 503's for long-driven filter conditions, row 596's
+for a decimal comparison produced as a value (#1478, open), row 597's for every decimal reader, and
+row 603's choice between fixing the masked byte store at 128 bits and declining its shapes by name.
+The cost model they would hand over to cannot yet tell the forms apart: `VarkaEmitCost.kindOf`
+counts `rint` with and without #1462's NaN blend as one feature, `RoundToIntegral/RINT/DOUBLE`, so a
+refit averages two lowerings (#1462's body). The proposal is one admission step per shape, host and
+width, which takes the measured costs and item 134's census table and either admits the cheapest
+form or refuses with a named reason, starting from `VarkaKernelPlan.Refusal`'s kinds; each row's
+rule then becomes a census cell and a measurement. It needs `kindOf` to name every lowering the
+emitter can choose, as it already does for `GuardedRange`'s NULL mode; once row 489 lands, the key
+is the descriptor's cost kind (item 47), so one place names it. The done-when gains two clauses:
+rows 596, 597 and 603's decisions come out of that step with their reasons, and a node whose
+descriptor names no cost kind does not construct, while a second lowering of an existing node,
+#1462's case, is caught by a test that each lowering the emitter can choose has its own key. The
+step is built after item 134's table, as that item says.
+
 ### Item 132. A stock arm over the Arrow cache
 
 *Added 2 November 2026 by the lead's decision on row 552's plan (`m8/VARKA-552.md` 7, decision
@@ -5952,6 +6024,77 @@ out of a move's reach; and C-Reduce's constant pass (PLDI 2012 section 5), each 
 then 1, kept if the failure signature holds, where literals are never reduced. Readability only: no
 missed bug is on record for any of them. **Done when** each move is in its shrinker with a test that
 a planted failure shrinks to the smaller form.
+
+### Item 134. The operator census as a table the emitter reads
+
+*Added 11 November 2026 by the owner's word.* `sql/varka/operator_census.json` records, for one host
+and each vector width, whether C2 lowers each operator the plans rely on (I), lowers it and
+allocates (I+A), or leaves it to the Vector API's Java fallback (F); other hosts' files sit in
+`m8/results/` (`VARKA-329-census-epyc-7763.json`, `VARKA-376-census-neoverse-n2.json` and two more).
+No main source reads them, so nothing stops the emitter choosing a form the census puts in the
+fallback: row 597's decimal readers fuse at 128 bits on x86, the EPYC 7763's cells put their slot
+load and its check in the fallback there (584 bytes a row), and a benchmark found the loss. Where
+the census has no cell the same loss goes unseen until a run: row 603's masked byte store at 128
+bits on AVX2 has none (its plan adds `int.I2B_store64_masked`), and row 479's boxed `storeMasked` on
+hosts without AVX-512BW and row 503's two-lane masks were each found by a benchmark. Row 551's host
+record answers named questions from HotSpot's feature list and `x86.ad`; the census measures what C2
+did. The proposal: each lowering names the census cells it depends on, the census is committed per
+host class and width as a table keyed by them, and planning reads a cell that reads F on the target
+host as a predicted fallback cost, not as a refusal by itself: item 131's admission step weighs it
+against the measured costs and rejects or swaps the form only where the row path or another form is
+predicted faster, as #1262 kept the two-lane boolean projections, which measured 0.9X to 2.1X
+although the EPYC 7763's `long.LT` cell reads F at 128 bits. Item 127 decides whose host that is.
+This item and item 131 are one piece of work: the table here comes first, and item 131's step is its
+only reader, so neither builds an admission rule of its own. An EPYC run then confirms a choice
+rather than discovering it. **Done when** every lowering with a census dependency names its cells, a
+test fails one that names a cell the census lacks, and, with item 131's step, rows 597 and 603's
+cases are decided from the committed table with their measured outcomes. It needs row 551's record
+as the table's host key.
+
+### Item 135. A hash-consed IR: one node per structure while planning
+
+*Added 11 November 2026 by the owner's word.* Row 559 (#1329) cached each IR node's structural hash,
+and the shared chains it measured, 25544 ms to plan at depth 16 before, plan in under 2 ms at depth
+20. Its plan (`m8/VARKA-559.md` 3.1) chose that over interning nodes at construction, option (ii),
+which VARKA-222 had priced as a second notion of node identity through `Analysis` and `Slots`, and
+it lists the walks still taken per path: the lane lifts (`VarkaConditionCompiler.onIntLane` and
+`onLongLane`, `VarkaIntegralCastCompiler.onLane`, `VarkaChronoCompiler.rearm`) rebuild a shared node
+into distinct equal objects, and `equals` between two disjoint equal DAGs compares a shared node
+once per path. Row 561's fuzzer is to draw shared trees 8 to 32 deep to find more. Interning would
+give sharing one home: equality is identity, and a walk keyed by identity is correct by
+construction. It does not by itself make a recursive walk visit a shared node once: each walker
+still needs an identity memo, and the spike gives them one shared per-compile memo rather than a map
+each, so its cost is counted, not assumed away. The share it can cut is Varka's compile and emit,
+11.7% of the coverage harness's samples (`m8/results/VARKA-510-planning-local.txt`); the 45.1%
+beside it is Spark's analyzer and optimizer, which rows 510 and 528 address and this item does not,
+and row 541's CSE mismatch is between the gate of Spark's own filter and `GeneratePredicate`, which
+Varka's fallback builds, so it lies outside the IR and this item does not settle it. jegg (item 85)
+works over hash-consed e-classes, so an interned IR is also its natural input. **Done when** a spike
+interns at construction, row 559's chains and row 561's draws plan with the lifts, through the
+shared memo, and `equals` linear in nodes, every answer, decline and emitted byte is unchanged, and
+the record says whether the identity rework VARKA-222 priced is smaller than priced. It waits for
+row 561.
+
+### Item 136. Tests that show they reached the code they name
+
+*Added 11 November 2026 by the owner's word, from two reviews that day.* A test that asserts a
+decline or a plan can pass for a reason other than its name's. The review of #1436 (row 578, open)
+found its wide `CASE`-without-`ELSE` test asserting a decline reason that the decimal compiler gives
+first from the output type alone (`VarkaTypes.decimalOutputDeclineReason`), so the test passes
+without reaching the `CASE`; the review of #1425 (row 342, open) found its body saying four forms
+decline and still answer as the row engine does, where the test asserts only that they do not fuse
+and never runs the query. A `VarkaDecline` is a reason string and the failing expression; it does
+not say which rule refused. Two parts: each decline carries its origin, a stable name of the
+refusing rule, as `VarkaKernelPlan.Refusal` already carries a kind, so a test asserts the origin
+rather than a substring of the reason; and the harness records which IR nodes and lowerings a test
+compiled through so a test can assert that a named node was reached. `VarkaCompileObserver` is the
+start, not the mechanism: it holds one listener, which `VarkaTestReach`'s recorder takes in the
+option matrix's defaults run, it is silent inside `unobserved` compiles, and it reports compile
+inputs, results and emitted IR, never a lowering, so the item adds a second listener slot and a
+lowering report. Item 82's mutation runs on changed lines are the other check of this kind: a test
+that kills no mutant of the code it names shows the same gap. **Done when** declines carry their
+origins, the two cases above assert them and fail when pointed at the earlier rule, and a check
+lists each test whose named node is never reached.
 
 ## 5. Ordering
 

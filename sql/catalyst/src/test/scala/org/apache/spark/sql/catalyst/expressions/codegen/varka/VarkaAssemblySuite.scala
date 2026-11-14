@@ -127,9 +127,6 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
    */
   private val scalarIntAdd = Family("scalar integer add", Set("addl", "addq", "leal", "leaq"))
 
-  /** x86-64 is the only table filled in; see `VARKA-31.md` 3.1 for why none is invented. */
-  private val supportedArches = Set("amd64", "x86_64")
-
   // --- Locating a disassembler --------------------------------------------------------------
 
   private sealed trait Hsdis
@@ -499,8 +496,9 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
     }
   }
 
+  /** x86-64 is the only table filled in; see `VARKA-31.md` 3.1 for why none is invented. */
   private def requireSupportedArch(): Unit = {
-    assume(supportedArches.contains(arch),
+    assume(VarkaHostIsa.isX86(arch),
       s"no instruction-family table for $arch; see VARKA-31.md 3.1")
   }
 

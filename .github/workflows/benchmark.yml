@@ -30,7 +30,7 @@ on:
         type: choice
         description: 'JDK version: 21 or 25'
         required: true
-        default: '21'
+        default: '25'
         options:
         - '21'
         - '25'
@@ -325,6 +325,9 @@ jobs:
         PROBE_LANES: ${{ steps.probe.outputs.lanes }}
         PROBE_CONTROL: ${{ steps.probe.outputs.control }}
         PROBE_RATIO: ${{ steps.probe.outputs.ratio }}
+        # The expected-cpu the probe's CPU check passed against, empty when none passed: with
+        # expected-cpu blank the probe may fail and the job go on (continue-on-error above).
+        CPU_CHECKED: ${{ steps.probe.outcome == 'success' && inputs.expected-cpu || '' }}
       run: |
         ./build/sbt -Pscala-${{ inputs.scala }} -Pyarn -Pkubernetes -Phive -Phive-thriftserver -Phadoop-cloud -Pkinesis-asl -Pcredential-aws -Pspark-ganglia-lgpl Test/package
         # Make less noisy
@@ -360,7 +363,8 @@ jobs:
         # Keep the committed sections the run was not asked to replace (VARKA-256): a run on
         # whichever CPU the pool assigns would otherwise rewrite every section of the file.
         if [ -n "$BENCHMARK_SECTIONS" ]; then
-          python3 "$TOOLS/dev/varka_bench_sections.py" restore --sections "$BENCHMARK_SECTIONS"
+          python3 "$TOOLS/dev/varka_bench_sections.py" restore --sections "$BENCHMARK_SECTIONS" \
+            --cpu-checked "$CPU_CHECKED" --java-options="$EXTRA_JAVA_OPTIONS"
         fi
         # Provenance beside each results file the run wrote, as dev/varka_bench_regen.sh writes it
         # on the laptop: which runner, which CPU and datapath, which commit. Not for the class `*`,
@@ -374,6 +378,10 @@ jobs:
           fi
           { git diff --name-only; git ls-files --others --exclude-standard --exclude=.varka-tooling; } \
             | { grep -E '/benchmarks/[^/]*-results\.txt$' || true; } | while read -r results; do
+            prov="${results%-results.txt}-provenance.txt"
+            # The hand-written `spliced:` notes of earlier runs run from the first one to the end
+            # of the committed file; this run's header replaces only the lines above them.
+            spliced="$(sed -n '/^spliced:/,$p' "$prov" 2>/dev/null || true)"
             {
               echo "benchmark:   $BENCHMARK_CLASS"
               echo "where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml"
@@ -396,8 +404,11 @@ jobs:
               if [ -n "$BENCHMARK_SECTIONS" ]; then
                 echo "sections:    $BENCHMARK_SECTIONS (the rest of the file is as committed)"
               fi
-            } > "${results%-results.txt}-provenance.txt"
-            echo "wrote ${results%-results.txt}-provenance.txt"
+            } > "$prov"
+            if [ -n "$spliced" ]; then
+              printf '%s\n' "$spliced" >> "$prov"
+            fi
+            echo "wrote $prov"
           done
         fi
         # To keep the directory structure and file permissions, tar them

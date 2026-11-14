@@ -195,14 +195,15 @@ public final class VarkaDecimalPairSuite {
   /**
    * Compiles {@code sql} over {@code a} of {@code ta} and {@code b} of {@code tb}, runs it over
    * {@link #rows} at every width, and holds each row's answer to Spark's evaluation of the same
-   * expression.
+   * expression, its {@code nullif} and {@code nullifzero} replaced, as they have no evaluation of
+   * their own.
    */
   private static void check(String sql, DecimalType ta, DecimalType tb) {
     List<Attribute> columns =
         List.of(VarkaSqlResolve.column("a", ta), VarkaSqlResolve.column("b", tb));
     CompiledVarkaPredicate compiled = compile(sql, columns);
-    Expression bound = VarkaSqlResolve.bind(VarkaSqlResolve.parse(sql, seq(columns)),
-        seq(columns));
+    Expression bound = VarkaSqlResolve.bind(
+        VarkaSqlResolve.replaced(VarkaSqlResolve.parse(sql, seq(columns))), seq(columns));
     List<Row> rows = rows(ta, tb);
     for (int lanes : WIDTHS) {
       Long[] got = answers(compiled, rows, ta, tb, lanes);
@@ -283,6 +284,29 @@ public final class VarkaDecimalPairSuite {
         "-b IS NULL", "abs(b) IS NOT NULL")) {
       String reason = decline(sql, t, new DecimalType(38, 2));
       assertTrue(reason.contains("row"), () -> sql + ": " + reason);
+    }
+  }
+
+  @Test
+  @DisplayName("the null family's null tests over wide decimals answer as Spark: the NULL of "
+      + "nullif and nullifzero and a missing ELSE are never valid, under a choice, a coalesce or "
+      + "a pick")
+  void nullFamilyNullTests() {
+    // The null constant and the missing ELSE hold no words; their validity is false, and the
+    // value's is the choice's condition picking its branches' (VARKA-578). The word edges make
+    // nullif's a = b and the CASE's a < b turn on the high word and on the low word alone.
+    var t = new DecimalType(20, 2);
+    for (DecimalType tb : List.of(t, new DecimalType(38, 2))) {
+      for (String sql : List.of("nullif(a, b) IS NULL", "nullif(b, a) IS NOT NULL",
+          "nullifzero(a) IS NULL", "nullifzero(b) IS NOT NULL",
+          "CASE WHEN a < b THEN a END IS NULL",
+          "CASE WHEN a < b THEN b WHEN a > b THEN a END IS NOT NULL",
+          "IF(a IS NULL, b, NULL) IS NULL", "nvl2(a, NULL, b) IS NOT NULL",
+          "coalesce(nullif(a, b), b) IS NULL", "coalesce(a, NULL) IS NULL",
+          "coalesce(CASE WHEN a > 0 THEN a END, nullif(b, a)) IS NOT NULL",
+          "greatest(nullif(a, b), NULL) IS NULL", "least(a, NULL, b) IS NOT NULL")) {
+        check(sql, t, tb);
+      }
     }
   }
 

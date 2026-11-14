@@ -50,7 +50,8 @@ public enum VarkaFamily {
   CALENDAR("calendar", "calendar", "day arithmetic (date_add, date_sub, datediff, unix_date,"
       + " date_from_unix_date), the calendar fields (year to weekofyear), make_date, last_day,"
       + " next_day, trunc, add_months and a date plus a year-month interval, and the same fields"
-      + " of a TIMESTAMP_NTZ through its date"),
+      + " and month shifts of a TIMESTAMP_NTZ through its date, its sum with a year-month interval"
+      + " and timestampadd of months, quarters or years"),
   /** {@code VarkaIntervalCompiler}. */
   INTERVAL("interval", "interval", "year-month interval arithmetic, negation and abs,"
       + " make_ym_interval, the year and month extractions, the multiply by an int and the"
@@ -59,9 +60,9 @@ public enum VarkaFamily {
   TIME("time", "time", "the TIME functions (hour, minute, second, time_trunc, time_diff, the"
       + " conversions to and from micros and millis, a time plus a day-time interval), the"
       + " casts to TIME and to a day-time interval, hour, minute and second of a TIMESTAMP_NTZ,"
-      + " make_timestamp_ntz(date, time) and the cast of a TIME to TIMESTAMP_NTZ, and"
-      + " TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time"
-      + " interval"),
+      + " make_timestamp_ntz(date, time) and the cast of a TIME to TIMESTAMP_NTZ,"
+      + " TIMESTAMP_NTZ minus TIMESTAMP_NTZ, a TIMESTAMP_NTZ plus or minus a day-time interval,"
+      + " and timestampadd of a TIMESTAMP_NTZ by a unit from a microsecond to a week"),
   /** {@code VarkaConditionCompiler.compileCond}, reached outside the chain. */
   PREDICATE("predicate", "predicate", "the comparisons, IN over dates and year-month intervals,"
       + " IS NULL and IS NOT NULL, AND, OR and NOT, wherever they sit: a filter's predicates, so"
@@ -71,22 +72,23 @@ public enum VarkaFamily {
       + " comparisons in their conditions are the predicate family's)"),
   /** The int arithmetic arm of {@code VarkaNodeCompiler}, the int-bigint casts among it. */
   INT_ARITHMETIC("int arithmetic", "intArithmetic", "+, -, * and unary minus over int,"
-      + " tinyint and smallint operands and abs over the narrow two, checked under ANSI,"
+      + " bigint, tinyint and smallint operands and abs over bigint and the narrow two, checked"
+      + " under ANSI,"
       + " greatest and least, the casts between int and bigint, and a tinyint or smallint"
       + " widened to int"),
   /** {@code VarkaFloatingCompiler}. */
   FLOATING_ARITHMETIC("floating arithmetic", "floatingArithmetic", "+, -, *, unary minus and abs"
       + " over double and float operands, and /, try_divide, sqrt, signum, degrees and radians"
-      + " over double ones, a zero divisor null under LEGACY and TRY and raised by the row engine"
-      + " under ANSI"),
+      + " over double ones, signum over year-month and day-time intervals too, a zero divisor"
+      + " null under LEGACY and TRY and raised by the row engine under ANSI"),
   /** {@code VarkaFloatingCastCompiler}. */
   FLOATING_CAST("floating casts", "floatingCast", "the casts to float from tinyint, smallint,"
       + " int, bigint and boolean, to double from tinyint, smallint, int, bigint and boolean, and"
       + " between float and double; bigint to either at the default emit level, and the casts from"
       + " a floating type to an integral one, are left to the row engine: a session naming a level"
       + " fuses the bigint ones (level 3 in one instruction, below it by exact AVX2 forms), as does"
-      + " one asking for the host's on an x86 CPU whose features are read and that has AVX512DQ or"
-      + " a long species of 256 bits or more"),
+      + " one asking for the host's on a CPU whose features are read: aarch64, or x86 with"
+      + " AVX512DQ or a long species of 256 bits or more"),
   /** {@code VarkaIntegralCastCompiler}, its condition arm reached from {@code compileCond}. */
   INTEGRAL_CAST("integral cast", "integralCast", "the casts among tinyint, smallint, int,"
       + " bigint and boolean that the int arithmetic family does not hold: the narrowings to"
@@ -95,7 +97,13 @@ public enum VarkaFamily {
   /** {@code VarkaRoundingCompiler}. */
   ROUNDING("rounding", "rounding", "rint over a double; floor, ceil and ceiling over bigint"
       + " and int operands; and round, bround and truncate over tinyint, smallint and int at a"
-      + " constant scale, and over bigint at a scale of zero or more");
+      + " constant scale, and over bigint at a scale of zero or more"),
+  /** {@code VarkaMathCompiler}. */
+  MATH("math", "math", "the math functions over double operands (sin, cos, tan, asin, acos,"
+      + " atan, atan2, sec, csc, cot, sinh, cosh, tanh, asinh, acosh, atanh, exp, expm1, ln,"
+      + " log, log10, log1p, log2, pow, hypot and cbrt), each bit for bit Spark's unless"
+      + " spark.sql.codegen.varka.math.ulpContract.enabled is true; none fuses yet, and each"
+      + " declines naming the row of the plan that fuses it");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";

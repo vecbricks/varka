@@ -194,4 +194,292 @@ unscoped.
 
 ## 10. Outcome
 
-Not started.
+PR 1 (`arch-list`) is built on `varka-548-lint`: the rule, its self-test cases and the five test
+lines of 0 item 6. PR 2 (`global-fault` and the floating fault's move) is separate, not started,
+and still waits on questions 2 and 3. `VarkaHostIsa.java` is untouched (B1's out of scope): the
+two loops keep their literals marked ok, and the other three call `isX86`.
+
+Results: `--selftest` `ok (60 cases)` after the review's added cases; ruff `1 file already
+formatted`, `All checks passed!`; unscoped `arch-list` over all 576 Varka sources `0`, the
+broader form of B4 step 3 that does not select on the file name, and over the canary probes `0`
+(the only unscoped finding is the known `import-root` at
+`VarkaMaskOfWordSuite.java:29`); `catalyst/Test/compile` `[success]` in 110 s;
+`dev/varka_matrix.sh` over the five suites exit 0, 50 succeeded, 0 failed, 14 canceled (all
+`VarkaAssemblySuite`'s hsdis lookups); the three generated files diff clean against
+`origin/master`.
+
+Planted faults, reverted by hand: `>= 2` as `>= 3` printed `varka_lint selftest: arch-list True:
+m/src/test/java/VarkaZSuite.java: expected True, got False` and exited 1; the old
+`arch == "amd64" || arch == "x86_64"` in `VarkaShapeCacheSuite` printed one `arch-list` line at
+`:317`, and the unscoped run was `0` after the revert.
+
+Predictions: P1 holds. P2: five cases for PR 1, though not the plan's five: `Defaults` is
+`global-fault`'s and so PR 2's, and `arch-list: ok` came in its place. P3: the push check counts
+92 hand-written lines against the plan's 150 for PR 1. Went differently from the sheet: both
+pull requests it expected open (#1461, #1478) had merged, so the branch was cut from
+`fb661840a3e`; the seven grep lines are the same, `VarkaTwoLaneConditionSuite`'s two at `:74` and
+`:89`, and the self-test still held 49 cases before the new ones. The branch is `varka-548-lint`
+in `/home/max/proj/varka-548-lint`, not the sheet's `varka-548`, so BUILD_SHEETS.md section 1
+item 2's exact-name check prints nothing; PR 2 cuts its branch from master after this one merges,
+where the rule already is.
+
+**The review.** One `/code-review high` pass found fourteen points. Fixed: the rule counted the
+os.arch names inside block comments and text blocks, where `without_comment` leaves a Javadoc's
+`* ...` lines as they are, so a comment or a message naming two architectures was reported as a
+second list; the rule now skips comment lines and a text block's delimiters and content, which
+the new self-test cases pin. The rule now also lints the `dev/varka_canary/` probes, as
+`nan-compare` does. The finding's advice is "for an x86 check call `VarkaHostIsa.isX86(arch)`,
+and mark a line that pins the names", since `isX86` answers false on aarch64. Six self-test
+cases were added - a Varka `.scala` path, the `aarch64` alternative, one name twice, a Javadoc
+line, a text block, and a canary probe - and each case's failure message now quotes its fixture.
+Left, with the reason: the `VarkaHostIsa` prefix exemption is the plan's question 1 decision; the
+rule's own copy of the three names is the sheet's design (distinct literals count, the docstring
+is the only documentation); two identical pinned lines in `VarkaTwoLaneConditionSuite` are B1's;
+matching the marker on the raw line lets a string literal contain it, which the marker's own
+comment form keeps harmless; the file-scan preamble copies `guava`'s shape, as the other rules
+do; and the per-line `without_comment` call costs about 15 ms a commit, measured by the review.
+
+## Build sheet (11 November 2026)
+
+For a coding agent building **the first pull request only** (`arch-list`, section 5 item 1),
+stopping at a local commit. Follow `sql/varka/plans/m8/BUILD_SHEETS.md` for what every sheet
+shares: the worktree, the heavy lock, the environment, the regeneration, the commit format, the
+linters and the rule that the agent never pushes. Where this sheet and that file disagree, stop
+and report. Everything below was read at `c62f492fc89` (origin/master on 11 November 2026).
+
+Branch and worktree: `varka-548` in `../varka-548`, made as BUILD_SHEETS.md section 1 item 2
+says. Commit subject: `[VARKA-548] Lint a second list of CPU architectures`.
+
+**Stale facts in sections 0 to 9 of this plan, corrected here.** The plan was read at
+`9eefe2a2d13`; on `c62f492fc89` `VarkaAssemblySuite.scala`'s list is at line 131, not 133; the Build runs
+`dev/varka_lint.py --selftest` at `build_and_test.yml` line 1886, not 1865. The six test hits
+of 0 item 6 are unchanged. Use the symbols and grep strings below, never the plan's line
+numbers.
+
+### B0. Premise re-check
+
+Run each command from the worktree root. Any output that differs from the expected one: stop
+and report (B7), do not improvise.
+
+1. Open pull requests that touch this sheet's files:
+   `gh pr view 1461 --repo vecbricks/varka --json state --jq .state` and the same for `1478`.
+   Expected on 11 November: `OPEN` for both. #1461 adds a constant `AARCH64` right below the
+   `X86` line of `VarkaHostIsa.java`; #1478 adds a test to `VarkaTwoLaneConditionSuite.java`
+   away from `hostTest`. If either prints `MERGED`, run `git fetch -q origin master` and cut the
+   branch from the new master, then repeat checks 2 and 3: they must still pass. If either is
+   still `OPEN` when you commit, rebase if #1461 or #1478 merged first, which here means: merge
+   master into the branch and continue as BUILD_SHEETS.md section 8 says.
+2. `grep -c 'private static final List<String> X86 = List.of("amd64", "x86_64");' sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaHostIsa.java`
+   prints `1`; `grep -c 'public static boolean isX86(String arch)'` on the same file prints `1`.
+3. `git grep -n -E '"(amd64|x86_64|aarch64)".*"(amd64|x86_64|aarch64)"' -- '*Varka*.java' '*Varka*.scala'`
+   prints exactly these seven lines (path prefix
+   `sql/catalyst/src/{main,test}/.../codegen/varka/`):
+   - `VarkaHostIsa.java:60` (`private static final List<String> X86 = ...`), exempt
+   - `VarkaHostIsaSuite.java:53` (`assertTrue(VarkaHostIsa.isX86("amd64") && ...`), exempt
+   - `VarkaAvx2SelectSuite.java:137` (`if (arch.equals("amd64") || arch.equals("x86_64")) {`)
+   - `VarkaTwoLaneConditionSuite.java:69` and `:84` (`for (String arch : List.of("amd64", "x86_64")) {`)
+   - `VarkaAssemblySuite.scala:131` (`private val supportedArches = Set("amd64", "x86_64")`)
+   - `VarkaShapeCacheSuite.scala:317` (`val x86 = arch == "amd64" || arch == "x86_64"`)
+4. `grep -n 'supportedArches' sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaAssemblySuite.scala`
+   prints two lines: the `private val` at 131 and `assume(supportedArches.contains(arch),` at 503
+   inside `private def requireSupportedArch(): Unit`.
+5. `python3 dev/varka_lint.py --selftest` prints `varka_lint selftest: ok (49 cases)`.
+6. `grep -n -E '^RULES = \{|"nan-compare": rule_nan_compare,|^def without_comment|^def is_varka' dev/varka_lint.py`
+   prints four lines (the `RULES` dict, its last entry, and the two helpers the rule reuses).
+7. `git branch --list 'varka-548*'` prints nothing, and this sheet is in the new worktree's
+   `VARKA-548.md` (it reached master with its plan pull request; cut the worktree from an
+   origin/master that holds it).
+
+### B1. Scope
+
+**`dev/varka_lint.py`** (the only Python file):
+
+- In the module docstring, after the three-line `nan-compare` entry (it ends `(VARKA-556)`), add:
+
+  ```
+    arch-list        in Varka code, a line naming two or more of the os.arch literals "amd64",
+                     "x86_64" and "aarch64" outside VarkaHostIsa and its suite: a second list of
+                     architectures drifts from the compiler's host fact; call VarkaHostIsa.isX86,
+                     or mark a line that pins the names on purpose `arch-list: ok` (VARKA-548)
+  ```
+
+- Directly above `RULES = {`, add the rule. It is the `guava` rule's file filter plus a line test
+  on the comment-free line (`without_comment`), counting **distinct** literals:
+
+  ```python
+  ARCH_LITERAL = re.compile(r'"(amd64|x86_64|aarch64)"')
+
+
+  def rule_arch_list(ch):
+      for path in ch.files:
+          if not re.search(r"\.(java|scala)$", path) or not is_varka(path):
+              continue
+          # VarkaHostIsa holds the list, and its suite pins the names HotSpot's os.arch uses
+          # (m8/VARKA-548.md 8, question 1).
+          if os.path.basename(path).startswith("VarkaHostIsa"):
+              continue
+          for n, line in enumerate(read(path).splitlines(), 1):
+              # A line that pins the os.arch names on purpose says so, as nan-compare's do.
+              if "arch-list: ok" in line:
+                  continue
+              if len(set(ARCH_LITERAL.findall(without_comment(line)))) >= 2 and ch.wrote(path, n):
+                  yield (
+                      f"{path}:{n}: arch-list: a second list of os.arch names drifts from the "
+                      "compiler's host fact; call VarkaHostIsa.isX86(arch), or mark a line that "
+                      "pins the names `arch-list: ok` (m8/VARKA-548.md)"
+                  )
+  ```
+
+- In `RULES`, after `"nan-compare": rule_nan_compare,`, add `"arch-list": rule_arch_list,`.
+- In `selftest()`, directly after the `nan-compare` loop's `case(...)` line and before
+  `if fails == 0:`, add this loop at eight spaces of indentation (inside the `with` block, level
+  with the `nan-compare` loop's `for`) (the five cases are B2's tests 1 to 5):
+
+  ```python
+          for path, text, flagged in (
+              ("m/src/test/java/VarkaZSuite.java", 'for (String a : List.of("amd64", "x86_64")) {\n', True),
+              ("m/src/test/java/VarkaZSuite.java", 'var r = new Reading("amd64", "", null, 256);\n', False),
+              ("m/src/test/java/VarkaZSuite.java", 'List.of("amd64", "x86_64") // arch-list: ok\n', False),
+              ("m/src/test/java/VarkaHostIsaSuite.java", 'ok = isX86("amd64") && isX86("x86_64");\n', False),
+              ("m/src/main/scala/Native.scala", 'case "amd64" | "x86_64" => "x86_64"\n', False),
+          ):
+              case(f"arch-list {flagged}: {path}", {path: lic + text}, "arch-list", flagged)
+  ```
+
+  Then run `ruff format dev/varka_lint.py`, which splits the three long tuples over lines; keep
+  its output as it is.
+
+**Java and Scala** (all under `sql/catalyst/src/{main,test}/.../expressions/codegen/varka/`):
+
+- `VarkaTwoLaneConditionSuite.java`, method `hostTest`: both
+  `for (String arch : List.of("amd64", "x86_64")) {` keep their literals (the test pins the two
+  names `os.arch` gives x86; a loop over `VarkaHostIsa`'s own list would test it against itself,
+  question 1's reason) and gain the trailing comment `// arch-list: ok, the os.arch names pinned`.
+- `VarkaAvx2SelectSuite.java`, method `runsUnderAvx2`:
+  `if (arch.equals("amd64") || arch.equals("x86_64")) {` becomes
+  `if (VarkaHostIsa.isX86(arch)) {`. The `arch` local and its `toLowerCase(Locale.ROOT)` stay.
+- `VarkaAssemblySuite.scala`: delete the `private val supportedArches = ...` line, the scaladoc
+  line above it (`/** x86-64 is the only table filled in; see ... */`) and the blank line after
+  it; put that same scaladoc line directly above `private def requireSupportedArch(): Unit = {`,
+  and in that method replace `assume(supportedArches.contains(arch),` with
+  `assume(VarkaHostIsa.isX86(arch),`. The message argument on the next line stays.
+- `VarkaShapeCacheSuite.scala`, the test "the AVX level is read from the JVM rather than silently
+  defaulting to unknown": `val x86 = arch == "amd64" || arch == "x86_64"` becomes
+  `val x86 = VarkaHostIsa.isX86(arch)`.
+
+**The plan's record** (in this commit): replace the text of section 10, `Not started.`, with
+`PR 1 (arch-list) built on varka-548: the rule, its five self-test cases and the five
+test lines of 0 item 6; PR 2 (global-fault and the fault move) not started.`, followed by the
+commands run and their results, as BUILD_SHEETS.md section 7 asks for the Outcome, with the
+predictions of section 4 scored: P1 by B4 step 7; P2 as "five cases for PR 1, though not the
+plan's five: `Defaults` is `global-fault`'s and so PR 2's, and `arch-list: ok` came in its place"; P3 by the push check's count
+against 150; and in `PLAN.md`
+row 548 replace the opening `**Planned** (` with
+`**Started** (PR 1, the arch-list rule, built on varka-548; left: PR 2, global-fault and the floating fault's move; `
+(the rest of the row unchanged).
+
+**OUT OF SCOPE** (do not touch, even if a check suggests it):
+
+- The `global-fault` rule, `VarkaFloatingFault`, `VarkaEmitOptions`, `DeclineSink` and every
+  other part of PR 2 (questions 2 and 3).
+- `VarkaHostIsaSuite.java` (exempt by question 1) and `VarkaHostIsa.java` (untouched, so #1461
+  cannot conflict with this change).
+- Single-literal lines (`new VarkaHostIsa.Reading("amd64", ...)` in sql/core suites), which pass.
+- Non-Varka files with two literals on a line (`NativeDataSourcePackage.scala`); the rule's `is_varka` filter leaves them out on purpose.
+- The shell scripts' `uname -m` mappings (section 7).
+- The rule list in `sql/varka/AGENTS.md`: it does not list `nan-compare` or `ci-gates` either;
+  the docstring is the rule's documentation.
+
+### B2. Tests
+
+Self-test cases (in `selftest()`, run by the Build's "house rules" step); the oracle is the
+literal text of each fixture, which the rule never wrote:
+
+1. `arch-list True: m/src/test/java/VarkaZSuite.java`, a `List.of("amd64", "x86_64")` loop:
+   reported.
+2. `arch-list False: m/src/test/java/VarkaZSuite.java`, one literal in a constructed reading:
+   not reported.
+3. `arch-list False: m/src/test/java/VarkaHostIsaSuite.java`, two literals in the exempt suite:
+   not reported.
+4. `arch-list False: m/src/main/scala/Native.scala`, two literals in a file that is not Varka's:
+   not reported.
+5. `arch-list False: m/src/test/java/VarkaZSuite.java`, two literals on a line marked
+   `// arch-list: ok`: not reported.
+
+The unscoped run over every Varka source (B4 step 3) is the check that master passes its own
+rule; its oracle is B0 check 3's grep, which does not use the lint.
+
+The four edited suites keep their assertions, and `VarkaHostIsaSuite` (unchanged) runs beside
+them; together they prove the edits changed no behaviour:
+`VarkaTwoLaneConditionSuite` ("the host test is x86 at two long lanes or fewer, and nowhere
+else"), `VarkaAvx2SelectSuite`, `VarkaHostIsaSuite`, `VarkaAssemblySuite`, `VarkaShapeCacheSuite`.
+
+### B3. Planted fault
+
+1. In `rule_arch_list` change `>= 2` to `>= 3`. Run `python3 dev/varka_lint.py --selftest`.
+   Expected: the line
+   `varka_lint selftest: arch-list True: m/src/test/java/VarkaZSuite.java: expected True, got False`
+   and a non-zero exit. Revert.
+2. In `VarkaShapeCacheSuite.scala` put back `val x86 = arch == "amd64" || arch == "x86_64"`. Run
+   B4 step 3. Expected: one `arch-list` line naming `VarkaShapeCacheSuite.scala:317`. Revert, run
+   B4 step 3 again: no `arch-list` line.
+
+### B4. Commands, in order
+
+1. `python3 dev/varka_lint.py --selftest` -> `varka_lint selftest: ok (54 cases)`.
+2. `ruff format --check dev/varka_lint.py && ruff check dev/varka_lint.py` -> `1 file already
+   formatted` and `All checks passed!`.
+3. `git ls-files -z '*.java' '*.scala' | grep -z Varka | xargs -0 python3 dev/varka_lint.py | grep -c arch-list`
+   -> `0` (the pipeline's exit status is then `1`, `grep -c`'s for no match: expected). (The
+   unscoped run also prints the known `import-root` finding at
+   `VarkaMaskOfWordSuite.java:29` and exits non-zero because of it; that is expected, only the
+   `arch-list` count matters.)
+4. `flock "$VARKA_HEAVY_LOCK" build/sbt catalyst/Test/compile` -> `[success]`.
+5. `flock "$VARKA_HEAVY_LOCK" dev/varka_matrix.sh --defaults --out target/varka-548 -j 2 --module catalyst --suites VarkaTwoLaneConditionSuite,VarkaAvx2SelectSuite,VarkaHostIsaSuite,VarkaAssemblySuite,VarkaShapeCacheSuite`
+   -> exit status `0`. `VarkaAssemblySuite`'s tests may be reported as canceled: they `assume`
+   an x86 host and an hsdis disassembler (`requireSupportedArch` and the disassembler lookup),
+   which is not the sanitizer case of BUILD_SHEETS.md section 3, so a cancel there is expected
+   and is not a failed step. Any failed test is a stop.
+6. B3, both steps. Revert each by undoing its one edit by hand (never `git checkout` a file,
+   which would drop B1's work).
+7. `git diff --exit-code origin/master -- sql/varka/emitted_bytes.json sql/varka/coverage.json sql/varka/width_audit.json`
+   exits `0` (prediction P1).
+8. BUILD_SHEETS.md section 6, items 1 to 6 in its order (Error Prone and `dev/lint-java` for
+   the test Java, `dev/lint-scala` for the Scala, ruff for the Python). Its last item,
+   `python3 dev/varka_push_check.py`, must exit `0` with no R2 finding; every suite it chooses
+   must pass (no Varka main file changes, so its rule R3 is expected to choose none). Run it after the plan record of B1 is written, so it checks the final tree; then
+   the commit, as BUILD_SHEETS.md section 7 says.
+
+### B5. Done when
+
+`python3 dev/varka_lint.py --selftest` prints `ok (54 cases)`, B4 step 3 prints `0`, B4 step 5
+and the push check exit `0`, and `git log -1 --format=%s` is the subject above.
+
+### B6. Size
+
+About 65 counted lines: the lint about 45 after `ruff format`, the five source edits about 10,
+the plan record (`PLAN.md` row and section 10) about 10. Far under the 1000-line cap.
+
+### B7. Stop rules
+
+Stop and report, without guessing, when:
+
+- any B0 check prints something other than its expected output;
+- a sixth non-exempt `arch-list` line appears (a new file or a merged PR wrote one);
+- the self-test count is not `54`, or any existing self-test case fails;
+- a suite in B4 step 5 or the push check fails;
+- anything asks you to touch an OUT OF SCOPE item.
+
+### B8. Decisions already taken
+
+- **Question 1 = (a)**: `VarkaHostIsaSuite` counts as `VarkaHostIsa`, so the rule skips files
+  whose basename starts with `VarkaHostIsa`. The plan's recommendation, taken by the lead on 11
+  November 2026.
+- **Two pull requests, `arch-list` first** (section 5), so that row 551 builds on the shared list.
+- Taken in this sheet: distinct literals count; `.java` and `.scala` Varka files only, comments
+  removed first; `supportedArches` goes; the docstring is the only documentation.
+
+### B9. What the owner must do afterwards
+
+Nothing beyond the lead's usual review and push. No benchmark, no dispatch. PR 2 (the
+`global-fault` rule and the fault move) waits for questions 2 and 3.

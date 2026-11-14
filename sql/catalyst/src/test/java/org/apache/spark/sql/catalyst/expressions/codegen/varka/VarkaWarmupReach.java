@@ -66,8 +66,6 @@ import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
-import org.apache.spark.sql.catalyst.expressions.In;
-import org.apache.spark.sql.catalyst.expressions.InSet;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser$;
@@ -349,11 +347,7 @@ final class VarkaWarmupReach {
       for (JsonNode c : row.path("catalyst")) {
         inSet |= c.asText().equals("InSet");
       }
-      if (inSet && expr instanceof In in) {
-        var values = new HashSet<Object>();
-        in.list().foreach(l -> values.add(l.eval(null)));
-        expr = new InSet(in.value(), CollectionConverters.asScala(values).toSet());
-      }
+      expr = VarkaSqlResolve.inSetAsClaimed(expr, inSet);
       var kernels = new ArrayList<CompiledVarkaProjection>();
       if (row.get("form").asText().equals("predicate")) {
         VarkaExpressionCompiler.compilePredicate(expr, cols, options,

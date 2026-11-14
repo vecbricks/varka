@@ -63,25 +63,29 @@ import org.apache.spark.sql.internal.SQLConf;
  *        emit option - it changes which entries the compiler admits, never a kernel's bytes - so
  *        it is not laid over the options; it travels here because the compile at planning and the
  *        evaluator's compile in a task must decline alike, and every caller of the compiler passes
- *        it beside {@code VarkaColumnarToRowExec.emitOptions}, a predicate's compile inside
- *        {@link #admission()}.
+ *        it inside {@link #admission()} beside {@code VarkaColumnarToRowExec.emitOptions}.
  * @param declineTwoLaneConditions whether a filter's condition in a kernel driven at a 64-bit
  *        lane, as one over a column of any type read on the long or the {@code DOUBLE} lane
- *        is, is left to the row engine, as an x86 host whose 64-bit species have two lanes or
+ *        is, and a projection's {@code BOOLEAN} output over a decimal column (VARKA-596), are
+ *        left to the row engine, as an x86 host whose 64-bit species have two lanes or
  *        fewer needs
  *        ({@code spark.sql.codegen.varka.declineTwoLaneConditions}, VARKA-503; unset, the host's
  *        answer, {@link VarkaKernelPlan#twoLaneMasksFallBack(VarkaHostIsa.Reading)} of the same
  *        reading {@link #USE_AVX_FROM_HOST} resolves from, so a planted host moves both). Not an
- *        emit option, for the reason the families off are not: it decides which conjuncts the
- *        predicate compiler admits, never a kernel's bytes, and it travels with the plan so that
- *        the compile at planning and the filter evaluator's on an executor decline alike.
+ *        emit option, for the reason the families off are not: it decides which conjuncts and
+ *        entries the compiler admits, never a kernel's bytes, and it travels with the plan so
+ *        that the compile at planning and the evaluator's on an executor decline alike.
+ * @param mathUlpContract whether a math function may take the vector math library within its
+ *        contracted bound ({@code spark.sql.codegen.varka.math.ulpContract.enabled},
+ *        {@code VARKA-345.md} 2.6), null to leave the base options' setting, which is off. An
+ *        emit option, since it changes the form a math node takes and so its kernel's bytes.
  */
 public record VarkaSessionEmit(
     int useAVX, @Nullable Boolean exactRefusalStatus, Set<VarkaFamily> familiesOff,
-    boolean declineTwoLaneConditions)
+    boolean declineTwoLaneConditions, @Nullable Boolean mathUlpContract)
     implements Serializable {
 
-  private static final long serialVersionUID = 3L;
+  private static final long serialVersionUID = 4L;
 
   private static final SparkLogger LOG = SparkLoggerFactory.getLogger(VarkaSessionEmit.class);
 
@@ -89,8 +93,9 @@ public record VarkaSessionEmit(
    * The conf's value asking for the level to be resolved from the driver's JVM
    * ({@link VarkaHostIsa}): {@link #FALLBACK_LEVEL} where its 64-bit floating conversions fall
    * back to Java and its long species is at least {@link #MAGIC_MIN_LONG_BITS} wide,
-   * {@link VarkaEmitOptions#AVX512_LEVEL} on an x86 host whose feature list holds AVX512DQ, the
-   * base options' level otherwise.
+   * {@link VarkaEmitOptions#AVX512_LEVEL} on a host whose 64-bit conversions are instructions,
+   * an x86 one whose feature list holds AVX512DQ or an aarch64 one, the base options' level
+   * otherwise.
    */
   public static final int USE_AVX_FROM_HOST = -2;
 
@@ -139,9 +144,15 @@ public record VarkaSessionEmit(
     this(useAVX, exactRefusalStatus, Set.of(), false);
   }
 
+  /** The settings with the math family's opt-in mode left to the base options. */
+  public VarkaSessionEmit(int useAVX, @Nullable Boolean exactRefusalStatus,
+      Set<VarkaFamily> familiesOff, boolean declineTwoLaneConditions) {
+    this(useAVX, exactRefusalStatus, familiesOff, declineTwoLaneConditions, null);
+  }
+
   /**
-   * The settings that decide which conjuncts a predicate admits, as every predicate compile of
-   * this session's plan - at planning, in EXPLAIN and in a task - passes them.
+   * The settings that decide which conjuncts a predicate and which entries a projection admit, as
+   * every compile of this session's plan - at planning, in EXPLAIN and in a task - passes them.
    */
   public VarkaAdmission admission() {
     return new VarkaAdmission(familiesOff, declineTwoLaneConditions);
@@ -184,32 +195,43 @@ public record VarkaSessionEmit(
       }
     }
     Option<Object> twoLane = conf.varkaDeclineTwoLaneConditions();
+    Option<Object> contract = conf.varkaMathUlpContract();
     int level = conf.varkaEmitUseAVX();
     return new VarkaSessionEmit(level == USE_AVX_FROM_HOST ? resolve(host) : level,
         exact.isDefined() ? (Boolean) exact.get() : null, off,
-        twoLane.isDefined() ? (Boolean) twoLane.get() : twoLaneMasksFallBack.getAsBoolean());
+        twoLane.isDefined() ? (Boolean) twoLane.get() : twoLaneMasksFallBack.getAsBoolean(),
+        contract.isDefined() ? (Boolean) contract.get() : null);
   }
 
   /**
    * The level a session that asks for the host's gets: {@link #FALLBACK_LEVEL} where the host's
    * conversions fall back and its preferred long species is at least
-   * {@link #MAGIC_MIN_LONG_BITS} wide, {@link VarkaEmitOptions#AVX512_LEVEL} on an x86 host
-   * whose feature list was read and holds AVX512DQ, and {@link VarkaEmitOptions#USE_AVX_UNKNOWN}
-   * otherwise: a narrower species, or one whose width could not be read, keeps the conversion
-   * form.
+   * {@link #MAGIC_MIN_LONG_BITS} wide, {@link VarkaEmitOptions#AVX512_LEVEL} on a host whose
+   * {@code L2D} and {@code L2F} are vector instructions
+   * ({@link VarkaHostIsa.Reading#conversionsAreInstructions()}: an x86 host whose feature list
+   * was read and holds AVX512DQ, and an aarch64 host whose list was read), and
+   * {@link VarkaEmitOptions#USE_AVX_UNKNOWN} otherwise: a narrower species, or one whose width
+   * could not be read, keeps the conversion form.
    *
-   * <p>The DQ host resolves to a level rather than to the emitter's default because the default
+   * <p>Such a host resolves to a level rather than to the emitter's default because the default
    * level is unknown, at which the kernel plan declines a {@code BIGINT} conversion to
    * {@code FLOAT} or {@code DOUBLE} ({@link VarkaEmitOptions#levelUnknown()}); level 3
-   * admits it, and lowers every other node as the unknown level does. Its key renders the level,
-   * so such a session caches its classes apart from the default's, with the same bytes.
+   * admits it, lowering both as one {@code convertShape}, and lowers every other node as the
+   * unknown level does, since the emitter reads the level only through
+   * {@link VarkaEmitOptions#convertsFallBack()}, which is false at both. Its key renders the
+   * level, so such a session caches its classes apart from the default's, with the same bytes.
+   * On aarch64 the level is not a {@code -XX:UseAVX} value, which that JVM has no flag for: it
+   * names the one fact the emitter asks of it, that the conversions are instructions there.
+   * Like the DQ host's, it holds at any species width, a one-lane species included, where no
+   * long vector operation is an instruction and the cast is no slower than the rest.
    *
-   * <p>A host that is not x86 stays unknown: aarch64 has every conversion, but no level names
-   * that, so a {@code BIGINT} cast to a floating type declines there unless the session names
-   * any level. A feature list that could not be read leaves the emitter's default too, which is
-   * safe: the division keeps the conversion form, and the plan declines the conversions. On
-   * x86, the one architecture where the answer could have changed the level, that says so once
-   * in the driver's log, since nothing else would show that the host was never read.
+   * <p>Any other architecture stays unknown, and so a {@code BIGINT} cast to a floating type
+   * declines there unless the session names a level. A feature list that could not be read
+   * leaves the emitter's default too, which is safe: the division keeps the conversion form,
+   * and the plan declines the conversions. On aarch64 the read is the one sign that the JVM is
+   * HotSpot with its vector intrinsics, which the level vouches for. On x86, where the list
+   * decides between levels, an unread one says so once in the driver's log, since nothing else
+   * would show that the host was never read.
    */
   static int resolve(VarkaHostIsa.Reading host) {
     if (!host.readable() && host.x86() && UNREADABLE_LOGGED.compareAndSet(false, true)) {
@@ -226,7 +248,7 @@ public record VarkaSessionEmit(
       return host.longBits() >= MAGIC_MIN_LONG_BITS
           ? FALLBACK_LEVEL : VarkaEmitOptions.USE_AVX_UNKNOWN;
     }
-    return host.x86() && host.readable() && !host.features().isEmpty()
+    return host.conversionsAreInstructions()
         ? VarkaEmitOptions.AVX512_LEVEL : VarkaEmitOptions.USE_AVX_UNKNOWN;
   }
 
@@ -245,7 +267,8 @@ public record VarkaSessionEmit(
 
   /** {@code base} with the session's settings laid over it, or {@code base} when none is set. */
   public VarkaEmitOptions apply(VarkaEmitOptions base) {
-    if (useAVX == VarkaEmitOptions.USE_AVX_UNKNOWN && exactRefusalStatus == null) {
+    if (useAVX == VarkaEmitOptions.USE_AVX_UNKNOWN && exactRefusalStatus == null
+        && mathUlpContract == null) {
       return base;
     }
     var options = base.toBuilder();
@@ -254,6 +277,9 @@ public record VarkaSessionEmit(
     }
     if (exactRefusalStatus != null) {
       options.exactRefusalStatus(exactRefusalStatus);
+    }
+    if (mathUlpContract != null) {
+      options.mathUlpContract(mathUlpContract);
     }
     return options.build();
   }

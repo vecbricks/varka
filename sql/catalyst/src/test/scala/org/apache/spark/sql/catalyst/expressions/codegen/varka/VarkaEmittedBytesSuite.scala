@@ -29,7 +29,7 @@ import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference,
-  EvalMode, Expression, In, InSet, Multiply, NumericEvalContext, Subtract}
+  EvalMode, Expression, Multiply, NumericEvalContext, Subtract}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIrGrammar._
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
@@ -211,25 +211,6 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       numLiterals: Int)
 
   /**
-   * The row as the optimizer would hand it to the compiler. There is no optimizer here - the SQL
-   * is parsed and resolved and that is all - so a row the table records as arriving as an `InSet`
-   * would otherwise be pinned through the compiler's `In` arm, which is not the arm production
-   * takes. `OptimizeIn`'s rewrite is the only such difference the table has; the row's own
-   * `catalyst` field says which rows it applies to. Each element is folded first, as
-   * `ConstantFolding` folds the cast coercion puts over a decimal literal of another type.
-   */
-  private def asCatalystClaims(expr: Expression, catalyst: Set[String]): Expression = expr match {
-    case In(value, list) if catalyst.contains("InSet") && list.forall(_.foldable) =>
-      InSet(value, list.map(_.eval()).toSet)
-    case other if catalyst.contains("InSet") =>
-      // The rewrite is the only thing standing between this row and the wrong compiler arm, so
-      // a row that claims InSet and does not get one fails rather than being pinned quietly.
-      fail(s"a row the table records as an InSet resolved to ${other.getClass.getSimpleName}: " +
-        "the executable spelling and the catalyst field disagree")
-    case other => other
-  }
-
-  /**
    * Every row of the table as IR, through the compiler: a projection row's compiled outputs, a
    * predicate row's fused condition root.
    *
@@ -251,13 +232,13 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       val form = e.get("form").asText()
       val catalyst = Option(e.get("catalyst"))
         .map(_.elements().asScala.map(_.asText()).toSet).getOrElse(Set.empty[String])
-      // The parse guard covers the parse and the resolve, and nothing else: `asCatalystClaims`
+      // The parse guard covers the parse and the resolve, and nothing else: `inSetAsClaimed`
       // fails the suite on purpose when a row's spelling and its catalyst field disagree, and a
       // catch around it would turn that into a silent skip.
       val parsed: Option[Expression] =
         try Some(VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(executable), columns))
         catch { case _: Exception => None }
-      val resolved = parsed.map(asCatalystClaims(_, catalyst))
+      val resolved = parsed.map(VarkaSqlResolve.inSetAsClaimed(_, catalyst.contains("InSet")))
       val compiled = resolved.flatMap { expr =>
         if (form == "predicate") {
           VarkaExpressionCompiler.compilePredicate(expr, columns, VarkaEmitOptions.DEFAULTS,
@@ -453,11 +434,24 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
    * holds per body can still move their bytes, and once did unseen: VARKA-83's first scratch rule
    * moved 23 of 64 multi-group guarded cases in exactly these two (`VARKA-83.md` 9.1). The int
    * fuzz shapes below catch that rule in both arms at both widths.
+   *
+   * And the math family's opt-in mode, `mathUlpContract=true`, which a session reaches through
+   * `spark.sql.codegen.varka.math.ulpContract.enabled` (VARKA-345.md 3.1). No node reads it yet,
+   * so its digest is the defaults', and today the pin holds only that: the flag leaves every
+   * emission alone. It covers a contracted form once the row that fuses a math function adds
+   * coverage rows for it; the fuzz shapes hold no math node.
    */
   private def pinnedArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] =
     Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 0, 1, 2, 3).map { level =>
       s"useAVX=$level" -> ((o: VarkaEmitOptions) => o.withUseAVX(level))
-    } ++ subjectArms ++ laneArms ++ referenceArms
+    } ++ subjectArms ++ laneArms ++ referenceArms ++ contractArms
+
+  /** The math family's opt-in arm, by its table name, as the lane arms are pinned. */
+  private def contractArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] = {
+    val arm = optionArms.find(_.name == "mathUlpContract=true").getOrElse(
+      fail("the options table has no arm mathUlpContract=true to pin"))
+    Seq(arm.name -> arm.arm)
+  }
 
   /**
    * The narrow-lane option's two arms, both pinned (VARKA-329): the default arm is what the
@@ -584,13 +578,15 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         "(lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one). A difference is a " +
         "change in what an emitted method does. `option_arms` covers emissions beyond the " +
         "defaults: one digest over every coverage row and int, long and mixed shape at each " +
-        "width per value of spark.sql.codegen.varka.emit.useAVX, the only emit option a " +
+        "width per value of spark.sql.codegen.varka.emit.useAVX, an emit option a " +
         "configuration reaches, and per value of each option the defaults never reach, over " +
         "the options under which it acts (validityOrFirst); and per reference form whose " +
         "frames span the kernel (groupLocalSlots=false, methodByteBudget=0), which no session " +
         "selects but where a per-body slot rule can move bytes unseen; and per value of the " +
         "narrow-lane option (narrowLanes), which picks the lane a tree whose every value is " +
-        "narrow is emitted at (VARKA-329). The rest of VarkaEmitOptions is test-only."),
+        "narrow is emitted at (VARKA-329); and the math family's opt-in mode " +
+        "(mathUlpContract=true), which spark.sql.codegen.varka.math.ulpContract.enabled " +
+        "reaches. The rest of VarkaEmitOptions is test-only."),
       "coverage_rows_skipped" -> skipped.asJava,
       "lanes" -> ordered(perWidth: _*),
       "option_arms" -> armHashes)

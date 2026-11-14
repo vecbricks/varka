@@ -42,6 +42,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSameAnswer.L
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSameAnswerContractSuite;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSameAnswerContractSuite.Pair;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.execution.varka.VarkaKernelRunner;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.Decimal;
@@ -128,7 +129,7 @@ public final class VarkaSameAnswerCoreContractSuite {
       }
       try {
         VarkaKernelRunner.compareBodies("contract", 1, true, new long[] {0L}, new int[] {0},
-            new int[] {VarkaKernelRunner.outputWidth(served)},
+            new int[] {VarkaTypes.outputWidth(p.type())},
             new boolean[] {VarkaKernelRunner.floatingOutput(served)},
             new VarkaKernelRunner.BodyOutputs(new long[] {served.getDataBufferAddress()},
                 new long[] {served.getValidityBufferAddress()}),

@@ -168,7 +168,7 @@ public final class VarkaDomains {
    * end of the day; the narrow lanes' bounds. Then rows null in those columns, one column group at
    * a time and all at once, which the {@code IS NULL} partitions select. The other columns hold
    * the mixed fixture's first row. A bigint sits at the narrow types' bounds and one past each, for
-   * the integral casts' guards.
+   * the integral casts' guards, and at the long's own ends for its arithmetic.
    */
   static String edgesSql() {
     long dayLimit = VarkaChrono.INTERVAL_DAY_LIMIT_DAYS;
@@ -186,6 +186,13 @@ public final class VarkaDomains {
     var longs = new ArrayList<Long>(around(Byte.MIN_VALUE, Byte.MAX_VALUE));
     longs.addAll(around(Short.MIN_VALUE, Short.MAX_VALUE));
     longs.forEach(l -> rows.add(row("l", Long.toString(l))));
+    // The long's ends and one in from each, for the checked bigint arithmetic (VARKA-104): with
+    // the fixture's l2 of 1, `l + l2` and `l + 1` overflow at Long.MAX_VALUE, and `l - l2`, `-l`
+    // and `abs(l)` at Long.MIN_VALUE.
+    for (long l : List.of(Long.MIN_VALUE, Long.MIN_VALUE + 1, Long.MAX_VALUE - 1,
+        Long.MAX_VALUE)) {
+      rows.add(row("l", Long.toString(l)));
+    }
     for (long i : List.of(Integer.MAX_VALUE - 9999L, Integer.MAX_VALUE - 9998L)) {
       rows.add(row("d", "DATE'9999-12-31'", "i", Long.toString(i)));
     }
@@ -203,6 +210,13 @@ public final class VarkaDomains {
     rows.add(row("dt", "INTERVAL '106751991 04:00:54.775806' DAY TO SECOND", "dt2", micro));
     rows.add(row("dt", "INTERVAL '-106751991 04:00:54.775807' DAY TO SECOND", "dt2", micro));
     rows.add(row("dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND", "dt2", micro));
+    // The last microsecond of the day before the last convertible one, about four hours below
+    // the long's top, beside the int's and the long's top: `timestampadd` past the long.
+    for (String[] quantity : List.of(new String[] {"i", Integer.toString(Integer.MAX_VALUE)},
+        new String[] {"l", Long.toString(Long.MAX_VALUE)})) {
+      rows.add(row("d", day(lastNtzDay - 1), "t", "TIME'23:59:59.999999'", quantity[0],
+          quantity[1]));
+    }
     // Each guard on one operand alone beside a null in the other: the guard declines the batch
     // though the row's value is null, wherever the batch holds a valid value in that column. A
     // batch null on every row there, as each is at one row a batch, takes the all-null shortcut,

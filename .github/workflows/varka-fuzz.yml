@@ -164,6 +164,10 @@ jobs:
         # sbt sets spark.test.home for its tests; a plain JVM needs it passed, or every test
         # that reads a workspace file - the coverage table here - fails before it starts. The
         # suite runs in this JVM, alone, as the IR fuzzer runs in each of its JVMs.
+        # The runner runs this step with `bash -e`, so the pipeline's failure must be caught
+        # here: under errexit the step would end before the summary below, and a failing night
+        # would lose the accounting lines it exists to show.
+        set +e
         java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
           -Dspark.testing=1 -Dspark.test.home="$GITHUB_WORKSPACE" -Dvarka.ownJvm=true \
           -Dvarka.fuzz.compositions="$COMPOSITIONS" -Dvarka.fuzz.seed="$seed" \
@@ -171,9 +175,11 @@ jobs:
           -s org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaCoverageCompositionFuzzSuite \
           2>&1 | tee target/fuzz/compositions-$seed.log
         status=${PIPESTATUS[0]}
+        set -e
         {
           echo "## Coverage compositions: $COMPOSITIONS, seed $seed"
-          grep -E "Tests: succeeded|FAILED" "target/fuzz/compositions-$seed.log" || true
+          grep -E "Tests: succeeded|FAILED|coverage accounting:" \
+            "target/fuzz/compositions-$seed.log" || true
         } | tee -a "$GITHUB_STEP_SUMMARY"
         exit "$status"
     # Every small tree to size 4 in each of the eight variants of VARKA-278, one JVM per core,
@@ -352,12 +358,34 @@ jobs:
           target/series-narrow/
         retention-days: 30
 
+  proofs:
+    name: Nightly-only proofs
+    # The SMT proofs too slow for the pull request's linters' job, whose --lint skips them:
+    # dev/varka_prove.sh's NIGHTLY_ONLY under Z3 and cvc5, the same pinned and checked solvers
+    # that job installs, downloaded here without its Actions cache of the archives.
+    # The self-test first, so a checker of verdicts that stopped failing cannot pass them. The
+    # script runs these at its NIGHTLY_ONLY limits, two of whose runs fit the timeout.
+    # As the fuzz job: the schedule on vecbricks/varka only, a dispatch on either repository.
+    if: >-
+      github.repository != 'apache/spark'
+      && (github.event_name != 'schedule' || github.repository == 'vecbricks/varka')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+    - name: Run the nightly-only proofs under both solvers
+      run: |
+        ./dev/varka_prove.sh --install both
+        ./dev/varka_prove.sh --self-test --solver both
+        ./dev/varka_prove.sh --nightly-only
+
   report-failure:
     name: Report a failed run
     # Only a scheduled run, since a person who dispatches one sees its result; only on the
     # project's own repository, where issues are on; and when a job failed or was cancelled.
     # The script lists every failed, timed-out or cancelled job, a cancelled one with a note.
-    needs: [fuzz, series]
+    needs: [fuzz, series, proofs]
     if: >-
       always() && github.event_name == 'schedule' && github.repository == 'vecbricks/varka'
       && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))

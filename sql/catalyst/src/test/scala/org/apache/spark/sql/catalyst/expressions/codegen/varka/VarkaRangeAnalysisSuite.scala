@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import java.time.LocalDate
 import java.util.Random
-import java.util.function.IntUnaryOperator
+import java.util.function.{IntConsumer, IntUnaryOperator}
 
 import scala.collection.mutable
 
@@ -320,12 +320,14 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       UNKNOWN)
   }
 
-  test("a typed null is its zero at the int lane and unknown at every other lane") {
+  test("a typed null is its zero at the int and the long lane and unknown at every other lane") {
     assert(day(new NullValue(LaneType.INT), GuardPolicy.NONE) === r(0, 0))
     assert(int(new NullValue(LaneType.INT)) === r(0, 0))
-    // A floating null's zero is no integer, and the long lane tracks no range (VARKA-578).
-    for (lane <- Seq(LaneType.BYTE, LaneType.SHORT, LaneType.LONG, LaneType.FLOAT,
-        LaneType.DOUBLE)) {
+    // The long lane is ranged for its integer value (VARKA-104), never as days.
+    assert(int(new NullValue(LaneType.LONG)) === r(0, 0))
+    assert(day(new NullValue(LaneType.LONG), GuardPolicy.ARMED) === UNKNOWN)
+    // A floating null's zero is no integer (VARKA-578).
+    for (lane <- Seq(LaneType.BYTE, LaneType.SHORT, LaneType.FLOAT, LaneType.DOUBLE)) {
       assert(int(new NullValue(lane)) === UNKNOWN, lane)
       assert(day(new NullValue(lane), GuardPolicy.ARMED) === UNKNOWN, lane)
     }
@@ -367,7 +369,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
     def rests(node: VarkaVectorIR, kind: Kind, policy: GuardPolicy,
         literals: IntUnaryOperator = noLits): Set[Int] = {
       val seen = mutable.Set[Int]()
-      VarkaRangeAnalysis.range(node, kind, policy, literals, i => seen += i)
+      VarkaRangeAnalysis.range(node, kind, policy, literals, (i => seen += i): IntConsumer)
       seen.toSet
     }
     val l = lits(1)

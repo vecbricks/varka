@@ -314,7 +314,7 @@ class VarkaShapeCacheSuite extends SparkFunSuite with VarkaTestWatchdog {
     // this, a rename or a missing `jdk.management` module would leave every x86 emission
     // describing itself as "unknown" and nothing would say so.
     val arch = System.getProperty("os.arch", "")
-    val x86 = arch == "amd64" || arch == "x86_64"
+    val x86 = VarkaHostIsa.isX86(arch)
     if (x86) {
       assert(VarkaEmitOptions.HOST_USE_AVX >= 0,
         s"UseAVX read as unknown on $arch, where the flag exists")

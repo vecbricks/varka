@@ -140,6 +140,13 @@ public record VarkaOperatorCensusCatalog(String name, String family, String loop
       between("int", "B2I_load64", WIDENING, "load.b2i64", "convert", "329, 330", 0, 256),
       of("int", "B2I_load128", WIDENING, "load.b2i128", "convert", "329, 330"),
       of("int", "S2I_load", WIDENING, "load.s2i", "convert", "329, 330"),
+      // The narrow store of a kernel driven at four int lanes: a byte has no 32-bit species, so
+      // each group's I2B goes to an eight-lane vector, stored under its four lanes' mask, or two
+      // groups OR-ed into one and stored whole (VARKA-603).
+      between("int", "I2B_store64_masked", WIDENING, "store.i2b64.masked", "storeMasked",
+          "329, 479, 603", 0, 128),
+      between("int", "I2B_store64_combined", WIDENING, "store.i2b64.combined", "store",
+          "329, 479, 603", 128, 128),
       of("float", "EQ", FLOAT_COMPARES, "cmp.float", "compare", "341"),
       of("float", "LT", FLOAT_COMPARES, "cmp.float", "compare", "341"),
       of("float", "LE", FLOAT_COMPARES, "cmp.float", "compare", "341"),

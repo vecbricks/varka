@@ -150,10 +150,8 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
         (s"extract DAY, HOUR, MINUTE and SECOND together, $d", "PARTIAL")
       val blend = "CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths"
       assert(fused(sections) === density("no nulls") ++ Seq(
-        ("filter extract(HOUR FROM dt) >= 12, no nulls", "NULL_TESTS"),
         ("filter dt > dt2, control, fuses today, no nulls", "WHOLE"),
         (s"$blend, no nulls", "WHOLE")) ++ density("one row in ten null") ++ Seq(
-        ("filter extract(HOUR FROM dt) >= 12, one row in ten null", "NULL_TESTS"),
         ("filter dt > dt2, control, fuses today, one row in ten null", "WHOLE"),
         (s"$blend, one row in ten null", "WHOLE")))
       // Under the refusal only the projections and the blend control fuse, so the 128-bit run

@@ -48,6 +48,7 @@ import org.apache.spark.sql.catalyst.expressions.In;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.LessThan;
 import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.catalyst.expressions.Multiply;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression$;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext$;
@@ -135,9 +136,18 @@ public final class VarkaConjunctOrderSuite {
     return new GreaterThan(d, lit(18659, DateType$.MODULE$));
   }
 
-  /** {@code (l + 1) > 0} in {@code mode}: BIGINT arithmetic, which the compiler leaves residual. */
+  /** {@code (l + 1) > 0} in {@code mode}: BIGINT arithmetic, which raises only under ANSI. */
   private Expression sumOfL(Enumeration.Value mode) {
     return new GreaterThan(new Add(l, lit(1L, LongType$.MODULE$), ctx(mode)),
+        lit(0L, LongType$.MODULE$));
+  }
+
+  /**
+   * {@code (l * 3) > 0} in {@code mode}: a checked BIGINT product over a column, which the
+   * compiler leaves residual under ANSI and TRY, since no bound clears it (VARKA-104).
+   */
+  private Expression productOfL(Enumeration.Value mode) {
+    return new GreaterThan(new Multiply(l, lit(3L, LongType$.MODULE$), ctx(mode)),
         lit(0L, LongType$.MODULE$));
   }
 
@@ -377,7 +387,7 @@ public final class VarkaConjunctOrderSuite {
   @DisplayName("a residual conjunct that can raise demotes every fused conjunct Spark evaluates "
       + "after it, with the reason")
   void raisingFirst() {
-    Expression condition = and(sumOfL(ANSI), beforeJune());
+    Expression condition = and(productOfL(ANSI), beforeJune());
     assertEquals(List.of(false, false), fused(condition));
     var spec = VarkaExpressionCompiler.explainPredicate(condition, output,
         VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).get(1);
@@ -392,22 +402,23 @@ public final class VarkaConjunctOrderSuite {
       + "one after it is demoted")
   void raisingBetween() {
     assertEquals(List.of(true, false, false),
-        fused(and(afterFebruary(), sumOfL(ANSI), beforeJune())));
+        fused(and(afterFebruary(), productOfL(ANSI), beforeJune())));
   }
 
   @Test
   @DisplayName("a null test written first is demoted when codegen evaluates it after the "
       + "raising conjunct")
   void nullTestAfterRaising() {
-    assertEquals(List.of(false, false), fused(and(new IsNotNull(d), sumOfL(ANSI))));
+    assertEquals(List.of(false, false), fused(and(new IsNotNull(d), productOfL(ANSI))));
   }
 
   @Test
-  @DisplayName("a residual conjunct that cannot raise demotes nothing, in either mode's "
-      + "arithmetic")
+  @DisplayName("a residual conjunct that cannot raise demotes nothing, a TRY product's "
+      + "arithmetic among them")
   void safeResidual() {
     assertEquals(List.of(false, true),
         fused(and(new EqualTo(s, lit("x", StringType$.MODULE$)), beforeJune())));
-    assertEquals(List.of(false, true), fused(and(sumOfL(LEGACY), beforeJune())));
+    assertEquals(List.of(false, true),
+        fused(and(productOfL(EvalMode$.MODULE$.TRY()), beforeJune())));
   }
 }

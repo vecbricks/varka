@@ -65,6 +65,19 @@ object VarkaCoverageRows {
    */
   def readsDecimal(executable: String): Boolean = decimalColumn.findFirstIn(executable).isDefined
 
+  /**
+   * A filter the composition fuzzer applies to the coverage rows: `name` says what a row it leaves
+   * out reads, `owedBy` the plan row whose work draws such rows (`None` when no row owes it, which
+   * the fuzzer's accounting test fails on), and `reads` whether an executable row is left out.
+   */
+  case class Filter(name: String, owedBy: Option[String], reads: String => Boolean)
+
+  /** The composition fuzzer's filters, in the order a row left out is counted against them. */
+  val compositionFilters: Seq[Filter] = Seq(
+    Filter("BOOLEAN", Some("VARKA-352"), readsBoolean),
+    Filter("TINYINT or SMALLINT", Some("VARKA-352"), readsNarrow),
+    Filter("DECIMAL", Some("VARKA-352"), readsDecimal))
+
   case class Table(columns: Seq[Attribute], projections: Seq[Row], predicates: Seq[Row])
 
   /** The table at `path`, the committed file the coverage suite keeps. */

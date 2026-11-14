@@ -57,23 +57,19 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
  * results file notes each section that fuses. A row that fuses more of a section sets its new
  * class, so that its fusion cannot turn a baseline section into a fused one unnoticed. A section
- * is {@code NONE} when no Varka node plans it, {@code NULL_TESTS} when Varka nodes fuse only
- * {@code IS NOT NULL} and {@code IS NULL} tests while a row operator evaluates the rest, and
- * {@code WHOLE} when no row operator evaluates any of it. The projections row 103 fuses are
- * {@code WHOLE} at both widths, the four extracts together {@code PARTIAL} (the DAY field fuses,
- * the other three are row 103's later step), the other projections but the blend control
- * {@code NONE}. The
- * filter {@code extract(HOUR FROM dt) >= 12} is {@code NULL_TESTS} at both densities: Spark
- * infers {@code IS NOT NULL} of the column the null-intolerant condition reads, Varka fuses
- * that null test alone, on the long lane, into a {@code VarkaFilterColumnarToRowExec}, and
- * Spark's {@code Filter} applies the extract above it, so the varka on arm times a null-test
- * kernel under the row path's condition and the spark row path arm is the baseline. Each
+ * is {@code NONE} when no Varka node plans it and {@code WHOLE} when no row operator evaluates
+ * any of it. The projections row 103 fuses are {@code WHOLE} at both widths, the four extracts
+ * together {@code PARTIAL} (the DAY field fuses, the other three are row 103's later step), and
+ * the other projections but the blend control are {@code NONE}. So is the filter
+ * {@code extract(HOUR FROM dt) >= 12} at both densities: of it only the {@code IS NOT NULL}
+ * Spark infers of the column would fuse, and a filter fusing nothing else stays whole on the row
+ * path (VARKA-598), so both arms time the row path. Each
  * {@code WHOLE} control is also checked to run every batch as a kernel ({@link #requireKernel}),
  * so that a batch handed back to the row path fails the run rather than time the row path as the
  * control. A session that refuses a filter's condition in a kernel driven at 64 bits
  * ({@code declinesLongConditions}, VARKA-503), the 128-bit companion's host by default, leaves
- * both filters to the row path, the null test with the rest, so both are {@code NONE} there and
- * both arms of each time the row path. The filter control is thus the 256-bit control: its title,
+ * the filter control to the row path too, so both filters are {@code NONE} there and both arms
+ * of each time the row path. The filter control is thus the 256-bit control: its title,
  * a label of the committed results, still says it fuses, but under the refusal it is
  * {@code NONE} and its kernel check is not made. The blend control is the one the refusal never
  * touches, since it refuses a filter's condition and never a projection: it is {@code WHOLE},
@@ -207,7 +203,7 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
           "SELECT CAST(" + dt + " AS INTERVAL HOUR) AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("filter extract(HOUR FROM dt) >= 12" + density,
           "SELECT " + dt + " AS a" + from + " WHERE extract(HOUR FROM " + dt + ") >= 12",
-          Map.of(), declinesLongConditions ? Fusion.NONE : Fusion.NULL_TESTS));
+          Map.of(), Fusion.NONE));
       out.add(new Section("filter dt > dt2, control, fuses today" + density,
           "SELECT " + dt + " AS a" + from + " WHERE " + dt + " > dt2", Map.of(),
           declinesLongConditions ? Fusion.NONE : Fusion.WHOLE));

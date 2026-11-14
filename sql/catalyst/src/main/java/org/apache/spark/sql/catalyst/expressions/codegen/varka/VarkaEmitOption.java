@@ -96,14 +96,21 @@ public sealed interface VarkaEmitOption
      * replacement and for the checks that need it set. The fuzzer and the option matrix never
      * draw one, since they run on hosts where it computes wrong answers.
      */
-    MISCOMPILED;
+    MISCOMPILED,
+    /**
+     * A sanctioned departure from the row engine's answers that a session opts into: on, a value
+     * may differ from Spark's within a contracted bound. Off, the default, every answer is
+     * Spark's. The fuzzer and the option matrix do not draw one, since their oracles compare
+     * every answer bit for bit.
+     */
+    CONTRACT;
 
     /**
      * Whether the fuzzer, its steering and the option matrix may vary an option of this reason;
      * {@link VarkaEmitOption#drawnInGeneral} asks this and whether the option is shape-specific.
      */
     public boolean drawn() {
-      return this != FAULT_INJECTOR && this != MISCOMPILED;
+      return this != FAULT_INJECTOR && this != MISCOMPILED && this != CONTRACT;
     }
   }
 
@@ -603,7 +610,12 @@ public sealed interface VarkaEmitOption
       new Flag("roundToOddByShifts", Reason.MACHINE, false,
           VarkaEmitOptions::roundToOddByShifts, Builder::roundToOddByShifts,
           new FlagTag("roundToOddByShifts", true), new Subject(o -> o.withUseAVX(2)),
-          Optional.of(ConvertLane.class)));
+          Optional.of(ConvertLane.class)),
+      // The math family's opt-in mode (VARKA-345.md 2.6), a session setting laid over the base
+      // options as useAVX is. Its tag keeps the default's rendering empty.
+      new Flag("mathUlpContract", Reason.CONTRACT, false,
+          VarkaEmitOptions::mathUlpContract, Builder::mathUlpContract,
+          new FlagTag("ulpContract", true)));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

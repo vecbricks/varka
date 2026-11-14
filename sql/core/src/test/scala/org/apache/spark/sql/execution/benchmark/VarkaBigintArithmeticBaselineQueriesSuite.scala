@@ -32,8 +32,9 @@ import org.apache.spark.sql.types._
  * sessions answer differently fails a pull request rather than the runner dispatch that times it
  * (VARKA-104). Each section runs under its own SQL settings, its mode where it has one. It also
  * makes the benchmark's own fuse check, that each section's plan on the Varka session has the
- * section's fusion class under the section's settings, and its kernel check on the control, so a
- * row that changes how a section fuses sets the section's new class in the same pull request.
+ * section's fusion class under the section's settings, and its kernel check on each `WHOLE`
+ * projection, so a row that changes how a section fuses sets the section's new class in the same
+ * pull request.
  *
  * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the
  * id, so these rows already reach the regions the benchmark's javadoc states, which the suite
@@ -108,15 +109,18 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
       assert(r.getLong(19) === rows / 10 && r.getLong(20) === rows)
 
       val sections = VarkaBigintArithmeticBaselineBenchmark.sections(false).asScala.toSeq
-      // 25 sections at each of the two null densities, and only the filter and the control fuse
-      // anything today: a row that fuses a section changes this list with the section's class.
+      // 25 sections at each of the two null densities, every one fused whole but a checked
+      // product over a column (VARKA-104): a row that fuses one of these changes this list.
       assert(sections.size === 2 * 25)
-      val fused = sections.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
-      assert(fused.map(s => (s.title, s.fusion.toString)) === Seq(
-        ("filter l + l2 > 0, ANSI, no nulls", "NULL_TESTS"),
-        ("l ^ l2, control, fuses today, no nulls", "WHOLE"),
-        ("filter l + l2 > 0, ANSI, one row in ten null", "NULL_TESTS"),
-        ("l ^ l2, control, fuses today, one row in ten null", "WHOLE")))
+      assert(sections.map(_.fusion.toString).toSet === Set("WHOLE", "NONE"))
+      val unfused = sections.filter(_.fusion == VarkaSqlBenchmarkBase.Fusion.NONE)
+      assert(unfused.map(_.title) === Seq(
+        "l * 3, ANSI, no nulls",
+        "l * m, ANSI, no nulls",
+        "try_multiply(l, m), no nulls",
+        "l * 3, ANSI, one row in ten null",
+        "l * m, ANSI, one row in ten null",
+        "try_multiply(l, m), one row in ten null"))
       for (s <- sections) {
         withClue(s.title) {
           withSettings(s) {
@@ -156,8 +160,8 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
           withSettings(s) {
             val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
             assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
-            // The benchmark's kernel check too: the WHOLE control hands no batch to the row path.
-            if (s.fusion == VarkaSqlBenchmarkBase.Fusion.WHOLE) {
+            // The benchmark's kernel check too: a WHOLE projection hands no batch to the row path.
+            if (s.checksKernels) {
               VarkaSizeLadder.varkaFused(varkaSpark, s.query)
             }
           }
