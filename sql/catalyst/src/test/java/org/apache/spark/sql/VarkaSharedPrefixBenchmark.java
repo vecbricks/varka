@@ -23,6 +23,7 @@ import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -35,10 +36,13 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport.Settle;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport.TierState;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFusedKernel;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSqlResolve;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTierWitness;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.types.DataTypes;
 
@@ -83,15 +87,17 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
   /**
    * Drives an arm gets at least before it is timed; see {@link #driveToCompiledCode}. The bound
    * is a number of drives, not of calls: how many invocations of a loop method the JIT waits for
-   * depends on C2's queue, so what ends the warm-up is the level read from the code list.
+   * depends on C2's queue, so what ends the warm-up is the level the tier witness confirms.
    */
   private static final int MIN_WARM_DRIVES = 8;
   /** How far two drives' times may differ for the code to count as unchanged between them. */
   private static final double STEADY_FRACTION = 0.3;
   /** About the most one arm is driven, in ms (a drive and an idle wait may run past it). */
   private static final long WARM_WAIT_MILLIS = 60_000;
-  /** The most C2 is waited for after one drive, in ms. */
-  private static final long IDLE_WAIT_MILLIS = 10_000;
+
+  /** The bounds every arm's settle runs under. */
+  private static final Settle.Bounds SETTLE_BOUNDS =
+      new Settle.Bounds(MIN_WARM_DRIVES, STEADY_FRACTION, WARM_WAIT_MILLIS);
 
   private static final Attribute D = VarkaSqlResolve.column("d", DataTypes.DateType);
   private static final Seq<Attribute> COLUMNS = seq(List.of(D));
@@ -114,6 +120,10 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
    */
   private record Arm(String label, boolean materialized, int groups, VarkaFusedKernel kernel,
       long scratch, boolean c2Expected) { }
+
+  /** One shape ready to run: its title, its arms, and the buffers every arm of it shares. */
+  private record ShapeRun(String title, List<Arm> arms, long[] dst, long[] dstValidity,
+      int[] literals) { }
 
   private static CompiledVarkaProjection compile(List<String> sqls) {
     var exprs = new ArrayList<NamedExpression>();
@@ -177,51 +187,35 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
   }
 
   /**
-   * Drives {@code arm} over the whole column until the timed run will measure C2's code: every
-   * dense loop method of its kernel holds level-4 code in the code list, C2 has nothing queued or
-   * compiling, and the last two drives took the same time. Neither fact is enough alone. An arm
-   * left in C1 code takes the same time every drive, and one drive is 977 calls of each loop
-   * method, short of the invocations after which HotSpot asks for C2 (the point is scaled by
-   * C2's queue length at that moment), so an arm driven once and left stood in C1 code for as long
-   * as 37 seconds, into its timed run, at 65 to 349 ns/row against 2.7. And code that has just
-   * reached level 4 can still be replaced while its drive is timed.
+   * Drives {@code arm} over the whole column until the timed run will measure C2's code, through
+   * {@link VarkaEmitterTestSupport.Settle}: the tier witness confirms every dense loop method of
+   * its kernel, C2 has nothing queued or compiling, and the last two drives took the same time.
+   * Neither fact is enough alone. An arm left in C1 code takes the same time every drive, and one
+   * drive is 977 calls of each loop method, short of the invocations after which HotSpot asks for
+   * C2 (the point is scaled by C2's queue length at that moment), so an arm driven once and left
+   * stood in C1 code for as long as 37 seconds, into its timed run, at 65 to 349 ns/row against
+   * 2.7. And code that has just reached level 4 can still be replaced while its drive is timed.
    *
-   * <p>So the arm is driven at least {@link #MIN_WARM_DRIVES} times, with C2 left idle after each
-   * drive so that what the drive requested is compiled and installed. The wait is bounded: an arm
-   * that does not settle within {@link #WARM_WAIT_MILLIS} says so on the console, with the level
-   * each of its loop methods had, and is timed as it is. An arm whose C2 compile fails or is
-   * refused is exempt from the level condition ({@code c2Expected}) and settles on drive
-   * times alone, as the call-site budget off arm's single loop method does.
+   * <p>The witness tells a loop's own C2 compile from an on-stack-replacement version (only the
+   * former counts) and sees a loop C2 inlined into its caller, which the code list alone cannot.
+   * An arm whose C2 compile fails or is refused is exempt from the level condition
+   * ({@code c2Expected}) and settles on drive times alone, as the call-site budget off arm's
+   * single loop method does. An arm that does not settle within {@link #WARM_WAIT_MILLIS}
+   * returns its state, which the caller prints. The witness's recording runs from before the
+   * first kernel call to the end of the section, as {@link VarkaDecimalStoreBenchmark}
+   * documents.
    */
-  private static void driveToCompiledCode(String title, Arm arm, MemorySegment data, long[] dst,
-      long[] dstValidity, int[] literals) {
-    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(WARM_WAIT_MILLIS);
+  private static TierState driveToCompiledCode(String title, Arm arm, MemorySegment data,
+      long[] dst, long[] dstValidity, int[] literals) {
     Class<?> kernelClass = arm.kernel().getClass();
-    long previous = 0;
-    int drives = 0;
-    while (true) {
-      long start = System.nanoTime();
-      driveChecked(title, arm, data, dst, dstValidity, literals);
-      long took = System.nanoTime() - start;
-      drives++;
-      boolean idle = VarkaEmitterTestSupport.awaitC2Idle(IDLE_WAIT_MILLIS);
-      var levels = VarkaEmitterTestSupport.loopLevels(kernelClass);
-      boolean topTier = !arm.c2Expected() || VarkaEmitterTestSupport.allLoopsC2(levels);
-      boolean steady = previous > 0 && Math.abs(took - previous) <= previous * STEADY_FRACTION;
-      if (drives >= MIN_WARM_DRIVES && idle && topTier && steady) {
-        return;
-      }
-      if (System.nanoTime() > deadline) {
-        System.out.println("VarkaSharedPrefixBenchmark: " + title + " at " + arm.label()
-            + ", materialized " + arm.materialized() + " did not settle in " + WARM_WAIT_MILLIS
-            + " ms (" + drives + " drives, the last " + TimeUnit.NANOSECONDS.toMillis(took)
-            + " ms after " + TimeUnit.NANOSECONDS.toMillis(previous) + " ms, C2 "
-            + (idle ? "idle" : "busy") + ", loop levels " + levels
-            + "); its cell may be timed in lower-tier code");
-        return;
-      }
-      previous = took;
-    }
+    var settle = new Settle(
+        kernelClass,
+        VarkaEmitterTestSupport.loopLevels(kernelClass).keySet(),
+        Map.of(),
+        () -> driveChecked(title, arm, data, dst, dstValidity, literals),
+        SETTLE_BOUNDS,
+        arm.c2Expected());
+    return Settle.drive(settle);
   }
 
   @Override
@@ -234,6 +228,9 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
       }
       section("the civil-from-days prefix, recomputed per group or computed once", () -> {
         var shapes = shapes();
+        // Every shape's arms are emitted before the first is driven, so the witness starts after
+        // the last emission and watches every kernel class before it runs.
+        var runs = new ArrayList<ShapeRun>();
         for (int s = 0; s < shapes.size(); s++) {
           String title = shapes.get(s).title();
           List<String> sqls = shapes.get(s).sqls();
@@ -266,34 +263,65 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
               VarkaEmitOptions.DEFAULTS.withCallSiteBudget(0));
           addBudgetArm(arms, fused, loader, s, "every group split",
               VarkaEmitOptions.DEFAULTS.withHeavyGroupOutputs(0));
-          // Every arm is driven once before the first is timed, so that one that declines a
-          // batch fails the run at its start and not minutes in.
-          for (Arm arm : arms) {
-            driveChecked(title, arm, data, dst, dstValidity, literals);
+          runs.add(new ShapeRun(title, List.copyOf(arms), dst, dstValidity, literals));
+        }
+        // The witness records from before any kernel runs, so it knows every compile of each
+        // kernel class: which are on-stack replacements, and which loops C2 inlined into a
+        // caller. Each arm's class is watched before any arm of it is driven.
+        var witness = VarkaTierWitness.get();
+        for (ShapeRun run : runs) {
+          for (Arm arm : run.arms()) {
+            witness.watch(arm.kernel().getClass().getName());
           }
-          var benchmark = benchmark(title + " over " + NUM_ROWS + " rows", NUM_ROWS)
-              .timed().build();
-          for (Arm arm : arms) {
-            String name = arm.label() + ": " + arm.groups() + " group"
-                + (arm.groups() == 1 ? "" : "s")
-                + (arm.materialized() ? ", prefix computed once" : ", prefix per group");
-            // The arm is brought to C2's code when its own turn comes, not before the first
-            // arm is timed: an arm that was left for the minutes the others take was found in
-            // C1 code again.
-            // The body runs on this thread alone, and its first call is a warm-up run
-            // (iteration -1, more than once), so a plain flag marks the first.
-            boolean[] settled = new boolean[1];
-            benchmark.addTimerCase(name, timer -> {
-              if (!settled[0]) {
-                settled[0] = true;
-                driveToCompiledCode(title, arm, data, dst, dstValidity, literals);
-              }
-              timer.startTiming();
-              drive(arm.kernel(), arm.scratch(), data, dst, dstValidity, literals);
-              timer.stopTiming();
-            });
+        }
+        try {
+          for (ShapeRun run : runs) {
+            // Every arm is driven once before the first is timed, so that one that declines a
+            // batch fails the run at its start and not minutes in.
+            for (Arm arm : run.arms()) {
+              driveChecked(run.title(), arm, data, run.dst(), run.dstValidity(),
+                  run.literals());
+            }
+            var benchmark = benchmark(run.title() + " over " + NUM_ROWS + " rows", NUM_ROWS)
+                .timed().build();
+            for (Arm arm : run.arms()) {
+              String name = arm.label() + ": " + arm.groups() + " group"
+                  + (arm.groups() == 1 ? "" : "s")
+                  + (arm.materialized() ? ", prefix computed once" : ", prefix per group");
+              // The arm is brought to C2's code when its own turn comes, not before the first
+              // arm is timed: an arm that was left for the minutes the others take was found in
+              // C1 code again.
+              // The body runs on this thread alone, and its first call is a warm-up run
+              // (iteration -1, more than once), so a plain flag marks the first.
+              boolean[] settled = new boolean[1];
+              benchmark.addTimerCase(name, timer -> {
+                if (!settled[0]) {
+                  settled[0] = true;
+                  TierState state = driveToCompiledCode(run.title(), arm, data, run.dst(),
+                      run.dstValidity(), run.literals());
+                  if (!state.settled()) {
+                    System.out.println("VarkaSharedPrefixBenchmark: " + run.title() + " at "
+                        + arm.label() + ", materialized " + arm.materialized() + " did not settle"
+                        + " in " + WARM_WAIT_MILLIS + " ms (" + state.drives()
+                        + " drives, the last "
+                        + TimeUnit.NANOSECONDS.toMillis(state.lastDriveNanos()) + " ms after "
+                        + TimeUnit.NANOSECONDS.toMillis(state.previousDriveNanos()) + " ms, C2 "
+                        + (state.c2Idle() ? "idle" : "busy")
+                        + (state.reason().isEmpty() ? "" : ", " + state.reason())
+                        + ", loop levels " + state.kernelLevels() + ", loops C2 "
+                        + state.loopsC2() + "); its cell may be timed in lower-tier code");
+                  }
+                }
+                timer.startTiming();
+                drive(arm.kernel(), arm.scratch(), data, run.dst(), run.dstValidity(),
+                    run.literals());
+                timer.stopTiming();
+              });
+            }
+            runCases(benchmark);
           }
-          runCases(benchmark);
+        } finally {
+          VarkaTierWitness.close();
         }
       });
     }

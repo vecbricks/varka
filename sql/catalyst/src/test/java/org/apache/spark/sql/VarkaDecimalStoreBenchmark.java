@@ -24,8 +24,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
-import java.util.concurrent.TimeUnit;
 import java.util.function.LongUnaryOperator;
 
 import org.apache.arrow.memory.BufferAllocator;
@@ -33,6 +31,8 @@ import org.apache.arrow.vector.DecimalVector;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport.Settle;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport.TierState;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFusedKernel;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSegments;
@@ -140,26 +140,6 @@ public class VarkaDecimalStoreBenchmark extends VarkaBenchmarkBase {
   private record Arm(String label, VarkaFusedKernel kernel, boolean widens) { }
 
   /**
-   * One read of the tier state, from one snapshot of the code list: whether each dense loop of
-   * the kernel is C2 code and whether {@link Buffers#widen} is, as the tier witness reads them,
-   * and every compiled method of the kernel class with its level, which shows a loop C2 inlined
-   * into its caller (no version of its own, the caller at level 4).
-   */
-  private record Tiers(Map<String, Boolean> loopsC2, boolean widenC2,
-      Map<String, Integer> kernelLevels) {
-
-    boolean c2() {
-      return !loopsC2.isEmpty() && !loopsC2.containsValue(false) && widenC2;
-    }
-  }
-
-  /**
-   * How an arm's warm-up ended, written beside its number: whether it settled, after how many
-   * drives, its last tiers read, and for an arm that did not settle, why, in one clause.
-   */
-  private record TierState(boolean settled, int drives, Tiers tiers, String why) { }
-
-  /**
    * The ladder. The widening arm, the larger, touches the column's 8 bytes a row, the long
    * output's 8, the decimal slots' 16 and the validity's 1/8: 32.125 bytes a row. At 8192 rows
    * that is 263,168 bytes, about half of the EPYC 7763's 512 KB of L2 a core, and the control's
@@ -176,9 +156,6 @@ public class VarkaDecimalStoreBenchmark extends VarkaBenchmarkBase {
   private static final int MIN_WARM_DRIVES = 8;
   private static final double STEADY_FRACTION = 0.3;
   private static final long WARM_WAIT_MILLIS = 60_000;
-  private static final long IDLE_WAIT_MILLIS = 10_000;
-  /** The longest one wait for the tier witness's recording to deliver may take. */
-  private static final long SETTLE_WAIT_MILLIS = 10_000;
 
   /**
    * The rung's one {@link DecimalVector} is declared at the widest type the shapes share, {@code
@@ -304,7 +281,9 @@ public class VarkaDecimalStoreBenchmark extends VarkaBenchmarkBase {
         }
       });
     } finally {
-      VarkaTierWitness.close();
+      if (!dryRun()) {
+        VarkaTierWitness.close();
+      }
       loader.release();
     }
   }
@@ -505,119 +484,32 @@ public class VarkaDecimalStoreBenchmark extends VarkaBenchmarkBase {
   // ---------------------------------------------------------------------------------------
 
   /**
-   * The tiers now, from one read of the code list. The loops and the widening are read through
-   * the tier witness: a {@link VarkaTierWitness.Decision} over that read, confirmed against
-   * every compile the recording has delivered, counts a method as C2 code only for a level-4
-   * version of its own that is not an on-stack replacement, or a level-4 caller of its class it
-   * was inlined into. Each loop gets its own decision, so the note can name the one that is not
-   * C2 code. Read after {@link VarkaTierWitness#settle}, so a version compiled before it is known.
-   */
-  private static Tiers readTiers(VarkaTierWitness witness, Class<?> kernelClass, Set<String> loops,
-      boolean widens) {
-    String codeList = VarkaTierWitness.readCodeList();
-    var kernelCode = VarkaTierWitness.parse(codeList, kernelClass.getName());
-    var loopsC2 = new TreeMap<String, Boolean>();
-    for (String loop : loops) {
-      loopsC2.put(loop,
-          witness.confirmed(new VarkaTierWitness.Decision(kernelCode, Set.of(loop), true)));
-    }
-    boolean widenC2 = !widens || witness.confirmed(new VarkaTierWitness.Decision(
-        VarkaTierWitness.parse(codeList, Buffers.class.getName()), Set.of("widen"), true));
-    // Each method of the kernel class with compiled code in use, at its highest level, for the
-    // note: an on-stack-replacement version is not told from a standard one here, and a method
-    // C2 inlined into its caller has no version of its own, so a missing method can mean inlined.
-    var kernelLevels = new TreeMap<String, Integer>();
-    for (VarkaTierWitness.CodeEntry e : kernelCode) {
-      if (e.inUse()) {
-        kernelLevels.merge(e.method(), e.level(), Math::max);
-      }
-    }
-    return new Tiers(loopsC2, widenC2, kernelLevels);
-  }
-
-  /**
-   * Waits up to {@link #SETTLE_WAIT_MILLIS} for the tier witness's recording to deliver what the
-   * drives compiled. False where it did not deliver in time, which a loaded runner can reach:
-   * the arm is then not settled, and is timed as it is rather than failing the run. Any other
-   * failure of the witness propagates, an interrupt among them: the witness has already
-   * restored the thread's interrupt flag before it throws.
-   */
-  private static boolean settled(VarkaTierWitness witness) {
-    try {
-      witness.settle(SETTLE_WAIT_MILLIS);
-      return true;
-    } catch (IllegalStateException e) {
-      // VarkaTierWitness.waitUntil's message for a timeout, its one recoverable failure.
-      if (e.getMessage() != null && e.getMessage().contains("did not deliver")) {
-        return false;
-      }
-      throw e;
-    }
-  }
-
-  /**
-   * Drives an arm until the timed run will measure C2's code: at least {@link #MIN_WARM_DRIVES}
-   * drives, C2 idle after the last, the last two drives within {@link #STEADY_FRACTION} of each
-   * other, and then, read by the tier witness once its recording has caught up, every dense loop
-   * method of the kernel C2 code and, for the widening arm, {@link Buffers#widen} too. The code
-   * list alone cannot tell either: a loop whose code was thrown away and that C2 then compiled
-   * only inside its caller has no version of its own, which the past-L3 rung showed on five of
-   * six arms in a first laptop run. Bounded by {@link #WARM_WAIT_MILLIS}; an arm that does not
-   * settle, or whose recording does not deliver in time, says why in its tier state, and is
-   * timed as it is.
+   * Drives an arm until the timed run will measure C2's code, through {@link
+   * VarkaEmitterTestSupport.Settle}: at least {@link #MIN_WARM_DRIVES} drives, C2 idle after the
+   * last, the last two drives within {@link #STEADY_FRACTION} of each other, and then, read by
+   * the tier witness once its recording has caught up, every dense loop method of the kernel C2
+   * code and, for the widening arm, {@link Buffers#widen} too. The code list alone cannot tell
+   * either: a loop whose code was thrown away and that C2 then compiled only inside its caller
+   * has no version of its own, which the past-L3 rung showed on five of six arms in a first
+   * laptop run. Bounded by {@link #WARM_WAIT_MILLIS}; an arm that does not settle, or whose
+   * recording does not deliver in time, says why in its tier state, and is timed as it is.
    */
   private TierState driveToCompiledCode(Buffers b, int reps, boolean widens) {
-    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(WARM_WAIT_MILLIS);
     Class<?> kernelClass = b.kernel().getClass();
-    Set<String> loops = VarkaEmitterTestSupport.loopLevels(kernelClass).keySet();
-    var witness = VarkaTierWitness.get();
-    long previous = 0;
-    int drives = 0;
-    while (true) {
-      long start = System.nanoTime();
-      b.drive(reps);
-      long took = System.nanoTime() - start;
-      drives++;
-      boolean idle = VarkaEmitterTestSupport.awaitC2Idle(IDLE_WAIT_MILLIS);
-      boolean steady = previous > 0 && Math.abs(took - previous) <= previous * STEADY_FRACTION;
-      // Whether this drive waited for the recording, and whether it delivered: a wait that has
-      // just timed out is not repeated at the deadline.
-      boolean waited = false;
-      boolean delivered = false;
-      Tiers tiers = null;
-      if (drives >= MIN_WARM_DRIVES && idle && steady) {
-        // A second or so for the recording to deliver what the drives compiled, paid only once
-        // the cheap conditions hold.
-        waited = true;
-        delivered = settled(witness);
-        if (delivered) {
-          tiers = readTiers(witness, kernelClass, loops, widens);
-          if (tiers.c2()) {
-            return new TierState(true, drives, tiers, "");
-          }
-        }
-      }
-      if (System.nanoTime() > deadline) {
-        if (!waited) {
-          delivered = settled(witness);
-        }
-        if (tiers == null) {
-          tiers = readTiers(witness, kernelClass, loops, widens);
-        }
-        String why = " after " + WARM_WAIT_MILLIS + " ms (the last drive "
-            + TimeUnit.NANOSECONDS.toMicros(took) + " us after "
-            + TimeUnit.NANOSECONDS.toMicros(previous) + " us, C2 " + (idle ? "idle" : "busy")
-            + (delivered ? "" : ", the tier witness's recording behind") + "; timed as it is)";
-        return new TierState(false, drives, tiers, why);
-      }
-      previous = took;
-    }
+    var settle = new Settle(
+        kernelClass,
+        VarkaEmitterTestSupport.loopLevels(kernelClass).keySet(),
+        widens ? Map.of(Buffers.class, Set.of("widen")) : Map.of(),
+        () -> b.drive(reps),
+        new Settle.Bounds(MIN_WARM_DRIVES, STEADY_FRACTION, WARM_WAIT_MILLIS),
+        true);
+    return Settle.drive(settle);
   }
 
   private static String describe(TierState t, boolean widens) {
-    Tiers tiers = t.tiers();
     return (t.settled() ? "settled" : "not settled" + t.why()) + " after " + t.drives()
-        + " drives, loops C2 " + tiers.loopsC2() + (widens ? ", widen C2 " + tiers.widenC2() : "")
-        + ", kernel code " + tiers.kernelLevels();
+        + " drives, loops C2 " + t.loopsC2() + (widens ? ", widen C2 "
+        + (t.alsoC2().containsKey("widen") ? t.alsoC2().get("widen") : "unread")
+        : "") + ", kernel code " + t.kernelLevels();
   }
 }

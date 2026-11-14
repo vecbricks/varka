@@ -45,10 +45,16 @@ import java.lang.classfile.instruction.StoreInstruction;
 import java.lang.classfile.instruction.SwitchCase;
 import java.lang.classfile.instruction.TableSwitchInstruction;
 import java.lang.classfile.instruction.TypeCheckInstruction;
+import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -483,6 +489,10 @@ public final class VarkaEmitterTestSupport {
    * standard one here (the list does not mark it; {@link VarkaTierWitness} does, from a JFR
    * stream), so a loop that C2 compiled only for a loop already running reads as 4, and a loop C2
    * inlined into its caller as lower than that. The code list is the JVM's own and current.
+   *
+   * <p>A JVM that does not serve the code list gives an empty map, which {@link #allLoopsC2}
+   * reads as not C2: the caller then times its arm as it is rather than failing the run. Use
+   * {@link Settle} as a settling condition, which sees what this cannot.
    */
   public static java.util.Map<String, Integer> loopLevels(Class<?> kernelClass) {
     return loopLevels(kernelClass, true);
@@ -494,14 +504,34 @@ public final class VarkaEmitterTestSupport {
    * (a TRY arithmetic's), since such a kernel has no dense side.
    */
   public static java.util.Map<String, Integer> loopLevels(Class<?> kernelClass, boolean dense) {
-    var levels = new java.util.TreeMap<String, Integer>();
+    return loopLevels(kernelClass, dense, VarkaTierWitness::readCodeList);
+  }
+
+  /**
+   * {@link #loopLevels(Class, boolean)} on a given reading of the code list. The reader is a
+   * parameter so that a test can show the unavailable-command policy without a JVM that lacks
+   * the command: a reader that throws {@link IllegalStateException} leaves every declared loop
+   * of the side at level 0. The names survive, so a settle built from the key set still knows
+   * which loops it is about, and no loop reads as C2 code.
+   */
+  public static java.util.Map<String, Integer> loopLevels(
+      Class<?> kernelClass, boolean dense, Supplier<String> codeList) {
+    var levels = new TreeMap<String, Integer>();
     for (java.lang.reflect.Method m : kernelClass.getDeclaredMethods()) {
       if (VarkaMethodNames.isLoop(m.getName(), dense)) {
         levels.put(m.getName(), 0);
       }
     }
-    for (VarkaTierWitness.CodeEntry e : VarkaTierWitness.parse(
-        VarkaTierWitness.readCodeList(), kernelClass.getName())) {
+    String listing;
+    try {
+      listing = codeList.get();
+    } catch (IllegalStateException e) {
+      // The JVM does not serve the code list. Every declared loop stays at level 0: the names
+      // survive for the settle, nothing reads as C2 code, and the caller times the arm as it
+      // is, with the reason its settle state carries.
+      return Collections.unmodifiableMap(levels);
+    }
+    for (VarkaTierWitness.CodeEntry e : VarkaTierWitness.parse(listing, kernelClass.getName())) {
       if (e.inUse() && levels.containsKey(e.method())) {
         levels.merge(e.method(), e.level(), Math::max);
       }
@@ -512,5 +542,271 @@ public final class VarkaEmitterTestSupport {
   /** Whether every loop of {@code levels}, as {@link #loopLevels} reads them, is C2 code. */
   public static boolean allLoopsC2(java.util.Map<String, Integer> levels) {
     return !levels.isEmpty() && levels.values().stream().allMatch(l -> l == 4);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Settling an arm on the tier witness.
+  // ---------------------------------------------------------------------------------------------
+
+  /** The most C2 is waited for after one drive, in ms. */
+  private static final long IDLE_WAIT_MILLIS = 10_000;
+
+  /** The longest one wait for the tier witness's recording to deliver may take, in ms. */
+  private static final long SETTLE_WAIT_MILLIS = 10_000;
+
+  /**
+   * One arm's warm-up, settled on the tier witness (VARKA-442): {@link #drive} drives the arm
+   * until every named loop method, and every extra method named, is C2 code as the witness
+   * confirms it, and the last two drives took the same time; an arm with {@code c2Required}
+   * false settles on drive times alone.
+   *
+   * <p>The caller starts the witness ({@link VarkaTierWitness#get}) before the arm's first call
+   * and watches every class it drives: a compile that finishes before its class is watched is
+   * unknown to the recording, so a strict verdict never counts it. {@link #drive} only reads
+   * the witness the caller started.
+   *
+   * <p>The loop is the decimal store benchmark's: at least {@code minDrives} drives, C2 idle
+   * after each ({@link #awaitC2Idle}), and the last two within {@code steadyFraction} of each
+   * other; only then is the recording settled and the code list read through {@link
+   * VarkaTierWitness#confirmed}. A diagnostic command the JVM does not serve does not end the
+   * run: an unreadable code list or queue leaves the arm not settled, timed as it is, with that
+   * as the reason in its {@link TierState}. A recording that does not deliver in time is the
+   * recoverable "recording behind"; any other witness failure propagates.
+   */
+  public record Settle(
+      Class<?> kernelClass,
+      Set<String> loops,
+      Map<Class<?>, Set<String>> alsoC2,
+      Runnable drive,
+      Bounds bounds,
+      boolean c2Required) {
+
+    public Settle {
+      Objects.requireNonNull(kernelClass, "kernelClass");
+      Objects.requireNonNull(drive, "drive");
+      Objects.requireNonNull(bounds, "bounds");
+      loops = Set.copyOf(loops);
+      alsoC2 = Map.copyOf(alsoC2);
+    }
+
+    /** The bounds one settle runs under: the least drives, the steady fraction, the warm wait. */
+    public record Bounds(int minDrives, double steadyFraction, long warmWaitMillis) {
+      public Bounds {
+        if (minDrives < 2) {
+          throw new IllegalArgumentException("a settle compares two drives: minDrives is "
+              + minDrives);
+        }
+        if (!(steadyFraction > 0)) {
+          throw new IllegalArgumentException("the steady fraction must be positive: "
+              + steadyFraction);
+        }
+        if (warmWaitMillis <= 0) {
+          throw new IllegalArgumentException("the warm wait must be positive: " + warmWaitMillis);
+        }
+      }
+    }
+
+    /**
+     * Drives {@code settle}'s arm and returns how its warm-up ended. The caller must have started
+     * the witness ({@link VarkaTierWitness#get}) before the arm's first call and watched the
+     * kernel class and every class named in {@code settle.alsoC2}: a compile that finishes
+     * before its class is watched is unknown to the recording, so no verdict would ever confirm
+     * it. A class that was not watched fails here rather than settling an arm that never can.
+     */
+    public static TierState drive(Settle settle) {
+      long deadline = System.nanoTime()
+          + TimeUnit.MILLISECONDS.toNanos(settle.bounds().warmWaitMillis());
+      var witness = VarkaTierWitness.get();
+      if (!witness.isWatching(settle.kernelClass())) {
+        throw new IllegalStateException("the settle's kernel class " + settle.kernelClass()
+            + " is not watched: its compiles cannot be confirmed");
+      }
+      for (Class<?> extra : settle.alsoC2().keySet()) {
+        if (!witness.isWatching(extra)) {
+          throw new IllegalStateException("the settle's extra class " + extra
+              + " is not watched: its compiles cannot be confirmed");
+        }
+      }
+      long previous = 0;
+      int drives = 0;
+      while (true) {
+        long start = System.nanoTime();
+        settle.drive().run();
+        long took = System.nanoTime() - start;
+        drives++;
+        boolean idle = awaitC2Idle(IDLE_WAIT_MILLIS);
+        boolean steady = previous > 0
+            && Math.abs(took - previous) <= previous * settle.bounds().steadyFraction();
+        boolean waited = false;
+        boolean delivered = false;
+        Tiers tiers = null;
+        if (drives >= settle.bounds().minDrives() && idle && steady) {
+          if (!settle.c2Required()) {
+            // The arm's level is not what it is timed on: drive times alone settle it.
+            return settled(drives, took, previous, idle, readTiers(settle, witness));
+          }
+          waited = true;
+          delivered = recorded(witness);
+          if (delivered) {
+            tiers = readTiers(settle, witness);
+            if (tiers != null && tiers.c2()) {
+              return settled(drives, took, previous, idle, tiers);
+            }
+            if (tiers == null) {
+              // The code list is unreadable, so no loop's level can be confirmed: the arm is
+              // timed as it is now, with the reason, rather than driven to the bound.
+              return new TierState(false, drives, took, previous, idle, Map.of(), Map.of(),
+                  Map.of(), "the code list unreadable",
+                  why(settle, took, previous, idle, "the code list unreadable"));
+            }
+          }
+        }
+        if (System.nanoTime() > deadline) {
+          if (!waited && settle.c2Required()) {
+            delivered = recorded(witness);
+          }
+          if (tiers == null) {
+            tiers = readTiers(settle, witness);
+          }
+          String reason = tiers == null ? "the code list unreadable"
+              : !idle && VarkaKernelWarmup.c2Load() < 0 ? "the queue unreadable"
+              : settle.c2Required() && !delivered ? "the tier witness's recording behind"
+              : "";
+          return new TierState(false, drives, took, previous, idle,
+              VarkaEmitterTestSupport.loops(tiers), VarkaEmitterTestSupport.also(tiers),
+              VarkaEmitterTestSupport.levels(tiers), reason,
+              why(settle, took, previous, idle, reason));
+        }
+        previous = took;
+      }
+    }
+  }
+
+  /** One read of the tier state: each method's verdict and every kernel method's level. */
+  private record Tiers(Map<String, Boolean> loopsC2, Map<String, Boolean> alsoC2,
+      Map<String, Integer> kernelLevels) {
+
+    /**
+     * Whether every loop and extra method is C2 code, and at least one loop was asked about: a
+     * kernel with no dense loop reads as unsettled.
+     */
+    boolean c2() {
+      return !loopsC2.isEmpty() && !loopsC2.containsValue(false)
+          && !alsoC2.containsValue(false);
+    }
+  }
+
+  /**
+   * How an arm's warm-up ended: whether it settled, after how many drives, the last two drives'
+   * times and whether C2 was idle after the last, the witness's verdicts per loop and per extra
+   * method, every compiled method of the kernel class at its highest level (for the note), the
+   * one-clause reason it did not settle, and {@link #why}, the parenthetical a note prints.
+   */
+  public record TierState(
+      boolean settled,
+      int drives,
+      long lastDriveNanos,
+      long previousDriveNanos,
+      boolean c2Idle,
+      Map<String, Boolean> loopsC2,
+      Map<String, Boolean> alsoC2,
+      Map<String, Integer> kernelLevels,
+      String reason,
+      String why) {
+
+    public TierState {
+      loopsC2 = Collections.unmodifiableMap(new TreeMap<>(loopsC2));
+      alsoC2 = Collections.unmodifiableMap(new TreeMap<>(alsoC2));
+      kernelLevels = Collections.unmodifiableMap(new TreeMap<>(kernelLevels));
+    }
+  }
+
+  /** The settled state, with the tier read kept for the note. */
+  private static TierState settled(int drives, long took, long previous, boolean idle,
+      Tiers tiers) {
+    return new TierState(true, drives, took, previous, idle, loops(tiers), also(tiers),
+        levels(tiers), "", "");
+  }
+
+  private static Map<String, Boolean> loops(Tiers tiers) {
+    return tiers == null ? Map.of() : tiers.loopsC2();
+  }
+
+  private static Map<String, Boolean> also(Tiers tiers) {
+    return tiers == null ? Map.of() : tiers.alsoC2();
+  }
+
+  private static Map<String, Integer> levels(Tiers tiers) {
+    return tiers == null ? Map.of() : tiers.kernelLevels();
+  }
+
+  /**
+   * The tiers now, from one read of the code list, or null where the JVM does not serve the
+   * code list. Each loop and extra method gets its own {@link VarkaTierWitness.Decision}, read
+   * after {@link VarkaTierWitness#settle} so that a version compiled before it is known, which
+   * is what tells an on-stack replacement from a method's own version and sees a method C2
+   * inlined into a caller.
+   */
+  private static Tiers readTiers(Settle settle, VarkaTierWitness witness) {
+    String codeList;
+    try {
+      codeList = VarkaTierWitness.readCodeList();
+    } catch (IllegalStateException e) {
+      return null;
+    }
+    List<VarkaTierWitness.CodeEntry> kernelCode =
+        VarkaTierWitness.parse(codeList, settle.kernelClass().getName());
+    var loopsC2 = new TreeMap<String, Boolean>();
+    for (String loop : settle.loops()) {
+      loopsC2.put(loop, witness.confirmed(
+          new VarkaTierWitness.Decision(kernelCode, Set.of(loop), true)));
+    }
+    var alsoC2 = new TreeMap<String, Boolean>();
+    for (Map.Entry<Class<?>, Set<String>> extra : settle.alsoC2().entrySet()) {
+      List<VarkaTierWitness.CodeEntry> code =
+          VarkaTierWitness.parse(codeList, extra.getKey().getName());
+      for (String method : extra.getValue()) {
+        alsoC2.put(method, witness.confirmed(
+            new VarkaTierWitness.Decision(code, Set.of(method), true)));
+      }
+    }
+    var kernelLevels = new TreeMap<String, Integer>();
+    for (VarkaTierWitness.CodeEntry e : kernelCode) {
+      if (e.inUse()) {
+        kernelLevels.merge(e.method(), e.level(), Math::max);
+      }
+    }
+    return new Tiers(loopsC2, alsoC2, kernelLevels);
+  }
+
+  /**
+   * Waits up to {@link #SETTLE_WAIT_MILLIS} for the recording to deliver what the drives
+   * compiled. False where it did not deliver in time, which a loaded runner can reach and which
+   * the outcome records as "the tier witness's recording behind"; any other failure of the
+   * witness propagates, an interrupt among them.
+   */
+  private static boolean recorded(VarkaTierWitness witness) {
+    try {
+      witness.settle(SETTLE_WAIT_MILLIS);
+      return true;
+    } catch (IllegalStateException e) {
+      // VarkaTierWitness.waitUntil's message for a timeout, its one recoverable failure.
+      if (e.getMessage() != null && e.getMessage().contains("did not deliver")) {
+        return false;
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * The failure clause a note prints for an arm that did not settle: the bound it ran out, the
+   * last two drives, whether C2 was idle, and {@code reason} when there is one.
+   */
+  private static String why(Settle settle, long took, long previous, boolean idle,
+      String reason) {
+    return " after " + settle.bounds().warmWaitMillis() + " ms (the last drive "
+        + TimeUnit.NANOSECONDS.toMicros(took) + " us after "
+        + TimeUnit.NANOSECONDS.toMicros(previous) + " us, C2 " + (idle ? "idle" : "busy")
+        + (reason.isEmpty() ? "" : ", " + reason) + "; timed as it is)";
   }
 }
