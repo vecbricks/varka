@@ -25,6 +25,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
@@ -187,7 +189,7 @@ public final class VarkaKernelPlan {
       }
     }
     return new VarkaKernelPlan(Optional.empty(), drive, lanes, mixed, Set.copyOf(storeNarrowings),
-        Map.copyOf(inputLanes), narrowGroups(roots, lane, lanes), Set.copyOf(others));
+        Map.copyOf(inputLanes), narrowGroups(roots, lane, lanes, options), Set.copyOf(others));
   }
 
   /**
@@ -907,15 +909,31 @@ public final class VarkaKernelPlan {
    * roots read loads at, so that a kernel driven at four int lanes reads a byte column as an
    * eight-lane 64-bit species and converts it in two parts. One for a kernel not driven at the
    * int lane, or with no baked lane count.
+   *
+   * <p>Under {@link VarkaEmitOptions.NarrowGroupStore#COMBINED} the iteration is also sized by
+   * the narrow roots the kernel stores, whose species may span more groups than any value it
+   * loads - a {@code CAST(i AS TINYINT)} reads no narrow value at all but stores an eight-lane
+   * species at four int lanes. The store's parts are the loop's, so the iteration must hold a
+   * whole run of them; a selection root writes a bitmap and no store, so it is not one.
    */
-  private static int narrowGroups(List<VarkaVectorIR> roots, Lane lane, int lanes) {
+  private static int narrowGroups(List<VarkaVectorIR> roots, Lane lane, int lanes,
+      VarkaEmitOptions options) {
     if (lane != Lane.INT || lanes == 0) {
       return 1;
     }
+    boolean combined =
+        options.narrowGroupStore() == VarkaEmitOptions.NarrowGroupStore.COMBINED;
     int groups = 1;
     for (VarkaVectorIR root : roots) {
       for (LaneType type : VarkaVectorIR.narrowValuesIn(root)) {
         groups = Math.max(groups, Lane.widenLanes(lanes, Lane.of(type)) / lanes);
+      }
+      if (combined && !(root instanceof Cond) && !(root instanceof BoolOutput)
+          && root.laneType().isNarrow()) {
+        int species = Lane.widenLanes(lanes, Lane.of(root.laneType()));
+        if (species > lanes) {
+          groups = Math.max(groups, species / lanes);
+        }
       }
     }
     return groups;

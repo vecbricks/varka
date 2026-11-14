@@ -444,7 +444,19 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   private def pinnedArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] =
     Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 0, 1, 2, 3).map { level =>
       s"useAVX=$level" -> ((o: VarkaEmitOptions) => o.withUseAVX(level))
-    } ++ subjectArms ++ laneArms ++ referenceArms ++ contractArms
+    } ++ subjectArms ++ laneArms ++ storeArms ++ referenceArms ++ contractArms
+
+  /**
+   * The narrow store's combined arm, pinned beside the lane arms (VARKA-603): a machine option
+   * no session setting selects, so a test is the only way to reach it, and a refactor of the
+   * store must move this hash rather than slip through. The masked form is the defaults'.
+   */
+  private def storeArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] =
+    Seq("narrowGroupStore=COMBINED").map { name =>
+      val arm = optionArms.find(_.name == name).getOrElse(
+        fail(s"the options table has no arm $name to pin"))
+      arm.name -> arm.arm
+    }
 
   /** The math family's opt-in arm, by its table name, as the lane arms are pinned. */
   private def contractArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] = {
@@ -584,7 +596,10 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         "frames span the kernel (groupLocalSlots=false, methodByteBudget=0), which no session " +
         "selects but where a per-body slot rule can move bytes unseen; and per value of the " +
         "narrow-lane option (narrowLanes), which picks the lane a tree whose every value is " +
-        "narrow is emitted at (VARKA-329); and the math family's opt-in mode " +
+        "narrow is emitted at (VARKA-329); and the combined narrow store " +
+        "(narrowGroupStore=COMBINED), which writes a narrow root's species whole once a run of " +
+        "int groups rather than under a per-group mask (VARKA-603); and the math family's " +
+        "opt-in mode " +
         "(mathUlpContract=true), which spark.sql.codegen.varka.math.ulpContract.enabled " +
         "reaches. The rest of VarkaEmitOptions is test-only."),
       "coverage_rows_skipped" -> skipped.asJava,

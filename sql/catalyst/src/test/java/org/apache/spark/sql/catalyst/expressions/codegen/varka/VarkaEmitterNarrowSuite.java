@@ -803,6 +803,56 @@ public final class VarkaEmitterNarrowSuite {
   }
 
   @Test
+  @DisplayName("a narrow store answers ragged batches under each store form at four and two "
+      + "int lanes")
+  public void narrowStoreAnswersRaggedBatchesUnderEachStoreForm() {
+    // The combined form's loop holds one whole store per run of `parts` groups and leaves the
+    // leftovers to the epilogue's masked stores, as the masked form does; at four and two int
+    // lanes the iteration is eight rows, so the lengths below leave 0, 1, lanes - 1, lanes and
+    // groups * lanes - 1 rows past the loop, and one batch is shorter than a whole iteration.
+    VarkaVectorIR choice = new IfElse(new Compare(CompareOp.GT, BYTE_COL, BYTE_COL_2),
+        BYTE_COL, BYTE_COL_2);
+    VarkaVectorIR cast = new NarrowLane(new ColumnRef(0), LaneType.BYTE);
+    // A short read with a byte stored: the load's species spans one group and the store's two,
+    // so the combined form sizes the iteration by the store and the load reads a wider species
+    // than it needs, each group taking its part (VARKA-603).
+    VarkaVectorIR shortToByte = new NarrowLane(new ColumnRef(0, LaneType.SHORT), LaneType.BYTE);
+    int length = 16;
+    var bytes = new int[][] {
+        tabulate(length, i -> ((i * 7) % 256) - 128),
+        tabulate(length, i -> ((i * 13) % 256) - 128)};
+    var ints = new int[][] {tabulate(length, i -> i * 37 - 2000)};
+    var shorts = new int[][] {tabulate(length, i -> (i * 4001) - 32008)};
+    for (int lanes : new int[] {4, 2}) {
+      for (VarkaEmitOptions.NarrowGroupStore form
+          : VarkaEmitOptions.NarrowGroupStore.values()) {
+        for (Arm arm : ARMS) {
+          VarkaEmitOptions options = arm.options().toBuilder().lanesOverride(lanes)
+              .narrowGroupStore(form).build();
+          for (int len : new int[] {5, 8, 9, 11, 12, 15}) {
+            for (IntPredicate pattern : List.<IntPredicate>of(row -> false,
+                row -> row % 7 == 3)) {
+              String where = "a byte choice at " + len + " rows, " + lanes + " int lanes, "
+                  + arm.name() + ", " + form;
+              checkValues(where, List.of(choice), 2, new int[0], len,
+                  new int[][] {Arrays.copyOf(bytes[0], len), Arrays.copyOf(bytes[1], len)},
+                  pattern, false, options);
+              String castWhere = "CAST(i AS TINYINT) at " + len + " rows, " + lanes
+                  + " int lanes, " + arm.name() + ", " + form;
+              checkValues(castWhere, List.of(cast), 1, new int[0], len,
+                  new int[][] {Arrays.copyOf(ints[0], len)}, pattern, false, options);
+              String shortWhere = "a short read stored byte at " + len + " rows, " + lanes
+                  + " int lanes, " + arm.name() + ", " + form;
+              checkValues(shortWhere, List.of(shortToByte), 1, new int[0], len,
+                  new int[][] {Arrays.copyOf(shorts[0], len)}, pattern, false, options);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @Test
   @DisplayName("the reference narrows a stored byte and short as the lane does")
   public void theReferenceNarrowsAStoredByteAndShortAsTheLaneDoes() {
     // The oracle itself: a value written at a narrow width reads back sign-extended, which is

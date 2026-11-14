@@ -519,6 +519,20 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        {@code VARKA-345.md} 2.5 and 2.6). False, the default, keeps every math function bit
  *        for bit Spark's. Read by the compiler when it chooses a math node's form, never by a
  *        kernel; no math node is built yet, so neither value moves a byte.
+ * @param narrowGroupStore how a narrow root of a kernel driven at the int lane stores when its
+ *        species reaches past one int lane group - a byte at four int lanes stores an eight-lane
+ *        species, two groups' rows. {@link NarrowGroupStore#MASKED}, the default, stores each
+ *        group under the mask of its own lanes; x86 without AVX-512BW has no predicated subword
+ *        store, so C2 leaves that store as the Vector API's Java loop, which allocates
+ *        ({@code VARKA-603.md} 0). {@link NarrowGroupStore#COMBINED} converts each group's
+ *        {@code I2B} or {@code I2S} at its own part, ORs it into an accumulator and stores the
+ *        accumulator whole once every {@code parts} groups, at the run's first row; both answer
+ *        every row, and the epilogue keeps the masked store under either, cold on an even batch.
+ *        Which is faster on a host where both lower is a measurement's, so the losing form stays
+ *        the reference the differential checks against. It also sizes the loop's iteration: under
+ *        {@code COMBINED} the group count counts the narrow roots stored as well as the narrow
+ *        values loaded, since a store's parts, unlike a load's, need not be counted by any input
+ *        (a {@code CAST(i AS TINYINT)} reads no narrow value at all).
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -574,7 +588,8 @@ public record VarkaEmitOptions(
     DecimalStore decimalStore,
     WideConversionForm wideConversionForm,
     boolean roundToOddByShifts,
-    boolean mathUlpContract) {
+    boolean mathUlpContract,
+    NarrowGroupStore narrowGroupStore) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -628,6 +643,14 @@ public record VarkaEmitOptions(
    * not take are arms kept to be measured against it.
    */
   public enum WideConversionForm { SPLIT, MAGIC, XOR_SPLIT }
+
+  /**
+   * The forms of a narrow store whose species is wider than the int lane group
+   * ({@link VarkaEmitOptions#narrowGroupStore}). {@link #MASKED} stores each group under the mask
+   * of its own lanes and is the reference form; {@link #COMBINED} ORs the groups' parts into one
+   * whole vector and stores that once a run of groups. Both give the same bytes in the column.
+   */
+  public enum NarrowGroupStore { MASKED, COMBINED }
 
   /*
    * A note this enum cannot express, kept beside it rather than inside its javadoc, which
@@ -738,7 +761,7 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
           false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
-          false);
+          false, NarrowGroupStore.MASKED);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -777,6 +800,9 @@ public record VarkaEmitOptions(
     }
     if (wideConversionForm == null) {
       throw VarkaErrors.illegalArgument("wideConversionForm must not be null");
+    }
+    if (narrowGroupStore == null) {
+      throw VarkaErrors.illegalArgument("narrowGroupStore must not be null");
     }
     if (lanesOverride != 0 && (lanesOverride < 1 || Integer.bitCount(lanesOverride) != 1)) {
       throw VarkaErrors.illegalArgument(
@@ -853,6 +879,7 @@ public record VarkaEmitOptions(
       b.wideConversionForm = wideConversionForm;
       b.roundToOddByShifts = roundToOddByShifts;
       b.mathUlpContract = mathUlpContract;
+      b.narrowGroupStore = narrowGroupStore;
     return b;
   }
 
@@ -912,6 +939,7 @@ public record VarkaEmitOptions(
     private WideConversionForm wideConversionForm;
     private boolean roundToOddByShifts;
     private boolean mathUlpContract;
+    private NarrowGroupStore narrowGroupStore;
 
     private Builder() {
     }
@@ -1186,6 +1214,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder narrowGroupStore(NarrowGroupStore form) {
+      this.narrowGroupStore = form;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1200,7 +1233,8 @@ public record VarkaEmitOptions(
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
           misdescribeDataBytes, fromLongMasks, decimalAbsLanewise, dropDecimalBound,
-          decimalStore, wideConversionForm, roundToOddByShifts, mathUlpContract);
+          decimalStore, wideConversionForm, roundToOddByShifts, mathUlpContract,
+          narrowGroupStore);
     }
   }
 
@@ -1404,6 +1438,15 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withWideConversionForm(WideConversionForm form) {
     return toBuilder().wideConversionForm(form).build();
+  }
+
+  /**
+   * The narrow store's form ({@link #narrowGroupStore}): the masked per-group store that ships,
+   * or the combined whole store kept to be measured against it on a host without a predicated
+   * subword store.
+   */
+  public VarkaEmitOptions withNarrowGroupStore(NarrowGroupStore form) {
+    return toBuilder().narrowGroupStore(form).build();
   }
 
   public VarkaEmitOptions withRoundToOddByShifts(boolean byShifts) {

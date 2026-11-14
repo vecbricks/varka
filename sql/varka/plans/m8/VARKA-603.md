@@ -363,7 +363,69 @@ Size: small, as the row says, for 603a, 603b and 603d. 603c is the owner's choic
 
 ## 10. Outcome
 
-(Not started. Section 0 is the diagnosis; the side readings it turned up follow.)
+603a and 603b are built; 603c and 603d are the row's remaining steps.
+
+### 603b: `narrowGroupStore` with MASKED and COMBINED (14 November 2026)
+
+Built as 2.2 says, on master `8c2b8a4493e`. `VarkaEmitOptions.narrowGroupStore` selects the
+store's form. `MASKED` is the default: it renders empty in `canonical()` and emits today's bytes,
+so no committed shape hash or digest moves. `COMBINED` renders `|narrowGroupStore=COMBINED`.
+Under `COMBINED`, `VarkaKernelPlan.narrowGroups` also counts each stored narrow root's parts (two
+for a byte at four int lanes, four at two), so `CAST(i AS TINYINT)` - which reads no narrow value
+at all - runs two groups an iteration where the masked form runs one; a selection root writes a
+bitmap and no store, so it is not counted. `VarkaBodyEmitter.emitCombinedNarrowStore` converts
+each group at part `-(g mod parts)`, ORs it into the root's accumulator (`Slots.narrowStoreAcc`,
+with one shared conversion temporary) and stores the accumulator whole at the run's first row,
+then clears it; the loop's accumulators are zeroed before it, and the epilogue keeps the masked
+form under either value.
+
+The parts' numbering was verified before the build in a JDK-only probe: a contracting `I2B`/`I2S`
+takes part `0, -1, -2, -3` for its successive blocks in row order (a positive part is refused),
+which is the plan's formula. One divergence from section 5's file table: the `narrowGroups` half
+of 2.2 is in `VarkaKernelPlan.java`, which the table lists for 603c; 2.2 requires it in 603b.
+
+The tests, 3.1 to 3.5, and 3.6:
+
+- **3.1** passes. At four int lanes a byte store of an int-driven kernel holds two masked stores
+  and no whole one under `MASKED`, and no masked store and one whole one per run under
+  `COMBINED`; at two int lanes it is four and one. `CAST(i AS TINYINT)` holds one masked store in
+  its one-group loop under `MASKED` and one whole store in its two-group loop under `COMBINED`.
+  The byte-driven arm under `narrowLanes=true` is unchanged.
+  `dev/varka_emit.sh --table --variant narrowGroupStore=...,lanesOverride=4` reads, as
+  `loopDense0`'s lane ops, `y1 * y2` 6 at the defaults and 12 at four int lanes under either form,
+  `try_multiply(y1, y2)` 0 under all three columns (it has only a masked loop, which the table
+  does not count), and `CAST(i AS TINYINT)` 4 at the defaults, 4 at four int lanes under `MASKED`
+  and 8 under `COMBINED`. So the table sees the cast's second group and cannot tell the two store
+  forms apart - the store, its mask and the species are not lane ops on the owners it counts -
+  and 3.1's class-file counts are the form's evidence.
+- **3.2** passes. `VarkaEmitterNarrowArithSuite` ran 37 tests (19 opt-in sweep tests canceled) and
+  `VarkaEmitterNarrowSuite` 16, under both forms at four and two int lanes, with batch lengths
+  leaving 0, 1, lanes - 1, lanes and groups * lanes - 1 rows past the loop and one batch shorter
+  than a whole iteration, against the reference and Spark; the exhaustive `TINYINT` pairs run in
+  LEGACY and TRY under each form at four int lanes. A short column read through a byte store - the
+  case whose load needs one part while the store needs two - answers too.
+- **3.3** is the table entry: the choice is in `VarkaEmitOption.TABLE`, so the IR fuzzer draws it
+  and the option matrix gains its configurations. `VarkaEmitOptionSuite` passes (8 tests).
+- **3.4** is `results/VARKA-603b-width-audit-avx2.txt`: at 128 bits under `-XX:UseAVX=2`, a
+  one-off fork of the benchmark's emission path for `try_multiply(y1, y2)` reads seven
+  `not supported: op=storeMasked` lines under `MASKED`, six of them the eight-lane byte store,
+  and no `storeMasked` line at all under `COMBINED`, whose store is intrinsic. The committed
+  `width_audit.json` stays the laptop's own census (AVX-512BW, where the masked store is
+  intrinsic and the shape's 128-bit row is empty), so this reading is a results text, as 603a's
+  AVX2 cell reading is.
+- **3.5** passes: `VarkaWarmupReachSuite` is green (3 tests), whose corpus is the coverage rows at
+  the defaults. `COMBINED`'s `ByteVector.or` and `ByteVector.zero` are therefore not warmed yet;
+  the point that makes the corpus include them is 603d's default flip, and the suite will name
+  them then.
+- **3.6**: `emitted_bytes.json` is the one generated file that moved. Its `option_arms` gained
+  `narrowGroupStore=COMBINED` (17 arms to 18), the new arm pinned in `VarkaEmittedBytesSuite`
+  beside the lane arms, and every default hash, every existing arm and the per-lane `lanes`
+  section are unchanged. `width_audit.json`, `coverage.json`, `docs/sql-varka.md`, `types.tsv`
+  and the census files are unchanged, as the unchanged defaults require.
+
+Left to 603c: `OVERLAP` and the int lane's per-row epilogue. Left to 603d: the default choice on
+the EPYC 7763 at 128 bits (with the 256-bit control), the runner result files, and the bytes,
+width-audit and census regenerations that follow a flip.
 
 ### 10.1 Side readings, candidates for rows (no row added)
 

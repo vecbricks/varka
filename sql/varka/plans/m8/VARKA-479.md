@@ -81,6 +81,14 @@ narrow input, allocated when `narrowGroups() > 1`.
 
 ### 2.2 Combine, then store whole
 
+The owner answered question 7.1 (c) of `VARKA-603.md` on 11 November 2026: the whole store is
+built there, for every int-lane kernel whose narrow store is masked today, and it is built as
+`VarkaEmitOptions.narrowGroupStore` (`VARKA-603.md` 2.2). Its COMBINED form combines the parts
+by OR - at four int lanes parts 0 and -1 of `I2B` into one 64-bit byte vector - which the model
+read as intrinsic under `-XX:UseAVX=2` (`VARKA-603.md` 0.6 and
+`results/VARKA-603-census-avx2.txt`) - so this section's combine question is answered by 603b's
+built kernel, and this row keeps load-once and the pricing below.
+
 Each group's narrow root value goes to a per-root local, not to memory. After the last group, the
 parts are combined into one narrow vector of `groups * lanes` lanes and stored with the unmasked
 `intoMemorySegment`. This is safe because the loop bound guarantees a whole iteration fits
@@ -182,5 +190,10 @@ Size: medium, as the row says.
 2. 2.2's combine (`blend` or `unslice`) is unmeasured. If neither lowers to straight-line code on
    AVX2 at 128 bits, the store half is withdrawn and the row closes on the load half and the
    pricing, with the reason recorded.
+
+   *Answered on 11 November 2026 by `VARKA-603.md` 7.1 (c): the store half moves to row 603,
+   which builds it as `narrowGroupStore` for every int-lane kernel whose narrow store is masked
+   today. 603b combines the parts by OR, which the model read as intrinsic at 128 bits under
+   `-XX:UseAVX=2`, so this row's store half is not withdrawn; it is no longer this row's.*
 
 ## 10. Outcome
