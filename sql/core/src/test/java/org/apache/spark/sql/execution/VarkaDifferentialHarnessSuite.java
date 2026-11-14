@@ -371,9 +371,8 @@ public final class VarkaDifferentialHarnessSuite {
             shape("d + CAST(m AS INTERVAL YEAR) AS a", DECLINES))));
     // Group A, the interval-to-interval arithmetic: Spark computes every one with addExact and
     // its kin whatever the ANSI mode, so both modes fuse alike and nothing declines. Group C,
-    // the same expressions as a month count, declines the far rows' batch in both. The stored
-    // column's multiply is range-guarded, so only a far count declines its batch; try_add stays
-    // on the row engine.
+    // the same expressions as a month count, declines the far rows' batch in both. A checked
+    // multiply over an unbounded column, and try_add, stay on the row engine.
     var algebra = new ArrayList<Part>();
     for (boolean mode : new boolean[] {false, true}) {
       algebra.add(ansi(mode, INTERVALS,
@@ -383,7 +382,7 @@ public final class VarkaDifferentialHarnessSuite {
           shape("make_ym_interval(year(d), month(d)) AS a", SERVED),
           shape("d - CAST(m AS INTERVAL MONTH) AS a", FUSED),
           shape("d + CAST(month(d) AS INTERVAL YEAR) AS a", FUSED),
-          shape("ymm * 3 AS a", SERVED), shape("try_add(ymm, ymm2) AS a", NOT_FUSED)));
+          shape("ymm * 3 AS a", NOT_FUSED), shape("try_add(ymm, ymm2) AS a", NOT_FUSED)));
     }
     out.add(new Case("the year-month interval algebra fuses and agrees in both ANSI modes",
         algebra));

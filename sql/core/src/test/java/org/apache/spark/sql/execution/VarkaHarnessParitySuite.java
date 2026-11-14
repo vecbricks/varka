@@ -34,8 +34,6 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.sql.catalyst.expressions.Alias;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
-import org.apache.spark.sql.catalyst.expressions.Literal;
-import org.apache.spark.sql.catalyst.expressions.MultiplyYMInterval;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSqlResolve;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
@@ -44,8 +42,6 @@ import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
 import org.apache.spark.sql.catalyst.plans.logical.Project;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.test.TestSparkSession;
-import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.sql.types.YearMonthIntervalType;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -269,9 +265,8 @@ public final class VarkaHarnessParitySuite {
   }
 
   @Test
-  @DisplayName("an ArithmeticException is a raised condition only as Math's exact long overflow "
-      + "or as its int overflow raised by an expression, and any other is thrown as the "
-      + "harness's own")
+  @DisplayName("an ArithmeticException is a raised condition only as Math's exact long overflow, "
+      + "and any other is thrown as the harness's own")
   void onlyMathsLongOverflowIsAConditionlessRaise() {
     String name = ArithmeticException.class.getName();
     assertEquals(Optional.of(name), VarkaAnsiForm.condition(() -> {
@@ -282,16 +277,6 @@ public final class VarkaHarnessParitySuite {
       Math.negateExact(Long.MIN_VALUE);
       return List.of();
     }));
-    // ym * k's int product, and a bigint k's toIntExact, raised by the expression's own
-    // evaluation.
-    var ym = new YearMonthIntervalType(YearMonthIntervalType.YEAR(), YearMonthIntervalType.MONTH());
-    for (Literal k : List.of(Literal.create(2, DataTypes.IntegerType),
-        Literal.create(3_000_000_000L, DataTypes.LongType))) {
-      assertEquals(Optional.of(name), VarkaAnsiForm.condition(() -> {
-        new MultiplyYMInterval(Literal.create(Integer.MAX_VALUE, ym), k).eval(null);
-        return List.of();
-      }));
-    }
     // C2's preallocated instance, which stands in for a hot site's overflow.
     var preallocated = new ArithmeticException();
     preallocated.setStackTrace(new StackTraceElement[0]);

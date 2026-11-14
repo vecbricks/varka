@@ -222,7 +222,8 @@ with `x * k = MIN` **[A, 4]**. `k = 0` is the literal 0 (Spark multiplies and ne
 the operand, `k = -1` the checked negation of 2.1. A `TINYINT`, `SMALLINT` or `INT` literal is its
 long value. `k * dt` is the same node.
 
-**`ym * k` for an integral literal** (section 8, point 6) takes the same guard at the int lane:
+**`ym * k` for an integral literal** (section 8, point 6; **103a2**, moved there by the size
+cap) takes the same guard at the int lane:
 `Math.multiplyExact` on the int raises exactly outside `[ceil(Int.MIN / k), floor(Int.MAX / k)]`
 for `k > 0`, the two swapped for `k < 0`, so `GuardedRange` then `IntArith(MUL, WRAP)` at the int
 lane replaces today's decline over an unbounded column (item 9). A `BIGINT` literal is Spark's
@@ -255,7 +256,9 @@ extract is the offset, which the date arm reads itself without recursing
 that). That arm still declines a day offset other than `CAST(i AS INTERVAL DAY)` ("day interval is
 not an int column cast to days", `:527`), so `d + dt` over a stored `INTERVAL DAY` column keeps
 declining; admitting this row's quotient there under the date arm's day guard is a follow-up for
-the calendar family, not built here, and section 8's open points propose its home.
+the calendar family, not built here, and section 8's open points propose its home. The `d - dt`
+composition's test over a stored `INTERVAL DAY` column is **103a2**'s, moved there by the size
+cap; the arm is unchanged, so the composition fuses as before.
 
 ### 2.4 The quotients by an integral literal
 
@@ -396,7 +399,8 @@ cast register's interval rows are updated as each lands (section 6).
    and `r rem M = x rem M`, which also give 2.7's coarser casts; and `trunc(x / u) = q * (D / u) +
    trunc(r / u)` for `u` in `H`, `M`, `10^6` and every divisor a coverage row or a test uses. In a
    new `sql/varka/proofs/dt_arith.smt2`: the multiply guard's bounds against `multiplyExact`'s
-   range, per literal used by a test, at the long lane and for `ym * k` at the int lane; the days
+   range, per literal used by a test, at the long lane, `ym * k`'s at the int lane being
+   103a2's; the days
    guard and the hour and minute products' ranges of 2.6; the `HALF_UP` rule of 2.4 per divisor, as
    `ym_divide.smt2` does at the int lane (a symbolic divisor is nonlinear and was not solved there
    either), `Long.MAX_VALUE` among the divisors once 103d builds it; and for each decimal literal
@@ -410,7 +414,8 @@ cast register's interval rows are updated as each lands (section 6).
 3. **Named cells** through the coverage differential and an emitter suite, both widths: `dt + dt2`
    at `MAX` and `MAX - 1`; `-dt` and `abs(dt)` at `MIN` and `MIN + 1`, with the raised class of
    each (items 1, 2); `dt * k` at `lo - 1`, `lo`, `hi`, `hi + 1` for `k = 2`, `-2`, `MIN`, and
-   `ym * k` at the same four for `k = 2`, `-2` and `Int.MIN_VALUE`; the extracts at `MIN`, `MAX`,
+   `ym * k` at the same four for `k = 2`, `-2` and `Int.MIN_VALUE` (103a2); the extracts at
+   `MIN`, `MAX`,
    `+-D`, `+-(D - 1)`, `+-1` and 0; `dt / k` at the ties `+-5 / 2` and `5 / -2` **[A, 5]**, and
    `dt / 7` declining naming row 30 until 103d, then fused with `2^62 / MIN` **[A, 5]** and
    `1 / Long.MAX_VALUE`, whose answer is 0; `make_dt_interval` at days `+-106,751,991` and
@@ -433,8 +438,8 @@ cast register's interval rows are updated as each lands (section 6).
    it as 481's and 330's sweeps are, drawing 2^28 longs per form against Spark's own expressions on
    the row engine. No CI workflow runs it; the gate records its time.
 5. **Coverage rows**, a family "Day-time interval arithmetic": `dt + dt2`, `dt - dt2`, `-dt`,
-   `abs(dt)`, `dt * 3`, `3 * dt`, `ym * 3`, `dt / 24` (day split), `dt * 1.5` and `dt / 1.5`, `dt /
-   7` (after 30), `dt div dt2` (after 30), the four `extract`s and `date_part`,
+   `abs(dt)`, `dt * 3`, `3 * dt`, `ym * 3` (103a2), `dt / 24` (day split), `dt * 1.5` and
+   `dt / 1.5`, `dt / 7` (after 30), `dt div dt2` (after 30), the four `extract`s and `date_part`,
    `make_dt_interval(i, i2, i3)` and with a `DECIMAL(18, 6)` column, `CAST(dt AS INTERVAL HOUR)`,
    `CAST(dec AS INTERVAL SECOND)` and `CAST(dt AS DECIMAL(18, 6))`, each naming its verification
    for row 490's check (the SMT sections, or `differential`).
@@ -516,7 +521,8 @@ Predictions, registered before the build:
    itself under `PinsDefaults`, as the other baselines' suites do, 7 s on the laptop. The results
    files at both widths come from the EPYC runners and are committed before it merges; not yet
    run.
-2. **103a, needing nothing unbuilt**: 2.1, 2.2 with `ym * k`, `extract(DAY)` (and the bias
+2. **103a, needing nothing unbuilt**: 2.1, 2.2 with `ym * k` (**103a2**, moved there by the
+   size cap, section 5's note of 14 November 2026), `extract(DAY)` (and the bias
    helper, if 332b has not built it), 2.4's day split and the decimal literal forms whose divisor
    divides `D`, the proof additions, the cells and coverage rows of those forms, the first planted
    fault.
@@ -573,6 +579,23 @@ Predictions, registered before the build:
    emitter suite's `MIN` cell; `dt_arith.smt2` proves `YM_FACTORS` at the int lane; rows `ym * 3`
    and `extract(DAY FROM dt)`; the harness's ANSI form takes `Math`'s `integer overflow` from an
    expression for Spark's. No TRY form: a `try_` over an interval is `TryEval` (item 12).
+   *14 November 2026, 103a narrowed under the size cap; `ym * k` and the `d - dt` test to
+   103a2*: the branch counted 1060 lines against `230773d872d`, over the 1000-line cap, so two
+   pieces moved to 103a2. **`ym * k`**: `MultiplyYMInterval`'s literal dispatch,
+   `yearMonthTimesLiteral`, `yearMonthProductBounds`, the int-lane rows of `dt_arith.smt2`, the
+   `ym * 3` coverage row with `ymTimesThree`, the emitter suite's `ym * k` test, the census's
+   `ym * 3` note, the expected-errors line's int overflow and `toIntExact`, and the harness's
+   int-overflow naming went with it: `VarkaAnsiForm` names only `Math`'s long overflow again,
+   its first bare-exception row `ntz + dt`. The shapes that asserted the product fuses
+   (`VarkaDifferentialHarnessSuite`'s `ymm * 3`, `VarkaYmDivideSuite`'s `ym * 2`,
+   `VarkaExpressionCompilerSuite`'s bigint and short literals) decline again, and the year-month
+   arms' javadoc says again that a literal multiplier alone does not buy the check off.
+   **The `d - dt` composition**: its test over a stored `INTERVAL DAY` column moved, with the
+   day-offset decline's comment restored to master's wording; the extract arm stays, so the
+   composition still fuses as an int offset and 103a2 restores the test. What stays: 2.1's
+   arithmetic, `dt * k` and `k * dt`, `extract(DAY FROM dt)` with the planted fault, the day-time
+   rows of `dt_arith.smt2` and `long_divide.smt2`, the coverage family's day-time rows, the fuzz
+   grammar's day-time productions and the generated files.
 3. **103b, after 332b and 157 and 347**: `HOUR`, `MINUTE`, `SECOND`, `make_dt_interval` (the
    seconds of both, section 8, point 3), the third planted fault, and the measurement against the
    baseline at both widths.
@@ -584,7 +607,7 @@ Predictions, registered before the build:
 
 | file | what |
 |---|---|
-| `VarkaIntervalCompiler.java` | the day-time arms of 2.1 to 2.6, `ym * k` |
+| `VarkaIntervalCompiler.java` | the day-time arms of 2.1 to 2.6, `ym * k` (103a2) |
 | `VarkaTimeCompiler.java` | the identity relabel to a finer end field, 2.7's casts |
 | `VarkaNodeCompiler.java` | the day split helper, and `truncDivLong` if 103a lands before 332b |
 | `sql/varka/proofs/long_divide.smt2`, `dt_arith.smt2`, `VarkaProofFiles.java` | 3.1's claims |
@@ -594,7 +617,8 @@ Predictions, registered before the build:
 | generated | `width_audit.json`, `census.tsv` |
 
 **Size: medium, in five pull requests.** The baseline about half a day; 103a about two and a half
-days (the decimal literal and `ym * k` added); 103b about two after its prerequisites; 103c about
+days (the decimal literal added; `ym * k` moved to its second part by the size cap); 103b about
+two after its prerequisites; 103c about
 two (the casts, settled here on 30 October 2026); 103d about a day and a half after 30, 104 and
 342. Eight to nine days in all against the first plan's five and a half, which may move the row
 to large (section 8, open points).
@@ -604,7 +628,7 @@ to large (section 8, open points).
 The day-time pairs of `abs`, `negative`, `+` and `-` count when 103a lands; `extract_dt_days`
 with it, and `extract_dt_hours` and `extract_dt_minutes` with 103b; `extract_dt_seconds` and
 `make_dt_interval` with 103b over 157's store and 347's leaf; `extract`, `date_part` and `datepart`
-over `dt` when the four fields fuse; `ym_times_num`'s literal integral factor with 103a;
+over `dt` when the four fields fuse; `ym_times_num`'s literal integral factor with 103a2;
 `dt_times_num` and `dt_div_num` for an integral or decimal literal with 103a (a divisor of `D`)
 and 103d (the rest), for an integral column with 103d, their `float` and `double` cells being 342's
 lowering and their decimal column cells 361's and 363's; `div` over `dt` with 103d; the interval
@@ -647,7 +671,7 @@ None of the owner's. The lead settled the admission check's nine points on 30 Oc
    here (`VARKA-350.md` 7). Bouncing them back would leave them with no owner, and they are
    interval casts, under the interval family's switch. They are 103c, with Spark's rules pinned
    in 2.7 (`IntervalUtils.decimalToYearMonthInterval`, `decimalToDayTimeInterval`, `HALF_UP`).
-6. **`ym * k` for an integral literal**: yes, with the same guard (2.2), in 103a.
+6. **`ym * k` for an integral literal**: yes, with the same guard (2.2), in 103a2.
 7. **A decimal literal factor** (`dt * 1.5`, `dt / 1.5`) is this row's (2.4), with the double
    factor's tie cells as its named tests (3.3). The 2400176 samples of **[A, 8]** are the admission
    check, not the test.
@@ -751,23 +775,36 @@ committed at both widths with its predictions scored; and the PR build and the o
 A `/code-review high` pass over the merge resolution found ten verified items, all in comments,
 documentation, tests, proofs and generated files: the emitter and the compiler's behaviour did
 not change. `sql/varka/golden_corpus.json` was regenerated, its `interval day to second` entries
-flipping from plain to fused. The differential harness's `ymm * 3` shape is `SERVED` (the stored
-count is range-guarded, so only a far count declines a batch), and the stored-`INTERVAL DAY`
-offset test pins ANSI on: the product `extract(DAY FROM dd) * 2` declines only under ANSI, where
-the checked int multiply is a node the date offset position refuses, and wraps (and fuses) with
-ANSI off, so the test states the mode it needs. `VarkaFamily.INTERVAL.covers()`, the
-`VarkaIntervalCompiler` javadocs and their rendered docs name the day-time half; the day-offset
-decline's comment and the matching test comment say what remains true (the date arm reads its
-offsets without recursing, so admitting the extract's day quotient there is a calendar
-follow-up); the grammar's excluded `<ym> * k` states the real reason (the INT position holds only
-the column `i`, so a product would draw the declining column factor, the old bare-exception
-reason having gone); the expected-errors row names the int overflow and the interval products;
-the `dt_arith.smt2` header says the symmetric-bound check is rendered only for k = 2, -2 and
-Integer.MIN_VALUE, and the proof file is regenerated; and the coverage row's `ym * 3` bounds are
-`yearMonthProductBounds(3)`'s rather than a hand copy.
+flipping from plain to fused. `VarkaFamily.INTERVAL.covers()`, the `VarkaIntervalCompiler`
+javadocs and their rendered docs name the day-time half; the grammar's excluded `<ym> * k`
+states master's reason again after `ym * k` moved to 103a2; the expected-errors row names the
+day-time interval product's long overflow; and the `dt_arith.smt2` header says the
+symmetric-bound check is rendered only for k = 2, -2 and Integer.MIN_VALUE, the proof file
+regenerated with the day-time rows alone.
+
+*14 November 2026, the branch narrowed to the size cap:* counted against `230773d872d` the
+branch was 1060 lines, over the 1000-line cap, so two pieces moved to 103a2 and the branch
+re-counted under it, as section 5's note records. **`ym * k`** lost its `MultiplyYMInterval`
+literal dispatch, `yearMonthTimesLiteral`, `yearMonthProductBounds` and the int-lane rows of
+`dt_arith.smt2`; the `ym * 3` coverage row and `ymTimesThree`, the emitter suite's `ym * k`
+test, the census's `ym * 3` note and the expected-errors line's int overflow and `toIntExact`
+went with it, and the harness's int-overflow naming is withdrawn (`VarkaAnsiForm` is back to
+`isExactLongOverflow`, its representative row `ntz + dt`, as are `VarkaSparkFuzz`,
+`VarkaHarnessParitySuite` and `VarkaCatalystGrammar`). The suites that asserted the product
+fuses are back to the declining truth: `VarkaDifferentialHarnessSuite`'s `ymm * 3` is
+`NOT_FUSED`, `VarkaYmDivideSuite`'s `ym * 2` queries decline, and
+`VarkaExpressionCompilerSuite` declines a bigint or short literal again;
+`make_ym_interval(...) * 2` over a bounded operand still fuses, and the year-month arms'
+javadoc says so as master did. **The `d - dt` composition** lost its test over a stored
+`INTERVAL DAY` column, and the day-offset decline's comment is master's again; the extract arm
+is unchanged, so the composition still fuses as an int offset and 103a2 restores the test with
+the comment. Everything else stands: 2.1's arithmetic, `dt * k` and `k * dt`,
+`extract(DAY FROM dt)` with its planted fault, the coverage family's day-time rows, the fuzz
+grammar's day-time productions, the day-time `dt_arith.smt2` rows, `long_divide.smt2`'s fault
+and the generated files.
 
 Left as reviewed, with reasons: the checked day-time arms skip the session's two-lane refusal, a
 design gap like TIMESTAMP_NTZ arithmetic's, which row 503, the refusal's own row, holds;
 `abs(dt)` is hand-built as `IfElse` rather than `IntNeg(abs=true)`; `-dt` and `abs(dt)` hard-code
-`FAIL` rather than read `longNegationMode`; `dt * -1` and `ym * -1` use the guarded multiply
+`FAIL` rather than read `longNegationMode`; `dt * -1` uses the guarded multiply
 rather than the checked negation; and the `d - dt` coverage row is still missing.

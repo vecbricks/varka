@@ -29,7 +29,7 @@ import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, And, Attribute, AttributeReference, Cast, DateAdd, Expression, ExtractANSIIntervalMonths, Greatest, InheritAnalysisRules, InSet, LastDay, Literal, NamedExpression, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate,
   CompiledVarkaProjection, PartialVarkaProjection, VarkaConjunctSpec, VarkaDecline,
-  VarkaExpressionCompiler, VarkaIntervalCompiler, VarkaOutputSpec}
+  VarkaExpressionCompiler, VarkaOutputSpec}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput,
   FusedOutput, KernelOutput, ResidualOutput}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
@@ -192,9 +192,6 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val dayLimit = VarkaChrono.INTERVAL_DAY_LIMIT_DAYS
   private val minMonths = VarkaChrono.MONTH_ARITH_MIN_MONTHS
   private val maxMonths = VarkaChrono.MONTH_ARITH_MAX_MONTHS
-
-  /** `ym * 3`'s guard, the compiler's own: the ints whose product by three is an int. */
-  private val ymTimesThree = VarkaIntervalCompiler.yearMonthProductBounds(3)
 
   /**
    * The note of a null test over an ordered comparison, which Spark's default
@@ -404,11 +401,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "the operands must be bounded - over a bare int column the checked multiply inside "
           + "it keeps its overflow test and declines", domain = Some(dayBound)),
       Row("make_ym_interval(year(d), month(d)) * 2",
-        "a checked multiply whose bounded operands take the check off", domain = Some(dayBound)),
-      Row("ym * 3", "a stored interval column times an integral literal: the count is guarded "
-        + "to the ints whose product fits, exactly, and the multiply wraps; a column factor "
-        + "declines", domain = Some(
-          s"ym BETWEEN ${ymLiteral(ymTimesThree(0))} AND ${ymLiteral(ymTimesThree(1))}")),
+        "a checked multiply, so bounded operands again: `ym * 2` over a stored interval "
+          + "column declines", domain = Some(dayBound)),
       Row("abs(ym)", "interval arithmetic is exact in every mode: the one count whose negation "
         + "overflows declines", domain = Some(s"ym > ${ymLiteral(Int.MinValue)}")),
       Row("ym - ymm", "exact in every mode: a difference outside the month count's int declines",
@@ -2161,7 +2155,6 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "CAST(dt AS BIGINT)" -> Proved("long_divide.smt2"),
     "dt * 3" -> Proved("dt_arith.smt2"),
     "-2 * dt" -> Proved("dt_arith.smt2"),
-    "ym * 3" -> Proved("dt_arith.smt2"),
     "extract(DAY FROM dt)" -> Proved("long_divide.smt2"),
     "ym / 12" -> Proved("ym_divide.smt2"),
     "ym / -7" -> Proved("ym_divide.smt2"),

@@ -420,20 +420,8 @@
     "operands" : [ "MakeYMInterval:int", "Month:date", "MultiplyYMInterval:int", "MultiplyYMInterval:ym", "Year:date" ],
     "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.interval.enabled" ],
     "domain" : "unix_date(d) BETWEEN -719162 AND 2932896",
-    "note" : "a checked multiply whose bounded operands take the check off",
+    "note" : "a checked multiply, so bounded operands again: `ym * 2` over a stored interval column declines",
     "verified" : "differential"
-  }, {
-    "sql" : "ym * 3",
-    "executable" : "ym * 3",
-    "family" : "Months and year-month intervals",
-    "form" : "projection",
-    "catalyst" : [ "MultiplyYMInterval" ],
-    "casts" : [ ],
-    "operands" : [ "MultiplyYMInterval:int", "MultiplyYMInterval:ym" ],
-    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
-    "domain" : "ym BETWEEN INTERVAL '-59652323-6' YEAR TO MONTH AND INTERVAL '59652323-6' YEAR TO MONTH",
-    "note" : "a stored interval column times an integral literal: the count is guarded to the ints whose product fits, exactly, and the multiply wraps; a column factor declines",
-    "verified" : "proof: dt_arith.smt2"
   }, {
     "sql" : "abs(ym)",
     "executable" : "abs(ym)",

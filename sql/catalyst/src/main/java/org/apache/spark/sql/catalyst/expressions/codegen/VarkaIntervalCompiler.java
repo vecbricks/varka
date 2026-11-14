@@ -78,9 +78,8 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  *
  * <p>The literal and input tables are the classifier's {@link VarkaSlotTable}s.
  *
- * <p>The class is public for {@link #dayTimeProductBounds} and {@link #yearMonthProductBounds},
- * which the proof renderer and the end-to-end suite read from other packages so that they state
- * the compiler's own bounds.
+ * <p>The class is public for {@link #dayTimeProductBounds}, which the proof renderer and the
+ * end-to-end suite read from other packages so that they state the compiler's own bounds.
  */
 public final class VarkaIntervalCompiler {
 
@@ -404,8 +403,9 @@ public final class VarkaIntervalCompiler {
 
   /**
    * {@code Math.multiplyExact(months, num)} for the int-family arms. Both operands have to be
-   * bounded before the check comes off, and a stored interval column never is, so an int column
-   * multiplier declines; an integral literal is {@link #yearMonthTimesLiteral}. The
+   * bounded before the check comes off, and a stored interval column never is, so a literal
+   * multiplier alone does not buy it: {@code ym * 2} declines, while
+   * {@code make_ym_interval(year(d), month(d)) * 2} fuses over a bounded interval. The
    * {@code Long}, {@code Decimal} and {@code Double} arms are not int32 lanes and decline by type
    * rather than reaching {@code intOperand}, which would report them as "not an int column or
    * literal" and hide which of the two is wrong.
@@ -415,9 +415,6 @@ public final class VarkaIntervalCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    if (m.num() instanceof Literal l && l.dataType() instanceof IntegralType) {
-      return yearMonthTimesLiteral(m, l, inputs, literals, sink);
-    }
     if (!m.num().dataType().equals(DataTypes.IntegerType)) {
       return sink.decline("interval multiplier of type " + m.num().dataType().simpleString()
           + " is not an int32 lane", m);
@@ -662,15 +659,6 @@ public final class VarkaIntervalCompiler {
     return productBounds(k, Long.MIN_VALUE, Long.MAX_VALUE);
   }
 
-  /**
-   * {@link #dayTimeProductBounds} for the month count: the ints {@code x} whose true product by
-   * {@code k} is an int, which is where {@code ym * k} does not raise, as {@code [lo, hi]}
-   * clamped to the int.
-   */
-  public static long[] yearMonthProductBounds(long k) {
-    return productBounds(k, Integer.MIN_VALUE, Integer.MAX_VALUE);
-  }
-
   private static long[] productBounds(long k, long least, long greatest) {
     if (k == 0) {
       throw new IllegalArgumentException("a zero factor never overflows");
@@ -693,39 +681,6 @@ public final class VarkaIntervalCompiler {
 
   private static BigInteger ceilDiv(BigInteger a, BigInteger b) {
     return floorDiv(a.negate(), b).negate();
-  }
-
-  /**
-   * {@code ym * k} for an integral literal {@code k} (VARKA-103 2.2): Spark's
-   * {@code multiplyExact(months, k)}, or {@code toIntExact} of the long product for a
-   * {@code BIGINT} {@code k}, raising exactly where the true product leaves the int. Unless the
-   * bounds prove it fits, the count is guarded to {@link #yearMonthProductBounds}; the wrapping
-   * multiply by {@code (int) k} is then exact, agreeing with the true product modulo {@code 2^32}.
-   */
-  private static Optional<VarkaVectorIR> yearMonthTimesLiteral(
-      MultiplyYMInterval m,
-      Literal l,
-      VarkaSlotTable inputs,
-      VarkaSlotTable literals,
-      DeclineSink sink) {
-    if (!(l.value() instanceof Number n)) {
-      return sink.decline("interval multiplier is a NULL literal", m);
-    }
-    long k = n.longValue();
-    int mark = literals.size();
-    Optional<VarkaVectorIR> x =
-        intervalOperand(m.interval(), "the multiplied interval", inputs, literals, sink);
-    if (x.isEmpty() || k == 1) {
-      return rolledBack(x, literals, mark);
-    }
-    VarkaVectorIR months = x.get();
-    LiteralSlot factor = VarkaNodeCompiler.intSlot((int) k, literals);
-    if (k != 0 && (k != (int) k
-        || !VarkaNodeCompiler.cannotOverflow(IntOp.MUL, months, factor, literals, sink))) {
-      long[] bounds = yearMonthProductBounds(k);
-      months = new GuardedRange(months, bounds[0], bounds[1]);
-    }
-    return Optional.of(new IntArith(IntOp.MUL, Overflow.WRAP, months, factor));
   }
 
   /**

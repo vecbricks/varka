@@ -344,8 +344,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `d + ym` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896 AND ym BETWEEN INTERVAL '-2048-0' YEAR TO MONTH AND INTERVAL '2047-0' YEAR TO MONTH` | the interval's month count, under the same range | vector |
 | `d - ym` | `calendar`, `interval` | `unix_date(d) BETWEEN -719162 AND 2932896 AND ym BETWEEN INTERVAL '-2047-0' YEAR TO MONTH AND INTERVAL '2048-0' YEAR TO MONTH` | the negated count under the range, so the bounds change sides | vector |
 | `make_ym_interval(year(d), month(d))` | `calendar`, `interval` | `unix_date(d) BETWEEN -719162 AND 2932896` | the operands must be bounded - over a bare int column the checked multiply inside it keeps its overflow test and declines | vector |
-| `make_ym_interval(year(d), month(d)) * 2` | `calendar`, `interval` | `unix_date(d) BETWEEN -719162 AND 2932896` | a checked multiply whose bounded operands take the check off | vector |
-| `ym * 3` | `interval` | `ym BETWEEN INTERVAL '-59652323-6' YEAR TO MONTH AND INTERVAL '59652323-6' YEAR TO MONTH` | a stored interval column times an integral literal: the count is guarded to the ints whose product fits, exactly, and the multiply wraps; a column factor declines | vector |
+| `make_ym_interval(year(d), month(d)) * 2` | `calendar`, `interval` | `unix_date(d) BETWEEN -719162 AND 2932896` | a checked multiply, so bounded operands again: `ym * 2` over a stored interval column declines | vector |
 | `abs(ym)` | `interval` | `ym > INTERVAL '-178956970-8' YEAR TO MONTH` | interval arithmetic is exact in every mode: the one count whose negation overflows declines | vector |
 | `ym - ymm` | `interval` | `CAST(ym AS BIGINT) - CAST(ymm AS BIGINT) BETWEEN -2147483648 AND 2147483647` | exact in every mode: a difference outside the month count's int declines | vector |
 | `ym + ym` | `interval` | `CAST(ym AS BIGINT) + CAST(ym AS BIGINT) BETWEEN -2147483648 AND 2147483647` | the sum, exact in every mode as the difference is | vector |
@@ -1371,11 +1370,11 @@ operands (a row counts once for each type it reads):
 | `double` | 85 | 0 | 0 | 1 | 0 | 0 | 84 |
 | `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
-| `int` | 178 | 14 | 0 | 5 | 1 | 1 | 157 |
+| `int` | 177 | 14 | 0 | 4 | 1 | 1 | 157 |
 | `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
 | `short` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
 | `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
-| `ym` | 41 | 7 | 0 | 3 | 0 | 2 | 29 |
+| `ym` | 40 | 7 | 0 | 2 | 0 | 2 | 29 |
 <!-- END generated verification counts -->
 
 ## Glossary
