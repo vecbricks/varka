@@ -133,7 +133,7 @@ registration this row has is the census, which section 6.1 predicts and section 
 | test | what it pins | oracle |
 |---|---|---|
 | `VarkaWidthAuditSuite`'s "the coverage table's d18 IN row reaches the audit as an InSet" | `parsedRow` gives an `In` whose elements are not all `Literal`s (the old rule's blind spot), and `resolvedRow` gives an `InSet` | the coverage table's own row, whose `catalyst` field records the optimizer's `InSet` |
-| `VarkaMaskOfWordSuite`, all four tests | the audit's shapes still compile and scan, and the row is not lost to a refusal (`scanned > 200` and `> 200 * 30`) | its own data-flow pass and counted kernels |
+| `VarkaMaskOfWordSuite`, its five tests (this line said "all four"; the measured count below corrects it) | the audit's shapes still compile and scan, and the row is not lost to a refusal (`scanned > 200` and `> 200 * 30`) | its own data-flow pass and counted kernels |
 | `dev/varka_regen_generated.sh --all` | `width_audit.json`, `coverage.json`, the docs blocks and the census do not move | its own regeneration and `dev/varka_census.py --check` |
 
 No pinned fixture is expected to move. If the audit's kernel for the row does move, the census
@@ -187,4 +187,59 @@ git diff --exit-code -- sql/varka/width_audit.json sql/varka/coverage.json docs/
 
 ## 9. Outcome
 
-Filled in with the implementation.
+Built 14 November 2026 on branch `varka-607-inset`, from origin/master `230773d872d`.
+
+**What was built.** `VarkaWidthAuditShapes.asCatalystClaims` and its scaladoc are deleted. The
+audit now resolves each coverage row through two small methods: `parsedRow` (the parser and the
+analyzer over the table's columns) and `resolvedRow` (`VarkaSqlResolve.inSetAsClaimed` applied to
+the table's claim), and `coverageRows` calls the latter. The fail-loudly rule comes with the
+helper: a row the table records as an `InSet` that resolves to anything but an `In` of foldable
+elements throws instead of being audited as an `In`. The three imports the deleted copy used
+(`In`, `InSet`, `Literal`) are gone. `VarkaWidthAuditSuite` gains "the coverage table's d18 IN row
+reaches the audit as an InSet": it reads the row from `coverage.json`, asserts the parsed form is
+an `In` with at least one non-`Literal` element (the analyzer's widening casts, which the deleted
+rule matched against `Literal`s alone) and asserts the audit's resolved form is the `InSet` the
+table records.
+
+**Checks.** `build/sbt 'catalyst/testOnly *VarkaMaskOfWordSuite'` passed, 5 tests, 0 failed,
+24.8 s of test time, 215 s wall under the heavy lock. `dev/varka_regen_generated.sh --all` on the
+laptop (the audit's host) exited 0 with every step passing: `VarkaTypesSuite` 8/8,
+`VarkaFuzzTypesSuite` 7/7, `VarkaCastMatrixSuite` 2/2, `VarkaCoverageSuite` 13 (0 failed, 1
+canceled by its own opt-in `assume`), `VarkaWidthAuditSuite` 7/7 (the new test among them),
+`VarkaEmittedBytesSuite` 8/8, the second coverage run 12 succeeded + 1 canceled, and
+`dev/varka_census.py --check` passed. `git status --short` after the regen lists only the two
+changed test sources: all nine generated files - `width_audit.json` included - were rewritten
+byte-identically. The row's grep prints three lines, all claim reads passed to the helper
+(`VarkaWarmupReach.java:348`, `VarkaEmittedBytesSuite.scala:241`,
+`VarkaWidthAuditShapes.scala:140`), and no rewrite stands beside any of them.
+
+**Predictions, scored.** 1, 2 and 3 held. 4 was registered as "two lines" and the run prints
+three: with the audit now one of the helper's callers, its own `catalyst.contains("InSet")` at the
+call site is a third claim read. All three are reads of the coverage table's claim, so the row's
+condition ("only the helper's callers' claim reads, with no rewrite beside them") holds and the
+count was the prediction's error, not the tree's. 5 was registered as "under 200 lines" and the
+push check counts 281 against the base: 54 of them are the two test sources (17 added and 12
+removed in `VarkaWidthAuditShapes`, 25 added in `VarkaWidthAuditSuite`), and the other 227 are
+this plan file (225) and the row's one-line record. The prediction is over, the overage is the
+plan's length rather than code, and the change stays far under the 1000-line cap. Nothing moved
+that the plan did not list.
+
+**The review.** One `/code-review high` pass found eight points; four independent angles
+verified the change lowers both forms to identical IR, so none is a correctness defect. Fixed:
+`parsedRow` calls `VarkaSqlResolve.parse` rather than respelling it, and its now-unused parser
+import is gone; the fold's refusal in `coverageRows` names the coverage row's SQL, since the
+audit's probe dies before any shape marker; the test also drives the audit's own entry point (the
+row is a `Shape` it compiles), guards its field reads as the audit's reader does, pattern-matches
+instead of assert-then-cast, and section 5's "all four tests" is corrected to the suite's five.
+Left, with the reason: a test cannot distinguish the `In` and `InSet` forms, which lower through
+the same `inArm` to identical IR (the byte-identical census is the evidence), so a revert of the
+fold is unobservable to any test of behaviour; the test inherits the suite's five-probe
+`beforeAll` cost, which risk 4 records; and the row-reader consolidation across the three
+consumers is a row of its own, as the review itself suggested.
+
+Known limitation, shared with 567's helper: the `catalyst` field names every class in a row's
+tree, while the fold requires a top-level `In`, so a future compound row whose `InSet` is nested
+(`i IN (...) AND l > 0`) would be refused by the audit rather than compiled; no such row exists,
+and the same trade-off is recorded on the helper row 567 added. The values the fold builds are held to
+the optimizer's own by `VarkaDecimalInSuite.inSetRewriteIsTheOptimizers`, so this test pins the
+audit's path rather than re-proving the set.
