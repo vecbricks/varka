@@ -28,6 +28,7 @@ import scala.util.{Failure, Success, Try}
 import com.fasterxml.jackson.databind.ObjectMapper
 
 import org.apache.spark.SparkFunSuite
+import org.apache.spark.sql.catalyst.expressions.{In, InSet, Literal}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditProbe._
 
 /**
@@ -343,6 +344,36 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
   private def unexplainedDeclines(
       declined: Map[String, String], recorded: Map[String, String]): Map[String, String] =
     declined.filter { case (shape, line) => recorded.get(shape) != Some(line) }
+
+  test("the coverage table's d18 IN row reaches the audit as an InSet") {
+    // The optimizer hands this row to the compiler as an InSet of Decimals: its literals arrive
+    // under the analyzer's widening cast, which is why the audit folds the row with
+    // VarkaSqlResolve.inSetAsClaimed rather than matching Literals alone (VARKA-607).
+    val sql = "d18 IN (11 to 16 decimal literals)"
+    val doc = new ObjectMapper().readTree(coverageJson)
+    val row = doc.get("expressions").elements().asScala
+      .find(e => Option(e.get("sql")).exists(_.asText() == sql))
+      .getOrElse(fail(s"coverage.json has no row '$sql'"))
+    val executable = Option(row.get("executable")).map(_.asText()).getOrElse(sql)
+    val catalyst = Option(row.get("catalyst"))
+      .map(_.elements().asScala.map(_.asText()).toSet).getOrElse(Set.empty[String])
+    assert(catalyst === Set("InSet"), s"the row's catalyst field is $catalyst")
+    val in = VarkaWidthAuditShapes.parsedRow(executable) match {
+      case i: In => i
+      case other => fail(s"the row's spelling parsed to ${other.getClass.getSimpleName}")
+    }
+    assert(in.list.exists(!_.isInstanceOf[Literal]),
+      "every element is a Literal, so a rule matching Literals alone would rewrite the row")
+    val resolved = VarkaWidthAuditShapes.resolvedRow(executable, catalyst)
+    assert(resolved.isInstanceOf[InSet],
+      s"the audit resolved the row to ${resolved.getClass.getSimpleName}: $resolved")
+    // The audit's own path: the row is a shape it compiles, not a decline. The two forms lower
+    // alike, so the census alone cannot tell which one was audited.
+    val audited = VarkaWidthAuditShapes.coverageRows(coverageJson)
+      .find(_.name == sql).getOrElse(fail(s"the audit has no entry for '$sql'"))
+    assert(audited.isInstanceOf[VarkaWidthAuditShapes.Shape],
+      s"the audit declined the row: $audited")
+  }
 
   test("at the host's preferred width, every shape is emitted and C2 has a lowering for every " +
       "Vector API call in it, the 64-bit converts below AVX-512 excepted") {
