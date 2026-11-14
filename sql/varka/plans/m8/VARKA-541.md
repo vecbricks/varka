@@ -462,6 +462,34 @@ Left of the row: 2.2's `IsNotNull`-order test, 2.3's fuzzer step and the census 
 removed when an upstream fix of SPARK-61197 syncs, and 2.4's when SPARK-60774's fix makes Spark
 answer item 10's case.
 
+**14 November 2026: the batch-size axis and the tests' raising rows (matrix run 43597177147, bin
+b021).** The three tests that pin where Spark evaluates a common subexpression failed under
+`arrowBatchSize=1`, all three on Spark never raising (`INVALID_ARRAY_INDEX` twice,
+`DATETIME_FIELD_OUT_OF_BOUNDS` once), not on a difference between the engines. The cause is the
+cache's batch pruning (`SimpleMetricsCachedBatchSerializer.buildFilter`): with one row a batch,
+each cached batch's minimum and maximum are its one value, so a cheap conjunct - `b < 0` in
+item 5's and item 10's queries, `s = 'x'` in item 6 (a)'s - prunes the batch holding the row
+whose shared extract would raise before either engine's filter runs; at the defaults both
+fixture rows share a batch, and the pruning drops nothing. That is a test premise about the
+cache's layout, not a product defect: the four-cell differential comparison agreed in every
+cell, and the suite itself passed in the run's other bins - b044 failed on a stale `skips.tsv`
+entry in another suite, b057 and b121 on failures of other suites, and the report job on those.
+`VarkaDifferentialSuite` now reads the cache with
+`spark.sql.inMemoryColumnarStorage.partitionPruning` off in both sessions for its whole run,
+set in `beforeAll` and restored in `afterAll`, whenever the effective
+`spark.sql.execution.arrow.maxRecordsPerBatch` is one row in both sessions (the matrix label or
+a forked JVM's `-D`; the two sessions must agree, or the suite fails rather than compare
+differently shaped batches). A per-query wrapper was too narrow a fix: the VARKA-273 test kept
+passing while its `s = 'x'` conjunct pruned away the invalid-month row's batch, so the
+declined-batch path it exists to check never ran, and the VARKA-380 test stayed cancelled by
+`skips.tsv`. That line is now gone and its test restored. Owed: the same cached-batch-pruning
+wrapper remains in two copies (`VarkaCoverageDifferentialSuite.withFloatingPruningOff` and
+`VarkaSparkDifferential.withFloatingPruningOff`), beside four unguarded `withBothConf` sites; a
+`withoutCachedBatchPruning` beside `withBothConf` in `VarkaSharedSessions` would absorb them.
+Left undone here because the suite-level fix leaves this suite no call site. Laptop run: the
+defaults pass 32 of 32; `arrowBatchSize=1` failed these three before the change and passes
+after it.
+
 ## Appendix: the plan of 1 November 2026, superseded
 
 The plan as committed at `7e640372d25` (#1270), unchanged but for its headings, one level down.
