@@ -726,7 +726,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `greatest(y1, l)` | `intArithmetic`, `integralCast` |  | type coercion widens the byte, loaded at the long width, to meet the bigint; differential | per-lane: blend, mask broadcast, load or store, mask test |
 | `CAST(i + 1 AS TINYINT)` | `intArithmetic`, `integralCast` | `i BETWEEN -129 AND 126` | a computed int narrowed, the add checked under ANSI as any int add is; differential | vector |
 | `CAST(i < 5 AS TINYINT)` | `predicate`, `integralCast` |  | a comparison's value at the int lane, narrowed: a 0 or a 1 needs no wrap; differential | vector |
-| `CAST(dt AS BIGINT)` | `time` | `dt > INTERVAL '-50000' DAY AND dt < INTERVAL '50000' DAY` | the whole seconds of a DAY TO SECOND interval: a truncating division by 10^6 under a guard of 2^52 microseconds, past which the row engine divides; the DAY end is exact over every long | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `CAST(dt AS BIGINT)` | `time` | `dt BETWEEN INTERVAL '-52124 23:53:47.370495' DAY TO SECOND AND INTERVAL '52124 23:53:47.370495' DAY TO SECOND` | the whole seconds of a DAY TO SECOND interval: a truncating division by 10^6 under a guard of 2^52 microseconds, past which the row engine divides; the DAY end is exact over every long | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 
 #### Integral cast predicates
 

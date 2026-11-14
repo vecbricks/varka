@@ -1536,6 +1536,12 @@ the kernel's status to `VarkaGuardSpec`'s verdict on every batch. What it took:
   now allows a guard above an overflowed FAIL node to fire (`overflowedBelow`), through the taken
   arm only. And under ANSI the first declined batch's row path raises and the task stops, so the
   events are a prefix of the per-batch verdicts; the check accepts the prefix only after a raise.
+- **A coverage row's domain must be the guard's own condition, not a sufficient one.** A narrower
+  bound passes on the default batch size, where the whole outside partition is one batch and an
+  overflowing row condemns it anyway, and goes red under `arrowBatchSize=1` or `=3`, where such a
+  batch can hold only rows the kernel answers; spell the guard through Spark's `try_` form, as
+  the `TIMESTAMP_NTZ` rows do, so the domain is unknown exactly where an operand is null and
+  false exactly where the guard fires (VARKA-610).
 
 To date every guarded row answers inside its domain and where it is unknown with nothing
 declined, and declines every batch outside with exactly the status the verdict calls for, in a

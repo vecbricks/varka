@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput,
   FusedOutput, KernelOutput, ResidualOutput}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.catalyst.util.DateTimeConstants.{MICROS_PER_DAY, MICROS_PER_HOUR, NANOS_PER_DAY, NANOS_PER_MICROS, NANOS_PER_MILLIS}
+import org.apache.spark.sql.catalyst.util.DateTimeConstants.{MICROS_PER_DAY, MICROS_PER_HOUR, MICROS_PER_MINUTE, MICROS_PER_SECOND, NANOS_PER_DAY, NANOS_PER_MICROS, NANOS_PER_MILLIS}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
 import org.apache.spark.util.Utils
@@ -218,6 +218,30 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    */
   private val ntzFieldDays = "unix_date(CAST(ntz AS DATE)) BETWEEN " +
     s"${VarkaRangeAnalysis.NTZ_MIN_DAYS} AND ${VarkaChrono.NARROW_MAX_DAYS}"
+  /**
+   * The microseconds `CAST(dt AS BIGINT)` divides without a wider dividend: the cast's range
+   * guard admits `|micros| <= 2^52 - 1`, the bound of the exact-division lowering.
+   */
+  private val intervalCastMicros = VarkaVectorIR.ConstDivide.EXACT_DIVIDEND_BOUND - 1
+  /** `INTERVAL 'd hh:mm:ss.ffffff' DAY TO SECOND` for a microsecond count, sign included. */
+  private def daySecond(micros: Long): String = {
+    val magnitude = math.abs(micros)
+    val rest = magnitude % MICROS_PER_DAY
+    val sign = if (micros < 0) "-" else ""
+    f"$sign${magnitude / MICROS_PER_DAY} ${rest / MICROS_PER_HOUR}%02d:" +
+      f"${rest % MICROS_PER_HOUR / MICROS_PER_MINUTE}%02d:" +
+      f"${rest % MICROS_PER_MINUTE / MICROS_PER_SECOND}%02d." +
+      f"${rest % MICROS_PER_SECOND}%06d"
+  }
+  /**
+   * The domain of `CAST(dt AS BIGINT)` (VARKA-332): the microseconds the cast's range guard
+   * admits, which only a `DAY TO SECOND` literal states exactly (VARKA-610).
+   */
+  private val intervalCastDomain = {
+    val lower = daySecond(-intervalCastMicros)
+    val upper = daySecond(intervalCastMicros)
+    s"dt BETWEEN INTERVAL '$lower' DAY TO SECOND AND INTERVAL '$upper' DAY TO SECOND"
+  }
   /**
    * The domain of a row whose kernel answers exactly where the row does not raise: unknown where
    * an operand is null, and otherwise whether Spark's `try_` form of the row has a value, which
@@ -923,7 +947,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(dt AS BIGINT)", "the whole seconds of a DAY TO SECOND interval: a truncating "
         + "division by 10^6 under a guard of 2^52 microseconds, past which the row engine "
         + "divides; the DAY end is exact over every long",
-        domain = Some("dt > INTERVAL '-50000' DAY AND dt < INTERVAL '50000' DAY")))),
+        domain = Some(intervalCastDomain)))),
 
     Family("Integral cast predicates", predicates = true, Seq(
       Row("CAST(y1 AS BOOLEAN)", "x != 0, which cannot fail; exhaustive"),

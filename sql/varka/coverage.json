@@ -3863,7 +3863,7 @@
     "casts" : [ "dt>bigint:ansi" ],
     "operands" : [ "Cast:dt" ],
     "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
-    "domain" : "dt > INTERVAL '-50000' DAY AND dt < INTERVAL '50000' DAY",
+    "domain" : "dt BETWEEN INTERVAL '-52124 23:53:47.370495' DAY TO SECOND AND INTERVAL '52124 23:53:47.370495' DAY TO SECOND",
     "note" : "the whole seconds of a DAY TO SECOND interval: a truncating division by 10^6 under a guard of 2^52 microseconds, past which the row engine divides; the DAY end is exact over every long",
     "verified" : "proof: long_divide.smt2"
   }, {
