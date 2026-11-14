@@ -863,7 +863,7 @@
     "casts" : [ ],
     "operands" : [ "Add:bigint" ],
     "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
-    "domain" : "l BETWEEN -4611686018427387904 AND 4611686018427387903 AND l2 BETWEEN -4611686018427387904 AND 4611686018427387903",
+    "domain" : "if(l IS NULL OR l2 IS NULL, NULL, try_add(l, l2) IS NOT NULL)",
     "note" : "checked under ANSI at 64 bits; the legacy mode wraps as Spark does",
     "verified" : "differential"
   }, {
@@ -875,7 +875,7 @@
     "casts" : [ ],
     "operands" : [ "Subtract:bigint" ],
     "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
-    "domain" : "l BETWEEN -4611686018427387904 AND 4611686018427387903 AND l2 BETWEEN -4611686018427387904 AND 4611686018427387903",
+    "domain" : "if(l IS NULL OR l2 IS NULL, NULL, try_subtract(l, l2) IS NOT NULL)",
     "note" : "checked subtraction at 64 bits",
     "verified" : "differential"
   }, {

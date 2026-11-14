@@ -222,5 +222,60 @@ same suite one configuration at a time and read `defaults 2569` passes and
 
 ## 9. Outcome
 
-*To be written when the measurement lands, section by section as the plan's own rule asks.
-Nothing above is to be rewritten to look prescient.*
+Built 14 November 2026 on branch `varka-610`, from origin/master `9000fc5e911`.
+
+**What was built.** The row's first direction. `ntzDomain` is `tryDomain`, with a doc that names
+both of its users, and its nine call sites take the new name. The two BIGINT sums name their
+guards' own conditions, `if(l IS NULL OR l2 IS NULL, NULL, try_add(l, l2) IS NOT NULL)` and the
+`try_subtract` twin, so the domain is unknown exactly where an operand is null and true exactly
+where the guard does not fire. The Bigint arithmetic family comment says why, and the four
+`arrowBatchSize=1` and `=3` skip lines are deleted. `VarkaDomains.check` is unchanged: both of
+its directions hold now that the two domains are exact.
+
+**The measurement.** The option matrix over `VarkaCoverageHarnessSuite`, the defaults and both
+configurations, run on the laptop under the heavy lock:
+
+```
+configuration                    exit  secs    ok fail canc abort unfused atdef
+defaults                            0    61  2569    0    0     0       0     0
+arrowBatchSize=1                    0    66  2569    0    0     0       0     0
+arrowBatchSize=3                    0    64  2569    0    0     0       0     0
+```
+
+The two domain tests the skips named pass under both configurations, and every other test ran and
+passed: nothing declined differently and nothing was canceled. #1484's record of the same suite
+read 2567 passed with 2 canceled under each configuration; today all 2569 pass, so the two tests
+are off the skip list and green. Order: section 6 lists the matrix before the regen, but the
+suite reads `coverage.json` at class initialisation, so the regen ran first and the matrix read
+the regenerated domains.
+
+**Checks.**
+
+* `build/sbt catalyst/Test/compile sql/Test/compile`: success, 228 s.
+* `dev/varka_regen_generated.sh --all`: exit 0. VarkaTypesSuite 11 s, VarkaFuzzTypesSuite 5 s,
+  VarkaCastMatrixSuite 7 s, VarkaCoverageSuite 12 passed with 1 canceled, VarkaWidthAuditSuite 7
+  passed (593 s), VarkaEmittedBytesSuite 6 passed with 2 canceled (107 s), the second
+  VarkaCoverageSuite 12 passed with 1 canceled, and the census passed. `git status` after it lists
+  `sql/varka/coverage.json` and `docs/sql-varka.md`, each changed in exactly the two rows, and no
+  other generated file.
+* `build/sbt 'sql/testOnly *VarkaHarnessParitySuite'`: 8 passed, 0 failed, 100 s.
+* `python3 dev/varka_plan_lint.py --check --offline`: 0 findings.
+* `python3 dev/varka_quote_check.py`: self-test 6 of 6, 0 orphans.
+* `python3 dev/varka_census.py --check`: passed.
+* `dev/lint-scala`: Scalastyle and Scalafmt passed.
+* `python3 dev/varka_push_check.py`: passed, exit 0, with 330 counted lines of 338 changed
+  against `9000fc5e911`, under the 1000-line cap; it also ran the regenerated files' five
+  catalyst suites, exit 0 with 35 passed and 3 canceled by their own opt-ins.
+
+**Predictions, scored.** 1: registered as 2567 passed and 2 canceled; the run printed 2569
+passed and none canceled under each configuration. The suite's total is the same, the two tests
+the skips named pass, and the canceled count in #1484's record is not the suite's today; the
+direction of the prediction held and its two numbers need the correction. 2 held: no generated
+file moved but `coverage.json` and `docs/sql-varka.md`, and each in exactly the two rows. 3 held:
+`VarkaHarnessParitySuite` passes unchanged. 4 held: `dev/varka_census.py --check` passed. 5 was
+over: the plan registered under 300 counted lines and `dev/varka_push_check.py` counts 330 of
+338 changed against `9000fc5e911`; the overage is this plan's nine sections and the row's record,
+and the change stays far under the 1000-line cap.
+
+**Left owed.** Nothing: the two rows are the only guarded rows the matrix records failing the
+outside direction, and the check keeps both directions for every row.
