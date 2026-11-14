@@ -368,11 +368,18 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(resolved.isInstanceOf[InSet],
       s"the audit resolved the row to ${resolved.getClass.getSimpleName}: $resolved")
     // The audit's own path: the row is a shape it compiles, not a decline. The two forms lower
-    // alike, so the census alone cannot tell which one was audited.
+    // alike, so the census alone cannot tell which one was audited. On a host whose 64-bit
+    // species have two lanes or fewer, C2 lowers no mask for a filter's condition, so the audit
+    // declines this row's condition before its shape can matter; that decline is the row's
+    // answer there, and any other decline is a failure (VARKA-607).
     val audited = VarkaWidthAuditShapes.coverageRows(coverageJson)
       .find(_.name == sql).getOrElse(fail(s"the audit has no entry for '$sql'"))
-    assert(audited.isInstanceOf[VarkaWidthAuditShapes.Shape],
-      s"the audit declined the row: $audited")
+    audited match {
+      case _: VarkaWidthAuditShapes.Shape =>
+      case VarkaWidthAuditShapes.Declined(_, VarkaKernelPlan.TWO_LANE_CONDITION_REASON) =>
+      case other =>
+        fail(s"the audit declined the row on a condition other than the two-lane one: $other")
+    }
   }
 
   test("at the host's preferred width, every shape is emitted and C2 has a lowering for every " +
