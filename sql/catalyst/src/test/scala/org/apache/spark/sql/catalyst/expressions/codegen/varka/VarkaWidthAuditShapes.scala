@@ -24,10 +24,9 @@ import scala.jdk.OptionConverters._
 
 import com.fasterxml.jackson.databind.ObjectMapper
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, In, InSet, Literal, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{VarkaExpressionCompiler, VarkaOutputSpec}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
-import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
 
 /**
@@ -122,16 +121,22 @@ object VarkaWidthAuditShapes {
     d9s4, d16s9, d8, d19, d38, d38b, d3810)
 
   /**
-   * The row as the optimizer would hand it to the compiler, for a copy of the rewrite that row 607
-   * removes: unlike `VarkaSqlResolve.inSetAsClaimed`, which the other test suites call, this one
-   * matches only `Literal` elements, so a decimal row whose elements arrive under a cast reaches
-   * the width audit as an `In`.
+   * A coverage row's executable spelling as the audit builds it: parsed and analyzed over the
+   * table's columns, by the one parser-resolver the test sources share.
    */
-  private def asCatalystClaims(expr: Expression, catalyst: Set[String]): Expression = expr match {
-    case In(value, list) if catalyst.contains("InSet") && list.forall(_.isInstanceOf[Literal]) =>
-      InSet(value, list.map(_.asInstanceOf[Literal].value).toSet)
-    case other => other
-  }
+  private[varka] def parsedRow(executable: String): Expression =
+    VarkaSqlResolve.parse(executable, columns)
+
+  /**
+   * `executable` as the audit hands the row to the compiler: `VarkaSqlResolve.inSetAsClaimed`
+   * folds an `In`'s elements into the `InSet` the optimizer builds where the coverage table
+   * records the row as one (`VARKA-567`'s rewrite, which the test sources share). A decimal
+   * row's literals arrive under the analyzer's widening cast, so the fold, which evaluates each
+   * element, is what makes the audit see the form a plan builds; a row that claims an `InSet`
+   * and resolves otherwise throws there rather than being audited as an `In`.
+   */
+  private[varka] def resolvedRow(executable: String, catalyst: Set[String]): Expression =
+    VarkaSqlResolve.inSetAsClaimed(parsedRow(executable), catalyst.contains("InSet"))
 
   /**
    * Every row of `coverage.json` as a kernel, through the compiler, keyed by the row's SQL, or
@@ -149,8 +154,15 @@ object VarkaWidthAuditShapes {
       val form = e.get("form").asText()
       val catalyst = Option(e.get("catalyst"))
         .map(_.elements().asScala.map(_.asText()).toSet).getOrElse(Set.empty[String])
-      val resolved = asCatalystClaims(
-        VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(executable), columns), catalyst)
+      // The fold's refusal names the resolved class; the audit's probe dies before any shape
+      // marker, so the row's SQL has to travel with it.
+      val resolved =
+        try {
+          resolvedRow(executable, catalyst)
+        } catch {
+          case e: IllegalArgumentException =>
+            throw new IllegalArgumentException(s"coverage row '$sql': ${e.getMessage}", e)
+        }
       if (form == "predicate") {
         predicateRow(sql, resolved)
       } else {
