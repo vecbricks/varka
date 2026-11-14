@@ -101,6 +101,7 @@ public final class VarkaDomains {
     out.put("d2", "DATE'2024-02-29'");
     out.put("i", "3");
     out.put("l", "5000000000");
+    out.put("l2", "1");
     out.put("m", "0");
     out.put("y", "0");
     out.put("mm", "0");
@@ -114,6 +115,11 @@ public final class VarkaDomains {
     return out;
   }
 
+  /** A bigint source value: the map's digits, or a null where the map says NULL. */
+  private static String bigint(String value) {
+    return value.equals("NULL") ? "CAST(NULL AS BIGINT)" : "CAST('" + value + "' AS BIGINT)";
+  }
+
   /** An edges row: {@link #DEFAULTS} with {@code overrides}, pairs of a column and its value. */
   private static String row(String... overrides) {
     var v = new LinkedHashMap<>(DEFAULTS);
@@ -123,8 +129,8 @@ public final class VarkaDomains {
       }
     }
     return "(" + v.get("d") + ", " + v.get("d2") + ", " + v.get("i") + ", " + v.get("m") + ", "
-        + v.get("y") + ", " + v.get("mm") + ", CAST('" + v.get("l") + "' AS BIGINT), "
-        + "CAST('1' AS BIGINT), " + v.get("t") + ", " + v.get("t2") + ", "
+        + v.get("y") + ", " + v.get("mm") + ", " + bigint(v.get("l")) + ", "
+        + bigint(v.get("l2")) + ", " + v.get("t") + ", " + v.get("t2") + ", "
         + v.get("dt") + ", INTERVAL '0 00:00:00' DAY TO SECOND, "
         + "CAST(" + v.get("y1") + " AS TINYINT), CAST(" + v.get("y2") + " AS TINYINT), "
         + "CAST(" + v.get("s1") + " AS SMALLINT), CAST(" + v.get("s2") + " AS SMALLINT))";
@@ -164,7 +170,10 @@ public final class VarkaDomains {
    * end of the day; the narrow lanes' bounds. Then rows null in those columns, one column group at
    * a time and all at once, which the {@code IS NULL} partitions select. The other columns hold
    * the mixed fixture's first row. A bigint sits at the narrow types' bounds and one past each, for
-   * the integral casts' guards, and at the long's own ends for its arithmetic.
+   * the integral casts' guards, and at the long's own ends for its arithmetic; {@code l2} is null
+   * beside a live {@code l}, and overflows the sum on its own, for the checked sums' domains, and
+   * the day-time interval sits at the cast's guard, +/- (2^52 - 1) microseconds and one past each
+   * side (VARKA-610).
    */
   static String edgesSql() {
     long dayLimit = VarkaChrono.INTERVAL_DAY_LIMIT_DAYS;
@@ -189,6 +198,12 @@ public final class VarkaDomains {
         Long.MAX_VALUE)) {
       rows.add(row("l", Long.toString(l)));
     }
+    // The sums' second operand (VARKA-610): a null beside a live `l`, which only the domain's
+    // `l2 IS NULL` term puts under unknown, and an overflow `l2` alone causes each way, so the
+    // guard reads both operands rather than the fixture's constant 1.
+    rows.add(row("l2", "NULL"));
+    rows.add(row("l", "1", "l2", Long.toString(Long.MAX_VALUE)));
+    rows.add(row("l", "1", "l2", Long.toString(Long.MIN_VALUE)));
     for (long i : List.of(Integer.MAX_VALUE - 9999L, Integer.MAX_VALUE - 9998L)) {
       rows.add(row("d", "DATE'9999-12-31'", "i", Long.toString(i)));
     }
@@ -199,6 +214,12 @@ public final class VarkaDomains {
     rows.add(row("d", day(-(lastNtzDay - 1)), "t", "TIME'00:00:00'",
         "dt", "INTERVAL '106751991 04:00:54.775807' DAY TO SECOND"));
     rows.add(row("dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"));
+    // The day-time cast's guard (VARKA-332, VARKA-610): its exact bound of 2^52 - 1
+    // microseconds, 52124 days 23:53:47.370495, and one microsecond past each side.
+    rows.add(row("dt", "INTERVAL '52124 23:53:47.370495' DAY TO SECOND"));
+    rows.add(row("dt", "INTERVAL '-52124 23:53:47.370495' DAY TO SECOND"));
+    rows.add(row("dt", "INTERVAL '52124 23:53:47.370496' DAY TO SECOND"));
+    rows.add(row("dt", "INTERVAL '-52124 23:53:47.370496' DAY TO SECOND"));
     // The last microsecond of the day before the last convertible one, about four hours below
     // the long's top, beside the int's and the long's top: `timestampadd` past the long.
     for (String[] quantity : List.of(new String[] {"i", Integer.toString(Integer.MAX_VALUE)},

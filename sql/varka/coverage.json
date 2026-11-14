@@ -863,7 +863,7 @@
     "casts" : [ ],
     "operands" : [ "Add:bigint" ],
     "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
-    "domain" : "l BETWEEN -4611686018427387904 AND 4611686018427387903 AND l2 BETWEEN -4611686018427387904 AND 4611686018427387903",
+    "domain" : "if(l IS NULL OR l2 IS NULL, NULL, try_add(l, l2) IS NOT NULL)",
     "note" : "checked under ANSI at 64 bits; the legacy mode wraps as Spark does",
     "verified" : "differential"
   }, {
@@ -875,7 +875,7 @@
     "casts" : [ ],
     "operands" : [ "Subtract:bigint" ],
     "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
-    "domain" : "l BETWEEN -4611686018427387904 AND 4611686018427387903 AND l2 BETWEEN -4611686018427387904 AND 4611686018427387903",
+    "domain" : "if(l IS NULL OR l2 IS NULL, NULL, try_subtract(l, l2) IS NOT NULL)",
     "note" : "checked subtraction at 64 bits",
     "verified" : "differential"
   }, {
@@ -3863,7 +3863,7 @@
     "casts" : [ "dt>bigint:ansi" ],
     "operands" : [ "Cast:dt" ],
     "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
-    "domain" : "dt > INTERVAL '-50000' DAY AND dt < INTERVAL '50000' DAY",
+    "domain" : "dt BETWEEN INTERVAL '-52124 23:53:47.370495' DAY TO SECOND AND INTERVAL '52124 23:53:47.370495' DAY TO SECOND",
     "note" : "the whole seconds of a DAY TO SECOND interval: a truncating division by 10^6 under a guard of 2^52 microseconds, past which the row engine divides; the DAY end is exact over every long",
     "verified" : "proof: long_divide.smt2"
   }, {
