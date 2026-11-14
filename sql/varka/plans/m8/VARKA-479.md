@@ -174,8 +174,9 @@ Size: medium, as the row says.
 
 ## 8. Done when
 
-- a 128-bit kernel issues one narrow load per narrow column and no masked store per iteration of
-  its main loop, pinned by the op-count test at four and two int lanes;
+- a 128-bit kernel issues one narrow load per narrow column an iteration, where it reissues it
+  in every group today, pinned by the op-count test at four and two int lanes (the store half
+  is row 603's, `VARKA-603.md` 2.2);
 - the grouping weights price `narrowGroups`;
 - the narrow suites pass at four and two int lanes under both arms;
 - the part-form record is rerun beside its old numbers, and the runner's 128-bit file is

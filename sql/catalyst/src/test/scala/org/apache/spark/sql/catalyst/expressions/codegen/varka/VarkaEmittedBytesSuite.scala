@@ -46,9 +46,9 @@ import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeInter
  * Three shape sets. Every row of the coverage table (`sql/varka/coverage.json`, compiled to IR
  * the way `VarkaCoverageSuite` compiles it, on both lanes), ten thousand random int32 trees
  * from the shared fuzz grammar at a fixed seed, and ten thousand random long-lane trees from
- * its long grammar at that grammar's own seed (VARKA-119). Each shape is emitted at two widths,
- * 128 and 512 bits - `lanesOverride` 4 and 16 at the int lane, 2 and 8 at the long one - and
- * every method body of the emitted class is rendered symbolically
+ * its long grammar at that grammar's own seed (VARKA-119). Each shape is emitted at three
+ * widths, 64, 128 and 512 bits - `lanesOverride` 2, 4 and 16 at the int lane, 1, 2 and 8 at the
+ * long one - and every method body of the emitted class is rendered symbolically
  * (`VarkaEmitterTestSupport.methodBodies`: opcodes and resolved operands, labels numbered, no
  * constant-pool indices and no line tables) and hashed.
  *
@@ -73,7 +73,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   // A narrow sequence pins fewer shapes than a committed corpus (VARKA-352 2.2 item 4).
   private val narrowShapes = 2000
   private val blockSize = 100
-  private val widths = Seq(4, 16)
+  private val widths = Seq(2, 4, 16)
 
   // The coverage table's columns, as `VarkaCoverageSuite` declares them.
   private val d = AttributeReference("d", DateType)()
@@ -168,7 +168,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       lanes: Int,
       arm: VarkaEmitOptions => VarkaEmitOptions = identity): Seq[(String, String)] = {
     // `lanes` is the int lane's count, and names a width: 4 lanes are 128 bits and 16 are 512.
-    // A long-lane shape is emitted at the same two widths, which are 2 and 8 of its lanes;
+    // A long-lane shape is emitted at the same widths, which are 2 and 8 of its lanes - 1 at 2;
     // sixteen 64-bit lanes would be a species that does not exist, and the emitter would fall
     // back to SPECIES_PREFERRED and pin nothing about width. The lane asked for is the
     // emission's, which for a narrowing root (an int output computed in the long lane) is the
@@ -449,14 +449,16 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   /**
    * The narrow store's combined arm, pinned beside the lane arms (VARKA-603): a machine option
    * no session setting selects, so a test is the only way to reach it, and a refactor of the
-   * store must move this hash rather than slip through. The masked form is the defaults'.
+   * store must move this hash rather than slip through. The masked form is the defaults'. The
+   * arm is the table's own value, not its audit arm over the subject, whose `lanesOverride`
+   * would overwrite the oracle's width; width 2 is where a byte store has four parts.
    */
-  private def storeArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] =
-    Seq("narrowGroupStore=COMBINED").map { name =>
-      val arm = optionArms.find(_.name == name).getOrElse(
-        fail(s"the options table has no arm $name to pin"))
-      arm.name -> arm.arm
-    }
+  private def storeArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] = {
+    val arm = VarkaEmitOption.named("narrowGroupStore").arms.asScala
+      .find(_.name == "narrowGroupStore=COMBINED").getOrElse(
+        fail("the options table has no arm narrowGroupStore=COMBINED to pin"))
+    Seq(arm.name -> ((o: VarkaEmitOptions) => arm.apply.apply(o)))
+  }
 
   /** The math family's opt-in arm, by its table name, as the lane arms are pinned. */
   private def contractArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] = {
@@ -586,9 +588,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         "build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'"),
       "description" -> ("Hashes of every emitted method body, rendered symbolically, for every " +
         "coverage row and for a fixed sequence of fuzz shapes at the int and long lanes, over " +
-        "both, and at each narrow and floating lane, at 128 and 512 bits " +
-        "(lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one). A difference is a " +
-        "change in what an emitted method does. `option_arms` covers emissions beyond the " +
+        "both, and at each narrow and floating lane, at 64, 128 and 512 bits " +
+        "(lanesOverride 2, 4 and 16 at the int lane, 1, 2 and 8 at the long one). A difference " +
+        "is a change in what an emitted method does. `option_arms` covers emissions beyond the " +
         "defaults: one digest over every coverage row and int, long and mixed shape at each " +
         "width per value of spark.sql.codegen.varka.emit.useAVX, an emit option a " +
         "configuration reaches, and per value of each option the defaults never reach, over " +
@@ -907,7 +909,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
    * table (`VarkaEmitOption.TABLE`) - over the option's subject where that is not the defaults,
    * in which case the arm is compared against the subject rather than the defaults (`AuditArm`).
    *
-   * The oracle above pins the defaults, and only the defaults, at two widths. One of
+   * The oracle above pins the defaults, and only the defaults, at three widths. One of
    * `VarkaEmitOptions`' fields has a session configuration (VARKA-121), so a user can ask for
    * an emission no committed hash covers.
    * This list is the inventory row 167 asks for, and the test below turns it into the other

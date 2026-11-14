@@ -875,22 +875,6 @@ final class VarkaBodyEmitter {
         }
       }
     }
-    // A combined narrow store's accumulator, for the same reason: the first group of an
-    // iteration reads the local every iteration, and the back edge makes it live at the loop
-    // head, so it is zeroed here once and each run's store clears it for the next.
-    if (s.narrowStoreAcc != null) {
-      for (int o : outputIdx) {
-        if (s.narrowStoreAcc[o] >= 0) {
-          Lane stored = Lane.of(outputs.get(o).laneType());
-          String species = stored.speciesField(analysis.widenLanes(stored));
-          cb.getstatic(stored.vector, species, VECTOR_SPECIES);
-          cb.invokestatic(stored.vector, "zero",
-              MethodTypeDesc.of(stored.vector, VECTOR_SPECIES));
-          cb.astore(s.narrowStoreAcc[o]);
-        }
-      }
-    }
-
     // (6) The lane-group loop: for (i = 0; i < loopBound; i += groups * lanes), one lane group
     // a part. A narrowing load that spans more than one group reads its whole species once
     // an iteration, so the loop computes that many groups, each from the load's own part.
@@ -1212,23 +1196,6 @@ final class VarkaBodyEmitter {
   }
 
   /**
-   * The number of int lane groups one run of a narrow root's store covers at this emission's int
-   * lane: the store species' lanes over the int group's, two for a byte at four int lanes and
-   * four at two, and one where the species is no wider than the group - whose store is already
-   * whole - or where the root's lane type does not reach {@link #emitNarrowTypeStore} at all.
-   * A selection root writes a bitmap and no store, so it is not one.
-   */
-  static int narrowStoreParts(Analysis analysis, VarkaVectorIR root) {
-    if (analysis.lane != Lane.INT || analysis.lanes == 0 || !root.laneType().isNarrow()
-        || root instanceof Cond || root instanceof BoolOutput) {
-      return 1;
-    }
-    int speciesLanes = analysis.widenLanes(Lane.of(root.laneType()));
-    int intLanes = analysis.lanesOf(Lane.INT);
-    return speciesLanes > intLanes ? speciesLanes / intLanes : 1;
-  }
-
-  /**
    * A narrow root of a kernel driven at the int lane: {@code [int vector] -> []}, one or two
    * bytes a row at {@code (long) i * stride}, converted with {@code I2B} or {@code I2S} into the
    * narrow species the widening load reads - part 0 holds the group's lanes whatever its width -
@@ -1244,7 +1211,7 @@ final class VarkaBodyEmitter {
    * {@link VarkaEmitOptions.NarrowGroupStore#COMBINED} ({@link #emitCombinedNarrowStore}).
    */
   private static void emitNarrowTypeStore(
-      CodeBuilder cb, Lane stored, Analysis analysis, Slots s, int o) {
+      CodeBuilder cb, Lane stored, Analysis analysis, Slots s, int o, VarkaVectorIR root) {
     if (analysis.lane.isNarrow()) {
       // The species named below is the int species' width, which a narrow-driven kernel does not
       // have: its every value is already narrow and nothing widens, so a narrow-typed root there
@@ -1263,9 +1230,9 @@ final class VarkaBodyEmitter {
     // lanes has none (VARKA-329).
     int speciesLanes = analysis.widenLanes(stored);
     String species = stored.speciesField(speciesLanes);
-    if (!s.epilogue && analysis.lane == Lane.INT && analysis.lanes != 0
+    if (!s.epilogue
         && analysis.options.narrowGroupStore() == VarkaEmitOptions.NarrowGroupStore.COMBINED
-        && speciesLanes > analysis.lanesOf(Lane.INT)) {
+        && analysis.narrowStoreParts(root) > 1) {
       emitCombinedNarrowStore(cb, stored, speciesLanes, analysis, s, o);
       return;
     }
@@ -1306,36 +1273,47 @@ final class VarkaBodyEmitter {
    * ({@link VarkaEmitOptions.NarrowGroupStore#COMBINED}): {@code [int vector] -> []}. This
    * group's {@code I2B} or {@code I2S} is converted at its own part - part {@code -(g mod parts)}
    * fills the block of the species that holds the group's rows, the negative parts numbering the
-   * blocks in row order - and OR-ed into the root's accumulator. The group that closes a run of
-   * {@code parts} groups stores the accumulator whole at the run's first row and clears it, so a
-   * loop method holds one whole store per root per iteration of {@code parts} groups, where the
-   * masked form holds a predicated store in every group - which AVX2 has no lowering for
-   * ({@code VARKA-603.md} 0). The parts are disjoint by construction, so the OR loses nothing,
-   * and a part's lanes outside its own block are zero, so the lanes of the run the accumulator
-   * covers hold exactly the rows the groups wrote.
+   * blocks in row order - and OR-ed into the root's accumulator. The run's first group starts
+   * the accumulator from its own part; the group that closes a run stores it whole at the run's
+   * first row. A loop method holds one whole store per root per run of {@code parts} groups,
+   * where the masked form holds a predicated store in every group - which AVX2 has no lowering
+   * for ({@code VARKA-603.md} 0). The parts are disjoint by construction, so the OR loses
+   * nothing, and a part's lanes outside its own block are zero, so the lanes of the run the
+   * accumulator covers hold exactly the rows the groups wrote.
    */
   private static void emitCombinedNarrowStore(CodeBuilder cb, Lane stored, int speciesLanes,
       Analysis analysis, Slots s, int o) {
-    int acc = s.narrowStoreAcc[o];
+    int acc = s.narrowStoreAcc == null ? -1 : s.narrowStoreAcc[o];
     if (acc < 0 || s.narrowStoreTmp < 0) {
       throw VarkaErrors.illegalState("a combined narrow store with no accumulator planned for "
           + stored + " in a body of " + analysis.lane + " lanes");
     }
     int intLanes = analysis.lanesOf(Lane.INT);
     int parts = speciesLanes / intLanes;
-    int part = -(s.rowGroup % parts);
+    int groups = analysis.narrowGroups();
+    if (groups % parts != 0) {
+      throw VarkaErrors.illegalState("a combined narrow store of " + parts + " parts in an "
+          + "iteration of " + groups + " int lane groups leaves its accumulator's run open");
+    }
+    int run = s.rowGroup % parts;
     String species = stored.speciesField(speciesLanes);
     cb.getstatic(VECTOR_OPERATORS, stored == Lane.BYTE ? "I2B" : "I2S", VO_CONVERSION);
     cb.getstatic(stored.vector, species, VECTOR_SPECIES);
-    cb.loadConstant(part);
+    cb.loadConstant(-run);
     cb.invokevirtual(VECTOR, "convertShape", CONVERT_SHAPE);
     cb.checkcast(stored.vector);
     cb.astore(s.narrowStoreTmp);
+    if (run == 0) {
+      // The run's first group starts the accumulator; there is no zero to OR into.
+      cb.aload(s.narrowStoreTmp);
+      cb.astore(acc);
+      return;
+    }
     cb.aload(acc);
     cb.aload(s.narrowStoreTmp);
     cb.invokevirtual(stored.vector, "or", stored.lanewiseVV);
     cb.astore(acc);
-    if (s.rowGroup % parts != parts - 1) {
+    if (run != parts - 1) {
       return;
     }
     cb.aload(acc);
@@ -1348,10 +1326,6 @@ final class VarkaBodyEmitter {
     cb.lmul();
     cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
     cb.invokevirtual(stored.vector, "intoMemorySegment", stored.intoMemorySegmentDense);
-    cb.getstatic(stored.vector, species, VECTOR_SPECIES);
-    cb.invokestatic(stored.vector, "zero",
-        MethodTypeDesc.of(stored.vector, VECTOR_SPECIES));
-    cb.astore(acc);
   }
 
   /**
@@ -1543,13 +1517,13 @@ final class VarkaBodyEmitter {
             && narrowRoot.child().laneType() == VarkaVectorIR.LaneType.LONG) {
           VarkaVectorWalk.emitShapeConversion(cb, Lane.LONG, Lane.INT, analysis);
         }
-        emitNarrowTypeStore(cb, stored, analysis, s, o);
+        emitNarrowTypeStore(cb, stored, analysis, s, o, root);
       } else if (analysis.narrowsAtStore(root)) {
         emitNarrowStore(cb, analysis, s, o);
       } else if (stored.isNarrow() && stored != analysis.lane) {
         // A narrow root of a kernel driven at the int lane: the value is computed widened and
         // stored back at its own width.
-        emitNarrowTypeStore(cb, stored, analysis, s, o);
+        emitNarrowTypeStore(cb, stored, analysis, s, o, root);
       } else if (!analysis.sameCount(analysis.laneOf(root))) {
         emitLowHalfStore(cb, analysis.laneOf(root), analysis, s, o);
       } else {

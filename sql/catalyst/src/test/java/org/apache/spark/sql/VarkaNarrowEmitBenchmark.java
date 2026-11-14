@@ -145,8 +145,8 @@ import org.apache.spark.sql.types.ShortType;
  * section, as {@link VarkaDecimalStoreBenchmark} documents.
  *
  * <p>Run it with {@code -XX:MaxVectorSize=64}, {@code 32} and {@code 16} for the 512-, 256- and
- * 128-bit widths. {@code -Dvarka.narrow.emit.arms=widened-masked} (or any comma-separated set of
- * {@code {widened,native}-{masked,combined}}) keeps one arm's species out of the other's JVM
+ * 128-bit widths. {@code -Dvarka.narrow.emit.arms=widened} (or any comma-separated set of the
+ * four arm tokens, each combined arm appending {@code -combined}) keeps one arm's species out
  * (the two-species hazard of {@code VARKA-376.md}); the default runs all four in one JVM, which
  * is that hazard's arrangement. At 128 bits a byte column is read at four int lanes through the
  * part-form load ({@code results/VARKA-329-partload.txt}), so both arms answer every shape there
@@ -228,9 +228,9 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
    * form; COMBINED ORs the groups' parts into one whole vector and stores it once a run.
    */
   private enum Arm {
-    WIDENED_MASKED(false, NarrowGroupStore.MASKED),
+    WIDENED(false, NarrowGroupStore.MASKED),
     WIDENED_COMBINED(false, NarrowGroupStore.COMBINED),
-    NATIVE_MASKED(true, NarrowGroupStore.MASKED),
+    NATIVE(true, NarrowGroupStore.MASKED),
     NATIVE_COMBINED(true, NarrowGroupStore.COMBINED);
 
     private final boolean narrowLanes;
@@ -251,10 +251,13 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
     }
   }
 
-  /** The arms {@code -Dvarka.narrow.emit.arms} names, comma separated; an unknown name refused. */
+  /**
+   * The arms {@code -Dvarka.narrow.emit.arms} names, comma separated; an unknown name refused.
+   * The masked arms take the recorded commands' {@code widened} and {@code native}.
+   */
   private static Set<Arm> selectedArms() {
     String value = System.getProperty(ARMS_PROPERTY,
-        "widened-masked,widened-combined,native-masked,native-combined");
+        "widened,widened-combined,native,native-combined");
     var arms = EnumSet.noneOf(Arm.class);
     for (String token : value.split(",", -1)) {
       String name = token.strip();

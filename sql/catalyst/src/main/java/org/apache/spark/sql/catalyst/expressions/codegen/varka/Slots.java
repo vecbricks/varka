@@ -913,7 +913,7 @@ final class Slots {
     if (mode == BodyMode.LOOP && analysis.lane == Lane.INT && analysis.lanes != 0
         && analysis.options.narrowGroupStore() == NarrowGroupStore.COMBINED) {
       for (int o : outputIdx) {
-        if (VarkaBodyEmitter.narrowStoreParts(analysis, outputs.get(o)) > 1) {
+        if (analysis.narrowStoreParts(outputs.get(o)) > 1) {
           if (s.narrowStoreAcc == null) {
             s.narrowStoreAcc = new int[outputs.size()];
             Arrays.fill(s.narrowStoreAcc, -1);

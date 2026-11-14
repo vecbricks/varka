@@ -413,15 +413,40 @@ The tests, 3.1 to 3.5, and 3.6:
   `width_audit.json` stays the laptop's own census (AVX-512BW, where the masked store is
   intrinsic and the shape's 128-bit row is empty), so this reading is a results text, as 603a's
   AVX2 cell reading is.
-- **3.5** passes: `VarkaWarmupReachSuite` is green (3 tests), whose corpus is the coverage rows at
-  the defaults. `COMBINED`'s `ByteVector.or` and `ByteVector.zero` are therefore not warmed yet;
-  the point that makes the corpus include them is 603d's default flip, and the suite will name
-  them then.
+- **3.5** passes: `VarkaWarmupReachSuite` is green (3 tests), whose corpus is the coverage rows
+  and fuzz shapes at the defaults and the matrix base, plus every other matrix configuration
+  that overrides no lane count (a lane count's kernels name another species, which the warm-up
+  does not feed). `COMBINED`'s `ByteVector.or`/`ShortVector.or` and their `zero(VectorSpecies)`
+  are now called in the warm-up's byte and short blocks, so a four-int-lane JVM has both past
+  the old mark; the review found the corpus naming them at 0 calls.
 - **3.6**: `emitted_bytes.json` is the one generated file that moved. Its `option_arms` gained
   `narrowGroupStore=COMBINED` (17 arms to 18), the new arm pinned in `VarkaEmittedBytesSuite`
   beside the lane arms, and every default hash, every existing arm and the per-lane `lanes`
   section are unchanged. `width_audit.json`, `coverage.json`, `docs/sql-varka.md`, `types.tsv`
-  and the census files are unchanged, as the unchanged defaults require.
+  and the census files are unchanged, as the unchanged defaults require. (This revision's
+  review adds a width-2 `lanes` column, moves the pinned `COMBINED` arm's digest, and adds the
+  option's two arms over its subject; see below.)
+
+### Review fixes (15 November 2026)
+
+The `/code-review high` of 603b's fixes: the template warm-up's byte and short blocks call the
+whole-vector `or` and `zero` the combined store uses; `narrowGroupStore` runs over
+`lanesOverride=4` and joins `C2_OPTIONS`; the benchmark keeps `WIDENED` and `NATIVE` (with
+`WIDENED_COMBINED` and `NATIVE_COMBINED` beside them), so the committed rows still join; the
+store's predicate is `VarkaKernelPlan.narrowStoreParts`, whose closing store asserts
+`narrowGroups % parts == 0` by the named error and tests its accumulator array for null;
+`CAST(i AS SMALLINT)` covers the `I2S` branch and `ShortVector` at two int lanes; the run's
+first group assigns the accumulator, so no zero precedes it and the loop carries none; the
+ragged tests add lengths 24 and 40 and a forced-mask body, and compile each (lanes, arm, form)
+once; `skips.tsv` records the two store-form tests under `checkIntOverflow=false`.
+
+The pin: the `COMBINED` arm's width-4 digest lost the loop's `or` and both `zero` calls, width
+16 did not move (inert there), and a new width-2 column pins the four-part store.
+
+**Recorded, no code (for 603c/603d).** `narrowGroups` sizes every narrow load too: a one-group
+narrow load beside a two-part store reads `groups * intLanes` lanes once per group, twice the
+read bytes at four int lanes. `CAST(s1 AS TINYINT)` at four int lanes is the shape that prices
+it - one-group `SMALLINT` load, two-part byte store - timed under `MASKED` and `COMBINED`.
 
 Left to 603c: `OVERLAP` and the int lane's per-row epilogue. Left to 603d: the default choice on
 the EPYC 7763 at 128 bits (with the 256-bit control), the runner result files, and the bytes,

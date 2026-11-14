@@ -914,7 +914,7 @@ public final class VarkaKernelPlan {
    * the narrow roots the kernel stores, whose species may span more groups than any value it
    * loads - a {@code CAST(i AS TINYINT)} reads no narrow value at all but stores an eight-lane
    * species at four int lanes. The store's parts are the loop's, so the iteration must hold a
-   * whole run of them; a selection root writes a bitmap and no store, so it is not one.
+   * whole run of them ({@link #narrowStoreParts}).
    */
   private static int narrowGroups(List<VarkaVectorIR> roots, Lane lane, int lanes,
       VarkaEmitOptions options) {
@@ -928,15 +928,25 @@ public final class VarkaKernelPlan {
       for (LaneType type : VarkaVectorIR.narrowValuesIn(root)) {
         groups = Math.max(groups, Lane.widenLanes(lanes, Lane.of(type)) / lanes);
       }
-      if (combined && !(root instanceof Cond) && !(root instanceof BoolOutput)
-          && root.laneType().isNarrow()) {
-        int species = Lane.widenLanes(lanes, Lane.of(root.laneType()));
-        if (species > lanes) {
-          groups = Math.max(groups, species / lanes);
-        }
+      if (combined) {
+        groups = Math.max(groups, narrowStoreParts(lane, lanes, root));
       }
     }
     return groups;
+  }
+
+  /**
+   * The int lane groups one run of a narrow root's store covers: the species' lanes over the
+   * int group's, two for a byte at four int lanes and four at two, and one where the species is
+   * no wider than the group. The one predicate of the store's form, read by plan, slots, emitter.
+   */
+  static int narrowStoreParts(Lane lane, int lanes, VarkaVectorIR root) {
+    if (lane != Lane.INT || lanes == 0 || !root.laneType().isNarrow()
+        || root instanceof Cond || root instanceof BoolOutput) {
+      return 1;
+    }
+    int speciesLanes = Lane.widenLanes(lanes, Lane.of(root.laneType()));
+    return speciesLanes > lanes ? speciesLanes / lanes : 1;
   }
 
   /** The reason no kernel of {@code roots} can be emitted, or empty when one can. */
@@ -1050,7 +1060,8 @@ public final class VarkaKernelPlan {
     return lanes == 0 ? 0 : lanes * 2;
   }
 
-  /** The int groups one iteration computes; see {@link #narrowGroups(List, Lane, int)}. */
+  /** The int groups one iteration computes; see
+   * {@link #narrowGroups(List, Lane, int, VarkaEmitOptions)}. */
   int narrowGroups() {
     requireEmittable();
     return narrowGroups;

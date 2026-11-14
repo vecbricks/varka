@@ -24,6 +24,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.instruction.InvokeInstruction;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -402,6 +404,11 @@ public final class VarkaEmitterNarrowArithSuite {
   }
 
   private static Batch batch(int length, IntPredicate pattern, List<Integer> cols) {
+    return batch(length, pattern, cols, false);
+  }
+
+  private static Batch batch(int length, IntPredicate pattern, List<Integer> cols,
+      boolean forceMasked) {
     var nulls = new boolean[cols.size()][length];
     var data = new int[cols.size()][];
     for (int c = 0; c < cols.size(); c++) {
@@ -411,7 +418,7 @@ public final class VarkaEmitterNarrowArithSuite {
       data[c] = new int[length];
       Arrays.fill(data[c], cols.get(c));
     }
-    return new Batch(length, nulls, data, false);
+    return new Batch(length, nulls, data, forceMasked);
   }
 
   /**
@@ -735,9 +742,11 @@ public final class VarkaEmitterNarrowArithSuite {
 
   /**
    * The shapes the form reaches: a checked byte multiply and the unary arithmetic, whose store
-   * species spans two int groups at four lanes, and a {@code CAST(int AS TINYINT)}, which reads
-   * no narrow value at all - only its store is narrow - so the masked form's iteration is one
-   * group where the combined form's is two.
+   * species spans two int groups at four lanes, a {@code CAST(int AS TINYINT)}, which reads no
+   * narrow value at all - only its store is narrow - so the masked form's iteration is one
+   * group where the combined form's is two, and a {@code CAST(int AS SMALLINT)}, whose store
+   * spans two int groups at two lanes, where the combined form's {@code I2S} branch takes two
+   * parts (VARKA-603).
    */
   private static List<StoreShape> storeShapes() {
     return List.of(
@@ -748,7 +757,9 @@ public final class VarkaEmitterNarrowArithSuite {
         new StoreShape("-y1", UnaryMinus$.MODULE$.apply(BYTE_COLS.get(0), false), BYTE_COLS,
             LaneType.BYTE, LaneType.BYTE),
         new StoreShape("CAST(i AS TINYINT)", new Cast(INT_COLS.get(0), new ByteType(),
-            Option.empty(), EvalMode.LEGACY()), INT_COLS, LaneType.INT, LaneType.BYTE));
+            Option.empty(), EvalMode.LEGACY()), INT_COLS, LaneType.INT, LaneType.BYTE),
+        new StoreShape("CAST(i AS SMALLINT)", new Cast(INT_COLS.get(0), new ShortType(),
+            Option.empty(), EvalMode.LEGACY()), INT_COLS, LaneType.INT, LaneType.SHORT));
   }
 
   /** The loop methods of an emitted class, whichever bodies it has. */
@@ -821,6 +832,14 @@ public final class VarkaEmitterNarrowArithSuite {
               VarkaKernelPlan.of(masked.roots(), maskedOptions).narrowGroups();
           int groupsCombined =
               VarkaKernelPlan.of(combined.roots(), combinedOptions).narrowGroups();
+          if (intDriven && parts > 1) {
+            // The count the assertion divides must stand on its own, or a plan that
+            // under-counted would divide to zero stores, as a kernel storing nothing does.
+            assertTrue(groupsCombined >= parts && groupsCombined / parts > 0,
+                where + ": the plan's " + groupsCombined + " groups hold no run of " + parts);
+            assertEquals(0, groupsCombined % parts,
+                where + ": the iteration does not hold whole runs of the store");
+          }
           for (String method : methods) {
             int[] m = narrowStores(masked.bytes(), method, shape.stored());
             int[] c = narrowStores(combined.bytes(), method, shape.stored());
@@ -877,32 +896,40 @@ public final class VarkaEmitterNarrowArithSuite {
   @DisplayName("a checked multiply answers ragged batches under each store form at four and two "
       + "int lanes")
   public void checkedMultiplyAnswersRaggedBatchesUnderEachStoreForm() {
-    // Lengths leaving 0, 1, lanes - 1, lanes and groups * lanes - 1 rows past the loop at four
-    // and two int lanes: the epilogue's masked passes run over the leftovers, which the combined
-    // form leaves to the masked store, so the row after the last whole iteration is checked too.
+    // Lengths leaving 0, 1, lanes - 1, lanes and groups * lanes - 1 rows past the loop, 24 and
+    // 40 crossing the back edge twice, and one body per length forcing the masked body over
+    // all-valid data; each (lanes, arm, form) case emits its kernels once.
     Expression ansi = Multiply$.MODULE$.apply(BYTE_COLS.get(0), BYTE_COLS.get(1),
         EvalMode.ANSI());
     Expression tryMultiply = Multiply$.MODULE$.apply(BYTE_COLS.get(0), BYTE_COLS.get(1),
         EvalMode.TRY());
+    Map<VarkaEmitOptions, EmittedClass> ansiClasses = new HashMap<>();
+    Map<VarkaEmitOptions, EmittedClass> tryClasses = new HashMap<>();
     for (int lanes : new int[] {4, 2}) {
-      for (int length : new int[] {5, 8, 9, 11, 12, 15}) {
+      for (int length : new int[] {5, 8, 9, 11, 12, 15, 24, 40}) {
         for (int[] data : List.of(new int[] {2, 3}, new int[] {-128, -128})) {
-          for (IntPredicate nulls : List.<IntPredicate>of(row -> false, row -> row % 7 == 3)) {
+          for (int body = 0; body < 3; body++) {
+            // Two null patterns and the masked body forced over all-valid data.
+            IntPredicate nulls = body == 1 ? row -> row % 7 == 3 : row -> false;
+            boolean forced = body == 2;
             for (Arm arm : ARMS) {
               for (NarrowGroupStore form : STORE_FORMS) {
                 VarkaEmitOptions options = arm.options().toBuilder().lanesOverride(lanes)
                     .narrowGroupStore(form).build();
                 String where = "y1 * y2 " + data[0] + "," + data[1] + " at " + length
-                    + " rows, " + lanes + " int lanes, " + arm.name() + ", " + form;
-                Batch batch = batch(length, nulls, List.of(data[0], data[1]));
+                    + " rows, " + lanes + " int lanes, " + arm.name() + ", " + form
+                    + (forced ? ", the masked body" : "");
+                Batch batch = batch(length, nulls, List.of(data[0], data[1]), forced);
                 boolean overflows = (long) data[0] * data[1] < Byte.MIN_VALUE
                     || (long) data[0] * data[1] > Byte.MAX_VALUE;
-                EmittedClass h = emitArm(ansi, BYTE_COLS, LaneType.BYTE, options, where);
+                EmittedClass h = ansiClasses.computeIfAbsent(options,
+                    o -> emitArm(ansi, BYTE_COLS, LaneType.BYTE, o, where));
                 withKernel(h, kernel -> assertEquals(!overflows,
                     run(h, kernel, batch, where + ", ANSI", true),
                     where + ": ANSI " + (overflows ? "answered an overflow" : "declined")
                         + " the batch"));
-                EmittedClass i = emitArm(tryMultiply, BYTE_COLS, LaneType.BYTE, options, where);
+                EmittedClass i = tryClasses.computeIfAbsent(options,
+                    o -> emitArm(tryMultiply, BYTE_COLS, LaneType.BYTE, o, where));
                 withKernel(i, kernel -> assertTrue(
                     run(i, kernel, batch, where + ", TRY", true),
                     where + ": TRY declined a batch, where Spark answers it"));
@@ -913,6 +940,7 @@ public final class VarkaEmitterNarrowArithSuite {
       }
     }
   }
+
 
   // -------------------------------------------------------------------------------------------
   // The deferred wrap: a LEGACY chain under its root and under non-ring consumers

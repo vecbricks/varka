@@ -620,11 +620,13 @@ public sealed interface VarkaEmitOption
       // A machine choice (VARKA-603.md 2.2): a host whose C2 lowers no predicated subword store
       // runs the masked form's store as the Vector API's Java loop, and the combined form's
       // whole store there does not, while which is faster where both lower is a measurement's.
-      // Its tag keeps the default's rendering empty.
+      // Its subject is the int lane count at which a narrow store spans several groups; at the
+      // defaults' eight lanes and above it is inert. Its tag keeps the default's rendering empty.
       new Choice<NarrowGroupStore>("narrowGroupStore", Reason.MACHINE, NarrowGroupStore.class,
           NarrowGroupStore.MASKED, VarkaEmitOptions::narrowGroupStore,
           Builder::narrowGroupStore, new ChoiceTag("narrowGroupStore="),
-          Optional.<Class<? extends VarkaVectorIR>>empty()));
+          Optional.<Class<? extends VarkaVectorIR>>empty(),
+          new Subject(o -> o.toBuilder().lanesOverride(4).build())));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {
