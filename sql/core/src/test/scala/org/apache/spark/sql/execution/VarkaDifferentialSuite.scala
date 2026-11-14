@@ -896,7 +896,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
       "compiled filter is left to Spark, and one that would not stays fused") {
     cacheCseTables()
     try {
-      def query(shared: String) = "SELECT i FROM varka_cse_arr WHERE year(d) > 2000 AND " +
+      def query(shared: String): String = "SELECT i FROM varka_cse_arr WHERE year(d) > 2000 AND " +
         s"year(d) < 2030 AND (s = 'x' OR $shared > 0) AND b < 0 AND $shared < 10"
       // `year(d)` opens Spark's CSE branch, which reads the cheap `arr[5]` before the OR and
       // raises; the residual filter alone, sharing only `arr[5]`, would answer.
@@ -924,7 +924,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
       "operand is left to Spark where Spark compiles it") {
     cacheCseTables()
     try {
-      def query(table: String, lead: String) = s"SELECT i FROM $table WHERE $lead" +
+      def query(table: String, lead: String): String = s"SELECT i FROM $table WHERE $lead" +
         "s = 'x' AND make_date(2021, m, 1) < d AND " +
         "IF(s = 'x' AND make_date(2021, m, 1) < d, d0, d1) < d2 AND make_date(2021, m, 1) > d0"
       // Over non-nullable columns the first two conjuncts are a prefix of the fallback's chain
