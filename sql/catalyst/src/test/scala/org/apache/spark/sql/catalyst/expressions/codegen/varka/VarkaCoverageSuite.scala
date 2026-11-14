@@ -472,9 +472,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // is the checked long operation and a batch with an overflowing row goes to the row engine.
     Family("Day-time interval arithmetic", predicates = false, Seq(
       Row("dt + dt2", "a sum past the long raises in every mode, so its batch declines and the "
-        + "row engine raises", domain = Some(ntzDomain("try_add(dt, dt2)", "dt", "dt2"))),
+        + "row engine raises", domain = Some(tryDomain("try_add(dt, dt2)", "dt", "dt2"))),
       Row("dt - dt2", "the difference, exact in every mode as the sum is",
-        domain = Some(ntzDomain("try_subtract(dt, dt2)", "dt", "dt2"))),
+        domain = Some(tryDomain("try_subtract(dt, dt2)", "dt", "dt2"))),
       Row("-dt", "negateExact raises on the least interval alone",
         domain = Some(s"dt <> $leastInterval")),
       Row("abs(dt)", "the checked negation under a blend; Spark raises on the least interval in "
@@ -482,14 +482,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         domain = Some(s"dt <> $leastInterval")),
       Row("dt + INTERVAL '1' DAY", "the literal, cast to the column's unit and folded, takes a "
         + "slot in the long lane's table",
-        domain = Some(ntzDomain("try_add(dt, INTERVAL '1' DAY)", "dt"))),
+        domain = Some(tryDomain("try_add(dt, INTERVAL '1' DAY)", "dt"))),
       Row("dt * 3", "multiplyExact in every mode, a bare ArithmeticException on overflow: the "
         + "operand is guarded to the longs whose product fits, exactly, and the multiply wraps; "
         + "a column factor declines",
-        domain = Some(ntzDomain("try_multiply(dt, 3)", "dt"))),
+        domain = Some(tryDomain("try_multiply(dt, 3)", "dt"))),
       Row("-2 * dt", "the factor on the left is the same node; a negative factor swaps the "
         + "guard's ends, which are not symmetric",
-        domain = Some(ntzDomain("try_multiply(-2, dt)", "dt"))),
+        domain = Some(tryDomain("try_multiply(-2, dt)", "dt"))),
       Row("extract(DAY FROM dt)", "Java's truncating division by a day, exact over every long "
         + "and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines "
         + "(`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset"))),
