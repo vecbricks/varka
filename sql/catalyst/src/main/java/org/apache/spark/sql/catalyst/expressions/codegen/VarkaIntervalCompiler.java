@@ -570,7 +570,12 @@ public final class VarkaIntervalCompiler {
       return sink.decline(position + " of type " + e.dataType().simpleString()
           + " is not a day-time interval", e);
     }
-    return VarkaNodeCompiler.compileNode(e, inputs, literals, sink);
+    Optional<VarkaVectorIR> compiled = VarkaNodeCompiler.compileNode(e, inputs, literals, sink);
+    if (compiled.isPresent() && compiled.get().laneType() != LaneType.LONG) {
+      return sink.decline(position + " computed on the "
+          + compiled.get().laneType() + " lane, not the long", e);
+    }
+    return compiled;
   }
 
   /**
@@ -590,18 +595,20 @@ public final class VarkaIntervalCompiler {
       VarkaSlotTable literals,
       DeclineSink sink) {
     int mark = literals.size();
+    int longMark = sink.longMark();
     Optional<VarkaVectorIR> x =
         dayTimeOperand(l, "the left interval operand", inputs, literals, sink);
     if (x.isEmpty()) {
-      return rolledBack(x, literals, mark);
+      return rolledBack(x, literals, mark, sink, longMark);
     }
     Optional<VarkaVectorIR> y =
         dayTimeOperand(r, "the right interval operand", inputs, literals, sink);
     if (y.isEmpty()) {
-      return rolledBack(y, literals, mark);
+      return rolledBack(y, literals, mark, sink, longMark);
     }
     return rolledBack(VarkaNodeCompiler.arithOver(
-        op, Overflow.FAIL, x.get(), y.get(), whole, literals, mark, sink), literals, mark);
+        op, Overflow.FAIL, x.get(), y.get(), whole, literals, mark, sink), literals, mark,
+        sink, longMark);
   }
 
   /**
@@ -634,10 +641,11 @@ public final class VarkaIntervalCompiler {
     }
     long k = n.longValue();
     int mark = literals.size();
+    int longMark = sink.longMark();
     Optional<VarkaVectorIR> x =
         dayTimeOperand(m.interval(), "the multiplied interval", inputs, literals, sink);
     if (x.isEmpty() || k == 1) {
-      return rolledBack(x, literals, mark);
+      return rolledBack(x, literals, mark, sink, longMark);
     }
     VarkaVectorIR operand = x.get();
     if (k != 0) {
@@ -702,6 +710,21 @@ public final class VarkaIntervalCompiler {
   /** Whether {@code c} casts to a year-month interval whose end field is {@code endField}. */
   private static boolean endsIn(Cast c, byte endField) {
     return c.dataType() instanceof YearMonthIntervalType ym && ym.endField() == endField;
+  }
+
+  /**
+   * {@code built}, after dropping the literals a failed lowering appended past {@code mark} and
+   * the long lane's slots past {@code longMark}: a declining arm leaves both tables as it found
+   * them, an operand's long literal and its node's own slot beside it.
+   */
+  private static Optional<VarkaVectorIR> rolledBack(
+      Optional<VarkaVectorIR> built, VarkaSlotTable literals, int mark, DeclineSink sink,
+      int longMark) {
+    if (built.isEmpty()) {
+      literals.truncate(mark);
+      sink.truncateLong(longMark);
+    }
+    return built;
   }
 
   /**

@@ -778,9 +778,9 @@ not change. `sql/varka/golden_corpus.json` was regenerated, its `interval day to
 flipping from plain to fused. `VarkaFamily.INTERVAL.covers()`, the `VarkaIntervalCompiler`
 javadocs and their rendered docs name the day-time half; the grammar's excluded `<ym> * k`
 states master's reason again after `ym * k` moved to 103a2; the expected-errors row names the
-day-time interval product's long overflow; and the `dt_arith.smt2` header says the
-symmetric-bound check is rendered only for k = 2, -2 and Integer.MIN_VALUE, the proof file
-regenerated with the day-time rows alone.
+day-time interval product's long overflow; and the `dt_arith.smt2` header names the
+factors the symmetric-bound check is rendered for, the proof file regenerated with the
+day-time rows alone.
 
 *14 November 2026, the branch narrowed to the size cap:* counted against `230773d872d` the
 branch was 1060 lines, over the 1000-line cap, so two pieces moved to 103a2 and the branch
@@ -808,3 +808,32 @@ design gap like TIMESTAMP_NTZ arithmetic's, which row 503, the refusal's own row
 `abs(dt)` is hand-built as `IfElse` rather than `IntNeg(abs=true)`; `-dt` and `abs(dt)` hard-code
 `FAIL` rather than read `longNegationMode`; `dt * -1` uses the guarded multiply
 rather than the checked negation; and the `d - dt` coverage row is still missing.
+
+### The split's review
+
+A second `/code-review high` pass, over the split itself (14 November 2026), found fifteen
+items. Nine are fixed in the branch's next commit: the ANSI form's first
+`java.lang.ArithmeticException` row is `dt * 3` again, with the differential skip row
+retargeted; the `d - dt` composition over a stored `INTERVAL DAY` column has a minimal test
+here, the full cell still 103a2's; row 103's text and the census's `ym_times_num` note credit
+`ym * k` to 103a2; the coverage note for `extract(DAY FROM dt)` states what the census does;
+the expected-errors row drops a day-time product the Spark-level fuzzer cannot reach;
+`dt_arith.smt2` renders the symmetric-bound refutation for `Long.MIN_VALUE` too, and
+`DT_FACTORS`' javadoc no longer claims every factor is one a row or test uses;
+`dayTimeOperand` declines a day-time operand compiled to another lane; and
+`dayTimeArith`/`dayTimeMultiply` roll the long lane's slots back with the int table's.
+
+The shifted corpora were run on the split's tree: `VarkaSparkFuzzSuite` at its 200
+compositions and seed 20261008 passes its 29 tests, and `VarkaGroupingBoundSuite` and
+`VarkaCoverageCompositionFuzzSuite` pass their 23 between them, so the new grammar
+productions' draws tip neither the 25% implicit-cast nor the 20% fused-alone threshold.
+
+Left, with reasons:
+
+- `VarkaIntervalFault`'s `private static volatile planted` copies the shape row 548's
+  `global-fault` lint will ban; it moves when 548's rule and the option mechanism land.
+- `dayTimeMultiply` hand-builds `GuardedRange` + `IntArith(MUL, WRAP)` rather than routing
+  through `VarkaNodeCompiler.arithOver`, and `dayTimeArith`/`dayTimeOperand` duplicate
+  `intervalArith`/`intervalOperand`. Both are deliberate for the split and are owed to 103a2
+  or a tidy row.
+- The efficiency notes the review dropped are not owed here.

@@ -314,7 +314,7 @@ public final class VarkaAnsiForm {
       Map.entry("DATETIME_OVERFLOW", "timestampadd(MICROSECOND, l, ntz)"),
       Map.entry("DIVIDE_BY_ZERO", "x / x2"),
       Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"),
-      Map.entry("java.lang.ArithmeticException", "ntz + dt"));
+      Map.entry("java.lang.ArithmeticException", "dt * 3"));
 
   /**
    * The condition Spark's interpreter raises evaluating {@code expression} over the fixture's

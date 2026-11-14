@@ -17,12 +17,12 @@
 
 package org.apache.spark.sql.execution
 
-import java.time.Duration
+import java.time.{Duration, LocalDate}
 
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaIntervalCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
-import org.apache.spark.sql.types.{DayTimeIntervalType, StructField, StructType}
+import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, StructField, StructType}
 
 /**
  * The day-time interval sum, difference, negation and `abs` against the row engine (VARKA-103
@@ -97,6 +97,14 @@ class VarkaDayTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with V
         .createOrReplaceTempView(name)
       session.catalog.cacheTable(name)
     }
+    // A date beside a stored INTERVAL DAY, for the day count as a date offset.
+    val dates = (-300 until 300).map { i =>
+      Row(LocalDate.of(2021, 6, 1).plusDays(i * 7L), Duration.ofDays(i * 13L - 1000))
+    } ++ Seq(Row(null, Duration.ofDays(2)), Row(LocalDate.of(2021, 6, 1), null))
+    session.createDataFrame(session.sparkContext.parallelize(dates, 1), StructType(Seq(
+      StructField("d", DateType), StructField("dd", DayTimeIntervalType(0: Byte, 0: Byte)))))
+      .createOrReplaceTempView("varka_dta_dates")
+    session.catalog.cacheTable("varka_dta_dates")
   }
 
   override protected def beforeAll(): Unit = {
@@ -147,6 +155,22 @@ class VarkaDayTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with V
       "INTERVAL_ARITHMETIC_OVERFLOW.WITHOUT_SUGGESTION")
     assert(condition(checkCell("SELECT abs(dt) AS a FROM TABLE", "varka_dta_min",
       raises = true)) === "ARITHMETIC_OVERFLOW")
+  }
+
+  test("a stored INTERVAL DAY's day count fuses as an offset in d - dd and not in d + dd") {
+    // `d - dd` is DateAdd(d, -extract(DAY FROM dd)): the negated count reaches the date arm's
+    // offset arithmetic as `-i` does and fuses under its day guard, while `d + dd` declines.
+    // ANSI is pinned, as the cell the split moved to 103a2 was, so the composition runs under
+    // one mode whatever the matrix configuration.
+    withAnsi(true) {
+      for ((q, fuses) <- Seq("d - dd" -> true, "d + dd" -> false)) {
+        val sql = s"SELECT $q AS a FROM varka_dta_dates"
+        val (onVarka, plan) = runOutcome(varkaSpark, sql)
+        VarkaMaybeThrows.difference(expectedOutcome(sql, plan), onVarka).foreach(d =>
+          fail(s"$sql\n$d"))
+        assert(find(plan.get)(isVarkaNode).isDefined === fuses, sql)
+      }
+    }
   }
 
   test("dt * k answers at the guard's ends and raises one past each, as multiplyExact does") {

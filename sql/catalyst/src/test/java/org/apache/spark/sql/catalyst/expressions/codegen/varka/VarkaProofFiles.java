@@ -2242,7 +2242,8 @@ final class VarkaProofFiles {
 
   /**
    * The literal factors {@code dt_arith.smt2} proves the day-time product's guard for: those the
-   * coverage rows and the tests use, both signs, the int's and the long's ends.
+   * coverage rows and the tests use, and an illustrative spread beside them - both signs, small
+   * values well inside the lane, and the int's and the long's ends.
    */
   static final List<Long> DT_FACTORS = List.of(2L, -2L, 3L, -3L, 7L, 24L, 1000L, -1L,
       (long) Integer.MIN_VALUE, (long) Integer.MAX_VALUE, Long.MIN_VALUE, Long.MAX_VALUE);
@@ -2271,8 +2272,8 @@ final class VarkaProofFiles {
         ; true product is in the lane, and that under the guard the wrapping product is the true
         ; one; and, beside them, that a bound moved one further out admits a product past the
         ; lane, and that the symmetric bound +-(MAX / |k|) refuses one inside it - rendered only
-        ; for k = 2, -2 and Integer.MIN_VALUE, the factors whose product that reaches the lane's
-        ; least value exactly lies outside the symmetric bound.
+        ; for k = 2, -2, Integer.MIN_VALUE and Long.MIN_VALUE, the factors whose product that
+        ; reaches the lane's least value exactly lies outside the symmetric bound.
         """);
     out.append(rendered("QF_NIA"));
     out.append("""
@@ -2317,7 +2318,7 @@ final class VarkaProofFiles {
           "sat", List.of("(assert (and (<= " + lit(lo) + " x) (<= x " + lit(hi + 1) + ")))",
               "(assert (not " + in + "))"));
     }
-    if (k == 2 || k == -2 || k == Integer.MIN_VALUE) {
+    if (k == 2 || k == -2 || k == Integer.MIN_VALUE || k == Long.MIN_VALUE) {
       long m = greatest / Math.abs(k);
       check(out, lane + " k = " + k + ": the symmetric bound +-" + m + " refuses a product "
           + "inside the lane", "sat",

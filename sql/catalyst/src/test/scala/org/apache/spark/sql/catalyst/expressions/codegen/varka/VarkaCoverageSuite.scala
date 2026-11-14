@@ -466,7 +466,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         + "guard's ends, which are not symmetric",
         domain = Some(ntzDomain("try_multiply(-2, dt)", "dt"))),
       Row("extract(DAY FROM dt)", "Java's truncating division by a day, exact over every long "
-        + "and never raising; inside date_add the date arm reads it as the day offset"))),
+        + "and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines "
+        + "(`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset"))),
 
     Family("Integer arithmetic", predicates = false, Seq(
       Row("i + 1", "checked under ANSI; the legacy mode wraps as Spark does and declines nothing",
