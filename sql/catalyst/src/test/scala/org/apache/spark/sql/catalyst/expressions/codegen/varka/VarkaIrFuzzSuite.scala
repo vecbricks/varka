@@ -1008,6 +1008,34 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     assert(strangerSkips == 0 && stranger.get("beside a stranger compared").contains(1), stranger)
   }
 
+  test("the duplicated variant of a draw whose root fills a materialized prefix compares") {
+    // The nightly fuzz of 14 November 2026 (run 43575499009), seed 202611140 iteration 22330:
+    // the duplicated variant puts one root in two groups, so the second group loads the prefix
+    // the first materialized. A day producer guarded under that date kept its arm condition
+    // emitted in the loading group, from a reach taken over the full subtree rather than the
+    // body, and the column that condition read had no data segment planned. The reach is the
+    // body's emitted set now (Slots.emittedBody, VARKA-616), so the pinned draw must both
+    // compare and reach PREFIX_LOADED: a draw that stops splitting the prefix fails here
+    // rather than passing vacuously.
+    val c = drawInt(22330, 202611140L)
+    assert(runChecked(c), s"draw 22330 at seed 202611140 did not pass")
+    val trace = new VarkaEmitTrace
+    val reach = VarkaEmitReach.attach(trace, "duplicated variant")
+    val outcome =
+      try {
+        val emit: VarkaVariantCheck.Emit = (roots, numInputs, numLiterals, options, className) =>
+          Some(VarkaLoopEmitter.emitTraced(className, roots.asJava, numInputs, numLiterals,
+            options, trace))
+        VarkaVariantCheck.check(c, VarkaVariants.duplicated(c.roots, c.numInputs), emit)
+      } finally {
+        VarkaEmitReach.detach(trace)
+      }
+    assert(outcome == VarkaVariantCheck.Compared, s"the duplicated variant: $outcome")
+    assert(reach.reachedBy(VarkaEmitMechanism.PREFIX_LOADED) > 0,
+      s"the duplicated variant loaded no materialized prefix: " +
+        reach.lines().asScala.mkString("; "))
+  }
+
   test("the options drawn from a draw's own stream are still drawn options") {
     // Removing one would shift every later coin, as inserting one did; such an option stays in
     // the table, or `randomOptions` keeps drawing and dropping a value in its place.

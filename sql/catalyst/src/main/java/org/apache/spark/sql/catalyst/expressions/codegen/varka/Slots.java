@@ -178,16 +178,18 @@ final class Slots {
   /** Per condition node, dense body: the single mask local. */
   final Map<VarkaVectorIR, Integer> condMask = new HashMap<>();
   /**
-   * The nodes this body reaches from its roots, set by {@code VarkaBodyEmitter} before it emits
-   * them ({@link #setReach}): which arm chains of a guard this body can qualify it by
-   * ({@link Analysis#armChainsIn}).
+   * The body's planned emitted set ({@link #emittedBody}), installed by {@code VarkaBodyEmitter}
+   * before it emits the body ({@link #setReach}): which arm chains of a guard this body can
+   * qualify it by ({@link Analysis#armChainsIn}). Not the outputs' full subtrees, since a guard
+   * under a date whose materialized prefix the body loads is not emitted here.
    */
   private Set<VarkaVectorIR> reach;
   /**
    * {@link Analysis#armChainsIn} in this body of each node asked for ({@link #armChains}), kept
    * once computed so that the arm conditions emitted first, the guard's arm context and the
    * mechanism a guard reached read one list rather than filtering the chains again each.
-   * {@link #setReach} empties it, since the lists depend on {@link #reach}.
+   * {@link #setReach} empties it when it installs a different set, since the lists depend on
+   * {@link #reach}.
    */
   private final Map<VarkaVectorIR, List<List<Analysis.ArmStep>>> armChainsByNode =
       new HashMap<>();
@@ -437,6 +439,17 @@ final class Slots {
    */
   Set<WordOwner> liveWordOwners;
   /**
+   * The nodes this body emits, decided in {@link #plan} before any slot is numbered: its
+   * outputs' subtrees less the date whose materialized prefix it loads and does not visit, and
+   * less a dense body's null test's condition. This, not the outputs' full subtrees, is the
+   * arm-chain reach {@code VarkaBodyEmitter.emitLaneGroup} gives the emission: a guard under a
+   * date the body loads is not emitted here, so its arm conditions must not be either - a
+   * column they read has no data segment planned (the duplicated variant the nightly fuzz found,
+   * VARKA-616). Null in a driver body, which runs only the shared prologue and emits no lane
+   * group.
+   */
+  Set<VarkaVectorIR> emittedBody;
+  /**
    * The nodes without a shared slot this lane group has emitted, cleared with the walk's
    * {@code computed} set: a second visit of one means {@link #bodyUses} counted it too low, which
    * {@code VarkaVectorWalk.emitValue} refuses rather than recompute the node's subtree.
@@ -516,18 +529,25 @@ final class Slots {
     return dstValSeg[o];
   }
 
-  // The nodes a body reaches, and the arm chains its guards are qualified by there.
+  // The nodes a body emits, and the arm chains its guards are qualified by there.
 
-  /** Sets the nodes this body reaches, which the arm chains of its guards are filtered by. */
+  /**
+   * Installs the nodes this body emits, which the arm chains of its guards are filtered by. Every
+   * lane group of one body installs the same planned set, so a set already installed is left
+   * alone and its arm chains stay computed.
+   */
   void setReach(Set<VarkaVectorIR> reached) {
+    if (reach == reached) {
+      return;
+    }
     reach = reached;
     armChainsByNode.clear();
   }
 
   /**
-   * Whether this body reaches {@code node} from its roots; see {@link #setReach}. A body emitted
-   * without it fails here rather than answering that it reaches nothing, which would skip its
-   * guards' arm conditions silently.
+   * Whether this body's planned emitted set contains {@code node}; see {@link #setReach}. A body
+   * emitted without it fails here rather than answering that it emits nothing, which would skip
+   * its guards' arm conditions silently.
    */
   boolean reaches(VarkaVectorIR node) {
     if (reach == null) {
@@ -543,16 +563,6 @@ final class Slots {
    */
   List<List<Analysis.ArmStep>> armChains(VarkaVectorIR node, Analysis analysis) {
     return armChainsByNode.computeIfAbsent(node, n -> analysis.armChainsIn(n, reach));
-  }
-
-  /** Every node under {@code root}, {@code root} included, added to {@code into}. */
-  private static void collectNodes(VarkaVectorIR root, Set<VarkaVectorIR> into) {
-    if (!into.add(root)) {
-      return;
-    }
-    for (VarkaVectorIR child : childrenOf(root)) {
-      collectNodes(child, into);
-    }
   }
 
   /**
@@ -584,7 +594,7 @@ final class Slots {
     // the input segments - follows the emitted set, so a node the emission skips costs nothing.
     Set<VarkaVectorIR> tree = new HashSet<>();
     for (int o : outputIdx) {
-      collectNodes(outputs.get(o), tree);
+      Analysis.collectReached(outputs.get(o), tree);
     }
     // Which words this body still reads, or null for "all of them" - the pass off, or a dense
     // body, which has no words.
@@ -592,10 +602,11 @@ final class Slots {
         ? liveWords(outputs, outputIdx, analysis, group, s.visitedMaterializedDates)
         : null;
     Set<VarkaVectorIR> emitted = tree;
-    if ((!analysis.materialized.isEmpty() || (dense && holdsNullTestOverCond(tree)))
-        && mode != BodyMode.DRIVER) {
-      // The body emits less than the tree where a group loads a materialized prefix, or where a
-      // dense body skips the condition under a null test (emittedNodes).
+    if (mode != BodyMode.DRIVER) {
+      // The walk runs for every lane-group body, so every skip the emission makes is the body's
+      // emitted set here without a second rule to extend: the body emits less than the tree where
+      // a group loads a materialized prefix, or where a dense body skips the condition under a
+      // null test (emittedNodes).
       // Without the liveness pass every own word is live, so a loaded date is visited exactly
       // when its word is its own: the rule liveWords states, with nothing dead. A dense body has
       // no words and visits none.
@@ -613,6 +624,9 @@ final class Slots {
       }
     }
     final Set<VarkaVectorIR> body = emitted;
+    if (mode != BodyMode.DRIVER) {
+      s.emittedBody = body;
+    }
     s.liveWordOwners = live;
     // How often this body visits each node; see bodyUses. Only a loop or epilogue body walks
     // vectors, and the count decides two things there: its shared slots under CSE (VARKA-223), and
@@ -1373,6 +1387,10 @@ final class Slots {
    * prefix fragment visits the date, since the others find the prefix in the fragment's locals,
    * and none visits a date whose materialized prefix the body loads, unless
    * {@link #visitsLoadedDate} says the body visits it all the same.
+   *
+   * <p>This owns how often the body visits each node and edge; which nodes it emits at all is
+   * {@link #emittedNodes}' walk. The two state the emission's skipped edges side by side, each
+   * kept in step with the emission by hand.
    */
   private static Map<VarkaVectorIR, Integer> bodyUses(Set<VarkaVectorIR> body,
       List<VarkaVectorIR> outputs, List<Integer> outputIdx, Analysis analysis, int group,
@@ -1477,22 +1495,16 @@ final class Slots {
     return mat != null && mat.producer() != group ? date : null;
   }
 
-  /** Whether {@code nodes} hold an {@link IsNotNull} over a condition. */
-  private static boolean holdsNullTestOverCond(Set<VarkaVectorIR> nodes) {
-    for (VarkaVectorIR node : nodes) {
-      if (node instanceof IsNotNull n && n.overCondition()) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   /**
    * The nodes a body of {@code group} emits: its outputs' subtrees, except that the date of a
    * calendar node whose materialized prefix the group loads is entered only when {@code visits}
    * says the lowering visits it, and that a dense body does not enter the condition under an
    * {@link IsNotNull}, which it answers constant true. Only the skipped position is skipped, and
    * another path into the same node still reaches it, as the emission does.
+   *
+   * <p>This owns which nodes the body emits; how often it visits each is {@link #bodyUses}'
+   * count. The two state the emission's skipped edges side by side, each kept in step with the
+   * emission by hand.
    */
   private static Set<VarkaVectorIR> emittedNodes(List<VarkaVectorIR> outputs,
       List<Integer> outputIdx, Analysis analysis, int group,

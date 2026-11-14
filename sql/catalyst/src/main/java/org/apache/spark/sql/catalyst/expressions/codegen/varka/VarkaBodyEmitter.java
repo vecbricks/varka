@@ -27,7 +27,6 @@ import java.lang.classfile.Label;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -1404,11 +1403,10 @@ final class VarkaBodyEmitter {
     s.pairLoaded.clear();
     s.emittedFragments.clear();
     planFragmentsReadingMonth(outputs, outputIdx, dense, s, analysis);
-    var roots = new ArrayList<VarkaVectorIR>();
-    for (int o : outputIdx) {
-      roots.add(outputs.get(o));
-    }
-    s.setReach(Analysis.reachOf(roots));
+    // What this body emits, not its roots' full subtrees: a guard under a date whose
+    // materialized prefix the body loads is not emitted here, and neither are its arm
+    // conditions ({@code Slots.emittedBody}).
+    s.setReach(s.emittedBody);
     emitArmConditionsFirst(cb, dense, analysis, s, computed);
     for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
