@@ -1364,6 +1364,12 @@ final class Analysis {
     return plan.narrowGroups();
   }
 
+  /** The int groups one run of {@code root}'s store covers; see
+   * {@link VarkaKernelPlan#narrowStoreParts(Lane, int, VarkaVectorIR)}. */
+  int narrowStoreParts(VarkaVectorIR root) {
+    return VarkaKernelPlan.narrowStoreParts(lane, lanesOf(Lane.INT), root);
+  }
+
   /**
    * How far {@code of}'s literal slots reach: {@link #numLiterals} in a single-lane kernel, whose
    * one table is its lane's, and in a kernel of several lanes one past the highest slot that

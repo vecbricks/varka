@@ -26,11 +26,13 @@ import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.function.IntBinaryOperator;
 import java.util.function.IntPredicate;
 import java.util.function.IntUnaryOperator;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -297,7 +299,7 @@ public final class VarkaEmitterNarrowSuite {
       int[] lits, int length, int[][] data, IntPredicate pattern, boolean forceMasked,
       VarkaEmitOptions options) {
     refuseForNoSpecies(roots, options);
-    Emitted emitted = VarkaEmitterFixtures.emit(roots, numInputs, lits.length, options);
+    Emitted emitted = emittedOnce(roots, numInputs, lits, options);
     var nulls = new boolean[numInputs][length];
     for (int c = 0; c < numInputs; c++) {
       for (int row = 0; row < length; row++) {
@@ -307,6 +309,17 @@ public final class VarkaEmitterNarrowSuite {
     assertTrue(VarkaKernelChecks.runAndCompareNarrow(ctx + " (length " + length + ")",
         emitted.className(), emitted.bytes(), roots, numInputs, lits,
         new Batch(length, nulls, data, forceMasked), false, null));
+  }
+
+  /** The shapes emitted by {@link #checkValues}, one per shape and options value. */
+  private static final Map<List<Object>, VarkaEmitterFixtures.Emitted> EMITTED =
+      new ConcurrentHashMap<>();
+
+  /** {@code roots} emitted once per shape and options value, not once per batch (VARKA-603). */
+  private static VarkaEmitterFixtures.Emitted emittedOnce(List<VarkaVectorIR> roots,
+      int numInputs, int[] lits, VarkaEmitOptions options) {
+    return EMITTED.computeIfAbsent(List.of(roots, options, numInputs, Arrays.toString(lits)),
+        key -> VarkaEmitterFixtures.emit(roots, numInputs, lits.length, options));
   }
 
   @Test
@@ -798,6 +811,60 @@ public final class VarkaEmitterNarrowSuite {
             (c, row) -> c < 2 ? byteValue.applyAsInt(row + c * 13)
                 : shortValue.applyAsInt(row + c * 13),
             nulls, forced.options());
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("a narrow store answers ragged batches under each store form at four and two "
+      + "int lanes")
+  public void narrowStoreAnswersRaggedBatchesUnderEachStoreForm() {
+    // The combined form holds one whole store per run of `parts` groups and leaves the
+    // leftovers to the epilogue; 24 and 40 cross the back edge twice, and one body per length
+    // forces the masked body over all-valid data.
+    VarkaVectorIR choice = new IfElse(new Compare(CompareOp.GT, BYTE_COL, BYTE_COL_2),
+        BYTE_COL, BYTE_COL_2);
+    VarkaVectorIR cast = new NarrowLane(new ColumnRef(0), LaneType.BYTE);
+    VarkaVectorIR shortCast = new NarrowLane(new ColumnRef(0), LaneType.SHORT);
+    // A short read with a byte stored: the load's species spans one group and the store's two,
+    // so the combined form sizes the iteration by the store and the load reads a wider species
+    // than it needs, each group taking its part (VARKA-603).
+    VarkaVectorIR shortToByte = new NarrowLane(new ColumnRef(0, LaneType.SHORT), LaneType.BYTE);
+    int length = 40;
+    var bytes = new int[][] {
+        tabulate(length, i -> ((i * 7) % 256) - 128),
+        tabulate(length, i -> ((i * 13) % 256) - 128)};
+    var ints = new int[][] {tabulate(length, i -> i * 37 - 2000)};
+    var shorts = new int[][] {tabulate(length, i -> (i * 4001) - 32008)};
+    for (int lanes : new int[] {4, 2}) {
+      for (VarkaEmitOptions.NarrowGroupStore form
+          : VarkaEmitOptions.NarrowGroupStore.values()) {
+        for (Arm arm : ARMS) {
+          VarkaEmitOptions options = arm.options().toBuilder().lanesOverride(lanes)
+              .narrowGroupStore(form).build();
+          for (int len : new int[] {5, 8, 9, 11, 12, 15, 24, 40}) {
+            for (int body = 0; body < 3; body++) {
+              // Two null patterns and the masked body forced over all-valid data.
+              IntPredicate pattern = body == 1 ? row -> row % 7 == 3 : row -> false;
+              boolean forced = body == 2;
+              String where = "a byte choice at " + len + " rows, " + lanes + " int lanes, "
+                  + arm.name() + ", " + form;
+              checkValues(where, List.of(choice), 2, new int[0], len,
+                  new int[][] {Arrays.copyOf(bytes[0], len), Arrays.copyOf(bytes[1], len)},
+                  pattern, forced, options);
+              checkValues("CAST(i AS TINYINT) at " + len + " rows, " + lanes + " int lanes, "
+                  + arm.name() + ", " + form, List.of(cast), 1, new int[0], len,
+                  new int[][] {Arrays.copyOf(ints[0], len)}, pattern, forced, options);
+              checkValues("CAST(i AS SMALLINT) at " + len + " rows, " + lanes + " int lanes, "
+                  + arm.name() + ", " + form, List.of(shortCast), 1, new int[0], len,
+                  new int[][] {Arrays.copyOf(ints[0], len)}, pattern, forced, options);
+              checkValues("a short read stored byte at " + len + " rows, " + lanes
+                  + " int lanes, " + arm.name() + ", " + form, List.of(shortToByte), 1,
+                  new int[0], len, new int[][] {Arrays.copyOf(shorts[0], len)}, pattern, forced,
+                  options);
+            }
+          }
+        }
       }
     }
   }

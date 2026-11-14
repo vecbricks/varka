@@ -37,9 +37,11 @@ import java.util.stream.IntStream;
 
 import jdk.incubator.vector.IntVector;
 import scala.Enumeration;
+import scala.Option;
 import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.LessThan$;
@@ -50,6 +52,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowGroupStore;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport.Settle;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport.TierState;
@@ -73,13 +76,19 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.types.ByteType;
 import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.IntegerType$;
 import org.apache.spark.sql.types.ShortType;
 
 /**
- * What row 329's narrow lane costs through the real emitter, under the two arms of the emit
- * option {@code VarkaEmitOptions.narrowLanes} (not a SQL conf: no session setting reaches it, so a
- * production kernel is the widened arm): the measurement the hand-loop spike
- * ({@link VarkaNarrowLaneBenchmark}, {@code results/VARKA-329-spike.txt}) could not make.
+ * What row 329's narrow lane costs through the real emitter, under the arms of two emit options:
+ * {@code narrowLanes}, whose values are a kernel computing in the int species (WIDENED) or in
+ * the narrow one (NATIVE), and {@code narrowGroupStore}, whose values are a narrow store whose
+ * species spans several int groups written under a mask per group (MASKED) or once, whole, per
+ * run of groups (COMBINED, VARKA-603). Every case label names both, so a default flip changes
+ * which arm is the default, not what a label means. Neither is a SQL conf: no session setting
+ * reaches them, so a production kernel is the native arm with the masked store. The measurement
+ * is the one the hand-loop spike ({@link VarkaNarrowLaneBenchmark}, {@code
+ * results/VARKA-329-spike.txt}) could not make.
  *
  * <p>The IR is built by hand and passed through {@link VarkaLoopEmitter#emit}, so what is timed
  * is the code the evaluator would run: the widening loads or the narrow species of the arm, the
@@ -112,6 +121,9 @@ import org.apache.spark.sql.types.ShortType;
  *       ({@code try_multiply}), and (l) {@code y1 * y2 < y3} in ANSI as a selection: the checked
  *       narrow multiply, a {@code TINYINT} or {@code SMALLINT} product checked against its type's
  *       range. Its data holds no product that overflows, so every arm answers every batch.</li>
+ *   <li>(m) {@code CAST(i AS TINYINT)}: the narrowing cast of an int column, which stores a
+ *       narrow species with no narrow value in its tree - the masked form's iteration is one
+ *       group where the combined form's is two at four int lanes (VARKA-603).</li>
  * </ul>
  *
  * <p>Shapes (a) to (g) are IR built by hand. The checked multiply's shapes are compiled from their
@@ -133,15 +145,15 @@ import org.apache.spark.sql.types.ShortType;
  * section, as {@link VarkaDecimalStoreBenchmark} documents.
  *
  * <p>Run it with {@code -XX:MaxVectorSize=64}, {@code 32} and {@code 16} for the 512-, 256- and
- * 128-bit widths. {@code -Dvarka.narrow.emit.arms=widened} or {@code =native} keeps one arm's
- * species out of the other's JVM (the two-species hazard of {@code VARKA-376.md}); the default
- * runs both in one JVM, which is that hazard's arrangement. At 128 bits a byte column is read at
- * four int lanes through the part-form load ({@code results/VARKA-329-partload.txt}), so both
- * arms answer every shape there too. A shape an arm declines - the kernel plan's refusal, or the
- * compiler's demotion of a checked multiply for the same reason - is printed by name, with the
- * reason, rather than timed. A {@code -XX:CompileCommand=dontinline,<generated class>::*} keeps
- * a loop method out of its driver, so that its own compile is the one the witness confirms and
- * the code list reports.
+ * 128-bit widths. {@code -Dvarka.narrow.emit.arms=widened} (or any comma-separated set of the
+ * four arm tokens, each combined arm appending {@code -combined}) keeps one arm's species out
+ * (the two-species hazard of {@code VARKA-376.md}); the default runs all four in one JVM, which
+ * is that hazard's arrangement. At 128 bits a byte column is read at four int lanes through the
+ * part-form load ({@code results/VARKA-329-partload.txt}), so both arms answer every shape there
+ * too. A shape an arm declines - the kernel plan's refusal, or the compiler's demotion of a
+ * checked multiply for the same reason - is printed by name, with the reason, rather than timed.
+ * A {@code -XX:CompileCommand=dontinline,<generated class>::*} keeps a loop method out of its
+ * driver, so that its own compile is the one the witness confirms and the code list reports.
  *
  * <pre>
  *   build/sbt "catalyst/Test/runMain org.apache.spark.sql.VarkaNarrowEmitBenchmark"
@@ -200,6 +212,7 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   private static final int SMALL2 = 6;
   private static final int S1 = 7;
   private static final int S2 = 8;
+  private static final int WIDE_INTS = 9;
 
   private static final int[] NO_LITS = new int[0];
 
@@ -208,32 +221,43 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * The two arms of {@code narrowLanes}: WIDENED (false) computes a narrow value in the int
-   * species and narrows once at its store; NATIVE (true, the default since row 478) computes in
-   * the narrow species where every value in the tree is narrow.
+   * The arms: the two values of {@code narrowLanes} crossed with the two of
+   * {@code narrowGroupStore}. WIDENED computes a narrow value in the int species and narrows once
+   * at its store; NATIVE computes in the narrow species where every value in the tree is narrow.
+   * MASKED stores a narrow species wider than the int group under a per-group mask, the reference
+   * form; COMBINED ORs the groups' parts into one whole vector and stores it once a run.
    */
   private enum Arm {
-    WIDENED(false),
-    NATIVE(true);
+    WIDENED(false, NarrowGroupStore.MASKED),
+    WIDENED_COMBINED(false, NarrowGroupStore.COMBINED),
+    NATIVE(true, NarrowGroupStore.MASKED),
+    NATIVE_COMBINED(true, NarrowGroupStore.COMBINED);
 
     private final boolean narrowLanes;
+    private final NarrowGroupStore narrowGroupStore;
 
-    Arm(boolean narrowLanes) {
+    Arm(boolean narrowLanes, NarrowGroupStore narrowGroupStore) {
       this.narrowLanes = narrowLanes;
+      this.narrowGroupStore = narrowGroupStore;
     }
 
     String token() {
-      return name().toLowerCase(Locale.ROOT);
+      return name().toLowerCase(Locale.ROOT).replace('_', '-');
     }
 
     VarkaEmitOptions options() {
-      return VarkaEmitOptions.DEFAULTS.toBuilder().narrowLanes(narrowLanes).build();
+      return VarkaEmitOptions.DEFAULTS.toBuilder().narrowLanes(narrowLanes)
+          .narrowGroupStore(narrowGroupStore).build();
     }
   }
 
-  /** The arms {@code -Dvarka.narrow.emit.arms} names, comma separated; an unknown name refused. */
+  /**
+   * The arms {@code -Dvarka.narrow.emit.arms} names, comma separated; an unknown name refused.
+   * The masked arms take the recorded commands' {@code widened} and {@code native}.
+   */
   private static Set<Arm> selectedArms() {
-    String value = System.getProperty(ARMS_PROPERTY, "widened,native");
+    String value = System.getProperty(ARMS_PROPERTY,
+        "widened,widened-combined,native,native-combined");
     var arms = EnumSet.noneOf(Arm.class);
     for (String token : value.split(",", -1)) {
       String name = token.strip();
@@ -323,7 +347,14 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
             LaneType.SHORT, false, S1, S2),
         // y3 is a column of random bytes, so the compare selects about half the rows.
         checkedMultiply("l: y1 * y2 < y3, ANSI, selection", EvalMode.ANSI(), LaneType.BYTE,
-            true, SMALL1, SMALL2, B1));
+            true, SMALL1, SMALL2, B1),
+        // The narrowing cast of an int column: a narrow store with no narrow value in its tree,
+        // so under the masked form the iteration is one group and under the combined form two
+        // at four int lanes (VARKA-603).
+        new Shape("m: CAST(i AS TINYINT), TINYINT store",
+            new Compiled(new Cast(INT_COLS.get(0), new ByteType(), Option.empty(),
+                EvalMode.LEGACY()), INT_COLS, false),
+            new int[] {WIDE_INTS}, new LaneType[] {LaneType.INT}));
   }
 
   /** Three {@code TINYINT} columns and two {@code SMALLINT} ones, for the compiled shapes. */
@@ -331,6 +362,8 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
       column("y2", new ByteType()), column("y3", new ByteType()));
   private static final List<Attribute> SHORTS = List.of(column("s1", new ShortType()),
       column("s2", new ShortType()));
+  private static final List<Attribute> INT_COLS = List.of(
+      column("i", IntegerType$.MODULE$));
 
   private static Attribute column(String name, DataType type) {
     return VarkaSqlResolve.column(name, type);
@@ -359,8 +392,9 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * One rung's columns: random bytes, in-range bytes for the add, small ints, and bytes and shorts
-   * whose products stay in their type's range, for the checked multiply.
+   * One rung's columns: random bytes, in-range bytes for the add, small ints, bytes and shorts
+   * whose products stay in their type's range, for the checked multiply, and ints across the
+   * whole range, for the narrowing cast's truncation.
    */
   private record Data(MemorySegment[] columns) { }
 
@@ -412,11 +446,22 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
     return seg;
   }
 
+  /** Ints across the whole range: the narrowing cast truncates every one of them at its store. */
+  private static MemorySegment wideInts(Arena arena, int n, long seed) {
+    MemorySegment seg = arena.allocate(n * 4L, 64);
+    var r = new SplittableRandom(seed);
+    for (int i = 0; i < n; i++) {
+      seg.set(ValueLayout.JAVA_INT, i * 4L, r.nextInt());
+    }
+    return seg;
+  }
+
   private static Data data(Arena arena, int n) {
     return new Data(new MemorySegment[] {randomBytes(arena, n, 1), randomBytes(arena, n, 2),
         inRangeBytes(arena, n, 3), inRangeBytes(arena, n, 4), smallInts(arena, n, 5),
         multiplicandBytes(arena, n, 6), multiplicandBytes(arena, n, 7),
-        multiplicandShorts(arena, n, 8), multiplicandShorts(arena, n, 9)});
+        multiplicandShorts(arena, n, 8), multiplicandShorts(arena, n, 9),
+        wideInts(arena, n, 10)});
   }
 
   /** A shape's input addresses in ordinal order. */
@@ -513,7 +558,7 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
 
   /** One arm's kernel name: the shape and the arm, so that no two kernels share one. */
   private static String kernelName(int shapeId, Arm arm) {
-    return "org.apache.spark.sql.varka.bench.NarrowEmit" + shapeId + arm.name().charAt(0);
+    return "org.apache.spark.sql.varka.bench.NarrowEmit" + shapeId + arm.name();
   }
 
   /** The name both arms are emitted under when the byte-identity check compares them. */
