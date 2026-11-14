@@ -82,7 +82,7 @@
     "catalyst" : [ "Cast", "DateAdd", "ExtractANSIIntervalDays" ],
     "casts" : [ "int>dt:ansi" ],
     "operands" : [ "Cast:int", "DateAdd:date", "DateAdd:int", "ExtractANSIIntervalDays:dt" ],
-    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.interval.enabled" ],
     "domain" : "i BETWEEN -106751991 AND 106751991",
     "note" : "the day-interval spelling of a column offset; past the bound the cast itself throws in every mode, so the batch declines and the row engine raises",
     "verified" : "refinement: d + CAST(i AS INTERVAL DAY)"
@@ -5194,7 +5194,7 @@
     "catalyst" : [ "DatetimeSub", "TimestampAddInterval", "UnaryMinus" ],
     "casts" : [ ],
     "operands" : [ "DatetimeSub:dt", "DatetimeSub:ntz", "TimestampAddInterval:dt", "TimestampAddInterval:ntz", "UnaryMinus:dt" ],
-    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled", "spark.sql.codegen.varka.family.time.enabled" ],
     "domain" : "dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)",
     "note" : "the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded",
     "verified" : "differential"

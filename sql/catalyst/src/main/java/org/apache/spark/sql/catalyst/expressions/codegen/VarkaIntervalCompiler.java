@@ -35,6 +35,7 @@ import org.apache.spark.sql.catalyst.expressions.MultiplyDTInterval;
 import org.apache.spark.sql.catalyst.expressions.MultiplyYMInterval;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIntervalFault;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
@@ -669,7 +670,7 @@ public final class VarkaIntervalCompiler {
 
   private static long[] productBounds(long k, long least, long greatest) {
     if (k == 0) {
-      throw new IllegalArgumentException("a zero factor never overflows");
+      throw VarkaErrors.illegalArgument("a zero factor never overflows");
     }
     BigInteger min = BigInteger.valueOf(least);
     BigInteger max = BigInteger.valueOf(greatest);
