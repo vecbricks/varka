@@ -192,6 +192,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val dayLimit = VarkaChrono.INTERVAL_DAY_LIMIT_DAYS
   private val minMonths = VarkaChrono.MONTH_ARITH_MIN_MONTHS
   private val maxMonths = VarkaChrono.MONTH_ARITH_MAX_MONTHS
+
   /**
    * The note of a null test over an ordered comparison, which Spark's default
    * `NullDownPropagation` rewrites into null tests on the comparison's columns (VARKA-334).
@@ -464,6 +465,34 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("extract(YEAR FROM ym) - 1", "the quotient feeding further int arithmetic, checked "
         + "under ANSI; the check cannot fire, since the quotient is within +/-178956970",
         domain = Some(s"extract(YEAR FROM ym) > ${Int.MinValue}")))),
+
+    // The day-time interval algebra (VARKA-103 2.1): a count of microseconds on the long lane.
+    // Spark computes the sum, the difference and the negation with `IntervalMathUtils`'s exact
+    // forms and `abs` with `LongExactNumeric.abs`, which raise in every evaluation mode, so each
+    // is the checked long operation and a batch with an overflowing row goes to the row engine.
+    Family("Day-time interval arithmetic", predicates = false, Seq(
+      Row("dt + dt2", "a sum past the long raises in every mode, so its batch declines and the "
+        + "row engine raises", domain = Some(tryDomain("try_add(dt, dt2)", "dt", "dt2"))),
+      Row("dt - dt2", "the difference, exact in every mode as the sum is",
+        domain = Some(tryDomain("try_subtract(dt, dt2)", "dt", "dt2"))),
+      Row("-dt", "negateExact raises on the least interval alone",
+        domain = Some(s"dt <> $leastInterval")),
+      Row("abs(dt)", "the checked negation under a blend; Spark raises on the least interval in "
+        + "every mode, with ARITHMETIC_OVERFLOW rather than the interval condition",
+        domain = Some(s"dt <> $leastInterval")),
+      Row("dt + INTERVAL '1' DAY", "the literal, cast to the column's unit and folded, takes a "
+        + "slot in the long lane's table",
+        domain = Some(tryDomain("try_add(dt, INTERVAL '1' DAY)", "dt"))),
+      Row("dt * 3", "multiplyExact in every mode, a bare ArithmeticException on overflow: the "
+        + "operand is guarded to the longs whose product fits, exactly, and the multiply wraps; "
+        + "a column factor declines",
+        domain = Some(tryDomain("try_multiply(dt, 3)", "dt"))),
+      Row("-2 * dt", "the factor on the left is the same node; a negative factor swaps the "
+        + "guard's ends, which are not symmetric",
+        domain = Some(tryDomain("try_multiply(-2, dt)", "dt"))),
+      Row("extract(DAY FROM dt)", "Java's truncating division by a day, exact over every long "
+        + "and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines "
+        + "(`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset"))),
 
     Family("Integer arithmetic", predicates = false, Seq(
       Row("i + 1", "checked under ANSI; the legacy mode wraps as Spark does and declines nothing",
@@ -2150,6 +2179,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "CAST(i AS INTERVAL YEAR)" -> Exhausted("VarkaEmitterIntervalCastSuite",
       "the guard of INT to INTERVAL YEAR is multiplyExact's, over every int"),
     "CAST(dt AS BIGINT)" -> Proved("long_divide.smt2"),
+    "dt * 3" -> Proved("dt_arith.smt2"),
+    "-2 * dt" -> Proved("dt_arith.smt2"),
+    "extract(DAY FROM dt)" -> Proved("long_divide.smt2"),
     "ym / 12" -> Proved("ym_divide.smt2"),
     "ym / -7" -> Proved("ym_divide.smt2"),
     "extract(YEAR FROM ym)" -> Refined("extract(YEAR FROM ym)"),
