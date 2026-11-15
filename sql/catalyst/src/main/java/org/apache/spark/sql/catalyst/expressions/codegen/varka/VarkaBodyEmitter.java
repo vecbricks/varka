@@ -1470,6 +1470,11 @@ final class VarkaBodyEmitter {
     s.emittedUnshared.clear();
     s.pairLoaded.clear();
     s.emittedFragments.clear();
+    // One lane group's emission, so a prefix this body stores belongs to this group: a loop body
+    // computes several groups an iteration (`analysis.narrowGroups()`), each with its own rows in
+    // the scratch, and the runs past the first must store theirs as well. The set only keeps one
+    // group's two fragments over the same date from both storing it.
+    s.storedPrefixes.clear();
     planFragmentsReadingMonth(outputs, outputIdx, dense, s, analysis);
     // What this body emits, not its roots' full subtrees: a guard under a date whose
     // materialized prefix the body loads is not emitted here, and neither are its arm

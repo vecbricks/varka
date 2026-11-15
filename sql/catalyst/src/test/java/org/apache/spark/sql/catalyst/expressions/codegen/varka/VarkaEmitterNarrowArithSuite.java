@@ -61,6 +61,7 @@ import org.apache.spark.sql.catalyst.expressions.If$;
 import org.apache.spark.sql.catalyst.expressions.Literal$;
 import org.apache.spark.sql.catalyst.expressions.Multiply$;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
+import org.apache.spark.sql.catalyst.expressions.Quarter;
 import org.apache.spark.sql.catalyst.expressions.Subtract$;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus$;
 import org.apache.spark.sql.catalyst.expressions.Year;
@@ -352,6 +353,27 @@ public final class VarkaEmitterNarrowArithSuite {
 
   private static final java.util.concurrent.atomic.AtomicInteger CLASS_COUNTER =
       new java.util.concurrent.atomic.AtomicInteger(0);
+
+  /**
+   * Compiles `exprs` over `attrs` into one kernel at `options` and emits it, with no Spark
+   * oracle: the test compares the kernel with the reference evaluator alone.
+   */
+  private static EmittedClass emitAll(List<Expression> exprs, List<Attribute> attrs,
+      VarkaEmitOptions options, String where) {
+    var entries = CollectionConverters.asScala(exprs.stream()
+        .map(e -> (NamedExpression) VarkaSqlResolve.named(e, "c")).toList()).toSeq();
+    var columns = CollectionConverters.asScala(attrs).toSeq();
+    Optional<CompiledVarkaProjection> plan =
+        VarkaExpressionCompiler.compile(entries, columns, options);
+    assertTrue(plan.isPresent(), where + ": the compiler declined the projection");
+    CompiledVarkaProjection p = plan.get();
+    String className =
+        "org.apache.spark.sql.varka.execution.VarkaNarrowArith" + CLASS_COUNTER.incrementAndGet();
+    byte[] bytes = VarkaLoopEmitter.emit(className, p.outputs(), p.inputOrdinals().size(),
+        p.numLiterals(), null, null, options);
+    int[] lits = p.literals().stream().mapToInt(Integer::intValue).toArray();
+    return new EmittedClass(className, bytes, p.outputs(), p.inputOrdinals().size(), lits, null);
+  }
 
   /** Loads an emitted class, runs {@code f}, and releases the loader. */
   private static void withKernel(EmittedClass emitted,
@@ -867,6 +889,33 @@ public final class VarkaEmitterNarrowArithSuite {
         }
       }
     }
+  }
+
+  @Test
+  @DisplayName("a narrow store's second lane group stores the date prefix its later output group "
+      + "loads")
+  public void secondLaneGroupStoresTheDatePrefixItsLaterOutputGroupLoads() {
+    // Four outputs at four int lanes under COMBINED: the narrowing cast's store makes an
+    // iteration compute two lane groups, and the two quarters put the date's calendar prefix in
+    // two loop-method groups, so the second output group loads the scratch the first stores
+    // (VARKA-198). The store is emitted once per lane group; when only the first group's was,
+    // quarter(d) read the second group's unwritten scratch as month 0 and answered 0 where the
+    // reference answers the quarter.
+    VarkaEmitOptions options = VarkaEmitOptions.DEFAULTS.toBuilder()
+        .lanesOverride(4).narrowGroupStore(NarrowGroupStore.COMBINED).build();
+    Attribute i = VarkaSqlResolve.column("i", IntegerType$.MODULE$);
+    Attribute d = VarkaSqlResolve.column("d", new DateType());
+    List<Expression> exprs = List.of(
+        new Cast(i, new ByteType(), Option.empty(), EvalMode.LEGACY()),
+        new Quarter(d), new Quarter(d), new DateAdd(d, i));
+    String where = "CAST(i AS TINYINT), quarter(d), quarter(d), date_add(d, i) at four int "
+        + "lanes, COMBINED";
+    EmittedClass emitted = emitAll(exprs, List.of(i, d), options, where);
+    Batch batch = batch(64, row -> false, List.of(3, 19000));
+    withKernel(emitted, kernel -> assertEquals(0,
+        VarkaKernelChecks.runLoadedNarrow(where, kernel, emitted.roots(), emitted.numInputs(),
+            emitted.lits(), batch, true, null, CallHook.NONE),
+        where + ": the kernel declined the batch"));
   }
 
   @Test

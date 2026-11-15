@@ -428,8 +428,8 @@ final class Slots {
    * other slot, so no other local moves.
    */
   int scratchSeg = -1;
-  /** The dates whose materialized prefix this body has already stored; see the producer's
-   * side of {@code VarkaChronoLowering.emitChronoPrefixOnce}. */
+  /** The dates whose materialized prefix this body has already stored for the lane group being
+   * emitted; see the producer's side of {@code VarkaChronoLowering.emitChronoPrefixOnce}. */
   final Set<VarkaVectorIR> storedPrefixes = new HashSet<>();
   /**
    * The dates whose materialized prefix this body loads (see {@code VARKA-198.md}) and which it
