@@ -1,0 +1,348 @@
+dt + dt2 - dt, no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
+abs(dt), no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
+dt * 3, no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
+extract(DAY FROM dt), no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
+extract DAY, HOUR, MINUTE and SECOND together, no nulls: fuses in part on the varka on arm, so it times a kernel there beside the row path's evaluation of the entries the kernel declined
+CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths, no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
+dt + dt2 - dt, one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
+abs(dt), one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
+dt * 3, one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
+extract(DAY FROM dt), one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
+extract DAY, HOUR, MINUTE and SECOND together, one row in ten null: fuses in part on the varka on arm, so it times a kernel there beside the row path's evaluation of the entries the kernel declined
+CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths, one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
+================================================================================================
+dt + dt2 - dt, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+dt + dt2 - dt, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                         97            108          11         20.7          48.4       1.0X
+varka on                                                           94            107           9         21.2          47.2       1.0X
+
+
+================================================================================================
+abs(dt), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+abs(dt), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                   89             93           4         22.6          44.3       1.0X
+varka on                                                    106            120          14         18.9          52.8       0.8X
+
+
+================================================================================================
+dt * 3, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+dt * 3, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                  77             83           6         26.0          38.4       1.0X
+varka on                                                    87             94           5         22.9          43.7       0.9X
+
+
+================================================================================================
+dt * 1.5, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+dt * 1.5, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                   130            134           4         15.4          65.0       1.0X
+varka on                                                     155            159           4         12.9          77.4       0.8X
+
+
+================================================================================================
+dt / 24, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+dt / 24, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                   90             95           5         22.1          45.2       1.0X
+varka on                                                     91             98          10         22.0          45.5       1.0X
+
+
+================================================================================================
+extract(DAY FROM dt), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+extract(DAY FROM dt), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                73             78           5         27.4          36.6       1.0X
+varka on                                                                  76             80           4         26.4          37.8       1.0X
+
+
+================================================================================================
+extract(HOUR FROM dt), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+extract(HOUR FROM dt), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                 74             80           5         27.1          36.9       1.0X
+varka on                                                                   75             79           4         26.8          37.4       1.0X
+
+
+================================================================================================
+extract DAY, HOUR, MINUTE and SECOND together, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+extract DAY, HOUR, MINUTE and SECOND together, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                         94             99           5         21.2          47.2       1.0X
+varka on                                                                                          189            191           2         10.6          94.4       0.5X
+
+
+================================================================================================
+make_dt_interval(i, i2, i3), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+make_dt_interval(i, i2, i3), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                      123            127           5         16.3          61.3       1.0X
+varka on                                                                        123            128           5         16.3          61.5       1.0X
+
+
+================================================================================================
+make_dt_interval(i, i2, i3, s), DECIMAL(18, 6) seconds, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+make_dt_interval(i, i2, i3, s), DECIMAL(18, 6) seconds, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                                 200            208           8         10.0         100.2       1.0X
+varka on                                                                                                   201            205           4         10.0         100.3       1.0X
+
+
+================================================================================================
+CAST(dt AS INTERVAL HOUR), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+CAST(dt AS INTERVAL HOUR), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                    109            126          10         18.3          54.6       1.0X
+varka on                                                                      108            110           3         18.6          53.9       1.0X
+
+
+================================================================================================
+filter extract(HOUR FROM dt) >= 12, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+filter extract(HOUR FROM dt) >= 12, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                              70             75           5         28.7          34.9       1.0X
+varka on                                                                                68             73           6         29.5          33.9       1.0X
+
+
+================================================================================================
+filter dt > dt2, control, fuses today, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+filter dt > dt2, control, fuses today, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                 99            102           4         20.2          49.4       1.0X
+varka on                                                                                   99            105           5         20.2          49.6       1.0X
+
+
+================================================================================================
+CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                                                 103            106           4         19.4          51.6       1.0X
+varka on                                                                                                                    64             67           4         31.3          32.0       1.6X
+
+
+================================================================================================
+dt + dt2 - dt, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+dt + dt2 - dt, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                   106            111           6         19.0          52.8       1.0X
+varka on                                                                     160            163           2         12.5          80.0       0.7X
+
+
+================================================================================================
+abs(dt), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+abs(dt), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                              87             92           7         23.1          43.3       1.0X
+varka on                                                               185            187           2         10.8          92.3       0.5X
+
+
+================================================================================================
+dt * 3, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+dt * 3, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                             78             82           5         25.8          38.8       1.0X
+varka on                                                              120            126           3         16.6          60.2       0.6X
+
+
+================================================================================================
+dt * 1.5, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+dt * 1.5, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                              152            153           1         13.2          75.8       1.0X
+varka on                                                                151            154           2         13.2          75.6       1.0X
+
+
+================================================================================================
+dt / 24, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+dt / 24, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                              93             98           5         21.4          46.7       1.0X
+varka on                                                                94             97           3         21.2          47.2       1.0X
+
+
+================================================================================================
+extract(DAY FROM dt), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+extract(DAY FROM dt), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                           78             83           6         25.6          39.1       1.0X
+varka on                                                                             72             75           2         27.7          36.1       1.1X
+
+
+================================================================================================
+extract(HOUR FROM dt), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+extract(HOUR FROM dt), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                            81             87          12         24.7          40.5       1.0X
+varka on                                                                              81             85           4         24.7          40.6       1.0X
+
+
+================================================================================================
+extract DAY, HOUR, MINUTE and SECOND together, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+extract DAY, HOUR, MINUTE and SECOND together, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                                   101            105           4         19.9          50.3       1.0X
+varka on                                                                                                     187            190           2         10.7          93.7       0.5X
+
+
+================================================================================================
+make_dt_interval(i, i2, i3), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+make_dt_interval(i, i2, i3), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                 138            143           4         14.4          69.2       1.0X
+varka on                                                                                   139            142           4         14.4          69.7       1.0X
+
+
+================================================================================================
+make_dt_interval(i, i2, i3, s), DECIMAL(18, 6) seconds, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+make_dt_interval(i, i2, i3, s), DECIMAL(18, 6) seconds, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                                            199            212          16         10.1          99.4       1.0X
+varka on                                                                                                              200            208          13         10.0          99.9       1.0X
+
+
+================================================================================================
+CAST(dt AS INTERVAL HOUR), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+CAST(dt AS INTERVAL HOUR), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                               105            109           4         19.0          52.5       1.0X
+varka on                                                                                 104            115          11         19.2          52.1       1.0X
+
+
+================================================================================================
+filter extract(HOUR FROM dt) >= 12, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+filter extract(HOUR FROM dt) >= 12, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                         63             65           2         31.6          31.6       1.0X
+varka on                                                                                           64             68           5         31.2          32.0       1.0X
+
+
+================================================================================================
+filter dt > dt2, control, fuses today, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+filter dt > dt2, control, fuses today, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                            97            101           5         20.6          48.5       1.0X
+varka on                                                                                              98            103           6         20.3          49.1       1.0X
+
+
+================================================================================================
+CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                                                            111            115           4         18.0          55.7       1.0X
+varka on                                                                                                                               96             98           2         20.9          47.8       1.2X
+
+

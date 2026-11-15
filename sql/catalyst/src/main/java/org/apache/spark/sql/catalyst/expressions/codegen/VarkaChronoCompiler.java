@@ -484,8 +484,10 @@ final class VarkaChronoCompiler {
     // child's reason, not the offset's (pinned by VarkaExpressionCompilerSuite's "with two
     // independently unfusable operands, the child's reason is reported" test).
     Expression days = n.days();
-    Optional<BoundReference> negated = days instanceof UnaryMinus u
-        ? dayIntervalOffset(u.child()) : Optional.empty();
+    Optional<Expression> negatedNode = days instanceof UnaryMinus u
+        ? Optional.of(u.child()) : Optional.empty();
+    Optional<BoundReference> negated =
+        negatedNode.flatMap(VarkaChronoCompiler::dayIntervalOffset);
     Optional<VarkaVectorIR> node = VarkaNodeCompiler.compileNode(
         n.startDate(), inputs, literals, sink);
     if (node.isEmpty()) {
@@ -496,8 +498,12 @@ final class VarkaChronoCompiler {
       // day count, `DateAdd(d, UnaryMinus(ExtractANSIIntervalDays(r)))`. Inside the cast's
       // own bound the negation cannot overflow, so it is absorbed into SubDays - no
       // UnaryMinus node exists and none is needed. The offset is the same bounded column
-      // `compileOffset` makes of the cast form.
-      return Optional.of(new SubDays(node.get(), dayIntervalColumn(negated.get(), inputs, sink)));
+      // `compileOffset` makes of the cast form, and its extractor is the interval family's
+      // node, so it asks that family's switch (VARKA-318).
+      return VarkaNodeCompiler.inFamily(VarkaFamily.INTERVAL,
+          () -> Optional.of(dayIntervalColumn(negated.get(), inputs, sink)),
+          negatedNode.get(), sink)
+          .map(v -> (VarkaVectorIR) new SubDays(node.get(), v));
     }
     Optional<VarkaVectorIR> offset = compileOffset(days, inputs, literals, sink);
     return offset.map(v -> new AddDays(node.get(), v));
@@ -597,7 +603,11 @@ final class VarkaChronoCompiler {
     // the row engine when a live lane is outside.
     Optional<BoundReference> interval = dayIntervalOffset(days);
     if (interval.isPresent()) {
-      return Optional.of(dayIntervalColumn(interval.get(), inputs, sink));
+      // The extractor under the cast is the interval family's node, read here rather than
+      // through the chain, so it runs under that family's switch, as the years-to-months cast
+      // and the negated month count below do (VARKA-318).
+      return VarkaNodeCompiler.inFamily(VarkaFamily.INTERVAL,
+          () -> Optional.of(dayIntervalColumn(interval.get(), inputs, sink)), days, sink);
     }
     if (days instanceof ExtractANSIIntervalDays e) {
       // A stored INTERVAL DAY column is int64 microseconds, which no int32 lane can read;

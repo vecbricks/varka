@@ -61,7 +61,7 @@ or|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (3
 <|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double,dec^|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
 <=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double,dec^|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
 !|bool|bool||plumbing|331,27|alias of not
-abs|NUM,IVL|same|byte,short,bigint,ym,float,double|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
+abs|NUM,IVL|same|byte,short,bigint,ym,dt,float,double|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
 greatest|ALL|same|int,date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
 least|ALL|same|int,date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
 acos|double|double||ulp|367,356|Math
@@ -90,7 +90,7 @@ log1p|double|double||ulp|367,358|StrictMath
 log2|double|double||ulp|367,358|StrictMath.log over a constant
 ln|double|double||ulp|367,358|StrictMath
 mod|NUM|same||semantics|30,95,346,577|integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; row 577 (VARKA-577.md; the owner's word of 7 November 2026)
-negative|NUM,IVL|same|byte,short,int,bigint,ym,float,double|semantics|330,104,103,342,348,359|the minimum value overflows; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
+negative|NUM,IVL|same|byte,short,int,bigint,ym,dt,float,double|semantics|330,104,103,342,348,359|the minimum value overflows; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
 pmod|NUM|same||semantics|30,346,577|integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577
 positive|NUM,IVL|same||plumbing|333|rewritten to its child
 pow|double|double||ulp|367,358|StrictMath; fused behind the guard on fdlibm's weak branch, its exact exponents as exact nodes (358)
@@ -109,8 +109,8 @@ tan|double|double||ulp|367,356|Math
 cot|double|double||ulp|367,356|1 / Math.tan
 tanh|double|double||ulp|367,357|Math
 width_bucket|double,IVL,time|bigint||semantics|344|bucket arithmetic over doubles
-+|NUM,IVL|same|byte,short,int,bigint,ym,float,double|semantics|330,104,103,342,349,360|integral overflow modes; decimal result scale; date and timestamp sums are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
--|NUM,IVL|same|byte,short,int,bigint,ym,float,double|semantics|330,104,103,342,349,360|date, timestamp and time differences are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
++|NUM,IVL|same|byte,short,int,bigint,ym,dt,float,double|semantics|330,104,103,342,349,360|integral overflow modes; decimal result scale; date and timestamp sums are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
+-|NUM,IVL|same|byte,short,int,bigint,ym,dt,float,double|semantics|330,104,103,342,349,360|date, timestamp and time differences are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
 *|NUM|same|byte,short,int~,bigint~,float,double|semantics|330,95,104,342,349,361,362|fused for int in `year(d) * 2` and for bigint in `CAST(i AS BIGINT) * 1000L`, a checked multiply over a bigint column declining (104); interval products are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 361 and 362 at every precision to 38
 /|double,dec!|same|double|done|342|zero divisor null or error; decimal division is out of milestone 8
 div|INTEGRAL,dec!,IVL|bigint||semantics|30,103|zero divisor null or error; over INT a long-lane divide over two widening casts (corrects item 33); a decimal div divides decimals, out of milestone 8
@@ -202,13 +202,13 @@ datetime_sub|DatetimeSub|datetime|date,ntz,IVL|date,ntz|date,ym,ntz,dt|done|339|
 ntz_plus_dt|TimestampAddInterval|datetime|ntz,dt|ntz|ntz,dt|done|339|UTC, so plain arithmetic; exact or raise
 ntz_plus_ym|TimestampAddYMInterval|datetime|ntz,ym|ntz|ntz,ym|done|339|calendar months on the date part
 timestampadd|TimestampAdd|datetime|bigint,ntz|ntz|bigint,ntz|done|339|units up to a week are arithmetic, months and years calendar
-ym_times_num|MultiplyYMInterval|interval|ym,NUM|ym|ym~,int~|semantics|103,329,342|fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions; an integral literal factor over a stored column is row 103's guard (103a); a decimal column factor is a product past 64 bits and a HALF_UP division by 10^s; unclaimed, suggested home rows 361 and 363 (VARKA-349.md 7)
-dt_times_num|MultiplyDTInterval|interval|dt,NUM|dt||semantics|103,342,361,363|checked multiply; HALF_UP from fractions; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
+ym_times_num|MultiplyYMInterval|interval|ym,NUM|ym|ym~,int~|semantics|103,329,342|fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions; an integral literal factor over a stored column is row 103's guard (103a2); a decimal column factor is a product past 64 bits and a HALF_UP division by 10^s; unclaimed, suggested home rows 361 and 363 (VARKA-349.md 7)
+dt_times_num|MultiplyDTInterval|interval|dt,NUM|dt|dt,int~|semantics|103,342,361,363|fused in `dt * 3`, an integral literal factor under an exact guard; checked multiply; HALF_UP from fractions; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
 ym_div_num|DivideYMInterval|interval|ym,NUM|ym||semantics|89,342,363|HALF_UP division; a decimal divisor is a division by a variable, claimed by row 363 and declined until one is planned (VARKA-349.md 7)
 dt_div_num|DivideDTInterval|interval|dt,NUM|dt||semantics|103,342,361,363|HALF_UP division; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
 extract_ym_years|ExtractANSIIntervalYears|interval|ym|int|ym|done||
 extract_ym_months|ExtractANSIIntervalMonths|interval|ym|byte||plumbing|329|matched today only to decline: its result is a byte
-extract_dt_days|ExtractANSIIntervalDays|interval|dt|int||plumbing|103|fused today only inside date + CAST(i AS INTERVAL DAY); inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126)
+extract_dt_days|ExtractANSIIntervalDays|interval|dt|int|dt|done|103|fused in `extract(DAY FROM dt)`, the truncating division by a day over every long; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset
 extract_dt_hours|ExtractANSIIntervalHours|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_minutes|ExtractANSIIntervalMinutes|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_seconds|ExtractANSIIntervalSeconds|interval|dt|dec||plumbing|103,157|a DECIMAL(8,6) result

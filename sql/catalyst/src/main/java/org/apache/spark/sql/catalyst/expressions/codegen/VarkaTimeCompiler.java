@@ -57,6 +57,7 @@ import org.apache.spark.sql.catalyst.expressions.TimestampAdd;
 import org.apache.spark.sql.catalyst.expressions.TimestampAddInterval;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
@@ -452,8 +453,14 @@ final class VarkaTimeCompiler {
       return t;
     }
     if (a.interval() instanceof UnaryMinus n) {
-      return longOperand(n.child(), inputs, literals, sink).map(dt -> new IntArith(IntOp.SUB,
-          Overflow.FAIL, t.get(), new GuardedRange(dt, Long.MIN_VALUE + 1, Long.MAX_VALUE)));
+      // The negation is the interval family's node, absorbed into the checked subtraction
+      // rather than compiled, so it asks that family's switch, as the calendar's negated
+      // month count does (VARKA-318).
+      return VarkaNodeCompiler.inFamily(VarkaFamily.INTERVAL,
+          () -> longOperand(n.child(), inputs, literals, sink)
+              .map(dt -> (VarkaVectorIR) new IntArith(IntOp.SUB, Overflow.FAIL, t.get(),
+                  new GuardedRange(dt, Long.MIN_VALUE + 1, Long.MAX_VALUE))),
+          n, sink);
     }
     return longOperand(a.interval(), inputs, literals, sink)
         .map(dt -> new IntArith(IntOp.ADD, Overflow.FAIL, t.get(), dt));

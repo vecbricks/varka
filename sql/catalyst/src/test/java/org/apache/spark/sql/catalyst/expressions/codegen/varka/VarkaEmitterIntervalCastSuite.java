@@ -18,6 +18,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -43,6 +44,7 @@ import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.DateAddYMInterval;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.ExtractANSIIntervalDays;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
@@ -71,6 +73,9 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * row engine raises, and under {@code TRY} the kernel answers null. The division cannot fail; a
  * batch declines only for the {@code 2^52} microsecond guard of the HOUR, MINUTE and SECOND ends
  * (the DAY end is exact over every long), whatever the mode, and the row engine then divides.
+ *
+ * <p>Beside them, one form over the same nodes (VARKA-103): {@code extract(DAY FROM dt)}, the
+ * DAY end's division narrowed to an int.
  *
  * <p>In its own JVM: the year cast runs at the int lane and the division at the long lane.
  */
@@ -295,6 +300,51 @@ public final class VarkaEmitterIntervalCastSuite {
         assertNotEquals(0, k.status(new long[] {0, MAX_YEARS + 1}),
             mode + " answered a batch Spark raises on");
       }
+    }
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // extract(DAY FROM dt) (VARKA-103 2.3)
+  // -------------------------------------------------------------------------------------------
+
+  /** The named cells of `VARKA-103.md` 3.3 for the day extract, both signs. */
+  private static final long[] DAY_CELLS = {Long.MIN_VALUE, Long.MAX_VALUE,
+      DateTimeConstants.MICROS_PER_DAY, -DateTimeConstants.MICROS_PER_DAY,
+      DateTimeConstants.MICROS_PER_DAY - 1, -DateTimeConstants.MICROS_PER_DAY + 1, 1, -1, 0};
+
+  private static Kernel dayExtractKernel() {
+    Attribute dt = VarkaSqlResolve.column("dt", new DayTimeIntervalType((byte) 0, (byte) 3));
+    return kernel(new ExtractANSIIntervalDays(dt), List.of(dt));
+  }
+
+  @Test
+  @DisplayName("extract(DAY FROM dt) answers as Spark does over every long: the named cells, "
+      + "the long's ends among them, and drawn values of every bit length")
+  void dayExtract() {
+    var rnd = new Random(103);
+    long[] drawn = LongStream.generate(() -> rnd.nextLong() >> rnd.nextInt(64)).limit(4000)
+        .toArray();
+    Kernel k = dayExtractKernel();
+    assertTrue(k.answers(DAY_CELLS), "the named cells");
+    assertTrue(k.answers(drawn), "the drawn values");
+  }
+
+  @Test
+  @DisplayName("the day extract built as the floor of an arithmetic-shift magnitude fails the "
+      + "cell at Long.MIN_VALUE")
+  void dayByMagnitudeFails() {
+    VarkaIntervalFault.plantForTesting(VarkaIntervalFault.DAY_BY_MAGNITUDE);
+    try {
+      // Compiled and emitted under the fault, never through the class cache.
+      Kernel k = dayExtractKernel();
+      assertTrue(k.answers(new long[] {Long.MIN_VALUE + 1, -1, 0, Long.MAX_VALUE}),
+          "the fault is wrong only at Long.MIN_VALUE");
+      // A failed comparison with Spark throws, naming the row (VarkaKernelChecks).
+      var failure = assertThrows(IllegalStateException.class,
+          () -> k.answers(new long[] {Long.MIN_VALUE}), "the planted fault passes at MIN");
+      assertTrue(failure.getMessage().contains("disagree"), failure.getMessage());
+    } finally {
+      VarkaIntervalFault.plantForTesting(VarkaIntervalFault.NONE);
     }
   }
 

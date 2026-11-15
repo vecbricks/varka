@@ -58,7 +58,9 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * results file notes each section that fuses. A row that fuses more of a section sets its new
  * class, so that its fusion cannot turn a baseline section into a fused one unnoticed. A section
  * is {@code NONE} when no Varka node plans it and {@code WHOLE} when no row operator evaluates
- * any of it. The projections but the blend control are {@code NONE}, and so is the filter
+ * any of it. The projections row 103 fuses are {@code WHOLE} at both widths, the four extracts
+ * together {@code PARTIAL} (the DAY field fuses, the other three are row 103's later step), and
+ * the other projections but the blend control are {@code NONE}. So is the filter
  * {@code extract(HOUR FROM dt) >= 12} at both densities: of it only the {@code IS NOT NULL}
  * Spark infers of the column would fuse, and a filter fusing nothing else stays whole on the row
  * path (VARKA-598), so both arms time the row path. Each
@@ -176,23 +178,23 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " FROM " + VIEW;
       out.add(new Section("dt + dt2 - dt" + density,
-          "SELECT " + dt + " + dt2 - " + dt + " AS a" + from, Map.of(), Fusion.NONE));
+          "SELECT " + dt + " + dt2 - " + dt + " AS a" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("abs(dt)" + density,
-          "SELECT abs(" + dt + ") AS a" + from, Map.of(), Fusion.NONE));
+          "SELECT abs(" + dt + ") AS a" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("dt * 3" + density,
-          "SELECT " + dt + " * 3 AS a" + from, Map.of(), Fusion.NONE));
+          "SELECT " + dt + " * 3 AS a" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("dt * 1.5" + density,
           "SELECT " + dt + " * 1.5 AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("dt / 24" + density,
           "SELECT " + dt + " / 24 AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("extract(DAY FROM dt)" + density,
-          "SELECT extract(DAY FROM " + dt + ") AS a" + from, Map.of(), Fusion.NONE));
+          "SELECT extract(DAY FROM " + dt + ") AS a" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("extract(HOUR FROM dt)" + density,
           "SELECT extract(HOUR FROM " + dt + ") AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("extract DAY, HOUR, MINUTE and SECOND together" + density,
           "SELECT extract(DAY FROM " + dt + ") AS a, extract(HOUR FROM " + dt + ") AS b, "
               + "extract(MINUTE FROM " + dt + ") AS c, extract(SECOND FROM " + dt + ") AS d"
-              + from, Map.of(), Fusion.NONE));
+              + from, Map.of(), Fusion.PARTIAL));
       out.add(new Section("make_dt_interval(i, i2, i3)" + density,
           "SELECT make_dt_interval(" + i + ", i2, i3) AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("make_dt_interval(i, i2, i3, s), DECIMAL(18, 6) seconds" + density,

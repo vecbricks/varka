@@ -82,7 +82,7 @@
     "catalyst" : [ "Cast", "DateAdd", "ExtractANSIIntervalDays" ],
     "casts" : [ "int>dt:ansi" ],
     "operands" : [ "Cast:int", "DateAdd:date", "DateAdd:int", "ExtractANSIIntervalDays:dt" ],
-    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.interval.enabled" ],
     "domain" : "i BETWEEN -106751991 AND 106751991",
     "note" : "the day-interval spelling of a column offset; past the bound the cast itself throws in every mode, so the batch declines and the row engine raises",
     "verified" : "refinement: d + CAST(i AS INTERVAL DAY)"
@@ -578,6 +578,102 @@
     "domain" : "extract(YEAR FROM ym) > -2147483648",
     "note" : "the quotient feeding further int arithmetic, checked under ANSI; the check cannot fire, since the quotient is within +/-178956970",
     "verified" : "refinement: extract(YEAR FROM ym); a - b"
+  }, {
+    "sql" : "dt + dt2",
+    "executable" : "dt + dt2",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Add" ],
+    "casts" : [ ],
+    "operands" : [ "Add:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL OR dt2 IS NULL, NULL, try_add(dt, dt2) IS NOT NULL)",
+    "note" : "a sum past the long raises in every mode, so its batch declines and the row engine raises",
+    "verified" : "differential"
+  }, {
+    "sql" : "dt - dt2",
+    "executable" : "dt - dt2",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Subtract" ],
+    "casts" : [ ],
+    "operands" : [ "Subtract:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL OR dt2 IS NULL, NULL, try_subtract(dt, dt2) IS NOT NULL)",
+    "note" : "the difference, exact in every mode as the sum is",
+    "verified" : "differential"
+  }, {
+    "sql" : "-dt",
+    "executable" : "-dt",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "UnaryMinus" ],
+    "casts" : [ ],
+    "operands" : [ "UnaryMinus:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND",
+    "note" : "negateExact raises on the least interval alone",
+    "verified" : "differential"
+  }, {
+    "sql" : "abs(dt)",
+    "executable" : "abs(dt)",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Abs" ],
+    "casts" : [ ],
+    "operands" : [ "Abs:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND",
+    "note" : "the checked negation under a blend; Spark raises on the least interval in every mode, with ARITHMETIC_OVERFLOW rather than the interval condition",
+    "verified" : "differential"
+  }, {
+    "sql" : "dt + INTERVAL '1' DAY",
+    "executable" : "dt + INTERVAL '1' DAY",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Add", "Cast" ],
+    "casts" : [ "dt>dt:ansi" ],
+    "operands" : [ "Add:dt", "Cast:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)",
+    "note" : "the literal, cast to the column's unit and folded, takes a slot in the long lane's table",
+    "verified" : "differential"
+  }, {
+    "sql" : "dt * 3",
+    "executable" : "dt * 3",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "MultiplyDTInterval" ],
+    "casts" : [ ],
+    "operands" : [ "MultiplyDTInterval:dt", "MultiplyDTInterval:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)",
+    "note" : "multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines",
+    "verified" : "proof: dt_arith.smt2"
+  }, {
+    "sql" : "-2 * dt",
+    "executable" : "-2 * dt",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "MultiplyDTInterval" ],
+    "casts" : [ ],
+    "operands" : [ "MultiplyDTInterval:dt", "MultiplyDTInterval:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)",
+    "note" : "the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric",
+    "verified" : "proof: dt_arith.smt2"
+  }, {
+    "sql" : "extract(DAY FROM dt)",
+    "executable" : "extract(DAY FROM dt)",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Extract", "ExtractANSIIntervalDays" ],
+    "casts" : [ ],
+    "operands" : [ "Extract:dt", "ExtractANSIIntervalDays:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "",
+    "note" : "Java's truncating division by a day, exact over every long and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset",
+    "verified" : "proof: long_divide.smt2"
   }, {
     "sql" : "i + 1",
     "executable" : "i + 1",
@@ -5098,7 +5194,7 @@
     "catalyst" : [ "DatetimeSub", "TimestampAddInterval", "UnaryMinus" ],
     "casts" : [ ],
     "operands" : [ "DatetimeSub:dt", "DatetimeSub:ntz", "TimestampAddInterval:dt", "TimestampAddInterval:ntz", "UnaryMinus:dt" ],
-    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled", "spark.sql.codegen.varka.family.time.enabled" ],
     "domain" : "dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)",
     "note" : "the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded",
     "verified" : "differential"
@@ -9123,5 +9219,5 @@
     "note" : "a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g)",
     "verified" : "exhaustive: VarkaTimeFractionSuite, the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "
   } ],
-  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "TimestampAdd", "TimestampAddInterval", "TimestampAddYMInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
+  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyDTInterval", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "TimestampAdd", "TimestampAddInterval", "TimestampAddYMInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }
