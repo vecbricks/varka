@@ -1,0 +1,87 @@
+Varka milestone 8, the CI-wall rows checked against the Actions records of
+14-15 November 2026, 15 November 2026.
+
+Sources, all on MaxGekk/spark: option matrix runs 43642146943 (head fab438d4d91) and
+43655530012 (head d88234a6db6); Builds 43639951188 (fab438d4d91), 43651826890
+(d88234a6db6), 43658629527 (64dffa29e73) and 43688797874 (472a99be85d); the master
+Builds 43631067284 (8c2b8a4493e) and 43651376198 (63f0c6a3716); and the older runs
+each row names. The 155 bin artifacts of run 43642146943 were downloaded whole and
+read.
+
+The setup time of a bin is the job's start to its first test step ("Run this bin's
+units"). The setup job-minutes are those spans summed over the 155 bins: 80.7 and
+80.6, about 3 above the sums of the steps' own durations (77.5 and 77.4), the
+difference being the gaps between steps.
+
+514, closed. In runs 43642146943 and 43655530012 the median bin took 30 and 28
+seconds from its start to its first test, and setup cost 80.7 and 80.6 job-minutes.
+Before: run 40855387471's four named steps, 126.6 job-minutes downloading the
+classpath, 37.4 installing Java, 18.7 checking out and 6.2 unpacking, 188.9 in all
+and about 201 with the rest, and run 40874221284's 141.2-minute download alone. The
+classpath archive is 387,811,511 bytes against 1,440,051,200. Steps 2 and 3 were not
+taken: the archive travels as a plain tar at the artifact's compression, and the
+planner's lane length is unchanged.
+
+519, closed. Builds 43639951188 and 43658629527 each ran "Run / Varka option matrix
+classes" as a job of its own, 4.47 and 4.15 minutes, and no sql suite job carries
+that step. The matrices on the same commits, run 43642146943 on Build 43639951188's
+head and run 43655530012 on Build 43651826890's, found the classes after 1 s and 3 s.
+The longest sql suite job fell from 23.90 and 23.35 minutes (Builds 40851152000 and
+40862846845) to 17.18, 10.00 and 10.28 (the third Build is 43688797874).
+
+521, closed. No Varka job of Builds 43639951188, 43658629527 and 43688797874 runs an
+option configuration; the step survives only in build_and_test.yml's comments, and
+sql/varka/AGENTS.md names the dispatched varka-option-matrix workflow as a Varka pull
+request's configuration check. The Varka jobs, in minutes:
+
+  Build        sql 1/2/3                 catalyst 1/2/3
+  40851152000  14.48, 17.15, 23.90       13.78, 14.67, 22.10   (before)
+  43639951188  11.48, 17.18, 12.97       22.47, 14.87,  9.60
+  43658629527   8.83,  9.43, 10.00       41.42, 30.50, 19.23
+  43688797874  10.28,  9.98,  7.93       18.08, 17.08, 16.47
+
+A job spent 1.7 to 7.4 minutes on the removed step. The second Build's jobs are
+slower in every module; the removed step is absent from all three after-Builds, so
+it cannot explain that difference, and its 41.42-minute catalyst job wants a
+straggler read of its runner before it is believed.
+
+524, closed. Of run 43642146943's 155 bins, the batch-size configurations ran 3,415,
+3,418 and 3,419 tests in 454, 475 and 539 seconds, and no unit under them is
+catalyst; the report names no catalyst unit for arrowBatchSize=1, 3 or 17. Before,
+run 40921075226's catalyst hours under the three were 0.29, 0.32 and 0.25.
+
+533, closed. sql/varka/matrix/config-suite-seconds.tsv holds the pairs the report
+writes; dev/varka_matrix_bins.py --selftest passes. The replay of run 40961304094
+moved the bin phase from 33.0 to 27.4 minutes and its longest bin from 14.4 to 12.8,
+while that run's measured phase is 35.3, so the committed-file replay is 22 per cent
+under its own run. The matrices after the change measured 34.4 minutes (run
+43642146943) and 32.3 (run 43655530012), but with 155 bins at 38 slots against the
+replay's 106 at 30, so the two are not comparable (row 617).
+
+536, closed. In run 43642146943's reach record all 9 JVM-wide lines name no
+configuration, against the seven that leaked before the change; VarkaLiteralLiftSuite's
+own line names the seven, and under them 1,392 to 4,357 of the defaults' 4,732 ok
+tests ran. The digest check in VARKA-536-reach-jvm-line.txt covers
+validityByBitmap=false and denseValidityOnce=false; the other five configurations
+rest on the report's unfused count. The record is from head fab438d4d91, whose
+history contains the change's merge commit 9aa6ee74c63 (#1171).
+
+513, 516, 520, 523 and 526, not closed. 513: the fresh runs show the JDK step at
+8 s median and 12 and 13 s longest, with no setup step needing its retry, but the 9
+November reopening's case, a retry that fails, is not addressed. 516: the reworked
+step 3 is not in the tree (the splitting exists as --split-weights, but the JVM
+lines do not start longest first and dev/varka_scoped_suites.sh does not pass
+suite-times.tsv), and the two master Builds, 43631067284 and 43651376198, did not
+draw one CPU for the catalyst shards, which m8/VARKA-516.md 8 (i) excludes from the
+done-when; their catalyst shards' longest was 2.25 and 2.37 times the shortest
+(1472.5/654.3 and 1607.2/678.2 s), and the first Build's sql shards 1.76
+(762.1/432.7 s). 520: no fresh record is a one-source pull request, and the sql jobs'
+compile phases of Build 43639951188 took 99.6, 142.9 and 157.5 s, two over the
+two-minute done-when. 523: over the run's 53 non-default configurations the three
+suites took 0.10, 0.29 and 0.02 configuration hours from 0.51, 0.47 and 0.35, but
+the two lane-count catalyst units drew opposite host classes: lanesOverride=4 (b053)
+on an Intel Xeon 8573C, whose preferred int species is 16, and lanesOverride=16
+(b033) on an AMD EPYC 7763, whose preferred is 8, so six C2Code warm-up tests were
+skipped in both (row 618). 526: the three harness suites are still in the reach
+record (2,593 VarkaCoverageHarnessSuite lines), UNRECORDED names none of them, and
+the filter, the planted arm and the Build's and the matrix's times remain.
