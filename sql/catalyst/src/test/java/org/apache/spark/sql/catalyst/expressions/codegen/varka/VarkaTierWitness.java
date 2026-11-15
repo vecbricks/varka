@@ -538,6 +538,11 @@ public final class VarkaTierWitness {
     watched.add(className);
   }
 
+  /** Whether {@code cls}'s compiles are recorded: a class never watched never confirms. */
+  public boolean isWatching(Class<?> cls) {
+    return watched.contains(cls.getName());
+  }
+
   /** The kernel ran outside a compared call, as a warm-up does: its next call reads afresh. */
   public void touched(String className) {
     lastRead.remove(className);
