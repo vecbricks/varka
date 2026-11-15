@@ -533,6 +533,13 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        {@code COMBINED} the group count counts the narrow roots stored as well as the narrow
  *        values loaded, since a store's parts, unlike a load's, need not be counted by any input
  *        (a {@code CAST(i AS TINYINT)} reads no narrow value at all).
+ * @param floatingFault a fault injector for the floating arithmetic (milestone 8 row 504): one
+ *        of the plausible wrong lowerings a test asks the compiler and the emitter for, so that
+ *        the checks over them can be shown to fail. It travels as an option rather than a
+ *        JVM-wide static, so a faulty compile is keyed by its own shape key and no other compile
+ *        in the JVM can see it (VARKA-548). {@link FloatingFault#NONE} in production.
+ * @param intervalFault the same for the day-time interval lowerings (milestone 8 row 504,
+ *        {@code VARKA-103.md} 3.7). {@link IntervalFault#NONE} in production.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -589,7 +596,9 @@ public record VarkaEmitOptions(
     WideConversionForm wideConversionForm,
     boolean roundToOddByShifts,
     boolean mathUlpContract,
-    NarrowGroupStore narrowGroupStore) {
+    NarrowGroupStore narrowGroupStore,
+    FloatingFault floatingFault,
+    IntervalFault intervalFault) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -665,6 +674,49 @@ public record VarkaEmitOptions(
 
   /** The two {@code trunc(date, ...)} lowerings; see {@link #truncDate}. */
   public enum TruncDateForm { SUBTRACT, RECOMPOSE }
+
+  /**
+   * The faults a test plants in the floating arithmetic to prove that the checks over it can fail
+   * (milestone 8 row 504): each is a plausible wrong lowering that agrees with Spark on most
+   * inputs. {@link #NONE} in production; a test asks for one through {@link #floatingFault} and
+   * emits the kernel itself rather than through the class cache, and the option keys the compile
+   * apart so no faulty class can be served under a clean key (VARKA-548).
+   */
+  public enum FloatingFault {
+    /** No fault: the lowering as built. */
+    NONE,
+    /**
+     * A checked division that tests its divisor for {@code 0.0} alone, as a test of the bits
+     * {@code 0} would: {@code -0.0} divides to an infinity where Spark nulls or raises.
+     */
+    DIVISOR_POSITIVE_ZERO_ONLY,
+    /**
+     * Negation at a floating lane built as {@code 0.0 - x}, which answers {@code +0.0} for
+     * {@code 0.0} where Spark's {@code -x} answers {@code -0.0}.
+     */
+    NEGATION_AS_SUBTRACTION,
+    /**
+     * {@code degrees} multiplying by the constant rounded to nine digits rather than by
+     * {@code Math.toDegrees(1.0)}'s bits, which differs from Spark's answer in the last bits.
+     */
+    DEGREES_ROUNDED;
+  }
+
+  /**
+   * The faults a test plants in the day-time interval lowerings to prove that the checks over
+   * them can fail (milestone 8 row 504, {@code VARKA-103.md} 3.7), on the terms of
+   * {@link FloatingFault}. {@link #NONE} in production.
+   */
+  public enum IntervalFault {
+    /** No fault: the lowering as built. */
+    NONE,
+    /**
+     * {@code extract(DAY FROM dt)} as the floor of the magnitude with the sign restored, the
+     * magnitude {@code (x ^ (x >> 63)) - (x >> 63)} by an arithmetic shift: it wraps at
+     * {@code Long.MIN_VALUE}, where the day count comes out positive.
+     */
+    DAY_BY_MAGNITUDE;
+  }
 
   /**
    * The {@link #useAVX} value meaning "this JVM has no {@code UseAVX} flag": an aarch64 or
@@ -761,7 +813,7 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
           false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
-          false, NarrowGroupStore.MASKED);
+          false, NarrowGroupStore.MASKED, FloatingFault.NONE, IntervalFault.NONE);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -803,6 +855,12 @@ public record VarkaEmitOptions(
     }
     if (narrowGroupStore == null) {
       throw VarkaErrors.illegalArgument("narrowGroupStore must not be null");
+    }
+    if (floatingFault == null) {
+      throw VarkaErrors.illegalArgument("floatingFault must not be null");
+    }
+    if (intervalFault == null) {
+      throw VarkaErrors.illegalArgument("intervalFault must not be null");
     }
     if (lanesOverride != 0 && (lanesOverride < 1 || Integer.bitCount(lanesOverride) != 1)) {
       throw VarkaErrors.illegalArgument(
@@ -880,6 +938,8 @@ public record VarkaEmitOptions(
       b.roundToOddByShifts = roundToOddByShifts;
       b.mathUlpContract = mathUlpContract;
       b.narrowGroupStore = narrowGroupStore;
+      b.floatingFault = floatingFault;
+      b.intervalFault = intervalFault;
     return b;
   }
 
@@ -940,6 +1000,8 @@ public record VarkaEmitOptions(
     private boolean roundToOddByShifts;
     private boolean mathUlpContract;
     private NarrowGroupStore narrowGroupStore;
+    private FloatingFault floatingFault;
+    private IntervalFault intervalFault;
 
     private Builder() {
     }
@@ -1219,6 +1281,16 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder floatingFault(FloatingFault fault) {
+      this.floatingFault = fault;
+      return this;
+    }
+
+    public Builder intervalFault(IntervalFault fault) {
+      this.intervalFault = fault;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1234,7 +1306,8 @@ public record VarkaEmitOptions(
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
           misdescribeDataBytes, fromLongMasks, decimalAbsLanewise, dropDecimalBound,
           decimalStore, wideConversionForm, roundToOddByShifts, mathUlpContract,
-          narrowGroupStore);
+          narrowGroupStore,
+          floatingFault, intervalFault);
     }
   }
 
@@ -1468,6 +1541,22 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withMisdescribeWordLiveness(boolean misdescribe) {
     return toBuilder().misdescribeWordLiveness(misdescribe).build();
+  }
+
+  /**
+   * The floating arithmetic's fault injector (milestone 8 row 504): a test asks for one here and
+   * compiles and emits under it, rather than planting JVM-wide state (VARKA-548).
+   */
+  public VarkaEmitOptions withFloatingFault(FloatingFault fault) {
+    return toBuilder().floatingFault(fault).build();
+  }
+
+  /**
+   * The day-time interval lowerings' fault injector (milestone 8 row 504), on the terms of
+   * {@link #withFloatingFault}.
+   */
+  public VarkaEmitOptions withIntervalFault(IntervalFault fault) {
+    return toBuilder().intervalFault(fault).build();
   }
 
   public boolean isDefault() {

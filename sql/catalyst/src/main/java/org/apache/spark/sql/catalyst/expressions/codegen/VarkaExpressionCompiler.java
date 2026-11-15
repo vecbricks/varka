@@ -459,7 +459,7 @@ public final class VarkaExpressionCompiler {
     if (!entries.stream().allMatch(e -> ((Expression) e).deterministic())) {
       String why = "the projection has a nondeterministic entry, whose values would depend on "
           + "the path each batch took";
-      DeclineSink sink = new DeclineSink(childOutput, options.rangeSets());
+      DeclineSink sink = new DeclineSink(childOutput, options);
       UnaryOperator<Expression> bind = binder(childOutput);
       SortedMap<Integer, VarkaDecline> declines = new TreeMap<>();
       for (int at = 0; at < entries.size(); at++) {
@@ -600,7 +600,7 @@ public final class VarkaExpressionCompiler {
       this.demoted = demoted;
       this.options = options;
       this.admission = admission;
-      this.sink = new DeclineSink(childOutput, options.rangeSets(), admission);
+      this.sink = new DeclineSink(childOutput, options, admission);
       this.bind = binder(childOutput);
     }
 
@@ -737,7 +737,7 @@ public final class VarkaExpressionCompiler {
      */
     private boolean fitsAlone(Expression e) {
       VarkaSlotTable own = new VarkaSlotTable();
-      DeclineSink ownSink = new DeclineSink(childOutput, options.rangeSets(), admission);
+      DeclineSink ownSink = new DeclineSink(childOutput, options, admission);
       return compileRoot(e, own, new VarkaSlotTable(), ownSink)
           .map(ir -> ownSink.guardDayColumns(ir, 0))
           .map(ir -> VarkaLoopEmitter.fitsBudgets(List.of(ir), own.size(), options))
@@ -805,7 +805,7 @@ public final class VarkaExpressionCompiler {
     if (!condition.deterministic()) {
       String why = "the condition is nondeterministic: a fused conjunct would run ahead of a "
           + "nondeterministic one and change the rows it sees";
-      DeclineSink sink = new DeclineSink(childOutput, options.rangeSets());
+      DeclineSink sink = new DeclineSink(childOutput, options);
       UnaryOperator<Expression> bind = binder(childOutput);
       List<VarkaConjunctSpec> specs = new ArrayList<>();
       for (Expression conjunct : conjuncts(condition)) {
@@ -967,7 +967,7 @@ public final class VarkaExpressionCompiler {
     boolean twoLaneHost = admission.declineTwoLaneConditions();
     VarkaSlotTable inputs = new VarkaSlotTable();
     VarkaSlotTable literals = new VarkaSlotTable();
-    DeclineSink sink = new DeclineSink(childOutput, options.rangeSets(), admission.familiesOff());
+    DeclineSink sink = new DeclineSink(childOutput, options, admission.familiesOff());
     List<Cond> fused = new ArrayList<>();
     List<VarkaConjunctSpec> specs = new ArrayList<>();
     UnaryOperator<Expression> bind = binder(childOutput);
