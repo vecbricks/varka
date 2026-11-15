@@ -108,6 +108,7 @@ public final class VarkaDomains {
     out.put("t", "TIME'12:34:56.789'");
     out.put("t2", "TIME'00:00:00'");
     out.put("dt", "INTERVAL '1 02:03:04.5' DAY TO SECOND");
+    out.put("dt2", "INTERVAL '0 00:00:00' DAY TO SECOND");
     out.put("y1", "3");
     out.put("y2", "4");
     out.put("s1", "300");
@@ -131,7 +132,7 @@ public final class VarkaDomains {
     return "(" + v.get("d") + ", " + v.get("d2") + ", " + v.get("i") + ", " + v.get("m") + ", "
         + v.get("y") + ", " + v.get("mm") + ", " + bigint(v.get("l")) + ", "
         + bigint(v.get("l2")) + ", " + v.get("t") + ", " + v.get("t2") + ", "
-        + v.get("dt") + ", INTERVAL '0 00:00:00' DAY TO SECOND, "
+        + v.get("dt") + ", " + v.get("dt2") + ", "
         + "CAST(" + v.get("y1") + " AS TINYINT), CAST(" + v.get("y2") + " AS TINYINT), "
         + "CAST(" + v.get("s1") + " AS SMALLINT), CAST(" + v.get("s2") + " AS SMALLINT))";
   }
@@ -164,7 +165,10 @@ public final class VarkaDomains {
    * near the long's top beside {@code ntz2} near its bottom, whose difference and whose sum with
    * a day overflow, {@code ntz} near the bottom beside the greatest interval, whose difference
    * overflows, and the least interval, whose negation does, also beside a null {@code ntz}, and
-   * a {@code d} past those days beside a null {@code ntz2}; {@code ym} at the month range on both
+   * a {@code d} past those days beside a null {@code ntz2}; {@code dt} at the long's top and one
+   * in from it beside a one-microsecond {@code dt2}, whose sum overflows at the top, and at the
+   * bottom and one in from it beside the same, whose difference overflows at the bottom;
+   * {@code ym} at the month range on both
    * signs, at the one count whose negation overflows and one in from it, and at the counts whose
    * difference with {@code ymm} leaves the int, {@code ymm} at its most negative; a time at each
    * end of the day; the narrow lanes' bounds. Then rows null in those columns, one column group at
@@ -214,6 +218,13 @@ public final class VarkaDomains {
     rows.add(row("d", day(-(lastNtzDay - 1)), "t", "TIME'00:00:00'",
         "dt", "INTERVAL '106751991 04:00:54.775807' DAY TO SECOND"));
     rows.add(row("dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"));
+    // The day-time sum and difference at the long's ends (VARKA-103): the first pair past it
+    // and the last inside it, each way.
+    String micro = "INTERVAL '0 00:00:00.000001' DAY TO SECOND";
+    rows.add(row("dt", "INTERVAL '106751991 04:00:54.775807' DAY TO SECOND", "dt2", micro));
+    rows.add(row("dt", "INTERVAL '106751991 04:00:54.775806' DAY TO SECOND", "dt2", micro));
+    rows.add(row("dt", "INTERVAL '-106751991 04:00:54.775807' DAY TO SECOND", "dt2", micro));
+    rows.add(row("dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND", "dt2", micro));
     // The day-time cast's guard (VARKA-332, VARKA-610): its exact bound of 2^52 - 1
     // microseconds, 52124 days 23:53:47.370495, and one microsecond past each side.
     rows.add(row("dt", "INTERVAL '52124 23:53:47.370495' DAY TO SECOND"));

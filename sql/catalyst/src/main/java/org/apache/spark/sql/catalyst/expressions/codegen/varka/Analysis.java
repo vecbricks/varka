@@ -796,9 +796,10 @@ final class Analysis {
 
   /**
    * {@link #armChainsOf} in one body: the chains whose arms the body emits, {@code reach} being
-   * the nodes it reaches from its roots. A node shared by outputs of two groups is computed and
-   * guarded in each, and a chain through the other group's arms has no condition in this body;
-   * that group's own guard condemns there, so the kernel's status still ORs every chain.
+   * the body's planned emitted set ({@code Slots.emittedBody}), not its outputs' full subtrees.
+   * A node shared by outputs of two groups is computed and guarded in each, and a chain through
+   * the other group's arms has no condition in this body; that group's own guard condemns there,
+   * so the kernel's status still ORs every chain.
    *
    * <p>Not inside a date whose prefix is materialized ({@link #materialized}): a group that loads
    * the prefix computes neither the date nor the guards under it, which the producing group ran
@@ -837,15 +838,6 @@ final class Analysis {
       }
     }
     return false;
-  }
-
-  /** The nodes reached from {@code roots}, each once: what a body over them emits. */
-  static Set<VarkaVectorIR> reachOf(List<VarkaVectorIR> roots) {
-    Set<VarkaVectorIR> reach = new HashSet<>();
-    for (VarkaVectorIR root : roots) {
-      collectReached(root, reach);
-    }
-    return reach;
   }
 
   /**
@@ -1146,7 +1138,7 @@ final class Analysis {
   }
 
   /** Adds {@code node} and everything under it to {@code into}, each node once. */
-  private static void collectReached(VarkaVectorIR node, Set<VarkaVectorIR> into) {
+  static void collectReached(VarkaVectorIR node, Set<VarkaVectorIR> into) {
     if (into.add(node)) {
       for (VarkaVectorIR child : childrenOf(node)) {
         collectReached(child, into);

@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen;
 
+import java.math.BigInteger;
 import java.util.Optional;
 
 import org.apache.spark.sql.catalyst.expressions.Abs;
@@ -25,14 +26,20 @@ import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.DivideYMInterval;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.ExtractANSIIntervalDays;
 import org.apache.spark.sql.catalyst.expressions.ExtractANSIIntervalMonths;
 import org.apache.spark.sql.catalyst.expressions.ExtractANSIIntervalYears;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.MakeYMInterval;
+import org.apache.spark.sql.catalyst.expressions.MultiplyDTInterval;
 import org.apache.spark.sql.catalyst.expressions.MultiplyYMInterval;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIntervalFault;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
@@ -43,17 +50,24 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Int
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
+import org.apache.spark.sql.catalyst.util.DateTimeConstants;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DayTimeIntervalType;
+import org.apache.spark.sql.types.IntegralType;
 import org.apache.spark.sql.types.YearMonthIntervalType;
 
 /**
- * The year-month interval family of the compiler: the interval column and literal leaves, the
- * casts between an interval and an int and between two interval units, and the interval algebra -
- * add, subtract, negate, {@code abs}, {@code make_ym_interval}, the extracts and the multiply -
- * which are the int32 arithmetic nodes with an interval-typed output and every one of them
- * checked, since Spark computes them with the exact methods in every evaluation mode.
+ * The interval family of the compiler: the year-month interval's column and literal leaves, the
+ * casts between an interval and an int and between two interval units, and the year-month
+ * algebra - add, subtract, negate, {@code abs}, {@code make_ym_interval}, the extracts and the
+ * multiply - which are the int32 arithmetic nodes with an interval-typed output and every one of
+ * them checked, since Spark computes them with the exact methods in every evaluation mode. The
+ * day-time half is the same algebra on the long lane: add, subtract, negate, {@code abs}, the
+ * multiply by an integral literal and {@code extract(DAY)}, a count of microseconds under the
+ * same exact methods (VARKA-103 2.1-2.3).
  *
  * <p>{@link #arm} is the family's one entry from the chain {@code VarkaExpressionCompiler}
  * dispatches through: a {@code switch} whose cases test and deconstruct a node and return the
@@ -64,6 +78,9 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * {@code VarkaNodeCompiler}'s.
  *
  * <p>The literal and input tables are the classifier's {@link VarkaSlotTable}s.
+ *
+ * <p>The class is public for {@link #dayTimeProductBounds}, which the proof renderer and the
+ * end-to-end suite read from other packages so that they state the compiler's own bounds.
  */
 public final class VarkaIntervalCompiler {
 
@@ -80,8 +97,8 @@ public final class VarkaIntervalCompiler {
   }
 
   /**
-   * The arm that claims {@code e}, or {@code null}: the year-month interval arms of
-   * {@code compileNode}, in their original order.
+   * The arm that claims {@code e}, or {@code null}: the interval arms of {@code compileNode},
+   * the year-month ones and the day-time ones, in their original order.
    */
   static VarkaFamilyArm arm(
       Expression e,
@@ -190,6 +207,32 @@ public final class VarkaIntervalCompiler {
           () -> negate(n.child(), inputs, literals, sink);
       case Abs n when n.dataType() instanceof YearMonthIntervalType ->
           () -> absolute(n.child(), inputs, literals, sink);
+      // The day-time interval algebra, the year-month arms' twins on the long lane, a count of
+      // microseconds (VARKA-103 2.1). Spark computes `dt + dt`, `dt - dt` and `-dt` with
+      // `IntervalMathUtils.addExact`, `subtractExact` and `negateExact` in every evaluation
+      // mode, so the mode is `FAIL` unconditionally. `abs(dt)` is `LongExactNumeric.abs`,
+      // which raises at `Long.MIN_VALUE` whatever `failOnError` says: the checked negation
+      // under the blend fires exactly there. A declined batch is re-evaluated by the row
+      // engine, which raises each form's own error class.
+      case Add a when a.dataType() instanceof DayTimeIntervalType ->
+          () -> dayTimeArith(IntOp.ADD, a.left(), a.right(), a, inputs, literals, sink);
+      case Subtract s when s.dataType() instanceof DayTimeIntervalType ->
+          () -> dayTimeArith(IntOp.SUB, s.left(), s.right(), s, inputs, literals, sink);
+      case UnaryMinus n when n.dataType() instanceof DayTimeIntervalType ->
+          () -> dayTimeOperand(n.child(), "the negated interval", inputs, literals, sink)
+              .map(x -> (VarkaVectorIR) new IntNeg(Overflow.FAIL, x));
+      case Abs n when n.dataType() instanceof DayTimeIntervalType ->
+          () -> dayTimeOperand(n.child(), "the absolute interval", inputs, literals, sink)
+              .map(x -> (VarkaVectorIR) new IfElse(
+                  new Compare(CompareOp.LT, x, sink.longSlot(0L)),
+                  new IntNeg(Overflow.FAIL, x), x));
+      case MultiplyDTInterval m -> () -> dayTimeMultiply(m, inputs, literals, sink);
+      // `extract(DAY FROM dt)` is `IntervalUtils.getDays`, `(int) (micros / MICROS_PER_DAY)`,
+      // which `truncDivLong` is over every long; the quotient's magnitude is at most 106,751,991,
+      // so the narrowing is exact (VARKA-103 2.3). `date_add`'s own offset arm reads it first.
+      case ExtractANSIIntervalDays x ->
+          () -> dayTimeOperand(x.child(), "the interval", inputs, literals, sink)
+              .map(micros -> (VarkaVectorIR) new NarrowLane(days(micros, sink)));
       case MakeYMInterval m -> () -> makeInterval(m, inputs, literals, sink);
       // `IntervalUtils.getYears(months)` is `months / 12` - Java's `/`, truncating toward zero -
       // over a stored month count that nothing bounds. The calendar's magic multiply is exact
@@ -512,9 +555,177 @@ public final class VarkaIntervalCompiler {
         op, Overflow.FAIL, x.get(), y.get(), whole, literals, mark, sink), literals, mark);
   }
 
+  /**
+   * An operand of the day-time interval algebra: a value whose lane is a count of microseconds,
+   * the long lane. The column, the literal and the unit relabel are the time family's leaves, and
+   * nested interval arithmetic is the arms above, so this is a type gate over the same walk, as
+   * {@link #intervalOperand} is for the year-month half.
+   */
+  static Optional<VarkaVectorIR> dayTimeOperand(
+      Expression e,
+      String position,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (!(e.dataType() instanceof DayTimeIntervalType)) {
+      return sink.decline(position + " of type " + e.dataType().simpleString()
+          + " is not a day-time interval", e);
+    }
+    Optional<VarkaVectorIR> compiled = VarkaNodeCompiler.compileNode(e, inputs, literals, sink);
+    if (compiled.isPresent() && compiled.get().laneType() != LaneType.LONG) {
+      return sink.decline(position + " computed on the "
+          + compiled.get().laneType() + " lane, not the long", e);
+    }
+    return compiled;
+  }
+
+  /**
+   * {@code dt + dt2} and {@code dt - dt2}: {@code IntervalMathUtils.addExact} and
+   * {@code subtractExact}, which raise in every evaluation mode, so the declared mode is
+   * {@code FAIL} and {@code arithOver}'s bound is the only thing that takes the check off. Two
+   * units meet through type coercion's cast to the wider type, which the time family compiles to
+   * the child for a SECOND end field only: a coarser one truncates, and a stored count need not
+   * be a whole number of its own unit ({@code CAST(1.0001 AS INTERVAL HOUR)} is not).
+   */
+  private static Optional<VarkaVectorIR> dayTimeArith(
+      IntOp op,
+      Expression l,
+      Expression r,
+      Expression whole,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    int mark = literals.size();
+    int longMark = sink.longMark();
+    Optional<VarkaVectorIR> x =
+        dayTimeOperand(l, "the left interval operand", inputs, literals, sink);
+    if (x.isEmpty()) {
+      return rolledBack(x, literals, mark, sink, longMark);
+    }
+    Optional<VarkaVectorIR> y =
+        dayTimeOperand(r, "the right interval operand", inputs, literals, sink);
+    if (y.isEmpty()) {
+      return rolledBack(y, literals, mark, sink, longMark);
+    }
+    return rolledBack(VarkaNodeCompiler.arithOver(
+        op, Overflow.FAIL, x.get(), y.get(), whole, literals, mark, sink), literals, mark,
+        sink, longMark);
+  }
+
+  /**
+   * {@code dt * k} and {@code k * dt} for an integral literal {@code k}, both of which the
+   * analyzer builds as {@code MultiplyDTInterval(dt, k)}: Spark's {@code Math.multiplyExact(micros,
+   * k)} in every mode, raising a bare {@code ArithmeticException} on overflow (VARKA-103 2.2).
+   * The product overflows exactly where the operand leaves {@link #dayTimeProductBounds}, so the
+   * operand is range-guarded and the multiply wraps: a lane outside the guard declines the batch
+   * and the row engine raises. {@code k = 1} is the operand, and {@code k = 0} a wrapping
+   * multiply that cannot overflow and keeps the operand's nulls. A column factor needs the
+   * checked long multiply of row 104, a decimal literal is 2.4's later step and a floating one
+   * row 342's lowering; each declines.
+   */
+  private static Optional<VarkaVectorIR> dayTimeMultiply(
+      MultiplyDTInterval m,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    DataType type = m.num().dataType();
+    if (!(type instanceof IntegralType)) {
+      return sink.decline("day-time interval factor of type " + type.simpleString()
+          + " is not an integral literal", m);
+    }
+    if (!(m.num() instanceof Literal l)) {
+      return sink.decline("day-time interval factor is not a literal: a column factor needs "
+          + "the checked long multiply of row 104", m);
+    }
+    if (!(l.value() instanceof Number n)) {
+      return sink.decline("day-time interval factor is a NULL literal", m);
+    }
+    long k = n.longValue();
+    int mark = literals.size();
+    int longMark = sink.longMark();
+    Optional<VarkaVectorIR> x =
+        dayTimeOperand(m.interval(), "the multiplied interval", inputs, literals, sink);
+    if (x.isEmpty() || k == 1) {
+      return rolledBack(x, literals, mark, sink, longMark);
+    }
+    VarkaVectorIR operand = x.get();
+    if (k != 0) {
+      long[] bounds = dayTimeProductBounds(k);
+      operand = new GuardedRange(operand, bounds[0], bounds[1]);
+    }
+    return Optional.of(new IntArith(IntOp.MUL, Overflow.WRAP, operand, sink.longSlot(k)));
+  }
+
+  /**
+   * The longs {@code x} for which {@code Math.multiplyExact(x, k)} does not raise, as
+   * {@code [lo, hi]}: {@code [ceil(MIN / k), floor(MAX / k)]} for {@code k > 0} and
+   * {@code [ceil(MAX / k), floor(MIN / k)]} for {@code k < 0}, computed exactly and clamped to
+   * the long. The bounds are not symmetric: at {@code k = 2} the least admitted value is
+   * {@code MIN / 2}, whose product is {@code MIN}, one past {@code -(MAX / 2)}.
+   * {@code dt_arith.smt2} proves them per factor in use. {@code k} must not be zero.
+   */
+  public static long[] dayTimeProductBounds(long k) {
+    return productBounds(k, Long.MIN_VALUE, Long.MAX_VALUE);
+  }
+
+  private static long[] productBounds(long k, long least, long greatest) {
+    if (k == 0) {
+      throw VarkaErrors.illegalArgument("a zero factor never overflows");
+    }
+    BigInteger min = BigInteger.valueOf(least);
+    BigInteger max = BigInteger.valueOf(greatest);
+    BigInteger f = BigInteger.valueOf(k);
+    BigInteger low = k > 0 ? min : max;
+    BigInteger high = k > 0 ? max : min;
+    BigInteger lo = ceilDiv(low, f);
+    BigInteger hi = floorDiv(high, f);
+    return new long[] {lo.max(min).longValueExact(), hi.min(max).longValueExact()};
+  }
+
+  private static BigInteger floorDiv(BigInteger a, BigInteger b) {
+    BigInteger[] qr = a.divideAndRemainder(b);
+    return qr[1].signum() != 0 && qr[1].signum() != b.signum()
+        ? qr[0].subtract(BigInteger.ONE) : qr[0];
+  }
+
+  private static BigInteger ceilDiv(BigInteger a, BigInteger b) {
+    return floorDiv(a.negate(), b).negate();
+  }
+
+  /**
+   * Java's {@code micros / MICROS_PER_DAY}, exact over every long; under the planted
+   * {@link VarkaIntervalFault#DAY_BY_MAGNITUDE}, the fault's form.
+   */
+  private static VarkaVectorIR days(VarkaVectorIR micros, DeclineSink sink) {
+    long day = DateTimeConstants.MICROS_PER_DAY;
+    if (VarkaIntervalFault.planted() == VarkaIntervalFault.DAY_BY_MAGNITUDE) {
+      VarkaVectorIR sign = new BitOp(BitOpKind.SHR, micros, sink.longSlot(63));
+      VarkaVectorIR magnitude = new IntArith(IntOp.SUB, Overflow.WRAP,
+          new BitOp(BitOpKind.XOR, micros, sign), sign);
+      VarkaVectorIR q = VarkaNodeCompiler.floorDivLong(magnitude, day, sink);
+      return new IntArith(IntOp.SUB, Overflow.WRAP, new BitOp(BitOpKind.XOR, q, sign), sign);
+    }
+    return VarkaNodeCompiler.truncDivLong(micros, day, sink);
+  }
+
   /** Whether {@code c} casts to a year-month interval whose end field is {@code endField}. */
   private static boolean endsIn(Cast c, byte endField) {
     return c.dataType() instanceof YearMonthIntervalType ym && ym.endField() == endField;
+  }
+
+  /**
+   * {@code built}, after dropping the literals a failed lowering appended past {@code mark} and
+   * the long lane's slots past {@code longMark}: a declining arm leaves both tables as it found
+   * them, an operand's long literal and its node's own slot beside it.
+   */
+  private static Optional<VarkaVectorIR> rolledBack(
+      Optional<VarkaVectorIR> built, VarkaSlotTable literals, int mark, DeclineSink sink,
+      int longMark) {
+    if (built.isEmpty()) {
+      literals.truncate(mark);
+      sink.truncateLong(longMark);
+    }
+    return built;
   }
 
   /**

@@ -306,7 +306,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `date_add(d, 3)` | `calendar` |  |  | vector |
 | `date_add(d, i)` | `calendar` |  | a column offset with no bound: the day sum wraps as Spark's own `+` does, and only a calendar node reading such a sum needs the range guard | vector |
 | `date_sub(d, 5)` | `calendar` |  |  | vector |
-| `d + CAST(i AS INTERVAL DAY)` | `calendar` | `i BETWEEN -106751991 AND 106751991` | the day-interval spelling of a column offset; past the bound the cast itself throws in every mode, so the batch declines and the row engine raises | vector |
+| `d + CAST(i AS INTERVAL DAY)` | `calendar`, `interval` | `i BETWEEN -106751991 AND 106751991` | the day-interval spelling of a column offset; past the bound the cast itself throws in every mode, so the batch declines and the row engine raises | vector |
 | `datediff(d2, d)` | `calendar` |  |  | vector |
 | `d2 - d` | `calendar` | `CAST(unix_date(d2) AS BIGINT) - unix_date(d) BETWEEN -106751991 AND 106751991` | a day-time interval in microseconds, not datediff's day count; Spark raises where the int day count overflows or its product overflows a long, in every mode, so the batch declines and the row engine raises. The legacy CalendarInterval result is not fused | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `unix_date(d)` | `calendar` |  |  | vector |
@@ -358,6 +358,19 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `ym / -7` | `interval` |  | a negative divisor flips the direction the rounding moves, which a sign slip would show only here | vector |
 | `extract(YEAR FROM ym)` | `interval` |  | a division by twelve over a month count nothing bounds, so the calendar's range-narrowed magic cannot serve it; a multiply-high through 64-bit lanes does | vector |
 | `extract(YEAR FROM ym) - 1` | `interval`, `intArithmetic` | `extract(YEAR FROM ym) > -2147483648` | the quotient feeding further int arithmetic, checked under ANSI; the check cannot fire, since the quotient is within +/-178956970 | vector |
+
+#### Day-time interval arithmetic
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `dt + dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_add(dt, dt2) IS NOT NULL)` | a sum past the long raises in every mode, so its batch declines and the row engine raises | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `dt - dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_subtract(dt, dt2) IS NOT NULL)` | the difference, exact in every mode as the sum is | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `-dt` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | negateExact raises on the least interval alone | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `abs(dt)` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | the checked negation under a blend; Spark raises on the least interval in every mode, with ARITHMETIC_OVERFLOW rather than the interval condition | per-lane: compare to mask, mask logic, blend, mask broadcast, mask test, mask cast |
+| `dt + INTERVAL '1' DAY` | `interval` | `if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)` | the literal, cast to the column's unit and folded, takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `dt * 3` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `-2 * dt` | `interval` | `if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)` | the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `extract(DAY FROM dt)` | `interval` |  | Java's truncating division by a day, exact over every long and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset | vector |
 
 #### Integer arithmetic
 
@@ -869,7 +882,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `ntz - ntz2` | `time` | `if(ntz IS NULL OR ntz2 IS NULL, NULL, try_subtract(ntz, ntz2) IS NOT NULL)` | a day-time interval in microseconds; a difference past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `ntz2 - d` | `time`, `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991 AND if(ntz2 IS NULL OR d IS NULL, NULL, try_subtract(ntz2, d) IS NOT NULL)` | type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the cast's day guard, then subtracts it | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
 | `ntz + dt` | `time` | `if(ntz IS NULL OR dt IS NULL, NULL, try_add(ntz, dt) IS NOT NULL)` | a value past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `ntz - dt` | `time` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz - dt` | `interval`, `time` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `ntz + INTERVAL '1' DAY` | `time` | `if(ntz IS NULL, NULL, try_add(ntz, INTERVAL '1' DAY) IS NOT NULL)` | a literal interval takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `timestampadd(MICROSECOND, l, ntz)` | `time` | `if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '0.000001' SECOND, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `timestampadd(SECOND, i, ntz)` | `time`, `intArithmetic` | `if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' SECOND, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
@@ -1355,9 +1368,9 @@ operands (a row counts once for each type it reads):
 | `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
 | `dec` | 77 | 1 | 42 | 10 | 0 | 0 | 24 |
 | `double` | 85 | 0 | 0 | 1 | 0 | 0 | 84 |
-| `dt` | 28 | 2 | 0 | 1 | 0 | 0 | 25 |
+| `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
-| `int` | 175 | 14 | 0 | 2 | 1 | 1 | 157 |
+| `int` | 177 | 14 | 0 | 4 | 1 | 1 | 157 |
 | `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
 | `short` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
 | `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
@@ -2225,7 +2238,7 @@ coverage table, and regenerated by the same command:
 | Config | Default | Covers |
 | :--- | :--- | :--- |
 | `spark.sql.codegen.varka.family.calendar.enabled` | `true` | The calendar family: day arithmetic (date_add, date_sub, datediff, unix_date, date_from_unix_date), the calendar fields (year to weekofyear), make_date, last_day, next_day, trunc, add_months and a date plus a year-month interval, and the same fields and month shifts of a TIMESTAMP_NTZ through its date, its sum with a year-month interval and timestampadd of months, quarters or years. |
-| `spark.sql.codegen.varka.family.interval.enabled` | `true` | The interval family: year-month interval arithmetic, negation and abs, make_ym_interval, the year and month extractions, the multiply by an int and the casts between year-month intervals and ints. |
+| `spark.sql.codegen.varka.family.interval.enabled` | `true` | The interval family: year-month and day-time interval arithmetic, negation and abs, make_ym_interval, the year and month extractions, extract(DAY) of a day-time interval, the multiply by an int and the casts between year-month intervals and ints. |
 | `spark.sql.codegen.varka.family.time.enabled` | `true` | The time family: the TIME functions (hour, minute, second, time_trunc, time_diff, the conversions to and from micros and millis, a time plus a day-time interval), the casts to TIME and to a day-time interval, hour, minute and second of a TIMESTAMP_NTZ, make_timestamp_ntz(date, time) and the cast of a TIME to TIMESTAMP_NTZ, TIMESTAMP_NTZ minus TIMESTAMP_NTZ, a TIMESTAMP_NTZ plus or minus a day-time interval, and timestampadd of a TIMESTAMP_NTZ by a unit from a microsecond to a week. |
 | `spark.sql.codegen.varka.family.predicate.enabled` | `true` | The predicate family: the comparisons, IN over dates and year-month intervals, IS NULL and IS NOT NULL, AND, OR and NOT, wherever they sit: a filter's predicates, so that no filter fuses, and the conditions of IF and CASE WHEN. |
 | `spark.sql.codegen.varka.family.condition.enabled` | `true` | The condition family: the conditionals IF, CASE WHEN and coalesce (the comparisons in their conditions are the predicate family's). |

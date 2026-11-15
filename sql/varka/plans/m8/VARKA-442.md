@@ -269,3 +269,8 @@ cells, which the pairs this row owes measure; the arms whose diagnostics are nev
 driving their bound before giving up when the code list was readable at the start; and the shape
 of the `Settle` API itself. This sheet's section 6 was also wrong about the three spike
 benchmarks that keep their own settle loops; they take a row of their own.
+
+**The pairs (14 November 2026).** Benchmark run 43575854826 on vecbricks/varka ran all three
+classes in pair mode against the merge base on an EPYC 7763, and every pair is green:
+`VarkaDecimalStoreBenchmark`, `VarkaSharedPrefixBenchmark` and `VarkaNarrowEmitBenchmark`.
+Section 3.4's two pairs and question 1's narrow pair are cited by run.
