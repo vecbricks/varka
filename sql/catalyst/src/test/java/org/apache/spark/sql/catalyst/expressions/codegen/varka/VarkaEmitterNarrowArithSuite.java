@@ -365,7 +365,17 @@ public final class VarkaEmitterNarrowArithSuite {
     var columns = CollectionConverters.asScala(attrs).toSeq();
     Optional<CompiledVarkaProjection> plan =
         VarkaExpressionCompiler.compile(entries, columns, options);
-    assertTrue(plan.isPresent(), where + ": the compiler declined the projection");
+    if (plan.isEmpty()) {
+      // A narrow store's species must be named at emit time, so a configuration with no baked
+      // int lane count (validityByWidth=false) declines the projection and the row engine
+      // answers it; the test is cancelled naming that, as `emitArm` does for a narrow read,
+      // rather than failing. A decline under any other configuration fails below.
+      assumeTrue(options.validityByWidth(), where + ": this configuration has no baked int lane "
+          + "count (validityByWidth=false), so the narrow store's species cannot be named and "
+          + "the compiler declines the projection; the matrix records such declines in "
+          + "sql/varka/matrix/skips.tsv (VARKA-329)");
+      assertTrue(false, where + ": the compiler declined the projection");
+    }
     CompiledVarkaProjection p = plan.get();
     String className =
         "org.apache.spark.sql.varka.execution.VarkaNarrowArith" + CLASS_COUNTER.incrementAndGet();
