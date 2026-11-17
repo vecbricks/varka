@@ -856,7 +856,7 @@ final class VarkaVectorTemplateWarmup {
      * truncated. The dense and masked loads and stores of the lane, its compare, blend, min,
      * max and broadcast, the widening {@code B2I}/{@code S2I} conversion, and the three mask
      * calls a selection makes - {@code toLong}, {@code not} and {@code or}; its whole-vector
-     * OR and zero vector are the combined narrow store's accumulator ({@code VARKA-603.md}).
+     * OR seeds the combined narrow store's accumulator ({@code VARKA-603.md}).
      * One block a lane; the masked forms are the epilogue's, so their mask is a remainder.
      */
     private static long bytes(VectorSpecies<Byte> s, MemorySegment seg) {
@@ -881,7 +881,7 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.min(b).lane(0) + a.max(b).lane(0) + widened.lane(0)
             + ByteVector.broadcast(s, (byte) 5).lane(0)
             + m.not().toLong() + m.or(tail).toLong()
-            + a.or(b).lane(0) + ByteVector.zero(s).lane(0)
+            + a.or(b).lane(0)
             + sum.lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(1)
             + a.lanewise(VectorOperators.ABS).lane(1)
@@ -916,7 +916,7 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.min(b).lane(0) + a.max(b).lane(0) + widened.lane(0)
             + ShortVector.broadcast(s, (short) 5).lane(0)
             + m.not().toLong() + m.or(tail).toLong()
-            + a.or(b).lane(0) + ShortVector.zero(s).lane(0)
+            + a.or(b).lane(0)
             + sum.lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(1)
             + a.lanewise(VectorOperators.ABS).lane(1)

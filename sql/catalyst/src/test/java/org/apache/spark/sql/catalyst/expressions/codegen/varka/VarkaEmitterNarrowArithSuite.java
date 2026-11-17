@@ -892,17 +892,19 @@ public final class VarkaEmitterNarrowArithSuite {
   }
 
   @Test
-  @DisplayName("a narrow store's second lane group stores the date prefix its later output group "
-      + "loads")
-  public void secondLaneGroupStoresTheDatePrefixItsLaterOutputGroupLoads() {
-    // Four outputs at four int lanes under COMBINED: the narrowing cast's store makes an
-    // iteration compute two lane groups, and the two quarters put the date's calendar prefix in
-    // two loop-method groups, so the second output group loads the scratch the first stores
-    // (VARKA-198). The store is emitted once per lane group; when only the first group's was,
-    // quarter(d) read the second group's unwritten scratch as month 0 and answered 0 where the
-    // reference answers the quarter.
-    VarkaEmitOptions options = VarkaEmitOptions.DEFAULTS.toBuilder()
-        .lanesOverride(4).narrowGroupStore(NarrowGroupStore.COMBINED).build();
+  @DisplayName("a later lane group's outputs load the date prefix an earlier group stored")
+  public void laterGroupLoadsTheDatePrefixAnEarlierGroupStored() {
+    // Under COMBINED the narrowing cast's store makes an iteration compute two int lane groups
+    // at four int lanes, and the two quarters put the date's calendar prefix in two loop-method
+    // groups, so the second output group loads the scratch the first stores (VARKA-198). The
+    // store is emitted once per lane group; when only the first group's was, quarter(d) read
+    // the second group's unwritten scratch as month 0 and answered 0 where the reference
+    // answers the quarter. The shape reproduces the matrix's failure with the fix's clear
+    // disabled (checked on 17 November 2026). The MASKED instance of the same stale-set bug,
+    // which a narrow value load would reach, has no reproducing shape yet; VARKA-603.md 10
+    // records the shape tried and why it does not reach it.
+    VarkaEmitOptions options = VarkaMatrixRuns.BASE.toBuilder().lanesOverride(4)
+        .narrowGroupStore(NarrowGroupStore.COMBINED).build();
     Attribute i = VarkaSqlResolve.column("i", IntegerType$.MODULE$);
     Attribute d = VarkaSqlResolve.column("d", new DateType());
     List<Expression> exprs = List.of(
@@ -911,6 +913,8 @@ public final class VarkaEmitterNarrowArithSuite {
     String where = "CAST(i AS TINYINT), quarter(d), quarter(d), date_add(d, i) at four int "
         + "lanes, COMBINED";
     EmittedClass emitted = emitAll(exprs, List.of(i, d), options, where);
+    assertTrue(VarkaKernelPlan.of(emitted.roots(), options).narrowGroups() >= 2,
+        where + ": the shape does not split the iteration into two int lane groups");
     Batch batch = batch(64, row -> false, List.of(3, 19000));
     withKernel(emitted, kernel -> assertEquals(0,
         VarkaKernelChecks.runLoadedNarrow(where, kernel, emitted.roots(), emitted.numInputs(),

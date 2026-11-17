@@ -785,9 +785,11 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
       for (int s = 0; s < allShapes.size(); s++) {
         if (allShapes.get(s).source() instanceof Compiled
             && Arrays.stream(emitted[s]).filter(Optional::isPresent).count() > 1) {
-          boolean same = armsEmitSameBytes(allShapes.get(s), arms, emitted[s]);
           System.out.println("VarkaNarrowEmitBenchmark: " + allShapes.get(s).label()
-              + ", the arms' class bytes are " + (same ? "identical" : "different"));
+              + ", the arms' class bytes are " + pairBytes(allShapes.get(s), arms, emitted[s],
+                  false) + " for narrowLanes=false and "
+              + pairBytes(allShapes.get(s), arms, emitted[s], true)
+              + " for narrowLanes=true");
         }
       }
       // The witness records from before any kernel runs, so it knows every compile of each
@@ -841,9 +843,22 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
    */
   private static boolean armsEmitSameBytes(Shape shape, List<Arm> arms,
       Optional<Emitted>[] emitted) {
+    return armsEmitSameBytes(shape, arms, emitted, null);
+  }
+
+  /**
+   * {@link #armsEmitSameBytes} over the arms of one {@code narrowLanes} pair, or over every
+   * present arm where {@code narrowLanes} is null. The two pairs differ by design under
+   * {@code COMBINED}, so a compiled shape is compared within its pair: "both arms agree" keeps
+   * meaning the WIDENED and NATIVE kernels of one narrow lane, which is the evidence
+   * {@code VARKA-603.md} 0 item 4 records, rather than all four arms.
+   */
+  private static boolean armsEmitSameBytes(Shape shape, List<Arm> arms,
+      Optional<Emitted>[] emitted, Boolean narrowLanes) {
     var bytes = new ArrayList<byte[]>();
     for (int a = 0; a < arms.size(); a++) {
-      if (emitted[a].isPresent()) {
+      if (emitted[a].isPresent()
+          && (narrowLanes == null || arms.get(a).narrowLanes == narrowLanes)) {
         Tree tree = emitted[a].get().tree();
         bytes.add(VarkaLoopEmitter.emit(SAME_BYTES_NAME, tree.roots(),
             shape.inputLanes().length, tree.literals().length, null, null,
@@ -856,6 +871,21 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
       }
     }
     return true;
+  }
+
+  /** {@link #armsEmitSameBytes} for one narrowLanes pair, worded for the run's log. */
+  private static String pairBytes(Shape shape, List<Arm> arms, Optional<Emitted>[] emitted,
+      boolean narrowLanes) {
+    long present = 0;
+    for (int a = 0; a < arms.size(); a++) {
+      if (emitted[a].isPresent() && arms.get(a).narrowLanes == narrowLanes) {
+        present++;
+      }
+    }
+    if (present < 2) {
+      return "not compared";
+    }
+    return armsEmitSameBytes(shape, arms, emitted, narrowLanes) ? "identical" : "different";
   }
 
   /** One rung: fresh buffers, every shape, every arm, each checked against the reference. */

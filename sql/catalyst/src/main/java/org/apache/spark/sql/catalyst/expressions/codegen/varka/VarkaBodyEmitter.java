@@ -1318,6 +1318,10 @@ final class VarkaBodyEmitter {
     cb.aload(acc);
     cb.aload(s.dstSeg[o]);
     cb.iload(s.iVar);
+    // The run's first row is `parts - 1` int lane groups back. Count int lanes, not `s.lanes`:
+    // `s.lanes` is the body's lane count, which the epilogue replaces with its remainder, while
+    // a run's parts stay int-group-sized. Counting `s.lanes` steps the store's address off the
+    // segment, which the ragged-batch test's arms meet.
     cb.loadConstant(-(parts - 1) * intLanes);
     cb.iadd();
     cb.i2l();

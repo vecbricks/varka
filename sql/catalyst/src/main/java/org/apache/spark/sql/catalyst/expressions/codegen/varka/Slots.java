@@ -256,8 +256,9 @@ final class Slots {
    * state rather than plan-time, cleared at the top of {@code emitLaneGroup} for exactly the
    * reason its {@code computed} set is a fresh local there: a local's value does not survive
    * from one lane group to the next, so each one re-earns every fragment it uses. A body
-   * emits one lane group, so this is also per body - which is what makes a fragment shared in
-   * the epilogue independent of one shared in a loop method.
+   * emits one lane group per {@code Analysis.narrowGroups()}, so this is also per lane group
+   * and never per body - which is what makes a fragment shared in the epilogue independent of
+   * one shared in a loop method.
    */
   final Set<FragmentKey> emittedFragments = new HashSet<>();
   /**
