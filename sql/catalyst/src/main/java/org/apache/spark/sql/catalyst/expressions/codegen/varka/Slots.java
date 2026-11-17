@@ -39,6 +39,7 @@ import java.util.TreeMap;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.WordExpr;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.WordOwner;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowGroupStore;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
@@ -255,8 +256,9 @@ final class Slots {
    * state rather than plan-time, cleared at the top of {@code emitLaneGroup} for exactly the
    * reason its {@code computed} set is a fresh local there: a local's value does not survive
    * from one lane group to the next, so each one re-earns every fragment it uses. A body
-   * emits one lane group, so this is also per body - which is what makes a fragment shared in
-   * the epilogue independent of one shared in a loop method.
+   * emits one lane group per {@code Analysis.narrowGroups()}, so this is also per lane group
+   * and never per body - which is what makes a fragment shared in the epilogue independent of
+   * one shared in a loop method.
    */
   final Set<FragmentKey> emittedFragments = new HashSet<>();
   /**
@@ -326,6 +328,20 @@ final class Slots {
    * locals give it (`VARKA-27.md` 2.2).
    */
   int[] dataAcc;
+
+  /**
+   * The combined narrow store's accumulator of each output whose store species spans more than
+   * one int lane group (`VarkaBodyEmitter.emitCombinedNarrowStore`), or {@code -1} for every
+   * other output. Null in every body that writes no such store - every body under the masked
+   * form - so the masked form's slots, and so its bytes, stay as they were.
+   */
+  int[] narrowStoreAcc;
+
+  /**
+   * The one local a combined narrow store converts its group's part into before ORing it into
+   * the accumulator, shared by every such root of the body; {@code -1} where the body has none.
+   */
+  int narrowStoreTmp = -1;
 
   /**
    * Per guarded node: the local the guarded vector is parked in while the guard compares it,
@@ -413,8 +429,8 @@ final class Slots {
    * other slot, so no other local moves.
    */
   int scratchSeg = -1;
-  /** The dates whose materialized prefix this body has already stored; see the producer's
-   * side of {@code VarkaChronoLowering.emitChronoPrefixOnce}. */
+  /** The dates whose materialized prefix this body has already stored for the lane group being
+   * emitted; see the producer's side of {@code VarkaChronoLowering.emitChronoPrefixOnce}. */
   final Set<VarkaVectorIR> storedPrefixes = new HashSet<>();
   /**
    * The dates whose materialized prefix this body loads (see {@code VARKA-198.md}) and which it
@@ -904,6 +920,25 @@ final class Slots {
           s.dataAcc[o] = slot;
           slot += 2;
         }
+      }
+    }
+    // The combined narrow store's locals: one accumulator per root whose species spans more than
+    // one int lane group, then one conversion temporary shared by them. A loop body only - the
+    // epilogue keeps the masked store - and allocated only where the form is taken, so the masked
+    // form's slot numbering, and so its bytes, do not move.
+    if (mode == BodyMode.LOOP && analysis.lane == Lane.INT && analysis.lanes != 0
+        && analysis.options.narrowGroupStore() == NarrowGroupStore.COMBINED) {
+      for (int o : outputIdx) {
+        if (analysis.narrowStoreParts(outputs.get(o)) > 1) {
+          if (s.narrowStoreAcc == null) {
+            s.narrowStoreAcc = new int[outputs.size()];
+            Arrays.fill(s.narrowStoreAcc, -1);
+          }
+          s.narrowStoreAcc[o] = slot++;
+        }
+      }
+      if (s.narrowStoreAcc != null) {
+        s.narrowStoreTmp = slot++;
       }
     }
     if (live != null) {

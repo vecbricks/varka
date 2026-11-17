@@ -25,6 +25,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
@@ -187,7 +189,7 @@ public final class VarkaKernelPlan {
       }
     }
     return new VarkaKernelPlan(Optional.empty(), drive, lanes, mixed, Set.copyOf(storeNarrowings),
-        Map.copyOf(inputLanes), narrowGroups(roots, lane, lanes), Set.copyOf(others));
+        Map.copyOf(inputLanes), narrowGroups(roots, lane, lanes, options), Set.copyOf(others));
   }
 
   /**
@@ -907,18 +909,44 @@ public final class VarkaKernelPlan {
    * roots read loads at, so that a kernel driven at four int lanes reads a byte column as an
    * eight-lane 64-bit species and converts it in two parts. One for a kernel not driven at the
    * int lane, or with no baked lane count.
+   *
+   * <p>Under {@link VarkaEmitOptions.NarrowGroupStore#COMBINED} the iteration is also sized by
+   * the narrow roots the kernel stores, whose species may span more groups than any value it
+   * loads - a {@code CAST(i AS TINYINT)} reads no narrow value at all but stores an eight-lane
+   * species at four int lanes. The store's parts are the loop's, so the iteration must hold a
+   * whole run of them ({@link #narrowStoreParts}).
    */
-  private static int narrowGroups(List<VarkaVectorIR> roots, Lane lane, int lanes) {
+  private static int narrowGroups(List<VarkaVectorIR> roots, Lane lane, int lanes,
+      VarkaEmitOptions options) {
     if (lane != Lane.INT || lanes == 0) {
       return 1;
     }
+    boolean combined =
+        options.narrowGroupStore() == VarkaEmitOptions.NarrowGroupStore.COMBINED;
     int groups = 1;
     for (VarkaVectorIR root : roots) {
       for (LaneType type : VarkaVectorIR.narrowValuesIn(root)) {
         groups = Math.max(groups, Lane.widenLanes(lanes, Lane.of(type)) / lanes);
       }
+      if (combined) {
+        groups = Math.max(groups, narrowStoreParts(lane, lanes, root));
+      }
     }
     return groups;
+  }
+
+  /**
+   * The int lane groups one run of a narrow root's store covers: the species' lanes over the
+   * int group's, two for a byte at four int lanes and four at two, and one where the species is
+   * no wider than the group. The one predicate of the store's form, read by plan, slots, emitter.
+   */
+  static int narrowStoreParts(Lane lane, int lanes, VarkaVectorIR root) {
+    if (lane != Lane.INT || lanes == 0 || !root.laneType().isNarrow()
+        || root instanceof Cond || root instanceof BoolOutput) {
+      return 1;
+    }
+    int speciesLanes = Lane.widenLanes(lanes, Lane.of(root.laneType()));
+    return speciesLanes > lanes ? speciesLanes / lanes : 1;
   }
 
   /** The reason no kernel of {@code roots} can be emitted, or empty when one can. */
@@ -1032,7 +1060,8 @@ public final class VarkaKernelPlan {
     return lanes == 0 ? 0 : lanes * 2;
   }
 
-  /** The int groups one iteration computes; see {@link #narrowGroups(List, Lane, int)}. */
+  /** The int groups one iteration computes; see
+   * {@link #narrowGroups(List, Lane, int, VarkaEmitOptions)}. */
   int narrowGroups() {
     requireEmittable();
     return narrowGroups;

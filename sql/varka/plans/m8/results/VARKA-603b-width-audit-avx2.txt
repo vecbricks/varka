@@ -1,0 +1,52 @@
+# The checked TINYINT multiply's store under -XX:UseAVX=2 at 128 bits (VARKA-603b 3.4)
+# On the laptop (AMD Ryzen AI 9 HX PRO 370, AVX-512BW), OpenJDK 25.0.5.0.3, branch varka-603b at
+# master 8c2b8a4493e, 14 November 2026. The committed sql/varka/width_audit.json is this host's
+# census at its own flags, where a masked byte store is intrinsic (AVX-512BW) and the shape's
+# 128-bit row is empty; this file holds the reading HotSpot gives with AVX-512 switched off, which
+# no committed census file records. The rates are not measured here: the benchmark's arms are
+# 603d's. Diagnostic only.
+
+Command: one fork per store form, of the benchmark's own emission path for shape i
+(try_multiply(y1, y2), TRY) at four int lanes and the native narrow lane, run hot for 20000 calls
+of 256 rows, through a JDK-only probe class on the catalyst test classpath:
+
+  build/sbt catalyst/Test/compile
+  build/sbt "export catalyst/Test/fullClasspath" > cp.txt
+  javac --add-modules jdk.incubator.vector -cp "$(cat cp.txt)" -d probe Probe603b.java
+  java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
+    --add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED \
+    --add-opens=java.base/java.nio=ALL-UNNAMED \
+    -Xbatch -XX:UseAVX=2 -XX:MaxVectorSize=16 -XX:+UnlockDiagnosticVMOptions \
+    -XX:+PrintIntrinsics -XX:CompileCommand=quiet \
+    '-XX:CompileCommand=PrintInlining,org.apache.spark.sql.varka.execution.VarkaAuditProbe603::*' \
+    '-XX:CompileCommand=dontinline,org.apache.spark.sql.varka.execution.VarkaAuditProbe603::*' \
+    -cp "probe:$(cat cp.txt)" Probe603b <MASKED|COMBINED>
+
+The probe is a one-off fork, as 603a's cell reading is (VARKA-603.md 2.1): it is not committed
+code, and its class name is the audit probe's prefix so the directive scopes to it. Both runs
+report the same methods - [<init>, run, runMasked, loopMasked0, epilogueMasked0]: the TRY
+multiply can null a row, so only the masked loop exists, as the benchmark documents.
+
+Readings at 128 bits under UseAVX=2
+-----------------------------------
+
+MASKED (the default and the reference): seven `** not supported: op=storeMasked` lines, six of
+them the eight-lane byte store a group of the loop writes:
+
+  ** not supported: op=storeMasked vlen=8 etype=byte mismatched_ms=0
+  @ 33   jdk.internal.vm.vector.VectorSupport::storeMasked (40 bytes)   failed to inline: failed
+         to inline (intrinsic)
+
+The other VectorSupport decisions in the loop's tree are intrinsic, as section 0 recorded
+(results/VARKA-603-diagnosis.txt). The store runs as the Vector API's Java loop.
+
+COMBINED: no `storeMasked` line anywhere in the probe's JVM log, and the loop's store is
+
+  @ 44   jdk.internal.vm.vector.VectorSupport::store (38 bytes)   (intrinsic)   late inline
+         succeeded
+
+So at 128 bits with AVX-512 switched off the masked form's store is refused and the combined
+form's whole store is intrinsic, which is the width audit's question for this shape answered
+before 603d's default flip. The 128-bit row of the committed width_audit.json reads empty for
+`try_multiply(y1, y2)` because that census is the host's own flags, where AVX-512BW makes the
+masked store intrinsic; this file is the AVX2 reading beside it.

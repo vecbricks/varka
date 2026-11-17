@@ -33,6 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.DecimalStore;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.Division;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.FloorMod7;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowGroupStore;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.TruncDateForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.WideConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
@@ -615,7 +616,17 @@ public sealed interface VarkaEmitOption
       // options as useAVX is. Its tag keeps the default's rendering empty.
       new Flag("mathUlpContract", Reason.CONTRACT, false,
           VarkaEmitOptions::mathUlpContract, Builder::mathUlpContract,
-          new FlagTag("ulpContract", true)));
+          new FlagTag("ulpContract", true)),
+      // A machine choice (VARKA-603.md 2.2): a host whose C2 lowers no predicated subword store
+      // runs the masked form's store as the Vector API's Java loop, and the combined form's
+      // whole store there does not, while which is faster where both lower is a measurement's.
+      // Its subject is the int lane count at which a narrow store spans several groups; at the
+      // defaults' eight lanes and above it is inert. Its tag keeps the default's rendering empty.
+      new Choice<NarrowGroupStore>("narrowGroupStore", Reason.MACHINE, NarrowGroupStore.class,
+          NarrowGroupStore.MASKED, VarkaEmitOptions::narrowGroupStore,
+          Builder::narrowGroupStore, new ChoiceTag("narrowGroupStore="),
+          Optional.<Class<? extends VarkaVectorIR>>empty(),
+          new Subject(o -> o.toBuilder().lanesOverride(4).build())));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

@@ -135,10 +135,11 @@ public final class VarkaMatrixRuns {
 
   /**
    * The options that change what C2 compiles a kernel against, not only its bytes: a second
-   * vector species in the JVM (the lane count, the half species) or the instructions C2 may use.
+   * vector species in the JVM (the lane count, the half species), the instructions C2 may use,
+   * or the form a kernel's narrow store takes (VARKA-603).
    */
   public static final Set<String> C2_OPTIONS =
-      Set.of("lanesOverride", "narrowHalfSpecies", "useAVX");
+      Set.of("lanesOverride", "narrowHalfSpecies", "useAVX", "narrowGroupStore");
 
   /** Whether {@code config} sets an option of {@link #C2_OPTIONS}. */
   public static boolean changesC2(String config) {
