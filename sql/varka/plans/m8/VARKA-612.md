@@ -30,8 +30,9 @@ Read on master at `e5d70012bdc`, 20 November 2026. No run was made for this plan
    lanes, where the overflow test is a long-lane mask that C2 does not lower (`VARKA-503.md` 1).
    It is called only where `isLong(whole)` holds, which is `DataTypes.LongType.equals(...)`. The
    day-time arms are in `VarkaIntervalCompiler`: `dayTimeArith` (`ADD`/`SUB` in `FAIL`), `-dt`
-   and `abs(dt)` (`IntNeg` in `FAIL`), and `dayTimeMultiply` (a `FAIL` product, or a
-   `GuardedRange` over `dayTimeProductBounds`). They build the same nodes on the same lane, but
+   and `abs(dt)` (`IntNeg` in `FAIL`), and `dayTimeMultiply` (a `GuardedRange` over
+   `dayTimeProductBounds` for a literal factor, then a wrapping product; a column factor
+   declines). They build the same nodes on the same lane, but
    their type is `DayTimeIntervalType`, so they never reach `twoLaneChecked`. The `BIGINT` forms
    are declined at 128 bits (they read 1.0X with the session's decline,
    `VarkaBigintArithmeticBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`). The
@@ -79,9 +80,11 @@ batch to the row engine. It does not mark lanes. So at two 64-bit lanes it can b
 without a mask: for `x + y = r`, `t = (x ^ r) & (y ^ r)`, and for `x - y = r`,
 `t = (x ^ y) & (x ^ r)`; then `t.reduceLanes(OR) < 0` as a scalar branch to the decline. For
 negation and `abs`, the lane equal to `Long.MIN_VALUE`. For a `GuardedRange`, an unsigned compare by
-the borrow of `(hi - lo) - (x - lo)`. A null lane's slot may hold any value, so the test can fire
-falsely there. That sends the batch to the row path, which answers the same rows, so a false alarm
-costs time and never correctness. `NULL` mode needs lanes marked and stays declined.
+the borrow of `(hi - lo) - (x - lo)`. A `FAIL` product on the long lane (`l * m` in `ANSI`)
+has no mask-free test here, so the tree check still declines it under `REDUCE`. A null lane's
+slot may hold any value, so the test can fire falsely there. That sends the batch to the row path,
+which answers the same rows, so a false alarm costs time and never correctness. `NULL` mode needs
+lanes marked and stays declined.
 
 This is a narrow piece of `m9/SCOPE.md` item 101 (a mask-free lowering at two lanes). It goes
 behind a `VarkaEmitOptions` component, `twoLaneChecks` (`MASK`, today's, and `REDUCE`). It is
@@ -107,6 +110,8 @@ item 101 is the owner's call (question 10.2).
 |---|---|
 | `VarkaKernelPlan.java` | `Kind.TWO_LANE_CHECK`, the tree walk, the reason |
 | `VarkaNodeCompiler.java` | the reason's constant moved |
+| `VarkaExpressionCompilerSuite.scala` | its two asserts on the constant, at its new home |
+| `docs/sql-varka.md`, `width_audit.json` | the reason's new text, regenerated |
 | `VarkaDayTimeIntervalBaselineBenchmark.java` | the arms' classes at two lanes |
 | `VarkaDayTimeIntervalBaselineQueriesSuite.scala` | the classes at both refusal settings |
 | `VarkaTwoLaneDefault128Suite.java` | the decline at the 128-bit defaults |
@@ -167,13 +172,15 @@ compared by minimums. The owner dispatches both. The controls are the `CASE WHEN
 ## 8. Sequencing
 
 1. **612a** (about 250 lines). Step 1: the tree check and its suite. Done when
-   `build/sbt 'catalyst/testOnly *VarkaTwoLaneConditionSuite'` passes. Step 2: the census file and
+   `build/sbt 'catalyst/testOnly *VarkaTwoLaneConditionSuite *VarkaExpressionCompilerSuite'`
+   passes and `dev/varka_regen_generated.sh --all` leaves no diff. Step 2: the census file and
    the 128-bit default suite. Done when `build/sbt 'sql/testOnly *VarkaTwoLaneDefault128Suite
    *VarkaDayTimeIntervalBaselineQueriesSuite'` passes, and the baseline's plan-only dry run
    (`-Dvarka.bench.dryRun=true -XX:MaxVectorSize=16`) lists the three arms `NONE`. Step 3: the
    owner's 128-bit runner dispatch and the results committed. Done when
-   `dev/varka_quote_check.py` passes and the file shows no day-time arm under 1.0X but the
-   blend (row 613).
+   `dev/varka_quote_check.py` passes and, by the minimums of two runs, no day-time arm but the
+   blend (row 613) reads under 1.0X by more than prediction 1's 20%, the spread an unfused
+   section already shows.
 2. **612b** (about 400 lines, if the owner takes it here). Step 4: the option, the mask-free
    test and the cells. Done when `build/sbt 'catalyst/testOnly *VarkaEmitterArithmeticSuite
    *VarkaEmitOptionSuite'` passes and the width audit under `JDK_JAVA_OPTIONS=-XX:UseAVX=2` at

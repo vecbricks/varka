@@ -19,12 +19,11 @@ to. No run was made for this plan.
    one row in ten null. In
    `VarkaDayTimeIntervalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt` it reads 94.4
    against 47.2, and 93.7 against 50.3.
-2. **The loss, current.** A fresh EPYC 7763 run of the class at 256 bits on master `e5d70012bdc`
-   (run 44485236913, 19 November 2026, on branch `varka-598r-runner-256`, pull request #1550,
-   not yet merged) reads the section at 0.72x without nulls and 0.78x with them, by its per-row
-   times. Its `extract(DAY FROM dt)` alone wins 3.5x and 4.5x in the same run. So the fused entry
-   is fast, and the loss is the partial plan. The 128-bit side was not rerun; nothing on master
-   since #1534 changes the plan there.
+2. **The fused entry is fast, so the loss is the partial plan.** In the same 256-bit file
+   `extract(DAY FROM dt)` alone reads 3.9X without nulls and 4.9X with them. A fresh EPYC 7763
+   run at 256 bits on master `e5d70012bdc` (run 44485236913 of pull request #1550, not yet
+   merged) repeats the loss; its results file is not on master, so this plan quotes no number
+   from it. Nothing on master since #1534 changes the section's plan at either width.
 3. **Where the time goes, from the code.** `PartialVarkaProjection` classifies the four entries:
    one `FusedOutput` and three `ResidualOutput`. `VarkaColumnarToRowExec` runs the kernel for
    `DAY`. Then it builds each output row in `mergeProjection`, an `UnsafeProjection` over a
@@ -35,7 +34,7 @@ to. No run was made for this plan.
    indirection.
 4. **The record already had this shape.** `VARKA-12.md` 6.3 timed a residual-heavy projection
    (one fused entry, four residual) through a row consumer at 0.7x, in milestone 2. The
-   all-fused row-consumer case then also lost (0.8x). It now wins 3.5x (item 2), so the read-back
+   all-fused row-consumer case then also lost (0.8x). It now wins 3.9x (item 2), so the read-back
    got cheaper, but the partial shape did not. No other committed baseline section is `PARTIAL`.
 5. **103b would close it another way.** Once `HOUR`, `MINUTE` and `SECOND` fuse, the section is
    `WHOLE`. 103b waits on rows 332b, 157 and 347 (`VARKA-103.md` 5, item 3). None of them is
@@ -54,7 +53,12 @@ rows. `VarkaExpressionCompiler.compilePartial` cannot see the consumer: the pre 
 through `isVarkaEligible` before the transitions are inserted, so a demotion there would also
 decline the columnar consumer's partial projection, which wins (`VARKA-12.md` 6.3, 1.5x). When the
 rule fires, the arm builds Spark's `ProjectExec` over a plain `ColumnarToRowExec` of the child
-instead, and the node's fusion report records the reason. The rule reads the node's
+instead, and the node's fusion report records the reason. The same check guards the post
+stage's `ProjectExec ... if isVarkaEligible` arm, which builds a `VarkaColumnarToRowExec` for a
+projection the pre stage did not see, over the very `ProjectExec(ColumnarToRowExec(child))`
+shape the decline emits; there a declined projection stays the `project` it was. So no second
+route or second pass re-fuses it. The narrowing arm needs no check: what it absorbs fuses
+nothing. The rule reads the node's
 `classification()`, the compile that already serves its `EXPLAIN`. Two rules are candidates, and a
 probe chooses between them before the code (step 1):
 
@@ -67,10 +71,12 @@ probe chooses between them before the code (step 1):
   but it ignores what the entries read and cost.
 
 The probe, `VarkaPartialProjectionProbe`, is over the day-time baseline's table on the laptop
-under `-XX:UseAVX=2` at `MaxVectorSize` 32 and 16, both sessions, best times (at 16 with
-`spark.sql.codegen.varka.declineTwoLaneConditions=false`, so that shapes c and d keep their
-long-lane checks whatever row 612 has merged, and recorded as such), and its output is
-committed as `results/VARKA-613-probe.txt`. It has four shapes:
+under `-XX:UseAVX=2` at `MaxVectorSize` 32 and 16, both sessions, best times, and its output is
+committed as `results/VARKA-613-probe.txt`. The rule is chosen from the 256-bit shapes. At 128
+bits the checked arithmetic arms of shapes c and d carry row 612's two-lane loss (`abs(dt)` and
+`dt * 3` at 0.5X to 0.9X in the committed 128-bit file), which is not the partial plan's, so
+their 128-bit readings are recorded but do not choose the rule; shapes a and b have no check and
+are read at both widths. It has four shapes:
 
 The three arithmetic arms are `-dt`, `abs(dt)` and `dt * 3`, all over `dt` alone.
 
@@ -81,11 +87,14 @@ The three arithmetic arms are `-dt`, `abs(dt)` and `dt * 3`, all over `dt` alone
 | c. heavy, shared | the three arithmetic arms | `HOUR` of `dt` | declines | keeps |
 | d. heavy, other | the three arithmetic arms | `make_dt_interval(i, i2, i3)` | keeps | keeps |
 
-The rule chosen is the one whose "declines" column matches the shapes that lose in the probe.
-If neither matches, the plan falls back to (R3): decline every partial projection under a row
-consumer. All three rules sit in the same post-stage arm, so a columnar consumer keeps its
-partial projection under any of them. That fallback is the owner's to accept (question 10.1).
-
+A shape counts as a loss or a win only when its ratio to the row path is past 1.3x either way
+(risk 1); between, it counts for neither. A rule matches when it declines every shape that
+loses and keeps every shape that wins. If both match, (R1) is taken: it declines only where the
+merge pass reads the kernel's inputs anyway, the cause 2 item 3 names, while (R2) only counts
+entries. If neither matches, the plan falls back to (R3): decline every partial projection
+under a row consumer. All three rules sit in the post stage's row-consumer arms, so a columnar
+consumer keeps its partial projection under any of them. That fallback is the owner's to accept
+(question 10.1).
 **Alternative: restructure so the fused part carries the work.** This means computing
 `HOUR`, `MINUTE` and `SECOND` in the kernel, which is 103b's design (`VARKA-103.md` 2.3) and
 blocked as in 2 item 5. A cheaper restructure, Spark's whole-stage projection over a columnar
@@ -118,7 +127,9 @@ None: no kernel's bytes change, and declined projections have no kernel.
 
 * `VarkaPartialDeclineSuite` (sql/core, new), at `useAVX` -1, 2 and 3: shapes a to d of the
   probe under a row consumer, each planned as Spark's projection or as `VarkaColumnarToRowExec`
-  as the chosen rule says, with the reason in the fusion report; the same shapes under a
+  as the chosen rule says, with the reason in the fusion report; a declined shape handed to the
+  post stage as `ProjectExec(ColumnarToRowExec(scan))`, and the post stage run twice, stays
+  Spark's projection; the same shapes under a
   columnar consumer keep their `VarkaProjectExec`; an all-fused projection is unchanged. It
   catches a rule that fires on the all-fused case or reaches the columnar consumer.
 * `VarkaDayTimeIntervalBaselineQueriesSuite`: the blend lists `NONE` at both refusal settings,
@@ -143,9 +154,9 @@ rule does not touch.
 2. Shape b is within 10% of the row path at 256 bits. The kernel reads `dt`, which the merge
    pass then does not read, but the pass still converts `dt2`.
 3. Shape d wins at 256 bits by at least 1.3x.
-4. So (R2) matches the losses, with c as the shape that separates the rules: R1 declines c, R2
-   keeps it. If c loses, (R1) is chosen. Shape b is where R2 declines and R1 keeps: a tie within
-   10% counts as no loss for the choice, and if b loses by more, that is evidence for (R2).
+4. So (R2) matches, with c as the shape that separates the rules: R1 declines c, R2 keeps it.
+   If c loses, (R1) is chosen. Shape b is where R2 declines and R1 keeps: inside the 1.3x band
+   it counts for neither rule, and if it loses past it, that is evidence for (R2).
 5. After the change the blend reads 1.0X on the runners within 5% at both widths and densities:
    its plan is Spark's.
 
@@ -172,7 +183,8 @@ One pull request, about 350 lines.
 3. Step 3: the regenerated golden corpus and fusion report. Done when
    `dev/varka_regen_generated.sh --all` leaves no diff.
 4. Step 4: the owner's runner dispatch at both widths, and the results committed. Done when
-   `dev/varka_quote_check.py` passes and the blend reads at least 1.0X at 256 and 128 bits.
+   `dev/varka_quote_check.py` passes and the blend reads within 5% of 1.0X or above, by the
+   minimums of two runs, at 256 and 128 bits.
 
 Done when (the row's): the blend either declines whole (the row engine answers) or is
 restructured so the fused part carries the work. The baseline section then shows it no slower

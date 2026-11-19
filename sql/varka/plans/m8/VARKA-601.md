@@ -72,7 +72,7 @@ The rule cannot read the share a conjunct keeps. Plan time has no statistics for
 view. So the rule is syntactic, like 598's, and the measurement picks one of three:
 
 * **(a) No rule.** Every split keeps fusing. Taken when no section loses: every share reads
-  at least 1.0X at both widths, by the minimums of two runs.
+  within 5% of 1.0X or above at both widths, by the minimums of two runs.
 * **(b) Decline every value split beside a residual.** Taken when the splits lose at both shares
   at a width where (c) does not separate them. The demotion goes in
   `VarkaExpressionCompiler.predicate` beside `nullTestsAlone`, with its own reason in `EXPLAIN`.
@@ -158,7 +158,7 @@ controls are read first: `u < 900` alone must win at both widths, or the run is 
 3. **601b** (about 150 lines, or 300 with a rule): the results files and their provenance,
    section 9 scored, and the rule under (b) or (c) with its classes moved. Done when
    `dev/varka_quote_check.py` passes and, under (b) or (c), the runner rerun of the declined
-   sections reads at least 1.0X.
+   sections reads within 5% of 1.0X or above, by the minimums of two runs.
 
 Done when (the row's): a baseline section times such splits on the EPYC 7763 at both widths, at
 a high and a low share kept, against Spark's row path, and each shape that loses declines whole
