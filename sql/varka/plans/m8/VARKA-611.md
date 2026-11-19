@@ -35,6 +35,9 @@ was run.
    host whose long species is 256 bits or more to level 2 (`VarkaSessionEmit.FALLBACK_LEVEL`,
    `SQLConf.VARKA_EMIT_USE_AVX`). So on the EPYC 7763 at 256 bits B is reachable in production at
    the conversion forms' cost, and on an AVX512DQ host (level 3) at one instruction a conversion.
+   This corrects `VARKA-104.md` 0 item 6, which said B "cannot be the default" because the
+   default, unknown level declines the conversion: the session's default is not that level on
+   these hosts. That item carries a dated note saying so.
 3. **At two long lanes on x86 B cannot help.** A checked `BIGINT` arm declines there under row
    503's setting (`VarkaNodeCompiler.twoLaneChecked`, `VARKA-104.md` 9.1), since C2 lowers no
    long-lane mask at two lanes, and B's trip test is a mask. So prediction 3's "at 128-bit" half
@@ -43,10 +46,13 @@ was run.
 4. **B is sound with the margin `VARKA-104.md` 3.3 argues.** Each conversion of a long to double
    rounds to nearest, a relative error of at most `2^-53`, and so does the product: the computed
    `|(double) a * (double) b|` is within a factor `(1 + 2^-53)^3` of `|a * b|`. Testing it
-   against `2^62`, where the overflow edge is `2^63`, leaves a factor of two. A lane can trip
-   only where `|a * b| >= 2^62 / (1 + 2^-53)^3`, so B declines some products in `[2^62, 2^63)`
-   and never admits an overflow. No SMT file proves floating arithmetic in this repository;
-   the argument is the written one above, and 5's edge tests hold its two ends.
+   against `2^62`, where the overflow edge is `2^63`, leaves a factor of two. So every product
+   of `2^62 (1 + 2^-53)^3` or more trips, every overflow among them, and none below
+   `2^62 / (1 + 2^-53)^3` does; in the band between, a lane may go either way (a product just
+   below `2^62` can round up and trip, one just above with an operand past `2^53` can round
+   down and pass). B therefore never admits an overflow, and declines products from about
+   `2^62` up. No SMT file proves floating arithmetic in this repository; the argument is the
+   written one above, and 5's edge tests hold its two sides.
 5. **Where B's cost lands.** A tripped lane declines its whole batch, which then runs on the row
    path after the kernel's pass: on data whose products reach `2^62`, B costs a kernel pass more
    than A. The baseline's data never reaches it (`l` below `2^49`, `m` in `[-3000, 3000]`, so
@@ -140,9 +146,11 @@ level 3, two `L2D`, one double `MUL`, one `ABS`, one compare, the guard's mask t
    `-1 * Long.MIN_VALUE` overflows and must decline; a pair above `2^53` whose doubles round
    across `2^62`; every sign pair. The failure it catches: a lane that overflows and is
    answered.
-2. **The decline-rate assertion** (`VARKA-104.md` 7 risk 3): over a fixed 4,096-row fixture with
-   a stated share of products in `[2^62, 2^63)`, B declines exactly the batches holding one, and
-   none of a fixture whose products stay below `2^61`.
+2. **The decline-rate assertion** (`VARKA-104.md` 7 risk 3), on the sound sides of 2.4 only:
+   over fixed 4,096-row fixtures, every batch holding a product of at least `2^62 (1 + 2^-50)`
+   declines, and no batch whose products all stay below `2^62 (1 - 2^-50)` does. The fixtures
+   keep every product out of the rounding band, so the assertion is exact. The decline section
+   of 6 draws its products from `[1.01 * 2^62, 0.99 * 2^63]`, inside the declining side.
 3. **Kernel and reference agree** on which batches decline, through the fuzzer: the option enters
    `VarkaEmitOption.TABLE`, so `VarkaIrFuzzSuite` draws it.
 4. **Coverage rows** for `l * m`, `l * 3` under ANSI and `try_multiply(l, m)` under
@@ -155,13 +163,13 @@ level 3, two `L2D`, one double `MUL`, one `ABS`, one compare, the guard's mask t
 
 ## 6. The measurement
 
-`VarkaBigintArithmeticBaselineBenchmark`, its three checked-product sections at both null
-densities plus one new section, `l * m, ANSI, products near 2^62` (every batch holds one in
-`[2^62, 2^63)`, nothing overflows), each with three arms: the row path, A (`BOUND_ONLY`, which is
-the row path for these sections) and B (`MAGNITUDE`), both forms named in the labels. Hosts: the
-EPYC 7763 at 256 bits (level 2), and an AVX512DQ host at 256 bits (level 3; question 1). The
-control is the class's wrapping `l * m, LEGACY`, unchanged by the option. 128 bits is not run:
-item 2.3 settles it.
+`VarkaBigintArithmeticBaselineBenchmark`, its three checked-product sections at both null densities
+plus one new section, `l * m, ANSI, products near 2^62` (every batch holds one in `[1.01 * 2^62,
+0.99 * 2^63]`, nothing overflows), each with three arms: the row path, A (`BOUND_ONLY`, which is the
+row path for these sections) and B (`MAGNITUDE`), both forms named in the labels. Hosts: the EPYC
+7763 at 256 bits (level 2), and an AVX512DQ host at 256 bits (level 3; question 1). The control is
+the class's wrapping `l * m, LEGACY`, unchanged by the option. 128 bits is not run: item 2.3 settles
+it.
 
 ### 6.1 Predictions, registered before the run
 
