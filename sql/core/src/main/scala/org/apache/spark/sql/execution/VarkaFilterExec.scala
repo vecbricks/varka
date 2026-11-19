@@ -75,11 +75,19 @@ private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelpe
    * tests, and an `isnotnull(d)` written first would drop a row before a conjunct that raises on
    * it in Spark. Whether Spark compiles the filter is `CollapseCodegenStages.supportCodegen`'s
    * test, asked of this node: codegen on, no expression that falls back, and no more columns
-   * than `spark.sql.codegen.maxFields`.
+   * than `spark.sql.codegen.maxFields`. A compiled filter goes on past a NULL conjunct, as the
+   * `AND` tree does, unless `spark.sql.legacy.filterShortCircuitOnNullConjunct` makes it drop the
+   * row there (SPARK-60315); the setting is read as `FilterExec` reads it, from the session's conf
+   * when the plan executes, and has no effect on a filter Spark does not compile.
    */
   protected def fallbackCondition: Expression = {
     val whole = wholeCondition.getOrElse(condition)
-    if (compiledBySpark) VarkaConjunctOrder.inCodegenOrder(whole) else whole
+    if (compiledBySpark) {
+      VarkaConjunctOrder.inCodegenOrder(
+        whole, child.output, conf.legacyFilterShortCircuitOnNullConjunct)
+    } else {
+      whole
+    }
   }
 
   // Whether Spark would compile this filter, the test `fallbackCondition`'s comment describes.

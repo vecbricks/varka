@@ -828,7 +828,7 @@ public final class VarkaExpressionCompiler {
       PredicatePass once =
           predicateOnce(condition, childOutput, demoted, options, admission);
       Map<Integer, String> late = VarkaConjunctOrder.behindRaising(written,
-          once.specs().stream().map(VarkaConjunctSpec::fused).toList());
+          once.specs().stream().map(VarkaConjunctSpec::fused).toList(), childOutput);
       if (!late.isEmpty()) {
         demoted.putAll(late);
         continue;
