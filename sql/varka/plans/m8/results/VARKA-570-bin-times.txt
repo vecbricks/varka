@@ -1,0 +1,29 @@
+VARKA-570 admission check: option-matrix bin job times, 20 November 2026.
+Source: the Actions jobs API (repos/MaxGekk/spark/actions/runs/<run>/jobs, filter=all),
+every job named 'Option matrix: bNNN' with a start and an end, its minutes from
+started_at to completed_at (setup steps included). Runs whose jobs the API did not return
+are listed as such. Read on the laptop with gh; nothing was run on a runner.
+
+run           bins  median  longest  bins > 3x median (minutes, conclusion)
+42995163793   155     7.8     17.0  -
+43110513436  no jobs returned
+43129478084   150     7.4     16.5  -
+43144454117   155     7.4     19.1  -
+43171990888   155     7.0     21.0  b092 21.0 success
+43180161093  no jobs returned
+43451663202  no jobs returned
+43484155824  no jobs returned
+43504150236   156     7.1     15.6  -
+43533941181  no jobs returned
+43597177147   157     6.9     17.6  -
+43636282980  no jobs returned
+43642146943   156     7.5     15.5  -
+43645907563   100     8.2     17.4  -
+43655530012   156     6.9     15.4  -
+43690478822  no jobs returned
+44141461002   160     7.2     24.5  b094 24.5 success
+44159650039   160     7.1     16.5  -
+44179178461   191     7.6     17.4  -
+44485292430   191     8.0     19.6  -
+
+bins in all: 2042
