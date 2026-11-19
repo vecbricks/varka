@@ -470,6 +470,24 @@ request and row 95 builds no second copy.
 
 (Written when the work lands.)
 
+**The baseline, its multiply half** (19 November 2026): `VarkaIntArithmeticBaselineBenchmark`
+(sql/core, Java) and `VarkaIntArithmeticBaselineQueriesSuite`, as the build sheet's 1.2 and 1.5
+give them, with #1486 merged: six sections a density, twelve in all, every one `NONE` but the
+LEGACY control `i * j`, `WHOLE`, the filter `i * j > 0` included (VARKA-598 leaves it to Spark
+whole). The `%` half of the baseline, the five sections of the build sheet's 1.3 in row 30's
+`VarkaIntegralDivisionBaselineBenchmark`, is not built: that class is row 30's baseline, which has
+not merged (premise 1 of the build sheet is 0, its stop rule 7.1). The EPYC 7763 results at 256 and
+128 bits are owed by the owner's dispatch.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **The baseline is built without its `%` half.** The build sheet's premise 1 reads 0: row 30's
+   baseline class has not merged, and its stop rule 7.1 says the lead's order puts it first. The
+   brief keeps this row off row 30's work, so the multiply half, which needs nothing of row 30's,
+   is built on its own branch and the five `%` sections wait for row 30's class; the plan's own
+   fallback (section 4, "creates that class under 30's name with the `%` shapes only") is not
+   taken, since it would start row 30's file.
+
 ## Build sheet (11 November 2026)
 
 The step this sheet builds is section 5's step 1, **the baseline**, and nothing else: Spark's row
