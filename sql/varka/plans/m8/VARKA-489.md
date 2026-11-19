@@ -1,0 +1,209 @@
+# VARKA-489: Node properties as a descriptor
+
+## 1. Where this came from
+
+Milestone 8's row 489, `VARKA-475.md` 9.2 item 3, added 24 October 2026 from the lessons of rows
+484, 486 and 488: a new IR node reached about twenty places (`VARKA-475.md` 2, finding 6), most
+of them exhaustive switches over every node type that each ask one small property of the node.
+The row gives each node one record of those properties, required at construction, and moves the
+switches that only ask a property to read it.
+
+The row was built once already. On 27 October 2026 commit `81f2553ea4e` ("Read node properties
+from one descriptor per IR node") did the whole row over `4e09c1ecfce`: `VarkaNodeProps`, a
+`props()` on each of the then 47 records, ten switches reading it, `VarkaNodePropsSuite`, an
+equivalence test over 229417 distinct nodes (run, then deleted) and byte-identical oracles. It
+never became a pull request. It is parked on the owner's fork as `attic/varka-489-descriptor`,
+and its plan file on that branch holds the inventory, the design and the recipe
+for a new node. `m9/SCOPE.md` item 47 (11 November 2026) records why it is not on master: the
+branch predates #1329's cached hash on every node and the lane pair's nodes, so "finishing the
+row means rebuilding it over master". This plan is that rebuild. It reuses the branch's design
+and text where they still hold, and says below where master has moved.
+
+## 2. The admission check, done
+
+Read on `origin/master` at `e5d70012bdc`, 20 November 2026.
+
+- **Nothing of the row is on master.** No `VarkaNodeProps` and no `props()`; the only file named
+  for descriptors, `VarkaDescriptors.java`, is the emitter's `ClassDesc` table, a different thing.
+  `git log --grep=VARKA-489` finds no commit, and no pull request of vecbricks/varka has the id in
+  its title.
+- **The switches the row names still exist and have grown.** The node types went from 47 to 56
+  records: `BoolOutput`, `ConvertLane`, `CrossLane`, `DecimalColumn`, `DecimalWord`, `MathUnary`,
+  `NullValue`, `RoundToIntegral` and `WidenDecimal` are new. A count of the record names among a
+  switch's `case` arms in the main tree gives `weightOf` 42 arms (`VarkaEmitBudget.java:616`),
+  `kindOf` 25 (`VarkaEmitCost.java:114`), `admits` 8 and `restrictedOperands` 6
+  (`VarkaOperandPosition.java:79`, `:134`), `inputOrdinal` 5 (`VarkaVectorIR.java:227`),
+  `isNarrowRing` 4 (`Analysis.java:1076`), `ownerOf` 37 and `pureOf` 45 (`Analysis.java:1422`,
+  `:1483`), `planWordRef` 36 and `propagate` 56 (`Slots.java:1173`, `:1757`). Each of the nine new
+  records added an arm to most of them, which is the cost the row removes.
+- **Two new switches since 27 October.** `VarkaKernelPlan.longNarrowReader` (`:833`, row 343's
+  long-lane narrowing) answers one fixed value per node type from no field at all, class (a) in
+  the branch's inventory; `longNarrowRole` (`:775`) reads the child's lane, class (c).
+  `VarkaSameAnswer`'s NaN step (`:261`, row 593) is per-node behaviour over the children, class
+  (b). Only `longNarrowReader` joins the descriptor (3.1).
+- **The branch does not apply.** `git merge-tree` of the branch onto master conflicts in all six
+  code files it touches (`Analysis`, `Slots`, `VarkaEmitBudget`, `VarkaEmitCost`,
+  `VarkaOperandPosition`, `VarkaVectorIR`); 30 master commits touched those files since its base.
+  So the code is rewritten over master with the branch as the reference text, not cherry-picked.
+- **Too big for one pull request.** `dev/varka_msg_check.py size` counts the branch at 1385 lines
+  against its base, over the cap, with 47 records; at 56 it is larger. Section 8 splits it.
+
+What would have rejected the row: a master on which the property switches had already been
+folded some other way, or on which no new node had arrived since. Neither holds: nine nodes
+arrived, and each paid the arms the row removes.
+
+## 3. The design
+
+### 3.1 The descriptor
+
+As built on the branch (its section 1), with one field added. `VarkaNodeProps` is a record beside
+the IR with the components `Ring ring` (sealed: `Never`, `Pick`, `Arith(Overflow mode)`),
+`Validity validity` (sealed: `Input(int ordinal)`, `AllTrue`, `Strict`, `SkipsNull`, `Own`,
+`NoWord`), `int weight`, `String costKind`, `Set<VarkaOperandPosition> fills`,
+`List<VarkaOperandPosition.Restricted> restricted`, and, new, `LongNarrowReader longNarrow`. The
+row's five named properties map onto it as the branch's section 0 says: ring under narrow
+reduction is `ring`, pure and skips a null input are both `validity`, budget weight is `weight`,
+cost kind is `costKind`. Each answer reads only the node's own fields and lane; what depends on
+the options stays the pass's (`isNarrowRing` asks `loweredUnchecked` of an `Arith`'s mode), and
+what depends on the operands is folded by the pass over `childrenOf`.
+
+`VarkaVectorIR` declares `VarkaNodeProps props()` with no default, and every record implements it
+beside its constructor checks, so a record without it does not compile. `props()` is a method,
+not a record component: the records' structural `equals` and `hashCode` are the memo keys and the
+shape cache's identity, and since #1329 the hash is cached per node; a derived descriptor must not
+enter either.
+
+**Alternatives.** (a) One exhaustive `switch (node)` inside `VarkaNodeProps`: the compiler enforces
+it equally and it is about a third of the lines (one arm per record against nine or ten), but a
+new node is then written in two files, its record and the switch. (b) The per-record method, the
+branch's choice, so a new node states its facts beside the constructor that checks its operands.
+The plan takes (b); question 1 asks the owner. Building both is not worth it here: it is a
+refactor whose output is identical bytes either way, so there is nothing to measure between them.
+
+### 3.2 The switches that read it
+
+From the branch's inventory, updated to master: the five (a) switches (`weightOf`, `kindOf`,
+`admits`, `restrictedOperands`, `inputOrdinal`) and the new `longNarrowReader` read one component
+each and lose every arm; `isNarrowRing` reads `ring`; the three hand-kept copies of the word rule
+(`Analysis.ownerOf`, `Analysis.pureOf`, `Slots.planWordRef`) fold the one `validity` over the
+operands; `Slots.propagate`, reached only by an own-word node, demands its value operands' words.
+The branch's outcome records one trap to keep: `Validity.Input` must not refuse a negative ordinal,
+since the analysis reads the descriptor before the emitter's admission, and the admission's own
+error ("column ordinal -1 outside", `VarkaEmitterContractSuite`) must stay the one a caller sees.
+
+### 3.3 What is deliberately unchanged
+
+The node's behaviour stays exhaustive switches: lane and structure (`laneType`, `childrenOf`,
+`withChildren`, both canonical forms), lowering (`Analysis.analyze`, `VarkaVectorWalk`'s walks,
+the calendar family's), the compilers' rewrites, `VarkaRangeAnalysis.range`, `collectRefusals`,
+`Slots.visit`, `narrowValuesIn`, `needsNarrowSpecies`, `longNarrowRole`, `VarkaSameAnswer`'s NaN
+step, and the test harness's evaluators and grammars. Deriving further facts bottom-up from the
+descriptor (a non-canonical NaN, may raise, reads a decimal slot) is `m9/SCOPE.md` item 47, after
+this row; the node meanings row 506 keeps beside `VarkaReference` move into the descriptor in that
+row's own follow-up (`VARKA-506.md` 2.2), not here.
+
+### 3.4 Registered op counts
+
+None: no kernel's bytes change, and the three byte oracles say so.
+
+## 4. Files
+
+| file | what |
+|---|---|
+| `VarkaNodeProps.java` (new) | the record, `Ring`, `Validity`, constants |
+| `VarkaVectorIR.java` | `props()` on the interface and on all 56 records; `inputOrdinal` |
+| `VarkaEmitBudget.java`, `VarkaEmitCost.java`, `VarkaOperandPosition.java` | (a) switches read it |
+| `VarkaKernelPlan.java` | `longNarrowReader` reads it |
+| `Analysis.java`, `Slots.java` | `isNarrowRing` and the word-rule folds |
+| `VarkaNodePropsSuite.java` (new) | the guarantee and the drawn-shape checks |
+| `VarkaNodePropsEquivalenceSuite.java` (new, gone in 489c) | old switches against `props()` |
+
+## 5. Tests, and what each is for
+
+- `VarkaNodePropsSuite`, kept: fails if `props()` gains a default on `VarkaVectorIR`, `Cond` or
+  `Chrono` (which would let a family member inherit an answer), walks the sealed hierarchy checking
+  each permitted record declares its own, and over 500 drawn shapes checks that a `Strict` or
+  `SkipsNull` node's operands are values, an `Input` node is a leaf whose ordinal `inputOrdinal`
+  reports, and `NoWord` belongs to conditions only.
+- `VarkaNodePropsEquivalenceSuite`, temporary: while an old switch still exists, the live function
+  against the descriptor over every distinct node of 4000 drawn shapes of all the IR fuzzer's
+  grammars plus hand-built variants of every mode, lane, sign and level (the word rules compared
+  operand by operand, the ring rule under both values of `checkIntOverflow`). Each pull request
+  that deletes a switch first runs the suite and records the node count in 9, then deletes that
+  switch's check, because a frozen copy of an old switch is a per-node list a new node would have
+  to touch, the cost the row removes.
+- The byte oracles: `VarkaEmittedBytesSuite`, `VarkaCoverageSuite` and `VarkaWidthAuditSuite`
+  pass against `emitted_bytes.json`, `coverage.json` and `width_audit.json` unchanged, and the
+  coverage suite's fusion dump (`VARKA_FUSION_DUMP`) is identical before and after each pull
+  request, since the oracles pin acceptance only (`VARKA-475.md` 9.1, finding 5).
+
+## 6. The measurement
+
+No performance measurement: the row changes no emitted byte. The checks are the oracles and the
+fusion dump above, and the scoped suites (`dev/varka_scoped_suites.sh catalyst`) on CI.
+
+### 6.1 Predictions, registered before the run
+
+1. The equivalence suite finds no disagreement on any of the 56 record types; the branch found
+   none on 47. A disagreement is a mistake in a new record's `props()`, fixed there, not a reason
+   to change a pass.
+2. `VarkaNodePropsSuite` and the equivalence suite each run in under 5 s of test time: a catalyst
+   suite with no session, priced at VARKA-328's observed ratio of about 0.03 against a 5 s bound,
+   and the branch's 229417-node run was not timed, so the bound is loose on purpose.
+3. The fusion dump is byte-identical before and after each of 489a to 489c.
+4. After 489c, adding a node touches no line of `VarkaEmitBudget`, `VarkaEmitCost`,
+   `VarkaOperandPosition` or `VarkaKernelPlan.longNarrowReader`, and its word rule is one
+   `Validity` rather than arms in three places; checked by listing the files the 56 records'
+   arms leave, against section 2's counts.
+
+## 7. Risks
+
+1. A new record's `props()` answered wrongly, by hand, where the old arm was right: the
+   equivalence suite (5) is what catches it, so no switch is deleted before that suite has passed
+   over it.
+2. A branch open on master when 489b or 489c lands, adding a node, conflicts in the switches. The
+   branch's rebase recipe (its section 2's last paragraph) holds: delete the arms, move each
+   answer into the record's `props()`; 489a's description says so for open branches.
+3. The cost-kind strings must stay exactly what `VarkaEmitCostTable` is keyed by; a typo moves a
+   group to "no prediction" without failing a byte oracle. `VarkaEmitCostSuite` and the
+   equivalence suite's `kindOf` check cover it.
+
+## 8. Sequencing
+
+Three pull requests, each under the cap, the order fixed by what each deletes:
+
+- **489a** (about 900 counted lines): `VarkaNodeProps`, `props()` on all 56 records,
+  `VarkaNodePropsSuite`, and the equivalence suite against every live switch. No pass changes yet.
+  Done when `build/sbt 'catalyst/testOnly *VarkaNodeProps*'` passes. If the count is over the cap,
+  the equivalence suite moves to 489b with the first deletions.
+- **489b** (about 350): `weightOf`, `kindOf`, `admits`, `restrictedOperands`, `inputOrdinal`,
+  `longNarrowReader` and `isNarrowRing` read the descriptor; their equivalence checks run, are
+  recorded, and go. Done when the byte-oracle suites pass and the fusion dump diff is empty.
+- **489c** (about 300): `ownerOf`, `pureOf` and `planWordRef` fold `validity`, `propagate` demands
+  value operands; the equivalence suite is deleted; this file gets the recipe for adding a node
+  (the branch's section 2, renamed to master's files) and its outcome. Done when the same checks
+  pass and `dev/varka_scoped_suites.sh catalyst` is green on the PR Build.
+
+Each takes row 489's status line forward; the row is Done at 489c's merge.
+
+## Questions for the owner
+
+1. **Per-record `props()` or one switch in `VarkaNodeProps`** (3.1)? *Recommended: per record*, as
+   the branch built it: the done-when asks that a new node touch "its record and its lowering",
+   which only (b) gives. It costs about 600 lines against about 200 and makes 489a the largest
+   part. Not mine to decide: it is a code-layout choice the owner reviews in every later node.
+2. **Take the row now, though "before decimal's lane pair (359)" is overtaken?** *Recommended:
+   yes, before rows 360 to 363 add more nodes and before `m9/SCOPE.md` item 47, which depends on
+   it.* Every node added first is one more arm to move. Not mine: the order of m8's rows against
+   its type work (row priority is the owner's, the new types first).
+
+## Done when
+
+The switches of 3.2 read the descriptor, a new node touches its record and its lowering rather
+than about twenty files (6.1 prediction 4), and `emitted_bytes.json`, `coverage.json` and
+`width_audit.json` are byte-identical, with the fusion dump identical too.
+
+## 9. Outcome
+
+Not built on master yet. The 27 October build's outcome is section 4 of the plan file on
+`attic/varka-489-descriptor`.
