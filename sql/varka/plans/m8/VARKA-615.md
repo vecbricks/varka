@@ -75,7 +75,7 @@ None.
 | file | what |
 |---|---|
 | `VarkaWidthAuditShapes.scala` | the admission parameter on `coverageRows` and `predicateRow` |
-| `VarkaWidthAuditSuite.scala` | the d18 `IN` test asks under `NO_HOST_REFUSAL` and under the host's |
+| `VarkaWidthAuditSuite.scala` | the d18 `IN` test, under `NO_HOST_REFUSAL` and the host's |
 
 ## 5. Tests, and what each is for
 

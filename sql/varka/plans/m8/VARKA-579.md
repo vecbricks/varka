@@ -97,7 +97,7 @@ None: no kernel's bytes change.
 |---|---|
 | `VarkaIrGrammar.java` | `NTZ_DAY_FUZZ_SEED`, the flag, the case, `drawMixedNtzDayShape` |
 | `VarkaIrFuzzSuite.scala` | the side sequence's differential test and its reach test |
-| `sql/varka/coverage/reach/VarkaIrFuzzSuite.md` | regenerated where the reach report lists sequences |
+| `sql/varka/coverage/reach/VarkaIrFuzzSuite.md` | regenerated if it lists sequences |
 
 ## 5. Tests, and what each is for
 
