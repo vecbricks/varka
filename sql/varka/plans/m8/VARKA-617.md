@@ -111,10 +111,11 @@ truer plan, but not here.
 
 ## 6. The measurement
 
-The replays, on the laptop from downloaded artifacts, no runner involved: run 43642146943 (155
-bins, 38 slots, measured 34.4 minutes) and run 44485292430 (191 bins), "as run" and "replanned"
-with the committed file and with the run's own pairs, under A and under B. Written to
-`results/VARKA-617-replay.txt`.
+The replays, on the laptop from downloaded artifacts, no runner involved. Run 43642146943: 38
+slots, measured 34.4 minutes, 155 bin artifacts (`results/VARKA-513-ci-wall-20261115.txt`)
+against 156 bin jobs in the jobs API (`results/VARKA-570-bin-times.txt`), a difference step 1
+resolves. Run 44485292430: 191 bins. Each "as run" and "replanned", with the committed file and
+with the run's own pairs, under A and under B. Written to `results/VARKA-617-replay.txt`.
 
 ### 6.1 Predictions, registered before the run
 
@@ -143,8 +144,8 @@ with the committed file and with the run's own pairs, under A and under B. Writt
 
 Two pull requests, each under 1,000 counted lines (the pair file is generated and not counted).
 
-1. Download the two runs' bin and report artifacts. Done when every bin's `seconds` and JUnit
-   are present (155 and 191 bins).
+1. Download the two runs' bin and report artifacts. Done when every bin job the jobs API lists
+   has its artifact with its `seconds` and JUnit, or the plan names the job that has none.
 2. Pull request 1: `replay` and its selftest. Done when `dev/varka_matrix_bins.py --selftest`
    passes and prediction 1 is scored in `results/VARKA-617-replay.txt`.
 3. Pull request 1: the fresh pair files. Done when prediction 2 is scored there, the replay of

@@ -35,8 +35,10 @@ asks whether that is worth a change.
 ### 3.1 The data job runs only for a class that can read it
 
 `matrix-gen` already parses the class list. It gains an output, `tpcds`, which is `false` when
-every class given names a Varka class: the bare name or the glob's last segment starts with
-`Varka`, as in `VarkaDecimalBaselineBenchmark` or `*.VarkaDecimalBaselineBenchmark`. It is `true`
+every class given names a Varka class: after a glob's `{a,b}` is expanded into its
+alternatives, each bare name or last segment starts with `Varka`, as in
+`VarkaDecimalBaselineBenchmark`, `*.VarkaDecimalBaselineBenchmark` or
+`{VarkaA,VarkaB}Benchmark`. It is `true`
 otherwise, so `*` and every Spark class keep upstream's behaviour. The data job's condition
 becomes `inputs.generate-tpcds && !inputs.pair && needs.matrix-gen.outputs.tpcds == 'true'`
 (the job gains `needs: matrix-gen`), and the benchmark job's cache step reads the same output.

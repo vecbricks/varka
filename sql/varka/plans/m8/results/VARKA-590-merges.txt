@@ -70,6 +70,6 @@ pr   merged      state
 1465 2026-11-11  behind=9 rc=0 
 1464 2026-11-11  behind=14 rc=0 
 
-Summary: 60 heads; 13 already contained master; 47 lacked 1 to 10 of master's commits, and
+Summary: 60 heads; 13 already contained master; 47 lacked 1 to 26 of master's commits, and
 all 47 merge without a conflict. These are the heads that merged, which often had master
 merged in by hand before the last push, so earlier pushes of the same branches lacked more.

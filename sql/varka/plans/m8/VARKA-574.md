@@ -48,7 +48,9 @@ event. A `TestIgnored` is recorded as `ignored, no reason given`, and a `TestPen
 of each recorded test in `<-u dir>/TEST-<suiteClassName>.xml` to
 `<skipped message="..."/>`, with the message XML-escaped.
 
-The rewrite is textual, inside the `<testcase>` whose `name` matches. Reparsing and rewriting
+The rewrite is textual, inside the `<testcase>` whose `name` attribute equals the event's test
+name XML-escaped as the reporter escapes it (names such as "&, | and ^ match Spark ..." in
+`VarkaEmitterBitwiseSuite` hold `&`). Reparsing and rewriting
 the file would reorder its attributes and line breaks, and `dev/varka_scoped_suites.sh`'s
 `failed_tests` and `dev/varka_ci_ledger.py` read the reporter's layout as it is.
 
@@ -88,8 +90,9 @@ Varka's runs.
   message": runs a fixture suite with an `assume` and a `cancel` through `VarkaSuiteRunner.run`
   and reads both messages back from the report. It fails if the rewrite misses a test.
 * The same suite, "a message with XML's special characters survives the rewrite": `<`, `&` and
-  `"` in a cancel message. It catches an unescaped attribute that breaks the file for every
-  reader.
+  `"` in a cancel message and in the cancelled test's name. It catches an unescaped attribute
+  that breaks the file for every reader, and a name matched unescaped, which would leave the
+  skip reasonless and fail the check.
 * The same suite, "a suite's other test cases are byte-identical after the rewrite": it guards
   the layout that `failed_tests` and the ledger parse.
 * `dev/varka_skip_reasons.py --selftest`: a file with a reasonless skip fails, one with

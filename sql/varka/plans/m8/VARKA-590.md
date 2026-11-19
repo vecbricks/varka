@@ -25,15 +25,16 @@ together (#1392 and #1393, 8 November).
   detection (`dev/is-changed.py`, `dev/run-tests.py`, the "Check changes" job), the size cap
   (`dev/varka_msg_check.py size --base`), the emitted-bytes check (`git diff "$base" HEAD`), the
   scoped-test listing (`dev/varka_new_tests.py`) and the commit-message range
-  (`git merge-base HEAD refs/varka/master`) all read HEAD or these two variables.
+  (`git merge-base HEAD refs/varka/master`) all read HEAD or these two variables;
+  `dev/varka_new_tests.py`'s base, listing and `fails-on-base` overlay diff against HEAD itself.
 * **A merge would rarely conflict.** The last 60 merged pull requests' heads, each merged with
   master as it stood just before its merge (`results/VARKA-590-merges.txt`): 13 already contained
-  master, and 47 lacked 1 to 10 of its commits. All 47 merge without a conflict, with the
+  master, and 47 lacked 1 to 26 of its commits. All 47 merge without a conflict, with the
   varka-generated merge driver configured. That is an undercount for earlier pushes, since the
   heads that merged often had master merged in by hand.
-* **What the check would have rejected.** Merging in each job against master's head at that
-  moment. Master moves during a Build (the 47 heads above lacked up to 10 commits), so two jobs
-  of one run could test two different trees.
+* **What the check would have rejected.** Merging in each job against master's head at that moment.
+  Master moves while branches build (the 47 heads above lacked up to 26 commits), so two jobs of
+  one run could test two different trees.
 
 ## 3. The design
 
@@ -59,12 +60,13 @@ The run's summary says which tree was built.
 ### 3.2 The pull request's own change is measured as before
 
 In "Find the base", `VARKA_DIFF_HEAD` becomes the branch's head (`github.sha`) and
-`VARKA_DIFF_BASE` its merge base with the pinned master. These are the values they have today,
-so change detection and every reader of the two variables see the same diff. The readers that
-diff against HEAD directly are pointed at `VARKA_DIFF_HEAD`: the size cap
-(`size --head "$VARKA_DIFF_HEAD"`, with `size_findings` reading the branch name from the
-environment for any head, so a sync branch is still recognised), the emitted-bytes check, and the
-commit-message range. The `range` check already skips merge commits (`--no-merges`), so the
+`VARKA_DIFF_BASE` its merge base with the pinned master. These are the values they have today, so
+change detection and every reader of the two variables see the same diff. The readers that diff
+against HEAD directly are pointed at `VARKA_DIFF_HEAD`: the size cap (`size --head
+"$VARKA_DIFF_HEAD"`, with `size_findings` reading the branch name from the environment for any
+head, so a sync branch is still recognised), the emitted-bytes check, the commit-message range, and
+`dev/varka_new_tests.py`, which lists and reruns the branch's new tests and would otherwise count
+master's as the branch's. The `range` check already skips merge commits (`--no-merges`), so the
 synthetic merge is never checked as a commit of the branch.
 
 Alternatives considered:
@@ -94,6 +96,7 @@ is the risk in 7.2, and it is worth a row of its own if it bites. `maven_test.ym
 | `.github/workflows/build_and_test.yml` | `varka_master`, 17 call sites, 3 HEAD readers |
 | `dev/varka_precommit.sh` | `--install-merge-driver` |
 | `dev/varka_msg_check.py` | the branch name for `size --head` |
+| `dev/varka_new_tests.py` | the head from `VARKA_DIFF_HEAD` |
 | `dev/varka_ci_merge_test.sh` | the local test of 5 |
 | `.github/workflows/README.md` | what the action checks out |
 

@@ -1,6 +1,6 @@
 VARKA-570 admission check: option-matrix bin job times, 20 November 2026.
 Source: the Actions jobs API (repos/MaxGekk/spark/actions/runs/<run>/jobs, filter=all),
-every job named 'Option matrix: bNNN' with a start and an end, its minutes from
+every job named 'Option matrix: bNNN' with a start and an end, of every attempt, its minutes from
 started_at to completed_at (setup steps included). Runs whose jobs the API did not return
 are listed as such. Read on the laptop with gh; nothing was run on a runner.
 
