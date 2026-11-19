@@ -158,3 +158,24 @@ The BIGINT baseline (#1455) merged first, so this branch, after merging master o
 2026, moves its two `filter l + l2 > 0, ANSI` sections from `NULL_TESTS` to `NONE`, at both null
 densities and both widths. Row 104's #1484, still open, makes those two sections fuse whole at
 256 bits; whichever of #1484 and this change merges second takes #1484's classes for them.
+
+## 10. The runner's result (19 November 2026)
+
+The two baselines ran again on the EPYC 7763 runner at 256 bits, on master `e5d70012bdc`, which
+holds this change (run 44485236913). Their runner files are replaced by that run's
+(`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and the day-time one, each with
+its provenance). The section the row was opened for now ties the row path, as section 6.1 predicted
+for the laptop:
+
+| Section, average times | Before (#1475), varka on / row path | After, varka on / row path |
+|---|---|---|
+| `DECIMAL(15, 2) x * y < z filter`, no nulls | 526 / 404 ms, 0.77x | 408 / 387 ms, 0.95x |
+| the same, one row in ten null | 381 / 332 ms, 0.87x | 338 / 361 ms, 1.07x |
+
+The ratios are the row's, row path over varka on by average time; by best time the two sections
+are 0.98x and 1.00x.
+
+The day-time baseline's `filter extract(HOUR FROM dt) >= 12` sections tie as before (75 / 69 and
+68 / 67 ms on average), and no section of either file runs more than 10% slower than the row path. The
+128-bit companions are not in this change: their run (44485256404) drew a CPU other than the
+EPYC 7763 on all six attempts the retry allows, and a second run was dispatched.
