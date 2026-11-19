@@ -24,10 +24,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.PrintStream;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,8 +50,11 @@ import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.TestInfo;
+import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.condition.DisabledIf;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.discovery.DiscoverySelectors;
 import org.junit.platform.launcher.TestExecutionListener;
@@ -65,6 +70,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrixRuns.S
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteReport.Case;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteReport.Failed;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteReport.Passed;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteReport.Result;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteReport.Skipped;
 
 /**
@@ -338,6 +344,187 @@ public final class VarkaSuiteHarnessSuite {
   }
 
   // ---------------------------------------------------------------------------------------------
+  // Parameterized, repeated and dynamic tests, under the matrix and in a JVM of their own
+  // ---------------------------------------------------------------------------------------------
+
+  /** Set in a child JVM where this JVM's {@link #planted} cannot reach it. */
+  private static final String PLANTED_PROPERTY = "varka.harness.planted";
+
+  /**
+   * A parameterized test of three invocations, a repeated test and a dynamic one. With
+   * {@link #PLANTED_PROPERTY} set the invocation "of two" fails; every test passes when sbt runs
+   * the class alone.
+   */
+  @VarkaSuite
+  static final class TemplateFixture {
+    @ParameterizedTest(name = "of {0}", quoteTextArguments = false)
+    @ValueSource(strings = {"one", "two", "three"})
+    @DisplayName("a parameterized test")
+    void parameterized(String which) {
+      if (Boolean.getBoolean(PLANTED_PROPERTY) && which.equals("two")) {
+        Assertions.fail("a planted failure of two");
+      }
+    }
+
+    @RepeatedTest(value = 2, name = "repetition {currentRepetition}")
+    @DisplayName("a repeated test")
+    void repeated() {}
+
+    @TestFactory
+    Stream<DynamicTest> dynamic() {
+      return Stream.of(DynamicTest.dynamicTest("a dynamic test", () -> { }));
+    }
+  }
+
+  /** TemplateFixture's tests by key. */
+  private static final Set<String> TEMPLATE_KEYS = Set.of("a parameterized test of one",
+      "a parameterized test of two", "a parameterized test of three",
+      "a repeated test repetition 1", "a repeated test repetition 2", "a dynamic test");
+
+  @Test
+  @DisplayName("a skip line naming one invocation holds it alone, and the reports carry each key")
+  void invocationsUnderTheMatrix(@TempDir Path home) throws Exception {
+    // A child JVM, so that the configuration and the skip list are this test's own: the line for
+    // "of two" meets its planted failure, and the one for "of three" meets a pass.
+    String fixture = TemplateFixture.class.getSimpleName();
+    Path skips = home.resolve(VarkaMatrixRuns.SKIPS_PATH);
+    Files.createDirectories(skips.getParent());
+    Files.writeString(skips, String.join("\n",
+        "cse=false\t" + fixture + "\ta parameterized test of two\tfails\ta planted reason",
+        "cse=false\t" + fixture + "\ta parameterized test of three\tfails\ta planted reason",
+        ""));
+    Path fused = home.resolve("fused.tsv");
+    var results = VarkaChildJvm.run(TemplateFixture.class.getName(),
+        VarkaSuiteRunner.class.getName(), List.of("-oW", "-s", TemplateFixture.class.getName()),
+        "-u", OptionalLong.of(5), List.of("-D" + VarkaMatrixRuns.PROPERTY + "=cse=false",
+            "-Dspark.test.home=" + home, "-D" + VarkaMatrixRuns.REPORT_PROPERTY + "=" + fused,
+            "-D" + PLANTED_PROPERTY + "=true"));
+    Map<String, Result> byKey = results.byName();
+    assertEquals(TEMPLATE_KEYS, byKey.keySet());
+    assertTrue(byKey.get("a parameterized test of two") instanceof Skipped s
+        && s.reason().contains("a planted reason"), byKey.toString());
+    assertTrue(byKey.get("a parameterized test of three") instanceof Failed f
+        && f.message().contains("stale entry"), byKey.toString());
+    for (String passes : List.of("a parameterized test of one", "a repeated test repetition 1",
+        "a repeated test repetition 2", "a dynamic test")) {
+      assertEquals(new Passed(), byKey.get(passes), passes);
+    }
+    var reported = new HashSet<String>();
+    for (String line : Files.readAllLines(fused)) {
+      String[] f = line.split("\t");
+      assertEquals(fixture, f[0], line);
+      reported.add(f[1]);
+    }
+    assertEquals(TEMPLATE_KEYS, reported);
+  }
+
+  /** Each test passes only where its body runs in a child JVM. */
+  @VarkaSuite(ownJvm = true)
+  static final class OwnJvmTemplateFixture {
+    @ParameterizedTest(name = "of {0}", quoteTextArguments = false)
+    @ValueSource(strings = {"one", "two"})
+    @DisplayName("a parameterized test")
+    void parameterized(String which) {
+      assertTrue(VarkaChildJvm.inChild(), "the body ran in the shared JVM");
+    }
+
+    @RepeatedTest(value = 2, name = "repetition {currentRepetition}")
+    @DisplayName("a repeated test")
+    void repeated() {
+      assertTrue(VarkaChildJvm.inChild(), "the body ran in the shared JVM");
+    }
+
+    @TestFactory
+    Stream<DynamicTest> dynamic() {
+      return Stream.of(DynamicTest.dynamicTest("a dynamic test",
+          () -> assertTrue(VarkaChildJvm.inChild(), "the body ran in the shared JVM")));
+    }
+  }
+
+  @Test
+  @DisplayName("an ownJvm class's parameterized, repeated and dynamic tests are answered by key")
+  void ownJvmTemplatesAnsweredByKey() {
+    var bytes = new ByteArrayOutputStream();
+    var listener = new VarkaSuiteListener(Optional.empty(),
+        new PrintStream(bytes, true, StandardCharsets.UTF_8));
+    var results = launch(OwnJvmTemplateFixture.class, Optional.of(listener));
+    assertEquals(Set.of("OwnJvmTemplateFixture:", "- a parameterized test of one",
+        "- a parameterized test of two", "- a repeated test repetition 1",
+        "- a repeated test repetition 2", "- a dynamic test"),
+        Set.copyOf(bytes.toString(StandardCharsets.UTF_8).lines().toList()));
+    assertEquals(new VarkaSuiteListener.Counts(5, 0, 0, 0, 0, 1, 0), listener.counts());
+    for (TestExecutionResult result : results.values()) {
+      assertEquals(TestExecutionResult.Status.SUCCESSFUL, result.getStatus(),
+          () -> result.getThrowable().map(Throwable::toString).orElse(""));
+    }
+  }
+
+  @Test
+  @DisplayName("the runner's -z and -t select a template's invocations by their keys")
+  void runnerFiltersInvocations(@TempDir File dir) throws Exception {
+    PrintStream out = System.out;
+    System.setOut(new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
+    try {
+      VarkaSuiteRunner.run(new String[] {"-u", dir.toString(),
+          "-s", TemplateFixture.class.getName(), "-z", "test of t",
+          "-t", "a repeated test repetition 2"});
+    } finally {
+      System.setOut(out);
+    }
+    Set<String> ran = VarkaSuiteReport.read(dir).keySet();
+    // A dynamic test is not filtered: its factory is a container, which no filter excludes.
+    assertEquals(Set.of("a parameterized test of two", "a parameterized test of three",
+        "a repeated test repetition 2", "a dynamic test"), ran);
+  }
+
+  /** Templates whose names make keys or do not: never run, only read. */
+  abstract static class TemplateNames {
+    @ParameterizedTest
+    void byDefault(int i) {}
+
+    @ParameterizedTest(name = "[{index}] {0}")
+    void indexed(int i) {}
+
+    @ParameterizedTest(name = "{displayName} {0}")
+    void displayed(int i) {}
+
+    @ParameterizedTest(name = "a constant")
+    void constant(int i) {}
+
+    @ParameterizedTest(name = "of {0}")
+    void keyed(int i) {}
+
+    @ParameterizedTest(name = "{1,number,#} and {arguments}")
+    void formatted(int a, int b) {}
+
+    @RepeatedTest(2)
+    void totalled() {}
+
+    @RepeatedTest(value = 2, name = "repetition {currentRepetition}")
+    void counted() {}
+
+    @TestTemplate
+    void other() {}
+  }
+
+  @Test
+  @DisplayName("a template is held only when its name makes each invocation a stable key")
+  void templateNames() throws Exception {
+    var refused = new HashSet<String>();
+    for (Method m : TemplateNames.class.getDeclaredMethods()) {
+      if (VarkaSuiteExtension.templateRefusal(m).isPresent()) {
+        refused.add(m.getName());
+      }
+    }
+    assertEquals(Set.of("byDefault", "indexed", "displayed", "constant", "totalled", "other"),
+        refused);
+    String byDefault = VarkaSuiteExtension.templateRefusal(
+        TemplateNames.class.getDeclaredMethod("byDefault", int.class)).orElseThrow();
+    assertTrue(byDefault.contains("'{default_display_name}'")
+        && byDefault.contains("skip-list key"), byDefault);
+  }
+
+  // ---------------------------------------------------------------------------------------------
   // The class-level checks and the listener, end to end
   // ---------------------------------------------------------------------------------------------
 
@@ -388,7 +575,7 @@ public final class VarkaSuiteHarnessSuite {
     }
   }
 
-  /** Dynamic tests in a class whose child JVM answers by method: never run, only read. */
+  /** Dynamic tests in a class whose child JVM answers them by name: never run, only read. */
   @VarkaSuite(ownJvm = true)
   abstract static class OwnJvmDynamicTests {
     @TestFactory
@@ -418,17 +605,15 @@ public final class VarkaSuiteHarnessSuite {
   }
 
   @Test
-  @DisplayName("a template test, an ownJvm class's dynamic test, a nested class and an inherited "
-      + "annotation are refused, and a dynamic test is held")
+  @DisplayName("a template with no stable key, a nested class and an inherited annotation are "
+      + "refused, and a dynamic test is held, in an ownJvm class too")
   void shapesRefused() {
     var template = assertThrows(IllegalStateException.class,
         () -> VarkaSuiteExtension.checkShape(TemplateTests.class));
     assertTrue(template.getMessage().contains("repeated")
         && !template.getMessage().contains("dynamic"), template.getMessage());
     VarkaSuiteExtension.checkShape(DynamicTests.class);
-    var ownJvm = assertThrows(IllegalStateException.class,
-        () -> VarkaSuiteExtension.checkShape(OwnJvmDynamicTests.class));
-    assertTrue(ownJvm.getMessage().contains("ownJvm"), ownJvm.getMessage());
+    VarkaSuiteExtension.checkShape(OwnJvmDynamicTests.class);
     var nested = assertThrows(IllegalStateException.class,
         () -> VarkaSuiteExtension.checkShape(NestedTests.class));
     assertTrue(nested.getMessage().contains("@Nested"), nested.getMessage());

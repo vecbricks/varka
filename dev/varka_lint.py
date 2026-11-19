@@ -368,11 +368,13 @@ def inherited_test(test):
 
 def names_tests_at_run_time(text):
     """Whether a suite builds some test names at run time, which a literal search cannot see: a
-    ScalaTest name that is not a literal, or a JUnit dynamic test's computed display name."""
+    ScalaTest name that is not a literal, a JUnit dynamic test's computed display name, or a
+    JUnit template's invocation, named by its rendered arguments."""
     return (
         re.search(r'\btest\((?!\s*")', text) is not None
         or 'test(s"' in text
         or re.search(r'\bdynamicTest\((?!\s*")', text) is not None
+        or re.search(r"@(?:ParameterizedTest|RepeatedTest)\b", text) is not None
     )
 
 
@@ -820,6 +822,16 @@ def selftest():
             },
             "skips-tsv:has no test named",
             True,
+        )
+        case(
+            "a skip line naming a template's invocation",
+            {
+                tables: split,
+                suite: lic + 'class VarkaShapeSuite {\n@ParameterizedTest(name = "of {0}")\n}\n',
+                SKIPS: skip % "a name split across two lines of 1",
+            },
+            "skips-tsv",
+            False,
         )
         case(
             "'task 236' in a Varka file",

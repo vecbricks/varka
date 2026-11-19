@@ -36,6 +36,9 @@ import java.util.stream.Stream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import scala.Enumeration;
 import scala.Option;
@@ -102,6 +105,12 @@ public final class VarkaEmitterNarrowArithSuite {
 
   /** One evaluation mode, as a Spark arithmetic expression carries it. */
   private record Mode(String name, Enumeration.Value evalMode) {
+    /** The mode's name, which a sweep's invocation name renders. */
+    @Override
+    public String toString() {
+      return name;
+    }
+
     /**
      * The flag `abs` and the negation take. Spark has no `try_negate` and no `try_abs`, so only
      * `ANSI` checks them; `LEGACY` and `TRY` wrap.
@@ -116,7 +125,13 @@ public final class VarkaEmitterNarrowArithSuite {
       int[] lits, VarkaSparkOracle oracle) {}
 
   /** The two arms: computed at the int lane and stored narrow, and computed narrow. */
-  private record Arm(String name, VarkaEmitOptions options) {}
+  private record Arm(String name, VarkaEmitOptions options) {
+    /** The arm's name, which a sweep's invocation name renders. */
+    @Override
+    public String toString() {
+      return name;
+    }
+  }
 
   private record NullPattern(String name, IntPredicate pattern) {}
 
@@ -1312,116 +1327,35 @@ public final class VarkaEmitterNarrowArithSuite {
   }
 
   // -------------------------------------------------------------------------------------------
-  // The generated sweep tests: one method a mode, operator and arm, as ScalaTest named them
+  // The sweep tests: one a mode, operator and arm, named as ScalaTest named them
   // -------------------------------------------------------------------------------------------
 
-  @Test
-  @DisplayName("a 2^24-row SMALLINT + slice in LEGACY agrees with Spark on the widened arm")
-  public void a2Pow24RowSmallintAddSliceInLegacyOnTheWidenedArm() {
-    sliceSweep(LEGACY, "+", WIDENED_ARM);
+  /**
+   * The (operator, mode, arm) of each SMALLINT slice, every mode by every operator by both arms.
+   * A static list, cheap to build: in the shared JVM it only names the tests the child answers.
+   */
+  static Stream<Arguments> sliceCases() {
+    var cases = new ArrayList<Arguments>();
+    for (Mode mode : List.of(LEGACY, ANSI, TRY)) {
+      for (String op : List.of("+", "-", "*")) {
+        for (Arm arm : List.of(WIDENED_ARM, NATIVE_ARM)) {
+          cases.add(Arguments.of(op, mode, arm));
+        }
+      }
+    }
+    return cases.stream();
   }
 
-  @Test
-  @DisplayName("a 2^24-row SMALLINT + slice in LEGACY agrees with Spark on the native arm")
-  public void a2Pow24RowSmallintAddSliceInLegacyOnTheNativeArm() {
-    sliceSweep(LEGACY, "+", NATIVE_ARM);
+  @ParameterizedTest(name = "{0} slice in {1} agrees with Spark on {2}",
+      quoteTextArguments = false)
+  @MethodSource("sliceCases")
+  @DisplayName("a 2^24-row SMALLINT")
+  public void slice(String op, Mode mode, Arm arm) {
+    sliceSweep(mode, op, arm);
   }
 
-  @Test
-  @DisplayName("a 2^24-row SMALLINT - slice in LEGACY agrees with Spark on the widened arm")
-  public void a2Pow24RowSmallintSubtractSliceInLegacyOnTheWidenedArm() {
-    sliceSweep(LEGACY, "-", WIDENED_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT - slice in LEGACY agrees with Spark on the native arm")
-  public void a2Pow24RowSmallintSubtractSliceInLegacyOnTheNativeArm() {
-    sliceSweep(LEGACY, "-", NATIVE_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT * slice in LEGACY agrees with Spark on the widened arm")
-  public void a2Pow24RowSmallintMultiplySliceInLegacyOnTheWidenedArm() {
-    sliceSweep(LEGACY, "*", WIDENED_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT * slice in LEGACY agrees with Spark on the native arm")
-  public void a2Pow24RowSmallintMultiplySliceInLegacyOnTheNativeArm() {
-    sliceSweep(LEGACY, "*", NATIVE_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT + slice in ANSI agrees with Spark on the widened arm")
-  public void a2Pow24RowSmallintAddSliceInAnsiOnTheWidenedArm() {
-    sliceSweep(ANSI, "+", WIDENED_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT + slice in ANSI agrees with Spark on the native arm")
-  public void a2Pow24RowSmallintAddSliceInAnsiOnTheNativeArm() {
-    sliceSweep(ANSI, "+", NATIVE_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT - slice in ANSI agrees with Spark on the widened arm")
-  public void a2Pow24RowSmallintSubtractSliceInAnsiOnTheWidenedArm() {
-    sliceSweep(ANSI, "-", WIDENED_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT - slice in ANSI agrees with Spark on the native arm")
-  public void a2Pow24RowSmallintSubtractSliceInAnsiOnTheNativeArm() {
-    sliceSweep(ANSI, "-", NATIVE_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT * slice in ANSI agrees with Spark on the widened arm")
-  public void a2Pow24RowSmallintMultiplySliceInAnsiOnTheWidenedArm() {
-    sliceSweep(ANSI, "*", WIDENED_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT * slice in ANSI agrees with Spark on the native arm")
-  public void a2Pow24RowSmallintMultiplySliceInAnsiOnTheNativeArm() {
-    sliceSweep(ANSI, "*", NATIVE_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT + slice in TRY agrees with Spark on the widened arm")
-  public void a2Pow24RowSmallintAddSliceInTryOnTheWidenedArm() {
-    sliceSweep(TRY, "+", WIDENED_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT + slice in TRY agrees with Spark on the native arm")
-  public void a2Pow24RowSmallintAddSliceInTryOnTheNativeArm() {
-    sliceSweep(TRY, "+", NATIVE_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT - slice in TRY agrees with Spark on the widened arm")
-  public void a2Pow24RowSmallintSubtractSliceInTryOnTheWidenedArm() {
-    sliceSweep(TRY, "-", WIDENED_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT - slice in TRY agrees with Spark on the native arm")
-  public void a2Pow24RowSmallintSubtractSliceInTryOnTheNativeArm() {
-    sliceSweep(TRY, "-", NATIVE_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT * slice in TRY agrees with Spark on the widened arm")
-  public void a2Pow24RowSmallintMultiplySliceInTryOnTheWidenedArm() {
-    sliceSweep(TRY, "*", WIDENED_ARM);
-  }
-
-  @Test
-  @DisplayName("a 2^24-row SMALLINT * slice in TRY agrees with Spark on the native arm")
-  public void a2Pow24RowSmallintMultiplySliceInTryOnTheNativeArm() {
-    sliceSweep(TRY, "*", NATIVE_ARM);
-  }
+  // The 2^32 sweeps stay one method each: dev/varka_sweeps.py's shards select an opt-in test by
+  // the display name in the source, which a template's generated names are not.
 
   @Test
   @DisplayName("every SMALLINT pair for + in LEGACY on the widened arm "
