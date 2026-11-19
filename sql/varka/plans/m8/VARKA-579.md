@@ -56,37 +56,53 @@ With the flag on, `intValue` takes one case more (`rnd.nextInt(8)`); with it off
 
 The new case builds the day the compiler builds and a calendar node over it:
 
-* a long value `a` from `longValue(depth - 1)`;
-* the day: where `a.bound()` fits the guard's range, `NarrowLane(a)` itself; otherwise
-  `NarrowLane(...)` over the nodes `VarkaNodeCompiler.floorDivLong` builds for a floor division
-  by `MICROS_PER_DAY`: the shift by its 13 trailing zeros, then the odd part's biased
-  `ConstDivide` with `floorDivLong`'s own fixed bound `(1L << (63 - 13)) + odd`, not the
-  dividend's. That division is exact for every long, so it is drawn over any long value; the
-  long column's `LONG_COLUMN_BOUND` of `2^46` microseconds lands at about 814 days;
+* a long value `a` from `longValue(depth - 1)`, of bound `B = a.bound()`;
+* the day: where `B` fits the guard's range, `NarrowLane(a)` itself; otherwise
+  `NarrowLane(...)` over the five nodes `VarkaNodeCompiler.floorDivLong` builds for a floor
+  division by `MICROS_PER_DAY`: the shift right by its 13 trailing zeros, the sign word (a shift
+  by 63) ANDed with `1 - odd`, their `WRAP` add, and the odd part's `ConstDivide` with
+  `floorDivLong`'s own fixed bound `(1L << (63 - 13)) + odd`, not the dividend's. That division
+  is exact for every long, so it is drawn over any long value; the long column's
+  `LONG_COLUMN_BOUND` of `2^46` microseconds lands at about 814 days;
 * `GuardedRange(day, NTZ_MIN_DAYS, NARROW_MAX_DAYS)`, in the `FAIL` mode `ntzDay` uses, and
-  drawn only where the day's bound lies inside that range, so the guard never fires: a firing
-  guard declines the batch and the reference evaluator has no spelling for that, the reason
-  `Shapes`' own guard case gives;
+  drawn only where the day's interval (below) lies inside that range, so the guard never fires:
+  a firing guard declines the batch and the reference evaluator has no spelling for that, the
+  reason `Shapes`' own guard case gives;
 * over it one of `Year`, `WeekOfYear(ThursdayOf(...))` (the pair as a unit, as `Shapes` case 16
   draws it) or `LastDay`, a third each, the three the row names.
 
-Days from the long columns stay within about 814 days of the epoch, far from the guard's ends,
-where the narrowed calendar lowering is most at risk. So one draw in four takes its count from
-`a + k` (a `WRAP` add, exact here) with `k` a long literal slot that the side sequence's test
-fills with a day near either end of the guard's range, inside it by more than the column's 814
-days, times `MICROS_PER_DAY`. The test owns its literal values, drawn from a value stream of
-their own (`VARKA-352.md` 2.2 item 5), so the shape draw is unchanged by them; the day then lands
-near `NTZ_MIN_DAYS` or `NARROW_MAX_DAYS` and still inside, so the guard does not fire. Test 2
-asserts the draw reaches both ends.
+**Pinned literal slots.** `floorDivLong` reads its constants 13, 63 and `1 - 10,546,875` through
+`sink.longSlot`, and `runOneMixed` fills every long slot with `within(rnd, 2^20)`, which would
+not be the compiler's division. So the case appends its constants as pinned slots past the drawn
+long table (ordinals `longLiterals`, `longLiterals + 1`, ...), and `DrawnMixed` gains
+`pinnedLongs`, the values of those last slots, empty for the committed draw (a second
+constructor keeps `drawMixedShape`'s call). The side sequence's test fills the drawn slots as
+`runOneMixed` does and then appends `pinnedLongs`, so with the flag off it draws the same
+numbers from `rnd` as now.
 
-`floorDivLong` is package-private in `codegen`; the grammar rebuilds its three nodes rather than
+**Both ends of the range.** Days from the long columns stay within about 814 days of the epoch, far
+from the guard's ends, where the narrowed calendar lowering is most at risk. So one draw in four
+takes its count from `a + k` (a `WRAP` add, exact here: `|k|` is under `2^60`) with `k` a pinned
+slot: the shape draw picks an end, a day `kd` inside it by the span of `a`'s days
+(`B / MICROS_PER_DAY + 1`) plus up to 1,000 more, and pins `k = kd * MICROS_PER_DAY`; it is drawn
+only where that span leaves room inside the range. The day then lands near `NTZ_MIN_DAYS` or
+`NARROW_MAX_DAYS` and still inside, so the guard does not fire.
+
+**The day's interval, not `boundsOf`.** A magnitude bound cannot hold a day near `+11.4M` that
+never goes below zero, and `boundsOf` would give the `k` slot `LONG_LITERAL_BOUND`. The case
+therefore computes the day's interval itself, `[floorDiv(k - B, D), floorDiv(k + B, D)]` with
+`k = 0` where none is pinned, and both the guard test above and the calendar node's admission
+read that interval. The admission is not `fitsUnderChrono`: `CHRONO_BOUND`, 5,000,000 days, is
+the int grammar's slack for an unguarded day and is below both ends (`NTZ_MIN_DAYS` about
+-5,394,207, `NARROW_MAX_DAYS` 11,382,643), so it would refuse every end draw. The explicit guard
+holds the day inside the narrowed range, which is what the compiler relies on in `ntzDay`. The
+case keeps the other half of the check, `boundsOf(a.node()).guarded() <= CHRONO_BOUND`, for any
+guarded day producer inside `a`. The node it returns has the calendar node's own bound, as in
+`Shapes`, so a node above it reads `boundsOf` as before.
+
+`floorDivLong` is package-private in `codegen`; the grammar rebuilds its five nodes rather than
 widening its visibility, with a comment naming it, and a test (5, item 3) holds the rebuilt day
 to `floorDivLong`'s IR for the same input so the two cannot drift.
-
-`boundsOf` already has arms for `NarrowLane` and `GuardedRange`. `fitsUnderChrono` is a method
-of `Shapes`; `MixedShapes` gets the same test over the day (its bound and `boundsOf(...).guarded()`
-within `CHRONO_BOUND`) before the calendar node is placed, as every calendar case of `Shapes`
-asks it.
 
 ### 3.2 What is deliberately unchanged
 
@@ -105,26 +121,30 @@ None: no kernel's bytes change.
 
 | file | what |
 |---|---|
-| `VarkaIrGrammar.java` | `NTZ_DAY_FUZZ_SEED`, the flag, the case, `drawMixedNtzDayShape` |
+| `VarkaIrGrammar.java` | `NTZ_DAY_FUZZ_SEED`, the flag, the case, `pinnedLongs`, the draw |
 | `VarkaIrFuzzSuite.scala` | the side sequence's differential test and its reach test |
 | `sql/varka/coverage/reach/VarkaIrFuzzSuite.md` | regenerated if it lists sequences |
 
 ## 5. Tests, and what each is for
 
 1. `VarkaIrFuzzSuite`, "random NTZ-day trees of both lanes match the reference evaluator (seed
-   `NTZ_DAY_FUZZ_SEED`, n iterations)": the mixed check (`runOneMixed`'s body, parameterised by
-   the draw) over the side sequence, both widths as the suite runs them, its iterations under
-   `-Dvarka.fuzz.ntzDayIterations` (default 300, as the narrow sequences have their own). It is
-   the only test that holds the shape to the reference over random data and options.
+   `NTZ_DAY_FUZZ_SEED`, n iterations)": the mixed check (`runOneMixed`'s body, parameterised by the
+   draw, with `pinnedLongs` appended to the long literal table) over the side sequence, both widths
+   as the suite runs them, its iterations under `-Dvarka.fuzz.ntzDayIterations` (default 300, as the
+   narrow sequences have their own). It is the only test that holds the shape to the reference
+   over random data and options.
 2. "the NTZ-day draw reaches a year, a week and a last-day node over a guarded narrowing, and
    the committed mixed draw reaches none": over 2,000 side draws, each of the three calendar
-   nodes is found with a `GuardedRange` child over a `NarrowLane`, and days within 1,000 of each
-   end of the guard's range are drawn; over the reach test's 20,000 committed draws, none. The
+   nodes is found with a `GuardedRange` child over a `NarrowLane`, and shapes whose day interval
+   lies within 2,000 days of each end of the guard's range are drawn, read from the pinned `k`
+   the shape carries; over the reach test's 20,000 committed draws, none. The
    second half is the test that the flag keeps the pinned corpus still, the 481 pattern
    `VARKA-352.md` 2.2 item 3 asks for.
 3. "the NTZ-day draw's day is the compiler's": for a long column, the rebuilt divided day equals
    `ntzDay(NarrowLane(floorDivLong(c, MICROS_PER_DAY)))` as the compiler builds it for
-   `year(CAST(ntz AS DATE))`, compared as IR. Catches a drift of either.
+   `year(CAST(ntz AS DATE))`, compared as IR with each `LiteralSlot` replaced by its value (the
+   compiler's sink table on one side, `pinnedLongs` on the other), since the two number their
+   slots differently. Catches a drift of either.
 4. `VarkaEmittedBytesSuite` unchanged and passing: no pinned file moves.
 
 ## 6. The measurement
@@ -146,15 +166,15 @@ time recorded in section 11.
 
 ## 7. Risks
 
-1. The guard's range test is wrong for a day the grammar's bound misjudges, and a batch
-   declines: the mixed check asserts a zero status, so the test fails and names the draw.
+1. The day interval of 3.1 is wrong for some draw, and a batch declines on the guard: the mixed
+   check asserts a zero status, so the test fails and names the draw.
 2. The `floorDivLong` rebuild drifts from the compiler's: test 3.
 3. A `rnd` call added on the flag-off path moves the committed blocks: test 2's second half and
    `VarkaEmittedBytesSuite`; `dev/varka_bytes_moved.py origin/master` prints nothing.
 
 ## 8. Sequencing
 
-One pull request, well under the 1000-line cap (about 150 lines): the grammar and its seed, the
+One pull request, well under the 1000-line cap (about 180 lines): the grammar and its seed, the
 two suite tests, the reach report. The 10,000-iteration run is recorded in this file's section 11
 in the same pull request.
 

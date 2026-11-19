@@ -89,7 +89,14 @@ None.
 
 ## 6. The measurement
 
-None beyond the two runs of test 1, recorded in section 11 with their commands. The suite takes
+None beyond the two runs of test 1, recorded in section 11 with their commands. The flags reach
+the test JVM and the suite's forked probes through `JDK_JAVA_OPTIONS`, as `sql/varka/AGENTS.md`
+says for the width audit (a `--jvm-arg` does not reach the probe JVM):
+
+    SPARK_LOCAL_IP=127.0.0.1 JDK_JAVA_OPTIONS='-XX:UseAVX=2 -XX:MaxVectorSize=16' \
+      build/sbt 'catalyst/testOnly *VarkaWidthAuditSuite -- -z "d18 IN row"'
+
+and the defaults' run is the same command without `JDK_JAVA_OPTIONS`. The suite takes
 474 s in the matrix (`suite-times.tsv`), almost all in its five forked probes' `beforeAll`, so
 the runs use `-z` on the one test, which still pays that `beforeAll`.
 
@@ -97,8 +104,11 @@ the runs use `-z` on the one test, which still pays that `beforeAll`.
 
 1. Under `-XX:MaxVectorSize=16` with `UseAVX=2`, the host's half declines with the two-lane
    reason and the `NO_HOST_REFUSAL` half is a `Shape`; at the defaults both are `Shape`s.
-2. The test's added time is one more compile of one row, under 1 s; the `-z` run is the suite's
-   `beforeAll`, several minutes, unchanged.
+2. The test's added time is one more compile of one row, under 1 s, with no ratio above 1
+   applied: the calibration table's compile-only tests ran far under their estimates (VARKA-328
+   at 0.03, VARKA-376's census cells at 0.04, a loop of one operator compiling in well under a
+   second), and this test reuses the suite's session. The `-z` run is the suite's `beforeAll`,
+   several minutes, unchanged.
 
 ## 7. Risks
 

@@ -33,15 +33,25 @@ and step 1 is the run.
    subexpression as one conjunct and calls the subexpressions inside it before its first
    operand (SPARK-61197, `VARKA-541.md` 0 item 6 (a)). The fold has no such `AND` where the tree
    is not its own left fold, so the two can differ on which conjunct runs first.
+5. A filter directly over a scan never shows it. `InMemoryScans` plans a filter over a cached
+   relation through `PhysicalOperation`, which splits the condition into conjuncts, and
+   `SparkPlanner.pruneFilterProject` rebuilds it as `filterPredicates.reduceLeftOption(And)`
+   (`SparkPlanner.scala:100`): the `FilterExec` that `rewriteFilter` receives is already the left
+   fold, and Spark's own filter evaluates that fold too. `FileSourceStrategy` and
+   `DataSourceV2Strategy` rebuild theirs from the split conjuncts the same way. Only a filter that
+   `BasicOperators` plans, `FilterExec(condition, planLater(child))` over a child that is not a
+   scan, keeps the optimizer's tree.
 
-The row's sketch stands as the reproducer. Of its shape, row 541's fixture `varka_cse_and_nn`
-(`VarkaDifferentialSuite`, non-nullable `i`, `s`, `m`, `d`, `d0`, `d1`, `d2`; rows `i = 1, m = 13`
-and `i = 2, m = 1`) already has every column but the leading `j`; with `i > 0` in `j > 0`'s place,
-`SELECT i FROM varka_cse_and_nn WHERE i > 0 AND (i > 1 AND make_date(2021, m, 1) < d) AND
-IF(i > 1 AND make_date(2021, m, 1) < d, d0, d1) < make_date(2021, m, 1)` should raise
-`DATETIME_FIELD_OUT_OF_BOUNDS` in Spark with codegen off and elimination on, and answer `[2]` in
-Varka's fallback. Step 1 confirms it before any change; if the optimizer folds the tree into its
-left fold, the test takes another shape whose optimized tree is not its fold, as the row says.
+The row's sketch is the reproducer once it sits over such a child. Row 541's fixture
+`varka_cse_and_nn` (`VarkaDifferentialSuite`, non-nullable `i`, `s`, `m`, `d`, `d0`, `d1`, `d2`;
+rows `i = 1, m = 13` and `i = 2, m = 1`) has every column but the leading `j`; with `i > 0` in
+`j > 0`'s place and a `LIMIT` that keeps the filter off the scan (no rule pushes a filter
+through a limit), `SELECT i FROM (SELECT * FROM varka_cse_and_nn LIMIT 10) WHERE i > 0 AND
+(i > 1 AND make_date(2021, m, 1) < d) AND IF(i > 1 AND make_date(2021, m, 1) < d, d0, d1) <
+make_date(2021, m, 1)` should raise `DATETIME_FIELD_OUT_OF_BOUNDS` in Spark with codegen off
+and elimination on, and answer `[2]` in Varka's fallback. Step 1 confirms it before any change;
+if the physical `FilterExec`'s condition is its own left fold, the test takes another non-scan
+child (an aggregate or a join) whose filter is not its fold, as the row says.
 
 What the check would have rejected: a 541 change that already passed the tree, or a fallback
 that already rebuilt it. Neither is on master.
@@ -51,7 +61,7 @@ that already rebuilt it. Neither is on master.
 ### 3.1 Carry the tree where it is not the fold
 
 `rewriteFilter` passes `wholeCondition = Some(condition)` whenever there is a residual (as now)
-**or** the optimized condition is not semantically its fused conjuncts' left fold. The node's
+**or** the condition it receives is not semantically its fused conjuncts' left fold. The node's
 `condition` stays the fold, which the tasks compile into the kernel (the compiler flattens either
 form to the same conjuncts, so the kernel is unchanged). The fallback then evaluates Spark's own
 tree through the same `VarkaFallbackPredicate` and the same elimination gate, which is item 7's
@@ -106,9 +116,10 @@ None.
 
 1. `VarkaDifferentialSuite`, "with codegen off, a filter with no residual conjunct falls back on
    Spark's condition tree, not its conjuncts' fold": over `varka_cse_and_nn`, the query of
-   section 2. It first asserts the plan's shape: one Varka filter, no `FilterExec`, and an
-   optimized condition that is not its fused conjuncts' left fold (else it fails, naming the
-   optimized tree, so a silent optimizer change cannot pass it vacuously). Then, with
+   section 2. It first asserts the plan's shape: one Varka filter, no `FilterExec`, and a
+   condition of Spark's physical `FilterExec` (the one `rewriteFilter` receives, read from the
+   plan with Varka off) that is not its fused conjuncts' left fold (else it fails, naming that
+   tree, so a silent planner or optimizer change cannot pass it vacuously). Then, with
    `spark.sql.codegen.wholeStage` off, under `subexpressionElimination.enabled` true and false,
    Varka raises or answers exactly as Spark does: by the row's reading, both raise with
    elimination on and both answer `[2]` with it off. The batch holding `m = 13` is declined by
@@ -130,22 +141,32 @@ conjuncts in a different tree. Step 4 lists the plan strings that move.
 
 1. Before the change, test 1's elimination-on, codegen-off cell shows Spark raising and Varka
    answering `[2]`; the other cells agree. If it does not, the row closes as not reproducing,
-   with the plan's optimized tree recorded.
+   with the physical `FilterExec`'s condition recorded.
 2. After it, all cells agree.
 3. Test time: a new test in an existing sql/core suite over an already-cached fixture, about
-   4 cells times 2 settings of short queries; under 3 s, at VARKA-541's four tests' 3.3 s.
-4. Plan strings move only where `InferFiltersFromConstraints` or a written parenthesis leaves a
-   non-fold tree; no golden-corpus verdict and no EXPLAIN fusion line moves, since both read the
-   conjuncts, which the tree and the fold share.
+   4 cells times 2 settings of short queries; under 4 s. The calibration table's tests of this
+   shape ran under their estimates (VARKA-318's sql/core tests at 0.37, VARKA-317's at 0.03, both
+   short queries over one cached view), so no ratio above 1 is applied; the bound is VARKA-541's
+   four tests' measured 3.3 s, a test of about the same size, rounded up.
+4. Plan strings move only for a filter not over a scan (section 2 item 5) where
+   `InferFiltersFromConstraints` or a written parenthesis leaves a non-fold tree; no golden-corpus
+   verdict and no EXPLAIN fusion line moves, since both read the conjuncts, which the tree and the
+   fold share.
 
 ## 7. Risks
 
 1. `semanticEquals` against the fold misjudges a tree as its fold, or the reverse: the reverse
    is harmless (the fallback reads an equal tree), and the first leaves today's behaviour; test 1
    asserts the tree is not the fold.
-2. A plan reader keys on `wholeCondition.isDefined` meaning "split": the only readers are the
-   ones in section 2 (`git grep wholeCondition`); `VarkaFusionReport.predicateLines` renders the
-   whole condition and flattens its conjuncts, so EXPLAIN's fusion lines are unchanged.
+2. A plan reader keys on `wholeCondition.isDefined` meaning "split", or reads the tree
+   differently from the fold. The readers (`git grep wholeCondition` under `src/main`):
+   `fallbackCondition` (section 2); `compiledBySpark`'s `CodegenFallback` scan, which visits the
+   same non-`AND` nodes in either form; `fallbackEliminatesSubexpressions`, whose
+   `FilterExec(...).eliminatesSubexpressions` splits either into the same conjuncts;
+   `VarkaFusionReport.predicateLines`, which flattens the conjuncts, so EXPLAIN's fusion lines
+   are unchanged; the two copies in `VarkaColumnarRule` (lines 108 and 113) and the two
+   evaluator factories, which carry the field or `fallbackCondition` unread. None tests
+   `isDefined`, so a non-fold tree changes only the fallback's evaluation order.
 3. Row 386 lands first and reshapes `rewriteFilter`: rebase; the test is independent of the
    order rule.
 
@@ -171,8 +192,9 @@ a dated note either way, as the row asks.
 ## 10. Done when
 
 The fallback of a filter with no residual conjunct evaluates the filter's own condition tree;
-test 1 checks first that the plan holds a Varka filter, no residual `FilterExec` and an optimized
-condition that is not its own left fold, and then with whole-stage codegen off, under
+test 1 checks first that the plan holds a Varka filter, no residual `FilterExec` and a filter
+over a non-scan child whose physical condition is not its own left fold, and then with
+whole-stage codegen off, under
 `spark.sql.subexpressionElimination.enabled` true and false, Varka raises or answers exactly as
 Spark does on that batch; `VARKA-541.md` 0 item 7 gets a dated note.
 
