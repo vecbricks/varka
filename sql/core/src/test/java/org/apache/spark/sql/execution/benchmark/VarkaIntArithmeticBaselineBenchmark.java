@@ -56,8 +56,9 @@ import org.apache.spark.sql.internal.SQLConf;
  * fuses more of a section sets its new class, so that its fusion cannot turn a baseline section
  * into a fused one unnoticed.
  *
- * <p>The remainder by a literal, {@code i % k}, the row's other half, is timed in row 30's
- * division baseline, which owns {@code %} ({@code VARKA-95.md} 4).
+ * <p>The remainder by a literal, {@code i % k}, the row's other half, is not timed here: its
+ * sections belong in row 30's integral division baseline, which owns {@code %}
+ * ({@code VARKA-95.md} 4 and 10).
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>

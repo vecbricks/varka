@@ -477,7 +477,11 @@ LEGACY control `i * j`, `WHOLE`, the filter `i * j > 0` included (VARKA-598 leav
 whole). The `%` half of the baseline, the five sections of the build sheet's 1.3 in row 30's
 `VarkaIntegralDivisionBaselineBenchmark`, is not built: that class is row 30's baseline, which has
 not merged (premise 1 of the build sheet is 0, its stop rule 7.1). The EPYC 7763 results at 256 and
-128 bits are owed by the owner's dispatch.
+128 bits are owed by the owner's dispatch, of this class only: build sheet 9's dispatch of the
+division class waits for that class. The build sheet's dry run (4.3) was not made; the queries
+suite plans each section under both settings of the two-lane refusal at the laptop's width, and
+every section is on the int lane, whose classes no width moves. The planted faults of build sheet
+3 were not run.
 
 ## Decisions taken while the owner was away (20 November 2026)
 
@@ -486,7 +490,9 @@ not merged (premise 1 of the build sheet is 0, its stop rule 7.1). The EPYC 7763
    brief keeps this row off row 30's work, so the multiply half, which needs nothing of row 30's,
    is built on its own branch and the five `%` sections wait for row 30's class; the plan's own
    fallback (section 4, "creates that class under 30's name with the `%` shapes only") is not
-   taken, since it would start row 30's file.
+   taken, since it would start row 30's file. This works around the build sheet's stop rule, so
+   the owner approves the split before the branch merges, or holds it until row 30's class lands.
+   (The heading's date is the window's; the work was done from the evening of 19 November.)
 
 ## Build sheet (11 November 2026)
 
