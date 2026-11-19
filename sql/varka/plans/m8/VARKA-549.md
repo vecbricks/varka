@@ -67,18 +67,27 @@ node count, the batches, the fallbacks and the query, as now.
   site, every baseline covered by the call it already makes, a new baseline covered without
   writing anything.
 
-The plan takes (b), keyed on the listed class and the measured one both: the check runs when a
-section is listed `WHOLE` and measures `WHOLE`. A run with the fuse check lifted
-(`FUSE_CHECK_PROPERTY=false`, the run that measures a row) then does not fail a listed `WHOLE`
-section that no longer fuses, nor check a section that newly fuses before its row lists it.
+The plan takes (b), keyed on the measured class: the kernel check runs for every section that
+plans `WHOLE`, and the listed class is the fuse check's alone. With the fuse check on, the two
+agree or the run has already failed. With it lifted (`FUSE_CHECK_PROPERTY=false`, the run that
+measures a row's speedups, and so the run where a fallback would most mislead), the kernel check
+still runs on every section that plans `WHOLE`, a newly fusing one included, but a section that
+falls back is noted in the results file with its node, batch and fallback counts ("the varka on
+arm times the row path on N of M batches") rather than failing the run, so the measuring run
+completes and its reader sees which arms timed what.
 
 **Sections that time a fallback on purpose are exempt.** The rounding baseline's `floor` and
 `ceil` sections over `xw` and `xwf` exist "so that the arm's fallback is measured" before 344b
 picks its default (`VarkaRoundingBaselineBenchmark` class doc): once 344b lists them `WHOLE`, their
-batches decline by design. `Section` gains no field; instead `requireBaseline` gets an overload
-taking `boolean timesFallback`, which those sections pass as `true` and which skips the kernel
-check and notes in the results file that the arm times the fallback. Every other call keeps the
-four-argument form and is checked.
+batches decline by design. The fact is per section, so the rounding baseline's `Section` gains a
+component, `boolean timesFallback`, true for the sections its four `floor` and `ceil` forms over
+`xw` and `xwf` build (`:287` to `:294`); its check loop, which today
+passes one `expected` for every section, passes `s.timesFallback()` to an overload
+`requireBaseline(varka, title, query, expected, timesFallback)`, which skips the kernel check and
+notes in the results file that the arm times the fallback. Every other baseline keeps the
+four-argument form and is checked. `requireSection` (below) takes the same flag, default false,
+and the rounding suite passes `s.timesFallback()`, so the suite exempts exactly the sections the
+benchmark does.
 
 The day-time
 benchmark's own `requireKernel` and its call go; the three benchmarks that call `varkaFused` for
@@ -87,12 +96,17 @@ this purpose (BIGINT arithmetic, both TIMESTAMP_NTZ ones) drop those calls and
 for the size ladders, which read its count.
 
 **The queries suites.** They plan each section themselves and assert
-`VarkaSqlBenchmarkBase.fusion(plan)`; each gains, under its `withSettings`, a call of
-`requireKernel` for a `WHOLE` section, replacing the day-time and BIGINT suites' calls. That is
-all twelve suites; the math one lists no `WHOLE` section today and gets the call so that a future
-one is checked there. A shared Scala helper,
-`VarkaBaselineChecks.requireSection(varka, title, query, expected)`, doing the class assertion and
-the kernel check, keeps the call one line per suite.
+`VarkaSqlBenchmarkBase.fusion(plan)`; each gains, where that assertion is, a call of
+`requireKernel` for a `WHOLE` section, replacing the day-time and BIGINT suites' calls. Six
+suites wrap the assertion in a `withSettings` (BIGINT arithmetic, day-time interval, floating
+arithmetic, floating cast, integral cast, rounding) and the call goes inside it. The other six
+have none: decimal, floating, math, TIMESTAMP_NTZ and TIMESTAMP_NTZ arithmetic assert in their
+"fuses as its class lists it" test, and TIMESTAMP_NTZ fields in "fuses only when it is listed",
+each under the session settings that test already sets, and the call replaces the bare
+assertion there. That is all twelve suites; the math one lists no `WHOLE` section today and gets
+the call so that a future one is checked there. A shared Scala helper,
+`VarkaBaselineChecks.requireSection(varka, title, query, expected, timesFallback = false)`,
+doing the class assertion and the kernel check, keeps the call one line per suite.
 
 ### 3.2 What is deliberately unchanged
 
@@ -111,6 +125,7 @@ the kernel check, keeps the call one line per suite.
 | `VarkaBigintArithmeticBaselineBenchmark.java` | `varkaFused` call, `checksKernels` removed |
 | `VarkaTimestampNtzArithmeticBaselineBenchmark.java` | the `varkaFused` call removed |
 | `VarkaTimestampNtzFieldsBaselineBenchmark.java` | the `varkaFused` call removed |
+| `VarkaRoundingBaselineBenchmark.java` | `Section.timesFallback`, the five-argument call |
 | `VarkaBaselineChecks.scala` (new) | `requireSection` for the queries suites |
 | the twelve `Varka*BaselineQueriesSuite.scala` | `requireSection`; the planted test (decimal) |
 

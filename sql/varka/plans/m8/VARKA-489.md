@@ -29,17 +29,19 @@ Read on `origin/master` at `e5d70012bdc`, 20 November 2026.
   its title.
 - **The switches the row names still exist and have grown.** The node types went from 47 to 56
   records: `BoolOutput`, `ConvertLane`, `CrossLane`, `DecimalColumn`, `DecimalWord`, `MathUnary`,
-  `NullValue`, `RoundToIntegral` and `WidenDecimal` are new. A count of the record names among a
-  switch's `case` arms in the main tree gives `weightOf` 42 arms over 41 records
-  (`VarkaEmitBudget.java:616`), `kindOf` 25 (`VarkaEmitCost.java:114`), `admits` 8 and
-  `restrictedOperands` 6 (`VarkaOperandPosition.java:79`, `:134`), `inputOrdinal` 5
-  (`VarkaVectorIR.java:227`), `isNarrowRing` 4 (`Analysis.java:1076`), `ownerOf` 37 and
-  `pureOf` 45 (`Analysis.java:1422`, `:1483`), `planWordRef` 36 and `propagate` 56
-  (`Slots.java:1173`, `:1757`). Each of the nine new records added an arm to most of them, which
-  is the cost the row removes.
-- **Two new switches since 27 October.** `VarkaKernelPlan.longNarrowReader` (`:833`, row 343's
-  long-lane narrowing) answers one fixed value per node type from no field at all, class (a) in
-  the branch's inventory; `longNarrowRole` (`:775`) reads the child's lane, class (c).
+  `NullValue`, `RoundToIntegral` and `WidenDecimal` are new. Each switch is exhaustive, so it
+  names all 56 records; what differs is how many outer `case` arms it spreads them over (one arm
+  may list many records), counted in the main tree: `weightOf` 42 (`VarkaEmitBudget.java:616`;
+  45 with `TruncDate`'s nested level switch), `kindOf` 25 (`VarkaEmitCost.java:114`), `admits` 8
+  (`VarkaOperandPosition.java:79`; 12 with the two nested position switches) and
+  `restrictedOperands` 6 (`:134`), `inputOrdinal` 5 (`VarkaVectorIR.java:227`), `isNarrowRing` 4
+  (`Analysis.java:1076`), `ownerOf` 37 and `pureOf` 45 (`Analysis.java:1422`, `:1483`),
+  `planWordRef` 36 and `propagate` 56 (`Slots.java:1173`, `:1757`). Each of the nine new records
+  added a record name, and often an arm, to every one of them, which is the cost the row removes.
+- **Three new per-node switches since 27 October.** `VarkaKernelPlan.longNarrowReader` (`:833`,
+  11 arms, row 343's long-lane narrowing) answers one fixed value per node type from no field at
+  all, class (a) in the branch's inventory; `longNarrowRole` (`:775`) reads the child's lane,
+  class (c).
   `VarkaSameAnswer`'s NaN step (`:261`, row 593) is per-node behaviour over the children, class
   (b). Only `longNarrowReader` joins the descriptor (3.1).
 - **The branch does not apply.** `git merge-tree` of the branch onto master conflicts in all six
@@ -64,9 +66,17 @@ the IR with the components `Ring ring` (sealed: `Never`, `Pick`, `Arith(Overflow
 `List<VarkaOperandPosition.Restricted> restricted`, and, new, `LongNarrowReader longNarrow`. The
 row's five named properties map onto it as the branch's section 0 says: ring under narrow
 reduction is `ring`, pure and skips a null input are both `validity`, budget weight is `weight`,
-cost kind is `costKind`. Each answer reads only the node's own fields and lane; what depends on
-the options stays the pass's (`isNarrowRing` asks `loweredUnchecked` of an `Arith`'s mode), and
-what depends on the operands is folded by the pass over `childrenOf`.
+cost kind is `costKind`. Each answer reads the node's own fields and lane and the structure of
+its operands (their record type, lane, a guard's mode and bounds), never the options or an
+analysis. Master's (a) switches need that much: `admits` lets `WidenLane` sit at `DAY_OFFSET`
+only over a narrow `ColumnRef` (#1389) and `NarrowLane` at `MONTH_COUNT` only over a `FAIL`
+`GuardedRange` within the month bounds (#1442), and `weightOf` prices a `Compare` by its left
+operand's lane, a `ConvertLane` by its child's and a `RoundToIntegral` by
+`VarkaRoundingLowering.mayHoldOtherNaN`, which looks one level further down. Those tests move
+into the record's `props()` as they stand, so a `WidenLane`'s `fills` is `{DAY_OFFSET}` or empty
+by its child. What depends on the options stays the pass's (`isNarrowRing` asks
+`loweredUnchecked` of an `Arith`'s mode), and what depends on the operands' own analysis (their
+words, their owners) is folded by the pass over `childrenOf`.
 
 `VarkaVectorIR` declares `VarkaNodeProps props()` with no default, and every record implements it
 beside its constructor checks, so a record without it does not compile. `props()` is a method,
@@ -85,7 +95,8 @@ refactor whose output is identical bytes either way, so there is nothing to meas
 
 From the branch's inventory, updated to master: the five (a) switches (`weightOf`, `kindOf`,
 `admits`, `restrictedOperands`, `inputOrdinal`) and the new `longNarrowReader` read one component
-each and lose every arm; `isNarrowRing` reads `ring`; the three hand-kept copies of the word rule
+each and lose every arm, the operand tests of 3.1 included, which move into `props()`;
+`isNarrowRing` reads `ring`; the three hand-kept copies of the word rule
 (`Analysis.ownerOf`, `Analysis.pureOf`, `Slots.planWordRef`) fold the one `validity` over the
 operands; `Slots.propagate`, reached only by an own-word node, demands its value operands' words.
 The branch's outcome records one trap to keep: `Validity.Input` must not refuse a negative ordinal,
@@ -148,9 +159,12 @@ fusion dump above, and the scoped suites (`dev/varka_scoped_suites.sh catalyst`)
 1. The equivalence suite finds no disagreement on any of the 56 record types; the branch found
    none on 47. A disagreement is a mistake in a new record's `props()`, fixed there, not a reason
    to change a pass.
-2. `VarkaNodePropsSuite` and the equivalence suite each run in under 5 s of test time: a catalyst
-   suite with no session, priced at VARKA-328's observed ratio of about 0.03 against a 5 s bound,
-   and the branch's 229417-node run was not timed, so the bound is loose on purpose.
+2. `VarkaNodePropsSuite` runs in under 5 s of test time: a catalyst suite with no session over
+   500 drawn shapes, priced at VARKA-328's observed ratio of about 0.03 for such a suite. The
+   equivalence suite runs in under 60 s: about 20 s estimated, read at VARKA-488's observed ratio
+   of 2.9, the closer precedent, since its word-rule checks build each of the 4000 shapes'
+   `Analysis` and `Slots`, the compile-side work 488's estimate priced as IR walks. The branch's
+   229417-node run was not timed.
 3. The fusion dump is byte-identical before and after each of 489a to 489c.
 4. After 489c, adding a node touches no line of `VarkaEmitBudget`, `VarkaEmitCost`,
    `VarkaOperandPosition` or `VarkaKernelPlan.longNarrowReader`, and its word rule is one
@@ -174,7 +188,12 @@ fusion dump above, and the scoped suites (`dev/varka_scoped_suites.sh catalyst`)
 Three pull requests, each under the cap, the order fixed by what each deletes:
 
 - **489a** (about 900 counted lines): `VarkaNodeProps`, `props()` on all 56 records,
-  `VarkaNodePropsSuite`, and the equivalence suite against every live switch. No pass changes yet.
+  `VarkaNodePropsSuite`, and the equivalence suite against every live switch. No pass changes yet,
+  but five of the switches are private (`Analysis.isNarrowRing`, `ownerOf` and `pureOf`, instance
+  methods; `Slots.planWordRef` and `VarkaKernelPlan.longNarrowReader`, static; `propagate`, in
+  `Slots`' inner demand walk), so 489a makes them package-private with a comment naming the
+  suite, and the suite builds an `Analysis` and `Slots` per shape to call the instance ones; the
+  widening goes with each switch in 489b or 489c.
   Done when `build/sbt 'catalyst/testOnly *VarkaNodeProps*'` passes. If the count is over the cap,
   the equivalence suite moves to 489b with the first deletions.
 - **489b** (about 350): `weightOf`, `kindOf`, `admits`, `restrictedOperands`, `inputOrdinal`,

@@ -55,7 +55,11 @@ passed by the caller with everything it ran under, so the rerun checks the same 
   them) under the run's `errorRerun` arm;
 - for the warmed arm, the warmed check itself (`warmedDisagreement` under `withVarkaWarmup` and
   `withWarmupDeadline`), since its kinds appear only after the handover to the kernel and a
-  rerun with the warm-up off would not show them;
+  rerun with the warm-up off would not show them. The fuzz loop starts each composition cold
+  (`VarkaShapeCache.invalidateAll()` before the call, `VarkaSparkFuzzSuite.scala:289`), so the
+  warmed `recheck` first awaits the warm-up idle (`VarkaKernelWarmup.awaitIdle`) and then calls
+  `invalidateAll()` itself, or rerun A would meet the kernel already compiled and skip the
+  handover it is meant to repeat;
 - for the replay suite, `verdict`'s own `disagreement` call under the file's options and arm.
 
 The two reruns:
@@ -68,10 +72,14 @@ The two reruns:
   the list does not allow on the row side) says nothing about Varka: for those kinds A is not
   read, and the label comes from B alone (`spark-codegen` if B differs, `unrepeated` if not).
 - **B**, Spark's two paths against each other, over the same views the failing check used:
-  `checkOnce` records the queries it sends to `spark` (main query, the pivot's `alone`, the
-  partition queries) and the view each ran over (whole, `coalesce(1)`, a row alone); B caches
-  each view itself with `cacheFixture` and `uncacheFixture`, as `disagreement` does, and compares
-  each recorded query's outcome under the defaults and under codegen off. B differs if any does.
+  every place that sends a query to `spark` records it with the view it ran over (whole,
+  `coalesce(1)`, a row alone). On the random arm and the replay that is `checkOnce` (main query,
+  the pivot's `alone`, the partition queries); on the warmed arm it is `warmedDisagreement`'s
+  `cacheAndAsk`, over `c.fixture` and over the `later` fixture, both its first ask and its
+  `coalesce(1)` re-ask, and its `pivotAlone`. The records go to one recorder the caller passes,
+  so both arms feed B the same way. B caches each view itself with `cacheFixture` and
+  `uncacheFixture`, as `disagreement` does, and compares each recorded query's outcome under the
+  defaults and under codegen off. B differs if any does.
 
 | A (Varka = interpreted) | B (codegen = interpreted) | label |
 |---|---|---|
@@ -110,7 +118,7 @@ The rerun costs nothing on a passing run: it runs only for a case already failin
 
 | file | what |
 |---|---|
-| `VarkaSparkDifferential.scala` | `labelOf`, the `Label` values |
+| `VarkaSparkDifferential.scala` | `labelOf`, `Label`, the recorder both arms feed |
 | `VarkaSharedSessions.scala`, `VarkaCodegenGiveUpSuite.scala` | `withSessionConf` hoisted |
 | `VarkaSparkFuzz.scala` | `Reproducer.label`, `render`, `parse` |
 | `VarkaSparkFuzzSuite.scala` | the label in `failureText` and the warmed arm; the tests |
@@ -142,7 +150,8 @@ None of performance: the rerun runs only on a failing case. The new tests' time 
 ### 6.1 Predictions, registered before the run
 
 1. The 386 reproducer, with `spark.sql.legacy.filterShortCircuitOnNullConjunct=true` on `spark`
-   only, disagrees again (Spark returns the row, Varka raises) and is labelled `spark-codegen`. If
+   only, disagrees again (Spark's codegen drops the row at the NULL conjunct without raising,
+   Varka raises as the interpreter does) and is labelled `spark-codegen`. If
    the flag also moves the interpreted filter, the test is rebuilt on a hand-written case of 386's
    shape and this prediction is scored wrong.
 2. The planted fault's case is labelled `varka`, with B agreeing.
