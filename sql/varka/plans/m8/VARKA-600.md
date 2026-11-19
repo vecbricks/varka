@@ -42,9 +42,11 @@ whether the vector form still loses to the scalar loop on current code.
    `VarkaFloatingCastBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and its `-128bit`
    twin are from 31 October 2026 (commit `3d448173651`), before 343b1 fused the cast. Both arms
    ran the row path there. The class now lists `BIGINT CAST(l AS FLOAT)` as `WHOLE` where the
-   long casts fuse. The row path there costs about 40 ns a row, against about 1 ns for any
-   kernel form here. So the decline the done-when allows is not expected to trigger, but no
-   committed file shows it yet.
+   long casts fuse. That query costs about 40 ns a row on either arm, most of it the scan and
+   the row output, while the cast itself is about 1 ns a row in any kernel form here. So the
+   fused query should be about as fast as the row path or a little faster (prediction 6), and
+   the decline the done-when allows is not expected to trigger. But no committed file shows it
+   yet.
 
 ## 3. The design
 
@@ -74,8 +76,9 @@ saves the magnitude, but it still needs `sel` and the blend. By hand it comes to
 24 calls, so it is not built. (b) A per-batch pass over the stored column, like
 `Analysis.guardsStoredValues` (VARKA-379). It covers only a bare column input. The calibration
 table records a separate pass costing 9 to 17% of a cheap kernel (VARKA-379 6.1 #2). Rejected.
-(c) Declining the cast below level 3 everywhere. The row path is about 40 times slower per row
-than any kernel form (2 item 5). Kept only as the done-when's last resort, per width, if a
+(c) Declining the cast below level 3 everywhere. It gives up the cast's share of the query, a
+few percent end to end at best (2 item 5), and gains nothing where a kernel form beats the
+scalar loop. Kept only as the done-when's last resort, per width, if a
 baseline shows the fused cast losing.
 
 **The default.** The owner's done-when is per width, and the measured winners may differ: two
@@ -149,7 +152,8 @@ scalar-loop arms and the XOR split, which no change touches.
    lane moves.
 4. Past the window, `WINDOWED` is no slower than `ROUND_TO_ODD` by more than 10%: one taken
    branch a group.
-5. Past L3 every arm is within 15% of the scalar loop, all bound by memory.
+5. Past L3 the two new forms are within 15% of the scalar loop, all bound by memory. The
+   round-to-odd control keeps its known gap there (78% at 256 bits, 44% at 128).
 6. At SQL level the fused cast is no slower than the row path at both widths, about 1.1x end to
    end, since the kernel's nanosecond a row is small beside the query's forty. So no decline is
    built.
@@ -209,7 +213,8 @@ Not built.
    the answer is no, the single default is the fastest form at 128 bits that also meets the bar
    at 256.
 2. **The in-kernel slow branch rather than a batch decline past the window.** Recommended: the
-   branch. A declined batch costs the row path's 40 ns a row, against about 1 ns for the round
-   to odd. I cannot decide it because it changes `MAGIC`'s precedent of declining batches; the
-   plan builds the branch.
+   branch. A declined batch reruns on the row path, so its cost is the whole query's for that
+   batch, while the slow branch costs only the round to odd's extra nanosecond a row over the
+   fast one; end to end the difference is a few percent of that batch. I cannot decide it because it
+   changes `MAGIC`'s precedent of declining batches; the plan builds the branch.
 

@@ -42,7 +42,8 @@ suggests the answer depends on the share kept.
 * **`VarkaSplitFilterBaselineBenchmark`**, a new class beside the other baselines, over its own
   Arrow-cached table of 2,000,000 rows: `u`, an `INT` uniform on `[0, 1000)`
   (`pmod(hash(id, 1), 1000)`); `lu`, the same as a `BIGINT`; and `i`, `l` and `l2`, payload
-  columns. `_n` twins have one row in ten null. The residual conjunct is `hash(i) % 7 <> 0`.
+  columns. `_n` twins of `u` and `lu` have one row in ten null; `i` is never null, so the
+  residual keeps the same rows at both densities. The residual conjunct is `hash(i) % 7 <> 0`.
   `Murmur3Hash` is in no milestone 8 row, so it stays on the row path, and it keeps six rows in
   seven.
 * **Sections**, each at both densities:
@@ -70,15 +71,19 @@ override this (question 10.2).
 The rule cannot read the share a conjunct keeps. Plan time has no statistics for an Arrow-cached
 view. So the rule is syntactic, like 598's, and the measurement picks one of three:
 
-* **(a) No rule.** Every split keeps fusing, if both shares win or tie at both widths.
-* **(b) Decline every value split beside a residual.** Use this if the 90% share loses by more
-  than the 10% share wins (by the minimums of two runs). The demotion goes in
+* **(a) No rule.** Every split keeps fusing. Taken when no section loses: every share reads
+  at least 1.0X at both widths, by the minimums of two runs.
+* **(b) Decline every value split beside a residual.** Taken when the splits lose at both shares
+  at a width where (c) does not separate them. The demotion goes in
   `VarkaExpressionCompiler.predicate` beside `nullTestsAlone`, with its own reason in `EXPLAIN`.
-* **(c) Decline by width.** Use this if the split wins at 256 bits and loses at 128 (or the
-  reverse). The session setting carries it, as row 503's `declineTwoLaneConditions` does.
+* **(c) Decline by width.** Taken when the splits lose at one width only, at both shares. The
+  session setting carries it, as row 503's `declineTwoLaneConditions` does.
 
-If the shares disagree (10% wins, 90% loses), that is a decision for the owner
-(question 10.1). The plan builds (a) and records the loss, with a run-time choice as the cure
+The remaining outcome is mixed: the 10% split wins and the 90% one loses. No syntactic rule
+then declines every losing shape without declining a winning one, so the row's done-when ("each
+shape that loses declines whole") cannot be met by plan-time syntax. That outcome goes to the
+owner (question 10.1). Until he answers, the plan builds nothing for it, and the row stays open
+with the loss recorded here, not closed under (a). A run-time choice is the cure
 (`m9/SCOPE.md` item 119, the same idea for null tests).
 
 ### 3.3 What is deliberately unchanged
@@ -166,8 +171,9 @@ Not built.
 ## 10. Questions for the owner
 
 1. **The shares disagree.** If the 10% split wins and the 90% one loses, recommended: keep the
-   split (rule (a)) when the 90% loss is under 10% and the 10% win is over 1.3x; otherwise
-   decline (rule (b)). I cannot decide it: it trades a measured loss on dense data against a
+   split when the 90% loss is under 10% and the 10% win is over 1.3x, which needs the done-when
+   amended to accept that loss; otherwise decline every value split (rule (b)). I cannot decide
+   it: it trades a measured loss on dense data against a
    measured win on selective data, and the house rule "no fused shape slower than the row path"
    would decline. But that would give up wins whose size only the run will show.
 2. **A baseline rather than a probe.** Recommended: the baseline (3.1). The owner's rows so far

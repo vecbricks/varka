@@ -20,7 +20,10 @@ Read on master at `e5d70012bdc`, 20 November 2026. No run was made for this plan
    ten null it reads 80.0 against 52.8, 92.3 against 43.3 and 60.2 against 38.8 (0.7X, 0.5X,
    0.6X). `extract(DAY FROM dt)`, which has no check, is not among the losses, and neither is
    the `CASE WHEN dt > dt2` control, at 1.6X and 1.2X in the same file. The four-extract blend
-   is row 613's.
+   is row 613's. The no-null ratios are one run each and under the 1.3x a claim needs
+   (`sql/varka/AGENTS.md`); `dt * 1.5`, which plans the row path on both arms, reads 0.8X in the
+   same file. So the admission rests on the null-density losses, 0.5X to 0.7X, and the no-null
+   ones are directions only.
 2. **The cause is the overflow check, and master already declines it for `BIGINT`.**
    `VarkaNodeCompiler.twoLaneChecked` (row 104, #1484) declines a checked operation with
    `TWO_LANE_CHECK_REASON` where `DeclineSink.declinesTwoLaneChecks()` holds: x86 at two 64-bit
@@ -73,12 +76,12 @@ unclear, 2 item 3). The tree check is chosen. The owner may prefer the per-arm f
 
 The done-when also allows "a width-conditional lowering". A `FAIL` check only has to send the
 batch to the row engine. It does not mark lanes. So at two 64-bit lanes it can be tested
-without a mask: for `x + y = r`, `t = (x ^ r) & (y ^ r)`, then `t.reduceLanes(OR) < 0` as a
-scalar branch to the decline. For negation and `abs`, the lane equal to `Long.MIN_VALUE`. For a
-`GuardedRange`, an unsigned compare by the borrow of `(hi - lo) - (x - lo)`. A null lane's slot
-may hold any value, so the test can fire falsely there. That sends the batch to the row path,
-which answers the same rows, so a false alarm costs time and never correctness. `NULL` mode
-needs lanes marked and stays declined.
+without a mask: for `x + y = r`, `t = (x ^ r) & (y ^ r)`, and for `x - y = r`,
+`t = (x ^ y) & (x ^ r)`; then `t.reduceLanes(OR) < 0` as a scalar branch to the decline. For
+negation and `abs`, the lane equal to `Long.MIN_VALUE`. For a `GuardedRange`, an unsigned compare by
+the borrow of `(hi - lo) - (x - lo)`. A null lane's slot may hold any value, so the test can fire
+falsely there. That sends the batch to the row path, which answers the same rows, so a false alarm
+costs time and never correctness. `NULL` mode needs lanes marked and stays declined.
 
 This is a narrow piece of `m9/SCOPE.md` item 101 (a mask-free lowering at two lanes). It goes
 behind a `VarkaEmitOptions` component, `twoLaneChecks` (`MASK`, today's, and `REDUCE`). It is
@@ -124,9 +127,9 @@ item 101 is the owner's call (question 10.2).
   the refused list printed into `results/VARKA-612-refused.txt`. The plan records the list, so
   the reasoning's reach is a file and not a guess.
 * 612b: `VarkaEmitterArithmeticSuite` and `VarkaDayTimeIntervalConformanceSuite` cells at
-  `lanesOverride=2` for the overflow edges (`MAX + 1`,
-  `MIN - 1`, `abs(MIN)`, the product bounds plus and minus one) under `REDUCE`, against the row
-  engine. A null lane holding an overflowing value must answer as the row engine does.
+  `lanesOverride=2` for the overflow edges (`MAX + 1`, `MIN + (-1)`, `MIN - 1`, `MAX - (-1)`,
+  `abs(MIN)`, the product bounds plus and minus one) under `REDUCE`, against the row engine. A null
+  lane holding an overflowing value must answer as the row engine does.
 
 ## 6. The measurement
 
@@ -138,8 +141,9 @@ compared by minimums. The owner dispatches both. The controls are the `CASE WHEN
 
 ### 6.1 Predictions, registered before the run
 
-1. After 612a the three arms read 1.0X at 128 bits within 5%, with and without nulls: the plans
-   are the row path's.
+1. After 612a the three arms read 1.0X at 128 bits within 20%, with and without nulls, by the
+   minimums of two runs: the plans are the row path's, and 20% is the spread an unfused section
+   already shows in one run (`dt * 1.5` at 0.8X).
 2. 612a moves no 256-bit number by more than the run's noise, since no 256-bit plan changes.
 3. Under 612b the three arms beat the row path at 128 bits without nulls by at least 1.3x. The
    check becomes four lane operations and a reduction, against a Java mask loop.

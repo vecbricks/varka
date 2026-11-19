@@ -47,10 +47,16 @@ The problem holds.
 
 ### 3.1 A decline of a partial projection, chosen by a probe
 
-The fix is a demotion in `VarkaExpressionCompiler.compilePartialUnobserved`. When the rule
-fires, every fused entry becomes residual with a reason, `compilePartial` returns empty, and
-`VarkaColumnarRule` leaves Spark's projection whole. Two rules are candidates, and a probe
-chooses between them before the code (step 1):
+The fix is a decline in `VarkaColumnarRule`'s post stage, where `ColumnarToRowExec` over a
+`VarkaProjectExec` becomes a `VarkaColumnarToRowExec` (`VarkaColumnarRule.scala`, the
+`case ColumnarToRowExec(varka: VarkaProjectExec)` arm). Only there is the consumer known to want
+rows. `VarkaExpressionCompiler.compilePartial` cannot see the consumer: the pre stage asks it
+through `isVarkaEligible` before the transitions are inserted, so a demotion there would also
+decline the columnar consumer's partial projection, which wins (`VARKA-12.md` 6.3, 1.5x). When the
+rule fires, the arm builds Spark's `ProjectExec` over a plain `ColumnarToRowExec` of the child
+instead, and the node's fusion report records the reason. The rule reads the node's
+`classification()`, the compile that already serves its `EXPLAIN`. Two rules are candidates, and a
+probe chooses between them before the code (step 1):
 
 * **(R1) Shared input.** Decline when every column the fused entries read is also read by a
   residual entry. The merge pass then reads and converts those columns anyway, so the kernel
@@ -61,7 +67,9 @@ chooses between them before the code (step 1):
   but it ignores what the entries read and cost.
 
 The probe, `VarkaPartialProjectionProbe`, is over the day-time baseline's table on the laptop
-under `-XX:UseAVX=2` at `MaxVectorSize` 32 and 16, both sessions, best times, and its output is
+under `-XX:UseAVX=2` at `MaxVectorSize` 32 and 16, both sessions, best times (at 16 with
+`spark.sql.codegen.varka.declineTwoLaneConditions=false`, so that shapes c and d keep their
+long-lane checks whatever row 612 has merged, and recorded as such), and its output is
 committed as `results/VARKA-613-probe.txt`. It has four shapes:
 
 The three arithmetic arms are `-dt`, `abs(dt)` and `dt * 3`, all over `dt` alone.
@@ -75,8 +83,8 @@ The three arithmetic arms are `-dt`, `abs(dt)` and `dt * 3`, all over `dt` alone
 
 The rule chosen is the one whose "declines" column matches the shapes that lose in the probe.
 If neither matches, the plan falls back to (R3): decline every partial projection under a row
-consumer. A columnar consumer keeps it, since `VARKA-12.md` 6.3 measured partial fusion winning
-there (1.5x). That fallback is the owner's to accept (question 10.1).
+consumer. All three rules sit in the same post-stage arm, so a columnar consumer keeps its
+partial projection under any of them. That fallback is the owner's to accept (question 10.1).
 
 **Alternative: restructure so the fused part carries the work.** This means computing
 `HOUR`, `MINUTE` and `SECOND` in the kernel, which is 103b's design (`VARKA-103.md` 2.3) and
@@ -88,7 +96,7 @@ stops firing on it by itself.
 ### 3.2 What is deliberately unchanged
 
 * Projections that fuse whole, and partial projections the chosen rule keeps.
-* `VarkaProjectExec` under a columnar consumer, unless (R3) is taken.
+* `VarkaProjectExec` under a columnar consumer, under every rule.
 * Filters (rows 598 and 601).
 
 ### 3.3 Registered op counts
@@ -100,17 +108,19 @@ None: no kernel's bytes change, and declined projections have no kernel.
 | file | what |
 |---|---|
 | `VarkaPartialProjectionProbe.java`, `results/VARKA-613-probe.txt` | the diagnosis, step 1 |
-| `VarkaExpressionCompiler.java` | the demotion and its reason |
-| `VarkaExpressionCompilerSuite.scala` | the rule at the three emit levels |
+| `VarkaColumnarRule.scala` | the decline in the post stage, and its reason |
+| `VarkaPartialDeclineSuite.scala`, new | the rule's plans under a row and a columnar consumer |
 | `VarkaDayTimeIntervalBaselineBenchmark.java` | the blend's class, `PARTIAL` to `NONE` |
 | `VarkaDayTimeIntervalBaselineQueriesSuite.scala` | the class and answers over the table |
 | `VarkaDecimalBaselineQueriesSuite.scala` | its `PARTIAL` fusion-class case, if the rule moves it |
 
 ## 5. Tests, and what each is for
 
-* `VarkaExpressionCompilerSuite`, at `useAVX` -1, 2 and 3: shapes a to d of the probe, each
-  declined or kept as the chosen rule says, with the reason on every demoted entry; an all-fused
-  projection unchanged. It catches a rule that fires on the all-fused case.
+* `VarkaPartialDeclineSuite` (sql/core, new), at `useAVX` -1, 2 and 3: shapes a to d of the
+  probe under a row consumer, each planned as Spark's projection or as `VarkaColumnarToRowExec`
+  as the chosen rule says, with the reason in the fusion report; the same shapes under a
+  columnar consumer keep their `VarkaProjectExec`; an all-fused projection is unchanged. It
+  catches a rule that fires on the all-fused case or reaches the columnar consumer.
 * `VarkaDayTimeIntervalBaselineQueriesSuite`: the blend lists `NONE` at both refusal settings,
   and both sessions answer alike over the first 2000 rows.
 * `VarkaDecimalBaselineQueriesSuite`'s fusion-class tests: `x9 < y9, -x38 < y38` reads two
@@ -133,8 +143,9 @@ rule does not touch.
 2. Shape b is within 10% of the row path at 256 bits. The kernel reads `dt`, which the merge
    pass then does not read, but the pass still converts `dt2`.
 3. Shape d wins at 256 bits by at least 1.3x.
-4. So (R1) matches the losses, with c as the shape that separates the rules. If c loses, (R2) is
-   chosen.
+4. So (R2) matches the losses, with c as the shape that separates the rules: R1 declines c, R2
+   keeps it. If c loses, (R1) is chosen. Shape b is where R2 declines and R1 keeps: a tie within
+   10% counts as no loss for the choice, and if b loses by more, that is evidence for (R2).
 5. After the change the blend reads 1.0X on the runners within 5% at both widths and densities:
    its plan is Spark's.
 
@@ -155,9 +166,9 @@ One pull request, about 350 lines.
 
 1. Step 1: the probe and its committed output. Done when `results/VARKA-613-probe.txt` holds
    shapes a to d at both widths, and this plan records the rule chosen.
-2. Step 2: the demotion, its tests and the classes. Done when `build/sbt
-   'catalyst/testOnly *VarkaExpressionCompilerSuite' 'sql/testOnly
-   *VarkaDayTimeIntervalBaselineQueriesSuite *VarkaDecimalBaselineQueriesSuite'` passes.
+2. Step 2: the decline, its tests and the classes. Done when `build/sbt 'sql/testOnly
+   *VarkaPartialDeclineSuite *VarkaDayTimeIntervalBaselineQueriesSuite
+   *VarkaDecimalBaselineQueriesSuite'` passes.
 3. Step 3: the regenerated golden corpus and fusion report. Done when
    `dev/varka_regen_generated.sh --all` leaves no diff.
 4. Step 4: the owner's runner dispatch at both widths, and the results committed. Done when
