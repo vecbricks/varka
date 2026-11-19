@@ -67,9 +67,20 @@ node count, the batches, the fallbacks and the query, as now.
   site, every baseline covered by the call it already makes, a new baseline covered without
   writing anything.
 
-The plan takes (b). It keys on the measured class, not the listed one, so a run with the fuse
-check lifted (`FUSE_CHECK_PROPERTY=false`, the run that measures a row) still checks every section
-that does fuse whole and does not fail a listed `WHOLE` section that no longer fuses. The day-time
+The plan takes (b), keyed on the listed class and the measured one both: the check runs when a
+section is listed `WHOLE` and measures `WHOLE`. A run with the fuse check lifted
+(`FUSE_CHECK_PROPERTY=false`, the run that measures a row) then does not fail a listed `WHOLE`
+section that no longer fuses, nor check a section that newly fuses before its row lists it.
+
+**Sections that time a fallback on purpose are exempt.** The rounding baseline's `floor` and
+`ceil` sections over `xw` and `xwf` exist "so that the arm's fallback is measured" before 344b
+picks its default (`VarkaRoundingBaselineBenchmark` class doc): once 344b lists them `WHOLE`, their
+batches decline by design. `Section` gains no field; instead `requireBaseline` gets an overload
+taking `boolean timesFallback`, which those sections pass as `true` and which skips the kernel
+check and notes in the results file that the arm times the fallback. Every other call keeps the
+four-argument form and is checked.
+
+The day-time
 benchmark's own `requireKernel` and its call go; the three benchmarks that call `varkaFused` for
 this purpose (BIGINT arithmetic, both TIMESTAMP_NTZ ones) drop those calls and
 `Section.checksKernels`, since (b) covers their projections and their filters. `varkaFused` stays
@@ -115,8 +126,10 @@ the kernel check, keeps the call one line per suite.
   `requireSection` with the fallback count in the message; and the same sections passing without
   the hook. The done-when's second half; it also proves the check sees a filter node, the gap the
   row exists for.
-- The plan-only dry run of each baseline benchmark at 256 and 128 bits (the PR Build's dry runs),
-  where `requireBaseline` now runs the check.
+- The dry run of each baseline benchmark at 256 and 128 bits, where `requireBaseline` now runs the
+  check. No CI job runs these (`build_and_test.yml` runs no baseline benchmark); the builder runs
+  them locally with `-Dvarka.bench.dryRun=true` (the flag `dev/varka_bench_ids.sh` sets), under
+  `-XX:MaxVectorSize=32` and `16`, one JVM at a time, and lists the results in the PR body.
 
 No pinned file moves.
 
@@ -151,7 +164,8 @@ No performance measurement. The cost is test and dry-run time.
 
 One pull request, about 250 counted lines: the base-class check and the removals in one commit,
 the queries suites and the planted test in a second. Done when `build/sbt 'sql/testOnly
-*BaselineQueriesSuite'` passes with the planted test among them, and the PR Build's dry runs pass.
+*BaselineQueriesSuite'` passes with the planted test among them, and the twelve local dry runs
+of 5 pass.
 
 ## Questions for the owner
 

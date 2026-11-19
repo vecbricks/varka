@@ -30,12 +30,13 @@ Read on `origin/master` at `e5d70012bdc`, 20 November 2026.
 - **The switches the row names still exist and have grown.** The node types went from 47 to 56
   records: `BoolOutput`, `ConvertLane`, `CrossLane`, `DecimalColumn`, `DecimalWord`, `MathUnary`,
   `NullValue`, `RoundToIntegral` and `WidenDecimal` are new. A count of the record names among a
-  switch's `case` arms in the main tree gives `weightOf` 42 arms (`VarkaEmitBudget.java:616`),
-  `kindOf` 25 (`VarkaEmitCost.java:114`), `admits` 8 and `restrictedOperands` 6
-  (`VarkaOperandPosition.java:79`, `:134`), `inputOrdinal` 5 (`VarkaVectorIR.java:227`),
-  `isNarrowRing` 4 (`Analysis.java:1076`), `ownerOf` 37 and `pureOf` 45 (`Analysis.java:1422`,
-  `:1483`), `planWordRef` 36 and `propagate` 56 (`Slots.java:1173`, `:1757`). Each of the nine new
-  records added an arm to most of them, which is the cost the row removes.
+  switch's `case` arms in the main tree gives `weightOf` 42 arms over 41 records
+  (`VarkaEmitBudget.java:616`), `kindOf` 25 (`VarkaEmitCost.java:114`), `admits` 8 and
+  `restrictedOperands` 6 (`VarkaOperandPosition.java:79`, `:134`), `inputOrdinal` 5
+  (`VarkaVectorIR.java:227`), `isNarrowRing` 4 (`Analysis.java:1076`), `ownerOf` 37 and
+  `pureOf` 45 (`Analysis.java:1422`, `:1483`), `planWordRef` 36 and `propagate` 56
+  (`Slots.java:1173`, `:1757`). Each of the nine new records added an arm to most of them, which
+  is the cost the row removes.
 - **Two new switches since 27 October.** `VarkaKernelPlan.longNarrowReader` (`:833`, row 343's
   long-lane narrowing) answers one fixed value per node type from no field at all, class (a) in
   the branch's inventory; `longNarrowRole` (`:775`) reads the child's lane, class (c).

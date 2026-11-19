@@ -46,17 +46,32 @@ So the problem the row describes holds: a disagreement carries no label today.
 
 ### 3.1 The rerun
 
-One function in `VarkaSparkDifferential`, `labelOf(fixture, select, where, ansi, partitions,
-pivot, forces): Label`, run `withoutCounting` so the census does not move:
+One function in `VarkaSparkDifferential`, `labelOf(recheck: () => Option[String]): Label`, run
+`withoutCounting` so the census does not move. `recheck` is the very check that found the case,
+passed by the caller with everything it ran under, so the rerun checks the same kernel:
 
-- **A**, Varka against interpreted Spark: the same `disagreement(...)` call that found the case,
-  with `spark`'s conf set to `spark.sql.codegen.wholeStage=false` and
-  `spark.sql.codegen.factoryMode=NO_CODEGEN` for the call and restored after; `varkaSpark` keeps its
-  settings. Reusing `disagreement` means every kind (values, raises, the pivot, a forced output, the
-  partition check, the one-partition and per-row reruns of a raise) is decided by the same code.
-- **B**, Spark's two paths against each other: `outcome(spark, query)` under the defaults and under
-  codegen off, over the cached fixture. Only the main query; B never decides alone, it only splits
-  label 1 from label 3.
+- for the random arm, `failureText` passes `kindOf(small, partitions, small.force.toSeq)` wrapped
+  in `withEmitOptions(smallOptions)` (the shrunk case's pinned options, `checkIntOverflow` among
+  them) under the run's `errorRerun` arm;
+- for the warmed arm, the warmed check itself (`warmedDisagreement` under `withVarkaWarmup` and
+  `withWarmupDeadline`), since its kinds appear only after the handover to the kernel and a
+  rerun with the warm-up off would not show them;
+- for the replay suite, `verdict`'s own `disagreement` call under the file's options and arm.
+
+The two reruns:
+
+- **A**, Varka against interpreted Spark: `recheck()` with `spark`'s conf set to
+  `spark.sql.codegen.wholeStage=false` and `spark.sql.codegen.factoryMode=NO_CODEGEN` and restored
+  after; `varkaSpark` keeps its settings. Every kind (values, raises, the pivot, a forced output,
+  the partition check, the one-partition and per-row reruns of a raise) is decided by the same
+  code. A kind from a check that reads `spark` alone (the row side's `partitionBroken`, a raise
+  the list does not allow on the row side) says nothing about Varka: for those kinds A is not
+  read, and the label comes from B alone (`spark-codegen` if B differs, `unrepeated` if not).
+- **B**, Spark's two paths against each other, over the same views the failing check used:
+  `checkOnce` records the queries it sends to `spark` (main query, the pivot's `alone`, the
+  partition queries) and the view each ran over (whole, `coalesce(1)`, a row alone); B caches
+  each view itself with `cacheFixture` and `uncacheFixture`, as `disagreement` does, and compares
+  each recorded query's outcome under the defaults and under codegen off. B differs if any does.
 
 | A (Varka = interpreted) | B (codegen = interpreted) | label |
 |---|---|---|
@@ -137,9 +152,9 @@ None of performance: the rerun runs only on a failing case. The new tests' time 
 
 ## 7. Risks
 
-1. **The cached fixture under codegen off.** The in-memory relation is cached once and read by
-   both confs; a scan of the Arrow cache under `NO_CODEGEN` must still read it, not re-cache it.
-   The planted test's B agreeing on a case that does not involve the flag shows the read works.
+1. **The cached fixture under codegen off.** B caches each view itself, as `disagreement` does,
+   since `disagreement` uncaches in a `finally`; a scan of the cache under `NO_CODEGEN` must read
+   it, not re-cache it. The planted test's B agreeing shows the read works.
 2. **A label that is wrong when the interpreted path raises a different condition text** for the
    same failure: `outcome` compares error conditions, not messages, as the existing comparison does.
 3. **A third Spark path.** Adaptive execution and the ghost fallback are not Spark's two engines;
