@@ -64,8 +64,9 @@ Alternatives considered:
   the conditional form changes only the plans whose fallback changes.
 * **The node's `condition` becomes Spark's tree when nothing is residual.** Also correct for the
   fallback, but the `condition` is the kernel's input everywhere else (`VarkaFusionReport`, the
-  tasks' compile, the evaluator factories), and a tree whose conjuncts the compiler reordered
-  (row 380's order rule) would print in an order the kernel does not run. Rejected.
+  tasks' compile, the evaluator factories), and a node whose `condition` is no longer the
+  conjuncts the kernel serves is a second meaning for the field that the residual case would
+  not share. Rejected.
 * **Rebuild the tree inside `fallbackCondition`.** It has only the fold. Rejected.
 
 With codegen on, nothing changes: `inCodegenOrder` flattens the tree and the fold to the same
@@ -114,7 +115,7 @@ None.
    `make_date`'s own guard, so no test hook is needed; the test also runs 541's
    `checkFourCells` so the codegen-on cells are shown unchanged (both answer).
 2. The planted fault: `rewriteFilter` back to `residual.map(_ => condition)`. Test 1's
-   elimination-on, codegen-off cell must fail with only Spark raising; recorded in section 9.
+   elimination-on, codegen-off cell must fail with only Spark raising; recorded in section 11.
 3. Existing: `VarkaDifferentialSuite`, `VarkaFilterExecSuite`, `VarkaFilterRaiseOrderSuite`,
    the four 541 tests among them, `VarkaFilterExecSuite`'s EXPLAIN tests, and
    `VarkaGoldenCorpusSuite`, whose verdicts are classified from the plan string and must not
@@ -174,3 +175,8 @@ test 1 checks first that the plan holds a Varka filter, no residual `FilterExec`
 condition that is not its own left fold, and then with whole-stage codegen off, under
 `spark.sql.subexpressionElimination.enabled` true and false, Varka raises or answers exactly as
 Spark does on that batch; `VARKA-541.md` 0 item 7 gets a dated note.
+
+## 11. Outcome
+
+*Filled in when the work lands: the runs with their commands, section 6.1's predictions scored
+one by one, and what moved that this plan did not list.*

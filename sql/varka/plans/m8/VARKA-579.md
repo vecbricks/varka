@@ -58,16 +58,26 @@ The new case builds the day the compiler builds and a calendar node over it:
 
 * a long value `a` from `longValue(depth - 1)`;
 * the day: where `a.bound()` fits the guard's range, `NarrowLane(a)` itself; otherwise
-  `NarrowLane(ConstDivide(...))` as `VarkaNodeCompiler.floorDivLong` lowers a floor division by
-  `MICROS_PER_DAY` (the shift by its 13 trailing zeros, the odd part's biased `ConstDivide`
-  under `EXACT_DIVIDEND_BOUND`), drawn only where the dividend's bound is under that bound, so
-  that the long column's `LONG_COLUMN_BOUND` of `2^46` microseconds lands at about 814 days;
+  `NarrowLane(...)` over the nodes `VarkaNodeCompiler.floorDivLong` builds for a floor division
+  by `MICROS_PER_DAY`: the shift by its 13 trailing zeros, then the odd part's biased
+  `ConstDivide` with `floorDivLong`'s own fixed bound `(1L << (63 - 13)) + odd`, not the
+  dividend's. That division is exact for every long, so it is drawn over any long value; the
+  long column's `LONG_COLUMN_BOUND` of `2^46` microseconds lands at about 814 days;
 * `GuardedRange(day, NTZ_MIN_DAYS, NARROW_MAX_DAYS)`, in the `FAIL` mode `ntzDay` uses, and
   drawn only where the day's bound lies inside that range, so the guard never fires: a firing
   guard declines the batch and the reference evaluator has no spelling for that, the reason
   `Shapes`' own guard case gives;
 * over it one of `Year`, `WeekOfYear(ThursdayOf(...))` (the pair as a unit, as `Shapes` case 16
   draws it) or `LastDay`, a third each, the three the row names.
+
+Days from the long columns stay within about 814 days of the epoch, far from the guard's ends,
+where the narrowed calendar lowering is most at risk. So one draw in four takes its count from
+`a + k` (a `WRAP` add, exact here) with `k` a long literal slot that the side sequence's test
+fills with a day near either end of the guard's range, inside it by more than the column's 814
+days, times `MICROS_PER_DAY`. The test owns its literal values, drawn from a value stream of
+their own (`VARKA-352.md` 2.2 item 5), so the shape draw is unchanged by them; the day then lands
+near `NTZ_MIN_DAYS` or `NARROW_MAX_DAYS` and still inside, so the guard does not fire. Test 2
+asserts the draw reaches both ends.
 
 `floorDivLong` is package-private in `codegen`; the grammar rebuilds its three nodes rather than
 widening its visibility, with a comment naming it, and a test (5, item 3) holds the rebuilt day
@@ -108,9 +118,10 @@ None: no kernel's bytes change.
    the only test that holds the shape to the reference over random data and options.
 2. "the NTZ-day draw reaches a year, a week and a last-day node over a guarded narrowing, and
    the committed mixed draw reaches none": over 2,000 side draws, each of the three calendar
-   nodes is found with a `GuardedRange` child over a `NarrowLane`; over the reach test's 20,000
-   committed draws, none. The second half is the test that the flag keeps the pinned corpus
-   still, the 481 pattern `VARKA-352.md` 2.2 item 3 asks for.
+   nodes is found with a `GuardedRange` child over a `NarrowLane`, and days within 1,000 of each
+   end of the guard's range are drawn; over the reach test's 20,000 committed draws, none. The
+   second half is the test that the flag keeps the pinned corpus still, the 481 pattern
+   `VARKA-352.md` 2.2 item 3 asks for.
 3. "the NTZ-day draw's day is the compiler's": for a long column, the rebuilt divided day equals
    `ntzDay(NarrowLane(floorDivLong(c, MICROS_PER_DAY)))` as the compiler builds it for
    `year(CAST(ntz AS DATE))`, compared as IR. Catches a drift of either.
@@ -120,7 +131,7 @@ None: no kernel's bytes change.
 
 No speed claim. The row's measure is the fuzz at 10,000 iterations of the side sequence, run once
 on the laptop with `-Dvarka.fuzz.ntzDayIterations=10000`, `-z` on test 1, and its pass count and
-time recorded in section 9.
+time recorded in section 11.
 
 ### 6.1 Predictions, registered before the run
 
@@ -144,7 +155,7 @@ time recorded in section 9.
 ## 8. Sequencing
 
 One pull request, well under the 1000-line cap (about 150 lines): the grammar and its seed, the
-two suite tests, the reach report. The 10,000-iteration run is recorded in this file's section 9
+two suite tests, the reach report. The 10,000-iteration run is recorded in this file's section 11
 in the same pull request.
 
 ## 9. Questions for the owner
@@ -166,3 +177,8 @@ over a guarded narrowed long in a side sequence of its own, a test shows the com
 draw reaches none of it and no pinned file moves, and the side sequence passes the reference
 evaluator at 10,000 iterations, the run recorded here; the fold into `fuzz_mixed` waits for the
 next refit.
+
+## 11. Outcome
+
+*Filled in when the work lands: the runs with their commands, section 6.1's predictions scored
+one by one, and what moved that this plan did not list.*

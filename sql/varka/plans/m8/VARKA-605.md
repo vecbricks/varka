@@ -47,7 +47,7 @@ What the check would have rejected: a landed fix of 383 or 430, or a sanitizer c
 ## 3. The design
 
 This row is a diagnosis with two possible endings, as its done-when says. No code changes until
-step 4.
+section 8's step 2, which only ending 3 builds.
 
 ### 3.1 The readings
 
@@ -70,7 +70,7 @@ catalyst test classpath as #1500 ran it, each run's command and tally committed 
   runs: whether the case settles.
 
 If neither R1 nor R2 reproduces in its three runs, the row closes as not reproducible, with the
-commands and tallies (the row's rule), and steps 4 and 5 are not built.
+commands and tallies (the row's rule), and section 8's step 2 is not built.
 
 ### 3.2 The endings
 
@@ -153,7 +153,7 @@ load beside it and R1 to R4 interleave plain and sanitized runs.
 ## 8. Sequencing
 
 1. The readings, R1 to R4, committed with this file's outcome: done when
-   `results/VARKA-605-readings.txt` holds each run's command and tally and section 10 names the
+   `results/VARKA-605-readings.txt` holds each run's command and tally and section 11 names the
    ending. About 120 counted lines with the plan's outcome.
 2. Ending 3 only: the table and its test, about 80 lines, in the same pull request if the
    readings are short, otherwise a second.
@@ -180,3 +180,8 @@ the compiled test names the case as expected to stay unsettled under the sanitiz
 measured reason, in its tally. If no sanitized run at that seed reproduces it, the row closes as
 not reproducible, with the runs' commands and tallies. No failure on unsettled cases is added;
 if row 383's loop shape or row 430's fix settles it, this row closes on that rerun.
+
+## 11. Outcome
+
+*Filled in when the work lands: the runs with their commands, section 6.1's predictions scored
+one by one, and what moved that this plan did not list.*

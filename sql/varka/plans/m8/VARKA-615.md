@@ -89,7 +89,7 @@ None.
 
 ## 6. The measurement
 
-None beyond the two runs of test 1, recorded in section 10 with their commands. The suite takes
+None beyond the two runs of test 1, recorded in section 11 with their commands. The suite takes
 474 s in the matrix (`suite-times.tsv`), almost all in its five forked probes' `beforeAll`, so
 the runs use `-z` on the one test, which still pays that `beforeAll`.
 
@@ -124,3 +124,8 @@ is to test code. Recorded here rather than edited there, per "Plans are records"
 row 607's test asserts a `Shape` under it on every host (shown on the laptop at the defaults and
 under the sweep's AVX2-at-128 flags), the host's answer stays asserted beside it, and the audit's
 committed files are unchanged.
+
+## 11. Outcome
+
+*Filled in when the work lands: the runs with their commands, section 6.1's predictions scored
+one by one, and what moved that this plan did not list.*

@@ -96,7 +96,7 @@ before and after for `CASE WHEN rid < 0 THEN abs(ym - ymm) ELSE ym END` with
 | `Analysis.java` | the chain into the condition; the two javadocs |
 | `VarkaGuardEdgeSuite.scala` | the nested-condition case at both widths |
 | `sql/varka/coverage.json` | the row `abs(ym - ymm)` |
-| `VarkaAnsiForm.java` | nothing, unless an entry turns stale (test 3 says) |
+| `VarkaAnsiForm.java` | `abs(ym - ymm)` on `DECLINED`'s false-`AND` list |
 | `emitted_bytes.json`, `emit_cost_audit.json`, census files | regenerated |
 
 ## 5. Tests, and what each is for
@@ -117,8 +117,10 @@ before and after for `CASE WHEN rid < 0 THEN abs(ym - ymm) ELSE ym END` with
 3. The coverage row `abs(ym - ymm)`, with `VarkaAnsiForm`'s harness (`VarkaCoverageHarnessSuite`'s
    ANSI test, under ANSI on the extremes fixture): served whole by a kernel in
    the untaken `CASE` arm and as the later `COALESCE` argument at the defaults, with no `DECLINED`
-   entry there, and raising as Spark does alone. Before the change, the same run must list it as
-   declined in those two positions; that run is step 1's admission reading.
+   entry there, and raising as Spark does alone. On the right side of a false `AND` it stays
+   declined, as `ym - ymm` is, since an `AND`'s right side is no arm: the row joins
+   `DECLINED`'s false-`AND` list with the list's reason. Before the change, the same run must list
+   it as declined in all three skipped positions; that run is step 1's admission reading.
 4. `VarkaIrFuzzSuite` at its defaults and the long-lane untaken-arm variant that found test 2's
    shape: the fuzz is what finds an ordering this plan did not foresee.
 5. `VarkaEmittedBytesSuite` regenerated, `dev/varka_bytes_moved.py origin/master` quoted in the
@@ -160,14 +162,14 @@ unqualified, in the bodies that hold it. The pull request lists the moved bytes 
 ## 8. Sequencing
 
 One pull request, about 150 counted lines of hand-written source and plan (generated files
-excluded): step 1 adds the coverage row and records the two declines; step 2 changes
-`assignArmChain` and the javadocs; step 3 adds tests 1 and 2 and prints the op counts; step 4
-regenerates with `dev/varka_regen_generated.sh --all` and runs the gate suites. Each step ends in a
-command:
+excluded): step 1 adds the coverage row and its false-`AND` entry and records the declines;
+step 2 changes `assignArmChain` and the javadocs; step 3 adds tests 1 and 2 and prints the op
+counts; step 4 regenerates with `dev/varka_regen_generated.sh --all` and runs the gate suites.
+Each step ends in a command:
 
-1. `build/sbt 'sql/testOnly *VarkaCoverageHarnessSuite'` lists `abs(ym - ymm)` declined in the two
-   positions (the stale-or-missing check names them).
-2. The same suite passes with no `DECLINED` entry for the row.
+1. `build/sbt 'sql/testOnly *VarkaCoverageHarnessSuite'` names `abs(ym - ymm)` missing from
+   `DECLINED` in the `CASE` and `COALESCE` positions (the stale-or-missing check).
+2. The same suite passes with the row's false-`AND` entry as its only `DECLINED` entry.
 3. `build/sbt 'catalyst/testOnly *VarkaGuardEdgeSuite'` passes.
 4. `dev/varka_bytes_moved.py origin/master` prints the moved keys, quoted;
    `build/sbt 'catalyst/testOnly *VarkaIrFuzzSuite *VarkaEmittedBytesSuite'` passes.
@@ -191,3 +193,8 @@ puts a guard in a nested condition under an outer arm, condemning from a lane th
 and not from one that does not, at both widths); and the coverage row `abs(ym - ymm)` is served
 whole by a kernel under ANSI on the extremes fixture in the untaken `CASE` arm and as the later
 `COALESCE` argument, at the defaults, with no `DECLINED` entry there.
+
+## 11. Outcome
+
+*Filled in when the work lands: the runs with their commands, section 6.1's predictions scored
+one by one, and what moved that this plan did not list.*
