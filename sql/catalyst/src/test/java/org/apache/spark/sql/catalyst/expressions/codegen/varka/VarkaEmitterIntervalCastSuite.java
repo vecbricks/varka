@@ -55,12 +55,10 @@ import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.InterpretedUnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.MultiplyDTInterval;
-import org.apache.spark.sql.catalyst.expressions.MultiplyYMInterval;
 import org.apache.spark.sql.catalyst.expressions.UnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
-import org.apache.spark.sql.catalyst.expressions.codegen.VarkaIntervalCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.Batch;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.LongBatch;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.SparkAnswers;
@@ -89,10 +87,9 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * (the DAY end is exact over every long), whatever the mode, and the row engine then divides.
  *
  * <p>Beside them, forms over the same nodes (VARKA-103): {@code extract(DAY FROM dt)}, the
- * DAY end's division narrowed to an int; {@code ym * k} for an integral literal, the year
- * cast's guard for any factor; and {@code dt / k} by a divisor of a day and the decimal literal
- * products and quotients, the day division's split with a {@code HALF_UP} step, where Spark's
- * interpreted and generated code are both held to the same answers.
+ * DAY end's division narrowed to an int; and {@code dt / k} by a divisor of a day and the decimal
+ * literal products and quotients, the day division's split with a {@code HALF_UP} step, where
+ * Spark's interpreted and generated code are both held to the same answers.
  *
  * <p>In its own JVM: the year cast runs at the int lane and the division at the long lane.
  */
@@ -321,7 +318,7 @@ public final class VarkaEmitterIntervalCastSuite {
   }
 
   // -------------------------------------------------------------------------------------------
-  // extract(DAY FROM dt) and ym * k (VARKA-103 2.2, 2.3)
+  // extract(DAY FROM dt) (VARKA-103 2.3)
   // -------------------------------------------------------------------------------------------
 
   /** The named cells of `VARKA-103.md` 3.3 for the day extract, both signs. */
@@ -365,27 +362,6 @@ public final class VarkaEmitterIntervalCastSuite {
     var failure = assertThrows(IllegalStateException.class,
         () -> k.answers(new long[] {Long.MIN_VALUE}), "the planted fault passes at MIN");
     assertTrue(failure.getMessage().contains("disagree"), failure.getMessage());
-  }
-
-  @Test
-  @DisplayName("ym * k for an integral literal answers as Spark does at the guard's ends and "
-      + "declines one past each, for an int, a bigint past the int and the int's least")
-  void yearMonthTimesLiteral() {
-    Attribute ym = VarkaSqlResolve.column("ym", new YearMonthIntervalType(
-        YearMonthIntervalType.YEAR(), YearMonthIntervalType.MONTH()));
-    for (long k : new long[] {2, -2, 3, Integer.MIN_VALUE, 1L << 31}) {
-      Literal factor = k == (int) k ? new Literal((int) k, DataTypes.IntegerType)
-          : new Literal(k, DataTypes.LongType);
-      Kernel kernel = kernel(new MultiplyYMInterval(ym, factor), List.of(ym));
-      long[] b = VarkaIntervalCompiler.yearMonthProductBounds(k);
-      assertTrue(kernel.answers(new long[] {b[0], b[1], 0}), "k = " + k);
-      for (long past : new long[] {b[0] - 1, b[1] + 1}) {
-        if (past >= Integer.MIN_VALUE && past <= Integer.MAX_VALUE) {
-          assertNotEquals(0, kernel.status(new long[] {0, past}),
-              "k = " + k + " answered " + past + ", whose product leaves the int");
-        }
-      }
-    }
   }
 
   // -------------------------------------------------------------------------------------------

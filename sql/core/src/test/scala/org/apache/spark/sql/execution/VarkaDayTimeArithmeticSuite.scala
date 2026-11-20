@@ -117,16 +117,6 @@ class VarkaDayTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with V
         schema).createOrReplaceTempView(productTable(k, x))
       session.catalog.cacheTable(productTable(k, x))
     }
-    // A date beside a stored INTERVAL DAY, for the day count as a date offset.
-    val dates = (-300 until 300).map { i =>
-      Row(LocalDate.of(2021, 6, 1).plusDays(i * 7L), Duration.ofDays(i * 13L - 1000))
-    } ++ Seq(Row(null, Duration.ofDays(2)), Row(LocalDate.of(2021, 6, 1), null)) ++
-      // The day count's ends, 106,751,991 days either way.
-      Seq(106751991L, -106751991L).map(n => Row(LocalDate.of(2021, 6, 1), Duration.ofDays(n)))
-    session.createDataFrame(session.sparkContext.parallelize(dates, 1), StructType(Seq(
-      StructField("d", DateType), StructField("dd", DayTimeIntervalType(0: Byte, 0: Byte)))))
-      .createOrReplaceTempView("varka_dta_dates")
-    session.catalog.cacheTable("varka_dta_dates")
     for ((name, data) <- tables) {
       session.createDataFrame(session.sparkContext.parallelize(data, 1), schema)
         .createOrReplaceTempView(name)
@@ -215,16 +205,13 @@ class VarkaDayTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with V
       raises = true)) === "ARITHMETIC_OVERFLOW")
   }
 
-  test("the day count of a stored INTERVAL DAY as a date offset answers as the row engine does") {
-    // `d - dd` is DateAdd(d, -extract(DAY FROM dd)), whose negated count reaches the date arm's
-    // offset arithmetic as `-i` does and fuses under its day guard; `d + dd` and the product
-    // decline, the bare extract and a product of it not being offsets the arm admits. The
-    // product declines only under ANSI, where the checked int multiply is a node the offset
-    // position refuses; with ANSI off it wraps, which that position admits, so the test pins
-    // the mode on.
+  test("a stored INTERVAL DAY's day count fuses as an offset in d - dd and not in d + dd") {
+    // `d - dd` is DateAdd(d, -extract(DAY FROM dd)): the negated count reaches the date arm's
+    // offset arithmetic as `-i` does and fuses under its day guard, while `d + dd` declines.
+    // ANSI is pinned, as the cell the split moved to 103a2 was, so the composition runs under
+    // one mode whatever the matrix configuration.
     withAnsi(true) {
-      for ((q, fuses) <- Seq("d - dd" -> true, "d + dd" -> false,
-          "date_add(d, extract(DAY FROM dd) * 2)" -> false)) {
+      for ((q, fuses) <- Seq("d - dd" -> true, "d + dd" -> false)) {
         val sql = s"SELECT $q AS a FROM varka_dta_dates"
         val (onVarka, plan) = runOutcome(varkaSpark, sql)
         VarkaMaybeThrows.difference(expectedOutcome(sql, plan), onVarka).foreach(d =>

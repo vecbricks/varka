@@ -610,11 +610,8 @@ final class VarkaChronoCompiler {
           () -> Optional.of(dayIntervalColumn(interval.get(), inputs, sink)), days, sink);
     }
     if (days instanceof ExtractANSIIntervalDays e) {
-      // The day count of a stored INTERVAL DAY column as the bare offset, `d + dd`. The extract
-      // has the interval family's long-lane arm (VARKA-103 2.3), but the date arm reads its
-      // offsets itself without recursing, and admitting this quotient under the day guard below
-      // is a calendar-family follow-up, so it declines here. `d - dd` reaches the date arm as
-      // the negated count, which the int-arithmetic arm below reads and fuses.
+      // A stored INTERVAL DAY column is int64 microseconds, which no int32 lane can read;
+      // this is scoped to the int-cast form.
       return sink.decline("day interval is not an int column cast to days", e);
     }
     // Arithmetic over an int column as the offset, `date_add(d, i * 7)`. What makes this safe

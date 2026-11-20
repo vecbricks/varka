@@ -13,13 +13,12 @@
 ; See the License for the specific language governing permissions and
 ; limitations under the License.
 
-; The interval products by an integral literal (VARKA-103 2.2). Spark computes dt * k as
-; Math.multiplyExact(micros, k) and ym * k as Math.multiplyExact(months, k), or for a
-; bigint k toIntExact(multiplyExact(months, k)), in every mode, and VarkaIntervalCompiler
-; emits, per lane,
+; The day-time interval product by an integral literal (VARKA-103 2.2). Spark computes
+; dt * k as Math.multiplyExact(micros, k) in every mode, and VarkaIntervalCompiler emits,
+; per lane,
 ;
 ;   GuardedRange(x, lo, hi)        the batch declines where a lane leaves [lo, hi]
-;   x * k                          wrapping multiply, by (int) k at the int lane
+;   x * k                          wrapping multiply
 ;
 ; with [lo, hi] = [ceil(MIN / k), floor(MAX / k)] for k > 0, the two swapped for k < 0,
 ; clamped to the lane (dayTimeProductBounds). For each factor in

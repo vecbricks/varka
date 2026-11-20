@@ -650,17 +650,19 @@ Predictions, registered before the build:
    interpreted projections, `MAX * 1.5` raising `longValueExact`'s bare `ArithmeticException`
    from the row engine; rows `dt / 24`, `dt * 1.5` and `dt / 1.5`; the baseline's `dt * 1.5` and
    `dt / 24` `WHOLE`; the harness's ANSI form takes that `Overflow` from an expression too.
-   *20 November 2026, 103a2 re-cut onto master* (`varka-103a2-recut`): 103a1 merged as #1534
-   (`3e4514fcfed`) after the 14 November split, so 103a2's three commits no longer had a parent
-   to stack on. The branch is cut from `origin/master` and carries what #1534 does not hold: the
-   two pieces the split moved here (`ym * k` for an integral literal with its int-lane proof
-   rows, coverage row, emitter test, census note, expected-errors naming and the harness's
-   int-overflow naming; and the `d - dt` cell's product case over a stored `INTERVAL DAY`),
-   then this part's own day split, decimal literal forms and shift bias. The split review's
-   fixes that #1534 merged stay as merged: the ANSI form's first bare-exception row is still
-   `dt * 3`, the expected-errors row still leaves out the day-time product the Spark-level
-   fuzzer cannot reach, and `dt_arith.smt2` still renders the symmetric-bound refutation for
-   `Long.MIN_VALUE`.
+   *20 November 2026, 103a2 re-cut onto master and split in two by the size cap*: 103a1 merged
+   as #1534 (`3e4514fcfed`) after the 14 November split, so 103a2's three commits no longer had
+   a parent to stack on, and with the two pieces that split moved here 103a2 counted 1166 lines
+   against master, over the 1000-line cap. **103a2** (`varka-103a2-recut`, cut from master) is
+   this part's own work: the day split, the decimal literal forms and the shift bias. **103a3**
+   (`varka-103a3-ym-times`, stacked on 103a2 and opening after it) holds the moved pieces:
+   `ym * k` for an integral literal, with its int-lane rows of `dt_arith.smt2`, the `ym * 3`
+   coverage row, the emitter suite's test, the census note, the expected-errors line's int
+   overflow and the harness's int-overflow naming; and the product case of the `d - dt` cell
+   over a stored `INTERVAL DAY`. The split review's fixes that #1534 merged stay as merged: the
+   ANSI form's first bare-exception row is still `dt * 3`, the expected-errors row leaves out
+   the day-time product the Spark-level fuzzer cannot reach, and `dt_arith.smt2` still renders
+   the symmetric-bound refutation for `Long.MIN_VALUE`.
 3. **103b, after 332b and 157 and 347**: `HOUR`, `MINUTE`, `SECOND`, `make_dt_interval` (the
    seconds of both, section 8, point 3), the third planted fault, and the measurement against the
    baseline at both widths.
