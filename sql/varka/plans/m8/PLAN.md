@@ -2026,3 +2026,53 @@ and 881).
 5. The post and 552 and 553.
 6. Item 2's gap is closed when 126 more pairs are fused; the milestone's close (354) reads the
    list again, and the rows that miss it go to `m9/SCOPE.md` with the reason named in the census.
+
+## 13. The floating track (20 November 2026)
+
+The mid-course review (section 12) found `double` at 45 of 102 census pairs and `float` at 36 of
+66, the least fused of the theme types after `decimal`, and the owner asked on the same day that
+`FLOAT` and `DOUBLE` get better support, taking into account the progress of vfdlibm, the library
+that holds the fdlibm ports the exact math family lowers from. The two types are 57 and 30 unfused
+entries in `census.tsv`. This section is their track, in the sense of milestone 6's promotion track:
+a set of rows with an order, and a slot of its own in the order of pull requests so that the rows
+with the clearest measurement do not take every slot.
+
+### 13.1 The unfused entries, by group
+
+| group | `double` | `float` | rows (the census's `rows` column) |
+| :--- | ---: | ---: | :--- |
+| transcendentals (`exp`, `log`, `atan`, `cbrt`, `hypot`, `pow`, ...) | 27 | 0 | 345, 356 to 358, 367 |
+| rounding and remainder (`floor`, `ceil`, `round`, `bround`, `truncate`, `mod`, `pmod`, `%`, `try_mod`, `width_bucket`) | 11 | 10 | 344, 346, 351, 363; 30, 95, 577 for the remainders |
+| casts to the integer types and `decimal` | 6 | 6 | 332, 343, 350, 364 to 366 |
+| interval times and division by a number | 4 | 4 | 342 |
+| hash, `xxhash64`, `known_fp_normalized`, `normalize_nan_and_zero` | 4 | 4 | 337 |
+| plumbing and the rest (`positive`, `zeroifnull`, `known_not_null`, `time_from_seconds`, `try_cast`, `try_eval`) | 5 | 6 | 330, 333, 342, 343, 348, 351, 359, 622 |
+
+### 13.2 The order
+
+1. **The exact per-lane family** (rows 356 to 358): `sin`, `cos`, `tan` and their inverses first
+   (open as #1567), then the hyperbolic and logarithmic ones, the logarithmic part (358) after
+   the finding of 12.2 item 3 is fixed. It credits the transcendentals with the default form, a
+   per-lane call of the library function.
+2. **Rounding and remainder** (rows 344 and 346, and the remainders of 30, 95 and 577), which need
+   no library: about ten entries on each type, the largest share for the least work.
+3. **The casts and the hash compiler** (rows 343, 346 and 337).
+4. **The vfdlibm-paired port arms**, which move no census pair. A port is an option arm of the
+   exact family (`VARKA-345.md` 2.1), kept either way and the default only where it measures faster
+   on the runners, so a port is ranked by that measurement and the owner's decision and not by
+   pairs moved. vfdlibm holds `exp`, `expm1`, `log`, `log10` and `log1p`, and Varka's ports of them
+   (rows 345b to 345e) are on branches. The owner decided on 20 November 2026 that the new vfdlibm
+   ports are scheduled in this milestone: `pow`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`
+   and `hypot`, the eight of the thirteen functions of `VARKA-345.md` that vfdlibm does not hold
+   yet. Each is written twice, in vfdlibm and as Varka's IR expansion; `pow` is about a fifth of the
+   thirteen's code and `log10` the smallest, and the order of the rest is set by what each port
+   builds on (`sinh` and `cosh` on `exp` and `expm1`).
+
+### 13.3 The slot
+
+Inside the order of 12.4, which the track does not reorder (the decimal chain keeps its place), one
+of every three pull requests that open is a floating-track row of items 1 to 3, ranked by census
+pairs moved as 12.3 sets, until `double` has 77 of its 102 pairs and `float` 50 of its 66, three
+quarters of each, as 1.1 item 2 asks of the census. A pull request that adds a port arm opens its
+vfdlibm pull request in the same sitting, and does not count against the slot, since it moves no
+pair.
