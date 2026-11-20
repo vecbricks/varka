@@ -144,6 +144,21 @@ final class VarkaConversionLowering {
     }
   }
 
+  /**
+   * {@code [v] -> [(double) v]} for a conversion inside another node's lowering, a
+   * {@code GuardedProduct}'s: one {@code convertShape} at level 3 and above, and below it
+   * {@link WideConversionForm#XOR_SPLIT} whatever the option names, since {@code MAGIC}'s window
+   * is a guard planned on a {@code ConvertLane} and {@code SPLIT} is the arm kept to price it.
+   * The unknown level never reaches here: the kernel plan refuses the node there.
+   */
+  static void emitExactL2D(CodeBuilder cb, Analysis analysis) {
+    if (analysis.options.convertsFallBack()) {
+      emitXorSplit(cb);
+    } else {
+      VarkaVectorWalk.emitShapeConversion(cb, Lane.LONG, Lane.DOUBLE, analysis);
+    }
+  }
+
   /** {@code [n] -> [bitsToDouble(n op bits) - magic]}, {@code op} {@code add} or {@code or}. */
   private static void emitMagic(CodeBuilder cb, String op, long bits, double magic) {
     emitScalar(cb, op, bits);

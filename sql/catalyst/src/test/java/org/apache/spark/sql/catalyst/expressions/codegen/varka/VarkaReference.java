@@ -576,6 +576,14 @@ public final class VarkaReference {
         var c = longValue(n.child(), row, isNull, lits);
         yield c.isEmpty() ? c : OptionalLong.of(c.getAsLong() / n.divisor());
       }
+      // Java's wrapping `*`: on a row the pre-check admits the product is below 2^63 in
+      // magnitude, so this is the exact one; a row it trips on is declined, which is
+      // VarkaGuardSpecs' to say, not a value of this evaluator's.
+      case VarkaVectorIR.GuardedProduct n -> {
+        var a = longValue(n.left(), row, isNull, lits);
+        var b = a.isEmpty() ? a : longValue(n.right(), row, isNull, lits);
+        yield b.isEmpty() ? b : OptionalLong.of(a.getAsLong() * b.getAsLong());
+      }
       case GuardedRange g -> {
         var c = longValue(g.child(), row, isNull, lits);
         yield c.isPresent() && nulls(g, c.getAsLong()) ? OptionalLong.empty() : c;

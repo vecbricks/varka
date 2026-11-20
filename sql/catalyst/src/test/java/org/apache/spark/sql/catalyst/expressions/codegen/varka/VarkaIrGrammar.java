@@ -54,6 +54,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedProduct;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
@@ -392,6 +393,7 @@ public final class VarkaIrGrammar {
           ? over(n.left(), n.right(), VarkaIrGrammar::satMul)
           : over(n.left(), n.right(), VarkaIrGrammar::satAdd);
       case IntNeg n -> boundsOf(n.child());
+      case GuardedProduct n -> over(n.left(), n.right(), VarkaIrGrammar::satMul);
       case ConstDivide n -> over(n.child(), v -> v / Math.abs(n.divisor()));
       case BoundedDivide n ->
           new Bounds((long) ((n.bound() - 1) / n.divisor()), guard(n.child()));
@@ -1833,6 +1835,12 @@ public final class VarkaIrGrammar {
           Gen a = value(depth - 1);
           Gen b = value(depth - 1);
           long productBound = satMul(a.bound(), b.bound());
+          // Where the product may leave the long, half the time the guarded product, option B
+          // of the checked multiply (VARKA-611), whose declines the suite holds to
+          // VarkaGuardSpecs' double test; its bound stays the saturated one.
+          if (lane == LaneType.LONG && overflows(productBound) && rnd.nextBoolean()) {
+            return new Gen(new GuardedProduct(a.node(), b.node()), productBound);
+          }
           Overflow mode = lane.isNarrow() && !overflows(productBound) ? anyMode() : Overflow.WRAP;
           return new Gen(new IntArith(IntOp.MUL, mode, a.node(), b.node()), productBound);
         }

@@ -99,6 +99,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Com
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedProduct;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
@@ -1289,8 +1290,9 @@ final class VarkaNodeCompiler {
     if (y.isEmpty()) {
       return y;
     }
-    Optional<VarkaVectorIR> built =
-        arithOver(op, overflowOf(mode), x.get(), y.get(), whole, literals, mark, sink);
+    Optional<VarkaVectorIR> built = guardsProduct(op, mode, x.get(), y.get(), literals, sink)
+        ? Optional.of(new GuardedProduct(x.get(), y.get()))
+        : arithOver(op, overflowOf(mode), x.get(), y.get(), whole, literals, mark, sink);
     if (built.isPresent() && isLong(whole)) {
       built = twoLaneChecked(built.get(), whole, sink);
     }
@@ -1301,6 +1303,20 @@ final class VarkaNodeCompiler {
       sink.truncateLong(longMark);
     }
     return built;
+  }
+
+  /**
+   * Whether a checked {@code BIGINT} multiply the lattice cannot bound is built as a
+   * {@link GuardedProduct}, option B of {@code VARKA-104.md} 3.3, in place of the decline
+   * {@link #arithOver} gives it: where the session's options build one
+   * ({@link DeclineSink#guardsLongProducts}, `VARKA-611.md` 3.2). A bounded product stays the
+   * unchecked {@code IntArith} it is today.
+   */
+  private static boolean guardsProduct(IntOp op, Object mode, VarkaVectorIR x, VarkaVectorIR y,
+      VarkaSlotTable literals, DeclineSink sink) {
+    return op == IntOp.MUL && overflowOf(mode) != Overflow.WRAP && sink.guardsLongProducts()
+        && x.laneType() == LaneType.LONG && y.laneType() == LaneType.LONG
+        && !cannotOverflow(op, x, y, literals, sink);
   }
 
   /** Why a checked bigint operation declines on a two-lane host ({@link #twoLaneChecked}). */
@@ -1319,6 +1335,8 @@ final class VarkaNodeCompiler {
     Overflow mode = switch (node) {
       case IntArith a -> a.mode();
       case IntNeg n -> n.mode();
+      // Its pre-check is a long-lane mask in every mode.
+      case GuardedProduct _ -> Overflow.FAIL;
       default -> Overflow.WRAP;
     };
     if (mode != Overflow.WRAP && sink.declinesTwoLaneChecks()) {

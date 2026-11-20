@@ -248,7 +248,63 @@ run: item 2.3 settles it.
 
 ## 9. Outcome
 
-*To be written when the work lands.*
+### 9.1 What step 2 built (20 November 2026, while the owner was away)
+
+Built on `varka-611-guarded-product` against master `767dcddce50`, local only.
+
+- **The node.** `VarkaVectorIR.GuardedProduct(left, right)`, long lane only, no mode; it renders
+  as `(guardedMul a b)`, with `BOUND = 2^62` and `trips(a, b)`, the Java form of the kernel's
+  test that the reference side reads. Every exhaustive switch over the IR names it (the
+  compiler found them: `Analysis`, `Slots`, `VarkaKernelPlan`'s two long-narrow switches,
+  `VarkaEmitCost`, `VarkaEmitBudget`, `VarkaRangeAnalysis`, `VarkaSameAnswer`,
+  `VarkaOperandPosition`, `VarkaChronoCompiler`, and the test tree's reference, guard specs,
+  canonical parser, word census, SMT refusals and grammar).
+- **The lowering** (`VarkaVectorWalk.emitGuardedProduct`) parks nothing: the long `MUL` is taken
+  off a `dup2` and sunk under the operands with `dup_x2`, the operands are converted where they
+  lie, multiplied as doubles, and the magnitude is the product's bits with the sign cleared
+  (`AND Long.MAX_VALUE`) compared as a long `GE` with `2^62`'s bits. That replaces 3.1's `ABS`
+  and double compare by one `AND` and a long compare: the same lanes for every non-negative
+  double up to the infinity, and the mask is on the driving long lane, so the guard collect
+  needs no mask cast. The conversion is `VarkaConversionLowering.emitExactL2D`: one
+  `convertShape` at level 3, `XOR_SPLIT` below it whatever `wideConversionForm` says.
+- **The refusal.** The node registers `INT_OVERFLOW` unconditionally (not behind
+  `checkIntOverflow`: the compiler admits the multiply on its strength, as a range guard's), so
+  a tripped batch returns `STATUS_INT_OVERFLOW` and the row engine raises or nulls.
+- **The option.** `VarkaEmitOptions.checkedLongMultiply`, `BOUND_ONLY` (default) | `MAGNITUDE` |
+  `BY_HOST`, reason `MACHINE`, tag `checkedLongMultiply=`, subject level 2;
+  `guardsLongProducts(x86)` resolves it. The projection compile's `DeclineSink` reads it
+  (`VarkaNodeCompiler.guardsProduct`), and `twoLaneChecked` names the node as `FAIL`.
+- **The kernel plan.** `conversionRefusal` refuses a `GuardedProduct` at the unknown level with
+  `Kind.CONVERSION` and `GUARDED_PRODUCT_UNKNOWN_LEVEL`.
+- **The fuzzer.** `LongShapes`' multiply arm draws the node half the time where the product's
+  bound may leave the long, and `VarkaGuardSpecs` holds its declines to `trips`.
+
+Not built in this window: the decline section of the benchmark (6) and the runner readings,
+which are owed (8 step 3).
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **`BY_HOST` is built now, not after the readings, and is not the default.** The coordinator's
+   brief named the choice; 3.2 makes it the default only once 6.1's rule chooses. It resolves to
+   B on x86 at levels 2 and 3 (`GUARDED_PRODUCT_LEVELS`), the levels predictions 1 and 2 expect
+   B to win at, and to A elsewhere; the default stays `BOUND_ONLY`, so no session changes. When
+   the readings land, the set is narrowed to the levels the rule chose and the default flips in
+   that commit, or `BY_HOST` is removed if B is dropped.
+2. **At the unknown level the compiler keeps A's decline reason.** 5.4 asked for the
+   `CONVERSION` reason from the compiler; the compiler never builds the node there
+   (`guardsLongProducts` is false), so the multiply declines as A does, with A's reason, and the
+   `CONVERSION` refusal comes from the kernel plan for a node that reaches it another way. One
+   reason per cause: the compiler's says the multiply was not built, the plan's says the node
+   cannot run.
+3. **Projections only.** The filter compile (`compilePredicate`) builds its sink without the
+   options and keeps A: a checked product in a filter's condition is not one of 6's sections and
+   would add a conversion to the two-lane condition refusal's ground.
+4. **The magnitude as bits, not `ABS` and a double compare** (9.1), and **`INT_OVERFLOW`, not a new
+   refusal reason**: a new status bit would touch the evaluator's reason table for no reader
+   that distinguishes the two.
+5. **Checks in `VarkaEmitterLongLaneSuite` for 5.1, 5.2, 5.4 and 5.5,** including the compiled
+   arms, which compile Catalyst expressions there rather than in `VarkaExpressionCompilerSuite`,
+   so the arms' IR and their batches of 1, 3 and 4,096 rows sit in one test.
 
 ## 10. Questions for the owner
 

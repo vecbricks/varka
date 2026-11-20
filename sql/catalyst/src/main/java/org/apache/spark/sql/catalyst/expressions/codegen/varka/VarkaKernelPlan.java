@@ -660,6 +660,11 @@ public final class VarkaKernelPlan {
    * cast, so neither AVX2 form is needed there
    * ({@code VarkaHostIsa.Reading.conversionsAreInstructions}).
    */
+  /** Why a {@code GuardedProduct} is refused at the unknown level ({@link #conversionRefusal}). */
+  public static final String GUARDED_PRODUCT_UNKNOWN_LEVEL = "a guarded BIGINT product at an "
+      + "unknown emit level, whose magnitude check converts to DOUBLE on a host that may lack "
+      + "AVX512DQ (row 611)";
+
   private static Optional<Refusal> conversionRefusal(List<VarkaVectorIR> roots,
       VarkaEmitOptions options) {
     var seen = new HashSet<VarkaVectorIR>();
@@ -678,6 +683,11 @@ public final class VarkaKernelPlan {
           return Optional.of(new Refusal(Kind.CONVERSION, "a BIGINT conversion to " + c.target()
               + " at an unknown emit level, which may be a host's without AVX512DQ (row 343)"));
         }
+      }
+      // A guarded product converts both operands inside its own lowering, so it is refused
+      // where a BIGINT conversion is, with no ConvertLane in the tree to find (VARKA-611).
+      if (node instanceof VarkaVectorIR.GuardedProduct && options.levelUnknown()) {
+        return Optional.of(new Refusal(Kind.CONVERSION, GUARDED_PRODUCT_UNKNOWN_LEVEL));
       }
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
         todo.push(child);
@@ -814,7 +824,8 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.LiteralSlot _, VarkaVectorIR.GuardedDay _, VarkaVectorIR.GuardedRange _,
           WidenLane _, VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _,
           VarkaVectorIR.DateDiff _, IntArith _, VarkaVectorIR.IntNeg _,
-          VarkaVectorIR.ConstDivide _, VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _,
+          VarkaVectorIR.GuardedProduct _, VarkaVectorIR.ConstDivide _,
+          VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _,
           VarkaVectorIR.BitCount _, VarkaVectorIR.MathUnary _, VarkaVectorIR.RoundToIntegral _,
           VarkaVectorIR.CanonicalFloat _, VarkaVectorIR.CanonicalBits _,
           VarkaVectorIR.HashStep _, VarkaVectorIR.IfElse _,
@@ -868,8 +879,9 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.DecimalWord _,
           VarkaVectorIR.LiteralSlot _, VarkaVectorIR.GuardedDay _, VarkaVectorIR.GuardedRange _,
           VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _,
-          IntArith _, VarkaVectorIR.IntNeg _, VarkaVectorIR.ConstDivide _,
-          VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
+          IntArith _, VarkaVectorIR.IntNeg _, VarkaVectorIR.GuardedProduct _,
+          VarkaVectorIR.ConstDivide _, VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _,
+          VarkaVectorIR.BitCount _,
           VarkaVectorIR.MathUnary _, VarkaVectorIR.RoundToIntegral _, VarkaVectorIR.IfElse _,
           VarkaVectorIR.CanonicalFloat _, VarkaVectorIR.CanonicalBits _,
           VarkaVectorIR.HashStep _, VarkaVectorIR.CondValue _,

@@ -425,6 +425,11 @@ public final class VarkaGuardSpecs {
       BigInteger c = values.value(n.child());
       return c != null && outside(c.negate(), lane);
     }
+    if (node instanceof GuardedProduct n) {
+      BigInteger l = values.value(n.left());
+      BigInteger r = l == null ? null : values.value(n.right());
+      return r != null && outside(l.multiply(r), lane);
+    }
     return false;
   }
 
@@ -540,6 +545,14 @@ public final class VarkaGuardSpecs {
       }
       case GuardedDay n -> outside(values.value(n.days()), b);
       case GuardedRange n -> outside(values.value(n.child()), b);
+      // Not a bound but the kernel's own double test, which Java's doubles compute bit for bit
+      // as the lanes do: a row trips exactly where GuardedProduct.trips says, the rounding band
+      // below 2^62 included.
+      case GuardedProduct n -> {
+        BigInteger l = values.value(n.left());
+        BigInteger r = l == null ? null : values.value(n.right());
+        yield r != null && GuardedProduct.trips(l.longValueExact(), r.longValueExact());
+      }
       // No guard is placed on any other node; reaching one means the emitter placed a guard this
       // class does not know, which is the case to add.
       case ColumnRef _, DecimalColumn _, VarkaVectorIR.DecimalWord _, LiteralSlot _, DateDiff _,

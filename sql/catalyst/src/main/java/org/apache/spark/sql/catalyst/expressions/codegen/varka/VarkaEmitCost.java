@@ -151,6 +151,7 @@ final class VarkaEmitCost {
       case VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _,
           VarkaVectorIR.GuardedDay _, VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _,
           VarkaVectorIR.ConvertLane _, VarkaVectorIR.ReinterpretLane _,
+          VarkaVectorIR.GuardedProduct _,
           VarkaVectorIR.WidenDecimal _,
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _,
           VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _,
