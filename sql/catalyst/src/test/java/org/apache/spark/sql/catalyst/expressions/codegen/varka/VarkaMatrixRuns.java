@@ -136,8 +136,8 @@ public final class VarkaMatrixRuns {
   /**
    * The options that change what C2 compiles a kernel against, not only its bytes: a second
    * vector species in the JVM (the lane count, the half species), the instructions C2 may use,
-   * the form a kernel's narrow store takes (VARKA-603), or a helper call in place of each
-   * {@code fromLong} intrinsic, whose inlining decides whether the kernel allocates (VARKA-375).
+   * the form a kernel's narrow store takes (VARKA-603), or a construction of several Vector API
+   * calls in place of each {@code fromLong} intrinsic, which C2 compiles otherwise (VARKA-375).
    */
   public static final Set<String> C2_OPTIONS =
       Set.of("lanesOverride", "narrowHalfSpecies", "useAVX", "narrowGroupStore", "maskFromWord");

@@ -488,9 +488,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        folds away where it is off, is right on every host and JDK; true is the losing arm, an
  *        AND a site cheaper on x86 below AVX-512, kept for the A/B and for the JDKs that fix the
  *        rule ({@code m9/SCOPE.md} item 114).
- * @param maskFromWord whether every word an emitted kernel turns into a mask goes through
- *        {@link VarkaMaskFromWord} - a broadcast, an {@code AND} with each lane's bit and a compare
- *        with zero - rather than {@code VectorMask.fromLong} (VARKA-375). JDK 25's C2 lowers
+ * @param maskFromWord whether every word an emitted kernel turns into a mask is built by the
+ *        construction of {@link VarkaMaskFromWord} - a broadcast, an {@code AND} with each lane's
+ *        bit and a compare with zero, emitted in the kernel - rather than by
+ *        {@code VectorMask.fromLong} (VARKA-375). JDK 25's C2 lowers
  *        {@code fromLong} on aarch64 only with SVE2's bit-permute extension, so on a NEON-only or
  *        SVE1 core it is the Vector API's allocating Java fallback; the construction uses no
  *        mask-from-bits instruction. Under it the masked body's words skip the

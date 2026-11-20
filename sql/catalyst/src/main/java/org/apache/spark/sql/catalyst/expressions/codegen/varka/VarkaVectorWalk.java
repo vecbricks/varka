@@ -1815,9 +1815,10 @@ final class VarkaVectorWalk {
    * those is a Vector API method C2 force-inlines, where a call to a helper of Varka's is an
    * ordinary call that C2 stops inlining once a wide kernel's method reaches
    * {@code DesiredMethodLimit} or {@code NodeCountInliningCutoff}, which a warm-up probe under
-   * {@code -XX:+PrintInlining} showed, the kernel then allocating a mask a call. The broadcast form
-   * needs every lane's bit within one element; a byte species past 8 lanes or a short one past 16
-   * needs {@link VarkaMaskFromWord}'s element select, which is called instead.
+   * {@code -XX:+PrintInlining} showed, the kernel then allocating a mask a call. A byte species
+   * past 8 lanes or a short one past 16 has lanes whose bits are in another element of the word;
+   * there each lane first picks its element with {@code selectFrom}, as
+   * {@link VarkaMaskFromWord} does.
    */
   static void emitFromLong(CodeBuilder cb, Lane lane, Analysis analysis) {
     if (!analysis.options.maskFromWord()) {
@@ -1829,19 +1830,37 @@ final class VarkaVectorWalk {
       case FLOAT -> Lane.INT;
       case DOUBLE -> Lane.LONG;
     };
+    var species = integral.speciesField(analysis.lanesOf(lane));
     int lanes = analysis.lanesOf(lane) == 0 ? lane.preferredLanes : analysis.lanesOf(lane);
-    if (lanes > integral.bits) {
-      String method = switch (lane) {
-        case BYTE -> "ofByte";
-        case SHORT -> "ofShort";
-        case INT -> "ofInt";
-        case FLOAT -> "ofFloat";
-        case LONG, DOUBLE -> throw VarkaErrors.illegalState("a word holds every 64-bit lane");
-      };
-      cb.invokestatic(MASK_FROM_WORD, method, FROM_LONG);
+    if (lanes > integral.bits && (integral == Lane.BYTE || integral == Lane.SHORT)) {
+      // A byte or short lane past one element's bits: the word broadcast as longs at the same
+      // width, viewed at the lane, and each lane's element picked by selectFrom by the table of
+      // lane i's element, i / bits. [species, word] -> [vector]; the species is the constant's.
+      cb.getstatic(Lane.LONG.vector, Lane.LONG.speciesField(analysis.lanesOf(lane) == 0 ? 0
+          : lanes * integral.bits / Long.SIZE), VECTOR_SPECIES);
+      cb.dup_x2();
+      cb.pop();
+      cb.invokestatic(Lane.LONG.vector, "broadcast", Lane.LONG.broadcast);
+      cb.invokevirtual(Lane.LONG.vector, integral == Lane.BYTE ? "reinterpretAsBytes"
+          : "reinterpretAsShorts", MethodTypeDesc.of(integral.vector));
+      cb.swap();
+      var elements = integral.scalar.arrayType();
+      cb.getstatic(MASK_FROM_WORD, integral == Lane.BYTE ? "BYTE_ELEMENT" : "SHORT_ELEMENT",
+          elements);
+      cb.iconst_0();
+      cb.invokestatic(integral.vector, "fromArray",
+          MethodTypeDesc.of(integral.vector, VECTOR_SPECIES, elements, ConstantDescs.CD_int));
+      cb.swap();
+      cb.invokevirtual(integral.vector, "selectFrom", integral.lanewiseVV);
+      emitLaneBitsTest(cb, integral, species);
       return;
     }
-    var species = integral.speciesField(analysis.lanesOf(lane));
+    if (lanes > integral.bits) {
+      // An int species past 32 lanes, wider than 1024 bits, which no host the milestone measures
+      // has: the helper's element select.
+      cb.invokestatic(MASK_FROM_WORD, lane == Lane.INT ? "ofInt" : "ofFloat", FROM_LONG);
+      return;
+    }
     if (integral != lane) {
       // [species, word] -> [species, intSpecies, word]: the floating species stays for the cast.
       cb.getstatic(integral.vector, species, VECTOR_SPECIES);
@@ -1857,6 +1876,19 @@ final class VarkaVectorWalk {
       }
     }
     cb.invokestatic(integral.vector, "broadcast", integral.broadcast);
+    emitLaneBitsTest(cb, integral, species);
+    if (integral != lane) {
+      cb.swap();
+      cb.invokevirtual(VECTOR_MASK, "cast", MASK_CAST);
+    }
+  }
+
+  /**
+   * {@code [vector] -> [mask]} at an integral lane: lane {@code i} set where the vector's lane
+   * holds lane {@code i}'s bit, by an {@code AND} with {@link VarkaMaskFromWord}'s table of each
+   * lane's bit at the lane's constant {@code species} and a compare with zero.
+   */
+  private static void emitLaneBitsTest(CodeBuilder cb, Lane integral, String species) {
     cb.getstatic(integral.vector, species, VECTOR_SPECIES);
     var table = integral.scalar.arrayType();
     cb.getstatic(MASK_FROM_WORD, laneBitsTable(integral), table);
@@ -1871,10 +1903,6 @@ final class VarkaVectorWalk {
       cb.iconst_0();
     }
     cb.invokevirtual(integral.vector, "compare", integral.compareVI);
-    if (integral != lane) {
-      cb.swap();
-      cb.invokevirtual(VECTOR_MASK, "cast", MASK_CAST);
-    }
   }
 
   /** The {@link VarkaMaskFromWord} table of each lane's bit at an integral lane. */

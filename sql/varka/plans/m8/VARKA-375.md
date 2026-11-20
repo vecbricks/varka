@@ -344,8 +344,9 @@ is not built until one exists. Section 8's step 2 is the run this decision allow
    only `@ForceInline` methods past those limits (`bytecodeInfo.cpp` 365 to 398), and a compile
    directive does not, so a helper of Varka's cannot be relied on in a wide kernel. The kernel
    now emits the broadcast, the table load, the `AND`, the compare and (for floating lanes) the
-   cast itself. The helper stays for the byte species past 8 lanes and the short past 16, whose
-   element select it holds, and for the warm-up and the tests. The option is off by default, so
+   cast itself. A byte species past 8 lanes and a short past 16 get the element select
+   (`selectFrom` by the table of each lane's element) emitted the same way. The helper stays for
+   the warm-up, the tests and an int species past 32 lanes, which no host here has. The option is off by default, so
    its cost-model fit is not a default's concern; the option matrix and an A/B price it.
 6. **Under the option the masked body's words skip the `VarkaMaskGuard` AND**: the guard exists
    only to keep `VectorLongToMask` from folding a `toLong` (VARKA-396), and the construction emits
@@ -358,8 +359,8 @@ is not built until one exists. Section 8's step 2 is the run this decision allow
    predicted the construction would not rescue it; the laptop's probe at `MaxVectorSize=16`
    shows both forms allocating there (9.3), so no census cell is added.
 9. **The template warm-up makes each lane's mask both ways** (`VarkaVectorTemplateWarmup.masks`),
-   by section 0's warm-up rule, though `VarkaWarmupReachSuite` would not catch the omission: it
-   reads the Vector API calls a kernel's bytes make, and the kernel calls the helper.
+   by section 0's warm-up rule, and `VarkaWarmupReachSuite` reads the Vector API calls the emitted
+   construction makes, as for any kernel.
 
 ### 9.3 What was built and measured
 

@@ -30,8 +30,8 @@ import jdk.incubator.vector.VectorSpecies;
  * (VARKA-375): lane {@code i} of the mask is set where bit {@code i} of the word is, and the bits
  * at and above the species' lane count are ignored, as {@code fromLong} does. Emitted kernels make
  * the same construction under {@link VarkaEmitOptions#maskFromWord()}, emitted operator by operator
- * where the broadcast form serves the lane count and as a call to this class's method where it
- * does not ({@code VarkaVectorWalk.emitFromLong}); the template warm-up and the tests call it.
+ * from this class's tables ({@code VarkaVectorWalk.emitFromLong}), and call a method here only for
+ * an int species past 32 lanes; the template warm-up and the tests call it.
  *
  * <p>Why it exists: JDK 25's C2 lowers {@code fromLong} (the {@code VectorLongToMask} node) on
  * aarch64 only where the core has SVE2's bit-permute extension ({@code aarch64_vector.ad}, the
@@ -64,8 +64,9 @@ public final class VarkaMaskFromWord {
   private static final int WORD_BITS = Long.SIZE;
 
   /*
-   * Lane i's bit at each integral lane, public because emitted kernels load them (they live in
-   * another runtime package); nothing may write them.
+   * Lane i's bit at each integral lane, and below lane i's element at the narrow lanes, public
+   * because emitted kernels load them (they live in another runtime package); nothing may write
+   * them, which VarkaMaskFromWordSuite checks.
    */
   public static final long[] LONG_BITS = new long[WORD_BITS];
   public static final int[] INT_BITS = new int[WORD_BITS];
@@ -73,8 +74,8 @@ public final class VarkaMaskFromWord {
   public static final byte[] BYTE_BITS = new byte[WORD_BITS];
   /** Lane {@code i}'s element of the word viewed at the lane's width: {@code i / width}. */
   private static final int[] INT_ELEMENT = new int[WORD_BITS];
-  private static final short[] SHORT_ELEMENT = new short[WORD_BITS];
-  private static final byte[] BYTE_ELEMENT = new byte[WORD_BITS];
+  public static final short[] SHORT_ELEMENT = new short[WORD_BITS];
+  public static final byte[] BYTE_ELEMENT = new byte[WORD_BITS];
 
   static {
     for (int i = 0; i < WORD_BITS; i++) {

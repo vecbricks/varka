@@ -118,6 +118,21 @@ public final class VarkaMaskFromWordSuite {
         + String.join("\n  ", wrong.subList(0, Math.min(wrong.size(), 20))));
   }
 
+  @Test
+  @Tag(VarkaSuite.PINS_DEFAULTS)
+  @DisplayName("the tables every kernel under maskFromWord loads hold each lane's bit and element")
+  void tablesAreUnwritten() {
+    // Public so that emitted kernels can load them; a write anywhere would corrupt every mask.
+    for (int i = 0; i < Long.SIZE; i++) {
+      assertEquals(1L << i, VarkaMaskFromWord.LONG_BITS[i], "LONG_BITS " + i);
+      assertEquals(1 << (i % 32), VarkaMaskFromWord.INT_BITS[i], "INT_BITS " + i);
+      assertEquals((short) (1 << (i % 16)), VarkaMaskFromWord.SHORT_BITS[i], "SHORT_BITS " + i);
+      assertEquals((byte) (1 << (i % 8)), VarkaMaskFromWord.BYTE_BITS[i], "BYTE_BITS " + i);
+      assertEquals((short) (i / 16), VarkaMaskFromWord.SHORT_ELEMENT[i], "SHORT_ELEMENT " + i);
+      assertEquals((byte) (i / 8), VarkaMaskFromWord.BYTE_ELEMENT[i], "BYTE_ELEMENT " + i);
+    }
+  }
+
   /** The coverage rows' kernels as the compiler builds them, with their names. */
   private static List<VarkaWidthAuditShapes.Shape> shapes() {
     String home = System.getProperty("spark.test.home", System.getenv("SPARK_HOME"));
