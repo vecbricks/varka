@@ -24,18 +24,23 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.ValueLayout;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.SplittableRandom;
+import java.util.function.BiFunction;
+import java.util.function.DoubleUnaryOperator;
 import java.util.function.Function;
 import java.util.function.IntPredicate;
 import java.util.function.LongBinaryOperator;
+import java.util.function.UnaryOperator;
 
 import io.github.vecbricks.vfdlibm.VFdlibm;
 import jdk.incubator.vector.DoubleVector;
+import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorSpecies;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -47,17 +52,18 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 
 /**
- * The {@code PORT} form's frame and its template (`VARKA-345.md` 2.2, 2.3, 3.2): the word helpers
- * of {@link VarkaMathPort} against their definitions on the raw bits, and {@code exp}'s expansion,
- * emitted as a kernel, against {@code StrictMath.exp} and against the vector fdlibm library's
- * {@code VFdlibm.exp} on the same inputs, bit for bit.
+ * The {@code PORT} form's frame and its ports (`VARKA-345.md` 2.2, 2.3, 3.2): the word helpers
+ * of {@link VarkaMathPort} against their definitions on the raw bits, and each port's expansion,
+ * {@code exp}'s and {@code expm1}'s, emitted as a kernel, against its {@code StrictMath} method and
+ * against the vector fdlibm library's {@code VFdlibm} method and blended arm on the same inputs,
+ * bit for bit.
  *
- * <p>The library is {@code io.github.vecbricks:vfdlibm}, a test-scope dependency: the reference
- * and the oracle, never a kernel's run-time call. The sampled draws are 2.3's four over
- * {@code varka.math.samples} inputs, 2^24 by default; the fixed vectors are every threshold of
- * {@code e_exp.c} and its 64 neighbours each way, with the special values, over null patterns,
- * lengths and three widths. Each of the library's planted faults, built into the expansion, fails
- * the differential.
+ * <p>The library is {@code io.github.vecbricks:vfdlibm}, a test-scope dependency: the
+ * reference and the oracle, never a kernel's run-time call. The sampled draws are 2.3's four over
+ * {@code varka.math.samples} inputs a function, 2^24 by default; the fixed vectors are every
+ * threshold of its C file and its 64 neighbours each way, with the special values, over null
+ * patterns, lengths and three widths. Each of the library's planted faults, built into the
+ * expansion, fails the differential.
  */
 @VarkaSuite(ownJvm = true)
 public final class VarkaMathPortSuite {
@@ -73,10 +79,24 @@ public final class VarkaMathPortSuite {
   /** A port's root with its literal table. */
   private record Built(VarkaVectorIR root, long[] lits) {}
 
-  private static Built exp(VarkaMathPort.Fault fault) {
-    var table = new VarkaMathPort.Table();
-    VarkaVectorIR root = new VarkaMathPort(table).exp(X, fault);
-    return new Built(root, table.values());
+  /**
+   * A ported function: its expansion, its oracles ({@code StrictMath}'s method, {@code VFdlibm}'s
+   * and the library's blended arm, reached by reflection since its class is package-private), its
+   * fixed vectors and the range of draw 1, the domain where its result is finite and not a limit.
+   */
+  private record Fn(String name, BiFunction<VarkaMathPort, VarkaMathPort.Fault, VarkaVectorIR> port,
+      DoubleUnaryOperator strict, UnaryOperator<DoubleVector> library, Method blended,
+      long[] fixed, double lowest, double highest) {
+
+    Built build(VarkaMathPort.Fault fault) {
+      var table = new VarkaMathPort.Table();
+      VarkaVectorIR root = port.apply(new VarkaMathPort(table), fault);
+      return new Built(root, table.values());
+    }
+
+    Built build() {
+      return build(VarkaMathPort.Fault.NONE);
+    }
   }
 
   /**
@@ -92,6 +112,25 @@ public final class VarkaMathPortSuite {
         .withMethodByteBudget(VarkaEmitOptions.DEFAULTS.methodByteBudget())
         .withCse(true);
   }
+
+  private static Method blendedArm(String type, String method) {
+    try {
+      Method m = Class.forName("io.github.vecbricks.vfdlibm." + type)
+          .getDeclaredMethod(method, DoubleVector.class, VectorMask.class);
+      m.setAccessible(true);
+      return m;
+    } catch (ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
+
+  private static final Fn EXP = new Fn("exp", (p, f) -> p.exp(X, f), StrictMath::exp,
+      VFdlibm::exp, blendedArm("Exp", "expBlended"), expFixedVectors(), -745.2, 709.8);
+
+  private static final Fn EXPM1 = new Fn("expm1", (p, f) -> p.expm1(X, f), StrictMath::expm1,
+      VFdlibm::expm1, blendedArm("Expm1", "expm1Blended"), expm1FixedVectors(), -40.0, 709.8);
+
+  private static final List<Fn> FUNCTIONS = List.of(EXP, EXPM1);
 
   private static String hex(double v) {
     return String.format(Locale.ROOT, "%s (0x%016x)", v, Double.doubleToRawLongBits(v));
@@ -144,7 +183,8 @@ public final class VarkaMathPortSuite {
   // -------------------------------------------------------------------------------------------
 
   @Test
-  @DisplayName("exp's constants are the doubles whose words e_exp.c's comments give")
+  @DisplayName("the ports' constants are the doubles whose words e_exp.c's and s_expm1.c's "
+      + "comments give")
   void constantsMatchTheirWords() {
     Map<Double, Long> words = new HashMap<>();
     words.put(VarkaMathPort.TWOM1000, 0x01700000_00000000L);
@@ -158,6 +198,11 @@ public final class VarkaMathPortSuite {
     words.put(VarkaMathPort.P3, 0x3F11566A_AF25DE2CL);
     words.put(VarkaMathPort.P4, 0xBEBBBD41_C5D26BF1L);
     words.put(VarkaMathPort.P5, 0x3E663769_72BEA4D0L);
+    words.put(VarkaMathPort.Q1, 0xBFA11111_111110F4L);
+    words.put(VarkaMathPort.Q2, 0x3F5A01A0_19FE5585L);
+    words.put(VarkaMathPort.Q3, 0xBF14CE19_9EAADBB7L);
+    words.put(VarkaMathPort.Q4, 0x3ED0CFCA_86E65239L);
+    words.put(VarkaMathPort.Q5, 0xBE8AFDB7_6E09C32DL);
     for (var e : words.entrySet()) {
       assertEquals(e.getValue(), Double.doubleToRawLongBits(e.getKey()), hex(e.getKey()));
     }
@@ -282,10 +327,11 @@ public final class VarkaMathPortSuite {
   private static final VectorSpecies<Double> SPECIES = DoubleVector.SPECIES_PREFERRED;
 
   /**
-   * The two references of {@code xs}' lanes, as raw bits: {@code StrictMath.exp} and the library's
-   * {@code VFdlibm.exp} over {@code SPECIES}, with the tail padded by zeros.
+   * The three references of {@code xs}' lanes, as raw bits: {@code fn}'s {@code StrictMath}
+   * method, the library's {@code VFdlibm} method and its blended arm, the library over
+   * {@code SPECIES} with the tail padded by zeros.
    */
-  private static long[][] references(long[] xs, int length) {
+  private static long[][] references(Fn fn, long[] xs, int length) {
     long[] strict = new long[length];
     long[] library = new long[length];
     double[] in = new double[SPECIES.length()];
@@ -295,23 +341,30 @@ public final class VarkaMathPortSuite {
         in[j] = base + j < length ? Double.longBitsToDouble(xs[base + j]) : 0.0;
       }
       DoubleVector v = DoubleVector.fromArray(SPECIES, in, 0);
-      VFdlibm.exp(v).intoArray(out, 0);
+      fn.library().apply(v).intoArray(out, 0);
+      double[] outBlended;
+      try {
+        outBlended = ((DoubleVector) fn.blended().invoke(null, v, null)).toArray();
+      } catch (ReflectiveOperationException e) {
+        throw new AssertionError(e);
+      }
       for (int j = 0; j < in.length && base + j < length; j++) {
-        strict[base + j] = Double.doubleToRawLongBits(StrictMath.exp(in[j]));
+        strict[base + j] = Double.doubleToRawLongBits(fn.strict().applyAsDouble(in[j]));
         library[base + j] = Double.doubleToRawLongBits(out[j]);
       }
     }
     return new long[][] {strict, library};
   }
 
-  private static final String[] ORACLES = {"StrictMath.exp", "VFdlibm.exp"};
+  private static final String[] ORACLES = {"StrictMath", "VFdlibm", "the blended arm"};
 
   /** Adds a line per oracle {@code got} differs from at row {@code i}, up to ten in all. */
-  private static void compare(String where, long x, long got, long[][] refs, int i,
+  private static void compare(Fn fn, String where, long x, long got, long[][] refs, int i,
       List<String> failures) {
     for (int o = 0; o < refs.length; o++) {
       if (refs[o][i] != got && failures.size() < 10) {
-        failures.add(where + ": exp(" + hex(Double.longBitsToDouble(x)) + ") " + ORACLES[o]
+        failures.add(where + ": " + fn.name() + "(" + hex(Double.longBitsToDouble(x)) + ") "
+            + ORACLES[o]
             + " " + hex(Double.longBitsToDouble(refs[o][i])) + ", kernel "
             + hex(Double.longBitsToDouble(got)));
       }
@@ -319,17 +372,17 @@ public final class VarkaMathPortSuite {
   }
 
   // -------------------------------------------------------------------------------------------
-  // exp: the sampled differential (2.3 test 1)
+  // The sampled differential (2.3 test 1)
   // -------------------------------------------------------------------------------------------
 
   /**
-   * Draw {@code d}: uniform bit patterns; the finite-result domain, {@code [-745.2, 709.8]};
-   * {@code [-2, 2]}; and magnitudes down to {@code 2^-60} in both signs.
+   * Draw {@code d}: uniform bit patterns; {@code fn}'s finite-result domain; {@code [-2, 2]}; and
+   * magnitudes down to {@code 2^-60} in both signs.
    */
-  private static long draw(int d, SplittableRandom rnd) {
+  private static long draw(Fn fn, int d, SplittableRandom rnd) {
     return switch (d) {
       case 0 -> rnd.nextLong();
-      case 1 -> Double.doubleToRawLongBits(rnd.nextDouble(-745.2, 709.8));
+      case 1 -> Double.doubleToRawLongBits(rnd.nextDouble(fn.lowest(), fn.highest()));
       case 2 -> Double.doubleToRawLongBits(rnd.nextDouble(-2.0, 2.0));
       case 3 -> Double.doubleToRawLongBits((rnd.nextBoolean() ? 1 : -1)
           * Math.scalb(1.0 + rnd.nextDouble(), -rnd.nextInt(61)));
@@ -338,7 +391,7 @@ public final class VarkaMathPortSuite {
   }
 
   /** The kernel's mismatches against every oracle over the four draws, the first few listed. */
-  private static long sampledMismatches(Built built, List<String> firstFew) {
+  private static long sampledMismatches(Fn fn, Built built, List<String> firstFew) {
     long mismatches = 0;
     var rnd = new SplittableRandom(0x345bL);
     try (Kernel k = new Kernel(built, 0); Arena arena = Arena.ofConfined()) {
@@ -350,16 +403,16 @@ public final class VarkaMathPortSuite {
       for (int d = 0; d < 4; d++) {
         for (int b = 0; b < perDraw; b++) {
           for (int i = 0; i < BATCH; i++) {
-            xs[i] = draw(d, rnd);
+            xs[i] = draw(fn, d, rnd);
             x.data().set(ValueLayout.JAVA_LONG, i * 8L, xs[i]);
           }
           k.run(x, y, out, BATCH);
-          long[][] refs = references(xs, BATCH);
+          long[][] refs = references(fn, xs, BATCH);
           for (int i = 0; i < BATCH; i++) {
             long got = out.data().get(ValueLayout.JAVA_LONG, i * 8L);
             int before = firstFew.size();
             var lines = new ArrayList<String>();
-            compare("draw " + d, xs[i], got, refs, i, lines);
+            compare(fn, "draw " + d, xs[i], got, refs, i, lines);
             if (!lines.isEmpty()) {
               mismatches++;
               if (before < 5) {
@@ -374,36 +427,66 @@ public final class VarkaMathPortSuite {
   }
 
   @Test
-  @DisplayName("the exp port's kernel answers StrictMath.exp and vfdlibm's bits on every "
-      + "sampled input")
-  void expSampledDifferential() {
-    var firstFew = new ArrayList<String>();
-    long n = sampledMismatches(exp(VarkaMathPort.Fault.NONE), firstFew);
-    assertEquals(0L, n, n + " mismatches, " + firstFew);
+  @DisplayName("each port's kernel answers StrictMath's and vfdlibm's bits on every sampled input")
+  void sampledDifferential() {
+    for (Fn fn : FUNCTIONS) {
+      var firstFew = new ArrayList<String>();
+      long n = sampledMismatches(fn, fn.build(), firstFew);
+      assertEquals(0L, n, fn.name() + ": " + n + " mismatches, " + firstFew);
+    }
   }
 
   // -------------------------------------------------------------------------------------------
-  // exp: the fixed vectors (2.3 test 2)
+  // The fixed vectors (2.3 test 2)
   // -------------------------------------------------------------------------------------------
+
+  private static double fromHi(int h) {
+    return Double.longBitsToDouble(VarkaMathPort.fromHiBits(h));
+  }
 
   /**
    * Every threshold of e_exp.c in both signs with its 64 neighbours each way - the filter, the
    * overflow and underflow bounds, {@code 0.5 ln2} and {@code 1.5 ln2}, {@code 2^-28}, the
-   * subnormal scale-back's start near {@code -1021 ln2} - and SLEEF's special values with their
-   * neighbours: NaNs of both signs and several payloads, both infinities, {@code +-DBL_MAX},
-   * {@code +-DBL_MIN}, {@code +-denorm_min}, both zeros and {@code +-1}.
+   * subnormal scale-back's start near {@code -1021 ln2} - with the special values.
    */
-  static long[] fixedVectors() {
-    double[] edges = {VarkaMathPort.O_THRESHOLD, VarkaMathPort.U_THRESHOLD,
-        Double.longBitsToDouble(VarkaMathPort.fromHiBits(VarkaMathPort.HX_FILTER)),
-        Double.longBitsToDouble(VarkaMathPort.fromHiBits(VarkaMathPort.HX_HALF_LN2)),
-        Double.longBitsToDouble(VarkaMathPort.fromHiBits(0x3FF0A2B2)),
-        Double.longBitsToDouble(VarkaMathPort.fromHiBits(VarkaMathPort.HX_TINY)),
-        Double.longBitsToDouble(VarkaMathPort.fromHiBits(VarkaMathPort.HX_NON_FINITE)),
-        -1021 * Math.log(2.0), -1021.5 * Math.log(2.0), 0.5 * Math.log(2.0), 1.5 * Math.log(2.0),
-        Double.MAX_VALUE, Double.MIN_NORMAL, Double.MIN_VALUE, 0.0, 1.0};
+  static long[] expFixedVectors() {
+    double ln2 = Math.log(2.0);
+    return fixedVectors(VarkaMathPort.O_THRESHOLD, VarkaMathPort.U_THRESHOLD,
+        fromHi(VarkaMathPort.HX_FILTER), fromHi(VarkaMathPort.HX_HALF_LN2), fromHi(0x3FF0A2B2),
+        fromHi(VarkaMathPort.HX_TINY), fromHi(VarkaMathPort.HX_NON_FINITE), -1021 * ln2,
+        -1021.5 * ln2, 0.5 * ln2, 1.5 * ln2);
+  }
+
+  /**
+   * Every threshold of s_expm1.c in both signs with its 64 neighbours each way - the filter's
+   * {@code 56 ln2} and {@code 709.78}, {@code 0.5 ln2} and {@code 1.5 ln2}, {@code 2^-54} - and
+   * the edges of {@code k}'s forms: {@code k = 1}'s split at {@code r = -0.25}, and the first
+   * lanes of {@code k = 2}, {@code 20}, {@code 56} and {@code 57} - with the special values.
+   */
+  static long[] expm1FixedVectors() {
+    double ln2 = Math.log(2.0);
+    return fixedVectors(VarkaMathPort.O_THRESHOLD, fromHi(VarkaMathPort.HX_56_LN2),
+        fromHi(VarkaMathPort.HX_FILTER), fromHi(VarkaMathPort.HX_HALF_LN2), fromHi(0x3FF0A2B2),
+        fromHi(VarkaMathPort.HX_TINY_EXPM1), fromHi(VarkaMathPort.HX_NON_FINITE), ln2 - 0.25,
+        1.5 * ln2, 19.5 * ln2, 55.5 * ln2, 56.5 * ln2);
+  }
+
+  /**
+   * {@code edges} in both signs with their 64 neighbours each way, and SLEEF's special values with
+   * their neighbours: NaNs of both signs and several payloads, both infinities,
+   * {@code +-DBL_MAX}, {@code +-DBL_MIN}, {@code +-denorm_min}, both zeros and {@code +-1}.
+   */
+  private static long[] fixedVectors(double... thresholds) {
+    var all = new ArrayList<Double>();
+    for (double t : thresholds) {
+      all.add(t);
+    }
+    for (double v : new double[] {Double.MAX_VALUE, Double.MIN_NORMAL, Double.MIN_VALUE, 0.0,
+        1.0}) {
+      all.add(v);
+    }
     var bits = new ArrayList<Long>();
-    for (double e : edges) {
+    for (double e : all) {
       for (double signed : new double[] {e, -e}) {
         long b = Double.doubleToRawLongBits(signed);
         for (int k = -64; k <= 64; k++) {
@@ -423,17 +506,24 @@ public final class VarkaMathPortSuite {
       i -> false, i -> i % 5 == 0, i -> i % 2 == 1, i -> true);
 
   @Test
-  @DisplayName("the exp port's kernel answers the oracles' bits on the fixed vectors, over nulls, "
-      + "lengths and three widths")
-  void expFixedVectors() {
-    long[] vectors = fixedVectors();
-    long[][] refs = references(vectors, vectors.length);
+  @DisplayName("each port's kernel answers the oracles' bits on its fixed vectors, over nulls, "
+      + "lengths, three widths")
+  void fixedVectorsAnswerTheOracles() {
     var failures = new ArrayList<String>();
+    for (Fn fn : FUNCTIONS) {
+      fixedVectorFailures(fn, failures);
+    }
+    assertEquals(List.of(), failures);
+  }
+
+  private static void fixedVectorFailures(Fn fn, List<String> failures) {
+    long[] vectors = fn.fixed();
+    long[][] refs = references(fn, vectors, vectors.length);
     var variants = List.of(portBase().withLanesOverride(2), portBase().withLanesOverride(4),
         portBase().withLanesOverride(8));
     for (VarkaEmitOptions options : variants) {
       String lanes = options.canonical();
-      try (Kernel k = new Kernel(exp(VarkaMathPort.Fault.NONE), options)) {
+      try (Kernel k = new Kernel(fn.build(), options)) {
         for (int length : new int[] {1, 7, 33, vectors.length}) {
           for (int p = 0; p < NULL_PATTERNS.size(); p++) {
             IntPredicate isNull = NULL_PATTERNS.get(p);
@@ -450,8 +540,8 @@ public final class VarkaMathPortSuite {
                 if (valid(out, i) == isNull.test(i)) {
                   failures.add(where + ": validity " + valid(out, i));
                 } else if (!isNull.test(i)) {
-                  compare(where, vectors[i], out.data().get(ValueLayout.JAVA_LONG, i * 8L),
-                      refs, i, failures);
+                  compare(fn, where, vectors[i],
+                      out.data().get(ValueLayout.JAVA_LONG, i * 8L), refs, i, failures);
                 }
               }
             }
@@ -459,7 +549,6 @@ public final class VarkaMathPortSuite {
         }
       }
     }
-    assertEquals(List.of(), failures);
   }
 
   private static int depth(VarkaVectorIR node, Map<VarkaVectorIR, Integer> memo) {
@@ -477,21 +566,24 @@ public final class VarkaMathPortSuite {
   }
 
   @Test
-  @DisplayName("the exp port is deeper than a projection's cap, which its auto cap admits")
-  void expDepthIsWithinThePortCap() {
-    var root = exp(VarkaMathPort.Fault.NONE).root();
-    int d = depth(root, new HashMap<>());
+  @DisplayName("each port is deeper than a projection's cap, which its auto cap admits")
+  void depthIsWithinThePortCap() {
     var defaults = VarkaEmitOptions.DEFAULTS;
-    assertTrue(d > VarkaEmitBudget.MAX_CHAIN_DEPTH && d <= VarkaEmitBudget.PORT_MAX_CHAIN_DEPTH,
-        "the exp port's depth is " + d);
-    assertEquals(VarkaEmitBudget.PORT_MAX_CHAIN_DEPTH,
-        VarkaEmitBudget.chainDepthCap(defaults, root));
-    // A tree without a port keeps the lane's cap, and an explicit cap is honoured on a port.
+    for (Fn fn : FUNCTIONS) {
+      var root = fn.build().root();
+      int d = depth(root, new HashMap<>());
+      assertTrue(d > VarkaEmitBudget.MAX_CHAIN_DEPTH && d <= VarkaEmitBudget.PORT_MAX_CHAIN_DEPTH,
+          "the " + fn.name() + " port's depth is " + d);
+      assertEquals(VarkaEmitBudget.PORT_MAX_CHAIN_DEPTH,
+          VarkaEmitBudget.chainDepthCap(defaults, root));
+      assertEquals(16, VarkaEmitBudget.chainDepthCap(defaults.withMaxChainDepth(16), root));
+      // The tree passes the compiler's mirror at the default and fails it at 16.
+      assertTrue(VarkaLoopEmitter.fitsBudgets(List.of(root), 1, defaults));
+      assertFalse(VarkaLoopEmitter.fitsBudgets(List.of(root), 1,
+          defaults.withMaxChainDepth(16)));
+    }
+    // A tree without a port keeps the lane's cap.
     assertEquals(VarkaEmitBudget.MAX_CHAIN_DEPTH, VarkaEmitBudget.chainDepthCap(defaults, X));
-    assertEquals(16, VarkaEmitBudget.chainDepthCap(defaults.withMaxChainDepth(16), root));
-    // exp's own tree passes the compiler's mirror at the default and fails it at 16.
-    assertTrue(VarkaLoopEmitter.fitsBudgets(List.of(root), 1, defaults));
-    assertFalse(VarkaLoopEmitter.fitsBudgets(List.of(root), 1, defaults.withMaxChainDepth(16)));
   }
 
   @Test
@@ -526,37 +618,42 @@ public final class VarkaMathPortSuite {
   }
 
   @Test
-  @DisplayName("the exp port is declined, with the op cap's name, in the form without a byte "
+  @DisplayName("each port is declined, with the op cap's name, in the form without a byte "
       + "budget")
-  void expDeclinedWithoutAByteBudget() {
+  void portsDeclinedWithoutAByteBudget() {
     var options = portBase().withMethodByteBudget(0);
-    var built = exp(VarkaMathPort.Fault.NONE);
-    assertFalse(VarkaLoopEmitter.fitsBudgets(List.of(built.root()), 1, options));
-    var e = assertThrows(IllegalArgumentException.class,
-        () -> VarkaEmitterFixtures.emit(List.of(built.root()), 2, built.lits().length, options));
-    assertTrue(e.getMessage().contains("MAX_FUSED_NODES=64"), e.getMessage());
+    for (Fn fn : FUNCTIONS) {
+      var built = fn.build();
+      assertFalse(VarkaLoopEmitter.fitsBudgets(List.of(built.root()), 1, options), fn.name());
+      var e = assertThrows(IllegalArgumentException.class, () -> VarkaEmitterFixtures.emit(
+          List.of(built.root()), 2, built.lits().length, options), fn.name());
+      assertTrue(e.getMessage().contains("MAX_FUSED_NODES=64"), e.getMessage());
+    }
   }
 
   @Test
-  @DisplayName("the reference evaluator answers StrictMath.exp's bits on the exp port's tree")
-  void referenceEvaluatesThePort() {
-    Built built = exp(VarkaMathPort.Fault.NONE);
-    long[] vectors = fixedVectors();
-    var rnd = new SplittableRandom(0x345bL);
+  @DisplayName("the reference evaluator answers StrictMath's bits on each port's tree")
+  void referenceEvaluatesThePorts() {
     var failures = new ArrayList<String>();
-    for (int i = 0; i < vectors.length + 4000 && failures.size() < 10; i++) {
-      long x = i < vectors.length ? vectors[i] : draw(i % 4, rnd);
-      var got = VarkaReference.mixedValue(built.root(), new long[] {x, 0L},
-          new boolean[] {false, false}, new int[0], built.lits());
-      long want = Double.doubleToRawLongBits(StrictMath.exp(Double.longBitsToDouble(x)));
-      if (got.isEmpty() || got.getAsLong() != want) {
-        failures.add("exp(" + hex(Double.longBitsToDouble(x)) + "): want "
-            + hex(Double.longBitsToDouble(want)) + ", reference " + got);
+    for (Fn fn : FUNCTIONS) {
+      Built built = fn.build();
+      long[] vectors = fn.fixed();
+      var rnd = new SplittableRandom(0x345bL);
+      for (int i = 0; i < vectors.length + 4000 && failures.size() < 10; i++) {
+        long x = i < vectors.length ? vectors[i] : draw(fn, i % 4, rnd);
+        var got = VarkaReference.mixedValue(built.root(), new long[] {x, 0L},
+            new boolean[] {false, false}, new int[0], built.lits());
+        long want = Double.doubleToRawLongBits(
+            fn.strict().applyAsDouble(Double.longBitsToDouble(x)));
+        if (got.isEmpty() || got.getAsLong() != want) {
+          failures.add(fn.name() + "(" + hex(Double.longBitsToDouble(x)) + "): want "
+              + hex(Double.longBitsToDouble(want)) + ", reference " + got);
+        }
       }
+      var none = VarkaReference.mixedValue(built.root(), new long[] {0L, 0L},
+          new boolean[] {true, false}, new int[0], built.lits());
+      assertTrue(none.isEmpty(), fn.name() + " of a null is null, not " + none);
     }
-    var none = VarkaReference.mixedValue(built.root(), new long[] {0L, 0L},
-        new boolean[] {true, false}, new int[0], built.lits());
-    assertTrue(none.isEmpty(), "exp of a null is null, not " + none);
     assertEquals(List.of(), failures);
   }
 
@@ -604,17 +701,23 @@ public final class VarkaMathPortSuite {
   // -------------------------------------------------------------------------------------------
 
   @Test
-  @DisplayName("each of vfdlibm's planted faults, built into the expansion, fails the "
+  @DisplayName("each of vfdlibm's planted faults, built into each expansion, fails the "
       + "differential")
   void plantedFaultsAreCaught() {
-    long[] vectors = fixedVectors();
-    long[][] refs = references(vectors, vectors.length);
+    for (Fn fn : FUNCTIONS) {
+      plantedFaultsAreCaught(fn);
+    }
+  }
+
+  private static void plantedFaultsAreCaught(Fn fn) {
+    long[] vectors = fn.fixed();
+    long[][] refs = references(fn, vectors, vectors.length);
     for (VarkaMathPort.Fault fault : VarkaMathPort.Fault.values()) {
       if (fault == VarkaMathPort.Fault.NONE) {
         continue;
       }
       long n = 0;
-      try (Kernel k = new Kernel(exp(fault), 0); Arena arena = Arena.ofConfined()) {
+      try (Kernel k = new Kernel(fn.build(fault), 0); Arena arena = Arena.ofConfined()) {
         Col x = VarkaEmitterFixtures.makeLongInput(arena, vectors.length, i -> false,
             i -> vectors[i], false);
         Col y = VarkaEmitterFixtures.makeLongInput(arena, vectors.length, i -> false, i -> 0L,
@@ -628,9 +731,9 @@ public final class VarkaMathPortSuite {
         }
       }
       if (n == 0) {
-        n = sampledMismatches(exp(fault), new ArrayList<>());
+        n = sampledMismatches(fn, fn.build(fault), new ArrayList<>());
       }
-      assertTrue(n > 0, fault + " went unseen");
+      assertTrue(n > 0, fn.name() + ": " + fault + " went unseen");
     }
   }
 
