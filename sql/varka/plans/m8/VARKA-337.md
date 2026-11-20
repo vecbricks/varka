@@ -694,12 +694,33 @@ hash formula is the records' own for both nodes: `CanonicalFloat` keeps 337a1's
 `hashOf(child)`, as #1566 settled it, and `CanonicalBits` takes the same `hashOf(child)` by the
 owner's decision of 20 November 2026, so neither mixes its class in.
 
-Left of 337a: the compiler, the `HASH` family and the coverage rows (part 337a3, stacked on this
-one); the IR grammar's productions of 2.6 (the fuzz and grammar suites list both nodes as not
+Left of 337a, after 337a3 below: the IR grammar's productions of 2.6 (the fuzz and grammar suites list both nodes as not
 drawn yet, pointing here), `hash.smt2` with the step, fold and blend claims of 3.4, and the
 planted faults of 3.9's second and third bullets. Then, by section 5's order, the baseline (its
 build sheet below) and the spike, and the measurement that scores predictions 1 to 4; the PR
 build and the option matrix (3.8).
+
+**337a3, the compiler** (20 November 2026, branch `varka-337a3-hash-compiler`, stacked on 337a2,
+local; decision 16 below). Built: the `HASH` family with its switch and `VarkaHashCompiler`, last
+in the chain, claiming `Murmur3Hash` and `XxHash64` by exact class, so the collation-aware variants
+and `HiveHash` stay on the row engine; the fold of the children in order from the expression's
+seed, each child's word by 2.3's table: a bare int column through the int operand rule, a boolean
+as its cast to `INT`, the narrow types widened, the floating types canonicalised under the
+floating arithmetic family's switch, a decimal of precision 18 or less as its unscaled long, a
+null literal or `NullType` child skipped, a decimal above 18 declined naming 337b, and a hash of
+no column left declined as the constant Spark's optimizer folds; `floatingDecline` admits both
+classes; 33 coverage rows in a family "Hash" over every column type of the fixtures but the wide
+decimals; the census notes say what is built. `dev/varka_regen_generated.sh --all` added the rows
+to `coverage.json` and `docs/sql-varka.md` (and the family's switch to its table), their shapes to
+`emitted_bytes.json` and `width_audit.json`, and moved no existing shape: prediction 5 of section
+4, **held** for this part too. `census.tsv` counts the 24 pairs of section 6 as fused.
+
+Tests: `VarkaExpressionCompilerSuite` pins the trees the compiler builds for one column of each
+lane to `VarkaEmitterHashSuite`'s, which hold them to Spark's functions; a normalised key hashed as
+the column is; two children and a null literal as three steps; the two switches' declines; the
+decimal above 18 naming 337b; the collation-aware form unclaimed. `VarkaCoverageSuite` compiles
+the 33 rows and checks their domains (none guarded), and `VarkaCoverageHarnessSuite` runs them
+against Spark's row engine.
 
 ## Decisions taken while the owner was away (20 November 2026)
 
@@ -771,6 +792,9 @@ Taken for part 337a2, the hash steps (branch `varka-337a2-hash`, stacked on 337a
    consumers, the reference, the warm-up and the kernel suite; 337a3 the compiler, the family, the
    coverage rows and the generated files; a later part the grammar productions of 2.6,
    `hash.smt2` and the step and fold planted faults of 3.9.
+16. **A `BOOLEAN` child is compiled as `CAST(b AS INT)`**, which is the 1 or 0 Spark hashes, so
+   it is under the integral cast family's switch as well as the hash family's, as a floating child
+   is under the floating arithmetic family's.
 
 ## Build sheet (11 November 2026)
 

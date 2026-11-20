@@ -284,19 +284,19 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 
 | Type | Lanes | Entries | Fused | In part | Left, by need | Declined | Coverage rows |
 | :--- | :--- | ---: | ---: | ---: | :--- | ---: | :--- |
-| `BooleanType` (`bool`) | bitmap | 41 | 29 | 2 | plumbing 4, semantics 6 | 0 | 40 |
-| `ByteType` (`byte`) | BYTE, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 57 |
-| `ShortType` (`short`) | SHORT, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 55 |
-| `IntegerType` (`int`) | INT | 90 | 65 | 2 | plumbing 4, semantics 19 | 0 | 128 |
-| `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
-| `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
-| `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 82 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 9 | plumbing 12, semantics 43 | 3 | 85: 60 to precision 18, 25 at precision 19 to 38 |
-| `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
-| `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
-| `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
-| `YearMonthIntervalType` (`ym`) | INT | 55 | 36 | 3 | plumbing 3, semantics 13 | 0 | 37 |
-| `DayTimeIntervalType` (`dt`) | LONG | 57 | 34 | 2 | plumbing 5, semantics 16 | 0 | 33 |
+| `BooleanType` (`bool`) | bitmap | 41 | 29 | 2 | plumbing 4, semantics 6 | 0 | 43 |
+| `ByteType` (`byte`) | BYTE, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 60 |
+| `ShortType` (`short`) | SHORT, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 58 |
+| `IntegerType` (`int`) | INT | 90 | 65 | 2 | plumbing 4, semantics 19 | 0 | 136 |
+| `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 97 |
+| `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 66 |
+| `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 86 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 9 | plumbing 12, semantics 43 | 3 | 87: 62 to precision 18, 25 at precision 19 to 38 |
+| `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 109 |
+| `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 77 |
+| `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 49 |
+| `YearMonthIntervalType` (`ym`) | INT | 55 | 36 | 3 | plumbing 3, semantics 13 | 0 | 39 |
+| `DayTimeIntervalType` (`dt`) | LONG | 57 | 34 | 2 | plumbing 5, semantics 16 | 0 | 35 |
 
 #### By family
 
@@ -1364,27 +1364,43 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `bround(s1, -2)` | `rounding` | `s1 BETWEEN -32749 AND 32749` |  | vector |
 | `truncate(s1, -2)` | `rounding` |  |  | vector |
 
-#### Math functions
+#### Hash
 
-| Expression | Switches | Domain | Notes | Form | 128-bit lanes |
-|---|---|---|---|---|---|
-| `sin(x)` | `math` |  | exact: a per-lane Math.sin call, the host's answer as Spark's | exact: per-lane Math call | vector |
-| `cos(x)` | `math` |  | exact: a per-lane Math.cos call | exact: per-lane Math call | vector |
-| `tan(x)` | `math` |  | exact: a per-lane Math.tan call | exact: per-lane Math call | vector |
-| `asin(x)` | `math` |  | exact: a per-lane StrictMath.asin call, which Math.asin delegates to | exact: per-lane StrictMath call | vector |
-| `acos(x)` | `math` |  | exact: a per-lane StrictMath.acos call | exact: per-lane StrictMath call | vector |
-| `atan(x)` | `math` |  | exact: a per-lane StrictMath.atan call | exact: per-lane StrictMath call | vector |
-| `sec(x)` | `math` |  | 1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null | exact: per-lane Math call | vector |
-| `csc(x)` | `math` |  | 1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf | exact: per-lane Math call | vector |
-| `cot(x)` | `math` |  | 1 / Math.tan(x) | exact: per-lane Math call | vector |
-| `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | exact: per-lane Math call | vector |
-| `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | exact: per-lane Math call | per-lane: mask broadcast, mask test |
-
-#### Math functions as conditions
-
-| Predicate | Switches | Domain | Notes | Form | 128-bit lanes |
-|---|---|---|---|---|---|
-| `sin(x) < 0.5D` | `predicate`, `math` |  | the call, then the floating compare in Spark's order | exact: per-lane Math call | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `hash(i)` | `hash` |  | Murmur3's hashInt, its seed 42 | vector |
+| `xxhash64(i)` | `hash` |  | XXH64's hashInt of the int zero-extended in the long lane | per-lane: blend, mask broadcast, mask test |
+| `hash(l)` | `hash` |  | Murmur3's hashLong: the low int, then the high one, in the int lane of the long kernel | per-lane: mask broadcast, load or store |
+| `xxhash64(l)` | `hash` |  | XXH64's hashLong | per-lane: blend, mask broadcast |
+| `hash(b)` | `integralCast`, `hash` |  | a boolean is the int 1 or 0 | vector |
+| `xxhash64(b)` | `integralCast`, `hash` |  |  | per-lane: blend, mask broadcast, mask test |
+| `hash(y1)` | `hash` |  | a tinyint is sign-extended to an int | vector |
+| `xxhash64(y1)` | `hash` |  |  | per-lane: blend, mask broadcast, mask test |
+| `hash(s1)` | `hash` |  | a smallint is sign-extended to an int | vector |
+| `xxhash64(s1)` | `hash` |  |  | per-lane: blend, mask broadcast, mask test |
+| `hash(d)` | `hash` |  | a date is its day count | vector |
+| `xxhash64(d)` | `hash` |  |  | per-lane: blend, mask broadcast, mask test |
+| `hash(ym)` | `hash` |  | a year-month interval is its month count | vector |
+| `xxhash64(ym)` | `hash` |  |  | per-lane: blend, mask broadcast, mask test |
+| `hash(dt)` | `hash` |  | a day-time interval is its microseconds | per-lane: mask broadcast, load or store |
+| `xxhash64(dt)` | `hash` |  |  | per-lane: blend, mask broadcast |
+| `hash(t)` | `hash` |  | a time is its nanoseconds of the day | per-lane: mask broadcast, load or store |
+| `xxhash64(t)` | `hash` |  |  | per-lane: blend, mask broadcast |
+| `hash(ntz)` | `hash` |  | a TIMESTAMP_NTZ is its microseconds | per-lane: mask broadcast, load or store |
+| `xxhash64(ntz)` | `hash` |  |  | per-lane: blend, mask broadcast |
+| `hash(x)` | `floatingArithmetic`, `hash` |  | the bits of the canonical double: -0.0 hashes as 0.0 and every NaN as the one NaN, Spark's genHashDouble | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store |
+| `xxhash64(x)` | `floatingArithmetic`, `hash` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `hash(f)` | `floatingArithmetic`, `hash` |  | the bits of the canonical float, Spark's genHashFloat | vector |
+| `xxhash64(f)` | `floatingArithmetic`, `hash` |  |  | per-lane: blend, mask broadcast, mask test |
+| `hash(d9)` | `hash` |  | a decimal of precision 18 or less is its unscaled long | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
+| `xxhash64(d18)` | `hash` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `hash(i, l)` | `hash` |  | each child's step takes the previous step's value as its seed | per-lane: mask broadcast, load or store |
+| `xxhash64(l, i)` | `hash` |  |  | per-lane: blend, mask broadcast, load or store, mask test |
+| `hash(i, l, x, f)` | `floatingArithmetic`, `hash` |  | four children over both widths and both floating lanes | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store |
+| `xxhash64(f, i, x, l)` | `floatingArithmetic`, `hash` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store, mask test |
+| `hash(y1, s1, b)` | `integralCast`, `hash` |  |  | vector |
+| `hash(i, 7)` | `hash` |  | a literal child is hashed as its type is | vector |
+| `xxhash64(i ^ 5, l & 255)` | `intArithmetic`, `hash` |  | a child is any expression the chain compiles | per-lane: blend, mask broadcast, load or store, mask test |
 
 #### Floating casts to BOOLEAN
 
@@ -2462,6 +2478,7 @@ coverage table, and regenerated by the same command:
 | `spark.sql.codegen.varka.family.integralCast.enabled` | `true` | The integral cast family: the casts among tinyint, smallint, int, bigint and boolean that the int arithmetic family does not hold: the narrowings to tinyint and smallint (wrapping, or checked under ANSI), a tinyint or smallint widened to smallint or bigint, a number cast to boolean and a boolean cast to a number. |
 | `spark.sql.codegen.varka.family.rounding.enabled` | `true` | The rounding family: rint over a double; floor, ceil and ceiling over bigint and int operands; and round, bround and truncate over tinyint, smallint and int at a constant scale, and over bigint at a scale of zero or more. |
 | `spark.sql.codegen.varka.family.math.enabled` | `true` | The math family: the math functions over double operands (sin, cos, tan, asin, acos, atan, atan2, sec, csc, cot, sinh, cosh, tanh, asinh, acosh, atanh, exp, expm1, ln, log, log10, log1p, log2, pow, hypot and cbrt), each bit for bit Spark's unless spark.sql.codegen.varka.math.ulpContract.enabled is true; none fuses yet, and each declines naming the row of the plan that fuses it. |
+| `spark.sql.codegen.varka.family.hash.enabled` | `true` | The hash family: hash and xxhash64 over boolean, tinyint, smallint, int, bigint, float, double, date, timestamp_ntz, time, the interval types and a decimal of precision 18 or less, Spark's seed folded through the children and a null child skipped; a float or double child is canonicalised by the floating arithmetic family, whose switch it asks too. |
 <!-- END generated family switches -->
 
 The rule is registered on every `SparkSession` but does nothing while the
