@@ -589,4 +589,37 @@ against the baseline at both widths with its predictions scored.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### Decisions taken while the owner was away (20 November 2026)
+
+The owner was away and no lead could be asked; each decision below is the option the plan, the
+`sql/varka/AGENTS.md` rules and the plan's own recommendations favour, with its reason.
+
+1. **The order inside the row is baseline, 346b's `DOUBLE` output, then the rest.** Section 5 puts
+   346a (the remainder) before 346b, but 346a needs row 342's `Fma` node, which no branch builds
+   (flag 1 of section 8 is still open: `VARKA-342.md` has no FMA node), and 346c needs row 350,
+   which is Planned. 346b's `DOUBLE` output needs only what master has - 344a1's `2^52`
+   construction, 342's floating division, 343a's conversions - so it is built next; its `FLOAT`
+   output also needs `Fma` (the round-to-odd narrowing of 2.3) and declines by name until then.
+   Question 1 is taken as recommended, (a): the row lands in parts, Done in part between them.
+2. **The baseline's remainder sections divide by a new column, `w`.** The floating baseline's `y`
+   and `g` are exactly zero on one row in about 100000 (`(id * 7) % 100019 = 49500`), so `x % y`
+   raises under ANSI, Spark's default, and would end the run. `13 w` is an integer plus one half, so `w` is
+   never zero, and every quotient stays below `2^18`; the existing columns and sections are unchanged, so the
+   committed results stay comparable, and the new sections run after them.
+3. **`ROUNDING_BAND` takes status bit 8, and the evaluator's three bits move up by one.** The
+   kernels' bits 0 to 7 were all taken and `VarkaKernelRunner`'s own started at bit 8, with
+   `VarkaEvaluatorComponentsSuite` holding every kernel bit below every evaluator bit. The
+   evaluator's bits are never returned by a kernel, so moving them to 9, 10 and 11 changes no
+   emitted byte; reusing `VALUE_RANGE`, as the bounded `L2D` does, would have kept the bits but
+   lost the band's own name in the fallback counts, which 2.7 asks for.
+
+### The baseline, built 20 November 2026
+
+`VarkaRoundingBaselineBenchmark` gains `round(x, 2)`, `bround(x, 2)`, `truncate(x, 2)`,
+`round(x, 0)` and `round(f, 1)` over a new `FLOAT` column `f` (`x / 1000` narrowed), and
+`VarkaFloatingBaselineBenchmark` gains `x % w`, `x % 2.5D`, `pmod(x, w)`, `CAST(x AS DECIMAL(10,
+2))` and `f % wf`, each at both null densities, all after the existing sections and none listed as
+fusing. Every `x` is below `L_2 = 2^43` and every `|x / w|` below `2^18`, so the sections time the
+fused paths once they land rather than a declined band. The queries suites check the new columns'
+regions and that both sessions answer every section alike (50 and 30 sections). The runner results
+at 256 and 128 bits are owed: no benchmark runs in this window.
