@@ -1346,8 +1346,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // The decimal above 18 is row 337b's, and the collation-aware form is not claimed.
     val wide = AttributeReference("wide", DecimalType(38, 2))()
     assert(declineReason(new Murmur3Hash(Seq(wide)), childOutput :+ wide).contains("337b"))
-    assert(declineReason(new CollationAwareMurmur3Hash(Seq(i)), childOutput :+ i)
-      .nonEmpty)
+    assert(declineReason(new CollationAwareMurmur3Hash(Seq(i)), childOutput :+ i) ===
+      "unsupported expression")
   }
 
   private def declineReason(e: Expression, output: Seq[Attribute] = childOutput): String = {

@@ -16,8 +16,10 @@
  */
 package org.apache.spark.sql.catalyst.expressions.codegen;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import javax.annotation.Nullable;
 
@@ -153,7 +155,8 @@ final class VarkaHashCompiler {
       case ByteType b -> narrow(child, inputs, literals, sink);
       case ShortType s -> narrow(child, inputs, literals, sink);
       // A bare int column is a leaf only where an int operand is read, as arithmetic's are.
-      case IntegerType i -> VarkaNodeCompiler.intOperand(child, inputs, literals, sink);
+      case IntegerType i -> VarkaNodeCompiler.intOperand(child, inputs, literals, sink)
+          .flatMap(x -> onLane(x, LaneType.INT, child, sink));
       case DateType d -> lane(child, LaneType.INT, inputs, literals, sink);
       case YearMonthIntervalType y -> lane(child, LaneType.INT, inputs, literals, sink);
       case LongType l -> lane(child, LaneType.LONG, inputs, literals, sink);
@@ -189,12 +192,32 @@ final class VarkaHashCompiler {
   /** {@code e} compiled to a value on {@code lane}, or empty with the reason noted. */
   private static Optional<VarkaVectorIR> lane(Expression e, LaneType lane,
       VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
-    Optional<VarkaVectorIR> x = VarkaNodeCompiler.compileNode(e, inputs, literals, sink);
-    if (x.isPresent() && x.get().laneType() != lane) {
-      return sink.decline("a hash child computed on the " + x.get().laneType() + " lane, not "
-          + lane, e);
+    return VarkaNodeCompiler.compileNode(e, inputs, literals, sink)
+        .flatMap(x -> onLane(x, lane, e, sink));
+  }
+
+  /** {@code x} if it is on {@code lane}, else empty with the reason noted against {@code e}. */
+  private static Optional<VarkaVectorIR> onLane(VarkaVectorIR x, LaneType lane, Expression e,
+      DeclineSink sink) {
+    return x.laneType() == lane ? Optional.of(x) : sink.decline("a hash child computed on the "
+        + x.laneType() + " lane, not " + lane, e);
+  }
+
+  /**
+   * The families other than the hash family whose nodes {@code e}, a hash, builds for its
+   * children: the floating arithmetic family's canonicalisation of a floating child and the
+   * integral cast family's cast of a boolean one. Each is asked for its switch as it is built.
+   */
+  static Set<VarkaFamily> childFamilies(Expression e) {
+    var out = EnumSet.noneOf(VarkaFamily.class);
+    for (Expression child : CollectionConverters.asJava(e.children())) {
+      if (child.dataType() instanceof FloatType || child.dataType() instanceof DoubleType) {
+        out.add(VarkaFamily.FLOATING_ARITHMETIC);
+      } else if (child.dataType() instanceof BooleanType) {
+        out.add(VarkaFamily.INTEGRAL_CAST);
+      }
     }
-    return x;
+    return out;
   }
 
   /**

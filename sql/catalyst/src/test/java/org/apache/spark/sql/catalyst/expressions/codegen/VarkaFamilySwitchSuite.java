@@ -49,8 +49,10 @@ import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.catalyst.expressions.Murmur3Hash;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
+import org.apache.spark.sql.catalyst.expressions.XxHash64;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
@@ -266,6 +268,11 @@ public final class VarkaFamilySwitchSuite {
       stack.addAll(CollectionConverters.asJava(e.children()));
       if (isRead(e)) {
         continue;
+      }
+      // A hash builds nodes of other families for its floating and boolean children
+      // (VARKA-337 2.3), which no node of the bound tree is.
+      if (e instanceof Murmur3Hash || e instanceof XxHash64) {
+        found.addAll(VarkaHashCompiler.childFamilies(e));
       }
       boolean castOfRead = e instanceof Cast c && isRead(c.child());
       for (VarkaNodeCompiler.Family family : claimers) {
