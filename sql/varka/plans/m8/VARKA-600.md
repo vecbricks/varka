@@ -228,8 +228,13 @@ taken, and both forms are built at every width. Three caveats on the record:
   were overwritten. The committed logs are the rerun with `-XX:-TieredCompilation` and
   `compileonly` on the model's three methods, so every line in them belongs to the forms.
 * In `intrinsics-windowed-128bit.txt` no `insert` line appears. The model's slow branch there
-  is the scalar lanes, and C2 did not parse that branch's inserts at 128 bits. So the `withLane`
-  evidence at 128 bits is `intrinsics-scalar-128bit.txt` alone.
+  is the scalar lanes, and that log reads `FloatVector::withLane (0 bytes) failed to inline:
+  virtual call` at both of its compiles. C2 did not resolve the receiver to `Float128Vector`
+  on that branch, so the call was neither inlined nor intrinsified. So the `withLane` evidence
+  at 128 bits is `intrinsics-scalar-128bit.txt` alone, where the scalar form's own loop inlines
+  it as the `insert` intrinsic. The emitted `SCALAR` form calls `withLane` on the result of
+  `FloatVector.zero` of a constant species, as the scalar model does, but the width audit under
+  `UseAVX=2` is owed to confirm it (risk 6).
 * `compileonly` leaves the rest of the model interpreted, so the ns a row the logs print is not
   a measurement and is not quoted. A tiered rerun read the thread's allocation over 1000 warm
   calls: 0.0 bytes a row for both forms at both widths. So the windowed form's join of two float
@@ -292,9 +297,15 @@ not a lane call. Only the read and the insert are lane calls, plus the one zero 
    reads the option yet. 600b sets the default.
 2. **The budget weighs an `L2F` at `WINDOWED_CALLS` (31), up from 24.** This follows section
    3.3 and the `L2D` precedent: the weight is the largest form's, since `weightOf` cannot ask
-   which form will be emitted. It applies at every level, the defaults' too. So a
-   default-option kernel holding a `BIGINT` to `FLOAT` cast can group differently, and the
-   regeneration and bytes-moved check are owed (9.5). The other choice was to leave 24 and
+   which form will be emitted. It applies at every level, the defaults' too, as 24 did. The
+   weight is read in one place: `VarkaLoopEmitter`'s `GroupOps` sums it, and `admit` compares
+   the sum with `groupBudget` (16), and with `fusedCeiling` (400) under reuse or the prediction.
+   One `L2F` is over 16 at either weight, so a second output joins such a group only by reuse or
+   the prediction. Below 400 the two weights give the same answers, and a group changes only
+   where its sum crosses 400 between them: 13 to 16 casts at 31 against 24. So 3.3 conflicts
+   with 3.2's "level 3 unchanged" in that one case, a kernel with a dozen or more of these
+   casts in one group. The bytes-moved check after the regeneration is owed (9.5) and settles
+   whether any pinned shape is one. The other choice was to leave 24 and
    under-weigh `WINDOWED`. That would have broken the budget suite's rule that the weight is
    the largest form's.
 3. **The slow arm is an in-kernel branch, not a batch decline** (question 10.2). The plan
@@ -308,6 +319,18 @@ not a lane call. Only the read and the insert are lane calls, plus the one zero 
    which the values do not change.
 
 ### 9.5 Owed
+
+Also owed as risks for 600b:
+
+* **Risk 6.** In the emitted `SCALAR` kernel, `withLane` may be left as a virtual call, as it
+  was on the model's cold branch at 128 bits (9.1). The width audit and the runner rate read
+  this.
+* **Risk 7.** The benchmark emits a fresh kernel per rung, so no windowed kernel runs with both
+  arms taken. If C2 prunes the arm it has not seen, prediction 4 is read at its best case. A
+  kernel warmed inside the window can then deoptimize at its first outside group, which the
+  benchmark does not measure. Reading it would take a mixed rung, which the plan leaves out
+  (risk 3).
+
 
 * Runs not made in this window. Each is listed with its reason in the draft PR body
   (`~/varka-ops/bodies/pr600-draft.md`): the regeneration (`emitted_bytes.json` option arms, the
