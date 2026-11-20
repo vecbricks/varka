@@ -48,16 +48,18 @@ import org.apache.spark.sql.VarkaBenchmark;
  *
  * <p>Each section has two arms, named so the labels survive the row landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
- * session with it. Today no section plans a Varka node, so both arms are the row path and should
- * tie.
+ * session with it. A section whose class is {@code NONE} plans no Varka node, so both its arms are
+ * the row path and should tie.
  *
  * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
  * each section's plan on the Varka session against the section's {@link Fusion} class, the
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
- * results file notes the class of each section that fuses. Every section is {@code NONE}, since
- * every math function declines today (VARKA-345.md 0, item 12). A row that fuses a section sets
- * its new class, so that its fusion cannot turn a baseline section into a fused one unnoticed.
+ * results file notes the class of each section that fuses. The {@code sin}, {@code tan} and
+ * {@code sec} sections are {@code WHOLE}, the trigonometric functions fusing (VARKA-356), and
+ * every other section is {@code NONE}, its function declining (VARKA-345.md 0, item 12). A row
+ * that fuses a section sets its new class, so that its fusion cannot turn a baseline section into
+ * a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -133,10 +135,11 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
   private static final Pattern PLACEHOLDER = Pattern.compile("\\b([XYP])\\b");
 
   /**
-   * A function: its title and its expression, with the placeholders {@code X}, {@code Y} and
-   * {@code P} standing for the columns of one null density.
+   * A function: its title, its expression, with the placeholders {@code X}, {@code Y} and
+   * {@code P} standing for the columns of one null density, and its {@link Fusion} class, the same
+   * at both densities.
    */
-  private record Form(String title, String expr) {
+  private record Form(String title, String expr, Fusion fusion) {
     /** The expression over the columns whose names end in {@code suffix}. */
     String over(String suffix) {
       return PLACEHOLDER.matcher(expr)
@@ -151,21 +154,21 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
 
   /** Every function, in the order the plan lists them (VARKA-345.md 4). */
   private static final List<Form> FORMS = List.of(
-      new Form("DOUBLE sin(x)", "sin(X)"),
-      new Form("DOUBLE tan(x)", "tan(X)"),
-      new Form("DOUBLE cbrt(x)", "cbrt(X)"),
-      new Form("DOUBLE exp(x)", "exp(X)"),
-      new Form("DOUBLE log(p)", "log(P)"),
-      new Form("DOUBLE log10(p)", "log10(P)"),
-      new Form("DOUBLE pow(p, y)", "pow(P, Y)"),
-      new Form("DOUBLE atan2(y, x)", "atan2(Y, X)"),
-      new Form("DOUBLE sinh(x)", "sinh(X)"),
-      new Form("DOUBLE hypot(x, y)", "hypot(X, Y)"),
-      new Form("DOUBLE sec(x)", "sec(X)"),
+      new Form("DOUBLE sin(x)", "sin(X)", Fusion.WHOLE),
+      new Form("DOUBLE tan(x)", "tan(X)", Fusion.WHOLE),
+      new Form("DOUBLE cbrt(x)", "cbrt(X)", Fusion.NONE),
+      new Form("DOUBLE exp(x)", "exp(X)", Fusion.NONE),
+      new Form("DOUBLE log(p)", "log(P)", Fusion.NONE),
+      new Form("DOUBLE log10(p)", "log10(P)", Fusion.NONE),
+      new Form("DOUBLE pow(p, y)", "pow(P, Y)", Fusion.NONE),
+      new Form("DOUBLE atan2(y, x)", "atan2(Y, X)", Fusion.NONE),
+      new Form("DOUBLE sinh(x)", "sinh(X)", Fusion.NONE),
+      new Form("DOUBLE hypot(x, y)", "hypot(X, Y)", Fusion.NONE),
+      new Form("DOUBLE sec(x)", "sec(X)", Fusion.WHOLE),
       // NONE, not PARTIAL: a declined child declines the whole projected entry, so the DOUBLE
       // `*` and `+` around exp stay on the row path too; on 8 November 2026 the queries suite
       // planned both densities as one row Project over the cached scan, with no Varka node.
-      new Form("DOUBLE exp(x) * 2 + 1", "exp(X) * 2 + 1"));
+      new Form("DOUBLE exp(x) * 2 + 1", "exp(X) * 2 + 1", Fusion.NONE));
 
   /** Every section, in the order they run: each null density, then each function. */
   static List<Section> sections() {
@@ -175,7 +178,7 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = ", " + (nullInputs ? "one row in ten null" : "no nulls");
       for (Form f : FORMS) {
         out.add(new Section(f.title() + density, "SELECT " + f.over(nulls) + " AS a FROM " + VIEW,
-            Fusion.NONE, nullInputs, f.columns()));
+            f.fusion(), nullInputs, f.columns()));
       }
     }
     return out;

@@ -122,7 +122,7 @@ class VarkaMathBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     forEachTwoLaneRefusal { declines =>
-      // Every section is NONE, so a check that could not see a Varka node anywhere would pass
+      // Most sections are NONE, so a check that could not see a Varka node anywhere would pass
       // each of them; a comparison of the two DOUBLE columns fuses with the refusal off, and
       // fails such a check here. A filter driven at the DOUBLE lane is what the refusal
       // declines, so the same filter with it on proves the setting took effect.
