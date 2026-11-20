@@ -59,6 +59,7 @@ import org.apache.spark.sql.catalyst.expressions.UnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaIntervalCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.Batch;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.LongBatch;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.SparkAnswers;
