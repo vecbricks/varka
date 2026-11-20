@@ -1144,6 +1144,21 @@ public final class VarkaOperatorCensusProbe {
     }
   }
 
+  /**
+   * One call site that meets two species, alternating row group by row group: the 128-bit and
+   * the 64-bit int species, neither the preferred one on a host of 256 bits or more. C2 inlines
+   * the site's {@code lanewise} for both receiver classes, and its printer says "callee changed
+   * to" the second, which is the second-species tell's live case (VARKA-504).
+   */
+  static void op_planted_bimorphic() {
+    for (int i = 0; i + IntVector.SPECIES_128.length() <= ROWS;
+        i += IntVector.SPECIES_128.length()) {
+      IntVector v = ((i >> 2) & 1) == 0 ? IntVector.fromArray(IntVector.SPECIES_128, IA, i)
+          : IntVector.fromArray(IntVector.SPECIES_64, IA, i);
+      v.lanewise(VectorOperators.ADD, v).intoArray(IO, i);
+    }
+  }
+
   static void op_planted_box() {
     for (int i = 0; i < ROWS; i += IS.length()) {
       SINK = IntVector.fromArray(IS, IA, i);
@@ -1234,6 +1249,7 @@ public final class VarkaOperatorCensusProbe {
         case "two.full" -> op_two_full();
         case "two.mixed" -> op_two_mixed();
         case "planted.box" -> op_planted_box();
+        case "planted.bimorphic" -> op_planted_bimorphic();
         default -> throw new IllegalArgumentException("no loop named " + loop);
       }
     }

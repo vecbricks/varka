@@ -259,5 +259,7 @@ public record VarkaOperatorCensusCatalog(String name, String family, String loop
       new VarkaOperatorCensusCatalog("planted.box", PLANTED, "planted.box", "",
           "load", "", 0, Integer.MAX_VALUE),
       new VarkaOperatorCensusCatalog("planted.fallback", PLANTED, "bin.long", "ADD",
-          "binaryOp", "", 0, Integer.MAX_VALUE));
+          "binaryOp", "", 0, Integer.MAX_VALUE),
+      new VarkaOperatorCensusCatalog("planted.bimorphic", PLANTED, "planted.bimorphic", "ADD",
+          "binaryOp", "", 256, Integer.MAX_VALUE));
 }
