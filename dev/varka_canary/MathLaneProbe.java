@@ -335,19 +335,37 @@ public class MathLaneProbe {
         .and(ByteVector.fromArray(B, BYTE_BITS, 0)).compare(NE, (byte) 0);
   }
 
-  /** A blend by each word's mask, at S and at B, the masks made by fromLong or by fromWord. */
-  static long blendLoop(long[] bits, double[] d, byte[] b, boolean construction) {
+  /**
+   * A blend by each word's mask, at S and at B, the masks made by fromLong. Each form has a loop
+   * of its own, so that each reading comes from a compile holding that form alone.
+   */
+  static long blendLoopFromLong(long[] bits, double[] d, byte[] b) {
     var dz = DoubleVector.zero(S);
     var bz = ByteVector.zero(B);
     var dv = DoubleVector.fromArray(S, d, 0);
     var bv = ByteVector.fromArray(B, b, 0);
     for (long x : bits) {
-      var dm = construction ? fromWord(x) : VectorMask.fromLong(S, x);
-      var bm = construction ? fromWordBytes(x) : VectorMask.fromLong(B, x);
-      dz = dz.add(dv.blend(1.0, dm));
-      bz = bz.add(bv.blend((byte) 1, bm));
+      dz = dz.add(dv.blend(1.0, VectorMask.fromLong(S, x)));
+      bz = bz.add(bv.blend((byte) 1, VectorMask.fromLong(B, x)));
     }
     return (long) dz.reduceLanes(ADD) + bz.reduceLanes(ADD);
+  }
+
+  /** blendLoopFromLong with the masks made by the construction. */
+  static long blendLoopFromWord(long[] bits, double[] d, byte[] b) {
+    var dz = DoubleVector.zero(S);
+    var bz = ByteVector.zero(B);
+    var dv = DoubleVector.fromArray(S, d, 0);
+    var bv = ByteVector.fromArray(B, b, 0);
+    for (long x : bits) {
+      dz = dz.add(dv.blend(1.0, fromWord(x)));
+      bz = bz.add(bv.blend((byte) 1, fromWordBytes(x)));
+    }
+    return (long) dz.reduceLanes(ADD) + bz.reduceLanes(ADD);
+  }
+
+  static long blendLoop(long[] bits, double[] d, byte[] b, boolean construction) {
+    return construction ? blendLoopFromWord(bits, d, b) : blendLoopFromLong(bits, d, b);
   }
 
   /** {bytes a word, nanoseconds a word} of blendLoop at steady state. */

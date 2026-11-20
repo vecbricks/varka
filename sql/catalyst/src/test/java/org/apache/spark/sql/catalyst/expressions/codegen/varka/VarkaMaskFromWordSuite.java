@@ -36,6 +36,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
@@ -171,6 +172,10 @@ public final class VarkaMaskFromWordSuite {
               constructions.add(s.name() + " - " + m.name + " " + call.name);
               built = true;
             }
+          } else if (insn instanceof FieldInsnNode field && field.owner.equals(MASK_FROM_WORD)) {
+            // The emitted construction loads the table of each lane's bit.
+            constructions.add(s.name() + " - " + m.name + " " + field.name);
+            built = true;
           }
         }
       }

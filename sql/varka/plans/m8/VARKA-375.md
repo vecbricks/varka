@@ -299,6 +299,13 @@ switch selection at run time, `m7` row 374's two-lane x86 fallback, and 331's bo
 *20 November 2026, built in the owner's absence on branch `varka-375-mask-from-long-arm` off
 `342ed6851f8`; local only, nothing pushed or dispatched.*
 
+### 9.1 The owner's decision on the simulation, 16 October 2026
+
+`-XX:UseSVE=1` on the Neoverse N2 runner answers the allocation half of section 2's question:
+whether `fromLong`'s fallback allocates per iteration in a validity-reading kernel. The timing
+half - whether the fallback is slower on a real NEON-only or SVE1 core - waits for such a host and
+is not built until one exists. Section 8's step 2 is the run this decision allows.
+
 ### 9.2 Decisions taken while the owner was away (20 November 2026)
 
 1. **The build half is built before the admission run, behind its option, default off.** Section 0
@@ -383,10 +390,3 @@ option are the coverage differential's and the fuzzer's, run under
 * **The option matrix's `maskFromWord=true` configuration on CI**, which runs every suite under it.
 * Prediction 3 of 6.1 (ties on x86) is not scored: the laptop was loaded, and 491's runner pairs
   are the measurement that would score it.
-
-### 9.1 The owner's decision on the simulation, 16 October 2026
-
-`-XX:UseSVE=1` on the Neoverse N2 runner answers the allocation half of section 2's question:
-whether `fromLong`'s fallback allocates per iteration in a validity-reading kernel. The timing
-half - whether the fallback is slower on a real NEON-only or SVE1 core - waits for such a host and
-is not built until one exists. Section 8's step 2 is the run this decision allows.

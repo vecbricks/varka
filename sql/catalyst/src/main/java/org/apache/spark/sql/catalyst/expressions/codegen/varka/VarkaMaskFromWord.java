@@ -28,8 +28,10 @@ import jdk.incubator.vector.VectorSpecies;
 /**
  * {@code VectorMask.fromLong} built from operators that need no mask-from-bits instruction
  * (VARKA-375): lane {@code i} of the mask is set where bit {@code i} of the word is, and the bits
- * at and above the species' lane count are ignored, as {@code fromLong} does. Emitted kernels call
- * it in place of {@code fromLong} under {@link VarkaEmitOptions#maskFromWord()}.
+ * at and above the species' lane count are ignored, as {@code fromLong} does. Emitted kernels make
+ * the same construction under {@link VarkaEmitOptions#maskFromWord()}, emitted operator by operator
+ * where the broadcast form serves the lane count and as a call to this class's method where it
+ * does not ({@code VarkaVectorWalk.emitFromLong}); the template warm-up and the tests call it.
  *
  * <p>Why it exists: JDK 25's C2 lowers {@code fromLong} (the {@code VectorLongToMask} node) on
  * aarch64 only where the core has SVE2's bit-permute extension ({@code aarch64_vector.ad}, the
@@ -41,8 +43,10 @@ import jdk.incubator.vector.VectorSpecies;
  * holds its bit with {@code selectFrom} by a constant index vector. Floating lanes take the mask of
  * the integral species of their width and cast it, which keeps the lane count.
  *
- * <p>Each method is small and reads its species once, so C2 inlines it into a kernel and folds the
- * branches on the lane count, whose species is a constant there. The constant vectors are loads
+ * <p>Each method is small and reads its species once, so where C2 inlines it at a constant
+ * species it folds the branches on the lane count; C2 does not force-inline it, so a wide kernel
+ * past its inlining limits keeps the call, which is why the kernels emit the broadcast form
+ * themselves. The constant vectors are loads
  * from the tables below; nothing writes them. A species of at most 64 lanes is served, as many as
  * a word describes and more than any species up to 512 bits has; a wider one throws from the
  * tables' loads.
@@ -59,10 +63,14 @@ public final class VarkaMaskFromWord {
   /** The most lanes a word can describe. */
   private static final int WORD_BITS = Long.SIZE;
 
-  private static final long[] LONG_BITS = new long[WORD_BITS];
-  private static final int[] INT_BITS = new int[WORD_BITS];
-  private static final short[] SHORT_BITS = new short[WORD_BITS];
-  private static final byte[] BYTE_BITS = new byte[WORD_BITS];
+  /*
+   * Lane i's bit at each integral lane, public because emitted kernels load them (they live in
+   * another runtime package); nothing may write them.
+   */
+  public static final long[] LONG_BITS = new long[WORD_BITS];
+  public static final int[] INT_BITS = new int[WORD_BITS];
+  public static final short[] SHORT_BITS = new short[WORD_BITS];
+  public static final byte[] BYTE_BITS = new byte[WORD_BITS];
   /** Lane {@code i}'s element of the word viewed at the lane's width: {@code i / width}. */
   private static final int[] INT_ELEMENT = new int[WORD_BITS];
   private static final short[] SHORT_ELEMENT = new short[WORD_BITS];
@@ -130,8 +138,7 @@ public final class VarkaMaskFromWord {
 
   /**
    * The mask of {@code word} at any species, by its element type: for the template warm-up and
-   * the tests, which hold a species of a type they do not name. Emitted kernels call the method
-   * of their lane directly.
+   * the tests, which hold a species of a type they do not name.
    */
   @SuppressWarnings("unchecked")
   public static <E> VectorMask<E> of(VectorSpecies<E> s, long word) {

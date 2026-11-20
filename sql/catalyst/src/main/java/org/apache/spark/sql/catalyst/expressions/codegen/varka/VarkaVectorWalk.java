@@ -1805,25 +1805,87 @@ final class VarkaVectorWalk {
 
   /**
    * {@code [species, word] -> [mask]} at {@code lane}'s species: {@code VectorMask.fromLong}, or
-   * under {@code maskFromWord} the {@link VarkaMaskFromWord} method of the lane, which takes the
-   * same arguments and answers the same mask without the mask-from-bits instruction an aarch64
-   * core has only with SVE2's bit permute (VARKA-375). Every word-to-mask conversion an emitted
-   * kernel makes comes here.
+   * under {@code maskFromWord} the same mask built without the mask-from-bits instruction an
+   * aarch64 core has only with SVE2's bit permute (VARKA-375). Every word-to-mask conversion an
+   * emitted kernel makes comes here.
+   *
+   * <p>The construction is emitted in the kernel, operator by operator: the word broadcast at the
+   * integral lane of the lane's width, an {@code AND} with {@link VarkaMaskFromWord}'s table of
+   * each lane's bit, a compare with zero, and for a floating lane a cast to its species. Each of
+   * those is a Vector API method C2 force-inlines, where a call to a helper of Varka's is an
+   * ordinary call that C2 stops inlining once a wide kernel's method reaches
+   * {@code DesiredMethodLimit} or {@code NodeCountInliningCutoff}, which a warm-up probe under
+   * {@code -XX:+PrintInlining} showed, the kernel then allocating a mask a call. The broadcast form
+   * needs every lane's bit within one element; a byte species past 8 lanes or a short one past 16
+   * needs {@link VarkaMaskFromWord}'s element select, which is called instead.
    */
   static void emitFromLong(CodeBuilder cb, Lane lane, Analysis analysis) {
     if (!analysis.options.maskFromWord()) {
       cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
       return;
     }
-    String method = switch (lane) {
-      case BYTE -> "ofByte";
-      case SHORT -> "ofShort";
-      case INT -> "ofInt";
-      case LONG -> "ofLong";
-      case FLOAT -> "ofFloat";
-      case DOUBLE -> "ofDouble";
+    Lane integral = switch (lane) {
+      case BYTE, SHORT, INT, LONG -> lane;
+      case FLOAT -> Lane.INT;
+      case DOUBLE -> Lane.LONG;
     };
-    cb.invokestatic(MASK_FROM_WORD, method, FROM_LONG);
+    int lanes = analysis.lanesOf(lane) == 0 ? lane.preferredLanes : analysis.lanesOf(lane);
+    if (lanes > integral.bits) {
+      String method = switch (lane) {
+        case BYTE -> "ofByte";
+        case SHORT -> "ofShort";
+        case INT -> "ofInt";
+        case FLOAT -> "ofFloat";
+        case LONG, DOUBLE -> throw VarkaErrors.illegalState("a word holds every 64-bit lane");
+      };
+      cb.invokestatic(MASK_FROM_WORD, method, FROM_LONG);
+      return;
+    }
+    var species = integral.speciesField(analysis.lanesOf(lane));
+    if (integral != lane) {
+      // [species, word] -> [species, intSpecies, word]: the floating species stays for the cast.
+      cb.getstatic(integral.vector, species, VECTOR_SPECIES);
+      cb.dup_x2();
+      cb.pop();
+    }
+    if (integral != Lane.LONG) {
+      cb.l2i();
+      if (integral == Lane.SHORT) {
+        cb.i2s();
+      } else if (integral == Lane.BYTE) {
+        cb.i2b();
+      }
+    }
+    cb.invokestatic(integral.vector, "broadcast", integral.broadcast);
+    cb.getstatic(integral.vector, species, VECTOR_SPECIES);
+    var table = integral.scalar.arrayType();
+    cb.getstatic(MASK_FROM_WORD, laneBitsTable(integral), table);
+    cb.iconst_0();
+    cb.invokestatic(integral.vector, "fromArray",
+        MethodTypeDesc.of(integral.vector, VECTOR_SPECIES, table, ConstantDescs.CD_int));
+    cb.invokevirtual(integral.vector, "and", integral.lanewiseVV);
+    cb.getstatic(VECTOR_OPERATORS, "NE", VO_COMPARISON);
+    if (integral == Lane.LONG) {
+      cb.loadConstant(0L);
+    } else {
+      cb.iconst_0();
+    }
+    cb.invokevirtual(integral.vector, "compare", integral.compareVI);
+    if (integral != lane) {
+      cb.swap();
+      cb.invokevirtual(VECTOR_MASK, "cast", MASK_CAST);
+    }
+  }
+
+  /** The {@link VarkaMaskFromWord} table of each lane's bit at an integral lane. */
+  private static String laneBitsTable(Lane integral) {
+    return switch (integral) {
+      case BYTE -> "BYTE_BITS";
+      case SHORT -> "SHORT_BITS";
+      case INT -> "INT_BITS";
+      case LONG -> "LONG_BITS";
+      case FLOAT, DOUBLE -> throw VarkaErrors.illegalArgument("no bit table at " + integral);
+    };
   }
 
   /**
