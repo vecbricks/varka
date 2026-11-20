@@ -877,6 +877,17 @@ releases is not shown; the arm's effect on the loop's shape is (C). The kernel u
 read slower under the arm in all three pairs (E: 2, 17 and 75 % at the minimum, on loaded shared
 cores), a direction that makes the pairs a condition of any default flip.
 
+**The arm on row 605's reproducer, the one that reproduces under load** (reading F, after the
+section above was written; arm and control side by side on four cores each, load 63 to 75).
+Row 605's compiled test at seed 20261111 on this branch's classes: the control trapped 46 times
+at loop back edges (row 605's classes and bytecodes: `wfuzz47` 362, `wfuzz23` 412, ...) and left
+`try_subtract(l, l2)` (both histories) and `if(x IS NULL, x2, NULL)` unsettled with
+`loopMasked0=0`; the arm trapped **0 times at a back edge** (8 at loop heads, at most 4 a
+bytecode), and both rows settled in both histories (long lane 7/8 and 7/8 against 5/8 and 6/8).
+The one long row left unsettled in each JVM, `timestampadd(MONTH, l, ntz)`, had no
+`profile_predicate` trap and loops not yet compiled at that load, in both. One run each; it is
+the first product-JVM reading of the arm's effect, and it is the effect 9.5 predicted.
+
 **Predictions, registered before the readings they name.**
 
 1. The 144-draw reading of 9.1 (`--after 64 --forks 6 --widths 64,32 --prewarm on`) with the arm,

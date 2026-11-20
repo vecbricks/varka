@@ -111,3 +111,38 @@ The arm was slower in all three pairs (2 %, 17 % and 75 % at the minimum), at a 
 46 on shared cores. That is a direction to price, not a number: the benchmark pairs
 (dev/varka_bench_pair.sh) on an idle machine or a runner are owed before the arm can become a
 default.
+
+F. Row 605's compiled-test reproducer (its R2), plain, 383 classes, arm and control at once
+-------------------------------------------------------------------------------------------
+The command of results/VARKA-605-readings.txt (branch varka-605-nullif-ntz-sanitizer), on this
+branch's classes, sanitizer off, with the class dump agent; control on cores 12-15, arm on 16-19
+(-Dvarka.matrix.config=uncountedMainLoop=true; the suite's compiled rows emit under
+VarkaMatrix.base, and the option is in C2_OPTIONS, so the C2Code test runs under it):
+
+  java $(cat jvm.opts) -Dvarka.ownJvm=true -Dvarka.fuzz.seed=20261111 \
+    -Dvarka.fuzz.compositions=400 -Dspark.test.timeout=60 -Dvarka.test.watchdog.minutes=60 \
+    -Xlog:deoptimization=debug:file=deopt.log -javaagent:dump-agent.jar=<dir> [arm] \
+    -cp <classes>:<classpath> org.scalatest.tools.Runner -oW \
+    -s ...VarkaCoverageCompositionFuzzSuite \
+    -z "coverage rows' kernels agree with the reference evaluator as C2 code"
+
+control: load 71.25 at 09:57:04, 75.33 at 10:08:58; 11 min 45 s; passed.
+  long-tallied lane: warm-same settled 5/8, quiet-null 6/8; int lane 6/8 and 7/8.
+  unsettled long-lane rows: try_subtract(l, l2) in both histories (profile_predicate 6 and 7,
+  levels epilogueMasked0=4, loopMasked0=0), if(x IS NULL, x2, NULL) in warm-same
+  (profile_predicate 7, loopMasked0=0), timestampadd(MONTH, l, ntz) in both (no
+  profile_predicate trap; its loops not yet compiled, at a load of 71 to 75).
+  profile_predicate traps on loop methods: 46 at a back edge, 6 at a loop head; the largest
+  wfuzz47 loopMasked0 bci 362 (goto 191) 9, wfuzz23 bci 412 (goto 201) 9, wfuzz22 bci 412 8,
+  wfuzz46 bci 362 7, wfuzz20 bci 392 7: row 605's classes and bytecodes.
+
+arm: load 71.25 at 09:57:04, 63.18 at 10:10:40; 13 min 26 s; passed.
+  long-tallied lane: warm-same settled 7/8, quiet-null 7/8; int lane 6/8 and 6/8.
+  unsettled long-lane rows: timestampadd(MONTH, l, ntz) in both histories only (no
+  profile_predicate trap; loopMasked0 not compiled in warm-same, as in the control).
+  try_subtract(l, l2) and if(x IS NULL, x2, NULL) settled in both histories.
+  profile_predicate traps on loop methods: 0 at a back edge, 8 at a loop head (at most 4 a
+  bytecode, wfuzz1 and wfuzz2 loopMasked0 bci 250).
+  The sample is drawn from the seed and the coverage table, the same in both JVMs; these
+  classes do not print it (row 605's test line that names it is on its branch only), so the
+  rows are identified by the unsettled lines.
