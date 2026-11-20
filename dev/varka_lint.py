@@ -376,6 +376,23 @@ def names_tests_at_run_time(text):
     )
 
 
+TEMPLATE = re.compile(r"^\s*@(?:ParameterizedTest|RepeatedTest)\b", re.M)
+
+
+def names_template_invocation(test, text):
+    """Whether `test` can be an invocation of one of a JUnit suite's templates: its key is the
+    template's display name, a space and its rendered name (VARKA-477), so the name starts with
+    the display name of a template, read from the blank line before the annotation to the next."""
+    for m in TEMPLATE.finditer(text):
+        start = text.rfind("\n\n", 0, m.start())
+        end = text.find("\n\n", m.end())
+        block = text[max(start, 0) : end if end >= 0 else len(text)]
+        for d in re.finditer(r'@DisplayName\(\s*"((?:[^"\\]|\\.)*)"', block):
+            if test.startswith(unescape(d.group(1)) + " "):
+                return True
+    return False
+
+
 def unescape(name):
     return name.replace('\\"', '"').replace("\\\\", "\\")
 
@@ -421,6 +438,7 @@ def rule_skips_tsv(ch):
         elif (
             not names_test(test, text)
             and not names_tests_at_run_time(text)
+            and not names_template_invocation(test, text)
             and not inherited_test(test)
         ):
             yield f"{SKIPS}:{n}: skips-tsv: {suite} has no test named '{test}'"
@@ -817,6 +835,28 @@ def selftest():
                 tables: split,
                 suite: lic + "class VarkaShapeSuite {}\n",
                 SKIPS: skip % "a name nobody wrote",
+            },
+            "skips-tsv:has no test named",
+            True,
+        )
+        case(
+            "a skip line naming a template's invocation",
+            {
+                tables: split,
+                suite: lic + 'class VarkaShapeSuite {\n@ParameterizedTest(name = "of {0}")\n'
+                '@DisplayName("a template")\nvoid t(int i) {}\n}\n',
+                SKIPS: skip % "a template of 1",
+            },
+            "skips-tsv",
+            False,
+        )
+        case(
+            "a skip line naming no test of a suite with a template",
+            {
+                tables: split,
+                suite: lic + 'class VarkaShapeSuite {\n@ParameterizedTest(name = "of {0}")\n'
+                '@DisplayName("a template")\nvoid t(int i) {}\n}\n',
+                SKIPS: skip % "another template of 1",
             },
             "skips-tsv:has no test named",
             True,
