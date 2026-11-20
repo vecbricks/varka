@@ -49,11 +49,14 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
   }
 
-  test("the configurations cover every option the fuzzer draws") {
+  test("the configurations cover every option the fuzzer draws but the chain depth") {
     val named = VarkaMatrix.configurations.filterNot(_.startsWith(VarkaMatrix.ARROW_BATCH_SIZE))
       .map(_.split(",").last.takeWhile(_ != '=')).toSet
     val expected = VarkaEmitOption.TABLE.asScala
       .filter(o => VarkaEmitOption.drawnInGeneral(o) || VarkaMatrixRuns.compiledNodeReads(o))
+      // maxChainDepth is drawn by the fuzzer but has no configuration: a raise changes no byte of
+      // a shape the default cap admits (VarkaEmitOption.TABLE). Every other option must have one.
+      .filter(_.name != "maxChainDepth")
       .map(_.name).toSet
     assert(named === expected)
     assert(VarkaMatrix.configurations.contains("lanesOverride=4"))
