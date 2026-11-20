@@ -1055,6 +1055,46 @@ suites that store one read its slots against Spark instead), `readOnlyBy`'s one 
 `decimalStore` (the option now reaches the pair's store too, so the matrix's reach under-counts
 it), the pair-load node, the planted faults and the op-count test.
 
+### 10.8 359b, part 3: the conformance suite and the fixes the first two parts owed (20 November 2026)
+
+*Branch `varka-359c-decimal128-conformance`, stacked on part 2; local commits only. A read of
+both parts before any more building found four gaps, fixed where they belong (each part's branch
+gained a commit and the stack was rebased).*
+
+1. **Part 1: the union of a wide choice's arithmetic rows.** `wideArithmeticBelow` promises that
+   `IF(p, x + y, a * b)` and `IF(p, a * b, x + y)` decline alike, naming every operand's rows
+   (`VarkaDecimalArithmeticSuite.wideArithmeticReasons`), but part 1's `pair` arms descended into
+   the branches and stopped at the first that declined. `pair` now asks `wideArithmeticBelow`
+   before its arms, so those trees decline with the reason they did before.
+2. **Part 2: the harness's output buffers.** `VarkaKernelChecks`' long lanes gave a pair store's
+   output the long's eight bytes a row, so a warm-up of a coverage row with one
+   (`VarkaCoverageCompositionFuzzSuite`'s decimal-slot test) would have written past its
+   buffer; both lanes' `outputStride` now give it the sixteen-byte slot. The budget suite's
+   zip accounting counts the pair's store as it counts row 157's.
+3. **This part: the conformance suite over the pair's outputs.** With part 2 the pair's value
+   forms (`if`, `coalesce`, `greatest`, `least` in the round trip, choice and ordering checks)
+   fuse, where they had declined and cancelled; the census owed them, which the suite calls
+   drift. The census marks `dec^` on `if`, `coalesce` and `greatest`, and the long
+   representation's suite names the three in `declinesInPart`, since within 18 digits a decimal
+   output is row 348b's. The slot lane's harness reads no pair output yet (its reference has no
+   one long for one, and its Spark answers are longs), so the suite cancels a check whose fused
+   forms store a pair, naming them and `VarkaDecimalPairSuite`, which holds the same outputs to
+   Spark over the word edges.
+4. **`least` is not marked yet.** The census's check that a fused type has a coverage row with
+   the operator over that operand reads `coverage.json`, which holds no `Least` over a decimal
+   until part 1's and part 2's rows are regenerated into it; the pre-commit hook refused the
+   mark. So until that regeneration the pair suite's ordering check drifts on `least` (it fuses,
+   the census owes it), and the mark and the long suite's `least` entry are owed with the
+   regeneration. `census.tsv` was rewritten by `dev/varka_census.py`, the census's own
+   generator, which the hook required.
+5. **Not changed: the families.** A wide output's negation notes no family, as the long decimal
+   value's negation does not; its choices and picks note theirs as `value` does.
+
+RESULT_PART3
+
+**Owed**: the harness's pair-output path (a reference over two words and a `Decimal` oracle above
+18 digits), which would turn the conformance suite's cancellation into checks; `least`'s mark.
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **359b before the pair-load node.** 10.5 names the node as the next part, but its only proof is
@@ -1370,3 +1410,7 @@ alone, with the switch-free front half first because nothing emits a pair until 
 **Size**: about four days, as section 5 said, of which the layout-independent half is about one
 and a half and can start before the reading; one pull request, or two if the lead wants the
 registry change (11.5 item 1) reviewed alone, since it touches every reader of the table.
+8. **The conformance suite cancels the pair's stored forms** rather than gaining a pair-output
+   harness in this window: the harness is long-valued throughout (reference, answers, the seen
+   values), and `VarkaDecimalPairSuite` already holds those outputs to Spark; the cancellation
+   names both, so it cannot pass silently.
