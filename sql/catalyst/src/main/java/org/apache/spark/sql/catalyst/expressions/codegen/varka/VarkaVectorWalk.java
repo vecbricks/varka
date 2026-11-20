@@ -1141,7 +1141,8 @@ final class VarkaVectorWalk {
     if (!dense && s.ownWord.contains(n)) {
       emitAndWord(cb, s, s.wordRef.get(n), s.wordRef.get(n.left()), s.wordRef.get(n.right()));
     }
-    boolean faulty = VarkaFloatingFault.planted() == VarkaFloatingFault.DIVISOR_POSITIVE_ZERO_ONLY;
+    boolean faulty = analysis.options.floatingFault()
+        == VarkaEmitOptions.FloatingFault.DIVISOR_POSITIVE_ZERO_ONLY;
     if (faulty) {
       cb.dup();                                           // [q, y, y]
     }

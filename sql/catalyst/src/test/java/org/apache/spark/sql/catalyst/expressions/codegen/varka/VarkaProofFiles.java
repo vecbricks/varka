@@ -439,8 +439,8 @@ final class VarkaProofFiles {
     var wrong = new ArrayList<>(steps);
     wrong.add("(assert (not (= (jlong.floorDiv x " + day + ") (jlong.div x " + day + "))))");
     check(out, "without the bias the floor division is not the truncating one", "sat", wrong);
-    // The planted fault of VARKA-103 3.7 (VarkaIntervalFault.DAY_BY_MAGNITUDE): the floor of
-    // the magnitude (x ^ s) - s, s = x >> 63, with the sign put back the same way. The
+    // The planted fault of VARKA-103 3.7 (VarkaEmitOptions.IntervalFault.DAY_BY_MAGNITUDE): the
+    // floor of the magnitude (x ^ s) - s, s = x >> 63, with the sign put back the same way. The
     // magnitude wraps at Long.MIN_VALUE, the one long where the form is wrong.
     var magnitude = new ArrayList<>(steps);
     magnitude.add("(define-fun s () Int (jlong.shr x 63))");

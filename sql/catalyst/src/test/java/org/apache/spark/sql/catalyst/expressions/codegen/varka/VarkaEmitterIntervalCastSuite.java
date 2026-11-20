@@ -313,8 +313,12 @@ public final class VarkaEmitterIntervalCastSuite {
       DateTimeConstants.MICROS_PER_DAY - 1, -DateTimeConstants.MICROS_PER_DAY + 1, 1, -1, 0};
 
   private static Kernel dayExtractKernel() {
+    return dayExtractKernel(VarkaMatrixRuns.BASE);
+  }
+
+  private static Kernel dayExtractKernel(VarkaEmitOptions options) {
     Attribute dt = VarkaSqlResolve.column("dt", new DayTimeIntervalType((byte) 0, (byte) 3));
-    return kernel(new ExtractANSIIntervalDays(dt), List.of(dt));
+    return kernel(new ExtractANSIIntervalDays(dt), List.of(dt), options);
   }
 
   @Test
@@ -333,19 +337,17 @@ public final class VarkaEmitterIntervalCastSuite {
   @DisplayName("the day extract built as the floor of an arithmetic-shift magnitude fails the "
       + "cell at Long.MIN_VALUE")
   void dayByMagnitudeFails() {
-    VarkaIntervalFault.plantForTesting(VarkaIntervalFault.DAY_BY_MAGNITUDE);
-    try {
-      // Compiled and emitted under the fault, never through the class cache.
-      Kernel k = dayExtractKernel();
-      assertTrue(k.answers(new long[] {Long.MIN_VALUE + 1, -1, 0, Long.MAX_VALUE}),
-          "the fault is wrong only at Long.MIN_VALUE");
-      // A failed comparison with Spark throws, naming the row (VarkaKernelChecks).
-      var failure = assertThrows(IllegalStateException.class,
-          () -> k.answers(new long[] {Long.MIN_VALUE}), "the planted fault passes at MIN");
-      assertTrue(failure.getMessage().contains("disagree"), failure.getMessage());
-    } finally {
-      VarkaIntervalFault.plantForTesting(VarkaIntervalFault.NONE);
-    }
+    // Compiled under the fault's own options, never through the class cache, so no faulty class
+    // outlives the test (VARKA-548).
+    var faulty = VarkaMatrixRuns.BASE
+        .withIntervalFault(VarkaEmitOptions.IntervalFault.DAY_BY_MAGNITUDE);
+    Kernel k = dayExtractKernel(faulty);
+    assertTrue(k.answers(new long[] {Long.MIN_VALUE + 1, -1, 0, Long.MAX_VALUE}),
+        "the fault is wrong only at Long.MIN_VALUE");
+    // A failed comparison with Spark throws, naming the row (VarkaKernelChecks).
+    var failure = assertThrows(IllegalStateException.class,
+        () -> k.answers(new long[] {Long.MIN_VALUE}), "the planted fault passes at MIN");
+    assertTrue(failure.getMessage().contains("disagree"), failure.getMessage());
   }
 
   // -------------------------------------------------------------------------------------------
@@ -353,14 +355,23 @@ public final class VarkaEmitterIntervalCastSuite {
   // -------------------------------------------------------------------------------------------
 
   private static Optional<CompiledVarkaProjection> compile(Expression e, List<Attribute> cols) {
+    return compile(e, cols, VarkaMatrixRuns.BASE);
+  }
+
+  private static Optional<CompiledVarkaProjection> compile(Expression e, List<Attribute> cols,
+      VarkaEmitOptions options) {
     return VarkaExpressionCompiler.compile(
         CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq(),
-        CollectionConverters.asScala(cols).toSeq(), VarkaMatrixRuns.BASE);
+        CollectionConverters.asScala(cols).toSeq(), options);
   }
 
   private static Kernel kernel(Expression e, List<Attribute> cols) {
-    return new Kernel(e, cols, compile(e, cols).orElseThrow(() ->
-        new AssertionError(e.sql() + " declines")));
+    return kernel(e, cols, VarkaMatrixRuns.BASE);
+  }
+
+  private static Kernel kernel(Expression e, List<Attribute> cols, VarkaEmitOptions options) {
+    return new Kernel(e, cols, compile(e, cols, options).orElseThrow(() ->
+        new AssertionError(e.sql() + " declines")), options);
   }
 
   /** One compiled cast, emitted, with Spark's evaluation of it for the answers. */
@@ -373,15 +384,24 @@ public final class VarkaEmitterIntervalCastSuite {
     final boolean longLane;
 
     Kernel(Expression expr, List<Attribute> cols, CompiledVarkaProjection plan) {
+      this(expr, cols, plan, VarkaMatrixRuns.BASE);
+    }
+
+    /**
+     * Emitted under the options the plan was compiled with, so a fault the emitter reads reaches
+     * the emitter as well as the compiler.
+     */
+    Kernel(Expression expr, List<Attribute> cols, CompiledVarkaProjection plan,
+        VarkaEmitOptions options) {
       this.expr = expr;
       this.plan = plan;
       this.className = "org.apache.spark.sql.varka.execution.VarkaIntervalCast"
           + CLASS_COUNTER.incrementAndGet();
       this.bytes = VarkaLoopEmitter.emit(className, plan.outputs(), plan.inputOrdinals().size(),
-          plan.numLiterals(), null, null, VarkaMatrixRuns.BASE);
+          plan.numLiterals(), null, null, options);
       this.oracle = new VarkaSparkOracle(CollectionConverters.asScala(List.of(expr)).toSeq(),
           CollectionConverters.asScala(List.of(cols.get(plan.inputOrdinals().get(0)))).toSeq());
-      this.longLane = plan.lane(VarkaMatrixRuns.BASE).bits() == Long.SIZE;
+      this.longLane = plan.lane(options).bits() == Long.SIZE;
     }
 
     /** Each value once valid and once null, so both bodies and a null lane run. */

@@ -185,6 +185,11 @@ Every later fault is an option by rule, not by a reviewer's memory; every later 
    if that part is close to merging. (b) First, with 359a merging master. **Recommended (a)** while
    359a is the milestone's critical path; the rebase is a few adjacent lines either way.
 
+**Answered on 15 November 2026.** 1 = (a), taken in the PR 1 sheet on 11 November. 2 = (a): the
+enum is nested in `VarkaEmitOptions` as `FloatingFault`, as 359a nests `DecimalFault`. 3 = (b):
+359a's `DecimalFault` is not on master (`git grep DecimalFault` finds only plans), so PR 2 goes
+first and 359a merges master afterwards and adds its component beside these two.
+
 ## 9. Done when
 
 Both rules report their planted cases in `--selftest` and not their clean ones;
@@ -238,6 +243,88 @@ is the only documentation); two identical pinned lines in `VarkaTwoLaneCondition
 matching the marker on the raw line lets a string literal contain it, which the marker's own
 comment form keeps harmless; the file-scan preamble copies `guava`'s shape, as the other rules
 do; and the per-line `without_comment` call costs about 15 ms a commit, measured by the review.
+
+### PR 2, `global-fault` and both faults' move (15 November 2026)
+
+Built on `varka-548b` from `4976165bdad`:
+
+- **The rule.** `dev/varka_lint.py` gains `global-fault` and its docstring line. A `.java` file
+  under `sql/catalyst/src/main/` is read with comments and string contents blanked; each type
+  declaration and the brace depth give every offset its innermost type's name, and a declaration
+  ending at `;` whose head holds `static`, not `final`, and no `{`, `}`, `(` (so no method,
+  initializer or annotated call) is reported when that name holds `Fault`. Three self-test
+  cases: `private static volatile XFault planted` in `enum XFault` under `src/main` reports;
+  `private static final int OK` in the same enum passes; a static non-final field in a class
+  `Defaults` is not reported. `--selftest` prints `ok (63 cases)`; unscoped over every
+  `sql/catalyst/src/main` `.java` file, and over every Varka source, the rule reports `0`
+  (`arch-list` reports `0` over the Varka sources too).
+- **The fault move.** `VarkaEmitOptions` gains `floatingFault` and `intervalFault`, with the
+  enums `FloatingFault` and `IntervalFault` nested in the record (question 2 = (a), as 359a
+  nests `DecimalFault`), `NONE` in `DEFAULTS`, a builder setter, a `with*` method and a
+  `VarkaEmitOption.TABLE` `Choice` of `Reason.FAULT_INJECTOR` whose tag renders nothing at
+  `NONE`, so no committed class name or hash moves. `DeclineSink` carries both beside
+  `rangeSets`, read from the options at the five construction sites in
+  `VarkaExpressionCompiler`; `negate` and `degreesPerRadian` read the floating one from the
+  sink and `VarkaIntervalCompiler.days` the interval one; `VarkaVectorWalk` reads
+  `analysis.options.floatingFault()`. `VarkaFloatingFault` and `VarkaIntervalFault` are
+  removed: their constants live in the nested enums, and their `private static volatile
+  planted` fields and plant/clear methods are gone.
+- **The tests.** The floating suite's `failsUnder` takes the options with the fault set and
+  passes them to the checks, which compile and emit under them; the three planting tests still
+  fail their checks under each fault. The interval suite's planting test compiles under
+  `intervalFault=DAY_BY_MAGNITUDE` rather than planting it. A new cache-key test compiles `-x`
+  over a DOUBLE column with and without `floatingFault=NEGATION_AS_SUBTRACTION`: the two
+  options render different hashes, the cache holds two entries with distinct hashes, and the
+  clean class answers `-0.0` for `0.0`. `VarkaFamilySwitchSuite`, `VarkaFamilyChainSuite` and
+  `VarkaExpressionCompilerSuite` construct their sinks from the options now;
+  `VarkaProofFiles`' comment names the new constant.
+
+**The interval fault is beyond section 5's file list.** #1534 merged `VarkaIntervalFault` on 15
+November with the same `private static volatile planted`, which the new rule reports, so PR 2
+could not leave master clean under `global-fault` without moving it. It is the same skeleton as
+the floating fault and was migrated in this pull request for that reason.
+
+**Question 3 = (b).** 359a's `DecimalFault` is not on master (`git grep DecimalFault` finds only
+plans), so PR 2 goes first and 359a merges master afterwards and adds its component beside these
+two.
+
+Results: `dev/varka_lint.py --selftest` `ok (63 cases)`; `catalyst/Test/compile` `[success]`;
+one sbt call over the eight suites - `VarkaEmitOptionSuite`, `VarkaMatrixSuite`,
+`VarkaIrFuzzSuite`, `VarkaEmittedBytesSuite`, `VarkaReproductionSuite`,
+`VarkaEmitterFloatingArithSuite`, `VarkaEmitterIntervalCastSuite` and, because the record
+changed, `VarkaShapeCacheSuite` - `Passed: Total 160, Failed 0, Errors 0, Passed 160, Canceled 5`
+(the five cancels are the opt-in tests: the emitted-bytes audit and pairs audit, the floating
+sweep, and the fuzz's size-dump and steering runs), `[success]` in 501 s. P1 holds: the
+regeneration leaves `emitted_bytes.json`, `coverage.json` and `width_audit.json` byte-identical
+to `origin/master`. P2: three cases for PR 2 (five for PR 1's `arch-list`), 63 in all, and the
+self-test runs in well under a second. P3 is scored below against the plan's 250.
+
+The counted size, by `dev/varka_msg_check.py size --base 4976165bdad`: 718 counted
+lines, over the plan's 250 for PR 2 but under the 1000-line cap. Two causes the plan did not
+price: the two removed `Fault` files count their 104 deleted lines, and the interval fault
+(#1534, merged after the plan) brings its option, read site, suite and tests, about 120 more.
+
+Went differently from the sheet: the sheet expected PR 2 to wait on questions 2 and 3 (both
+answered above), and did not know of #1534's interval fault. The branch is `varka-548b`, not the
+sheet's `varka-548`.
+
+**Rebased and reviewed (20 November 2026).** The results above are the pre-rebase tree's
+(`be3327ceed9`, kept as `varka-548b-pre-rebase-1120`). The branch now sits on `342ed6851f8`.
+#1546's `narrowGroupStore` conflicted with the two new components in `VarkaEmitOption` and
+`VarkaEmitOptions`; both sides are kept, with `narrowGroupStore` first in the record, `DEFAULTS`,
+the builder and the table. `dev/varka_regen_generated.sh --all` changed only the width audit's
+JDK string. One `/code-review high` found five nits, all fixed: the rule missed a field behind an
+annotation holding `=`, braces or parentheses (annotations are now blanked with their balanced
+arguments), and a fault held in a type whose name lacks `Fault` (a static non-final field whose
+declared type holds `Fault` now reports too), five self-test cases, 68 in all; the interval
+suite's `Kernel` emits under the options it compiled with; `FAULT_INJECTOR`'s javadoc covers a
+planted wrong lowering, and `VarkaEmitOptionSuite` pins both options' reason; and this paragraph.
+On the rebased tree: the eight suites above with `VarkaCoverageSuite`, `VarkaFamilySwitchSuite`,
+`VarkaFamilyChainSuite` and `VarkaExpressionCompilerSuite` passed but for `VarkaIrFuzzSuite`, whose
+child JVM hit its 9-minute cap beside a load average near 50. Rerun alone under
+`-Dvarka.ownJvm=true`, it passed (41, 2 cancelled opt-in tests, 456 s). The rule still reports
+`VarkaFloatingFault.java:46` of the old tree and nothing on the rebased `sql/catalyst/src/main`.
+Counted size against its base: 815 lines.
 
 ## Build sheet (11 November 2026)
 

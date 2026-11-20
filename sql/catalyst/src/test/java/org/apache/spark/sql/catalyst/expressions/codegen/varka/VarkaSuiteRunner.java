@@ -53,7 +53,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteListene
  * <p>It sorts the named classes by reflection, without initialising them: an
  * {@code org.scalatest.Suite} goes to ScalaTest's Runner with every flag as given and where it
  * was given, a {@code @VarkaSuite} class to the JUnit Platform Launcher, with its filters
- * matched against each test's display name, and with a {@link VarkaSuiteListener},
+ * matched against each test's display name (a template invocation's key), and with a
+ * {@link VarkaSuiteListener},
  * which prints its tests as ScalaTest would and writes its {@code TEST-<class>.xml} into the same
  * {@code -u} directory. ScalaTest's suites run first, and its Runner prints its own summary; then
  * the JUnit classes; then one combined {@code Suites:} line and one {@code Tests:} line over both,
@@ -95,6 +96,43 @@ public final class VarkaSuiteRunner {
     public boolean matches(String testName) {
       return testName.equals(name);
     }
+  }
+
+  /**
+   * The Launcher configuration parameter, after a JUnit class's name, that holds the class's
+   * filters ({@link #encode}) for {@code VarkaSuiteExtension}, which applies them to a test
+   * template's invocations as they are generated.
+   */
+  static final String FILTERS_PARAMETER = "varka.runner.filters.";
+
+  /** The reason a template invocation the filters leave out is disabled with. */
+  static final String NOT_SELECTED = "not selected by -z or -t";
+
+  // Separates the filters in FILTERS_PARAMETER's value; no test name holds it.
+  private static final String SEPARATOR = "\0";
+
+  /** {@code filters} as {@link #FILTERS_PARAMETER}'s value: each its flag's letter and text. */
+  static String encode(List<NameFilter> filters) {
+    var parts = new ArrayList<String>();
+    for (NameFilter f : filters) {
+      parts.add(switch (f) {
+        case Containing c -> "z" + c.text();
+        case Named n -> "t" + n.name();
+      });
+    }
+    return String.join(SEPARATOR, parts);
+  }
+
+  /** Whether one of the filters {@link #encode} gave {@code encoded} matches {@code testName}. */
+  static boolean selects(String encoded, String testName) {
+    for (String part : encoded.split(SEPARATOR, -1)) {
+      NameFilter f = part.startsWith("z") ? new Containing(part.substring(1))
+          : new Named(part.substring(1));
+      if (f.matches(testName)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** The named suites run as described above; true when nothing failed or aborted. */
@@ -163,7 +201,9 @@ public final class VarkaSuiteRunner {
       var filters = new HashMap<String, List<NameFilter>>();
       junitClasses.forEach((c, f) -> filters.put(c.getName(), f));
       // A test of a class with filters runs when one of them matches its display name, the
-      // name ScalaTest's filters match; the Launcher drops the containers left with no test.
+      // name ScalaTest's filters match; the Launcher drops the containers left with no test. A
+      // test template's invocations are generated as it runs, so the extension filters them by
+      // their keys, given the filters as configuration parameters.
       PostDiscoveryFilter byName = descriptor -> {
         if (descriptor.isTest() && descriptor.getSource().orElse(null) instanceof MethodSource m) {
           List<NameFilter> own = filters.getOrDefault(m.getClassName(), List.of());
@@ -174,8 +214,13 @@ public final class VarkaSuiteRunner {
         }
         return FilterResult.included("selected");
       };
-      LauncherDiscoveryRequest request = LauncherDiscoveryRequestBuilder.request()
-          .selectors(selectors).filters(byName).build();
+      var builder = LauncherDiscoveryRequestBuilder.request().selectors(selectors).filters(byName);
+      filters.forEach((c, f) -> {
+        if (!f.isEmpty()) {
+          builder.configurationParameter(FILTERS_PARAMETER + c, encode(f));
+        }
+      });
+      LauncherDiscoveryRequest request = builder.build();
       LauncherFactory.create(config).execute(request);
       junit = listener.counts();
     }
