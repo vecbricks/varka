@@ -528,17 +528,17 @@ public final class VarkaReference {
             Double.isNaN(v) ? Double.NaN : StrictMath.rint(v)));
       }
       case CanonicalBits n -> {
-        var c = longValue(n.child(), row, isNull, lits);
+        OptionalLong c = longValue(n.child(), row, isNull, lits);
         yield c.isEmpty() ? c : OptionalLong.of(
             Double.doubleToLongBits(Double.longBitsToDouble(c.getAsLong())));
       }
       // Spark skips a null child: a null word answers the seed.
       case HashStep n -> {
-        var h = longValue(n.seed(), row, isNull, lits);
+        OptionalLong h = longValue(n.seed(), row, isNull, lits);
         if (h.isEmpty()) {
           yield h;
         }
-        var w = longValue(n.word(), row, isNull, lits);
+        OptionalLong w = longValue(n.word(), row, isNull, lits);
         yield w.isEmpty() ? h : OptionalLong.of(switch (n.mix()) {
           case XXH64_INT -> XXH64.hashInt((int) w.getAsLong(), h.getAsLong());
           case XXH64_LONG -> XXH64.hashLong(w.getAsLong(), h.getAsLong());
@@ -1061,8 +1061,8 @@ public final class VarkaReference {
   private static OptionalInt murmur3(HashStep n, int[] row, boolean[] isNull, int[] lits) {
     return switch (n.mix()) {
       case MURMUR3_INT -> {
-        var h = value(n.seed(), row, isNull, lits);
-        var w = value(n.word(), row, isNull, lits);
+        OptionalInt h = value(n.seed(), row, isNull, lits);
+        OptionalInt w = value(n.word(), row, isNull, lits);
         yield h.isEmpty() || w.isEmpty() ? h
             : OptionalInt.of(Murmur3_x86_32.hashInt(w.getAsInt(), h.getAsInt()));
       }
@@ -1071,9 +1071,9 @@ public final class VarkaReference {
           throw new IllegalArgumentException(
               "a Murmur3 high half over no low half: " + VarkaVectorIR.canonical(n));
         }
-        var h = value(low.seed(), row, isNull, lits);
-        var lo = value(low.word(), row, isNull, lits);
-        var hi = value(n.word(), row, isNull, lits);
+        OptionalInt h = value(low.seed(), row, isNull, lits);
+        OptionalInt lo = value(low.word(), row, isNull, lits);
+        OptionalInt hi = value(n.word(), row, isNull, lits);
         if (lo.isPresent() != hi.isPresent()) {
           throw new IllegalArgumentException("the halves of one word differ in validity: "
               + VarkaVectorIR.canonical(n));

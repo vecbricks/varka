@@ -403,8 +403,9 @@ public final class VarkaIrGrammar {
       case CanonicalFloat n -> throw new IllegalArgumentException("a floating node: " + n);
       case VarkaVectorIR.CanonicalBits n -> throw new IllegalArgumentException(
           "the bits of a floating node: " + n);
-      // A hash step reaches any value of its lane.
-      case VarkaVectorIR.HashStep n -> new Bounds(INT_LANE_BOUND, guard(n.seed(), n.word()));
+      // No production draws a hash step yet (VARKA-337 10); its value spans its whole lane.
+      case VarkaVectorIR.HashStep n -> throw new IllegalArgumentException(
+          "a hash step, which no production draws: " + n);
       // A condition as a value is 0 or 1; its condition's operands may hold producers.
       case CondValue n -> new Bounds(1L, guard(n.cond()));
       // Null everywhere, its vector zero, and no producer below it.

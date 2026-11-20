@@ -93,7 +93,7 @@ public final class VarkaEmitterHashSuite {
     if (w.laneType() == LaneType.INT) {
       return new HashStep(HashMix.MURMUR3_INT, seed, w);
     }
-    var high = new NarrowLane(new BitOp(BitOpKind.USHR, w, shift32), LaneType.INT);
+    VarkaVectorIR high = new NarrowLane(new BitOp(BitOpKind.USHR, w, shift32), LaneType.INT);
     return new HashStep(HashMix.MURMUR3_HIGH,
         new HashStep(HashMix.MURMUR3_LOW, seed, new NarrowLane(w, LaneType.INT)), high);
   }
@@ -143,22 +143,22 @@ public final class VarkaEmitterHashSuite {
     boolean wide = xxh64 || List.of(lanes).stream().anyMatch(l -> l.bits() == Long.SIZE);
     int[] ints = xxh64 ? new int[0] : new int[] {(int) seed};
     long[] longs = xxh64 ? new long[] {seed, 32L} : new long[] {32L};
-    var loaded = VarkaEmitterFixtures.load(VarkaEmitterFixtures.emit(List.of(root),
-        lanes.length, 1, VarkaMatrixRuns.BASE));
+    VarkaEmitterFixtures.Loaded loaded = VarkaEmitterFixtures.load(
+        VarkaEmitterFixtures.emit(List.of(root), lanes.length, 1, VarkaMatrixRuns.BASE));
     try (Arena arena = Arena.ofConfined()) {
       long[] in = new long[lanes.length];
       long[] valid = new long[lanes.length];
       int[] nullCounts = new int[lanes.length];
       for (int c = 0; c < lanes.length; c++) {
         long[] values = columns[c];
-        var col = lanes[c].bits() == Long.SIZE
+        VarkaEmitterFixtures.Col col = lanes[c].bits() == Long.SIZE
             ? VarkaEmitterFixtures.makeLongInput(arena, n, nulls[c], i -> values[i], true)
             : VarkaEmitterFixtures.makeInputData(arena, n, nulls[c], i -> (int) values[i], true);
         in[c] = col.data().address();
         valid[c] = col.validityAddress(n);
         nullCounts[c] = col.nullCount();
       }
-      var out = xxh64 ? VarkaEmitterFixtures.makeLongOutput(arena, n)
+      VarkaEmitterFixtures.Output out = xxh64 ? VarkaEmitterFixtures.makeLongOutput(arena, n)
           : VarkaEmitterFixtures.makeOutput(arena, n, -1);
       long[] dst = {out.data().address()};
       long[] dstValid = {out.validity().address()};
@@ -304,8 +304,8 @@ public final class VarkaEmitterHashSuite {
 
   /** Every 32-bit pattern at {@code lane} through one hash: the count of rows off Spark's. */
   private static long sweep(boolean xxh64, LaneType lane) {
-    var loaded = VarkaEmitterFixtures.load(VarkaEmitterFixtures.emit(List.of(fold(xxh64, lane)),
-        1, 1, VarkaMatrixRuns.BASE));
+    VarkaEmitterFixtures.Loaded loaded = VarkaEmitterFixtures.load(
+        VarkaEmitterFixtures.emit(List.of(fold(xxh64, lane)), 1, 1, VarkaMatrixRuns.BASE));
     int[] ints = xxh64 ? new int[0] : new int[] {SEED};
     long[] longs = xxh64 ? new long[] {SEED, 32L} : new long[] {32L};
     try {
