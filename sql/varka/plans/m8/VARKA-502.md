@@ -280,14 +280,18 @@ sheet's B1 except item 7 (the row stays open, see below):
   line); the skill bullet in `testing-and-debugging.md`.
 
 **Run.** Listed under "Tests owed" in the pull request body; this window allowed only
-`catalyst/Test/compile` and one run of `VarkaReproductionSuite`. RESULTS_LINE
+`catalyst/Test/compile` and one run of `VarkaReproductionSuite`. `catalyst/Test/compile` passed (after one fix: `childrenOf` returns an array). `catalyst/testOnly
+*VarkaReproductionSuite` passed, 16 of 16, the four new tests among them, in 4.2 s for the whole
+suite.
 
 **Not yet run, so the row is not Done.** The end-to-end suite (whether the boolean query fuses with
 `bool:` and `condIf` in its outputs, and whether `sameClass` holds on every existing replay, section
 9 point 4's risk), `sql/Test/compile`, the planted faults of B3, and `dev/varka_push_check.py` over
 the branch.
 
-**Predictions (section 4), scored so far.** P1: PREDICTION_P1. P2: PREDICTION_P2. P3: holds by
+**Predictions (section 4), scored so far.** P1: holds at the catalyst level (every existing round trip passes record equality, and both new
+replays rebuild their class byte for byte); the end-to-end half is owed. P2: holds as far as measured: the whole suite ran in 4.2 s with the sweep in it; the sweep's
+tree count was not printed. P3: holds by
 construction, since no main file changed; to be confirmed by `git status` after the end-to-end run.
 P4: the boolean test is 31 lines against the decimal test's 28; holds.
 
