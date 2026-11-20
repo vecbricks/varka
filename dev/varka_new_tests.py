@@ -127,6 +127,15 @@ JAVA_NAME = re.compile(r"@DisplayName\(\s*")
 JAVA_UNLISTABLE = re.compile(r"^\s*@(?:ParameterizedTest|RepeatedTest|TestFactory)\b", re.M)
 
 
+def names_a_template(text, pos):
+    """Whether the @DisplayName at `pos` sits on a @ParameterizedTest, a @RepeatedTest or a
+    @TestFactory, whose own display name is no test's: its tests are keyed by their generated
+    names (VARKA-477). The lines read are those from the blank line before it to the next."""
+    start = text.rfind("\n\n", 0, pos)
+    end = text.find("\n\n", pos)
+    return bool(JAVA_UNLISTABLE.search(text, max(start, 0), end if end >= 0 else len(text)))
+
+
 def tests_in(path, text):
     """([(suite, name)], [(line, raw)]) of one Varka suite file: its named tests, and the tests
     whose names cannot be read as a literal. Not a Varka suite file: ([], [])."""
@@ -153,6 +162,9 @@ def tests_in(path, text):
         line = text.count("\n", 0, m.start()) + 1
         # A class-level @DisplayName names the class, not a test.
         if call is JAVA_NAME and re.match(r"[^\n]*\n\s*(?:public |final )*class ", text[m.end() :]):
+            continue
+        # A template's or a factory's name is not a test's; the template is reported below.
+        if call is JAVA_NAME and names_a_template(text, m.start()):
             continue
         name = literal_chain(text, m.end())
         if name is None:
@@ -684,6 +696,16 @@ class NewTestsTest(unittest.TestCase):
             "void tiers() {}\n", "void tiers() {}\n\n  @ParameterizedTest\n  void each(int n) {}\n"
         )
         _, bad = new_tests({JAVA: JAVA_BASE}, {JAVA: head}, [JAVA])
+        self.assertEqual(len(bad), 1)
+
+    def test_a_parameterized_tests_display_name_is_not_listed(self):
+        head = JAVA_BASE.replace(
+            "void tiers() {}\n",
+            'void tiers() {}\n\n  @DisplayName("a template")\n  @ValueSource(ints = {1, 2})\n'
+            '  @ParameterizedTest(name = "of {0}")\n  void each(int n) {}\n',
+        )
+        found, bad = new_tests({JAVA: JAVA_BASE}, {JAVA: head}, [JAVA])
+        self.assertEqual(found, [])
         self.assertEqual(len(bad), 1)
 
     def test_junit_reports_are_matched_by_suite_and_name(self):

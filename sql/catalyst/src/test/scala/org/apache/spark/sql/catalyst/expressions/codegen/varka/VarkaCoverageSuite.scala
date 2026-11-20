@@ -1921,6 +1921,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
   }
 
+  test("coverage.json's columns read back in the order and at the types this suite declares " +
+      "them") {
+    // Every other catalyst suite takes the table's columns from the file, and a column's position
+    // is a kernel's input ordinal, so the order read back is part of what they compile.
+    val read = VarkaCoverageRows.columns(getWorkspaceFilePath("sql", "varka", "coverage.json"))
+    assert(read.map(a => a.name -> a.dataType) === columns.map(a => a.name -> a.dataType))
+  }
+
   // --- what the table's kernels reach of the emitter (VARKA-280) ------------------------------
 
   /**
@@ -2027,9 +2035,12 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     val names = javaNames.flatten.toSet
     assert(names.size > 40, s"the pattern scan found only ${names.size} names; has the " +
       "compiler been restructured? This check is worthless if it silently matches nothing.")
+    // The optimizer's package too: NormalizeNaNAndZero is an expression declared there.
     names.filter { n =>
-      Try(Utils.classForName(s"org.apache.spark.sql.catalyst.expressions.$n"))
-        .map(classOf[Expression].isAssignableFrom).getOrElse(false)
+      Seq("expressions", "optimizer").exists { pkg =>
+        Try(Utils.classForName(s"org.apache.spark.sql.catalyst.$pkg.$n"))
+          .map(classOf[Expression].isAssignableFrom).getOrElse(false)
+      }
     }
   }
 
@@ -2048,11 +2059,15 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * projection entry, `Attribute` is a column before binding, which the predicate compiler asks
    * of a null test's operand (VARKA-598), `BinaryArithmetic` is an abstract class, matched only
    * to name a floating operand's decline, `BoundReference` is what a column becomes once bound,
-   * `Literal` is a constant inside another row, and `RuntimeReplaceable` is a trait the compiler
-   * unwraps.
+   * `Literal` is a constant inside another row, `RuntimeReplaceable` is a trait the compiler
+   * unwraps, and `KnownFloatingPointNormalized` and `NormalizeNaNAndZero` are the tag and the
+   * normaliser the optimizer puts over a join, window or aggregate key, which no projection or
+   * filter holds, so no coverage row can (`VARKA-337.md` 0 item 4; the census keeps them
+   * uncounted, by the owner's option (a) of 8 point 5).
    */
   private val infrastructure = Set(
-    "Alias", "Attribute", "BinaryArithmetic", "BoundReference", "Literal", "RuntimeReplaceable")
+    "Alias", "Attribute", "BinaryArithmetic", "BoundReference", "Literal", "RuntimeReplaceable",
+    "KnownFloatingPointNormalized", "NormalizeNaNAndZero")
 
   /**
    * Expressions the compiler matches only in order to decline them with a specific reason.

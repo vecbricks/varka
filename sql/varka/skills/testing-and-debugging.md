@@ -1381,11 +1381,29 @@ Java is one (`sql/varka/AGENTS.md`). What to know when writing and running one:
   lines, the JUnit XML, `skips.tsv` and `fused.tsv`, and the suite is
   the class's simple name, so a skip-list line is written as for a ScalaTest test. The extension
   fails the class before its tests run (an aborted suite) when two tests share one name, as
-  ScalaTest refuses them; when a test is not a plain `@Test` (`@ParameterizedTest`,
-  `@RepeatedTest`, `@TestFactory`: JUnit runs those past the interceptor that applies the skip list
-  and the watchdog, and names their invocations `[1] ...`); when the class holds `@Nested` classes;
-  and when it takes `@VarkaSuite` from a superclass only, since `dev/varka_matrix.sh` finds a Java
-  suite by the annotation in its own file.
+  ScalaTest refuses them; when a test template's invocations make no stable key (below); when the
+  class holds `@Nested` classes; and when it takes `@VarkaSuite` from a superclass only, since
+  `dev/varka_matrix.sh` finds a Java suite by the annotation in its own file.
+- **Generated tests: `@ParameterizedTest`, `@RepeatedTest`, `@TestFactory`** (VARKA-477). Each
+  invocation runs under the skip list, the tags and the watchdog as a `@Test` does, and in an
+  `ownJvm` class is answered from the child, under its key. A dynamic test's key is the name its
+  factory gives it. A template invocation's key is the method's `@DisplayName`, a space, and the
+  invocation's rendered `name`: `@DisplayName("a 2^24-row SMALLINT")` with
+  `name = "{0} slice in {1} agrees with Spark on {2}"` gives
+  `a 2^24-row SMALLINT + slice in LEGACY agrees with Spark on the widened arm`. The key is what
+  `skips.tsv` and the ledger name, so it must not move when a case is added: a
+  `@ParameterizedTest`'s `name` renders an argument and holds neither `{index}` (JUnit's default
+  does) nor `{displayName}`, and a `@RepeatedTest` is named `"repetition {currentRepetition}"`
+  (no total). Any other kind of `@TestTemplate` is refused. Set `quoteTextArguments = false`
+  where a `String` argument is rendered, or JUnit 6 renders it in quotes. An argument renders by
+  its `toString`, so a record argument overrides it to its name. A key used twice in a class,
+  or equal to a plain test's name, fails the test. A template that fails as a whole (its source
+  threw or gave no case) is reported as one failed test under its display name, and a disabled
+  one as one ignored test. A class template (`@ParameterizedClass`) is refused. The argument source, and a factory's body, also run in the shared JVM of an
+  `ownJvm` class to learn the keys the child answers, so they stay a cheap static list - never
+  kernels emitted to name tests. `VarkaEmitterNarrowArithSuite`'s slices are the example. An
+  opt-in sweep stays a `@Test` per case: `dev/varka_sweeps.py --check` selects a shard's opt-in
+  tests by the display names in the source, which a template's generated names are not.
 - **An own-JVM class.** In the shared JVM each test takes the child's result as it is: the skip
   list, `PinsDefaults` and the watchdog act in the child only, a child's cancel keeps the child's
   reason, and a class-level abort in the child (or a non-zero exit with no failure in its report)
@@ -1403,7 +1421,12 @@ Java is one (`sql/varka/AGENTS.md`). What to know when writing and running one:
   writes `TEST-<class>.xml` for both, and prints one `Suites:` and one `Tests:` line over both,
   last. The matrix's report reads the last of each, so a line printed after them would be read
   instead. A `-z <text>` or `-t <name>` after a `-s` filters that suite's tests, as ScalaTest's
-  Runner does; for a JUnit class it is matched against the display names.
+  Runner does; for a JUnit class it is matched against the display names, and a template
+  invocation's key. The invocations exist only as the template runs, so the runner hands its
+  filters to the extension (a Launcher configuration parameter), which disables an unselected
+  invocation with a reason the listener neither prints nor counts. A `@TestFactory`'s dynamic
+  tests are not filtered: JUnit evaluates no condition for them, and the harness has no way to
+  leave one out without reporting it passed or cancelled.
 - **A cancel is thrown, not decided.** The extension cancels by throwing opentest4j's
   `TestAbortedException` from its interceptor; an `ExecutionCondition` would report the test
   disabled, which is ScalaTest's "ignored". JUnit's failure, `AssertionFailedError`, is an `Error`,

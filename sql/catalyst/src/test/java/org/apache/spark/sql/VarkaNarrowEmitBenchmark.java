@@ -84,10 +84,11 @@ import org.apache.spark.sql.types.ShortType;
  * {@code narrowLanes}, whose values are a kernel computing in the int species (WIDENED) or in
  * the narrow one (NATIVE), and {@code narrowGroupStore}, whose values are a narrow store whose
  * species spans several int groups written under a mask per group (MASKED) or once, whole, per
- * run of groups (COMBINED, VARKA-603). Every case label names both, so a default flip changes
- * which arm is the default, not what a label means. Neither is a SQL conf: no session setting
- * reaches them, so a production kernel is the native arm with the masked store. The measurement
- * is the one the hand-loop spike ({@link VarkaNarrowLaneBenchmark}, {@code
+ * run of groups (COMBINED, VARKA-603). A case label names its arm: the masked arms keep their
+ * committed names (WIDENED, NATIVE), so their rows still join the results recorded before the
+ * store option, and a combined arm adds {@code _COMBINED}. Neither is a SQL conf: no session
+ * setting reaches them, so a production kernel is the native arm with the masked store. The
+ * measurement is the one the hand-loop spike ({@link VarkaNarrowLaneBenchmark}, {@code
  * results/VARKA-329-spike.txt}) could not make.
  *
  * <p>The IR is built by hand and passed through {@link VarkaLoopEmitter#emit}, so what is timed
@@ -786,10 +787,10 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
         if (allShapes.get(s).source() instanceof Compiled
             && Arrays.stream(emitted[s]).filter(Optional::isPresent).count() > 1) {
           System.out.println("VarkaNarrowEmitBenchmark: " + allShapes.get(s).label()
-              + ", the arms' class bytes are " + pairBytes(allShapes.get(s), arms, emitted[s],
-                  false) + " for narrowLanes=false and "
-              + pairBytes(allShapes.get(s), arms, emitted[s], true)
-              + " for narrowLanes=true");
+              + ", WIDENED and NATIVE emit " + pairBytes(allShapes.get(s), arms, emitted[s],
+                  NarrowGroupStore.MASKED) + " class bytes under the masked store and "
+              + pairBytes(allShapes.get(s), arms, emitted[s], NarrowGroupStore.COMBINED)
+              + " under the combined one");
         }
       }
       // The witness records from before any kernel runs, so it knows every compile of each
@@ -847,18 +848,19 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   }
 
   /**
-   * {@link #armsEmitSameBytes} over the arms of one {@code narrowLanes} pair, or over every
-   * present arm where {@code narrowLanes} is null. The two pairs differ by design under
-   * {@code COMBINED}, so a compiled shape is compared within its pair: "both arms agree" keeps
-   * meaning the WIDENED and NATIVE kernels of one narrow lane, which is the evidence
-   * {@code VARKA-603.md} 0 item 4 records, rather than all four arms.
+   * {@link #armsEmitSameBytes} over the arms of one store form - WIDENED against NATIVE, or
+   * WIDENED_COMBINED against NATIVE_COMBINED - or over every present arm where {@code store} is
+   * null. A masked and a combined store differ by design wherever the store spans several int
+   * groups, so a compiled shape is compared within its form: "both arms agree" keeps meaning the
+   * WIDENED and NATIVE kernels of one store, which is the evidence {@code VARKA-603.md} 0 item 4
+   * records.
    */
   private static boolean armsEmitSameBytes(Shape shape, List<Arm> arms,
-      Optional<Emitted>[] emitted, Boolean narrowLanes) {
+      Optional<Emitted>[] emitted, NarrowGroupStore store) {
     var bytes = new ArrayList<byte[]>();
     for (int a = 0; a < arms.size(); a++) {
       if (emitted[a].isPresent()
-          && (narrowLanes == null || arms.get(a).narrowLanes == narrowLanes)) {
+          && (store == null || arms.get(a).narrowGroupStore == store)) {
         Tree tree = emitted[a].get().tree();
         bytes.add(VarkaLoopEmitter.emit(SAME_BYTES_NAME, tree.roots(),
             shape.inputLanes().length, tree.literals().length, null, null,
@@ -873,19 +875,19 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
     return true;
   }
 
-  /** {@link #armsEmitSameBytes} for one narrowLanes pair, worded for the run's log. */
+  /** {@link #armsEmitSameBytes} for one store form's pair, worded for the run's log. */
   private static String pairBytes(Shape shape, List<Arm> arms, Optional<Emitted>[] emitted,
-      boolean narrowLanes) {
+      NarrowGroupStore store) {
     long present = 0;
     for (int a = 0; a < arms.size(); a++) {
-      if (emitted[a].isPresent() && arms.get(a).narrowLanes == narrowLanes) {
+      if (emitted[a].isPresent() && arms.get(a).narrowGroupStore == store) {
         present++;
       }
     }
     if (present < 2) {
       return "not compared";
     }
-    return armsEmitSameBytes(shape, arms, emitted, narrowLanes) ? "identical" : "different";
+    return armsEmitSameBytes(shape, arms, emitted, store) ? "identical" : "different";
   }
 
   /** One rung: fresh buffers, every shape, every arm, each checked against the reference. */

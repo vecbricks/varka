@@ -25,6 +25,7 @@ import java.lang.classfile.Label;
 import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
@@ -37,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Boo
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
@@ -271,6 +273,7 @@ final class VarkaVectorWalk {
       case MathUnary n -> emitMathUnary(cb, n, dense, analysis, s, computed);
       case RoundToIntegral n ->
           VarkaRoundingLowering.emitRint(cb, n, dense, analysis, s, computed);
+      case CanonicalFloat n -> emitCanonicalFloat(cb, n, dense, analysis, s, computed);
       case DateDiff n -> {
         lane.requireInt(n);
         emitAndValidatedOp(cb, node, n.end(), n.start(), "sub", LANEWISE_VV,
@@ -1141,7 +1144,8 @@ final class VarkaVectorWalk {
     if (!dense && s.ownWord.contains(n)) {
       emitAndWord(cb, s, s.wordRef.get(n), s.wordRef.get(n.left()), s.wordRef.get(n.right()));
     }
-    boolean faulty = VarkaFloatingFault.planted() == VarkaFloatingFault.DIVISOR_POSITIVE_ZERO_ONLY;
+    boolean faulty = analysis.options.floatingFault()
+        == VarkaEmitOptions.FloatingFault.DIVISOR_POSITIVE_ZERO_ONLY;
     if (faulty) {
       cb.dup();                                           // [q, y, y]
     }
@@ -1176,6 +1180,37 @@ final class VarkaVectorWalk {
     };
     cb.getstatic(VECTOR_OPERATORS, operator, VO_UNARY);
     cb.invokevirtual(lane.vector, "lanewise", MethodTypeDesc.of(lane.vector, VO_UNARY));
+  }
+
+  /**
+   * {@code CanonicalFloat}: {@code blend(x + 0.0, NaN, isNaN(x))}, the lane's canonical NaN a
+   * scalar the blend broadcasts. The class file writes a float or double constant through
+   * {@code floatToIntBits} or {@code doubleToLongBits}, so the pushed NaN is the canonical one.
+   * The word is the operand's, since nothing here nulls a lane. Under the planted fault
+   * {@link VarkaEmitOptions.FloatingFault#CANONICAL_ZERO_DROPPED} the add is left out, so
+   * {@code -0.0} keeps its sign.
+   */
+  private static void emitCanonicalFloat(CodeBuilder cb, CanonicalFloat n, boolean dense,
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
+    int x = Objects.requireNonNull(s.canonTmp.get(n), "the node's scratch local")[0];
+    emitValue(cb, n.child(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    Lane lane = analysis.laneOf(n);
+    cb.astore(x);                                               // []
+    cb.aload(x);
+    if (analysis.options.floatingFault()
+        != VarkaEmitOptions.FloatingFault.CANONICAL_ZERO_DROPPED) {
+      lane.pushZero(cb);
+      cb.invokevirtual(lane.vector, "add", lane.lanewiseVI);   // [x + 0.0]
+    }
+    switch (lane.laneType) {
+      case FLOAT -> cb.loadConstant(Float.NaN);
+      case DOUBLE -> cb.loadConstant(Double.NaN);
+      case BYTE, SHORT, INT, LONG -> throw VarkaErrors.illegalArgument(
+          "a canonicalisation at the integral lane " + lane.laneType + ": " + n);
+    }
+    emitIsNaN(cb, lane, x);                                     // [x + 0.0, NaN, isNaN(x)]
+    cb.invokevirtual(lane.vector, "blend", lane.lanewiseVIMasked);
   }
 
   /**

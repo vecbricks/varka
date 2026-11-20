@@ -41,7 +41,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteReport.
 /**
  * Prints the tests of {@link VarkaSuite} classes as ScalaTest prints its tests (VARKA-312), so a
  * JUnit suite's run reads like a ScalaTest one's in sbt's output, the gate's logs and the
- * matrix's report, each test named by its display name:
+ * matrix's report, each test named by its display name, or a test template's invocation by its
+ * key ({@link VarkaSuiteExtension#invocationKey}):
  * <pre>
  * VarkaMethodNamesSuite:
  * - the builders give the names the emitted classes have
@@ -138,9 +139,12 @@ public final class VarkaSuiteListener implements TestExecutionListener {
   @Override
   public synchronized void executionSkipped(TestIdentifier id, String reason) {
     ClassRun run = classRunOf(id);
-    if (id.isTest() && run != null) {
-      out.println("- " + id.getDisplayName() + " !!! IGNORED !!!");
-      run.cases().add(new Case(id.getDisplayName(), new Skipped(reason), 0.0));
+    // An invocation the runner's filters leave out is not shown, as a filtered test is not. A
+    // disabled template or factory, whose tests are never generated, is shown as one test.
+    if (run != null && !VarkaSuiteRunner.NOT_SELECTED.equals(reason)) {
+      String name = nameOf(id);
+      out.println("- " + name + " !!! IGNORED !!!");
+      run.cases().add(new Case(name, new Skipped(reason), 0.0));
       counts = counts.plus(new Counts(0, 0, 0, 1, 0, 0, 0));
     }
   }
@@ -153,12 +157,15 @@ public final class VarkaSuiteListener implements TestExecutionListener {
       return;
     }
     ClassRun run = classRunOf(id);
-    if (!id.isTest() || run == null) {
+    // A template or a factory that fails as a whole - its argument source threw or gave none -
+    // generated no test to report, so it is reported as a test of its own, under its name.
+    if (run == null
+        || (!id.isTest() && result.getStatus() == TestExecutionResult.Status.SUCCESSFUL)) {
       return;
     }
     Long start = testStarts.remove(id.getUniqueId());
     double seconds = start == null ? 0.0 : (System.nanoTime() - start) / 1e9;
-    String name = id.getDisplayName();
+    String name = nameOf(id);
     String message = result.getThrowable().map(VarkaSuiteListener::messageOf).orElse("");
     Result outcome = switch (result.getStatus()) {
       case SUCCESSFUL -> {
@@ -219,6 +226,21 @@ public final class VarkaSuiteListener implements TestExecutionListener {
       return Optional.of(source.getClassName());
     }
     return Optional.empty();
+  }
+
+  /**
+   * The name of the test {@code id}: its display name, or for a test template's invocation its
+   * key, the template's display name and its own, as the extension keys it.
+   */
+  private String nameOf(TestIdentifier id) {
+    if (VarkaSuiteExtension.isInvocation(id.getUniqueId())) {
+      Optional<TestIdentifier> template = plan.getParent(id);
+      if (template.isPresent()) {
+        return VarkaSuiteExtension.invocationKey(template.get().getDisplayName(),
+            id.getDisplayName());
+      }
+    }
+    return id.getDisplayName();
   }
 
   /** The running Varka class {@code id} belongs to, at any depth, or null. */

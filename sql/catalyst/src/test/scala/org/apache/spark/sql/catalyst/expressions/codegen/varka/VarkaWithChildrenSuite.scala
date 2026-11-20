@@ -71,10 +71,11 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     // the committed sequences. `VarkaEmitterFloatingArithSuite` holds it to the reference, and it
     // is rebuilt directly below.
     // No grammar draws the floating conversion (VARKA-343) yet, for the same reason; it is
-    // rebuilt directly below.
+    // rebuilt directly below. The canonicalisation (VARKA-337) is drawn by a side sequence of its
+    // own, which these grammars are not, and is rebuilt directly below.
     val undrawn = permitted -- seen - "NullSafeEqual" - "BoolColumn" - "CondConst" -
       "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" - "DecimalColumn" -
-      "DecimalWord" - "MathUnary" - "RoundToIntegral" - "ConvertLane" -
+      "DecimalWord" - "MathUnary" - "RoundToIntegral" - "CanonicalFloat" - "ConvertLane" -
       "CrossLane" // the crossing is drawn from 343a5
     assert(undrawn.isEmpty, s"the grammars never drew: ${undrawn.toSeq.sorted.mkString(", ")}")
   }
@@ -140,6 +141,19 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
       new MathUnary(MathFn.SQRT, quotient))
     intercept[Exception](
       VarkaVectorIR.withChildren(new MathUnary(MathFn.SQRT, x), new ColumnRef(0)))
+  }
+
+  test("a canonicalisation is rebuilt over its own child, and one over another collapses") {
+    val x = new ColumnRef(0, LaneType.FLOAT)
+    val sum = new IntArith(IntOp.ADD, Overflow.WRAP, x, new ColumnRef(1, LaneType.FLOAT))
+    val canon = CanonicalFloat.of(x)
+    assert(VarkaVectorIR.withChildren(canon, VarkaVectorIR.childrenOf(canon): _*) == canon)
+    assert(VarkaVectorIR.withChildren(canon, sum) == CanonicalFloat.of(sum))
+    // A child that is itself a canonicalisation: the rebuilt node is that child, one node.
+    assert(VarkaVectorIR.withChildren(canon, canon) eq canon)
+    assert(CanonicalFloat.of(canon) eq canon)
+    intercept[IllegalArgumentException](new CanonicalFloat(canon))
+    intercept[IllegalArgumentException](CanonicalFloat.of(new ColumnRef(0)))
   }
 
   test("a floating conversion is rebuilt over its own child and keeps its target") {
