@@ -42,10 +42,17 @@ writes both measured files from a fanned-out run's JUnit reports.
       > suite-seconds.tsv
   dev/varka_matrix_bins.py select --base DIR --pr DIR --configurations FILE \\
       (--changed FILE | --trees OLD NEW) [--reach FILE --reach-out FILE] > units.tsv
+  dev/varka_matrix_bins.py replay RUN_DIR --jobs JOBS --suites MODULE=FILE... [--reach FILE] \\
+      [--plan-from REF] [--pairs FILE] [--suite-seconds FILE]
   dev/varka_matrix_bins.py --selftest
 
 Each bin's `units` is one line a JVM, `configuration|module|suite,suite,...`, the suites as
 simple names, which the bin's job hands to `dev/varka_matrix.sh --suites`.
+
+`replay` (VARKA-617) reads one run's downloaded bin artifacts and its jobs from the Actions API
+and prints its measured bin phase beside the phase replayed from its own bins and from the bins
+the planner cuts now, each unit at the seconds the run measured, so that the planner is checked
+against its own run rather than against another run's bin count and slots.
 
 `select` (VARKA-508) compares master's `VarkaTestUse` record with a pull request's and prints
 the (configuration, suite, test) units the pull request's matrix reruns, one
@@ -59,9 +66,11 @@ import hashlib
 import json
 import re
 import statistics
+import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 SUITE_TIMES = "sql/varka/ci/suite-times.tsv"
@@ -432,6 +441,265 @@ def times(junit_dirs, reach=None):
             continue  # a platform's runner (Arm) would skew the median; `units` times it by itself
         runs.setdefault(suite, []).append(seconds)
     return {suite: statistics.median(seconds) for suite, seconds in runs.items()}
+
+
+# ---------------------------------------------------------------------------------------------
+# Replay: a run's bin phase as it ran and as the planner would cut it now (VARKA-617)
+# ---------------------------------------------------------------------------------------------
+
+# A bin job's name in the Actions API, which carries the planner's bin.
+BIN_JOB = re.compile(r"Option matrix: (b\d{3})")
+RUN_STEP = "Run this bin's units"
+
+
+def junit_suites(leaf):
+    """{suite: seconds} of one JVM's directory, from its JUnit reports' `<testsuite>` tags."""
+    out = {}
+    for xml in sorted(Path(leaf, "junit").glob("TEST-*.xml")):
+        head = xml.read_text(encoding="utf-8", errors="replace")[:4000]
+        tag = re.search(r"<testsuite\b[^>]*>", head)
+        if not tag:
+            continue
+        name = re.search(r'\bname="([^"]+)"', tag.group(0))
+        seconds = re.search(r'\btime="([0-9.]+)"', tag.group(0))
+        if name and seconds:
+            suite = name.group(1).rsplit(".", 1)[-1]
+            out[suite] = out.get(suite, 0.0) + float(seconds.group(1))
+    return out
+
+
+def read_bin_runs(root):
+    """One run's bins from its downloaded bin artifacts under `root` (`gh run download` puts each
+    in a directory of its own, the report job merges them; both layouts are read): for each bin,
+    its units in the order the bin's job started them, each (k, configuration, module, {suite:
+    JUnit seconds}, measured seconds). A unit's seconds are its JVM's wall time, which
+    `dev/varka_matrix.sh` writes beside its reports."""
+    found = {}
+    for seconds in Path(root).glob("**/b[0-9][0-9][0-9]-u*/runs/*/*/seconds"):
+        leaf = seconds.parent
+        unit = leaf.parent.parent.parent.name
+        bin_name, k = unit.split("-u", 1)
+        if not k.isdigit():
+            continue
+        named = leaf.parent / "name"
+        config = named.read_text(encoding="utf-8").strip() if named.exists() else leaf.parent.name
+        module = leaf.name.split("-", 1)[0]
+        key = (bin_name, int(k))
+        _, _, _, suites, total = found.get(key, (0, config, module, {}, 0.0))
+        for suite, s in junit_suites(leaf).items():
+            suites[suite] = suites.get(suite, 0.0) + s
+        found[key] = (int(k), config, module, suites, total + float(seconds.read_text().strip()))
+    out = {}
+    for (bin_name, _), unit in sorted(found.items()):
+        out.setdefault(bin_name, []).append(unit)
+    return out
+
+
+def epoch(stamp):
+    """An Actions API time stamp, `2026-11-14T21:20:38Z`, as seconds."""
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+
+
+def read_bin_jobs(path):
+    """The run's bin jobs from the Actions API's jobs of a run, saved as one JSON object a line
+    (`gh api .../actions/runs/RUN/jobs?filter=all --paginate --jq '.jobs[]'`) or as the API's
+    own `{"jobs": [...]}`: for each bin its last attempt's created, started and completed times
+    and its units step's start and end, as seconds."""
+    text = Path(path).read_text(encoding="utf-8").strip()
+    if text.startswith('{"jobs"') or text.startswith("["):
+        loaded = json.loads(text)
+        jobs = loaded["jobs"] if isinstance(loaded, dict) else loaded
+    else:
+        jobs = [json.loads(line) for line in text.splitlines() if line.strip()]
+    out = {}
+    for job in jobs:
+        m = BIN_JOB.fullmatch(job.get("name", ""))
+        if not m or not job.get("started_at") or not job.get("completed_at"):
+            continue
+        attempt = job.get("run_attempt", 1)
+        if m.group(1) in out and out[m.group(1)]["attempt"] > attempt:
+            continue
+        step = next((s for s in job.get("steps", []) if s["name"] == RUN_STEP), None)
+        ran = step is not None and step.get("started_at") and step.get("completed_at")
+        out[m.group(1)] = {
+            "attempt": attempt,
+            "created": epoch(job["created_at"]),
+            "started": epoch(job["started_at"]),
+            "completed": epoch(job["completed_at"]),
+            "run_start": epoch(step["started_at"]) if ran else None,
+            "run_end": epoch(step["completed_at"]) if ran else None,
+        }
+    return out
+
+
+def lanes_time(seconds, lanes=LANES):
+    """The wall time of units run in this order on `lanes` lanes, each started as a lane frees,
+    as a bin's job runs them (`wait -n` on its two JVMs)."""
+    free = [0.0] * lanes
+    for s in seconds:
+        k = min(range(lanes), key=lambda i: free[i])
+        free[k] += s
+    return max(free)
+
+
+def phase_time(durations, slots, wait):
+    """The bin phase of jobs started in this order on `slots` slots, each waiting `wait` seconds
+    for a runner once its slot is free: the first job's start to the last job's end."""
+    if not durations:
+        return 0.0
+    free = [0.0] * slots
+    end = 0.0
+    for d in durations:
+        k = min(range(slots), key=lambda i: free[i])
+        free[k] += wait + d
+        end = max(end, free[k])
+    return end - wait
+
+
+def run_shape(jobs):
+    """A run's measured bin phase, its slots (the most bin jobs it ran at once, max-parallel where
+    the run filled it) and its median wait for a runner once a slot was free: a job's start less
+    the end that freed its slot, its creation for the first wave, as every bin job is created when
+    the build ends and waits for a slot of `max-parallel` first."""
+    starts = sorted(j["started"] for j in jobs.values())
+    ends = sorted(j["completed"] for j in jobs.values())
+    events = sorted([(s, 1) for s in starts] + [(e, -1) for e in ends])
+    running = slots = 0
+    for _, d in events:
+        running += d
+        slots = max(slots, running)
+    created = sorted(j["created"] for j in jobs.values())
+    waits = [starts[i] - (created[i] if i < slots else ends[i - slots]) for i in range(len(starts))]
+    return ends[-1] - starts[0], slots, statistics.median(waits)
+
+
+def job_overhead(job):
+    """A bin job's seconds outside its units step: the set-up before it and the upload after."""
+    if job["run_start"] is None:
+        return job["completed"] - job["started"]
+    return (job["run_start"] - job["started"]) + (job["completed"] - job["run_end"])
+
+
+def replay(
+    bins,
+    jobs,
+    suites,
+    planner,
+    target=480.0,
+    reach=None,
+    slots=None,
+):
+    """The run's measured bin phase beside its replays. `bins` and `jobs` are the run's
+    (`read_bin_runs`, `read_bin_jobs`), `suites` its modules' suites as `plan` takes them and
+    `planner` the files the replanned cut reads: (suite seconds, PR suite times, configuration
+    weights, configuration pair seconds). Each replay starts the jobs in the plan's order on the
+    run's slots, each after the run's median wait for a runner.
+
+    * `jobs as run` times the run's own jobs at their measured lengths: the slot model alone.
+    * `as run` times the run's own bins, each its measured set-up and upload plus its units
+      at their measured seconds on two lanes in the order they ran: the bin model too.
+    * `replanned` cuts the run's configurations and suites afresh with `planner`, and times each
+      unit at the run's measured JUnit seconds of its suites plus the run's median JVM overhead
+      (a unit's seconds less its suites'), each bin at the run's median set-up and upload. A
+      suite the run has no seconds for under a configuration counts as none and is counted."""
+    measured, run_slots, wait = run_shape(jobs)
+    slots = slots or run_slots
+    order = sorted(jobs)
+    as_jobs = phase_time([jobs[b]["completed"] - jobs[b]["started"] for b in order], slots, wait)
+    lanes_run = {b: lanes_time([u[4] for u in bins.get(b, [])]) for b in order}
+    as_run = phase_time([job_overhead(jobs[b]) + lanes_run[b] for b in order], slots, wait)
+    jvm = statistics.median(u[4] - sum(u[3].values()) for us in bins.values() for u in us)
+    setup = statistics.median(job_overhead(j) for j in jobs.values())
+    pairs = {}
+    for us in bins.values():
+        for _, config, _, ran, _ in us:
+            for suite, s in ran.items():
+                pairs[(run_dir(config), suite)] = pairs.get((run_dir(config), suite), 0.0) + s
+    configs = sorted({u[1] for us in bins.values() for u in us} - {DEFAULTS} - set(PLATFORMS))
+    platforms = tuple(p for p in PLATFORMS if any(u[1] == p for us in bins.values() for u in us))
+    suite_seconds, suite_times, config_weights, config_seconds = planner
+    cut = plan(
+        configs,
+        suites,
+        suite_seconds,
+        suite_times,
+        config_weights,
+        target,
+        reach,
+        config_seconds,
+        platforms,
+    )["include"]
+    missing = 0
+    lanes_plan = []
+    for b in cut:
+        seconds = []
+        for line in b["units"].split("\n"):
+            config, _, names = line.split("|")[:3]
+            got = [pairs.get((run_dir(config), s)) for s in names.split(",")]
+            missing += sum(g is None for g in got)
+            seconds.append(jvm + sum(g or 0.0 for g in got))
+        lanes_plan.append(lanes_time(seconds))
+    replanned = phase_time([setup + s for s in lanes_plan], slots, wait)
+    return {
+        "measured": measured,
+        "slots": slots,
+        "wait": wait,
+        "setup": setup,
+        "jvm": jvm,
+        "jobs as run": as_jobs,
+        "as run": as_run,
+        "replanned": replanned,
+        "bins as run": [lanes_run[b] for b in order],
+        "bins replanned": lanes_plan,
+        "missing pairs": missing,
+        "no artifact": sorted(set(order) - set(bins)),
+    }
+
+
+def planner_files(ref=None, pairs=None, suite_seconds=None):
+    """The files the planner reads, at git revision `ref` or as the working tree has them, with
+    `pairs` and `suite_seconds` read from the files given instead where they are. A file the
+    revision lacks reads as empty, as a missing file does."""
+    with tempfile.TemporaryDirectory() as tmp:
+
+        def at(path):
+            if ref is None:
+                return path
+            shown = subprocess.run(
+                ["git", "show", f"{ref}:{path}"], capture_output=True, text=True, check=False
+            )
+            f = Path(tmp, Path(path).name)
+            f.write_text(shown.stdout if shown.returncode == 0 else "", encoding="utf-8")
+            return f
+
+        return (
+            read_tsv(suite_seconds or at(SUITE_SECONDS)),
+            read_tsv(at(SUITE_TIMES)),
+            read_tsv(at(CONFIG_WEIGHTS)),
+            read_config_seconds(pairs or at(CONFIG_SUITE_SECONDS)),
+        )
+
+
+def replay_lines(got, over=600.0):
+    """`replay`'s result as the lines `replay` prints, minutes for phases and seconds for bins."""
+
+    def bins(seconds):
+        return (
+            f"{len(seconds)} bins, the longest {max(seconds, default=0):.0f} s,"
+            f" {sum(s > over for s in seconds)} over {over:.0f} s"
+        )
+
+    return [
+        f"slots {got['slots']}, a runner's median wait {got['wait']:.0f} s",
+        f"a bin job's median set-up and upload {got['setup']:.0f} s,"
+        f" a JVM's median overhead {got['jvm']:.1f} s",
+        f"measured bin phase   {got['measured'] / 60:6.1f} min",
+        f"jobs as run          {got['jobs as run'] / 60:6.1f} min",
+        f"as run               {got['as run'] / 60:6.1f} min   {bins(got['bins as run'])}",
+        f"replanned            {got['replanned'] / 60:6.1f} min   {bins(got['bins replanned'])}",
+        f"pairs the run has no seconds for: {got['missing pairs']};"
+        f" bin jobs with no artifact: {', '.join(got['no artifact']) or 'none'}",
+    ]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1154,6 +1422,100 @@ class SelfTest(unittest.TestCase):
             got = tree_diff(Path(root, "a"), Path(root, "b"))
         self.assertEqual(got, ["classes/p/B.class", "classes/p/C.class", "classes/p/D.class"])
 
+    # -- replay (VARKA-617) ---------------------------------------------------------------------
+
+    @staticmethod
+    def _stamp(t):
+        return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def _run(self, root, bins, jobs):
+        """A run's downloaded bin artifacts, `bins` as {bin: [(config, module, {suite: JUnit
+        seconds}, seconds)]} in the order the job ran them, and its jobs file, `jobs` as {bin:
+        (created, started, units step start, units step end, completed)}."""
+        for b, us in bins.items():
+            for k, (config, module, suites, seconds) in enumerate(us):
+                runs = Path(root, f"varka-option-matrix-{b}", f"{b}-u{k}", "runs", run_dir(config))
+                leaf = runs / f"{module}-{b}-{k}"
+                (leaf / "junit").mkdir(parents=True)
+                (runs / "name").write_text(config + "\n", encoding="utf-8")
+                (leaf / "seconds").write_text(f"{seconds:.0f}\n", encoding="utf-8")
+                for suite, t in suites.items():
+                    xml = f'<testsuite name="p.{suite}" tests="1" time="{t}">\n</testsuite>\n'
+                    (leaf / "junit" / f"TEST-p.{suite}.xml").write_text(xml, encoding="utf-8")
+        lines = []
+        for b, (created, started, run_start, run_end, completed) in jobs.items():
+            job = {
+                "name": f"Option matrix: {b}",
+                "run_attempt": 1,
+                "created_at": self._stamp(created),
+                "started_at": self._stamp(started),
+                "completed_at": self._stamp(completed),
+                "steps": [
+                    {
+                        "name": RUN_STEP,
+                        "started_at": self._stamp(run_start),
+                        "completed_at": self._stamp(run_end),
+                    }
+                ],
+            }
+            lines.append(json.dumps(job))
+        # A job that is not a bin's is read past.
+        lines.append(json.dumps({"name": "Option matrix: build and plan", "started_at": "x"}))
+        f = Path(root, "jobs.jsonl")
+        f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return read_bin_runs(root), read_bin_jobs(f)
+
+    def test_as_run_replays_a_run_to_its_measured_phase(self):
+        # One slot, each job 30 s of set-up and 3 of upload around its units, 2 s of wait for a
+        # runner: b000's units of 10 and 20 s take 20 s on two lanes, b001's three of 5 s take 10.
+        with tempfile.TemporaryDirectory() as root:
+            bins, jobs = self._run(
+                root,
+                {
+                    "b000": [("x=1", "sql", {"A": 9.0}, 10), ("defaults", "sql", {"B": 19.0}, 20)],
+                    "b001": [("x=1", "catalyst", {"C": 4.0}, 5)] * 3,
+                },
+                {"b000": (0, 2, 32, 52, 55), "b001": (0, 57, 87, 97, 100)},
+            )
+        self.assertEqual([u[4] for u in bins["b000"]], [10.0, 20.0])
+        got = replay(bins, jobs, [("sql", [("A", True), ("B", True)])], ({}, {}, {}, {}), 480.0)
+        self.assertEqual((got["slots"], got["wait"], got["setup"], got["jvm"]), (1, 2.0, 33.0, 1.0))
+        self.assertEqual(got["measured"], 98.0)
+        # Every term of the model is taken from the run, so neither replay may drop one.
+        self.assertEqual(got["jobs as run"], 98.0)
+        self.assertEqual(got["as run"], 98.0)
+        self.assertEqual(got["bins as run"], [20.0, 10.0])
+
+    def test_replanned_on_a_runs_own_pairs_cuts_the_runs_own_bins(self):
+        suites = [("sql", [("A", True), ("B", False), ("C", False)])]
+        weights = {"x=1": 2.0}
+        cut = plan(["x=1"], suites, {"A": 100.0, "B": 40.0, "C": 60.0}, {}, weights, 300.0)
+        cut = cut["include"]
+        self.assertEqual(len(cut), 2)
+        whole = {"A": 100.0, "B": 40.0, "C": 60.0}
+        bins, jobs = {}, {}
+        for i, b in enumerate(cut):
+            us = []
+            for line in b["units"].split("\n"):
+                config, module, names = line.split("|")
+                factor = 2.0 if config == "x=1" else 1.0
+                ran = {s: whole[s] * factor for s in names.split(",")}
+                us.append((config, module, ran, JVM_START + sum(ran.values())))
+            bins[b["bin"]] = us
+            lanes = lanes_time([u[3] for u in us])
+            jobs[b["bin"]] = (0, 1 + i, 31 + i, 31 + i + lanes, 34 + i + lanes)
+        with tempfile.TemporaryDirectory() as root:
+            bins, jobs = self._run(root, bins, jobs)
+            pairs = whole_runs([root])
+        self.assertEqual(pairs[("x=1", "A")], 200.0)
+        got = replay(bins, jobs, suites, ({}, {}, {}, pairs), 300.0)
+        # The planner cut by the seconds the run measured is the run's own cut, timed alike.
+        self.assertEqual(got["jvm"], JVM_START)
+        self.assertEqual(got["missing pairs"], 0)
+        self.assertEqual(got["bins replanned"], got["bins as run"])
+        self.assertEqual(got["replanned"], got["as run"])
+        self.assertEqual(got["as run"], got["measured"])
+
 
 def reach_record(selected, pr, reach=None):
     """The selection as a `VarkaTestReach` record, which `plan --reach` and a configuration's JVM
@@ -1220,6 +1582,24 @@ def select_main(args):
     return 0
 
 
+def replay_main(args):
+    suites = []
+    for entry in args.suites:
+        module, path = entry.split("=", 1)
+        suites.append((module, read_suites(path)))
+    got = replay(
+        read_bin_runs(args.run),
+        read_bin_jobs(args.jobs),
+        suites,
+        planner_files(args.plan_from, args.pairs, args.suite_seconds),
+        args.target,
+        read_reach(args.reach) if args.reach else None,
+        args.slots,
+    )
+    print("\n".join(replay_lines(got)))
+    return 0
+
+
 def main(argv):
     if argv[:1] == ["--selftest"]:
         result = unittest.main(argv=[sys.argv[0]], exit=False, verbosity=0).result
@@ -1262,7 +1642,19 @@ def main(argv):
     changes.add_argument("--trees", nargs=2, metavar=("OLD", "NEW"), help="two class trees")
     s.add_argument("--reach", help="the pull request's VarkaTestReach record, for --reach-out")
     s.add_argument("--reach-out", help="write the selection as a reach record the matrix reads")
+    r = sub.add_parser("replay")
+    r.add_argument("run", help="the run's bin artifacts, downloaded (gh run download)")
+    r.add_argument("--jobs", required=True, help="the run's jobs from the Actions API, saved")
+    r.add_argument("--suites", action="append", required=True, metavar="MODULE=FILE")
+    r.add_argument("--reach", help="the run's reach record, its artifact varka-option-matrix-reach")
+    r.add_argument("--plan-from", metavar="REF", help="the planner's files at this revision")
+    r.add_argument("--pairs", help="a config-suite-seconds.tsv to plan by, a run's own say")
+    r.add_argument("--suite-seconds", help="a suite-seconds.tsv to plan by")
+    r.add_argument("--target", type=float, default=480.0)
+    r.add_argument("--slots", type=int, help="the slots, the most jobs the run ran at once if not")
     args = parser.parse_args(argv)
+    if args.cmd == "replay":
+        return replay_main(args)
     if args.cmd == "select":
         return select_main(args)
     if args.cmd == "times":
