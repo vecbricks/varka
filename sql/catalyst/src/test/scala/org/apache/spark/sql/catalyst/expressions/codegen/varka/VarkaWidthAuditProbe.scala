@@ -44,7 +44,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditSh
  * inside a shared Vector API method compiled on its own is not mistaken for one of ours.
  *
  * Both bodies are compiled on purpose: the dense body is what a null-free batch runs, the
- * masked body is what a batch with nulls runs, and they load and store differently.
+ * masked body is what a batch with nulls runs, and they load and store differently. So is the
+ * epilogue, in a second phase: every lane count divides [[rows]], so the first phase's batches
+ * never reach it, and the second phase's [[raggedRows]] divides by none, so every batch does.
+ * Its refusals print after [[EPILOGUE_PHASE]], which C2 reaches by recompiling the methods whose
+ * remainder branch the first phase left cold (VARKA-550).
  */
 object VarkaWidthAuditProbe {
 
@@ -70,11 +74,19 @@ object VarkaWidthAuditProbe {
   /** A shape this width has no lowering for, with the compiler's reason (VARKA-329). */
   val DECLINED_PREFIX = "VARKA_AUDIT_DECLINED "
   val DONE = "VARKA_AUDIT_DONE"
+  /**
+   * Printed inside a shape's markers between its two phases: what C2 refuses after it is in the
+   * code a batch of [[raggedRows]] reaches and a batch of [[rows]] does not, the epilogue's.
+   */
+  val EPILOGUE_PHASE = "VARKA_AUDIT_EPILOGUE_PHASE"
 
   /** The prefix every emitted class is named with; the `PrintIntrinsics` directive matches it. */
   val CLASS_PREFIX = "org.apache.spark.sql.varka.execution.VarkaAudit"
 
+  /** The first phase's batch length, which every lane count from 2 to 64 divides. */
   private val rows = 256
+  /** The second phase's, which no lane count from 2 to 64 divides: every batch has a remainder. */
+  private[varka] val raggedRows = 255
   private val calls = 20000
 
   /**
@@ -217,12 +229,10 @@ object VarkaWidthAuditProbe {
       }
       val validity = arena.allocate((rows + 7) / 8L, 8)
       validity.fill(0xFF.toByte)
-      var nulls = 0
       for (r <- 0 until rows if r % 7 == 3) {
         val off = r / 8L
         validity.set(ValueLayout.JAVA_BYTE, off,
           (validity.get(ValueLayout.JAVA_BYTE, off) & ~(1 << (r % 8))).toByte)
-        nulls += 1
       }
       // A decimal output's store writes Arrow's sixteen-byte slot a row (VARKA-157).
       val outs = shape.roots.map {
@@ -239,23 +249,34 @@ object VarkaWidthAuditProbe {
       // int literals from the int table beside the long one.
       val intLits = Array.fill(shape.numLiterals)(7)
       val longLits = Array.fill(if (wide) shape.numLiterals else 0)(7L)
-      def call(masked: Boolean): Int = {
+      // A batch of `length` rows reads the first `length` bits of the same bitmap, so its null
+      // count is of those rows: the ragged batch leaves out row 255, which is a null.
+      def call(masked: Boolean, length: Int, nulls: Int): Int = {
         val srcValidity = Array.fill(shape.numInputs)(if (masked) validity.address() else 0L)
         val nullCounts = Array.fill(shape.numInputs)(if (masked) nulls else 0)
         if (wide) {
           kernel.run(srcData, srcValidity, nullCounts, dstData, dstValidity, intLits, longLits,
-            rows)
+            length)
         } else {
-          kernel.run(srcData, srcValidity, nullCounts, dstData, dstValidity, intLits, rows)
+          kernel.run(srcData, srcValidity, nullCounts, dstData, dstValidity, intLits, length)
         }
       }
       var sink = 0
-      var n = 0
-      while (n < calls) {
-        sink += call(masked = false)
-        sink += call(masked = true)
-        n += 1
+      def phase(length: Int): Unit = {
+        val nulls = (0 until length).count(_ % 7 == 3)
+        var n = 0
+        while (n < calls) {
+          sink += call(masked = false, length, nulls)
+          sink += call(masked = true, length, nulls)
+          n += 1
+        }
       }
+      phase(rows)
+      // scalastyle:off println
+      println(EPILOGUE_PHASE)
+      // scalastyle:on println
+      System.out.flush()
+      phase(raggedRows)
       // Keeps the calls' results live; a status of 42 does not exist.
       if (sink == 42) throw new IllegalStateException("unreachable: status 42")
     } finally {
