@@ -547,7 +547,7 @@ public final class VarkaGuardSpecs {
           DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, Chrono _, ConstDivide _,
           BoundedDivide _, BitOp _, BitCount _, MathUnary _, RoundToIntegral _, Cond _, CondValue _,
           VarkaVectorIR.NullValue _, BoolOutput _, WidenLane _, NarrowLane _, ConvertLane _,
-          WidenDecimal _, CanonicalFloat _ ->
+          WidenDecimal _, CanonicalFloat _, CanonicalBits _, HashStep _ ->
           throw new IllegalArgumentException("no guard spec for " + reason + " on " + node);
     };
   }
