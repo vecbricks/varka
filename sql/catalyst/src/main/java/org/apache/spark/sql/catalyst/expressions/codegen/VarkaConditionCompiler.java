@@ -1076,8 +1076,9 @@ final class VarkaConditionCompiler {
    * first, as {@link #compileDecimalIn} reads a long's, then each element as its unscaled value at
    * the value's scale, dropped where no value of the type equals it, and the chain the balanced
    * {@code OR} of {@code x = c} over the words, two long-table slots a literal. A null or
-   * non-constant element declines the list, an empty list declines, and the cap counts values,
-   * as for every other lane.
+   * non-constant element declines the list and an empty list declines, as for every other lane.
+   * Each leaf is three nodes where a long's is one, so the cap is half the long's,
+   * {@link #MAX_WIDE_IN}: eight values make the 31 op nodes {@code MAX_IN_LITERALS} was sized to.
    */
   private static Optional<Cond> compileWideDecimalIn(
       Expression value,
@@ -1103,8 +1104,9 @@ final class VarkaConditionCompiler {
           return Optional.empty();
         }
         VarkaDecimalCompiler.wideUnscaledAt(d, type).ifPresent(values::add);
-        if (values.size() > VarkaNodeCompiler.MAX_IN_LITERALS) {
-          sink.note("IN list longer than the fused cap of " + VarkaNodeCompiler.MAX_IN_LITERALS,
+        if (values.size() > MAX_WIDE_IN) {
+          sink.note("IN list longer than the fused cap of " + MAX_WIDE_IN + " for a decimal "
+              + "wider than " + VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION + " digits",
               whole);
           return Optional.empty();
         }
@@ -1122,6 +1124,9 @@ final class VarkaConditionCompiler {
       sink.exitDecimal();
     }
   }
+
+  /** The most values a wide decimal {@code IN} fuses ({@link #compileWideDecimalIn}). */
+  static final int MAX_WIDE_IN = VarkaNodeCompiler.MAX_IN_LITERALS / 2;
 
   /** An {@code In} element that is not a constant of the value's type, which declines the list. */
   private static final Object NOT_CONSTANT = new Object();

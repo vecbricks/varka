@@ -242,13 +242,14 @@ final class VarkaDecimalCompiler {
   }
 
   /**
-   * Why a value of {@code type}, wider than the long lane, declines: the wide representation is
-   * row 359's, and a cast that rescales into it, the one coercion puts over the operand of the
+   * Why a value of {@code type}, wider than the long lane, declines: as a long, which
+   * {@link #value} asks, the wide representation is row 359's lane pair, which {@link #pair}
+   * builds instead; a cast that rescales into it, the one coercion puts over the operand of the
    * smaller scale or over a choice's branch of the smaller scale, needs row 360's wide rescale as
    * well, and a cast over that rescale which lowers the scale or the integral digits row 350's
    * too. A sum, difference or product names the row of its own wide form instead, which is the
-   * more precise answer, and so does a cast, a negation, a choice or a pick over one that needs
-   * no rescale.
+   * more precise answer, and so does a cast, a negation, a choice or a pick over one, which
+   * {@link #pair} reads before it builds any of them.
    */
   private static String wideReason(Expression e, DecimalType type) {
     return switch (e) {
@@ -827,7 +828,7 @@ final class VarkaDecimalCompiler {
   /**
    * A constant wider than 18 digits as two slots of the long table, the words of its unscaled
    * value at its type's scale, folded as {@link #literal} folds one and declining as it does,
-   * but for the null constant, which no pair holds.
+   * but for the null constant, which is two null words.
    */
   private static Optional<Pair> widePairLiteral(Expression e, DecimalType type,
       DeclineSink sink) {

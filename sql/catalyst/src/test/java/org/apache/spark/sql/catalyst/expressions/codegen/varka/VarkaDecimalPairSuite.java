@@ -111,6 +111,14 @@ public final class VarkaDecimalPairSuite {
     return rows;
   }
 
+  /**
+   * {@link #rows} without a null, so that a kernel's null-free (dense) body meets the edges too:
+   * every batch of {@link #rows} holds nulls, and takes the masked body.
+   */
+  private static List<Row> denseRows(DecimalType ta, DecimalType tb) {
+    return rows(ta, tb).stream().filter(r -> r.a() != null && r.b() != null).toList();
+  }
+
   private static DecimalVector vector(String name, List<Row> rows, boolean left,
       DecimalType type, BufferAllocator allocator) {
     var v = new DecimalVector(name, allocator, type.precision(), type.scale());
@@ -204,7 +212,13 @@ public final class VarkaDecimalPairSuite {
     CompiledVarkaPredicate compiled = compile(sql, columns);
     Expression bound = VarkaSqlResolve.bind(
         VarkaSqlResolve.replaced(VarkaSqlResolve.parse(sql, seq(columns))), seq(columns));
-    List<Row> rows = rows(ta, tb);
+    for (List<Row> rows : List.of(rows(ta, tb), denseRows(ta, tb))) {
+      checkRows(sql, compiled, bound, rows, ta, tb);
+    }
+  }
+
+  private static void checkRows(String sql, CompiledVarkaPredicate compiled, Expression bound,
+      List<Row> rows, DecimalType ta, DecimalType tb) {
     for (int lanes : WIDTHS) {
       Long[] got = answers(compiled, rows, ta, tb, lanes);
       for (int i = 0; i < rows.size(); i++) {

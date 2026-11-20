@@ -210,6 +210,12 @@ public final class VarkaDecimalInSuite {
         Decimal.apply("0.125"), Decimal.apply("1000000000000000000.00"))), twenty));
     assertEquals("IN list is empty", decline(new InSet(a, scalaSet(Decimal.apply("0.125"))),
         twenty));
+    // Each wide leaf is three nodes, so the cap is eight values, half a long's.
+    String eight = "a IN (1.00, 2.00, 3.00, 4.00, 5.00, 6.00, 7.00, 8.00)";
+    assertEquals("fused", decline(VarkaSqlResolve.parse(eight, seq(twenty)), twenty));
+    String nine = eight.replace(")", ", 9.00)");
+    assertTrue(decline(VarkaSqlResolve.parse(nine, seq(twenty)), twenty)
+        .startsWith("IN list longer than the fused cap of 8"), nine);
     assertEquals("IN list has a null or non-literal element",
         decline(VarkaSqlResolve.parse("a IN (0.50, NULL)", seq(twenty)), twenty));
   }
