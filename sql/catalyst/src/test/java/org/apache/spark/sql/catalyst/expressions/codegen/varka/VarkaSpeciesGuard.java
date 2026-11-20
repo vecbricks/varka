@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -220,35 +221,104 @@ public final class VarkaSpeciesGuard {
   /** The test JVM's registry. */
   static final Registry SHARED = new Registry();
 
+  /** The vector classes a kernel is driven at, each with its element's bits. */
+  private static final Map<String, Integer> DRIVE_ELEMENT_BITS = Map.of(
+      VECTOR_PREFIX + "IntVector", Integer.SIZE, VECTOR_PREFIX + "LongVector", Long.SIZE,
+      VECTOR_PREFIX + "FloatVector", Float.SIZE, VECTOR_PREFIX + "DoubleVector", Double.SIZE);
+
+  /**
+   * The species {@code bytes} names of the drive lanes' vector classes, described, when they do
+   * not all have one lane count; empty when they do. Such a class is a kernel of two lanes of
+   * different widths (a long kernel holding int values in the int species of its own width, an
+   * int kernel widening into the long lane), which at the defaults names each species at the
+   * preferred width and so passes {@link Registry#admit}. A lane configuration emits every
+   * species of a kernel at lane counts proportional to its drive's, and establishes each drive
+   * lane's species at the configuration's lane count, so a class whose species differ in lane
+   * count adds a second species there ({@code lanesOverride=4}, {@code lanesOverride=16}), as
+   * its narrowing store does under {@code narrowHalfSpecies=true}. The byte and short classes
+   * are left out: no kernel is driven at them, and every narrow load of a JVM takes its species
+   * by one rule from the int lane count, so they agree with each other under any configuration.
+   */
+  static List<String> mixedLaneCounts(byte[] bytes) {
+    var described = new ArrayList<String>();
+    var counts = new TreeSet<Integer>();
+    for (var e : sizesUsed(bytes).entrySet()) {
+      Integer element = DRIVE_ELEMENT_BITS.get(e.getKey());
+      if (element == null) {
+        continue;
+      }
+      for (int bits : e.getValue()) {
+        counts.add(bits / element);
+        described.add(e.getKey().substring(VECTOR_PREFIX.length()) + " at " + bits / element
+            + " lanes");
+      }
+    }
+    return counts.size() > 1 ? described : List.of();
+  }
+
+  /** What {@link #check} throws for a class of {@link #mixedLaneCounts}: the fix, named. */
+  static String mixedLanesMessage(String className, List<String> described) {
+    return className + " holds lanes of two widths (" + String.join(", ", described) + "), so a "
+        + "lane configuration of the option matrix (lanesOverride=4, lanesOverride=16, "
+        + "narrowHalfSpecies=true) puts a second vector species into the shared test JVM, which "
+        + "refuses it there (VARKA-246, VARKA-499). Run the suite in a JVM of its own: "
+        + "@VarkaSuite(ownJvm = true) on a JUnit class, VarkaOwnJvm mixed in last on a ScalaTest "
+        + "one.";
+  }
+
   /**
    * Throws if {@code bytes} would put a second species into this JVM; in {@code report} mode
    * appends the classes that name a non-preferred species to the report file instead.
    */
   public static void check(String className, byte[] bytes) {
-    String mode = ownJvm() ? "off" : mode();
+    check(className, bytes, ownJvm() ? "off" : mode(), SHARED);
+  }
+
+  /**
+   * {@link #check} in {@code mode} against {@code registry}: the seam a test drives with a
+   * registry of its own, so that it defines no class and leaves the JVM's registry as it was.
+   * In {@code fail} mode a class of {@link #mixedLaneCounts} throws even where its species agree
+   * with the registry's, since only a lane configuration would show it, hours later; in
+   * {@code report} mode it is a line of its own, {@code lanes} in the third field.
+   */
+  static void check(String className, byte[] bytes, String mode, Registry registry) {
     if (mode.equals("off")) {
       return;
     }
+    List<String> mixed = mixedLaneCounts(bytes);
     if (mode.equals("report")) {
       List<String> second = secondSpecies(bytes);
-      String file = System.getProperty("varka.speciesGuard.report");
-      if (!second.isEmpty() && file != null) {
-        String line = suiteName() + "\t" + className + "\t" + String.join(", ", second) + "\n";
-        try {
-          Files.write(Paths.get(file), line.getBytes(StandardCharsets.UTF_8),
-              StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (IOException e) {
-          throw new IllegalStateException(e);
-        }
+      if (!second.isEmpty()) {
+        report(className + "\t" + String.join(", ", second));
+      }
+      if (!mixed.isEmpty()) {
+        report(className + "\tlanes\t" + String.join(", ", mixed));
       }
       return;
     }
-    List<String> conflicts = SHARED.admit(bytes);
+    if (!mixed.isEmpty()) {
+      throw new IllegalStateException(mixedLanesMessage(className, mixed));
+    }
+    List<String> conflicts = registry.admit(bytes);
     if (!conflicts.isEmpty()) {
       throw new IllegalStateException(className + " would put a second vector species into this "
           + "JVM: " + String.join(", ", conflicts) + ". Run it in a forked JVM, or where "
           + "-XX:MaxVectorSize makes this width the preferred one (VARKA-246); the shared test "
           + "JVM keeps one species per lane type.");
+    }
+  }
+
+  /** Appends a line, headed by the running suite, to the report file, when one is named. */
+  private static void report(String line) {
+    String file = System.getProperty("varka.speciesGuard.report");
+    if (file == null) {
+      return;
+    }
+    try {
+      Files.write(Paths.get(file), (suiteName() + "\t" + line + "\n")
+          .getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    } catch (IOException e) {
+      throw new IllegalStateException(e);
     }
   }
 }

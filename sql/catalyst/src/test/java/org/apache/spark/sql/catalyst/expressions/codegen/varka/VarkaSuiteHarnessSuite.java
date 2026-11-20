@@ -49,6 +49,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.condition.DisabledIf;
@@ -57,6 +58,7 @@ import org.junit.jupiter.params.ParameterizedClass;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.platform.engine.DiscoverySelector;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.discovery.DiscoverySelectors;
 import org.junit.platform.launcher.TestExecutionListener;
@@ -887,6 +889,40 @@ public final class VarkaSuiteHarnessSuite {
     void plain() {}
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // The conformance contract's casts, a test per target
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * `INTERVAL MONTH`'s casts as the registers hold them: the cast to {@code INT} fuses, the cast
+   * to {@code BIGINT} is owed to rows 103 and 332, and {@code casts.tsv} has no cast to
+   * {@code DATE}. Each reports on its own, where one test of the type's whole row read as
+   * cancelled for all three. The registers are the defaults' (a configuration may decline the
+   * fused cast), so the test pins them.
+   */
+  @Test
+  @Tag(VarkaSuite.PINS_DEFAULTS)
+  @DisplayName("a conformance suite's fused cast passes while an owed cast cancels its own test")
+  void castsReportAlone() {
+    var suite = VarkaYearMonthIntervalConformanceSuite.class;
+    var results = launch(Stream.of("castToInt", "castToBigint", "castToDate")
+        .map(m -> DiscoverySelectors.selectMethod(suite, m)).toList(), Optional.empty());
+    assertEquals(Set.of("the cast to INT, in LEGACY, ANSI and TRY",
+        "the cast to BIGINT, in LEGACY, ANSI and TRY",
+        "the cast to DATE, in LEGACY, ANSI and TRY"), results.keySet());
+    var toInt = results.get("the cast to INT, in LEGACY, ANSI and TRY");
+    assertEquals(TestExecutionResult.Status.SUCCESSFUL, toInt.getStatus(), toInt.toString());
+    var toBigint = results.get("the cast to BIGINT, in LEGACY, ANSI and TRY");
+    assertEquals(TestExecutionResult.Status.ABORTED, toBigint.getStatus(), toBigint.toString());
+    String owed = toBigint.getThrowable().map(Throwable::getMessage).orElse("");
+    assertTrue(owed.contains("owed by the registers") && owed.contains("AS BIGINT)")
+        && !owed.contains("AS INT)"), owed);
+    var toDate = results.get("the cast to DATE, in LEGACY, ANSI and TRY");
+    assertEquals(TestExecutionResult.Status.ABORTED, toDate.getStatus(), toDate.toString());
+    String none = toDate.getThrowable().map(Throwable::getMessage).orElse("");
+    assertTrue(none.contains("no cast from ym to date"), none);
+  }
+
   /**
    * Runs {@code fixture} through a Launcher of its own in this JVM, with the listeners that
    * {@code META-INF/services} registers left off - so the run's lines and counts do not reach
@@ -894,6 +930,12 @@ public final class VarkaSuiteHarnessSuite {
    */
   private static Map<String, TestExecutionResult> launch(Class<?> fixture,
       Optional<VarkaSuiteListener> listener) {
+    return launch(List.of(DiscoverySelectors.selectClass(fixture)), listener);
+  }
+
+  /** {@link #launch(Class, Optional)} over the tests {@code selectors} name. */
+  private static Map<String, TestExecutionResult> launch(
+      List<? extends DiscoverySelector> selectors, Optional<VarkaSuiteListener> listener) {
     var results = new LinkedHashMap<String, TestExecutionResult>();
     TestExecutionListener collect = new TestExecutionListener() {
       @Override
@@ -908,7 +950,7 @@ public final class VarkaSuiteHarnessSuite {
         .addTestExecutionListeners(collect);
     listener.ifPresent(config::addTestExecutionListeners);
     LauncherFactory.create(config.build()).execute(LauncherDiscoveryRequestBuilder.request()
-        .selectors(DiscoverySelectors.selectClass(fixture)).build());
+        .selectors(selectors).build());
     return results;
   }
 }

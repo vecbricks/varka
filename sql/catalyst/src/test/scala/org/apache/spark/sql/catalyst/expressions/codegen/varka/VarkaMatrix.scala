@@ -68,6 +68,7 @@ object VarkaMatrix {
   object Kind {
     val FAILS: Kind = VarkaMatrixRuns.Kind.FAILS
     val DECLINES: Kind = VarkaMatrixRuns.Kind.DECLINES
+    val DRAWS: Kind = VarkaMatrixRuns.Kind.DRAWS
   }
 
   /** [[VarkaMatrixRuns.Skip]]: one line of the skip list. */

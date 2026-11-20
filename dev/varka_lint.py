@@ -412,6 +412,21 @@ def platform_names():
         sys.path.pop(0)
 
 
+def seeded_draws():
+    """The tests a `draws` line may name, by suite: the start of each one's name, read from the
+    SEEDED_DRAWS block of VarkaMatrixRuns."""
+    text = read(MATRIX_RUNS)
+    block = text[text.find("seeded-draws-begin") : text.find("seeded-draws-end")]
+    out = {}
+    for m in re.finditer(r'"(\w+Suite)",\s*List\.of\(([^)]*)\)', joined(block)):
+        out[m.group(1)] = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(2))
+    return out
+
+
+def seeded(suite, test):
+    return any(test.startswith(p) for p in seeded_draws().get(suite, []))
+
+
 def rule_skips_tsv(ch):
     if SKIPS not in ch.files:
         return
@@ -446,8 +461,14 @@ def rule_skips_tsv(ch):
             and not inherited_test(test)
         ):
             yield f"{SKIPS}:{n}: skips-tsv: {suite} has no test named '{test}'"
-        if kind not in ("fails", "declines"):
-            yield f"{SKIPS}:{n}: skips-tsv: kind '{kind}' is neither fails nor declines"
+        if kind not in ("fails", "declines", "draws"):
+            yield f"{SKIPS}:{n}: skips-tsv: kind '{kind}' is not fails, declines or draws"
+        elif kind == "draws" and not seeded(suite, test):
+            yield (
+                f"{SKIPS}:{n}: skips-tsv: a draws line names '{test}' of {suite}, which draws "
+                "nothing from a seed: only the tests SEEDED_DRAWS of VarkaMatrixRuns names may "
+                "carry one, and any other takes a fails line, which goes stale when it passes"
+            )
         if not reason.strip():
             yield f"{SKIPS}:{n}: skips-tsv: no reason"
 
@@ -979,6 +1000,34 @@ def selftest():
             },
             "skips-tsv",
             False,
+        )
+        runs = lic + (
+            "// varka-lint: seeded-draws-begin\n"
+            'Map.of("VarkaShapeSuite", List.of("a name split"));\n'
+            "// varka-lint: seeded-draws-end\n"
+        )
+        draws = "a=1\tVarkaShapeSuite\t%s\tdraws\tthe reason\n"
+        case(
+            "a draws line naming a test that draws from a seed",
+            {
+                tables: split,
+                suite: lic + "class VarkaShapeSuite {}\n",
+                MATRIX_RUNS: runs,
+                SKIPS: draws % "a name split across two lines",
+            },
+            "skips-tsv",
+            False,
+        )
+        case(
+            "a draws line naming a test that draws nothing from a seed",
+            {
+                tables: split + '@DisplayName("a fixed case")\nvoid u() {}\n',
+                suite: lic + "class VarkaShapeSuite {}\n",
+                MATRIX_RUNS: runs,
+                SKIPS: draws % "a fixed case",
+            },
+            "skips-tsv:which draws nothing from a seed",
+            True,
         )
         case(
             "a skip line naming no test of a suite with a template",
