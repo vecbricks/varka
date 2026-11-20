@@ -85,6 +85,19 @@ public final class VarkaExpressionHarness {
     /** Every batch the evaluator was handed, in order, with how it went. */
     public final List<Batch> batches = new ArrayList<>();
 
+    /** How many rows Spark raises on, by the answers the kernel's are held to. */
+    public int sparkRaised;
+
+    /**
+     * Under {@link Options#arrowRows}, each row on which Spark's answer over the rows read back
+     * from Arrow differs from its answer over the fixture's own rows: the read path's difference,
+     * which is not the kernel's and is not a finding.
+     */
+    public final List<String> readPath = new ArrayList<>();
+
+    /** Under {@link Options#rowPath}, each error the row path raised out of a declined batch. */
+    public final List<RuntimeException> rowPathErrors = new ArrayList<>();
+
     /**
      * Whether a kernel served every batch and every output: some batch answered, none declined,
      * and no output left residual, which the row path would answer beside the kernel's.
@@ -107,6 +120,23 @@ public final class VarkaExpressionHarness {
   public record Batch(int start, int rows, int status) {
     public static final int ANSWERED = 0;
     public static final int FELL_BACK = -1;
+  }
+
+  /**
+   * How the harness evaluates Spark's side and a declined batch. {@code arrowRows}: Spark's
+   * answers are its projections over the rows read back from the Arrow batches through
+   * {@code ArrowColumnVector}, as the exec node's row path reads them, rather than over the
+   * fixture's own rows, which are evaluated too and any difference listed in
+   * {@link Outcome#readPath}. {@code rowPath}: a declined batch is answered by Spark's
+   * generated projection over its rows, as the row node answers it, and its rows, or the error
+   * it raises out of {@code serveBatch}, are held to Spark's answers.
+   */
+  public record Options(boolean arrowRows, boolean rowPath) {
+    /** What the harness's suites run under: the fixture's rows, and a row path that is counted. */
+    public static final Options DEFAULT = new Options(false, false);
+
+    /** Both: the column path Spark's suites run under Varka ({@code m8/VARKA-368.md} 2.3). */
+    public static final Options COLUMN_PATH = new Options(true, true);
   }
 
   /** Spark's answer for one row: the projected row, or the error evaluating it raised. */
@@ -308,6 +338,13 @@ public final class VarkaExpressionHarness {
    */
   public static Outcome projection(String context, Seq<NamedExpression> projectList,
       VarkaHarnessPlans.Fixture fixture, SQLConf conf, Consumer consumer) {
+    return projection(context, projectList, fixture, conf, consumer, Options.DEFAULT);
+  }
+
+  /** {@link #projection(String, Seq, VarkaHarnessPlans.Fixture, SQLConf, Consumer)} under
+   * {@code options}. */
+  public static Outcome projection(String context, Seq<NamedExpression> projectList,
+      VarkaHarnessPlans.Fixture fixture, SQLConf conf, Consumer consumer, Options options) {
     var outcome = new Outcome();
     Seq<Attribute> columns = fixture.columns();
     List<InternalRow> all = fixture.rows();
@@ -319,7 +356,8 @@ public final class VarkaExpressionHarness {
     }
     DataType[] types = outputs.stream().map(Expression::dataType).toArray(DataType[]::new);
     List<Expression> boundOutputs = bound(outputs, columns);
-    List<Expected> answers = spark(context, boundOutputs, columns, all, types, outcome);
+    List<Expected> answers = answers(context, boundOutputs, columns, all, types, conf, options,
+        outcome);
     // The outputs the evaluator's compile leaves to the row path, by the same compile.
     Optional<PartialVarkaProjection> partial = VarkaExpressionCompiler.compilePartial(
         projectList, columns, VarkaColumnarToRowExec$.MODULE$.currentEmitOptions());
@@ -355,7 +393,8 @@ public final class VarkaExpressionHarness {
         offset[0] += batch.numRows();
         ColumnarBatch out = serve(context, evaluator, start, batch,
             () -> consumer == Consumer.ROWS ? evaluator.projectFused(batch)
-                : evaluator.project(batch), outcome);
+                : evaluator.project(batch),
+            options.rowPath() ? rowPath(context, boundOutputs, types, answers) : null, outcome);
         if (out != null) {
           try {
             for (int i = 0; i < batch.numRows(); i++) {
@@ -402,13 +441,21 @@ public final class VarkaExpressionHarness {
    */
   public static Outcome filter(String context, Expression condition,
       VarkaHarnessPlans.Fixture fixture, SQLConf conf) {
+    return filter(context, condition, fixture, conf, Options.DEFAULT);
+  }
+
+  /** {@link #filter(String, Expression, VarkaHarnessPlans.Fixture, SQLConf)} under
+   * {@code options}. */
+  public static Outcome filter(String context, Expression condition,
+      VarkaHarnessPlans.Fixture fixture, SQLConf conf, Options options) {
     var outcome = new Outcome();
     Seq<Attribute> columns = fixture.columns();
     List<InternalRow> all = fixture.rows();
     int ridOrdinal = fixture.ordinal("rid");
     DataType[] types = {condition.dataType()};
+    List<Expression> boundCondition = bound(List.of(condition), columns);
     List<Expected> expected =
-        spark(context, bound(List.of(condition), columns), columns, all, types, outcome);
+        answers(context, boundCondition, columns, all, types, conf, options, outcome);
     for (int i = 0; i < all.size(); i++) {
       Expected e = expected.get(i);
       if (e != null && e.error() == null && !e.row().isNullAt(0) && e.row().getBoolean(0)) {
@@ -423,7 +470,9 @@ public final class VarkaExpressionHarness {
         int start = offset[0];
         offset[0] += batch.numRows();
         ColumnarBatch out = serve(context, evaluator, start, batch,
-            () -> evaluator.filterCompact(batch), outcome);
+            () -> evaluator.filterCompact(batch),
+            options.rowPath() ? rowPath(context, boundCondition, types, expected) : null,
+            outcome);
         if (out != null) {
           try {
             var want = new ArrayList<Integer>();
@@ -464,10 +513,11 @@ public final class VarkaExpressionHarness {
    * evaluator falls back on it.
    */
   private static @Nullable ColumnarBatch serve(String context, VarkaEvaluatorBase evaluator,
-      int start, ColumnarBatch batch, Supplier<ColumnarBatch> kernel, Outcome outcome) {
+      int start, ColumnarBatch batch, Supplier<ColumnarBatch> kernel, @Nullable RowPath rowPath,
+      Outcome outcome) {
     long before = checksum(batch);
     try {
-      return serveOnce(context, evaluator, start, batch, kernel, outcome);
+      return serveOnce(context, evaluator, start, batch, kernel, rowPath, outcome);
     } finally {
       if (checksum(batch) != before) {
         outcome.findings.add(context + ": serving the batch of rows " + start + " to "
@@ -493,10 +543,51 @@ public final class VarkaExpressionHarness {
   }
 
   private static @Nullable ColumnarBatch serveOnce(String context, VarkaEvaluatorBase evaluator,
-      int start, ColumnarBatch batch, Supplier<ColumnarBatch> kernel, Outcome outcome) {
+      int start, ColumnarBatch batch, Supplier<ColumnarBatch> kernel, @Nullable RowPath rowPath,
+      Outcome outcome) {
     boolean[] fell = {false};
     int[] status = {Batch.FELL_BACK};
-    ColumnarBatch out = evaluator.serveBatch(batch, () -> {
+    RuntimeException[] raised = {null};
+    ColumnarBatch out;
+    try {
+      out = serveOrRaise(evaluator, batch, kernel, () -> {
+        fell[0] = true;
+        if (rowPath != null) {
+          rowPath.answer(start, batch, outcome, raised);
+        }
+        return null;
+      }, status, context, outcome);
+    } catch (RuntimeException e) {
+      if (e != raised[0]) {
+        throw e;
+      }
+      // The row path's error, out of serveBatch as the user meets it: held to Spark's there.
+      outcome.rowPathErrors.add(e);
+      raised[0] = null;
+      out = null;
+    }
+    if (raised[0] != null) {
+      outcome.findings.add(context + ": serveBatch swallowed the row path's error on the batch "
+          + "of rows " + start + " to " + (start + batch.numRows() - 1) + ": " + raised[0]);
+    }
+    if (fell[0]) {
+      outcome.declined++;
+      outcome.batches.add(new Batch(start, batch.numRows(), status[0]));
+      return null;
+    }
+    outcome.answered++;
+    outcome.batches.add(new Batch(start, batch.numRows(), Batch.ANSWERED));
+    return out;
+  }
+
+  /**
+   * {@code serveBatch} with the kernel path's decline status kept in {@code status} and its
+   * failures recorded; {@code fallback} is the row path.
+   */
+  private static ColumnarBatch serveOrRaise(VarkaEvaluatorBase evaluator, ColumnarBatch batch,
+      Supplier<ColumnarBatch> kernel, VarkaBatchPath<ColumnarBatch> fallback, int[] status,
+      String context, Outcome outcome) {
+    return evaluator.serveBatch(batch, () -> {
       try {
         return kernel.get();
       } catch (VarkaBatchDeclined declined) {
@@ -509,17 +600,100 @@ public final class VarkaExpressionHarness {
             + batch.numRows() + " rows: " + e);
         throw e;
       }
-    }, () -> {
-      fell[0] = true;
+    }, fallback);
+  }
+
+  /**
+   * The row path of {@link Options#rowPath}: answers a declined batch's rows by Spark's
+   * projection, row by row in order, and throws the error the first raising row raised, kept in
+   * {@code raised[0]} first so that the caller can tell it from any other.
+   */
+  private interface RowPath {
+    void answer(int start, ColumnarBatch batch, Outcome outcome, RuntimeException[] raised);
+  }
+
+  /**
+   * A row path over {@code bound}, the way the row node evaluates the batch: Spark's generated
+   * projection of each row read from the batch, a row it answers held to {@code expected} and the
+   * first error raised out of {@code serveBatch}, where it must arrive as Spark raised it.
+   */
+  private static RowPath rowPath(String context, List<Expression> bound, DataType[] types,
+      List<Expected> expected) {
+    return (start, batch, outcome, raised) -> {
+      UnsafeProjection projection = GenerateUnsafeProjection.generate(
+          CollectionConverters.asScala(bound).toList(), false);
+      for (int i = 0; i < batch.numRows(); i++) {
+        Expected want = expected.get(start + i);
+        InternalRow answer;
+        try {
+          answer = projection.apply(batch.getRow(i)).copy();
+        } catch (RuntimeException e) {
+          if (want != null && (want.error() == null || !sameError(Raised.of(e), want.error()))) {
+            outcome.findings.add(context + ", row " + (start + i) + ": the row path raised " + e
+                + " where Spark's answer is " + describe(want, types));
+          }
+          raised[0] = e;
+          throw e;
+        }
+        if (want != null) {
+          String difference = want.error() != null ? "the row path answered a row Spark raises "
+              + "on: " + want.error() : sameRow(want.row(), answer, types, null);
+          if (difference != null) {
+            outcome.findings.add(context + ", row " + (start + i) + ": " + difference);
+          }
+        }
+      }
+    };
+  }
+
+  /**
+   * Spark's answers the kernel is held to: over {@code rows}, or under {@link Options#arrowRows}
+   * over the rows read back from Arrow, with each difference from the fixture's own rows'
+   * answers listed in {@link Outcome#readPath}; rows Spark raises on are counted.
+   */
+  private static List<Expected> answers(String context, List<Expression> bound,
+      Seq<Attribute> columns, List<InternalRow> rows, DataType[] types, SQLConf conf,
+      Options options, Outcome outcome) {
+    List<Expected> out;
+    if (options.arrowRows()) {
+      out = spark(context, bound, columns, arrowRows(rows, columns, conf), types, outcome);
+      List<Expected> own = evaluate(context, bound, rows, types, new Outcome());
+      for (int i = 0; i < rows.size(); i++) {
+        Expected a = out.get(i);
+        Expected b = own.get(i);
+        if (a == null || b == null) {
+          continue;
+        }
+        boolean same = a.error() != null ? b.error() != null && sameError(a.error(), b.error())
+            : b.error() == null && sameRow(b.row(), a.row(), types, null) == null;
+        if (!same) {
+          outcome.readPath.add(context + ", row " + i + ": " + describe(a, types)
+              + " over the rows read from Arrow, " + describe(b, types) + " over the fixture's");
+        }
+      }
+    } else {
+      out = spark(context, bound, columns, rows, types, outcome);
+    }
+    for (Expected e : out) {
+      if (e != null && e.error() != null) {
+        outcome.sparkRaised++;
+      }
+    }
+    return out;
+  }
+
+  /** {@code rows} written into the cache's Arrow batches and read back, each row copied. */
+  private static List<InternalRow> arrowRows(List<InternalRow> rows, Seq<Attribute> columns,
+      SQLConf conf) {
+    var out = new ArrayList<InternalRow>(rows.size());
+    VarkaCacheBatches.inTask(() -> {
+      VarkaCacheBatches.each(rows, columns, conf, batch -> {
+        for (int i = 0; i < batch.numRows(); i++) {
+          out.add(batch.getRow(i).copy());
+        }
+      });
       return null;
     });
-    if (fell[0]) {
-      outcome.declined++;
-      outcome.batches.add(new Batch(start, batch.numRows(), status[0]));
-      return null;
-    }
-    outcome.answered++;
-    outcome.batches.add(new Batch(start, batch.numRows(), Batch.ANSWERED));
     return out;
   }
 
