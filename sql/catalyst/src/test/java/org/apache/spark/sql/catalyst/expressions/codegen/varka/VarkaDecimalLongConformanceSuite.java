@@ -33,8 +33,11 @@ import org.apache.spark.sql.types.DecimalType;
  *
  * <p>The values are the precision's bounds and their neighbours and zero and one each way. The
  * census marks the comparisons and {@code IN} fused in part for {@code dec}: this representation
- * fuses them at every scale (rows 348 and 497), the pair at one, so both are checked here; every
- * other form the census owes must decline.
+ * fuses them at every scale (rows 348 and 497), the pair at one, so both are checked here. So it
+ * marks the values this representation stores and the pair does not: the choices,
+ * {@code greatest}, {@code least}, the negation and {@code abs} (row 348), and the sums and
+ * differences (row 349), each checked here as a projection's output. Every other form the census
+ * owes must decline.
  *
  * <p>In its own JVM, as the long-lane suites are ({@link VarkaSpeciesGuard}).
  */
