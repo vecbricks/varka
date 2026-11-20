@@ -391,7 +391,8 @@ final class VarkaNodeCompiler {
         // The rounding family's forms (VARKA-344): rint, and floor and ceil, whose arm builds
         // the int operand's widening and declines a double or any other cast by name.
         || e instanceof Rint || e instanceof Floor || e instanceof Ceil
-        // The math family's functions (VARKA-345), each declining in its arm by its row.
+        // The math family's functions (VARKA-345), each lowered in its arm or declining there by
+        // its row.
         || VarkaMathCompiler.ownerOf(e).isPresent()
         // The floating casts family's pairs (VARKA-343), by pair for the same reason.
         || (e instanceof Cast c && (VarkaFloatingCastCompiler.admits(c)

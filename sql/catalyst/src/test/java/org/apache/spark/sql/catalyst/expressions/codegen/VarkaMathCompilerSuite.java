@@ -96,6 +96,13 @@ public final class VarkaMathCompilerSuite {
     return Collections.unmodifiableMap(m);
   }
 
+  /** Every function as SQL, the fused and the declined. */
+  private static List<String> allFunctions() {
+    var all = new ArrayList<>(FUSED);
+    all.addAll(FUNCTIONS.keySet());
+    return all;
+  }
+
   /** The reason {@code sql} declines with, or empty where it fuses. */
   private static Optional<String> outcome(String sql, Set<VarkaFamily> off,
       VarkaEmitOptions options) {
@@ -134,7 +141,9 @@ public final class VarkaMathCompilerSuite {
     var failures = new ArrayList<String>();
     for (String sql : FUSED) {
       for (boolean contract : List.of(false, true)) {
-        outcome(sql, Set.of(), VarkaMatrixRuns.BASE.withMathUlpContract(contract))
+        VarkaEmitOptions options = VarkaMatrixRuns.BASE.withMathUlpContract(contract);
+        outcome(sql, Set.of(), options)
+            .filter(why -> !VarkaMatrixRuns.isUnbakedWidthDecline(options, why))
             .ifPresent(why -> failures.add(sql + (contract ? " (contract on)" : "") + ": " + why));
       }
     }
@@ -172,12 +181,5 @@ public final class VarkaMathCompilerSuite {
       Expression e = VarkaSqlResolve.parse(sql, COLUMNS);
       assertTrue(VarkaMathCompiler.ownerOf(e).isEmpty(), sql);
     }
-  }
-
-  /** Every function as SQL, the fused and the declined. */
-  private static List<String> allFunctions() {
-    var all = new ArrayList<>(FUSED);
-    all.addAll(FUNCTIONS.keySet());
-    return all;
   }
 }

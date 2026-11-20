@@ -647,6 +647,12 @@ nine functions at 2^24 inputs each, against the plan's "under 30 s for the 27"; 
 at two widths and the planted-fault rerun are in that figure. Predictions 2 to 6 need the runner
 measurement, owed.
 
+**Review** (`/code-review high`, one round): the matrix arms with no baked lane count now count
+the call's refusal as a decline they explain (`VarkaMatrixRuns.isUnbakedWidthDecline`), and the
+allocation test runs first and at the host's lane count only; `skips.tsv`'s lines for the harness
+suite's math rows under those arms are owed with the next part; a nit kept: `asin`, `acos` and
+`atan` call `StrictMath` per 2.1, the differential's `Math` reference catching a JDK that departs.
+
 **Left of 356a.** `atan2` (356a2: `MathBinary`, a new IR node, the `+ 0.0` on each side); the IR
 fuzz productions (the floating grammar draws none of 342's arithmetic either, and a new draw
 shifts every floating sequence, so it lands with the grammar's floating arithmetic); the live-word

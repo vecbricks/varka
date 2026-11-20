@@ -33,7 +33,10 @@ import java.util.function.DoubleUnaryOperator;
 import java.util.function.IntPredicate;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterFixtures.Col;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterFixtures.Output;
@@ -65,6 +68,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
  * one method computes on this JVM for both sides.
  */
 @VarkaSuite(ownJvm = true)
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public final class VarkaMathExactSuite {
 
   /** The sampled inputs a function, about 2^24, over the draws below. */
@@ -150,6 +154,7 @@ public final class VarkaMathExactSuite {
    * Spark's code, the first few named in {@code firstFew}.
    */
   private static long sampledMismatches(Fn f, VarkaEmitOptions options, List<String> firstFew) {
+    assumeTrue(Lane.emitLanes(options, Lane.DOUBLE) != 0, "no baked lane count for the call");
     var loaded = VarkaEmitterFixtures.load(
         VarkaEmitterFixtures.emit(List.of(f.root()), 1, f.lits().length, options));
     VarkaFusedKernel kernel = loaded.kernel();
@@ -255,6 +260,7 @@ public final class VarkaMathExactSuite {
       + "lengths and both widths")
   void fixedVectorsOverNullsAndWidths() {
     long[] vectors = fixedVectors();
+    assumeTrue(Lane.emitLanes(VarkaMatrixRuns.BASE, Lane.DOUBLE) != 0, "no baked lane count");
     var failures = new ArrayList<String>();
     for (Fn f : FUNCTIONS) {
       for (int lanes : new int[] {2, 8}) {
@@ -339,9 +345,12 @@ public final class VarkaMathExactSuite {
    * most.
    */
   @Test
+  @Order(1)
   @DisplayName("a warmed per-lane call kernel allocates nothing a batch")
   void noAllocationPerBatch() {
     assumeTrue(VarkaAllocationSampler.supported(), "thread allocation accounting unavailable");
+    // First, at the preferred species alone: a second species in the JVM boxes every vector.
+    assumeTrue(VarkaMatrixRuns.BASE.lanesOverride() == 0, "a lane count other than the host's");
     Fn f = FUNCTIONS.get(0);
     var loaded = VarkaEmitterFixtures.load(
         VarkaEmitterFixtures.emit(List.of(f.root()), 1, 0, VarkaMatrixRuns.BASE));
