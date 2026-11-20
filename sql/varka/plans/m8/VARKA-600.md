@@ -206,8 +206,12 @@ decline to the row path happens only where a baseline section shows the fused ca
 
 ### 9.1 Part 600a, built 20 November 2026 (branch `varka-600-bigint-float-avx2`)
 
-Steps 1 to 3 are built. Nothing is measured on the runners yet, and no suite beyond the
-compile and the one run named in 9.5 has run.
+Steps 1 to 3 are built. Nothing is measured on the runners yet. Two checks ran on the
+laptop: `build/sbt catalyst/Test/compile sql/Test/compile` passed, and so did
+`build/sbt 'catalyst/testOnly *VarkaEmitterWideConversionSuite'` (9 tests, 0 failed, 18.6 s,
+at master `0b8be5a33e4` plus this branch). That second run was on the AVX-512 laptop with no
+`UseAVX` flag, so it checks the answers of the forms emitted at level 2, not what C2 makes of
+them on AVX2.
 
 **Step 1, the JDK-only model** (`results/VARKA-600/NarrowL2F600.java`). It runs both new forms
 in plain Vector API code and checks every row against `(float) v`, inside the window and past
