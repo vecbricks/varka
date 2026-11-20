@@ -42,20 +42,24 @@ import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.DecimalStore;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.util.ArrowUtils;
+import org.apache.spark.sql.vectorized.ArrowColumnVector;
 
 /**
  * A decimal value within 18 digits as a projection's output (VARKA-348 2.4, part 348b): every
  * form {@code VarkaDecimalCompiler.value} builds is written by the decimal store, so the output
- * root is {@code WidenDecimal} over the value a comparison would read. The store's bytes are
- * {@link VarkaDecimalStoreSuite}'s; here the value under it is run as a long output, at one, two,
- * four and eight long lanes, over the precision's ends, values one unit inside them, zero, one
- * each way and every null pattern of two operands, and held row by row to Spark's own
- * {@code eval} of the same expression at the output's scale. In a JVM of its own, for the several
- * species (VARKA-246).
+ * root is {@code WidenDecimal} over the value a comparison would read. The value under the store
+ * is run as a long output, at one, two, four and eight long lanes, over the precision's ends,
+ * values one unit inside them, zero, one each way and every null pattern of two operands, and
+ * held row by row to Spark's own {@code eval} of the same expression at the output's scale; and
+ * the whole root, the store over the decimal columns' leaves, is run into a {@code DecimalVector}
+ * of the output's type under both store arms, read back by Spark's {@code ArrowColumnVector}. The
+ * store's bytes over long columns are {@link VarkaDecimalStoreSuite}'s. In a JVM of its own, for
+ * the several species (VARKA-246).
  */
 @VarkaSuite(ownJvm = true)
 public final class VarkaDecimalOutputSuite {
@@ -146,6 +150,56 @@ public final class VarkaDecimalOutputSuite {
     for (Shape s : ARITHMETIC) {
       check(s, VarkaMatrixRuns.BASE);
     }
+  }
+
+  @Test
+  @DisplayName("the store over a decimal column's value writes the slots Spark's reader reads back "
+      + "as Spark's answer, under both store arms and at every width")
+  void storedOverDecimalLeaves() {
+    for (Shape s : List.of(SHAPES.get(0), SHAPES.get(3), SHAPES.get(7), SHAPES.get(9),
+        ARITHMETIC.get(0))) {
+      List<Attribute> columns = columns(s);
+      Expression e = VarkaSqlResolve.parse(s.sql(), seq(columns));
+      var type = (DecimalType) e.dataType();
+      Expression bound = VarkaSqlResolve.bind(VarkaSqlResolve.replaced(e), seq(columns));
+      List<Row> rows = rows(s.ta(), s.tb());
+      for (DecimalStore arm : DecimalStore.values()) {
+        for (int lanes : WIDTHS) {
+          VarkaEmitOptions options = VarkaMatrixRuns.BASE.withDecimalStore(arm)
+              .withLanesOverride(lanes);
+          CompiledVarkaProjection compiled = VarkaExpressionCompiler.compile(out(e),
+              seq(columns), options).orElseThrow(() -> new AssertionError(s + " does not fuse"));
+          Decimal[] got = stored(compiled, rows, s, type, options);
+          for (int i = 0; i < rows.size(); i++) {
+            Row r = rows.get(i);
+            Object spark = bound.eval(new GenericInternalRow(new Object[] {
+                decimal(r.a(), s.ta()), decimal(r.b(), s.tb())}));
+            int row = i;
+            assertEquals(spark, got[i], () -> s + " stored by " + arm + " at " + label(lanes)
+                + ", row " + r + " at " + row);
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("a constant decimal output and a typed null fuse beside a column's value, each "
+      + "under the store")
+  void constantsBesideAColumn() {
+    List<Attribute> columns = columns(new Shape("", D9, D9));
+    var entries = new ArrayList<NamedExpression>();
+    for (String sql : List.of("-a", "CAST(1.25 AS DECIMAL(9, 2))", "CAST(NULL AS DECIMAL(9, 2))")) {
+      entries.add(VarkaSqlResolve.named(VarkaSqlResolve.parse(sql, seq(columns)), "c"));
+    }
+    CompiledVarkaProjection compiled = VarkaExpressionCompiler.compile(
+        scala.jdk.javaapi.CollectionConverters.asScala(entries).toSeq(), seq(columns),
+        VarkaMatrixRuns.BASE).orElseThrow(() -> new AssertionError("the three do not fuse"));
+    assertEquals(3, compiled.outputs().size(), () -> compiled.toString());
+    for (VarkaVectorIR root : compiled.outputs()) {
+      assertInstanceOf(WidenDecimal.class, root, () -> compiled.toString());
+    }
+    assertEquals(List.of(D9, D9, D9), compiled.outputTypes());
   }
 
   @Test
@@ -266,6 +320,64 @@ public final class VarkaDecimalOutputSuite {
         boolean valid = (outValid.get(ValueLayout.JAVA_LONG, (i >>> 6) * 8L) >>> (i & 63) & 1L)
             != 0;
         got[i] = valid ? out.get(ValueLayout.JAVA_LONG, i * 8L) : null;
+      }
+      return got;
+    }
+  }
+
+  /**
+   * Runs {@code compiled}'s one root, the store, over the columns {@code a} and {@code b} into a
+   * {@code DecimalVector} of {@code type}, and returns each row as Spark's reader reads it.
+   */
+  private static Decimal[] stored(CompiledVarkaProjection compiled, List<Row> rows, Shape s,
+      DecimalType type, VarkaEmitOptions options) {
+    long[] lits = new long[compiled.longLiterals().size()];
+    for (int i = 0; i < lits.length; i++) {
+      lits[i] = compiled.longLiterals().get(i);
+    }
+    List<Integer> ordinals = compiled.inputOrdinals();
+    var emitted = VarkaEmitterFixtures.emit(compiled.outputs(), ordinals.size(), lits.length,
+        options);
+    VarkaFusedKernel kernel = VarkaEmitterFixtures.load(emitted).kernel();
+    int length = rows.size();
+    int inputs = ordinals.size();
+    try (BufferAllocator allocator =
+        ArrowUtils.rootAllocator().newChildAllocator("varka-decimal-stored", 0, Long.MAX_VALUE);
+        DecimalVector va = vector("a", rows, true, s.ta(), allocator);
+        DecimalVector vb = vector("b", rows, false, s.tb(), allocator);
+        DecimalVector out = new DecimalVector("c", allocator, type.precision(), type.scale())) {
+      out.allocateNew(length);
+      // A pattern whose high word is no sign extension, so a slot left unwritten is seen.
+      for (int i = 0; i < length; i++) {
+        out.getDataBuffer().setLong(i * 16L, 0x5A5A5A5A5A5A5A5AL);
+        out.getDataBuffer().setLong(i * 16L + 8, 0x0123456789ABCDEFL);
+      }
+      DecimalVector[] byOrdinal = {va, vb};
+      long[] srcData = new long[inputs];
+      long[] srcValidity = new long[inputs];
+      int[] nullCounts = new int[inputs];
+      long[] inStride = new long[inputs];
+      for (int i = 0; i < inputs; i++) {
+        DecimalVector v = byOrdinal[ordinals.get(i)];
+        srcData[i] = v.getDataBuffer().memoryAddress();
+        nullCounts[i] = v.getNullCount();
+        srcValidity[i] = nullCounts[i] == length ? 0L : v.getValidityBuffer().memoryAddress();
+        inStride[i] = 16L;
+      }
+      long[] outData = {out.getDataBuffer().memoryAddress()};
+      long[] outValidity = {out.getValidityBuffer().memoryAddress()};
+      long[] outStride = {16L};
+      int status = VarkaKernelChecks.sanitized(kernel, length, inStride, outStride, srcData,
+          srcValidity, outData, outValidity,
+          scratch -> kernel.run(srcData, srcValidity, nullCounts, outData, outValidity,
+              new int[0], lits, length, scratch));
+      assertEquals(0, status, "an in-precision batch runs");
+      out.setValueCount(length);
+      var spark = new ArrowColumnVector(out);
+      var got = new Decimal[length];
+      for (int i = 0; i < length; i++) {
+        got[i] = spark.isNullAt(i) ? null
+            : spark.getDecimal(i, type.precision(), type.scale());
       }
       return got;
     }

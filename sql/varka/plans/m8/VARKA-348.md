@@ -923,8 +923,9 @@ kernel runs over a batch with nulls and one without, both bodies, against Spark'
 ### Step 5: 348b, the values as outputs
 
 *Built 20 November 2026 on branch `varka-348-decimal-compare`, on master after 157b (#1348). Built
-in an implementation-first window: the tests are written but only compiled, and the runs it owes
-are listed in the pull request's body.*
+in an implementation-first window: every test is written and compiled. One run was taken,
+`VarkaDecimalOutputSuite`'s first four tests, which passed in 26 s. The runs still owed are listed
+in the pull request's body.*
 
 **The gate.** `VarkaDecimalCompiler.output` asks the output's type first, as 157b built it, and
 then compiles any `value()`, bracketed by `enterDecimal` and `exitDecimal` as a comparison's
@@ -968,13 +969,17 @@ checks that the root is `WidenDecimal` and that the output type is the expressio
 value at one, two, four and eight long lanes. It uses the precision's ends, one unit inside them,
 zero, one each way and every null pattern, and holds each row to Spark's `eval` at the output's
 scale. It covers `abs` under both lowerings, the sums and differences, and the decline past 18
-digits naming 359. `VarkaExpressionCompilerSuite`'s test that the TIME producers decline below a
+digits naming 359. Two later tests are compiled but not run. The first runs the whole root, the
+store over the decimal leaves, into a `DecimalVector` of the output's type under both
+`decimalStore` arms, and reads it back through `ArrowColumnVector`. The second checks that a
+constant and a typed null fuse as outputs beside a column's value. `VarkaExpressionCompilerSuite`'s test that the TIME producers decline below a
 root naming 348 becomes the test that they fuse there, under a sum and a comparison.
 
 **Predictions for the test phase, registered before any run.**
 
 1. `VarkaDecimalOutputSuite` passes on its first run: every arm under it already answers as a
-   condition.
+   condition. *Scored 20 November 2026: held. Its first four tests passed on the first run (26 s);
+   the two tests added after that run are not yet scored.*
 2. The regenerated `decimal_refinement.smt2` refines all eight new rows, none refused, and both
    solvers answer `unsat` on every check.
 3. `VarkaDecimalLongConformanceSuite` runs the round trip, choice, ordering and overflow checks'
@@ -986,7 +991,9 @@ root naming 348 becomes the test that they fuse there, under a sum and a compari
 
 **Left in the row.** The runner measurements: the projections against the baseline at 256 and
 128 bits on the EPYC 7763 (prediction 4 of section 4), and `abs`'s two lowerings at 512 bits on
-the laptop (prediction 3), are owed. The baseline class has `abs(x) < y` as a filter only, so the
+the laptop (prediction 3), are owed. The laptop reading is not taken in this window because the
+owner's order for it (20 November 2026, 07:30 CET) puts tests and measurements in a later phase,
+and other agents' JVMs share the machine. `sql/varka/CLAUDE.md`'s measurement rules need it quiet. The baseline class has `abs(x) < y` as a filter only, so the
 projection arms are an addition to it, the house's own pull request first. The generated files
 (`coverage.json`, `docs/sql-varka.md`, `emitted_bytes.json`, `width_audit.json`, `census.tsv`,
 `decimal_refinement.smt2`) and the runs the body lists are owed too.
@@ -1012,3 +1019,9 @@ projection arms are an addition to it, the house's own pull request first. The g
 5. **The `VarkaAnsiForm` expectations are left alone.** Its TIME producers' expected declines may
    now fuse in the `CASE` arm. Changing them on a prediction, unrun, would be a guess either way,
    so the suite is listed as owed with the rows at risk.
+6. **No family is noted for a negation, `abs`, a cast or a sum at an output root.** No family's
+   claim takes these decimal nodes, so `VarkaFamilySwitchSuite`'s reading of a row's families is
+   empty for them, and the predicate `-d9 < d9b` records none for its negation either. Only the
+   choices, the picks and the TIME producers ask a switch, inside `value()`, as they do under a
+   comparison. This is a reading of the code that `VarkaFamilySwitchSuite` has not yet run to
+   confirm.
