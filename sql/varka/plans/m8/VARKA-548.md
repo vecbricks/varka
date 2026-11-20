@@ -308,6 +308,24 @@ Went differently from the sheet: the sheet expected PR 2 to wait on questions 2 
 answered above), and did not know of #1534's interval fault. The branch is `varka-548b`, not the
 sheet's `varka-548`.
 
+**Rebased and reviewed (20 November 2026).** The results above are the pre-rebase tree's
+(`be3327ceed9`, kept as `varka-548b-pre-rebase-1120`). The branch now sits on `342ed6851f8`.
+#1546's `narrowGroupStore` conflicted with the two new components in `VarkaEmitOption` and
+`VarkaEmitOptions`; both sides are kept, with `narrowGroupStore` first in the record, `DEFAULTS`,
+the builder and the table. `dev/varka_regen_generated.sh --all` changed only the width audit's
+JDK string. One `/code-review high` found five nits, all fixed: the rule missed a field behind an
+annotation holding `=`, braces or parentheses (annotations are now blanked with their balanced
+arguments), and a fault held in a type whose name lacks `Fault` (a static non-final field whose
+declared type holds `Fault` now reports too), five self-test cases, 68 in all; the interval
+suite's `Kernel` emits under the options it compiled with; `FAULT_INJECTOR`'s javadoc covers a
+planted wrong lowering, and `VarkaEmitOptionSuite` pins both options' reason; and this paragraph.
+On the rebased tree: the eight suites above with `VarkaCoverageSuite`, `VarkaFamilySwitchSuite`,
+`VarkaFamilyChainSuite` and `VarkaExpressionCompilerSuite` passed but for `VarkaIrFuzzSuite`, whose
+child JVM hit its 9-minute cap beside a load average near 50. Rerun alone under
+`-Dvarka.ownJvm=true`, it passed (41, 2 cancelled opt-in tests, 456 s). The rule still reports
+`VarkaFloatingFault.java:46` of the old tree and nothing on the rebased `sql/catalyst/src/main`.
+Counted size against its base: 815 lines.
+
 ## Build sheet (11 November 2026)
 
 For a coding agent building **the first pull request only** (`arch-list`, section 5 item 1),
