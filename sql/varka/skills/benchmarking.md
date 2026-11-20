@@ -872,3 +872,16 @@ has nothing to measure on a 128-bit core; the summary then reads `n/a` for the l
 and the ratio. A result from the Arm runner is comparable only with another from it, and an x86
 result only with one from its own pinned CPU (the EPYC 7763 rule is unchanged).
 
+
+## A dispatch of Varka classes only skips the TPC-DS data job
+
+`benchmark.yml`'s benchmark jobs wait for the TPC-DS data job, which took 8.6 to 13.1 minutes and
+one more runner in three Varka dispatches of November 2026 (`plans/m8/VARKA-571.md` 2), and no
+Varka benchmark reads that data: the two that name TPC-DS build `modified-q3`'s filter over a
+synthetic column. So `matrix-gen` skips the data job when every class in the list is a Varka
+one - each alternative of a glob's `{a,b}` has a last segment starting with `Varka`, as in
+`VarkaDecimalBaselineBenchmark`, `*.VarkaDecimalBaselineBenchmark` or `{VarkaA,VarkaB}Benchmark` -
+with no flag to remember. `*`, any Spark class, and a list mixing one in keep the data, and
+`generate-tpcds=false` still turns it off for any list. A Varka benchmark that comes to read
+`SPARK_TPCDS_DATA` breaks the rule: it would run without the data and fail at its first read, so
+dispatch it beside a Spark class that needs the data, or teach `matrix-gen`'s matcher its name.

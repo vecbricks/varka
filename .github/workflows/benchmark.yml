@@ -57,7 +57,7 @@ on:
         default: false
       generate-tpcds:
         type: boolean
-        description: 'Generate TPC-DS data (required for TPC-DS benchmarks and all-benchmark runs)'
+        description: 'Generate TPC-DS data (required for TPC-DS benchmarks and all-benchmark runs). A list of Varka classes only skips it, since no Varka benchmark reads it.'
         required: true
         default: true
       runner:
@@ -125,6 +125,7 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       classes: ${{ steps.set-matrix.outputs.classes }}
       parallel: ${{ steps.set-matrix.outputs.parallel }}
+      tpcds: ${{ steps.set-matrix.outputs.tpcds }}
     env:
       SPARK_BENCHMARK_NUM_SPLITS: ${{ inputs.num-splits }}
       CLASSES: ${{ inputs.class }}
@@ -184,16 +185,34 @@ jobs:
         # Six classes at a time leave the account's other runner slots to everything else; the
         # splits of one class keep the twenty they always had.
         parallel = 6 if len(classes) > 1 else 20
+
+        # No Varka benchmark reads TPC-DS data, so a list of Varka classes only skips the data job
+        # and its wait. A class is a Varka one when every alternative of its glob's {a,b} has a
+        # last segment starting with `Varka`; `*` and every Spark class keep the data.
+        def alternatives(c):
+            m = re.search(r"\{([^{}]*)\}", c)
+            if not m:
+                return [c]
+            return [a for alt in m.group(1).split(",")
+                    for a in alternatives(c[:m.start()] + alt + c[m.end():])]
+
+        def varka_only(c):
+            return all(a.rsplit(".", 1)[-1].startswith("Varka") for a in alternatives(c))
+
+        tpcds = not all(varka_only(c) for c in classes)
         with open(os.environ["GITHUB_OUTPUT"], "a") as out:
             out.write(f"matrix={json.dumps(splits)}\n")
             out.write(f"classes={json.dumps(entries)}\n")
             out.write(f"parallel={parallel}\n")
-        print(f"classes: {entries}; splits: {splits}; max-parallel: {parallel}; pair: {pair}")
+            out.write(f"tpcds={str(tpcds).lower()}\n")
+        print(f"classes: {entries}; splits: {splits}; max-parallel: {parallel}; pair: {pair}; "
+              f"tpcds: {tpcds}")
 
   # Any TPC-DS related updates on this job need to be applied to tpcds-1g job of build_and_test.yml as well
   tpcds-1g-gen:
     name: "Generate an TPC-DS dataset with SF=1"
-    if: inputs.generate-tpcds && !inputs.pair
+    if: inputs.generate-tpcds && !inputs.pair && needs.matrix-gen.outputs.tpcds == 'true'
+    needs: matrix-gen
     runs-on: ubuntu-latest
     env:
       SPARK_LOCAL_IP: localhost
@@ -309,7 +328,7 @@ jobs:
         EXPECTED_CPU: ${{ inputs.expected-cpu }}
       run: '"$TOOLS/dev/varka_datapath.sh" --require any --expected-cpu "$EXPECTED_CPU" --github'
     - name: Cache TPC-DS generated data
-      if: inputs.generate-tpcds
+      if: inputs.generate-tpcds && needs.matrix-gen.outputs.tpcds == 'true'
       id: cache-tpcds-sf-1
       uses: actions/cache@v6
       with:
