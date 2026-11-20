@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -25,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -108,10 +111,12 @@ public final class VarkaCastMatrixSuite {
     return out;
   }
 
-  @Test
-  @DisplayName("casts.tsv's legality agrees with Cast over every ordered pair, in every mode")
-  void legality() throws IOException {
-    Map<String, Legality> file = committed();
+  /**
+   * Where {@code file}, the matrix's legality as {@code casts.tsv} records it, disagrees with
+   * {@code Cast}: one line per pair and form, then one for a pair of a type outside the census.
+   * Empty when they agree. Taking the file as an argument lets a test plant a flipped answer.
+   */
+  static List<String> legalityErrors(Map<String, Legality> file) {
     List<String> wrong = new ArrayList<>();
     for (var from : TYPES.entrySet()) {
       for (var to : TYPES.entrySet()) {
@@ -130,12 +135,38 @@ public final class VarkaCastMatrixSuite {
         }
       }
     }
+    for (String key : file.keySet()) {
+      String[] p = key.split(">");
+      if (!TYPES.containsKey(p[0]) || !TYPES.containsKey(p[1])) {
+        wrong.add(key + ": casts.tsv names a type outside the census's thirteen");
+      }
+    }
+    return wrong;
+  }
+
+  @Test
+  @DisplayName("casts.tsv's legality agrees with Cast over every ordered pair, in every mode")
+  void legality() throws IOException {
+    Map<String, Legality> file = committed();
+    // A file that lost its rows would agree with Cast only where no pair is legal.
+    assertTrue(file.size() > TYPES.size(), "casts.tsv holds only " + file.size() + " pairs");
+    List<String> wrong = legalityErrors(file);
     assertTrue(wrong.isEmpty(),
         "dev/varka_census.py's legal() disagrees with Cast:\n  " + String.join("\n  ", wrong));
-    assertTrue(file.keySet().stream().allMatch(k -> {
-      String[] p = k.split(">");
-      return TYPES.containsKey(p[0]) && TYPES.containsKey(p[1]);
-    }), "casts.tsv names a type outside the census's thirteen: " + file.keySet());
+  }
+
+  @Test
+  @DisplayName("a pair whose legality is flipped in one mode fails the comparison, naming the pair")
+  void plantedLegality() throws IOException {
+    // VARKA-504's planted fault: the first legal pair's ANSI answer flipped in memory.
+    var file = new LinkedHashMap<>(committed());
+    var first = file.entrySet().stream().filter(e -> !e.getValue().equals(Legality.NONE))
+        .findFirst().orElseThrow();
+    Legality l = first.getValue();
+    file.put(first.getKey(), new Legality(l.legacy(), !l.ansi(), l.tryCast()));
+    List<String> wrong = legalityErrors(file);
+    assertFalse(wrong.isEmpty(), "a flipped answer for " + first.getKey() + " passed");
+    assertTrue(wrong.stream().allMatch(w -> w.startsWith(first.getKey() + " (")), wrong.toString());
   }
 
   // -------------------------------------------------------------------------------------------
@@ -239,12 +270,27 @@ public final class VarkaCastMatrixSuite {
     }
     List<String> committed = Files.exists(file)
         ? Files.readAllLines(file, StandardCharsets.UTF_8) : List.of();
-    if (committed.equals(fresh)) {
+    // Every legal cast of two forms is a line; a probe of none would match an empty file.
+    assertTrue(fresh.size() > TYPES.size(), "the probe wrote only " + fresh.size() + " lines");
+    List<String> moved = fusionMoves(committed, fresh);
+    if (moved.isEmpty()) {
       return;
     }
-    // The lines that differ, for the message; a file that differs only in order or by a repeated
-    // line lists none of them, and fails all the same.
+    fail("the compiler's casts moved from " + FUSED_FILE + ":\n  "
+        + String.join("\n  ", moved) + "\nRegenerate it, then the census, with\n  " + REGEN
+        + "\n  dev/varka_census.py");
+  }
+
+  /**
+   * The lines of {@code fresh}, the compiler's answers, and of {@code committed}, the file's, that
+   * the other lacks, each marked with its side; empty only when the two are equal. A file that
+   * differs only in order or by a repeated line gets one line saying so.
+   */
+  static List<String> fusionMoves(List<String> committed, List<String> fresh) {
     var moved = new ArrayList<String>();
+    if (committed.equals(fresh)) {
+      return moved;
+    }
     for (String line : fresh) {
       if (!committed.contains(line)) {
         moved.add("now:  " + line);
@@ -255,8 +301,32 @@ public final class VarkaCastMatrixSuite {
         moved.add("file: " + line);
       }
     }
-    fail("the compiler's casts moved from " + FUSED_FILE + ":\n  "
-        + String.join("\n  ", moved) + "\nRegenerate it, then the census, with\n  " + REGEN
-        + "\n  dev/varka_census.py");
+    if (moved.isEmpty()) {
+      moved.add("the same lines in another order, or with one repeated");
+    }
+    return moved;
+  }
+
+  @Test
+  @DisplayName("a casts_fused.tsv line with one answer changed fails the comparison, naming it")
+  void plantedFusion() throws IOException {
+    // VARKA-504's planted fault: the committed file stands in for the compiler's answers, so the
+    // plant needs no probe, and one line's answer is changed in memory.
+    Path file = Path.of(home(), "sql", "varka", "plans", "m8", FUSED_FILE);
+    List<String> committed = Files.readAllLines(file, StandardCharsets.UTF_8);
+    assertTrue(fusionMoves(committed, committed).isEmpty());
+    int at = 1;
+    while (!committed.get(at).contains("\tfused")) {
+      at++;
+    }
+    String line = committed.get(at);
+    int k = line.indexOf("\tfused");
+    String changed = line.substring(0, k) + "\tdeclined" + line.substring(k + "\tfused".length());
+    var fresh = new ArrayList<>(committed);
+    fresh.set(at, changed);
+    assertEquals(List.of("now:  " + changed, "file: " + line), fusionMoves(committed, fresh));
+    var reordered = new ArrayList<>(committed);
+    Collections.swap(reordered, 1, 2);
+    assertEquals(1, fusionMoves(committed, reordered).size());
   }
 }

@@ -175,3 +175,70 @@ owner prefers smaller pull requests (question 2).
    files. If they cannot, the refactor that lets them is the first commit.
 
 ## 10. Outcome
+
+### 10.1 Part 1, built 20 November 2026 (branch `varka-504-checks-can-fail`)
+
+From master at `6ac76f86cb3`. The census's doctests and the catalyst plants, in 5's order; the
+sql plants (differential, Spark fuzzer, the upstream pins) are part 2 and not built.
+
+- **Census** (`dev/varka_census.py`): doctests on `row()`, one planted claim per rule (a fused
+  type outside the entry's types, a claim no coverage row shows, a `~` claim quoting no row, a
+  type both fused and fused in part, a part-fused type outside the types, a need the fused types
+  contradict, an unknown need) beside a true claim that reports nothing. `--self-test` passes.
+- **Coverage** (`VarkaCoverageSuite`): the two checks became functions over their input,
+  `declinedRows` and `undocumentedArms`, and a test plants a superclass arm (`BinaryOperator`
+  beside an `i + 1` row) and two rows that stop fusing (a `rand(1)` value and a predicate with a
+  `rand` conjunct). The fusion test now also asserts it checked more than 100 rows.
+- **Cast matrix** (`VarkaCastMatrixSuite`): 9.2 held - both comparisons read the committed files
+  directly. They became `legalityErrors(file)` and `fusionMoves(committed, fresh)`; one plant
+  flips the first legal pair's ANSI answer, another changes one `casts_fused.tsv` answer and a
+  third swaps two lines. Both tests assert they compared more pairs than there are types.
+- **Conformance** (`VarkaTypeConformance`, new `VarkaConformancePlantSuite`): the answer the
+  checks hold the reference to passes through `plantedAnswer`, a stub that is null (Spark's own)
+  unless a test sets it; the plant suite sets it on instances of the type suites to a value off
+  by its low bit (load, round trip, null handling, ordering over INT must each fail), a null
+  answered as zero (null handling) and a NaN comparison answered the other way (ordering over
+  DOUBLE). A first version overrode a method in anonymous subclasses; sbt's discovery then
+  found the subclass and JUnit warned that it must not be anonymous, so the stub became a field.
+- **Upstream pin** (new `VarkaUpstreamPinsSuite`): a hot `Math.addExact` overflow loses its
+  message under `OmitStackTraceInFastThrow`, which three helpers accept; the pin fails when a
+  JDK keeps it. The SPARK-58482 pin needs a session and is part 2's.
+- **Warm-up reach** (`VarkaWarmupReach`, its suite): `laneErrors(receivers)` names any receiver
+  class not of its lane's element type; the suite asserts none and that every `LaneType` is read
+  (completeness), and plants the 27 October fault, the float lane answered with the double lane's
+  receivers.
+- **Bytes oracle** (`VarkaEmittedBytesSuite`): the difference walker became
+  `movedBetween(committed, rendered)`; the plant changes one coverage method's hash and one fuzz
+  block in the committed file in memory and requires exactly those two to be named.
+
+**9.1 answered.** Both 27 October faults are fixed in code, so plants 1 and 7 are regression
+plants: the coverage check compares exact simple class names (`getClass.getSimpleName`), and
+`VarkaWarmupReach.receivers` maps each lane to its own species.
+
+**Where the plan was wrong.** 2.1 item 2 put "the second-species tell" under the Python census.
+The tell is `VarkaOperatorCensusSuite`'s (the operator census, `VARKA-347.md`), not
+`dev/varka_census.py`'s, and its matcher already has a string-level plant ("the second-species
+tell matches a species class and not a shared superclass"). The live case - a loop whose one
+call chain meets two species, read from C2's printer in a forked JVM - is not built: it is a
+JVM-forking probe cell, out of this window's cheap-checks rule, and owed to part 2.
+
+**Predictions.** P1 and P2 are scored when the suites run (owed, see the draft PR body). P3 is
+not scored: no suite ran in this window.
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **Plants as committed tests** (7, question 1): the plan's recommendation, taken.
+2. **Pull requests** (7, question 2, and 5): the plan's own text disagrees with itself - 5 says
+   one pull request per module (three), 7 recommends two, catalyst first. Taken: the census
+   doctests ride with the catalyst part, since a Python doctest adds no CI module of its own and
+   both stay under the size cap; sql is part 2.
+3. **The conformance plant's stub is on the expected side.** 2.1 item 4 asked for "an evaluator
+   stub that answers one lane's value wrong". The contract compares the reference with Spark's
+   answer per row and the kernel with the reference, so the stub replaces Spark's answer; a check
+   that compared nothing passes it, which is the fault the plant exists for. Swapping the kernel
+   for a wrong one would need an emitter-level plant per lane, larger than the row's medium.
+4. **Plants that need no expensive input read the committed file instead.** The cast matrix's
+   fusion plant and the bytes plant use the committed file as the "fresh" side, so they run in
+   milliseconds instead of probing every cast or emitting every shape; the comparison they plant
+   into is the same code the real tests call.
+

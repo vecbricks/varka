@@ -48,6 +48,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.function.Function;
 
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.DoubleVector;
@@ -126,7 +127,7 @@ final class VarkaWarmupReach {
    * registry says some type's kernels reach (VARKA-494), in width order, and the double lane in
    * any case, which the long lane's divisions convert through even where no type is read on it.
    */
-  private static final List<Class<?>> LANES = lanes();
+  static final List<Class<?>> LANES = lanes();
 
   private static List<Class<?>> lanes() {
     var reached = new TreeSet<VarkaVectorIR.LaneType>();
@@ -160,7 +161,7 @@ final class VarkaWarmupReach {
    * species: a call only the native arm makes is counted at the widened species too, and the
    * warm-up warms it there - an over-count, cheap, and preferred to a cold site the gate misses.
    */
-  private static List<Class<?>> receivers(Class<?> lane) {
+  static List<Class<?>> receivers(Class<?> lane) {
     VectorSpecies<?> s = lane == ByteVector.class ? ByteVector.SPECIES_PREFERRED
         : lane == ShortVector.class ? ShortVector.SPECIES_PREFERRED
         : lane == IntVector.class ? IntVector.SPECIES_PREFERRED
@@ -175,6 +176,32 @@ final class VarkaWarmupReach {
       VectorSpecies<?> w = widenedSpecies(narrow);
       if (w != null && w != s) {
         out.addAll(List.of(w.zero().getClass(), w.maskAll(true).getClass(), w.getClass()));
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Each receiver class {@code receivers} gives a lane of {@link #LANES} that is not of that lane's
+   * element type, as a line naming the lane and the class; empty when every lane's calls are
+   * credited to its own classes. The 27 October 2026 fault this guards against credited the float
+   * lane's mask calls to the double lane's classes, so the float masks' counts read as warm.
+   * Taking {@code receivers} as an argument lets a test plant that fault (VARKA-504).
+   */
+  static List<String> laneErrors(Function<Class<?>, List<Class<?>>> receivers) {
+    var out = new ArrayList<String>();
+    for (Class<?> lane : LANES) {
+      // The element's name heads every class of a lane: Float512Vector, Float512Mask,
+      // FloatSpecies, and for a widened narrow lane Byte64Vector.
+      String element = lane.getSimpleName().replace("Vector", "");
+      List<Class<?>> classes = receivers.apply(lane);
+      if (classes.isEmpty()) {
+        out.add(lane.getSimpleName() + ": no receiver classes");
+      }
+      for (Class<?> k : classes) {
+        if (!k.getSimpleName().startsWith(element)) {
+          out.add(lane.getSimpleName() + ": credited to " + k.getSimpleName());
+        }
       }
     }
     return out;
