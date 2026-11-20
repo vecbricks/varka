@@ -83,7 +83,8 @@ public sealed interface VarkaEmitOption
     PRICED_CHECK,
     /**
      * A fault injector: it feeds the emitter a wrong input so a test can show that the emitter's
-     * own self-checks fire. The fuzzer never draws one.
+     * own self-checks fire, or plants a plausible wrong lowering so a test can show that the
+     * checks against Spark catch it. The fuzzer never draws one.
      */
     FAULT_INJECTOR,
     /**

@@ -108,7 +108,7 @@ class VarkaEmitOptionSuite extends SparkFunSuite with VarkaTestWatchdog {
     def reasonOf(name: String): Reason = VarkaEmitOption.named(name).reason
     for (name <- Seq("misdescribeAdd", "misdescribeWordLiveness", "misdescribeDriverBytes",
         "forceResidualAt", "misdescribeRollback", "dropStackMaps", "misdescribeDataBytes",
-        "dropDecimalBound")) {
+        "dropDecimalBound", "floatingFault", "intervalFault")) {
       assert(reasonOf(name) === Reason.FAULT_INJECTOR, name)
     }
     for (name <- Seq("division", "useAVX", "decimalAbsLanewise")) {

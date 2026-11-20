@@ -727,6 +727,31 @@ def comment_free_java(text):
     return "".join(out)
 
 
+def blank_annotations(text):
+    """`text` with every annotation blanked, its name and its balanced argument list, every
+    newline kept; `text` is already comment- and literal-free, so the parentheses balance."""
+    out = list(text)
+    for m in re.finditer(r"@\s*[\w$.]+", text):
+        if text.startswith("interface", m.start() + 1):
+            continue
+        end = m.end()
+        j = end
+        while j < len(text) and text[j] in " \t\n":
+            j += 1
+        if j < len(text) and text[j] == "(":
+            depth = 0
+            while j < len(text):
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                j += 1
+                if depth == 0:
+                    break
+            end = j
+        for k in range(m.start(), end):
+            if out[k] != "\n":
+                out[k] = " "
+    return "".join(out)
+
+
 def rule_global_fault(ch):
     for path in ch.files:
         if not path.endswith(".java") or not path.startswith("sql/catalyst/src/main/"):
@@ -752,13 +777,16 @@ def rule_global_fault(ch):
                 stack.pop()
         current = next((s for s in reversed(stack) if s), None)
         owner[start:] = [current] * (len(clean) - start)
+        # Annotations are blanked with their balanced argument lists, so an `=`, a brace or a
+        # parenthesis inside one neither ends a head nor hides the field it annotates.
+        fields = blank_annotations(clean)
         # A field declaration ends at its `;`, and its head is what sits since the previous
         # `;`, `{` or `}` - except a `{` or `}` after `=`, which is its initializer's.
         last = 0
-        for m in re.finditer(r"[{};]", clean):
-            seg = clean[last : m.start()]
+        for m in re.finditer(r"[{};]", fields):
+            seg = fields[last : m.start()]
             if m.group() == ";":
-                head = re.sub(r"@\w+(?:\([^)]*\))?", " ", seg.split("=", 1)[0])
+                head = seg.split("=", 1)[0]
                 if (
                     re.search(r"\bstatic\b", head)
                     and not re.search(r"\bfinal\b", head)
@@ -766,13 +794,17 @@ def rule_global_fault(ch):
                 ):
                     where = last + re.search(r"\bstatic\b", seg).start()
                     owner_name = owner[where]
-                    if owner_name is not None and "Fault" in owner_name:
-                        line = clean.count("\n", 0, where) + 1
+                    # The field's declared type, its head less the trailing name: a fault held
+                    # by a type whose own name lacks Fault is as JVM-wide as one in a Fault type.
+                    declared = re.sub(r"[\w$]+\s*(?:\[\s*\])*\s*$", "", head)
+                    if (owner_name is not None and "Fault" in owner_name) or "Fault" in declared:
+                        line = fields.count("\n", 0, where) + 1
                         if ch.wrote(path, line):
                             yield (
-                                f"{path}:{line}: global-fault: a static non-final field of a type "
-                                "whose name holds Fault is JVM-wide state another compile can see; "
-                                "hold the fault in VarkaEmitOptions instead (m8/VARKA-548.md)"
+                                f"{path}:{line}: global-fault: a static non-final field of, or "
+                                "in, a type whose name holds Fault is JVM-wide state another "
+                                "compile can see; hold the fault in VarkaEmitOptions instead "
+                                "(m8/VARKA-548.md)"
                             )
                 last = m.end()
             elif "=" not in seg:
@@ -1122,6 +1154,33 @@ def selftest():
             (
                 "sql/catalyst/src/main/java/varka/XFault.java",
                 "enum XFault {\n  private static final int OK = 1;\n}\n",
+                False,
+            ),
+            # An annotation's `=`, braces or parentheses neither end a head nor hide a field.
+            (
+                "sql/catalyst/src/main/java/varka/XFault.java",
+                'class XFault {\n  @SuppressWarnings({"x"}) static XFault planted;\n}\n',
+                True,
+            ),
+            (
+                "sql/catalyst/src/main/java/varka/XFault.java",
+                'class XFault {\n  @Deprecated(since = "1")\n  static XFault planted;\n}\n',
+                True,
+            ),
+            (
+                "sql/catalyst/src/main/java/varka/XFault.java",
+                "class XFault {\n  @Foo(a = 1) void m() { }\n  static XFault planted;\n}\n",
+                True,
+            ),
+            # A fault held elsewhere is reported by its declared type.
+            (
+                "sql/catalyst/src/main/java/varka/Compiler.java",
+                "class Compiler {\n  static volatile Options.FloatingFault planted = NONE;\n}\n",
+                True,
+            ),
+            (
+                "sql/catalyst/src/main/java/varka/Compiler.java",
+                "class Compiler {\n  static final Options.FloatingFault NONE_ = NONE;\n}\n",
                 False,
             ),
             # The name must hold Fault case-sensitively: a Defaults is no fault type.

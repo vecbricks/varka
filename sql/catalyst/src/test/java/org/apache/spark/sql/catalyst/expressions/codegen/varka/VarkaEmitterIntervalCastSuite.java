@@ -371,7 +371,7 @@ public final class VarkaEmitterIntervalCastSuite {
 
   private static Kernel kernel(Expression e, List<Attribute> cols, VarkaEmitOptions options) {
     return new Kernel(e, cols, compile(e, cols, options).orElseThrow(() ->
-        new AssertionError(e.sql() + " declines")));
+        new AssertionError(e.sql() + " declines")), options);
   }
 
   /** One compiled cast, emitted, with Spark's evaluation of it for the answers. */
@@ -384,15 +384,24 @@ public final class VarkaEmitterIntervalCastSuite {
     final boolean longLane;
 
     Kernel(Expression expr, List<Attribute> cols, CompiledVarkaProjection plan) {
+      this(expr, cols, plan, VarkaMatrixRuns.BASE);
+    }
+
+    /**
+     * Emitted under the options the plan was compiled with, so a fault the emitter reads reaches
+     * the emitter as well as the compiler.
+     */
+    Kernel(Expression expr, List<Attribute> cols, CompiledVarkaProjection plan,
+        VarkaEmitOptions options) {
       this.expr = expr;
       this.plan = plan;
       this.className = "org.apache.spark.sql.varka.execution.VarkaIntervalCast"
           + CLASS_COUNTER.incrementAndGet();
       this.bytes = VarkaLoopEmitter.emit(className, plan.outputs(), plan.inputOrdinals().size(),
-          plan.numLiterals(), null, null, VarkaMatrixRuns.BASE);
+          plan.numLiterals(), null, null, options);
       this.oracle = new VarkaSparkOracle(CollectionConverters.asScala(List.of(expr)).toSeq(),
           CollectionConverters.asScala(List.of(cols.get(plan.inputOrdinals().get(0)))).toSeq());
-      this.longLane = plan.lane(VarkaMatrixRuns.BASE).bits() == Long.SIZE;
+      this.longLane = plan.lane(options).bits() == Long.SIZE;
     }
 
     /** Each value once valid and once null, so both bodies and a null lane run. */
