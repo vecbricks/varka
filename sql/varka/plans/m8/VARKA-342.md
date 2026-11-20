@@ -654,11 +654,11 @@ Step 2 (2.5, item 0.7) on part `varka-342c-census`, stacked on 5.4's: `VarkaOper
 gains a family, "floating arithmetic", of twelve cells, `ADD`, `SUB`, `MUL`, `DIV`, `NEG` and
 `ABS` at each floating lane, over the probe's binary loops (`bin.float`, `bin.double`) and its
 double unary loop, and a new `un.float` loop in `VarkaOperatorCensusProbe` for the float unary
-two. The census itself, `operator_census.json`, is a measurement: its laptop regeneration
-(`VARKA_CENSUS_REGEN=true`) and the census workflow on both runners are owed, and until the
-laptop's is committed `VarkaOperatorCensusSuite` fails on this host for the twelve missing cells
-(it compares only where its census was taken, so the runners skip it). Prediction 4.2 is scored
-when they run: the twelve intrinsic at every width on the laptop and the EPYC.
+two. The laptop's census was regenerated the same day (`VARKA_CENSUS_REGEN=true build/sbt
+'catalyst/testOnly *VarkaOperatorCensusSuite'`, 200 s, its 8 tests passing): the diff adds the
+twelve cells at 128, 256 and 512 bits, all 36 intrinsic with no allocation, and moves nothing
+else but the host's JDK build string (25.0.5.0.3 to 25.0.5.1). Prediction 4.2, laptop half:
+held. The census workflow on the EPYC 7763 and the Neoverse N2 is owed, its half of 4.2 with it.
 
 ### Decisions taken while the owner was away (20 November 2026)
 
