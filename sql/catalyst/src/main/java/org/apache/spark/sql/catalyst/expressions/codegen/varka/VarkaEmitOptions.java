@@ -540,6 +540,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        in the JVM can see it (VARKA-548). {@link FloatingFault#NONE} in production.
  * @param intervalFault the same for the day-time interval lowerings (milestone 8 row 504,
  *        {@code VARKA-103.md} 3.7). {@link IntervalFault#NONE} in production.
+ * @param maxChainDepth the deepest op path one output may have, which the emitter's analysis and
+ *        the compiler's budget check both refuse past, by default {@code
+ *        VarkaEmitBudget.MAX_CHAIN_DEPTH}. A measurement knob (VARKA-620): a benchmark raises it
+ *        to price depths past the cap, and no session conf sets it.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -598,7 +602,8 @@ public record VarkaEmitOptions(
     boolean mathUlpContract,
     NarrowGroupStore narrowGroupStore,
     FloatingFault floatingFault,
-    IntervalFault intervalFault) {
+    IntervalFault intervalFault,
+    int maxChainDepth) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -813,7 +818,8 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
           false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
-          false, NarrowGroupStore.MASKED, FloatingFault.NONE, IntervalFault.NONE);
+          false, NarrowGroupStore.MASKED, FloatingFault.NONE, IntervalFault.NONE,
+          VarkaEmitBudget.MAX_CHAIN_DEPTH);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -861,6 +867,9 @@ public record VarkaEmitOptions(
     }
     if (intervalFault == null) {
       throw VarkaErrors.illegalArgument("intervalFault must not be null");
+    }
+    if (maxChainDepth < 1) {
+      throw VarkaErrors.illegalArgument("maxChainDepth must be positive: " + maxChainDepth);
     }
     if (lanesOverride != 0 && (lanesOverride < 1 || Integer.bitCount(lanesOverride) != 1)) {
       throw VarkaErrors.illegalArgument(
@@ -940,6 +949,7 @@ public record VarkaEmitOptions(
       b.narrowGroupStore = narrowGroupStore;
       b.floatingFault = floatingFault;
       b.intervalFault = intervalFault;
+      b.maxChainDepth = maxChainDepth;
     return b;
   }
 
@@ -1002,6 +1012,7 @@ public record VarkaEmitOptions(
     private NarrowGroupStore narrowGroupStore;
     private FloatingFault floatingFault;
     private IntervalFault intervalFault;
+    private int maxChainDepth;
 
     private Builder() {
     }
@@ -1291,6 +1302,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder maxChainDepth(int depth) {
+      this.maxChainDepth = depth;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1307,7 +1323,7 @@ public record VarkaEmitOptions(
           misdescribeDataBytes, fromLongMasks, decimalAbsLanewise, dropDecimalBound,
           decimalStore, wideConversionForm, roundToOddByShifts, mathUlpContract,
           narrowGroupStore,
-          floatingFault, intervalFault);
+          floatingFault, intervalFault, maxChainDepth);
     }
   }
 
@@ -1326,6 +1342,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withCallSiteBudget(int callSites) {
     return toBuilder().callSiteBudget(callSites).build();
+  }
+
+  public VarkaEmitOptions withMaxChainDepth(int depth) {
+    return toBuilder().maxChainDepth(depth).build();
   }
 
   public VarkaEmitOptions withHeavyGroupOutputs(int outputs) {

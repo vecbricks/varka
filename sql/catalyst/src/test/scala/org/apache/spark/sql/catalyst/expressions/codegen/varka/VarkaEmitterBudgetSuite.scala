@@ -57,6 +57,9 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // emit() rejects numInputs > 64, so the compiler must never accept such a projection.
     assert(fits(Seq(chain(0, 1)), 64, VarkaMatrix.base))
     assert(!fits(Seq(chain(0, 1)), 65, VarkaMatrix.base))
+    // The depth cap is the option's value (VARKA-620), read here as Analysis reads it.
+    assert(fits(Seq(chain(0, 24)), 1, VarkaMatrix.base.withMaxChainDepth(24)))
+    assert(!fits(Seq(chain(0, 25)), 1, VarkaMatrix.base.withMaxChainDepth(24)))
   }
 
   test("calendar siblings over one date share a loop method; plain chains, other " +

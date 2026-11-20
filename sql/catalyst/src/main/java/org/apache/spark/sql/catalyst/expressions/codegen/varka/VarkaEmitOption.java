@@ -640,7 +640,14 @@ public sealed interface VarkaEmitOption
       new Choice<VarkaEmitOptions.IntervalFault>("intervalFault", Reason.FAULT_INJECTOR,
           VarkaEmitOptions.IntervalFault.class, VarkaEmitOptions.IntervalFault.NONE,
           VarkaEmitOptions::intervalFault, Builder::intervalFault,
-          new ChoiceTag("intervalFault="), Optional.empty()));
+          new ChoiceTag("intervalFault="), Optional.empty()),
+      // The depth cap, raised by VARKA-620's benchmark to price the depths past it. The fuzzer
+      // draws a raised cap too, so a variant that grows a draw past 16 is emitted and checked
+      // rather than skipped. A raise changes no byte of a shape the default cap admits, so it
+      // has no audit arm and no matrix configuration.
+      new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.MAX_CHAIN_DEPTH,
+          VarkaEmitOptions::maxChainDepth, Builder::maxChainDepth, new CountTag("chainDepth="),
+          List.of(VarkaEmitBudget.MAX_CHAIN_DEPTH, 32), List.of()));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

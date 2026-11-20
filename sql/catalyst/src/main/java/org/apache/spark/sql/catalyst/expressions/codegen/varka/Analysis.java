@@ -578,9 +578,11 @@ final class Analysis {
     // dstData slot unused (see the class doc). Value positions below a root still reject
     // conditions via requireValue.
     analyze(root);
-    if (height.get(root) > MAX_CHAIN_DEPTH) {
+    // The message names the constant whatever the option's value: the fuzzer's steering and
+    // its budget skip match on "MAX_CHAIN_DEPTH=".
+    if (height.get(root) > options.maxChainDepth()) {
       throw VarkaErrors.illegalArgument(
-          "chain deeper than MAX_CHAIN_DEPTH=" + MAX_CHAIN_DEPTH);
+          "chain deeper than MAX_CHAIN_DEPTH=" + options.maxChainDepth());
     }
   }
 
