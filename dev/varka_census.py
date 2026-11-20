@@ -571,6 +571,54 @@ def render(out):
     return render_rows(HEADER, out)
 
 
+def decimal_representations():
+    """The representations of `dec` each Catalyst class has a coverage row for: "long" where a row
+    reads a column of precision 18 or less, "pair" where it reads one above (the lane pair).
+    The census holds one `dec` type, so this is read off the columns a row names: a row that reads
+    both counts for both, which over-credits the pair by the rows that mix them."""
+    data = json.loads(read(COVERAGE))
+    precision = {}
+    for name, sql_type in data["columns"].items():
+        m = re.match(r"decimal\((\d+)", sql_type)
+        if m:
+            precision[name] = int(m.group(1))
+    reps = collections.defaultdict(set)
+    for row in data["expressions"]:
+        read_cols = {
+            p
+            for n, p in precision.items()
+            if re.search(
+                r"(?<![A-Za-z0-9_])" + re.escape(n) + r"(?![A-Za-z0-9_])", row["executable"]
+            )
+        }
+        if not read_cols:
+            continue
+        found = {"long" if p <= 18 else "pair" for p in read_cols}
+        for operand in row["operands"]:
+            cls, t = operand.split(":")
+            if t == "dec":
+                reps[cls] |= found
+    return reps
+
+
+def decimal_representation_lines(scoped, fused):
+    """The summary lines that split the `dec` pairs by representation: admitted over every
+    in-scope entry that takes `dec`, fused where the entry is fused for `dec` and its class has a
+    coverage row that reads that representation."""
+    reps = decimal_representations()
+    admitted = [r for r in scoped if "dec" in r[5].split(",")]
+    done = {id(r) for r, t in fused if t == "dec"}
+    lines = ["decimal pairs by representation (fused today / admitted):"]
+    for rep, label in (("long", "up to 18, an unscaled long"), ("pair", "above 18, a lane pair")):
+        n = sum(1 for r in admitted if id(r) in done and rep in reps.get(r[1], set()))
+        lines.append(f"  {label:28s} {n:4d} / {len(admitted)}")
+    lines.append("decimal entries with a coverage row, fused or in part (entries / admitted):")
+    for rep, label in (("long", "up to 18, an unscaled long"), ("pair", "above 18, a lane pair")):
+        n = sum(1 for r in admitted if rep in reps.get(r[1], set()))
+        lines.append(f"  {label:28s} {n:4d} / {len(admitted)}")
+    return lines
+
+
 def summary(out):
     registered = [r for r in out if not r[2].startswith("implicit")]
     lines = []
@@ -605,6 +653,7 @@ def summary(out):
     for t in ORDER:
         tag = "new" if t in NEW else "existing"
         lines.append(f"  {t:7s} {tag:8s} {per_type_fused.get(t, 0):4d} / {per_type.get(t, 0)}")
+    lines.extend(decimal_representation_lines(scoped, fused))
     full = [r for r in scoped if r[9] == "done"]
     lines.append(f"entries fused for every admitted type: {len(full)}")
     some = [r for r in scoped if r[7]]

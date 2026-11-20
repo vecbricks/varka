@@ -1944,10 +1944,13 @@ and 881).
   floating pair and the decimal, are the three that are least fused.
 * **Item 1 (the seven types read and written)**: `timestamp_ntz`, `tinyint`, `smallint` and
   `boolean` are 49 of 54, 50 of 75, 50 of 75 and 28 of 41; `double` and `float` are 45 of 102 and
-  36 of 66; `decimal` is 2 of 66, so its representations are mostly on branches. Of
-  `coverage.json`'s 765 rows, every type has comparison and choice rows; a decimal above
-  precision 18 has 17 rows and none for arithmetic or a cast, and a decimal up to 18 has no cast
-  row (roles matched on each row's SQL text).
+  36 of 66; `decimal` is 2 of 66 (`IS NULL` and `IS NOT NULL`), so its representations are mostly
+  on branches. Split by representation, which `dev/varka_census.py --summary` now prints, 40 of
+  the 66 decimal entries have a coverage row that reads a decimal of precision 18 or less and 22 have
+  one that reads a decimal above 18, and both are fused for 2. Of `coverage.json`'s 765 rows,
+  every type has comparison and choice rows; a decimal above 18 has 17 rows and none for
+  arithmetic or a cast, and a decimal up to 18 has no cast row (roles matched on each row's SQL
+  text).
 * **Item 3 (the cast matrix)** stands at 42 of the 106 legal pairs fused at least in part.
 * **Item 5 (the math family)**: no math function is fused on master. The trigonometric family is
   open as #1567, its baseline is built, and the fdlibm ports (345a to 345e) are on branches.
