@@ -834,12 +834,14 @@ in terms of the induction variable ("The only purpose of creating a loop nest is
 range checks"), which every `MemorySegment` access of an Arrow buffer is; it peels one iteration,
 wraps the loop in an outer one, and adds the inner loop's Parse Predicates, `Profiled_Loop` among
 them, under the peeled iteration's safepoint, the back-edge `goto`. Its
-`PhaseIdealLoop::add_parse_predicate` checks only `C->too_many_traps(reason)`, the method-wide
+`PhaseIdealLoop::add_parse_predicate` checks only `C->too_many_traps(reason)`, the compile-wide
 count against `PerMethodTrapLimit` (100), and the comment beside the auto-vectorization check in
 the same function says so ("PhaseIdealLoop::add_parse_predicate only checks trap limits per
-method"). So a profiled predicate of the nest that fails is rebuilt by every recompile until the
-method has trapped a hundred times for that reason: at one trap a compile, about one a second
-(row 605's R3: 52 in 60 s), that is longer than the warm-up's 30 s and 60 s deadlines, and
+method"). That count is the sum of the reason's trap counts in the method data of the compiled
+method and of every method it inlines (`Compile::too_many_traps`, `compile.cpp`; the sum is taken
+in `parse1.cpp` as each method is parsed). So a profiled predicate of the nest that fails is
+rebuilt by every recompile until that sum reaches a hundred: at one trap a compile, about one a
+second (row 605's R3: 52 in 60 s), that is longer than the warm-up's 30 s and 60 s deadlines, and
 raising the limits, as R3 of 9.2 did, makes it endless rather than shorter. This fits every
 reading so far: the back-edge bci, the cycle untouched by raised limits (9.2), one trap per
 compile id (45 traps in 42 compiles in the product replay A), the flag clearing it (9.3, 9.4,
@@ -919,14 +921,17 @@ which 9.1 did; built here, not dispatched (no dispatch in this window). What exi
 * Not built: 3.1's `--prewarm first`, `--cold` and `--test e2e`, which served half (b), answered
   in section 0; and the nightly's `--max-long-released`, which waits for a runner number.
 
-**The dispatches the row now needs** (owner's go-ahead; `<N>` is this branch's pull request, run
-on `vecbricks/varka` as the benchmarks are). The arm against the defaults at each width, three
-shards of two forks each, the history of 9.1:
+**The dispatches the row now needs** (owner's go-ahead). A dispatch reads the workflow file from
+the branch it names, and without `--ref` from `master`, where `history` exists only after this
+merges; `pr` changes the code checked out, not the workflow. So they run after the merge, on
+`vecbricks/varka` master with no `pr`, which works because the arm is off by default and is
+selected through `extra-java-options`. The arm against the defaults at each width, three shards
+of two forks each, the history of 9.1:
 
-    gh workflow run benchmark.yml -R vecbricks/varka -f pr=<N> -f jdk=25 -f generate-tpcds=false \
+    gh workflow run benchmark.yml -R vecbricks/varka -f jdk=25 -f generate-tpcds=false \
       -f num-splits=3 -f history-bits=256 \
       -f history="--after 64 --forks 2 --prewarm on --jvms 1 --cpus 4"
-    gh workflow run benchmark.yml -R vecbricks/varka -f pr=<N> -f jdk=25 -f generate-tpcds=false \
+    gh workflow run benchmark.yml -R vecbricks/varka -f jdk=25 -f generate-tpcds=false \
       -f num-splits=3 -f history-bits=256 \
       -f history="--after 64 --forks 2 --prewarm on --jvms 1 --cpus 4" \
       -f extra-java-options="-Dvarka.matrix.config=uncountedMainLoop=true"
@@ -940,6 +945,21 @@ about 20 to 40 minutes on a four-vCPU runner plus the catalyst test build (222 t
 `sql/varka/ci/step-budget.tsv`), an arm shard 5 to 15 minutes plus the build if prediction 1
 holds (9.4's 4 minutes for 12 forks with the flag); twelve jobs, about four runner hours, and a
 512-bit shard may need reruns until such a machine is drawn.
+
+### 9.8 Section 0 step 1, the CI count: begun, not finished (20 November 2026)
+
+The end-to-end suite does not run in `sql - other tests` as section 0 assumed: in the fork's
+Build it runs in the `Varka suites: sql` jobs (`dev/varka_scoped_suites.sh`), alone and after the
+others, and a failure there is retried in a fresh JVM up to twice with a `Flaky suite retried`
+warning annotation, so a passing job can hide a failure and the count must read the warnings
+too. A first count by per-run REST calls over the fork's 934 Build runs since 18 October used up
+the shared API quota before it finished (its rows are unusable and were not kept as a reading),
+so the count is taken from the committed ledger instead: `sql/varka/matrix/ledger.tsv`
+(`dev/varka_ci_ledger.py`, VARKA-530), written once on 30 October and covering 15 to 29 October,
+holds one failure of the suite, Build run 39148626990 on 18 October, both of its tests, failed in
+all three JVMs; whether that run's commit had row 389 (`568582a9f77`, merged that evening) is not
+read. **Owed**: `dev/varka_ci_ledger.py update --since 2026-10-29` (one GraphQL query a run), then
+the suite's `failed` and `flaked` lines counted against the runs read.
 
 ### 9.6 Decisions taken while the owner was away (20 November 2026)
 
@@ -963,5 +983,8 @@ holds (9.4's 4 minutes for 12 forks with the flag); twelve jobs, about four runn
   runner has shown that the replay releases under the shipped code and the fix clears it; this
   window showed the opposite risk, a replay that does not reproduce under load (D3), so a JIT test
   on it would flake. It stays owed with that condition.
+* **The runner tooling is on the arm's branch**, where section 8 step 2 wanted it green alone:
+  the two together stay under the size cap, and the tooling is needed to read the arm, so a
+  separate branch would only order two reviews. Split it out if the review asks.
 * **The fastdebug build was used for a diagnosis only**, as `skills/the-jit.md` describes the
   tree; no reading of a release rests on it, since it does not reproduce one.

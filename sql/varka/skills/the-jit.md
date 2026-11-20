@@ -1013,9 +1013,10 @@ history releases and row 605's unsettled rows all trapped at the main loop's bac
   (`too_many_traps` reads the per-bytecode history): a head trap happens once or twice and ends.
   A trap at the back edge comes from `PhaseIdealLoop::create_loop_nest` (`loopnode.cpp`), which
   adds the inner loop's predicates under the peeled iteration's safepoint and checks only the
-  method-wide count (`PerMethodTrapLimit`, 100); the source says so beside the
-  auto-vectorization check. So a failing profiled predicate there is rebuilt by every recompile
-  until a hundred traps, about one a second, past any warm-up deadline, and raising the limits
+  compile-wide count - the reason's traps summed over the method and every method it inlines -
+  against `PerMethodTrapLimit` (100); the source says so beside the auto-vectorization check.
+  So a failing profiled predicate there is rebuilt by every recompile until that sum is a
+  hundred, about one a second, past any warm-up deadline, and raising the limits
   makes it endless.
 - **Every emitted main loop is a nest candidate.** C2 nests a counted `int` loop only to
   eliminate `long` range checks in it, and each `MemorySegment` access of an Arrow buffer is one.
