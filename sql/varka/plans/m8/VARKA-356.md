@@ -438,14 +438,16 @@ laptop run at 512 bits is labelled laptop.
 *Built 20 November 2026, while the owner was away, on branch `varka-357-math-baseline` off
 master, as its own pull request (open point 2's (b), 345's baseline having merged with its twelve):
 the nineteen sections join `VarkaMathBaselineBenchmark` after the twelve, every one `NONE` on
-master. The table gains `u` in `[-1, 1)` for `asin`, `acos` and `atanh`, `c` in `[1, 3)` for
+master. The table gains `u` in `(-1, 1)` for `asin`, `acos` and `atanh`, `c` in `(1, 3)` for
 `acosh` and as `log(x2, x)`'s base (`log(c, p)`), and `q`, `p` negated at one row in ten, for
 `ln(q)`, each with a null column at rows of its own; `log(2.0, x)`, `ln` and `log1p` read `p`, the
 positive column, as 345's logarithms do, and `pow(x, 3.0)` reads `p` as `pow(p, 3.0)`. A section
 records the rows in ten its function nulls by its domain, which the queries suite adds to the
-expected nulls, one for `ln(q)`. `sql/Test/compile` is clean (749 s). Owed: the queries suite's
-run, and the EPYC 7763 runs at 256 and 128 bits, whose results replace the committed baseline files at both widths; until those land,
-rows 356 to 358 cannot score their predictions against the nineteen.*
+expected nulls, one for `ln(q)`. `u` and `c` are offset by half a step so that neither can reach an
+endpoint that answers infinity. `sql/Test/compile` is clean (749 s), and the queries suite passes
+after the master merge of 20 November. Owed: the EPYC 7763 runs at 256 and 128 bits, whose results
+replace the committed baseline files at both widths; until those land, rows 356 to 358 cannot
+score their predictions against the nineteen.*
 
 **Each fusing pull request** reruns the class with the fuse check lifted and diffs against the
 committed baseline at both widths (`dev/varka_bench_diff.py`, a family band once a move must be
