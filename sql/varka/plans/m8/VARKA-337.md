@@ -690,8 +690,9 @@ range endpoints) and 4000 drawn values, at five seeds, every seventh row null an
 seed; a fold of an `INT` and a `BIGINT` child with nulls in either and both positions; the
 constructors' refusals; and, behind `-Dvarka.sweep=true`, every `INT` and every `FLOAT` pattern
 through both hashes (3.1). The suites that list node types take both nodes. `VarkaVectorIRSharingSuite`'s
-hash formula starts from the class for `CanonicalBits` alone, whose hash mixes its class in;
-`CanonicalFloat` keeps 337a1's `hashOf(child)`, the records' formula, as #1566 settled it.
+hash formula is the records' own for both nodes: `CanonicalFloat` keeps 337a1's
+`hashOf(child)`, as #1566 settled it, and `CanonicalBits` takes the same `hashOf(child)` by the
+owner's decision of 20 November 2026, so neither mixes its class in.
 
 Left of 337a: the compiler, the `HASH` family and the coverage rows (part 337a3, stacked on this
 one); the IR grammar's productions of 2.6 (the fuzz and grammar suites list both nodes as not

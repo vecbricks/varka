@@ -1565,7 +1565,7 @@ public sealed interface VarkaVectorIR
         throw VarkaErrors.illegalArgument("the bits of a floating value are read from its "
             + "canonicalisation, not from a " + child.getClass().getSimpleName());
       }
-      hash = hashOf(CanonicalBits.class, child);
+      hash = hashOf(child);
     }
 
     public CanonicalBits(VarkaVectorIR child) { this(child, 0); }

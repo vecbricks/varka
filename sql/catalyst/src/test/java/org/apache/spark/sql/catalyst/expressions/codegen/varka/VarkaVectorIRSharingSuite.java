@@ -208,8 +208,7 @@ public final class VarkaVectorIRSharingSuite {
     // The value, of a chain's nodes and one of each inner type: the records' formula without hash.
     for (VarkaVectorIR node : nodes) {
       RecordComponent[] components = node.getClass().getRecordComponents();
-      // A node of one child that would otherwise share its child's hash mixes its class in first.
-      int h = CLASS_TAGGED.contains(node.getClass()) ? node.getClass().hashCode() : 0;
+      int h = 0;
       int n = components.length;
       n -= n > 0 && components[n - 1].getName().equals("hash") ? 1 : 0;
       for (int i = 0; i < n; i++) {
@@ -218,12 +217,6 @@ public final class VarkaVectorIRSharingSuite {
       assertEquals(h, node.hashCode(), () -> node.getClass().getSimpleName());
     }
   }
-
-  /**
-   * The nodes whose hash starts from their class (VARKA-337): a canonical value's bits, over a
-   * canonicalisation that itself shares its child's hash.
-   */
-  private static final Set<Class<?>> CLASS_TAGGED = Set.of(VarkaVectorIR.CanonicalBits.class);
 
   /**
    * A node of {@code type} over leaves, by reflection as {@code VarkaIrFuzzSuite.admitsLongLanes}
