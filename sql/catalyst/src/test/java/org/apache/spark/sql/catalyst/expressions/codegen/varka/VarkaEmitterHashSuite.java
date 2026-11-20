@@ -82,7 +82,8 @@ public final class VarkaEmitterHashSuite {
       LiteralSlot shift32) {
     VarkaVectorIR w = switch (value.laneType()) {
       case FLOAT, DOUBLE -> new CanonicalBits(CanonicalFloat.of(value));
-      case BYTE, SHORT, INT, LONG -> value;
+      case BYTE, SHORT -> new WidenLane(value, LaneType.INT);
+      case INT, LONG -> value;
     };
     if (xxh64) {
       return w.laneType() == LaneType.INT

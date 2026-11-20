@@ -208,7 +208,8 @@ public final class VarkaVectorIRSharingSuite {
     // The value, of a chain's nodes and one of each inner type: the records' formula without hash.
     for (VarkaVectorIR node : nodes) {
       RecordComponent[] components = node.getClass().getRecordComponents();
-      int h = 0;
+      // A node of one child that would otherwise share its child's hash mixes its class in first.
+      int h = CLASS_TAGGED.contains(node.getClass()) ? node.getClass().hashCode() : 0;
       int n = components.length;
       n -= n > 0 && components[n - 1].getName().equals("hash") ? 1 : 0;
       for (int i = 0; i < n; i++) {
@@ -218,14 +219,24 @@ public final class VarkaVectorIRSharingSuite {
     }
   }
 
+  /** The nodes whose hash starts from their class (VARKA-337): a canonicalisation, its bits. */
+  private static final Set<Class<?>> CLASS_TAGGED = Set.of(VarkaVectorIR.CanonicalFloat.class,
+      VarkaVectorIR.CanonicalBits.class);
+
   /**
    * A node of {@code type} over leaves, by reflection as {@code VarkaIrFuzzSuite.admitsLongLanes}
    * builds one: each lane and enum constant in turn until the constructor accepts, so a new node
-   * type is built here unedited; {@code BoundedDivide} checks a pair it derives, so by hand.
+   * type is built here unedited; {@code BoundedDivide} checks a pair it derives, and
+   * {@code CanonicalBits} takes a canonicalisation, so both by hand.
    */
   private static VarkaVectorIR anyNodeOf(Class<?> type) throws ReflectiveOperationException {
     if (type == BoundedDivide.class) {
       return BoundedDivide.of(new ColumnRef(0, LaneType.INT), 3, 10);
+    }
+    // The bits of a floating value take its canonicalisation, never a leaf.
+    if (type == VarkaVectorIR.CanonicalBits.class) {
+      return new VarkaVectorIR.CanonicalBits(
+          VarkaVectorIR.CanonicalFloat.of(new ColumnRef(0, LaneType.FLOAT)));
     }
     RecordComponent[] components = type.getRecordComponents();
     Class<?>[] signature =
