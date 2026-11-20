@@ -562,6 +562,13 @@ final class VarkaDecimalCompiler {
     if (e.foldable()) {
       return widePairLiteral(e, type, sink);
     }
+    // A wide sum, difference or product anywhere under a cast, a negation, a choice or a pick
+    // declines with the union of every such operand's rows (wideArithmeticBelow), read before
+    // the arms below descend and stop at the first operand that declines, so that
+    // IF(p, x + y, a * b) and IF(p, a * b, x + y) decline alike.
+    if (wideArithmeticBelow(e).isPresent()) {
+      return sink.decline(wideReason(e, type), e);
+    }
     return switch (e) {
       case BoundReference br -> columnPair(br, type, inputs, sink);
       case Cast c when c.child().dataType() instanceof DecimalType from
