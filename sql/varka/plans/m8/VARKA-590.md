@@ -41,8 +41,10 @@ together (#1392 and #1393, 8 November).
 ### 3.1 One master commit per run, merged in every job
 
 The precondition job's call of the action fetches vecbricks/varka's master once and outputs its
-commit as `varka_master`. The action takes a new input, `master`, which the 17 other jobs pass
-as `needs.precondition.outputs.varka_master`. Every job then:
+commit as `varka_master`. It does not merge: its checkout stays the pushed commit, so its
+`head_sha` output, which the "Admit a full-matrix run" job checks out with `actions/checkout`,
+names a commit GitHub has. The action takes a new input, `master`, which the 17 other jobs pass
+as `needs.precondition.outputs.varka_master`. Every one of those jobs then:
 
 1. checks out `github.sha` as today;
 2. installs the varka-generated merge driver (`dev/varka_precommit.sh --install-merge-driver`,
@@ -52,22 +54,34 @@ as `needs.precondition.outputs.varka_master`. Every job then:
    merge commit is then the same commit in every job of the run;
 4. on a conflict, runs `git merge --abort`, keeps the head, and prints
    `::warning title=Not merged with master::<files>; this Build tests the head alone`. Every job
-   meets the same conflict, so the run tests one tree either way.
+   meets the same conflict, so the run tests one tree either way;
+5. after a clean merge, runs `dev/varka_generated_merge.py --owed`. The driver leaves some
+   generated files owed (`option_arms`, the docs counts) until `dev/varka_regen_generated.sh`
+   runs, which needs sbt that most jobs never start, and the Build's staleness checks would then
+   fail a tree the branch never committed. So a merge that owes anything is undone with
+   `git reset --hard` to the head, and the job falls back with the same warning, naming the owed
+   files. The owed list is the same in every job, so this too gives one tree per run.
 
-The action outputs `merged` (`true` or `false`) and `head_sha` (the merge's commit or the head).
-The run's summary says which tree was built.
+`head_sha` stays the checked-out commit before any merge, as today. A new output, `tree_sha`,
+is the merge's commit or the head, and `merged` says which (`true` or `false`). The run's summary
+says which tree was built.
 
 ### 3.2 The pull request's own change is measured as before
 
-In "Find the base", `VARKA_DIFF_HEAD` becomes the branch's head (`github.sha`) and
-`VARKA_DIFF_BASE` its merge base with the pinned master. These are the values they have today, so
-change detection and every reader of the two variables see the same diff. The readers that diff
-against HEAD directly are pointed at `VARKA_DIFF_HEAD`: the size cap (`size --head
-"$VARKA_DIFF_HEAD"`, with `size_findings` reading the branch name from the environment for any
-head, so a sync branch is still recognised), the emitted-bytes check, the commit-message range, and
-`dev/varka_new_tests.py`, which lists and reruns the branch's new tests and would otherwise count
-master's as the branch's. The `range` check already skips merge commits (`--no-merges`), so the
-synthetic merge is never checked as a commit of the branch.
+In "Find the base", `VARKA_DIFF_HEAD` becomes the branch's head (`github.sha`) and `VARKA_DIFF_BASE`
+its merge base with the pinned master. These are the values they have today, so change detection and
+every reader of the two variables see the same diff. The readers that diff against HEAD directly are
+pointed at `VARKA_DIFF_HEAD`: the size cap (`size --head "$VARKA_DIFF_HEAD"`, with `size_findings`
+reading the branch name from the environment for any head, so a sync branch is still recognised),
+the emitted-bytes check, the commit-message range, `dev/varka_new_tests.py`, which lists and reruns
+the branch's new tests and would otherwise count master's as the branch's,
+`dev/varka_matrix_pick.py` (its `git diff -U0 <base> HEAD`, which picks the matrix configuration
+through `dev/varka_matrix_ci.sh`), the "Config binding policy exceptions check" (`git diff
+"$APACHE_SPARK_REF" HEAD`, which would fail every merged branch on an entry a master commit added),
+and change detection's fallback for unset variables (`git diff --name-only "$APACHE_SPARK_REF"
+HEAD`). A grep of `.github/workflows` and `dev/varka_*` for HEAD-relative diffs found no other
+reader that CI runs on the checkout. The `range` check already skips merge commits (`--no-merges`),
+so the synthetic merge is never checked as a commit of the branch.
 
 Alternatives considered:
 
@@ -93,22 +107,24 @@ is the risk in 7.2, and it is worth a row of its own if it bites. `maven_test.ym
 | file | what |
 |---|---|
 | `.github/actions/checkout-and-sync/action.yml` | `master` input, merge, fallback, outputs |
-| `.github/workflows/build_and_test.yml` | `varka_master`, 17 call sites, 3 HEAD readers |
+| `.github/workflows/build_and_test.yml` | `varka_master`, 17 call sites, 5 HEAD readers |
 | `dev/varka_precommit.sh` | `--install-merge-driver` |
 | `dev/varka_msg_check.py` | the branch name for `size --head` |
-| `dev/varka_new_tests.py` | the head from `VARKA_DIFF_HEAD` |
+| `dev/varka_new_tests.py`, `dev/varka_matrix_pick.py` | the head from `VARKA_DIFF_HEAD` |
 | `dev/varka_ci_merge_test.sh` | the local test of 5 |
 | `.github/workflows/README.md` | what the action checks out |
 
 ## 5. Tests, and what each is for
 
 * `dev/varka_ci_merge_test.sh`: it runs the action's merge script (moved into
-  `dev/varka_ci_checkout.sh` so a shell can run it) in a scratch clone over four branches. A branch
+  `dev/varka_ci_checkout.sh` so a shell can run it) in a scratch clone over five branches. A branch
   that lacks a master commit is merged, and the merge's commit is identical on two runs. A branch
   that contains master is left alone. A branch that conflicts falls back with the warning line.
   A branch that changes `sql/varka/types.tsv` beside master's change merges through the driver.
-  These catch a non-deterministic merge, which would split one run over two trees, and a
-  missing driver, which would turn every generated-file edit into a fallback.
+  A branch that adds `coverage.json` rows beside master's, so the merge owes a regeneration,
+  falls back with the owed files named. These catch a non-deterministic merge, which would split
+  one run over two trees, a missing driver, which would turn every generated-file edit into a
+  fallback, and a merged tree that the staleness checks would fail.
 * `python3 dev/varka_msg_check.py --selftest`, with a case for `size --head <sha>` on a sync
   branch.
 * `actionlint` over the two workflow files.
@@ -134,17 +150,20 @@ is the risk in 7.2, and it is worth a row of its own if it bites. `maven_test.ym
 2. **The option matrix after a merged Build** runs the merged tree's classes with the head's
    `skips.tsv` and scripts. A master change to `skips.tsv` that its own classes need would then be
    missing. Step 4's dispatch shows whether this happens on a real branch.
-3. **The `head_sha` output names a commit that exists only on runners.** Nothing outside the
-   Build checks it out (the jobs check out `github.sha` and merge themselves). `update_build_status`
-   matches runs by `head_sha` of the run, which stays the pushed commit.
+3. **The `tree_sha` output names a commit that exists only on runners.** Nothing checks it out:
+   the jobs check out `github.sha` and merge themselves, and `head_sha`, which the admission job
+   checks out, stays the pushed commit. `update_build_status` matches runs by the run's
+   `head_sha`, which is the pushed commit too.
+4. **A merge that owes a regeneration falls back**, so a branch beside a master change to the
+   same generated rows tests its head alone until master is merged by hand, as on a conflict.
 
 ## 8. Sequencing
 
 One pull request, about 250 counted lines.
 
 1. The merge script, `--install-merge-driver` and the local test. Done when
-   `dev/varka_ci_merge_test.sh` passes its four branches.
-2. The action and the workflow: the input, the output, 17 call sites and the three HEAD readers.
+   `dev/varka_ci_merge_test.sh` passes its five branches.
+2. The action and the workflow: the input, the outputs, 17 call sites and the five HEAD readers.
    Done when `actionlint` passes and `python3 dev/varka_msg_check.py --selftest` passes.
 3. On the owner's word, the pull request's own Build, then the scratch branch of prediction 1
    pushed to the fork. Done when the scratch Build passes on the merged tree, with predictions 1

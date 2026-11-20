@@ -49,11 +49,19 @@ deadline the watchdog:
 * writes `target/varka-units/<bin>/<bin>-straggler/straggler.txt`, with the plan, the elapsed
   time, the runner's CPU line from `platform.txt`, and each unit's state (finished with its
   `seconds`, or running);
-* stops the running units by the process group each one was started in (`setsid`, PID
-  recorded at start), with TERM and then KILL after 30 s, never by pattern;
+* stops the running units by the process group each one was started in, with TERM and then
+  KILL after 30 s, never by pattern;
 * prints `::error title=Straggler::<bin> ran <m> min against a plan of <p> min on <CPU>; stopped`
   and exits. After its `wait`, the step's main script finds `straggler.txt` and exits 3 instead
   of the 1 a killed unit's exit file would give, so the job's failure says straggler.
+
+The unit loop changes with it. Today `run_unit` is started with a plain `&`, and the loop starts
+the next queued unit whenever `wait -n` returns. Each unit is now started under `setsid`, so it
+has a process group of its own, and its PID is recorded. The loop checks for `straggler.txt`
+before it starts each unit, so units the watchdog's kill freed slots for are never started, and
+names them in `straggler.txt` as not run. `wait -n` and the final `wait` take the units' PIDs,
+so neither waits on the watchdog. After the final `wait`, the step kills the watchdog by its
+recorded PID: a bin on time ends when its units do, not at its deadline.
 
 The upload step adds `*-straggler/straggler.txt` and sets `overwrite: true`, so that a rerun's
 upload replaces the artifact of the attempt it reruns. `timeout-minutes: 90` stays as the last
@@ -72,6 +80,14 @@ job's guesswork.
 from the API, as `dev/varka_bench_cpu_retry.py` does for a CPU mismatch (VARKA-591). It answers
 `rerun` only when the run has completed, every failed job is a bin whose units step failed with
 a `Straggler` annotation, and the run is at attempt 1. It answers `stop` otherwise and says why.
+
+`decide` also answers `stop` when the run's title says the rerun is off. `workflow_run` and the
+runs API do not expose a dispatch's inputs, so the matrix carries the choice in its `run-name`,
+which the event's `display_title` does give: the dispatch input `rerun-stragglers` (default
+true) appends ` (no rerun)` when it is `false`. The expression compares
+`github.event.inputs['rerun-stragglers'] == 'false'` as a string, so a scheduled run, which has
+no inputs, keeps the rerun. A second dispatch input, `plant-straggler` (a bin name, default
+empty), makes that bin's units step sleep past its deadline before its units, for step 5.
 
 The rerun cannot be started from inside the run, since a run in progress cannot be rerun. So
 `.github/workflows/varka-matrix-rerun.yml` is started by `workflow_run` when a run of "Varka
@@ -107,7 +123,7 @@ The setup steps' retries (VARKA-513).
 
 | file | what |
 |---|---|
-| `.github/workflows/varka-option-matrix.yml` | watchdog, upload, summary, merge |
+| `.github/workflows/varka-option-matrix.yml` | watchdog, units, inputs, upload, summary, merge |
 | `.github/workflows/varka-matrix-rerun.yml` | `workflow_run`, `actions: write`, the rerun |
 | `dev/varka_matrix_stragglers.py` | `history`, `decide`, `--selftest` |
 | `dev/varka_ci_ledger.py` | the "Slow" class from `straggler.txt` |
@@ -120,8 +136,10 @@ The setup steps' retries (VARKA-513).
   failure is not the runner's, and so does a failed report job beside a straggler. Attempt 2
   gives `stop`. A cancelled run gives `stop`. The step
   and annotation names it keys on are read from the workflow file, so a rename fails the test.
-* The watchdog's shell function, run locally by the selftest with a 5 s deadline over two
-  `sleep` units: the marker file, the exit 3, and no process left in either group.
+* The watchdog's shell function, run locally by the selftest with a 5 s deadline over three
+  `sleep` units on two slots: the marker file, the exit 3, no process left in either group, and
+  the third unit never started. A second case with units shorter than the deadline ends within
+  1 s of its units, with no marker file, which catches a step that waits on its watchdog.
 * `actionlint` over both workflow files.
 
 ## 6. The measurement
@@ -133,7 +151,8 @@ The setup steps' retries (VARKA-513).
    the next multiple of 480 s above it, and the plan says so.
 2. The planted straggler of step 5 is stopped within 1 minute of its deadline. The run completes
    within 5 minutes after that, and the rerun starts within 5 minutes of the run's completion.
-3. The watchdog's cost on a bin that is on time is under 1 s, one `sleep` loop per bin.
+3. The watchdog's cost on a bin that is on time is under 1 s, one `sleep` loop per bin, killed
+   when the units end.
 
 ## 7. Risks
 
@@ -167,9 +186,9 @@ One pull request, about 400 counted lines.
 ## 9. Questions for the owner
 
 1. **Should CI rerun a straggler by itself?** Recommended: yes, once, as `varka-bench-cpu-retry`
-   does for a CPU mismatch, with a dispatch input `rerun-stragglers` (default true) to turn it
-   off. I cannot decide this because since 2 November CI starts only on the owner's word, and an
-   automatic rerun is CI starting work. The plan is built on yes.
+   does for a CPU mismatch, with a dispatch input `rerun-stragglers` (default true, carried in the
+   run's title as 3.3 says) to turn it off. I cannot decide this because since 2 November CI starts
+   only on the owner's word, and an automatic rerun is CI starting work. The plan is built on yes.
 2. **The deadline: three times the plan, floored at 24 minutes.** Recommended as the row states
    it, with the floor because a bin planned at 2 minutes stopped at 6 would be a false straggler.
    It is the owner's call only if he wants a lower floor.

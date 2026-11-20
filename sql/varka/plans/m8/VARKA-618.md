@@ -73,9 +73,10 @@ JVM's own flags.
 ## 5. Tests, and what each is for
 
 * `VarkaKernelWarmupSuite` run on the laptop under `lanesOverride=4` and `=16`, and under
-  `JDK_JAVA_OPTIONS=-XX:UseAVX=2` with `=4` (the AVX2 level, which a `--jvm-arg` would not carry
-  into the probe's JVM): all 14 tests run in the first, second and third. Under `UseAVX=2` with
-  `=16`, the six cancel with the host message. This catches a flag that does not reach the probe.
+  `JDK_JAVA_OPTIONS=-XX:UseAVX=2` with `=4` (the runners' AVX2 level, which `warmUpInFork` forwards
+  to the probe's JVM with the lanes' own flag): all 14 tests run in the first, second and third.
+  Under `UseAVX=2` with `=16`, the six cancel with the host message. This catches a flag that does
+  not reach the probe.
 * `VarkaKernelWarmupSuite`, a test that `vectorFlags(4)` replaces an existing
   `-XX:MaxVectorSize=32` and keeps `-XX:UseAVX=2`. It catches two width flags reaching one JVM,
   where the last one would win silently.

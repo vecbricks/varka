@@ -70,20 +70,23 @@ cannot tell.
 
 ### 3.3 `VarkaSparkFuzzSuite`'s part runs: both variants, chosen by the replay
 
-The owner builds competing designs both ways, so both are built behind a `plan` flag and the
-replay chooses:
+Under either variant, `times --part-runs FILE` writes each (configuration, suite) part run's
+measured seconds beside the whole runs, and the committed pair files carry them. That record is
+what the done-when asks for, so the row can close whichever variant wins. The owner builds
+competing designs both ways, so the two ways of weighing the record are built behind a `plan`
+flag and the replay chooses:
 
-* **A, part-run seconds.** `times --part-runs FILE` writes each (configuration, suite) part run's
-  seconds beside the whole runs. `units` weighs a part run by its measured part seconds where the
-  pair is listed, and by `whole * max(share, 0.1)` otherwise.
+* **A, part-run seconds.** `units` weighs a part run by its measured part seconds where the pair
+  is listed, and by `whole * max(share, 0.1)` otherwise.
 * **B, planned apart.** A suite named in `sql/varka/matrix/part-alone.tsv` (first entry:
   `VarkaSparkFuzzSuite`) runs as a unit of its own under each configuration that runs it. It is
   weighed at its whole seconds whatever its share, since its time follows the compositions it
-  drew and not the share.
+  drew and not the share. Its recorded part seconds are read by the replay only.
 
 The variant that keeps more bins under 600 s in the replanned replay of 43642146943 becomes the
-default. A tie goes to B, which needs no new file. The loser stays as a flag, by the house rule
-for losing options.
+default. A tie goes to A, which uses the recorded part seconds the planner already reads and
+needs no list of its own, where B adds `part-alone.tsv`. The loser stays as a flag, by the house
+rule for losing options.
 
 ### 3.4 What is deliberately unchanged
 
@@ -96,7 +99,7 @@ truer plan, but not here.
 | file | what |
 |---|---|
 | `sql/varka/matrix/config-suite-seconds.tsv`, `suite-seconds.tsv` | rewritten (generated) |
-| `dev/varka_matrix_bins.py` | `replay`, `times --part-runs`, variants A and B |
+| `dev/varka_matrix_bins.py` | `replay`, `times --part-runs` (both variants), A and B |
 | `sql/varka/matrix/part-alone.tsv` | variant B's list |
 | `m8/results/VARKA-617-replay.txt` | the replays of 6 |
 
@@ -150,8 +153,9 @@ Two pull requests, each under 1,000 counted lines (the pair file is generated an
    passes and prediction 1 is scored in `results/VARKA-617-replay.txt`.
 3. Pull request 1: the fresh pair files. Done when prediction 2 is scored there, the replay of
    43642146943 on its own pairs within a fifth of its measured phase.
-4. Pull request 2: variants A and B with their selftests, and the replay of both. Done when
-   predictions 3 and 4 are scored and the default is chosen by 3.3's rule.
+4. Pull request 2: `times --part-runs`, the pair files rewritten with the part runs' seconds,
+   variants A and B with their selftests, and the replay of both. Done when predictions 3 and 4
+   are scored and the default is chosen by 3.3's rule.
 5. On the owner's word, one matrix dispatch on master after pull request 2. Its bin phase,
    against the "replanned" figure for its own pairs, is the out-of-sample score.
 
