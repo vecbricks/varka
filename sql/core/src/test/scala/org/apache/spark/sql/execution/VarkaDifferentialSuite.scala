@@ -19,6 +19,8 @@ package org.apache.spark.sql.execution
 
 import scala.jdk.CollectionConverters._
 
+import org.scalatest.exceptions.TestFailedException
+
 import org.apache.spark.{SparkArithmeticException, SparkDateTimeException, SparkIllegalArgumentException}
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.DateAdd
@@ -108,14 +110,16 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
 
   /**
    * Runs `query` on the base row-engine session and on the varka session, asserting the results
-   * match and that the plan is fused (and the kernels ran) exactly when `expectFused`.
+   * match and that the plan is fused (and the kernels ran) exactly when `expectFused`. The row
+   * engine runs `expectedQuery` in its place where a test plants a wrong answer (VARKA-504).
    */
   private def checkDifferential(
       expectedSession: SparkSession,
       actualSession: SparkSession,
       query: String,
-      expectFused: Boolean): SparkPlan = {
-    val expected = expectedSession.sql(query)
+      expectFused: Boolean,
+      expectedQuery: Option[String] = None): SparkPlan = {
+    val expected = expectedSession.sql(expectedQuery.getOrElse(query))
     val actual = actualSession.sql(query)
     val plan = actual.queryExecution.executedPlan
     if (expectFused) {
@@ -697,6 +701,32 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
     } finally {
       VarkaColumnarToRowExec.setFailKernelForTesting(false)
     }
+  }
+
+  test("the differential check fails on a planted wrong answer, fused and unfused, and on a " +
+      "row engine that reads no cache where Varka reads one") {
+    // VARKA-504's planted faults. The row engine answers `date_add(d, 8)` where Varka computes
+    // `date_add(d, 7)`: the comparison must fail on the fused path and on the vanilla one.
+    cacheDatesBig(spark, 1024)
+    cacheDatesBig(varkaSpark, 1024)
+    val filtered = "SELECT date_add(d, %d) AS a FROM varka_dates_big WHERE d IS NOT NULL ORDER BY a"
+    val fused = intercept[TestFailedException](checkDifferential(spark, varkaSpark,
+      filtered.format(7), expectFused = true, expectedQuery = Some(filtered.format(8))))
+    assert(fused.getMessage.contains("Results do not match"), fused.getMessage)
+    val max = "SELECT max(date_add(d, %d)) AS m FROM varka_dates_big"
+    val unfused = intercept[TestFailedException](checkDifferential(spark, varkaSpark,
+      max.format(7), expectFused = false, expectedQuery = Some(max.format(8))))
+    assert(unfused.getMessage.contains("Results do not match"), unfused.getMessage)
+    // Row 501's fault: a comparison of a cached plan with an uncached one, which can agree on
+    // rows neither reads. The same query over the uncached rows must fail the cache check.
+    val query = filtered.format(7)
+    val cached = varkaSpark.sql(query).queryExecution.executedPlan
+    spark.catalog.uncacheTable("varka_dates_big")
+    val uncached = spark.sql(query).queryExecution.executedPlan
+    cacheDatesBig(spark, 1024)
+    sameCacheReads(cached, cached, query, mustRead = true)
+    val e = intercept[TestFailedException](sameCacheReads(uncached, cached, query))
+    assert(e.getMessage.contains("the row engine reads the cached tables"), e.getMessage)
   }
 
   test("filters and aggregation match the row engine") {
