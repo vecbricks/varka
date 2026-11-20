@@ -1,0 +1,97 @@
+Row 604's admission probe (VARKA-604.md 2), 20 November 2026, 00:20 to 00:35 CET.
+
+Host: the laptop, AMD Ryzen AI 9 HX PRO 370, OpenJDK 25.0.5.0.3, shared with other agents' JVMs
+at a load average of 17 to 20; not pinned. Master at e5d70012bdc. No timing here is a reading:
+the ns a row are printed to show each JVM ran, and are directional at best. The subject is the
+bytes a row, which the load does not change.
+
+What ran: results/VARKA-604/Probe604.java, built by results/VARKA-604/build.sh and run by
+results/VARKA-604/run.sh, three JVMs a mode at once. The probe calls the spike's split F loop
+(VarkaDecimalRemainderSpikeBenchmark .loopRemainderFS, x % y) over a 4,096-row table of DECIMAL(38)
+slots in Arrow's layout, a block at a time: tIn copies the block's x and y slots into two reused
+split blocks (low words, then high words) by scalar moves, the loop runs over the blocks, and tOut
+copies the result and the zero-divisor words back. tIn, tOut, the loop and the add loops are kept
+out of line by compile commands, and the spike's bodies forced inline, as the spike's harness
+requires. Each JVM primes the path with 20,000 calls, drives it for 8 s, then reads its own thread's
+allocation over 256 drives of 4,096 rows and checks every row's answer and zero-divisor bit against
+BigInteger.
+
+How it was compiled (build.sh, the stubs in results/VARKA-604/stubs/): the spike benchmark as on
+master, with its runBenchmarkSuite body removed, and VarkaVectorTemplateWarmup as on master,
+beside stubs that stand for what they call of the
+build and do nothing a kernel sees: VarkaBenchmarkBase (require, requirementFailed, dryRun, only,
+section, note), VarkaEmitterTestSupport.awaitC2Idle (returns true), Lane (BYTE and SHORT with
+widenLanes, copied), VarkaShapeCacheImpl.sneakyThrow, SparkLogger and SparkLoggerFactory
+(print to stderr), javax.annotation.Nullable; and a bridge, WarmBridge.warm(), that calls
+VarkaVectorTemplateWarmup.ensure(), the warm-up every Varka JVM runs before its first kernel.
+
+Flags: -XX:UseAVX=2 -XX:MaxVectorSize=16 (two long lanes, the runners' ISA), or 32 where noted;
+-XX:CompileCommand=dontinline,<spike>::loop* -XX:CompileCommand=inline,<spike>::body*
+-XX:CompileCommand=dontinline,Probe604::tIn, ::tOut, ::add*.
+
+Modes, run before the split F path in the same JVM:
+  alone       nothing
+  adds        three plain add loops (IntVector, LongVector, DoubleVector at the preferred
+              species), 30,000 calls each over 4,096 rows
+  arms        the spike's inserted F, inserted E and transposed F loops, 3,000 calls each
+  mixed       one generic loop, lanewise ADD then MAX, over seven species (Int 64, 128, 256;
+              Long 128, 256; Double 128, 256), 20,000 rounds
+  warm        the engine's template warm-up (VarkaVectorTemplateWarmup.ensure)
+  warm-<m>    the template warm-up, then mode <m>
+  mixed-late  mode mixed, then the template warm-up (the polluter runs first)
+
+Results: JVMs whose split F path allocated, of those run, and the bytes a row.
+
+  128 bits (two long lanes)
+  mode         block   allocated   bytes a row         exact
+  alone           64   0 / 3       0                   3 / 3
+  adds            64   0 / 3       0                   3 / 3
+  arms            64   0 / 3       0                   3 / 3
+  mixed           64   3 / 3       16, 16, 16          3 / 3
+  warm            64   0 / 3       0                   3 / 3
+  warm-adds       64   0 / 3       0                   3 / 3
+  warm-mixed      64   0 / 9       0                   9 / 9
+  mixed          256   2 / 3       0, 32, 16           3 / 3
+  warm-mixed     256   0 / 3       0                   3 / 3
+  mixed         1024   3 / 3       32, 32, 32          3 / 3
+  warm-mixed    1024   3 / 3       16, 16, 16          3 / 3
+
+  mixed           64   3 / 3       16, 16, 16          3 / 3   (rerun, the final probe source)
+  warm-mixed      64   0 / 3       0                   3 / 3   (rerun, the final probe source)
+
+  Added after the review, 01:15 to 01:25 CET, the probe as committed (built by build.sh):
+  mixed-late      64   0 / 6       0                   6 / 6
+  warm-arms       64   0 / 3       0                   3 / 3
+  mixed           64   2 / 3       0, 16, 16           3 / 3   (build.sh's own build)
+  warm-mixed      64   0 / 3       0                   3 / 3   (build.sh's own build)
+
+  128 bits, blocks of 1,024 rows split into 64-row sub-blocks (-Dp604.sub=64), the loop called
+  once a sub-block over slices of the blocks; three slices a call, about 40 bytes each, are 1.88
+  bytes a row of the probe's own, in every JVM of this kind (and with -Dp604.block=64
+  -Dp604.sub=64 too, which a first build of the probe ran: 1.88 in 6 of 6 under warm-mixed)
+  mixed         1024   3 / 3       17.88 each          3 / 3
+  warm-mixed    1024   3 / 3       1.88 each           3 / 3
+
+  256 bits (four long lanes)
+  mixed           64   2 / 3       12, 0, 12           3 / 3
+  warm-mixed      64   0 / 3       0                   3 / 3
+
+Read:
+1. The residual of VARKA-577.md 10.4's test of 7.4 is reproduced: 16 bytes a row at two lanes and
+   12 at four, one long[L] a lane group, after vector code that profiles the shared templates
+   over many species. The three plain add loops written here did not reproduce it (0 / 3); 10.4's
+   add loops were not committed, so the polluter here is a stand-in, not theirs.
+2. The engine's template warm-up removes it at blocks of 64 and 256 rows: 0 of 18 JVMs at two
+   lanes and 0 of 3 at four, against 10 of 12 and 2 of 3 without it under the same polluter. It
+   does so also when it runs after the polluter (mixed-late, 0 of 6), the order of a JVM whose
+   other vector code runs before Varka's first kernel.
+   10.4 left exactly this untested ("whether the 295 warm-up's template pre-warming protects a
+   two-lane kernel is untested").
+3. It does not at blocks of 1,024 rows: 3 of 3 keep 16 bytes a row with the warm-up, 32 without.
+   So the block size matters here, which 10.4 did not see (it read 16 bytes a row at 64 and at
+   1,024 without the warm-up); the arm takes the 64-row block.
+   With the same 1,024-row transpose but the loop called once a 64-row sub-block, the warm-up
+   leaves only the slices' 1.88 bytes a row, against 17.88 without it: so what matters is the
+   rows the loop runs a call, not the transpose's size. Why a longer call keeps the array is not
+   read here (no compile log was taken).
+4. Every JVM's answers were exact.
