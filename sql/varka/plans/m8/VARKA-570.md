@@ -228,17 +228,22 @@ merges and the owner's word.
 
 * Step 1: `dev/varka_matrix_stragglers.py history`, and its table in
   `results/VARKA-570-units-history.txt`; prediction 1 is scored in 6.2.
-* Step 2: the watchdog, the unit loop under `setsid`, the planted straggler, the upload with
-  `overwrite: true` and `straggler.txt`. `dev/varka_bin_units_test.py --selftest` passes with five
-  new cases (class `Watchdog`): a bin past a 3 s deadline with one unit deaf to TERM ends with
-  exit 3, both units' groups gone and the third unit never started; a finished unit is listed with
-  its exit and seconds; a bin on time ends within 4 s with no marker; a planted straggler starts no
+* Step 2: the watchdog, the unit loop under `setsid`, the planted straggler, and the upload of
+  `straggler.txt` (without `overwrite`, item 4 of the next section). `dev/varka_bin_units_test.py --selftest`
+  passes with five new cases (class `Watchdog`): a bin past a 3 s deadline with one unit deaf to
+  TERM ends with exit 3, both units' groups gone and the third unit never started; a finished unit
+  is listed with its exit and seconds; a bin on time ends well before its 30 s deadline (about 2 s,
+  bounded at 15 for a loaded machine) with no marker; a planted straggler starts no
   unit; another bin's plant changes nothing. Removing the KILL pass, or the step's stop of its
-  watchdog, fails a case. `actionlint` passes on both workflow files.
+  watchdog, fails a case; a group still holding a process is read from `/proc`, zombies aside,
+  since a killed orphan nobody has reaped yet still answers `killpg(group, 0)`. The five cases
+  take 16 s on the laptop, and the file's other 13 cases 11 s, so the Build's house-rules
+  step grows by about 16 s (that step has no line in `ci/step-budget.tsv`). `actionlint` passes on
+  both workflow files.
 * Step 3: the summary's "Stragglers" block, and the ledger's `slow` line from the annotation.
   `python3 dev/varka_ci_ledger.py --self-test` passes with the new case.
 * Step 4 (part B): `decide` and `.github/workflows/varka-matrix-rerun.yml`;
-  `python3 dev/varka_matrix_stragglers.py --selftest` passes (17 cases: the decisions of section
+  `python3 dev/varka_matrix_stragglers.py --selftest` passes (18 cases: the decisions of section
   5, the rerun acted on once, a run rerun by hand meanwhile, the history's rows, the report's
   handling of a stopped unit, and the names read from the workflow files). The selftest runs in
   the Build's "house rules" step beside the CPU retry's. `decide --rerun --dry-run` over run
@@ -253,34 +258,42 @@ merges and the owner's word.
 
 1. **The floor** is 32 minutes, not 24 (6.2, prediction 1).
 2. **The report's merge keeps a straggler's units.** Section 3.3 had the merge leave them out so
-   that the report would not fail on them. It does not fail on them as they are: a JVM the
-   watchdog stopped has no `exit` file, and `dev/varka_matrix_report.py` lists such a JVM as "did
-   not finish" without failing, while the declining check only loses the baseline tests that JVM
-   did not reach. Leaving the whole bin out would also drop a unit that finished and failed a test
-   before the stop, and then `decide` would rerun a run with a real failure. So nothing is left
-   out, and `ReportTest` in the selftest holds both halves.
-3. **The ledger reads the annotation, not `straggler.txt`.** With `overwrite: true` the rerun's
-   upload replaces the artifact, so `update`, which reads a run after its rerun, would find no
-   file. The annotation stays on attempt 1's check run, so the watchdog puts the minutes, the plan
-   and the CPU in it.
-4. **Risk 2 is real, and `overwrite: true` is its answer.** Run 40942811546 keeps two artifacts
-   named `varka-option-matrix-b021`, one per attempt, so a rerun's upload of the same name does not
-   fail and does not replace the first. Without `overwrite`, attempt 1's `straggler.txt` could
-   reach attempt 2's report.
+   that the report would not fail on them. It does not fail on them as they are. `run_one` in
+   `dev/varka_matrix.sh` writes a JVM's `exit`, and its configuration's `name`, after the JVM's
+   subshell returns, and a TERM to the unit's group ends that shell first: the same shape run under
+   `setsid` and stopped by its group left neither file (laptop, 20 November 2026). So
+   `dev/varka_matrix_report.py` lists the JVM as "did not finish", or leaves out a configuration
+   none of whose JVMs finished, and fails on neither, while the declining check only loses the
+   baseline tests a stopped defaults JVM did not reach. Leaving the whole bin out would also drop
+   a unit that finished and failed a test before the stop, and then `decide` would rerun a run
+   with a real failure. So nothing is left out, and `ReportTest` in the selftest holds both
+   halves.
+3. **The ledger reads the annotation, not `straggler.txt`.** The annotation is on the check run
+   of the attempt that straggled, where `failed_job` already looks, while the ledger's artifact
+   download takes the newest artifact of a name, which after a rerun is the rerun's. So the
+   watchdog puts the minutes, the plan and the CPU in the annotation.
+4. **Risk 2 does not arise, and `overwrite: true` is left out.** Run 40942811546 keeps two
+   artifacts named `varka-option-matrix-b021`, one per attempt: a rerun's upload of the same name
+   neither fails nor replaces the first. Its attempt 2 report job's download step "Found 113
+   artifact(s)" and downloaded b021 once, the rerun's (ID 12934912599), so the report already takes
+   the newest of each name. `overwrite` would only delete attempt 1's artifact, the straggler's
+   record that a cancel used to lose.
 5. **The watchdog's tests are in `dev/varka_bin_units_test.py`**, not in the stragglers selftest:
    that file already runs this step's text from the workflow against a stub `varka_matrix.sh`.
 6. **`decide --rerun` makes the rerun itself** (`POST .../rerun-failed-jobs`, the call `gh run
    rerun --failed` makes), after reading the run again, so that a dry run and the rerun share one
    path.
-7. **Pages of 50 jobs.** A page of 100 jobs of run 40942811546 answered 502 three times, so the
-   tool lists jobs 50 at a time, and `decide` lists none when the run itself answers `stop`.
+7. **Pages of 50 jobs.** A page of 100 jobs of run 40942811546's attempt 2 answered 502 on three
+   reads, while pages of 50 and of 30 answered at once, so the tool lists jobs 50 at a time, and
+   `decide` lists none when the run itself answers `stop`.
 8. Step 4's expected answer over run 44141461002 was `stop: no straggler`; that run failed a test,
    and `decide` says so.
 
 ### 11.2 Left
 
 * Step 5, on the owner's word after the merge: one dispatch with `plant-straggler=b005`; done when
-  that run's attempt 2 is green. It scores predictions 2 and 3 and settles risk 2.
+  that run's attempt 2 is green. It scores predictions 2 and 3, and its attempt 2 report shows
+  the download taking the rerun's b005 alone.
 * A scheduled run with a straggler has its `report-failure` job open an issue before the rerun
   turns the run green: that job runs when the run ends, and the rerun starts after. Not changed
   here; if the issue proves noise, the job can skip a run whose only failures are stragglers.
@@ -292,7 +305,8 @@ merges and the owner's word.
    runs until the merge and step 5's dispatch, which need the owner's word anyway.
 2. **Question 2, the deadline:** three times the plan, with the floor at four lanes (32 minutes)
    rather than three, because the plan's own rule for prediction 1 says so (6.2).
-3. **No exclusion in the report's merge, the ledger from the annotation, the watchdog's tests in
-   the existing bin-step test:** 11.1 items 2, 3 and 5, each because the plan's version would
-   have dropped a real failure, read a file the rerun deletes, or duplicated a harness.
+3. **No exclusion in the report's merge, no `overwrite`, the ledger from the annotation, the
+   watchdog's tests in the existing bin-step test:** 11.1 items 2 to 5, each because the plan's
+   version would have dropped a real failure, deleted the straggler's record, read an artifact the
+   ledger does not download, or duplicated a harness.
 

@@ -288,14 +288,23 @@ def run_watched(units, **env):
         marker = out / "b000-straggler/straggler.txt"
         text = marker.read_text(encoding="utf-8") if marker.exists() else None
         started = sorted(int(f.name.split("-u")[1].split(".")[0]) for f in out.glob("*.started"))
-        alive = []
-        for f in out.glob("*-u*.pgid"):
-            try:
-                os.killpg(int(f.read_text()), 0)
-                alive.append(f.name)
-            except ProcessLookupError:
-                pass
+        groups = {int(f.read_text()): f.name for f in out.glob("*-u*.pgid")}
+        alive = sorted(groups[g] for g in live_groups() if g in groups)
         return done.returncode, took, done.stdout, text, started, alive
+
+
+def live_groups():
+    """The process groups with a process that is not a zombie, from /proc: a killed orphan that
+    nothing has reaped yet still answers killpg(group, 0)."""
+    found = set()
+    for stat in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = stat.read_text().rsplit(")", 1)[1].split()
+        except OSError:
+            continue
+        if fields[0] != "Z":
+            found.add(int(fields[2]))
+    return found
 
 
 class Watchdog(unittest.TestCase):
@@ -343,8 +352,9 @@ class Watchdog(unittest.TestCase):
         self.assertEqual(status, 0, stdout)
         self.assertIsNone(text)
         self.assertEqual((started, alive), ([0, 1, 2], []))
-        # Two rounds of 1 s units: the step waits on neither the watchdog nor its sleep.
-        self.assertLess(took, 4)
+        # Two rounds of 1 s units: the step waits on neither the watchdog nor its sleep, which
+        # would hold it to the 30 s deadline.
+        self.assertLess(took, 15)
 
     def test_a_planted_straggler_runs_no_unit_and_is_stopped(self):
         status, took, stdout, text, started, alive = run_watched(

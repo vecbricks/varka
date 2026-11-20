@@ -503,8 +503,9 @@ jobs:
           echo "== $strag/straggler.txt:"; cat "$strag/straggler.txt"; status=3
         fi
         exit "$status"
-    # overwrite, so that a rerun's upload replaces the artifact of the attempt it reruns and the
-    # report merges one copy of the bin.
+    # A rerun's upload of the same name keeps the earlier attempt's artifact, a straggler's record
+    # among them, and the report's download takes the newest of each name: run 40942811546's
+    # attempt 2 found two varka-option-matrix-b021 and downloaded the rerun's alone.
     - name: Upload the bin's runs
       if: always()
       uses: actions/upload-artifact@v4
@@ -523,7 +524,6 @@ jobs:
           target/varka-units/${{ matrix.bin }}/*-u*/runs/*/*/junit/*.xml
         if-no-files-found: ignore
         retention-days: 30
-        overwrite: true
 
   report:
     name: "Option matrix: report"
@@ -542,9 +542,11 @@ jobs:
         merge-multiple: true
     # Every unit's runs/ into one: a configuration's directory gathers the JVM directories of all
     # its units, which their bin names keep apart; the report then reads one run of the matrix.
-    # A straggler's units are merged too: a JVM the watchdog stopped has no exit file, which the
-    # report lists as not finished and does not fail, while a unit that finished before the stop
-    # is judged as any other, so a test it failed still fails the report.
+    # A straggler's units are merged too. The group TERM ends dev/varka_matrix.sh before it writes
+    # a stopped JVM's exit file, or the configuration's name file when that JVM was its only one,
+    # so the report lists the JVM as not finished or leaves the configuration out, and fails on
+    # neither; a unit that finished before the stop is judged as any other, so a test it failed
+    # still fails the report.
     - name: Merge the runs
       run: |
         mkdir -p target/varka-merged/runs

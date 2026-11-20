@@ -204,7 +204,7 @@ class ReportTest(unittest.TestCase):
     """The report job merges a straggler's units with the others': a JVM the watchdog stopped
     has no exit file and leaves the report green, a unit that failed before the stop does not."""
 
-    def report(self, stopped_exit):
+    def report(self, stopped_exit, named=True):
         import contextlib
         import io
         import tempfile
@@ -221,7 +221,9 @@ class ReportTest(unittest.TestCase):
             ):
                 jvm = runs / config / leaf
                 jvm.mkdir(parents=True)
-                (runs / config / "name").write_text(config + "\n")
+                # dev/varka_matrix.sh writes `name` beside `exit`, after the JVM ends.
+                if config == "defaults" or named:
+                    (runs / config / "name").write_text(config + "\n")
                 (jvm / "run.log").write_text("Tests: succeeded 3, failed 0, canceled 0\n")
                 (jvm / "fused.tsv").write_text("p.S\tt\t2\n")
                 if exit_status is not None:
@@ -235,6 +237,11 @@ class ReportTest(unittest.TestCase):
         status, text = self.report(None)
         self.assertEqual(status, 0, text)
         self.assertIn("cse=false: sql-b005-0 did not finish", text)
+
+    def test_a_configuration_whose_only_jvm_was_stopped_is_left_out(self):
+        status, text = self.report(None, named=False)
+        self.assertEqual(status, 0, text)
+        self.assertNotIn("cse=false", text)
 
     def test_a_unit_that_failed_before_the_stop_still_fails(self):
         self.assertEqual(self.report("1")[0], 1)
@@ -251,7 +258,7 @@ class CouplingTest(unittest.TestCase):
         self.assertIn(f"::error title={ANNOTATION_TITLE}::", text)
         self.assertIn(f"DEADLINE_FLOOR: '{DEADLINE_FLOOR_SECONDS}'", text)
 
-    def test_the_floor_is_three_lanes_of_the_planner(self):
+    def test_the_floor_is_counted_in_the_planners_lanes(self):
         text = (ROOT / "dev/varka_matrix_bins.py").read_text()
         self.assertIn("(default 480)", text)
 
