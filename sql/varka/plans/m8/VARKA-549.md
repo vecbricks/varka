@@ -194,6 +194,55 @@ of 5 pass.
 Every baseline benchmark's `WHOLE` sections pass `requireKernel` in its queries suite, and a
 planted section whose batches fall back fails it.
 
+## Decisions taken while the owner was away (20 November 2026)
+
+The owner was away during the build (an implementation window that ended at 14:00 UTC), so the
+questions above were decided by the plan's own recommendations and the house rules, each recorded
+here with its reason.
+
+1. **(b): `requireBaseline` makes the kernel check itself** on every section that plans `WHOLE`,
+   as the plan recommends: one site, and a baseline written later is checked without writing
+   anything. The cost the question names, that the shared check now executes a `WHOLE` section
+   once, is the dry run's prediction 3.
+2. **`requireSection` is Java, a static of `VarkaSqlBenchmarkBase`, not a new Scala object**
+   `VarkaBaselineChecks`. The plan names a Scala helper, but `sql/varka/AGENTS.md` says test
+   helpers are Java and new Varka code prefers Java; the base class already holds `fusion` and
+   `requireKernel`, which the helper composes, so it sits beside them as two overloads (the
+   five-argument one taking `timesFallback`) in place of a Scala default argument. One file fewer.
+3. **The rounding queries suite gains its fuse check as a new test.** Section 3.1 lists it among
+   the six suites that wrap the class assertion in a `withSettings`, but the suite had no fuse
+   check at all: its class doc said it checked answers only. The plan was wrong there. The new
+   test, "each section of the rounding baseline fuses as its listing says", is the other suites'
+   test over the rounding listing (`fuses` to `WHOLE` or `NONE`, as the benchmark maps it), at
+   both two-lane refusals, passing `timesFallback`; the table setup moved into a `withTable` the
+   two tests share.
+4. **The kernel check's failure names every Varka node** with its own kernel batches and
+   fallbacks, not only the sums, so that a failure on the suite's single run says which node of a
+   filter section handed batches back.
+5. **With the fuse check lifted, a `WHOLE` section that falls back is noted, not failed**, as 3.1
+   says. For the two `TIMESTAMP_NTZ` baselines this changes their documented behaviour: their
+   `varkaFused` call failed such a section with the property set to `false` too. Their class
+   docs now say what the shared check does; the PR body says so.
+
 ## 9. Outcome
 
-Not built yet.
+### 9.1 What was built (20 November 2026, branch `varka-549-baseline-kernel-check`)
+
+- `VarkaSqlBenchmarkBase`: `requireKernel(varka, title, query)`, public and static, the day-time
+  body moved and its message widened to every node's counts; `requireBaseline` calls it on a
+  section that plans `WHOLE`, failing with the fuse check on and noting the counts with it
+  lifted; a five-argument `requireBaseline` and `requireSection` taking `timesFallback`; and
+  `requireSection(varka, title, query, expected)` for the queries suites.
+- The day-time baseline's own `requireKernel`, the BIGINT baseline's `checksKernels` and the
+  `varkaFused` calls of the BIGINT and both `TIMESTAMP_NTZ` baselines are gone; their class docs
+  point at the shared check.
+- The rounding baseline's `Section` has `timesFallback`, true for its eight `floor` and `ceil`
+  sections over `xw`, `xwf` and their null forms, passed to the five-argument `requireBaseline`.
+- All twelve queries suites call `requireSection` where they asserted the class (the rounding
+  suite in its new test); the decimal suite has the planted test, "a WHOLE section whose batches
+  fall back fails the kernel check".
+
+### 9.2 What is left
+
+- The twelve baseline dry runs at 256 and 128 bits of section 5 (24 runs), with prediction 3.
+- The full `*BaselineQueriesSuite` run of section 8 on CI, with prediction 2.

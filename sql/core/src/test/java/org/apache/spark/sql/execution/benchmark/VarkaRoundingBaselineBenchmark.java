@@ -84,7 +84,10 @@ import org.apache.spark.sql.internal.SQLConf;
  * (344a1), and {@code round(i, -2)} and {@code bround(i, -2)} (344a2), in every mode and density;
  * row 346's sections are unlisted until its parts land.
  * A row that fuses a section lists it, so that its fusion cannot turn a baseline section into a
- * fused one unnoticed.
+ * fused one unnoticed. A listed section must also run every batch as a kernel
+ * ({@link VarkaSqlBenchmarkBase#requireKernel}), except the sections over {@code xw} and
+ * {@code xwf}, which time the bounded arm's fallback on purpose: the results file notes that
+ * their varka on arm times the fallback.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -130,10 +133,14 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * its answer against: the result type's SQL name, whether it reads the columns with one row in
    * ten null and which other rows answer null. The type is a name rather than a {@code DataType},
    * since {@code dev/varka_new_lane.py} reads a benchmark naming a lane's {@code DataTypes} member
-   * as one that benchmarks the lane, which this row-path baseline does not.
+   * as one that benchmarks the lane, which this row-path baseline does not. Last, whether the
+   * section times a fallback on purpose: the {@code floor} and {@code ceil} sections over
+   * {@code xw} and {@code xwf}, whose values a bounded arm declines at every batch, so the kernel
+   * check a fused section otherwise passes is not made on them
+   * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion, boolean)}).
    */
   record Section(String title, String query, Map<String, String> conf, boolean fuses,
-      String resultType, boolean nullInputs, NullRule nulls) {}
+      String resultType, boolean nullInputs, NullRule nulls, boolean timesFallback) {}
 
   /**
    * The table: {@code x} a {@code DOUBLE}, {@code i} and {@code k} {@code INT}s, {@code l} a
@@ -273,7 +280,7 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = ", " + (nullInputs ? "one row in ten null" : "no nulls");
       String from = " AS a FROM " + VIEW;
       out.add(new Section("DOUBLE rint(x)" + density, "SELECT rint(" + x + ")" + from,
-          Map.of(), true, "DOUBLE", nullInputs, NullRule.INPUT));
+          Map.of(), true, "DOUBLE", nullInputs, NullRule.INPUT, false));
       for (Form f : List.of(
           new Form("DOUBLE floor(x)", "floor(" + x + ")", "BIGINT"),
           new Form("DOUBLE ceil(x)", "ceil(" + x + ")", "BIGINT"),
@@ -284,28 +291,28 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
         for (String mode : new String[] {"LEGACY", "ANSI"}) {
           out.add(new Section(f.title() + ", " + mode + density, "SELECT " + f.expr() + from,
               mode.equals("ANSI") ? ansi : legacy, f.fuses(), f.resultType(), nullInputs,
-              NullRule.INPUT));
+              NullRule.INPUT, false));
         }
       }
       out.add(new Section("BIGINT round(l, -3), ANSI" + density,
           "SELECT round(" + l + ", -3)" + from,
-          ansi, false, "BIGINT", nullInputs, NullRule.INPUT));
+          ansi, false, "BIGINT", nullInputs, NullRule.INPUT, false));
       out.add(new Section("INT factorial(k)" + density, "SELECT factorial(" + k + ")" + from,
-          Map.of(), false, "BIGINT", nullInputs, NullRule.INPUT_OR_OUTSIDE_FACTORIAL));
+          Map.of(), false, "BIGINT", nullInputs, NullRule.INPUT_OR_OUTSIDE_FACTORIAL, false));
       out.add(new Section("DOUBLE width_bucket(x, lo, hi, 10)" + density,
           "SELECT width_bucket(" + x + ", " + BUCKET_BOUNDS + ")" + from,
-          Map.of(), false, "BIGINT", nullInputs, NullRule.INPUT_OR_NAN));
+          Map.of(), false, "BIGINT", nullInputs, NullRule.INPUT_OR_NAN, false));
       for (Form f : List.of(
           new Form("DOUBLE floor(xw)", "floor(" + xw + ")", "BIGINT"),
           new Form("DOUBLE ceil(xw)", "ceil(" + xw + ")", "BIGINT"))) {
         out.add(new Section(f.title() + ", LEGACY" + density, "SELECT " + f.expr() + from,
-            legacy, false, f.resultType(), nullInputs, NullRule.INPUT));
+            legacy, false, f.resultType(), nullInputs, NullRule.INPUT, true));
       }
       for (Form f : List.of(
           new Form("DOUBLE floor(xwf)", "floor(" + xwf + ")", "BIGINT"),
           new Form("DOUBLE ceil(xwf)", "ceil(" + xwf + ")", "BIGINT"))) {
         out.add(new Section(f.title() + ", ANSI" + density, "SELECT " + f.expr() + from,
-            ansi, false, f.resultType(), nullInputs, NullRule.INPUT));
+            ansi, false, f.resultType(), nullInputs, NullRule.INPUT, true));
       }
     }
     for (boolean nullInputs : new boolean[] {false, true}) {
@@ -345,7 +352,8 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
         // The check takes a fusion class since #1240; a row-path baseline lists no section as
         // fusing, so a section's class is NONE, and one a row marks as fusing is WHOLE.
         Fusion expected = s.fuses() ? Fusion.WHOLE : Fusion.NONE;
-        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), expected));
+        withConf(varka, s.conf(),
+            () -> requireBaseline(varka, s.title(), s.query(), expected, s.timesFallback()));
       }
       for (Section s : sections()) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),
