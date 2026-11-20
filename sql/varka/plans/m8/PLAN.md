@@ -1919,3 +1919,84 @@ never deleted.
   `VarkaCoverageHarnessSuite`, whose rows are dynamic tests, is a full run that reads as a narrow
   one (`VARKA-557.md` 8.1). Closing it: match the filter against each dynamic test's display
   name, with a test that a filtered factory suite runs only its matching rows.
+
+## 12. Mid-course review (20 November 2026)
+
+The review of milestone 7 at its close (`m7/PLAN.md`, VARKA-261) read the milestone against its
+own done-when list and not against the task table. This one does the same in the middle, on
+`origin/master` at `416bb8d1a69` and the 153 branches that are built and not yet pushed. Section 4's
+ordering stays as the record; 12.4 orders what is left.
+
+### 12.1 Where the done-when list stands
+
+Measured today from `dev/varka_census.py --summary`, the commit log and the local branches:
+
+* **Item 2 (most of the census) is the furthest behind.** 62 entries are fused for every type they
+  admit, against 122 required, and 514 of 878 entry-and-type pairs are fused, against 661 required
+  (the done-when says 881; the census counts 878 since decimal division left it). The shortfall
+  is 148 pairs. The pairs by type say where: `decimal` 2 of 66, `double` 44 of 102, `float` 36 of
+  66 and `bigint` 51 of 85, while `timestamp_ntz` is 49 of 54, `tinyint` and `smallint` 50 of 75
+  and `date` 49 of 63. The three types that carry the milestone's theme, the floating pair and the
+  decimal, are the three that are least fused.
+* **Item 1 (the seven types read and written)**: the by-type counts above are the evidence.
+  `TIMESTAMP_NTZ`, `TINYINT`, `SMALLINT` and `BOOLEAN` are 49 of 54, 50 of 75, 50 of 75 and 28 of
+  41; `DOUBLE` and `FLOAT` are 44 of 102 and 36 of 66; `DECIMAL` is 2 of 66, so its representations
+  are mostly on branches. This review did not re-read each type's coverage rows.
+* **Item 3 (the cast matrix)** stands at 42 of the 106 legal pairs fused at least in part.
+* **Item 5 (the math family)** has its baseline, `sin`, `cos` and the trigonometric family in
+  review (#1567), and the fdlibm ports (345a to 345e) on branches, not merged.
+* **Items 6, 7 and 8**: not re-read here. The post (355), the support table (353) and the 4.3.0
+  comparisons (552, 553) have no branch among the 153 local ones.
+
+### 12.2 What the review found
+
+1. **The work is built and not landed.** About 70 rows are built on 153 local branches and not
+   pushed. The milestone's counts above move only when a branch merges. The merge rate fell as the
+   build rate rose: 347 `[VARKA-n]` commits on master since 20 October, 179 since 1 November, 68
+   since 10 November and 9 since 15 November. The 15 to 20 November window was the
+   implementation-first window of 20 November and the out-of-memory crash of that day; nothing in
+   it made the rows land.
+2. **The three types with the lowest census share are the ones the theme names.** A row with a
+   clear measurement wins the next slot, and decimal rows are large, held by wrong-answer findings
+   (363, 364a0) or stacked on one another (the 361 to 363 chain is 25 to 31 commits deep). A
+   baseline row moves no census cell, and the first PRs of 20 November were baselines.
+3. **Wrong-answer findings are open and each holds a chain**: 363's scale-down ignores a NULL in
+   magnitude words its limbs never read; 364a0's double rule raises under ANSI where Spark answers;
+   358's constant log base is evaluated with no guard. 351c, 613, 369, 612b and 347c are also held
+   for findings of their own. The high review found them before a push, which is the process
+   working; none is fixed yet.
+4. **Rows built are not rows done.** The reviews of 20 November found the wrong answers above in
+   rows built under the implementation-first mode, so a built row is not a landed one until its
+   review findings are fixed.
+5. **CI and the weekly API limit are now the constraint, not the build.** The fork runs one matrix
+   in about an hour, a Build in about 30 minutes, and the EPYC benchmark runs wait on a runner
+   whose CPU is not guaranteed (the hourly retry). A milestone that merges two PRs a day at best
+   cannot land 70 rows in the time left unless the rows are chosen for their census share.
+6. **The post, the support table and the 4.3.0 comparisons have no commit.** As in milestone 6,
+   the track without numbers has been given no turn (see the memory note "review milestones against
+   their done-when list").
+
+### 12.3 What to change
+
+* Choose the next row by census cells moved per PR, then by size, not by clarity of its
+  measurement. A decimal arithmetic row moves up to 60 cells; a baseline moves none.
+* One PR at a time through the whole path (merge master, compile, suites, regen, push, Build,
+  matrix, merge), as the one-by-one mode of 20 November sets, with at most two in flight.
+* Fix the held rows' findings before more rows are stacked on them: 363, 364a0 and 358 first, since
+  the decimal chain and the casts wait on them.
+* Give the post, the support table and the 4.3.0 comparison their turn, once item 2's shortfall
+  is inside 60 pairs, or in the last week, whichever comes first.
+* A new task row needs a reason, written in it, to be done in this milestone and not in
+  `m9/SCOPE.md`; findings that do not move a census cell go to `m9/SCOPE.md`.
+
+### 12.4 Order for what remains
+
+1. Land what is open: #1567, #1570 to #1573 and the 357 baseline.
+2. The decimal chain, in census order: 350 (casts to 64-bit), 351a and its proofs, 359 to 360, then
+   361 to 363 after 363's finding is fixed, and the 364 casts after 364a0's.
+3. The floating pair: the 342 arithmetic, the 345 ports with their vfdlibm PRs, 346, 358 after its
+   finding.
+4. The existing-type rows that are small and unblocked: 30, 95, 103, 604, 612, 619.
+5. The post, the support table and 552 and 553.
+6. Item 2's gap is closed when 148 more pairs are fused; the milestone's close (354) reads the
+   list again, and the rows that miss it go to `m9/SCOPE.md` with the reason named in the census.
