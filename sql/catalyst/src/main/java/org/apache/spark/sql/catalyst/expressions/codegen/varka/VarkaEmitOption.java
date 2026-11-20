@@ -650,11 +650,12 @@ public sealed interface VarkaEmitOption
           new ChoiceTag("intervalFault="), Optional.empty()),
       // The depth cap, raised by VARKA-620's benchmark to price the depths past it. The fuzzer
       // draws a raised cap too, so a variant that grows a draw past 16 is emitted and checked
-      // rather than skipped. A raise changes no byte of a shape the default cap admits, so it
-      // has no audit arm and no matrix configuration.
+      // rather than skipped. A raise changes no byte of a shape the default cap admits, but the
+      // matrix runs the suites under it (VARKA-620), so the tests that assert the default cap
+      // are listed in the skip list.
       new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.MAX_CHAIN_DEPTH,
           VarkaEmitOptions::maxChainDepth, Builder::maxChainDepth, new CountTag("chainDepth="),
-          List.of(VarkaEmitBudget.MAX_CHAIN_DEPTH, 32), List.of()));
+          List.of(VarkaEmitBudget.MAX_CHAIN_DEPTH, 32), List.of(32)));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {
