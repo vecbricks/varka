@@ -235,8 +235,8 @@ branch.
 
 ### 10.1 What is built (20 November 2026, branch `varka-499-harness-traps`, local only)
 
-All four fixes and their tests are written; none of the runs section 3 names has been taken yet
-(10.3).
+All four fixes and their tests are written. Of section 3's runs only `VarkaSpeciesGuardSuite`
+has been taken (item 3 below); the rest are owed (10.3).
 
 1. **(d)** `VarkaTypeConformance.castRow` is thirteen plain tests, `castTo<Target>`, each named
    "the cast to <SQL type>, in LEGACY, ANSI and TRY" and running its target's forms through the
@@ -264,8 +264,13 @@ All four fixes and their tests are written; none of the runs section 3 names has
    int sum, an int column divided by 7, an int sum, a long sum) are each emitted under the three
    lane configurations and admitted to a registry seeded with that configuration's one-lane int
    and long kernels, and the rule at the defaults must select exactly the ones some configuration
-   refuses. It passed on the laptop (512-bit vectors, 20 November 2026, 7 of 7 in the suite): the
-   two two-lane kernels are selected and refused, the one-lane kernels neither.
+   refuses. It passed on the laptop (512-bit vectors, 20 November 2026, 7 of 7 in the suite), so the
+   rule and the registry agree on each kernel. That run did not pin which way: the widened sum is
+   pinned as selected by the test before it, and the expected selection of each kernel (the two
+   two-lane ones selected, the one-lane ones not) was added to the test after the run and is
+   owed its rerun. The emitter's only fetch of a `LongVector` species in an int-driven kernel is
+   the multiply-high division (`VarkaDivisionLowering`, a grep of the emitter for `LONG_VECTOR`
+   species fetches), so the 64-bit overflow check 2.1 also named has no second species.
 4. **(c)** `VarkaMatrixRuns.Kind.DRAWS` (`draws`), legal only on the tests
    `VarkaMatrixRuns.SEEDED_DRAWS` names by the start of their names (the two `VarkaSparkFuzzSuite`
    compositions tests, and `VarkaCoverageCompositionFuzzSuite`'s three random-draw tests).
@@ -293,13 +298,15 @@ All four fixes and their tests are written; none of the runs section 3 names has
   widens each int half into `LongVector` at the int species' own bit width
   (`VarkaDivisionLowering.Divider.of`, `emitMulHiDivide`), which under `lanesOverride=4` is
   `SPECIES_128` where the long kernels establish `SPECIES_256`. The probe test in 10.1 item 3
-  confirms it: the division is selected at the defaults and refused under a lane configuration,
-  so the lane-count rule and the registry agree on it. That leaves a question the census answers:
+  found the rule and the registry agreeing on it, and the bytes at the defaults name two lane
+  counts, so both select it. That leaves a question the census answers:
   shared-JVM suites that load such a division beside a long kernel should already fail the
   matrix's lane configurations, and the record of the last matrix runs does not say they do. The
-  suites outside `ownJvm` whose sources build a `ConstDivide`, `WidenLane` or `NarrowLane`
-  (whether they load it is the gate's question): `VarkaTwoLaneConditionSuite`,
-  `VarkaReproductionSuite`, `VarkaDivisorProofSuite`, `VarkaTimestampNtzArithmeticSuite`,
+  suites outside `ownJvm` whose sources build a `ConstDivide`, `WidenLane` or `NarrowLane` by
+  name (whether they load it is the gate's question; a suite that compiles SQL to such a kernel,
+  as the compiler and coverage suites do, is not found by the grep, so the list is a floor):
+  `VarkaTwoLaneConditionSuite`, `VarkaReproductionSuite`, `VarkaDivisorProofSuite`,
+  `VarkaTimestampNtzArithmeticSuite`,
   `VarkaLaneTypeSuite`, `VarkaExpressionCompilerSuite`, `VarkaEmittedBytesSuite`,
   `VarkaCoverageSuite`, `VarkaEmitterFramesSuite`, `VarkaWithChildrenSuite`,
   `VarkaRangeAnalysisSuite`.

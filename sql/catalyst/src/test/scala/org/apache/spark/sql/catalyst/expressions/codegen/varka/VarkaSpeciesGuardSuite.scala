@@ -121,14 +121,16 @@ class VarkaSpeciesGuardSuite extends VarkaEmitterTestBase {
       VarkaVectorIR.IntOp.ADD, VarkaVectorIR.Overflow.WRAP, int, new LiteralSlot(0))
     val longSum = new VarkaVectorIR.IntArith(VarkaVectorIR.IntOp.ADD,
       VarkaVectorIR.Overflow.WRAP, long, new LiteralSlot(0, VarkaVectorIR.LaneType.LONG))
+    // Each kernel with whether the rule selects it: the two that hold two lane widths do.
     val kernels = Seq(
-      "a widened int sum" -> new VarkaVectorIR.WidenLane(intSum),
-      "an int column divided by 7" -> new VarkaVectorIR.ConstDivide(int, 7),
-      "an int sum" -> intSum,
-      "a long sum" -> longSum)
+      ("a widened int sum", new VarkaVectorIR.WidenLane(intSum), true),
+      ("an int column divided by 7", new VarkaVectorIR.ConstDivide(int, 7), true),
+      ("an int sum", intSum, false),
+      ("a long sum", longSum, false))
     val configurations = Seq("lanesOverride=4", "lanesOverride=16", "narrowHalfSpecies=true")
-    val disagreements = kernels.flatMap { case (name, root) =>
+    val disagreements = kernels.flatMap { case (name, root, expected) =>
       val selected = !VarkaSpeciesGuard.mixedLaneCounts(emit(root, 1)._2).isEmpty
+      assert(selected === expected, name)
       val refusedUnder = configurations.filter { c =>
         val options = VarkaMatrix.parse(c)
         val registry = new VarkaSpeciesGuard.Registry
