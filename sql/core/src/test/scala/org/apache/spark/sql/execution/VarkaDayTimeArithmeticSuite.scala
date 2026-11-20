@@ -208,7 +208,7 @@ class VarkaDayTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with V
   test("a stored INTERVAL DAY's day count fuses as an offset in d - dd and not in d + dd") {
     // `d - dd` is DateAdd(d, -extract(DAY FROM dd)): the negated count reaches the date arm's
     // offset arithmetic as `-i` does and fuses under its day guard, while `d + dd` declines.
-    // ANSI is pinned, as the cell the split moved to 103a2 was, so the composition runs under
+    // ANSI is pinned, as the cell the split moved to 103a3 is, so the composition runs under
     // one mode whatever the matrix configuration.
     withAnsi(true) {
       for ((q, fuses) <- Seq("d - dd" -> true, "d + dd" -> false)) {
