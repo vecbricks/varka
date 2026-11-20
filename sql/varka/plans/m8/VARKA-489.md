@@ -217,6 +217,38 @@ Each takes row 489's status line forward; the row is Done at 489c's merge.
    it.* Every node added first is one more arm to move. Not mine: the order of m8's rows against
    its type work (row priority is the owner's, the new types first).
 
+## Decisions taken while the owner was away (20 November 2026)
+
+The owner was away for the morning of 20 November 2026, and the build ran in an
+implementation-first window: everything local, no pull request, no CI, tests written and only
+compiled, with one targeted run. Each decision below is the option the plan or `sql/varka/AGENTS.md`
+favours, and each can be reversed in review.
+
+1. **Question 1, per-record `props()`**, as recommended: the done-when asks that a new node touch
+   "its record and its lowering", which only the per-record method gives. The bodies are 495
+   lines over 56 records against the branch's 488 over 47, about nine lines a record, written
+   from master's arms and not from the branch's, whose weights, cost keys and positions master
+   has since changed (`IntArith`'s floating division, the long-lane `abs`, the floating orders,
+   `ConvertLane` from a long, `GuardedRange`'s `NULL` mode, the conditional positions of
+   `WidenLane` and `NarrowLane`).
+2. **Question 2, the row now**, as recommended: nine nodes arrived since the branch, and every
+   one added before 489b is one more arm to move.
+3. **`LongNarrowReader` moves into `VarkaNodeProps`** as a public nested enum, with its `takes`.
+   It was a private enum of `VarkaKernelPlan`, which a public record's component cannot name; a
+   package-private enum of `VarkaKernelPlan` would have been the other choice, but it would make
+   the descriptor's public accessor return a type no caller outside the package can see.
+   `LongNarrowRole` stays in `VarkaKernelPlan`: it is class (c), read from the child's lane, and
+   the descriptor does not hold it (3.3).
+4. **The equivalence suite moves to 489b**, the plan's own fallback in 8: 489a with the 56
+   bodies, the record and its suite is already near the cap, and the equivalence suite is needed
+   only from the first deletion on.
+5. **The drawn corpus is every grammar of `VarkaIrGrammar`**, eighteen of them taken in turn, not
+   the two the branch's suite drew: the decimal, floating, narrow-lane and cast grammars are
+   where master's new records are drawn. `VarkaNodePropsSuite.drawnNodes` is the one corpus, and
+   489b's equivalence suite reads it.
+6. **The cost kind is built with `getClass().getSimpleName()`**, the expression `kindOf` uses,
+   rather than a literal record name, so the key cannot drift from the class's name.
+
 ## Done when
 
 The switches of 3.2 read the descriptor, a new node touches its record and its lowering rather
@@ -225,5 +257,18 @@ than about twenty files (6.1 prediction 4), and `emitted_bytes.json`, `coverage.
 
 ## 9. Outcome
 
-Not built on master yet. The 27 October build's outcome is section 4 of the plan file on
-`attic/varka-489-descriptor`.
+The 27 October build's outcome is section 4 of the plan file on `attic/varka-489-descriptor`.
+
+**489a, 20 November 2026** (branch `varka-489-node-descriptor`, over `6ac76f86cb3`). Built as 8
+plans it, less the equivalence suite (decision 4): `VarkaNodeProps` with its seven components,
+`LongNarrowReader` moved into it from `VarkaKernelPlan`, `props()` on all 56 records with no
+default on the interface, and `VarkaNodePropsSuite` over a corpus of all eighteen grammars. No
+pass reads the descriptor yet, so no emitted byte can change, and the byte oracles and the
+fusion dump are owed with 489b, where they first can move.
+
+- **Where the plan was wrong:** it counted the per-record bodies at about 600 lines for 56
+  records, from the branch's 488 for 47; written from master's arms they are 495, because a
+  record states one constructor call of seven arguments and keeps its arm's comment, while the
+  branch had a line per argument.
+- **Measured:** `build/sbt catalyst/Test/compile` passes. The suite's time (prediction 2) is not
+  measured yet.

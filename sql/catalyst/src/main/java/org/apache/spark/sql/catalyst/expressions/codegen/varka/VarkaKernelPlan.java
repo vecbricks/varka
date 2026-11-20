@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaNodeProps.LongNarrowReader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
@@ -830,27 +831,6 @@ public final class VarkaKernelPlan {
           ConvertLane _, ReinterpretLane _ ->
           LongNarrowRole.NONE;
     };
-  }
-
-  /** What a node reads of its narrow children in a kernel driven at the long lane. */
-  private enum LongNarrowReader {
-    /** A widening, a comparison or a narrowing: a narrow value. */
-    VALUE,
-    /** A connective or a boolean output: a narrow condition. */
-    COND,
-    /** A null test: either. */
-    VALUE_OR_COND,
-    /** Any other node: no narrow child. */
-    NONE;
-
-    boolean takes(LongNarrowRole child) {
-      return switch (this) {
-        case VALUE -> child.isValue();
-        case COND -> child == LongNarrowRole.COND;
-        case VALUE_OR_COND -> child.isValue() || child == LongNarrowRole.COND;
-        case NONE -> false;
-      };
-    }
   }
 
   /** {@code node}'s {@link LongNarrowReader}. */
