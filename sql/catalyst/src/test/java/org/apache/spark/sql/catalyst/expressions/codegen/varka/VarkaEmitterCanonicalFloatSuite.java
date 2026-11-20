@@ -123,11 +123,16 @@ public final class VarkaEmitterCanonicalFloatSuite {
 
   /** Each row at which the {@code FLOAT} kernel differs from Spark, or validity is wrong. */
   private static List<String> floatMismatches() {
+    return floatMismatches(VarkaMatrixRuns.BASE);
+  }
+
+  /** {@link #floatMismatches()} with the kernel compiled and emitted under {@code options}. */
+  private static List<String> floatMismatches(VarkaEmitOptions options) {
     int[] values = floatData();
     int n = values.length;
     int cells = FLOAT_CELLS.length;
     var loaded = VarkaEmitterFixtures.load(
-        VarkaEmitterFixtures.emit(List.of(FLOAT_CANON), 1, 0, VarkaMatrixRuns.BASE));
+        VarkaEmitterFixtures.emit(List.of(FLOAT_CANON), 1, 0, options));
     var bad = new ArrayList<String>();
     try (Arena arena = Arena.ofConfined()) {
       var col = VarkaEmitterFixtures.makeInputData(arena, n, i -> nullAt(i, cells),
@@ -218,13 +223,8 @@ public final class VarkaEmitterCanonicalFloatSuite {
   @DisplayName("the planted fault that drops the add of zero is failed by the zeros, and the "
       + "same check passes without it")
   void droppedZeroStepIsCaught() {
-    VarkaFloatingFault.plantForTesting(VarkaFloatingFault.CANONICAL_ZERO_DROPPED);
-    List<String> planted;
-    try {
-      planted = floatMismatches();
-    } finally {
-      VarkaFloatingFault.plantForTesting(VarkaFloatingFault.NONE);
-    }
+    List<String> planted = floatMismatches(VarkaMatrixRuns.BASE
+        .withFloatingFault(VarkaEmitOptions.FloatingFault.CANONICAL_ZERO_DROPPED));
     assertTrue(planted.contains("0x80000000: want 0x0, got 0x80000000"), planted.toString());
     assertEquals(List.of(), floatMismatches());
   }

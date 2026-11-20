@@ -1187,8 +1187,8 @@ final class VarkaVectorWalk {
    * scalar the blend broadcasts. The class file writes a float or double constant through
    * {@code floatToIntBits} or {@code doubleToLongBits}, so the pushed NaN is the canonical one.
    * The word is the operand's, since nothing here nulls a lane. Under the planted fault
-   * {@link VarkaFloatingFault#CANONICAL_ZERO_DROPPED} the add is left out, so {@code -0.0} keeps
-   * its sign.
+   * {@link VarkaEmitOptions.FloatingFault#CANONICAL_ZERO_DROPPED} the add is left out, so
+   * {@code -0.0} keeps its sign.
    */
   private static void emitCanonicalFloat(CodeBuilder cb, CanonicalFloat n, boolean dense,
       Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
@@ -1198,7 +1198,8 @@ final class VarkaVectorWalk {
     Lane lane = analysis.laneOf(n);
     cb.astore(x);                                               // []
     cb.aload(x);
-    if (VarkaFloatingFault.planted() != VarkaFloatingFault.CANONICAL_ZERO_DROPPED) {
+    if (analysis.options.floatingFault()
+        != VarkaEmitOptions.FloatingFault.CANONICAL_ZERO_DROPPED) {
       lane.pushZero(cb);
       cb.invokevirtual(lane.vector, "add", lane.lanewiseVI);   // [x + 0.0]
     }
