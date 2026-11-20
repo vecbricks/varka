@@ -729,6 +729,8 @@ final class VarkaEmitBudget {
       // blend, where the operand can hold a NaN other than the canonical one.
       case VarkaVectorIR.RoundToIntegral n ->
           VarkaRoundingLowering.mayHoldOtherNaN(n) ? 12 : 10;
+      // The canonicalisation: the add of zero, the NaN test and the blend.
+      case VarkaVectorIR.CanonicalFloat _ -> 3;
     };
   }
 

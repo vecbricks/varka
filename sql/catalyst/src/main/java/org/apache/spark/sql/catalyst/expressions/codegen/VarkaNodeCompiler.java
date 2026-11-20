@@ -57,6 +57,7 @@ import org.apache.spark.sql.catalyst.expressions.InSet;
 import org.apache.spark.sql.catalyst.expressions.IsNaN;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.IsNull;
+import org.apache.spark.sql.catalyst.expressions.KnownFloatingPointNormalized;
 import org.apache.spark.sql.catalyst.expressions.Least;
 import org.apache.spark.sql.catalyst.expressions.LessThan;
 import org.apache.spark.sql.catalyst.expressions.LessThanOrEqual;
@@ -107,6 +108,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
+import org.apache.spark.sql.catalyst.optimizer.NormalizeNaNAndZero;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DecimalType;
 
@@ -275,6 +277,12 @@ final class VarkaNodeCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
+    // A tag the optimizer puts over a normalised floating key: its value, type, nullability and
+    // code are its child's, so it is compiled as its child and is no family's. The tag never
+    // stands for a canonicalisation of its own; only CanonicalFloat.of removes a second one.
+    if (expr instanceof KnownFloatingPointNormalized k) {
+      return compileNode(k.child(), inputs, literals, sink);
+    }
     Optional<String> floating = floatingDecline(expr);
     if (floating.isPresent()) {
       return sink.decline(floating.get(), expr);
@@ -386,6 +394,8 @@ final class VarkaNodeCompiler {
         || e instanceof Add || e instanceof Subtract || e instanceof Multiply
         || e instanceof Divide || e instanceof UnaryMinus || e instanceof Abs
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
+        // Its canonicalisation (VARKA-337), which a later key operator builds.
+        || e instanceof NormalizeNaNAndZero
         || (e instanceof Signum s && (isFloating(s.child().dataType())
             || VarkaFloatingCompiler.intervalLane(s.child().dataType()).isPresent()))
         // The rounding family's forms (VARKA-344): rint, and floor and ceil, whose arm builds

@@ -701,6 +701,12 @@ public record VarkaEmitOptions(
      */
     DEGREES_ROUNDED,
     /**
+     * The canonicalisation without its add of zero (VARKA-337 3.9): the NaN blend alone, so
+     * {@code -0.0} keeps its sign bit where Spark's {@code NormalizeNaNAndZero} answers
+     * {@code 0.0}.
+     */
+    CANONICAL_ZERO_DROPPED,
+    /**
      * A math function's per-lane call of the other class's method, {@code StrictMath.sin} for
      * Spark's {@code Math.sin} and {@code Math.asin} for {@code StrictMath.asin}: on x86 the
      * first differs from Spark's answer for {@code sin}, {@code cos} and {@code tan} on thousands
