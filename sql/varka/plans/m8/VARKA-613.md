@@ -251,6 +251,14 @@ The blend's class in `VarkaDayTimeIntervalBaselineBenchmark` is `NONE` at both d
 that suite is unchanged. Only `build/sbt sql/Test/compile` was run in this window; the suites of
 step 2's done-when are owed.
 
+One quick run of `VarkaPartialDeclineSuite` passed four of its five tests. The fifth compared
+the declined plan with the plan of the shared Varka-off session, `disabledSpark`, and failed
+there: that session reads the Arrow cache as rows (`Project` over `InputAdapter`, no
+`ColumnarToRow`), while the declined plan reads it as batches. The test now asserts the declined
+plan's operators instead and has not been run since. Prediction 5 rests on the benchmark's
+varka off arm reading batches too, as its `VarkaArrowSessions` session sets the vectorized cache
+reader; the owed plan-only dry run of the baseline is where to check it.
+
 ### 9.3 Where the plan was wrong
 
 1. 3.1's procedure has no rule for a failed control or for a shape that reads both ways in two
