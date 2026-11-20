@@ -376,7 +376,8 @@ is not built until one exists. Section 8's step 2 is the run this decision allow
 * **Laptop reading** (`results/VARKA-375-maskcost-laptop.txt`, a loaded machine, so the bytes
   only): at 512 bits neither form allocates (0.00 bytes a word each); at 128 bits, where the
   double species has two lanes, `fromLong` allocates 162.18 bytes a word and the construction
-  296.01. Prediction (b) of section 0 is about the N2 and stays unscored; the inference of
+  296.01, from one run (the bytes are a property of the compiled code; a quiet rerun is owed
+  before the cell is quoted beyond this record). Prediction (b) of section 0 is about the N2 and stays unscored; the inference of
   section 0's second bullet, that the construction ends in the same refusal at two long lanes on
   x86, is **confirmed**, and worse than the inference: the construction allocates more, since its
   compare and its cast both make two-lane masks.

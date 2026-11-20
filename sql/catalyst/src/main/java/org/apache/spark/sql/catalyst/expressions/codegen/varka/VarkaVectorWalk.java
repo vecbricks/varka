@@ -1832,7 +1832,11 @@ final class VarkaVectorWalk {
     };
     var species = integral.speciesField(analysis.lanesOf(lane));
     int lanes = analysis.lanesOf(lane) == 0 ? lane.preferredLanes : analysis.lanesOf(lane);
-    if (lanes > integral.bits && (integral == Lane.BYTE || integral == Lane.SHORT)) {
+    boolean narrow = integral == Lane.BYTE || integral == Lane.SHORT;
+    // At SPECIES_PREFERRED the lane count is the running JVM's, which may be wider than this
+    // one's (a reproduction file replayed on another host), so a narrow lane takes the element
+    // select, which is right at any count.
+    if (narrow && (lanes > integral.bits || analysis.lanesOf(lane) == 0)) {
       // A byte or short lane past one element's bits: the word broadcast as longs at the same
       // width, viewed at the lane, and each lane's element picked by selectFrom by the table of
       // lane i's element, i / bits. [species, word] -> [vector]; the species is the constant's.

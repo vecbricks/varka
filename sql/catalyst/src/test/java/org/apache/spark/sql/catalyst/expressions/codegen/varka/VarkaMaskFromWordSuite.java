@@ -202,7 +202,7 @@ public final class VarkaMaskFromWordSuite {
   @Test
   @DisplayName("under maskFromWord no kernel calls fromLong, and the masked ones build masks")
   void optionReplacesEverySite() {
-    var scan = scan(VarkaEmitOptions.DEFAULTS.toBuilder().maskFromWord(true).build());
+    var scan = scan(VarkaMatrixRuns.BASE.toBuilder().maskFromWord(true).build());
     assertTrue(scan.kernels() > 200, "only " + scan.kernels() + " coverage rows were scanned");
     assertTrue(scan.fromLongs().isEmpty(), "fromLong under maskFromWord:\n  "
         + String.join("\n  ", scan.fromLongs()));
