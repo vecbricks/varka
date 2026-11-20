@@ -1211,13 +1211,15 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a production is a row
     // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it.
     // The canonicalisation (VARKA-337) is a floating node too: its side sequence below draws it.
+    // The hash step and a canonical value's bits (VARKA-337) have no production yet;
+    // `VARKA-337.md` 10 names the part that adds them, in a side sequence of their own.
     // The floating conversion (VARKA-343) and the lane crossing under it have their own draw, on
     // its own seed, so that no shape here moves: the floating cast test above runs it, and the
     // test after it asserts its reach.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
       "BoolOutput" - "DecimalColumn" - "DecimalWord" - "NullValue" - "WidenDecimal" - "MathUnary" -
-      "RoundToIntegral" - "CanonicalFloat" -
+      "RoundToIntegral" - "CanonicalFloat" - "HashStep" - "CanonicalBits" -
       "ConvertLane" - "CrossLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +

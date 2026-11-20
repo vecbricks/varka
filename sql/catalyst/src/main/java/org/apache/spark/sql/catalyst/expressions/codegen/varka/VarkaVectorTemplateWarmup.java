@@ -571,8 +571,9 @@ final class VarkaVectorTemplateWarmup {
         VectorOperators.MUL, VectorOperators.DIV, VectorOperators.MIN, VectorOperators.MAX,
         VectorOperators.AND, VectorOperators.OR, VectorOperators.XOR);
 
+    // ROL is the hash steps' rotate (VARKA-337).
     private static final List<Binary> SHIFTS = List.of(VectorOperators.ASHR,
-        VectorOperators.LSHR, VectorOperators.LSHL);
+        VectorOperators.LSHR, VectorOperators.LSHL, VectorOperators.ROL);
 
     private static final List<Comparison> COMPARISONS = List.of(VectorOperators.EQ,
         VectorOperators.NE, VectorOperators.LT, VectorOperators.LE, VectorOperators.GT,
@@ -777,6 +778,8 @@ final class VarkaVectorTemplateWarmup {
             + a.lanewise(VectorOperators.ADD, 2.0, m).lane(0) + a.blend(b, m).lane(0)
             // rint's canonical NaN, blended in with the scalar form.
             + a.blend(Double.NaN, m).lane(0));
+        // A hash reads a canonical double's bits as longs (VARKA-337).
+        acc += a.viewAsIntegralLanes().lane(0);
         for (Comparison op : DOUBLE_COMPARISONS) {
           acc += a.compare(op, b).toLong();
         }
@@ -840,6 +843,8 @@ final class VarkaVectorTemplateWarmup {
         // The canonicalisation's calls (VARKA-337): the add of a scalar zero and the blend of
         // the scalar NaN under the NaN test; the double block above has both forms already.
         acc += (long) x.add(0.0f).blend(Float.NaN, x.test(VectorOperators.IS_NAN)).lane(0);
+        // A hash reads a canonical float's bits as ints.
+        acc += x.viewAsIntegralLanes().lane(0);
       }
       return acc;
     }

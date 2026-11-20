@@ -80,7 +80,7 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
             VarkaVectorIR.BoundedDivide, VarkaVectorIR.BitOp, VarkaVectorIR.BitCount,
             VarkaVectorIR.MathUnary, VarkaVectorIR.RoundToIntegral, VarkaVectorIR.Cond,
-            VarkaVectorIR.CanonicalFloat,
+            VarkaVectorIR.CanonicalFloat, VarkaVectorIR.CanonicalBits, VarkaVectorIR.HashStep,
             VarkaVectorIR.GuardedDay, VarkaVectorIR.GuardedRange, VarkaVectorIR.WidenLane,
             VarkaVectorIR.ConvertLane,
             VarkaVectorIR.NarrowLane, VarkaVectorIR.WidenDecimal {
@@ -168,6 +168,8 @@ public sealed interface VarkaVectorIR
       case MathUnary n -> n.child().laneType();
       case RoundToIntegral n -> n.child().laneType();
       case CanonicalFloat n -> n.child().laneType();
+      case CanonicalBits n -> n.lane();
+      case HashStep n -> n.mix().lane();
       case Greatest n -> n.left().laneType();
       case Least n -> n.left().laneType();
       case IfElse n -> n.thenNode().laneType();
@@ -233,7 +235,7 @@ public sealed interface VarkaVectorIR
       case BoolColumn b -> b.ordinal();
       case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
           BitCount _, MathUnary _, RoundToIntegral _, Greatest _, Least _, IfElse _, CondValue _,
-          BoolOutput _, CanonicalFloat _,
+          BoolOutput _, CanonicalFloat _, CanonicalBits _, HashStep _,
           Compare _, NullSafeEqual _, CondConst _, NullValue _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
@@ -322,7 +324,7 @@ public sealed interface VarkaVectorIR
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
           BitOp _, BitCount _, MathUnary _, RoundToIntegral _, Compare _, NullSafeEqual _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _,
-          InRanges _, CanonicalFloat _ -> {
+          InRanges _, CanonicalFloat _, CanonicalBits _, HashStep _ -> {
         for (VarkaVectorIR child : childrenOf(node)) {
           narrowValuesIn(child, lanes, seen);
         }
@@ -369,7 +371,7 @@ public sealed interface VarkaVectorIR
           Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _, TruncDate _, WeekOfYear _,
           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, RoundToIntegral _,
           Compare _, NullSafeEqual _, BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _,
-          CrossLane _, InRanges _, CanonicalFloat _ -> {
+          CrossLane _, InRanges _, CanonicalFloat _, CanonicalBits _, HashStep _ -> {
         boolean any = false;
         for (VarkaVectorIR child : childrenOf(node)) {
           any |= needsNarrowSpecies(child, seen);
@@ -544,6 +546,33 @@ public sealed interface VarkaVectorIR
    * three shifts, {@code <<}, {@code >>} and {@code >>>}.
    */
   enum BitOpKind { AND, OR, XOR, SHL, SHR, USHR }
+
+  /**
+   * The step a {@link HashStep} folds into its seed: one of Spark's per-value hash primitives,
+   * {@code Murmur3_x86_32}'s on the int lane and {@code XXH64}'s on the long lane (VARKA-337 2.2).
+   * {@code MURMUR3_INT} is {@code hashInt(word, seed)}. Murmur3's {@code hashLong} reads the low
+   * and then the high int of its value before one finalisation, so it is two steps:
+   * {@code MURMUR3_LOW}, the first {@code mixH1} with no finalisation, and {@code MURMUR3_HIGH},
+   * the second with {@code fmix(h, 8)}; {@code hashLong(v, seed)} is
+   * {@code MURMUR3_HIGH(MURMUR3_LOW(seed, low(v)), high(v))}. {@code XXH64_INT} is
+   * {@code hashInt} of the low 32 bits of its long word, which it zero-extends as Spark's
+   * {@code input & 0xFFFFFFFFL} does, and {@code XXH64_LONG} is {@code hashLong}.
+   */
+  enum HashMix {
+    MURMUR3_INT(LaneType.INT), MURMUR3_LOW(LaneType.INT), MURMUR3_HIGH(LaneType.INT),
+    XXH64_INT(LaneType.LONG), XXH64_LONG(LaneType.LONG);
+
+    private final LaneType lane;
+
+    HashMix(LaneType lane) {
+      this.lane = lane;
+    }
+
+    /** The lane of the seed, the word and the result. */
+    public LaneType lane() {
+      return lane;
+    }
+  }
 
   /**
    * What an integer operation does when its result leaves the int32 range, which is
@@ -1521,6 +1550,64 @@ public sealed interface VarkaVectorIR
   }
 
   /**
+   * The bits of a canonical floating value as an integral value of the same width,
+   * {@code Float.floatToIntBits} at the {@code FLOAT} lane (an {@code INT} result) and
+   * {@code Double.doubleToLongBits} at the {@code DOUBLE} lane (a {@code LONG} one): the word
+   * Spark's hash reads for a floating value (VARKA-337 2.2). Over a canonical value the raw bits
+   * are those functions' answers, since its only NaN is the one they map every NaN to, so the
+   * lowering is a reinterpretation, {@code viewAsIntegralLanes}, which C2 emits as nothing. The
+   * constructor takes a {@link CanonicalFloat} child and nothing else, so no caller can read a
+   * floating value's bits without Spark's {@code -0.0} and NaN rule. Its validity is the child's.
+   */
+  record CanonicalBits(VarkaVectorIR child, int hash) implements VarkaVectorIR {
+    public CanonicalBits {
+      if (!(child instanceof CanonicalFloat)) {
+        throw VarkaErrors.illegalArgument("the bits of a floating value are read from its "
+            + "canonicalisation, not from a " + child.getClass().getSimpleName());
+      }
+      hash = hashOf(CanonicalBits.class, child);
+    }
+
+    public CanonicalBits(VarkaVectorIR child) { this(child, 0); }
+    @Override public int hashCode() { return hash; }
+
+    /** The integral lane of the same width as the child's. */
+    public LaneType lane() {
+      return child.laneType() == LaneType.FLOAT ? LaneType.INT : LaneType.LONG;
+    }
+  }
+
+  /**
+   * One step of Spark's {@code hash} or {@code xxhash64} fold: {@code mix} of {@code word} into
+   * {@code seed}, both on the mix's lane, Spark's primitive lane by lane with its own constants
+   * (VARKA-337 2.2). The compiler folds a hash's children through the steps in Spark's order,
+   * the first step's seed the expression's literal seed, and gives each step a word Spark's
+   * per-type rule makes: an int, a long, the low or high half of one, or a floating value's
+   * {@link CanonicalBits}. Null-intolerant like every binary node: the compiler skips a null
+   * child as Spark does, by choosing the step's seed where the child is null.
+   */
+  record HashStep(HashMix mix, VarkaVectorIR seed, VarkaVectorIR word, int hash)
+      implements VarkaVectorIR {
+    public HashStep {
+      Objects.requireNonNull(mix, "mix");
+      if (seed.laneType() != mix.lane() || word.laneType() != mix.lane()) {
+        throw VarkaErrors.illegalArgument("a " + mix + " hash step folds a " + mix.lane()
+            + " word into a " + mix.lane() + " seed, not a " + word.laneType() + " word into a "
+            + seed.laneType() + " seed");
+      }
+      if (seed instanceof Cond || word instanceof Cond) {
+        throw VarkaErrors.illegalArgument("a hash step folds values, not conditions: " + mix);
+      }
+      hash = hashOf(mix, seed, word);
+    }
+
+    public HashStep(HashMix mix, VarkaVectorIR seed, VarkaVectorIR word) {
+      this(mix, seed, word, 0);
+    }
+    @Override public int hashCode() { return hash; }
+  }
+
+  /**
    * {@code left OP right} over two operands on one lane, which the constructor requires to
    * agree - dates at the int lane, and the mask this produces is of that lane's species.
    * Null-intolerant: the result is known (true or false) exactly where both operands are valid,
@@ -2314,6 +2401,9 @@ public sealed interface VarkaVectorIR
       case MathUnary n -> "(math:" + n.fn().name() + " " + canonical(n.child()) + ")";
       case RoundToIntegral n -> "(round:" + n.mode().name() + " " + canonical(n.child()) + ")";
       case CanonicalFloat n -> "(canon " + canonical(n.child()) + ")";
+      case CanonicalBits n -> "(canonBits " + canonical(n.child()) + ")";
+      case HashStep n -> "(hash:" + n.mix().name() + " " + canonical(n.seed()) + " "
+          + canonical(n.word()) + ")";
     };
   }
 
@@ -2428,6 +2518,9 @@ public sealed interface VarkaVectorIR
       case RoundToIntegral n ->
           "(round:" + n.mode().name() + " " + lineOf.applyAsInt(n.child()) + ")";
       case CanonicalFloat n -> "(canon " + lineOf.applyAsInt(n.child()) + ")";
+      case CanonicalBits n -> "(canonBits " + lineOf.applyAsInt(n.child()) + ")";
+      case HashStep n -> "(hash:" + n.mix().name() + " " + lineOf.applyAsInt(n.seed()) + " "
+          + lineOf.applyAsInt(n.word()) + ")";
     };
   }
 
@@ -2505,6 +2598,8 @@ public sealed interface VarkaVectorIR
       case MathUnary n -> new VarkaVectorIR[] {n.child()};
       case RoundToIntegral n -> new VarkaVectorIR[] {n.child()};
       case CanonicalFloat n -> new VarkaVectorIR[] {n.child()};
+      case CanonicalBits n -> new VarkaVectorIR[] {n.child()};
+      case HashStep n -> new VarkaVectorIR[] {n.seed(), n.word()};
     };
   }
 
@@ -2586,6 +2681,8 @@ public sealed interface VarkaVectorIR
       case MathUnary n -> new MathUnary(n.fn(), children[0]);
       case RoundToIntegral n -> new RoundToIntegral(n.mode(), children[0]);
       case CanonicalFloat n -> CanonicalFloat.of(children[0]);
+      case CanonicalBits n -> new CanonicalBits(children[0]);
+      case HashStep n -> new HashStep(n.mix(), children[0], children[1]);
     };
   }
 

@@ -105,7 +105,13 @@ public enum VarkaFamily {
       + " atan, atan2, sec, csc, cot, sinh, cosh, tanh, asinh, acosh, atanh, exp, expm1, ln,"
       + " log, log10, log1p, log2, pow, hypot and cbrt), each bit for bit Spark's unless"
       + " spark.sql.codegen.varka.math.ulpContract.enabled is true; none fuses yet, and each"
-      + " declines naming the row of the plan that fuses it");
+      + " declines naming the row of the plan that fuses it"),
+  /** {@code VarkaHashCompiler}. */
+  HASH("hash", "hash", "hash and xxhash64 over boolean, tinyint, smallint, int, bigint, float,"
+      + " double, date, timestamp_ntz, time, the interval types and a decimal of precision 18 or"
+      + " less, Spark's seed folded through the children and a null child skipped; a float or"
+      + " double child is canonicalised by the floating arithmetic family, whose switch it asks"
+      + " too");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";

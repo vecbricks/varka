@@ -50,6 +50,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Boo
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalBits;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -70,6 +71,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Dec
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.HashStep;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
@@ -1223,6 +1225,8 @@ final class Slots {
       case MathUnary n -> s.wordRef.get(n.child());
       case RoundToIntegral n -> s.wordRef.get(n.child());
       case CanonicalFloat n -> s.wordRef.get(n.child());
+      case CanonicalBits n -> s.wordRef.get(n.child());
+      case HashStep n -> andRef(s.wordRef.get(n.seed()), s.wordRef.get(n.word()));
       // Greatest/Least (OR) and IfElse (blend) always compute their own word.
       default -> Integer.MIN_VALUE;
     };
@@ -1741,6 +1745,8 @@ final class Slots {
         case MathUnary x -> { }
         case RoundToIntegral x -> { }
         case CanonicalFloat x -> { }
+        case CanonicalBits x -> { }
+        case HashStep x -> { }
         case IfElse x -> { }
         // Its word is the condition's two known words ORed, and the condition demands its
         // operands' words in its own arms; its own word is demanded like any value node's.
@@ -1827,6 +1833,9 @@ final class Slots {
         case MathUnary x -> { }
         case RoundToIntegral x -> { }
         case CanonicalFloat x -> { }
+        case CanonicalBits x -> { }
+        case HashStep x -> { demand(analysis.wordOwner.get(x.seed()));
+          demand(analysis.wordOwner.get(x.word())); }
         case Compare x -> { }
         case NullSafeEqual x -> { }
         case BoolColumn x -> { }
