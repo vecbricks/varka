@@ -689,7 +689,10 @@ over the extremes, the powers of two and their negatives, the floating cells of
 range endpoints) and 4000 drawn values, at five seeds, every seventh row null and hashing to its
 seed; a fold of an `INT` and a `BIGINT` child with nulls in either and both positions; the
 constructors' refusals; and, behind `-Dvarka.sweep=true`, every `INT` and every `FLOAT` pattern
-through both hashes (3.1). The suites that list node types take both nodes.
+through both hashes (3.1). The suites that list node types take both nodes. `VarkaVectorIRSharingSuite`'s
+hash formula starts from the class for `CanonicalFloat` and `CanonicalBits`, whose hashes mix their
+class in: 337a1's second review added that tag to `CanonicalFloat`, and the suite, not rerun
+after it, fails on 337a1 alone (`expected: <516778454> but was: <-76618908>`); 337a2 fixes it.
 
 Left of 337a: the compiler, the `HASH` family and the coverage rows (part 337a3, stacked on this
 one); the IR grammar's productions of 2.6 (the fuzz and grammar suites list both nodes as not
