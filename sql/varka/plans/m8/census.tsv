@@ -277,8 +277,8 @@ convert_timezone	ConvertTimezone	datetimeExpressions	out	TIMESTAMP with local ti
 time_bucket	TimeBucketExpressionBuilder	datetimeExpressions	in		ntz,ym,dt	ntz		ntz	semantics	339	a floor division of the micros by the bucket	
 crc32	Crc32	hashExpressions	out	BINARY input: outside the type set								
 md5	Md5	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026								
-hash	Murmur3Hash	hashExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	int		bool,byte,short,float,double,dec,ntz	semantics	337,359,368	Murmur3 over each column's word, NaN and -0.0 canonicalised first (337a2); a decimal above precision 18 declined naming 337b (its hash is a variable-length byte array)	
-xxhash64	XxHash64	hashExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bigint		bool,byte,short,float,double,dec,ntz	semantics	337,359,368	XxHash64 over each column's word, NaN and -0.0 canonicalised first (337a2); a decimal above precision 18 declined naming 337b	
+hash	Murmur3Hash	hashExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	int	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	337,359,368	Murmur3 over each column's word, NaN and -0.0 canonicalised first (337a2); a decimal above precision 18 declined naming 337b (its hash is a variable-length byte array)	dec
+xxhash64	XxHash64	hashExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bigint	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	337,359,368	XxHash64 over each column's word, NaN and -0.0 canonicalised first (337a2); a decimal above precision 18 declined naming 337b	dec
 xxh3_64	Xxh364	hashExpressions	out	BINARY input: outside the type set								
 xxh3_128	Xxh3128	hashExpressions	out	BINARY input or output: outside the type set								
 sha	Sha1	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026								

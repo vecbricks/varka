@@ -174,8 +174,8 @@ datepart|date,ntz,time,ym,dt|int,byte,dec|date,ym,ntz|semantics|340,103,351|as e
 date_from_unix_date|int|date|int~|done||fused in `date_from_unix_date(unix_date(d))`
 unix_date|date|int|date|done||
 time_bucket|IVL,ntz|ntz||semantics|339|a floor division of the micros by the bucket
-hash|ALL|int||semantics|337,359,368|Murmur3 over each column's word, NaN and -0.0 canonicalised first (337a2); a decimal above precision 18 declined naming 337b (its hash is a variable-length byte array)
-xxhash64|ALL|bigint||semantics|337,359,368|XxHash64 over each column's word, NaN and -0.0 canonicalised first (337a2); a decimal above precision 18 declined naming 337b
+hash|ALL|int|bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt,dec^|semantics|337,359,368|Murmur3 over each column's word, NaN and -0.0 canonicalised first (337a2); a decimal above precision 18 declined naming 337b (its hash is a variable-length byte array)
+xxhash64|ALL|bigint|bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt,dec^|semantics|337,359,368|XxHash64 over each column's word, NaN and -0.0 canonicalised first (337a2); a decimal above precision 18 declined naming 337b
 cast|ALL|ALL|matrix|semantics|332,343,350,338,28,364,365,366,368|the matrix in m8/PLAN.md 2.2
 boolean|legal|bool|matrix|semantics|332,343,350,364|cast alias
 tinyint|legal|byte|matrix|semantics|332,343,350,364,365|cast alias
