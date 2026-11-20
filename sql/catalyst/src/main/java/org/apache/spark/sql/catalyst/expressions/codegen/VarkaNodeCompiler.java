@@ -87,6 +87,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDerivedKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaOperandPosition;
@@ -1396,16 +1397,14 @@ final class VarkaNodeCompiler {
     return built;
   }
 
-  /** Why a checked bigint operation declines on a two-lane host ({@link #twoLaneChecked}). */
-  static final String TWO_LANE_CHECK_REASON = "a checked bigint operation on an x86 host whose "
-      + "64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 "
-      + "does not lower there, so the kernel would run the Vector API's Java fallback";
-
   /**
    * {@code node}, a {@code BIGINT} operation in its final mode, or empty with
-   * {@link #TWO_LANE_CHECK_REASON} where the mode still raises or nulls on overflow and the
-   * session refuses those ({@link DeclineSink#declinesTwoLaneChecks}). A check the lattice took
-   * off is {@code WRAP} by now, so it stays fused, as does every LEGACY form.
+   * {@link VarkaKernelPlan#TWO_LANE_CHECK_REASON} where the mode still raises or nulls on
+   * overflow and the session refuses those ({@link DeclineSink#declinesTwoLaneChecks}). A check
+   * the lattice took off is {@code WRAP} by now, so it stays fused, as does every LEGACY form.
+   * The kernel plan's
+   * admission refuses the same check in any family's tree ({@link VarkaKernelPlan#admit}); this
+   * decline comes first so that the reason names the operation rather than the whole entry.
    */
   private static Optional<VarkaVectorIR> twoLaneChecked(VarkaVectorIR node, Expression whole,
       DeclineSink sink) {
@@ -1415,7 +1414,7 @@ final class VarkaNodeCompiler {
       default -> Overflow.WRAP;
     };
     if (mode != Overflow.WRAP && sink.declinesTwoLaneChecks()) {
-      return sink.decline(TWO_LANE_CHECK_REASON, whole);
+      return sink.decline(VarkaKernelPlan.TWO_LANE_CHECK_REASON, whole);
     }
     return Optional.of(node);
   }

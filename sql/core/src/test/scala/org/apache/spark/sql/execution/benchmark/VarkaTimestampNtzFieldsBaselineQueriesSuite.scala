@@ -149,7 +149,7 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
       assert(long("ntz_nulls") === rows / 10 && long("tm_nulls") === rows / 10)
       assert(long("d_nulls") === rows / 10 && long("tm_and_d_nulls") === 0)
 
-      for (s <- sections().asScala) {
+      for (s <- sections(false).asScala) {
         withClue(s.title) {
           val schema = spark.sql(s.query).schema
           assert(schema.map(f => f.name -> f.dataType) === Seq("v" -> s.resultType))
@@ -176,7 +176,9 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
         // the refusal off: the setting took effect, or the sections were not checked under it.
         assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark,
           s"SELECT ntz FROM $VIEW WHERE ntz < ntzn").isPresent === !declines)
-        for (s <- sections().asScala) {
+        // The refusal also leaves the make_timestamp_ntz forms, whose sum is a check on the long
+        // lane, to the row path (VARKA-612), so the list is the one at each setting.
+        for (s <- sections(declines).asScala) {
           withClue(s"${s.title}, refusal $declines") {
             assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s.query).isPresent === s.fuses)
           }
@@ -207,7 +209,7 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
     val table = (columns ++ columns.map(c => s"case when id >= 2 then null else $c end as ${c}n"))
       .mkString("select ", ", ", s" from ($rowsSql)")
     withView(table) {
-      for (s <- sections().asScala) {
+      for (s <- sections(false).asScala) {
         withClue(s.title) {
           val nulls = answerOnBoth(s).count(_.isNullAt(0))
           assert(nulls === (if (s.nullColumns > 0) 2 else 0))

@@ -68,7 +68,7 @@ class VarkaTimestampNtzArithmeticBaselineQueriesSuite extends QueryTest with Var
       val schema = spark.table("varka_ntz_arith").schema
       assert(schema.map(f => f.name -> f.dataType) === expected)
 
-      val sections = VarkaTimestampNtzArithmeticBaselineBenchmark.sections().asScala
+      val sections = VarkaTimestampNtzArithmeticBaselineBenchmark.sections(false).asScala
       assert(sections.size === 12)
       // Every shape keeps the timestamp's type: the interval sums, timestampadd and time_bucket
       // all answer a TIMESTAMP_NTZ for a TIMESTAMP_NTZ operand.
@@ -104,7 +104,9 @@ class VarkaTimestampNtzArithmeticBaselineQueriesSuite extends QueryTest with Var
         // declines, so the same filter with it on proves the setting took effect.
         assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark,
           "SELECT ntz FROM varka_ntz_arith WHERE ntz < ntz2").isPresent === !declines)
-        for (s <- sections().asScala) {
+        // The refusal also leaves a projection holding a check on the long lane to the row path
+        // (VARKA-612), so the classes are the ones listed at each setting.
+        for (s <- sections(declines).asScala) {
           withClue(s"${s.title}, refusal $declines") {
             val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
             assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
@@ -150,7 +152,7 @@ class VarkaTimestampNtzArithmeticBaselineQueriesSuite extends QueryTest with Var
     }
     try {
       assert(columns.forall(c => spark.table("varka_ntz_arith").schema(c + "n").nullable))
-      for (s <- sections().asScala) {
+      for (s <- sections(false).asScala) {
         withClue(s.title) {
           val answer = spark.sql(s.query).collect().toSeq
           checkAnswer(varkaSpark.sql(s.query), answer)

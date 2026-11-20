@@ -3387,7 +3387,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Subtract(l, l2, EvalMode.ANSI), UnaryMinus(l, failOnError = true),
       Abs(l, failOnError = true))
     for (e <- checked) {
-      assert(reasons(e, twoLane) === Seq(VarkaNodeCompiler.TWO_LANE_CHECK_REASON), e)
+      assert(reasons(e, twoLane) === Seq(VarkaKernelPlan.TWO_LANE_CHECK_REASON), e)
       assert(reasons(e, VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
     }
     val wrapping = Seq(Add(l, l2, EvalMode.LEGACY), Abs(l, failOnError = false),
@@ -3395,8 +3395,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for (e <- wrapping) {
       assert(reasons(e, twoLane).isEmpty, e)
     }
-    // The scope is the BIGINT arms: TIMESTAMP_NTZ's checked difference (row 339) is untouched.
-    assert(reasons(SubtractTimestamps(ntz, ntz), twoLane).isEmpty)
+    // TIMESTAMP_NTZ's checked difference (row 339) builds the same long-lane check under another
+    // type: the kernel plan's admission refuses the entry whose tree holds it (VARKA-612).
+    assert(reasons(SubtractTimestamps(ntz, ntz), twoLane) ===
+      Seq(VarkaKernelPlan.TWO_LANE_CHECK_REASON))
+    assert(reasons(SubtractTimestamps(ntz, ntz), VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
   }
 
   test("a two-lane admission refuses a checked bigint and a decimal boolean in one projection") {
@@ -3413,7 +3416,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       new VarkaAdmission(java.util.Set.of(), true)).asScala.map { case (k, d) =>
         k.intValue -> d.reason }.toMap
     assert(twoLane === Map(0 -> VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON,
-      1 -> VarkaNodeCompiler.TWO_LANE_CHECK_REASON))
+      1 -> VarkaKernelPlan.TWO_LANE_CHECK_REASON))
     val partial = VarkaExpressionCompiler.compilePartial(list, columns,
       VarkaEmitOptions.DEFAULTS, new VarkaAdmission(java.util.Set.of(), true)).get
     assert(partial.specs.get(2).isInstanceOf[FusedOutput])

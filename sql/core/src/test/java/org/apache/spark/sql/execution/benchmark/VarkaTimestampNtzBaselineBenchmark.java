@@ -94,10 +94,13 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
   /**
    * Every section, in the order they run: each null density, then each shape, with the classes
    * a session plans them at when it does or does not refuse a filter's condition in a kernel
-   * driven at 64 bits, which the comparison's condition over the long lane is.
+   * driven at 64 bits, which the comparison's condition over the long lane is, and with it a
+   * projection holding a check on the long lane, which the arithmetic chain is.
    */
   static List<Section> sections(boolean declinesLongConditions) {
-    Fusion filter = declinesLongConditions ? Fusion.NONE : Fusion.WHOLE;
+    // The refusal also leaves the arithmetic chain to the row path: its difference and its shifts
+    // are checks on the long lane (VARKA-612).
+    Fusion twoLane = declinesLongConditions ? Fusion.NONE : Fusion.WHOLE;
     List<Section> out = new ArrayList<>();
     for (String nulls : new String[] {"", "n"}) {
       String a = "ntz" + nulls;
@@ -105,10 +108,10 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String c = "ntz3" + nulls;
       String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
       out.add(new Section("TIMESTAMP_NTZ comparison, " + density,
-          "SELECT " + a + " FROM varka_ntz WHERE " + a + " < " + b, filter));
+          "SELECT " + a + " FROM varka_ntz WHERE " + a + " < " + b, twoLane));
       out.add(new Section("TIMESTAMP_NTZ arithmetic chain, " + density,
           "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR AS v FROM varka_ntz",
-          Fusion.WHOLE));
+          twoLane));
       out.add(new Section("TIMESTAMP_NTZ cast to DATE, " + density,
           "SELECT CAST(" + a + " AS DATE) AS v FROM varka_ntz", Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ choice, " + density,

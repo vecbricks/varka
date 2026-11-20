@@ -194,7 +194,87 @@ declines filters, or a width-conditional lowering is built and measured. The mat
 
 ## 9. Outcome
 
-Not built.
+### 9.1 612a, built on 20 November 2026 (branch `varka-612-daytime-two-lanes`)
+
+Built locally while the owner was away; nothing pushed, no suite but the one targeted run below
+was run, and no runner was dispatched.
+
+* `VarkaKernelPlan`: `Kind.TWO_LANE_CHECK`, `TWO_LANE_CHECK_REASON` (moved from
+  `VarkaNodeCompiler`, the word "bigint" dropped) and `holdsTwoLaneCheck`, a walk with a `seen`
+  set like `readsDecimal`, asked by `hostRefusal` for every root that is not a condition. It
+  refuses an `IntArith` or `IntNeg` in `FAIL` or `NULL` whose lane is `LONG`, and a
+  `GuardedRange` whose child is on the `LONG` lane, in either mode.
+* `VarkaNodeCompiler.twoLaneChecked` stays and names the moved constant, so `EXPLAIN` still names
+  the declined `BIGINT` operation.
+* The javadocs that list what the two-lane setting refuses (`VarkaAdmission`,
+  `VarkaExpressionCompiler`'s `compilePartial` and entry pass) name the new case.
+* Tests written: `VarkaTwoLaneConditionSuite` (two tests: each check kind refused and admitted,
+  and the wrapping, blend and int-lane forms admitted on both settings);
+  `VarkaExpressionCompilerSuite` (the constant's new home, and the `TIMESTAMP_NTZ` difference,
+  which master's test pinned as untouched, now refused with the reason);
+  `VarkaDayTimeIntervalBaselineBenchmark` and its queries suite (the three checked arms `NONE`
+  under the refusal); `VarkaTwoLaneDefault128Suite.longLaneChecksDecline` (`dt + dt2`,
+  `abs(dt)`, `t + dts` over `TIME` and `ntz + dt` declined with the reason beside a fused
+  blend, at both densities, answers checked against Varka off, the reason in the formatted
+  `EXPLAIN`); and the census, a test of `VarkaCoverageSuite` that renders
+  `results/VARKA-612-refused.txt` (written only by `VARKA_COVERAGE_REGEN=true`, so the file is
+  owed with the regeneration).
+
+**Run.** `build/sbt catalyst/Test/compile sql/Test/compile` compiles; the one targeted run,
+`build/sbt 'catalyst/testOnly *VarkaTwoLaneConditionSuite *VarkaExpressionCompilerSuite'`,
+passed: 192 tests, 0 failed (20 November 2026, laptop). Every other suite named in 5 and 9.2 is
+owed.
+
+**Where the plan was wrong, or silent.**
+
+1. The plan's file table lists only the day-time suites, but the walk reaches every baseline
+   whose queries suite checks its sections' classes under both refusal settings
+   (`forEachTwoLaneRefusal`). See 9.2 for the ones changed and the ones owed.
+2. `VarkaExpressionCompilerSuite` pinned `SubtractTimestamps(ntz, ntz)` as untouched by the
+   two-lane setting. Under the tree check it is refused, as 2 item 3 predicted; the assert is
+   rewritten, not removed.
+3. The emitter has one more long-lane guard outside the three node kinds: the bounded `L2D` of a
+   `ConvertLane` (`VarkaConversionLowering`, `emitRangeGuard` over the long child). It is not
+   added to the walk: the conversions have their own refusal (`Kind.CONVERSION`,
+   `VarkaEmitOptions.convertsFallBack`), and row 584 measures them.
+
+### 9.2 The baselines the walk reaches, read from the compilers
+
+The walk reaches past the day-time arms, so every baseline whose queries suite checks its
+sections' classes under both refusal settings was read against it (a static reading of the
+compilers, no run). Nine sections in four more classes hold a long-lane check, each `WHOLE`
+today and `NONE` under the refusal at both densities, and their classes now depend on it:
+
+| class | sections | the check |
+|---|---|---|
+| `VarkaIntegralCastBaselineBenchmark` | `CAST(dt AS BIGINT)` | `GuardedRange` over `dt` (`VarkaTimeCompiler.dayTimeToLong`) |
+| `VarkaTimestampNtzFieldsBaselineBenchmark` | `make_timestamp_ntz(d, tm)`, `CAST(tm AS TIMESTAMP_NTZ)` | the midnight plus the time, `FAIL` |
+| `VarkaTimestampNtzBaselineBenchmark` | the arithmetic chain | the difference and the shift, `FAIL` |
+| `VarkaTimestampNtzArithmeticBaselineBenchmark` | the chain, `ntz + dt`, `timestampadd(HOUR, q, ntz)` | `FAIL` adds and subtracts |
+
+The three classes whose `sections()` took no refusal take it now, their runs resolve it from the
+Varka session as `VarkaTimestampNtzBaselineBenchmark` already did, and their queries suites check
+each setting's list. Judged unaffected on the reading: the `DOUBLE` divisions (their checks are
+on the `DOUBLE` lane), the month shift of a `TIMESTAMP_NTZ` (its guard is on the int day), the
+`TIMESTAMP_NTZ` fields and the decimal `TIME` outputs (wrapping or `ConstDivide` only), and the
+math, rounding, floating, floating-cast and boolean-output baselines. This reading is the
+prediction the owed runs of those suites score; the census file is its exhaustive form.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **Question 10.1: the tree check.** Taken as recommended (3.1), because the brief has the plan's
+   recommendation decide and the per-arm form would leave the `TIME`, `TIMESTAMP_NTZ` and decimal
+   checks fused on a host where the same mask runs as the fallback. The cost the question names
+   stands: those families are declined on the mechanism, with no 128-bit number of any of them
+   fused. The census file and the 128-bit runner rerun of their baselines are what would show a
+   win given up; both are owed.
+2. **The lane of the walk: `LONG` only, not every 64-bit lane.** A `DOUBLE` lane has no check of
+   these kinds (`IntArith` and `IntNeg` are `WRAP` there by construction, and no compiler guards a
+   double child with a `GuardedRange`), so the plan's `LONG` is kept as written.
+3. **Question 10.2: 612b in this row, on a stacked branch, default left at `MASK`.** Taken as
+   recommended. The scope question (a piece of `m9/SCOPE.md` item 101 inside milestone 8) is the
+   owner's to overturn; the branch is separate so that 612a can merge without it, and the default
+   cannot move before the runner measurement of 6.1 predictions 3 and 4.
 
 ## 10. Questions for the owner
 

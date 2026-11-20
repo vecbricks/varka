@@ -21,6 +21,7 @@ import java.util.List;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
+import org.apache.spark.sql.execution.VarkaSessionEmit;
 
 /**
  * The baseline for {@code TIMESTAMP_NTZ} arithmetic before Varka fuses it (VARKA-339 5, step 1):
@@ -139,8 +140,14 @@ public class VarkaTimestampNtzArithmeticBaselineBenchmark extends VarkaSqlBenchm
         + "from range(0, " + rows + "))";
   }
 
-  /** Every section, in the order they run: each null density, then each shape. */
-  static List<Section> sections() {
+  /**
+   * Every section, in the order they run: each null density, then each shape, with the classes a
+   * session plans them at when it does or does not refuse a kernel driven at 64 bits that holds a
+   * check on the long lane at two lanes (VARKA-612): the chain's difference, the interval column's
+   * sum and the {@code timestampadd} are such checks, the month shift's long operations wrap.
+   */
+  static List<Section> sections(boolean declinesTwoLaneChecks) {
+    Fusion checked = declinesTwoLaneChecks ? Fusion.NONE : Fusion.WHOLE;
     List<Section> out = new ArrayList<>();
     for (String nulls : new String[] {"", "n"}) {
       String a = "ntz" + nulls;
@@ -151,13 +158,13 @@ public class VarkaTimestampNtzArithmeticBaselineBenchmark extends VarkaSqlBenchm
       String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
       String from = " AS v FROM varka_ntz_arith";
       out.add(new Section("TIMESTAMP_NTZ arithmetic chain, " + density,
-          "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR" + from, Fusion.WHOLE));
+          "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR" + from, checked));
       out.add(new Section("TIMESTAMP_NTZ plus a day-time interval column, " + density,
-          "SELECT " + a + " + " + dt + from, Fusion.WHOLE));
+          "SELECT " + a + " + " + dt + from, checked));
       out.add(new Section("TIMESTAMP_NTZ plus INTERVAL '1' MONTH, " + density,
           "SELECT " + a + " + INTERVAL '1' MONTH" + from, Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ timestampadd(HOUR, q, ntz), " + density,
-          "SELECT timestampadd(HOUR, " + q + ", " + a + ")" + from, Fusion.WHOLE));
+          "SELECT timestampadd(HOUR, " + q + ", " + a + ")" + from, checked));
       out.add(new Section("TIMESTAMP_NTZ time_bucket at 15 minutes, " + density,
           "SELECT time_bucket(INTERVAL '15' MINUTE, " + a + ")" + from, Fusion.NONE));
       out.add(new Section("TIMESTAMP_NTZ time_bucket at one day, " + density,
@@ -180,10 +187,12 @@ public class VarkaTimestampNtzArithmeticBaselineBenchmark extends VarkaSqlBenchm
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView("varka_ntz_arith");
         VarkaArrowSessions.cache(session, "varka_ntz_arith");
       }
-      // A section fuses as its class says, and one that fuses whole runs every batch as a
-      // kernel. The batch check finds a Varka projection, which a WHOLE section here has: none
-      // of them filters.
-      for (Section s : sections()) {
+      // A section fuses as its class says at the refusal the Varka session resolves, and one
+      // that fuses whole runs every batch as a kernel. The batch check finds a Varka projection,
+      // which a WHOLE section here has: none of them filters.
+      List<Section> sections = sections(
+          VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
+      for (Section s : sections) {
         requireBaseline(varka, s.title(), s.query(), s.fusion());
         if (s.fusion() == Fusion.WHOLE) {
           try {
@@ -195,7 +204,7 @@ public class VarkaTimestampNtzArithmeticBaselineBenchmark extends VarkaSqlBenchm
           }
         }
       }
-      for (Section s : sections()) {
+      for (Section s : sections) {
         section(s.title(), () -> {
           VarkaBenchmark benchmark = benchmark(
               s.title() + " over " + NUM_ROWS + " Arrow-cached rows", NUM_ROWS).timed().build();

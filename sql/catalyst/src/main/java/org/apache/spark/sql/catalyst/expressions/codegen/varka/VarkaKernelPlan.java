@@ -28,7 +28,9 @@ import java.util.Set;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -70,7 +72,16 @@ public final class VarkaKernelPlan {
      */
     TWO_LANE_CONDITION,
     /** A per-lane math call at a width with no baked lane count. */
-    MATH_CALL
+    MATH_CALL,
+
+    /**
+     * A projection root whose tree holds a check that raises or nulls on a 64-bit integral lane -
+     * an {@code ANSI} or {@code TRY} add, subtract, multiply, negation or {@code abs}, or a range
+     * guard over a long value - on the same host as {@link #TWO_LANE_CONDITION}
+     * ({@link #TWO_LANE_CHECK_REASON}): the check's test is a long-lane mask. A refusal of the
+     * host, asked for at admission only, like that one.
+     */
+    TWO_LANE_CHECK
   }
 
   private final Optional<Refusal> refusal;
@@ -238,6 +249,16 @@ public final class VarkaKernelPlan {
       + "and the compare would run the Vector API's Java fallback, slower than the row engine";
 
   /**
+   * The reason a projection entry records where {@link #hostRefusal} refuses a check on a 64-bit
+   * lane in its tree ({@link Kind#TWO_LANE_CHECK}). The compiler's own decline of a checked
+   * {@code BIGINT} operation, which names the operation rather than the entry, records it too.
+   */
+  public static final String TWO_LANE_CHECK_REASON = "a checked operation on a 64-bit lane, on "
+      + "an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a "
+      + "long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's "
+      + "Java fallback";
+
+  /**
    * Whether {@code host}, read on this JVM, runs every mask of a 64-bit species as the Vector
    * API's Java fallback: {@link #twoLaneMasksFallBack(VarkaHostIsa.Reading, int)} of the reading
    * and this JVM's preferred long species. The lane count is the running JVM's own,
@@ -340,6 +361,19 @@ public final class VarkaKernelPlan {
    * {@code BIGINT}, whose load is one plain vector, ran at 1.6X and more, and {@code x < x2} over
    * {@code DOUBLE} tied ({@code m8/results/VARKA-596/}). A refused output leaves the other entries
    * to fuse.
+   *
+   * <p>A projection root of any type is refused where its tree holds a check that raises or
+   * nulls on the long lane ({@link #holdsTwoLaneCheck}, VARKA-612): an {@link IntArith} or
+   * {@link IntNeg} in {@code FAIL} or {@code NULL}, or a {@link GuardedRange} over a long value.
+   * Each tests its lanes with a long-lane mask, so the check runs as the fallback whatever the
+   * output's type. The fused day-time interval arms that carry one - {@code dt + dt2 - dt},
+   * {@code abs(dt)}, {@code dt * 3} - ran at 0.5X to 0.7X of the row path at two lanes with one
+   * row in ten null, against 3.9X to 4.4X at four ({@code m8/VARKA-612.md} 2); the {@code TIME},
+   * {@code TIMESTAMP_NTZ} and decimal checks build the same nodes and are refused by the
+   * mechanism, untimed. The compiler declines a checked {@code BIGINT} operation itself, before
+   * the tree is built, so that {@code EXPLAIN} names the operation; this walk is the net under
+   * every family. A blend, a {@code LEGACY} or lattice-demoted {@code WRAP} form and an int-lane
+   * check make no long mask of a check and are admitted.
    */
   private static Optional<Refusal> hostRefusal(List<VarkaVectorIR> roots, VarkaKernelPlan plan) {
     if (plan.drive.bits() != 64) {
@@ -352,8 +386,39 @@ public final class VarkaKernelPlan {
       if (root instanceof VarkaVectorIR.BoolOutput && readsDecimal(root, new HashSet<>())) {
         return Optional.of(new Refusal(Kind.TWO_LANE_CONDITION, TWO_LANE_DECIMAL_VALUE_REASON));
       }
+      if (holdsTwoLaneCheck(root, new HashSet<>())) {
+        return Optional.of(new Refusal(Kind.TWO_LANE_CHECK, TWO_LANE_CHECK_REASON));
+      }
     }
     return Optional.empty();
+  }
+
+  /**
+   * Whether {@code node}'s tree holds a check that raises or nulls on the long lane: an
+   * {@link IntArith} or {@link IntNeg} whose mode is not {@code WRAP}, or a
+   * {@link GuardedRange} over a long value. The stored-values guard of a date column
+   * ({@code Analysis.guardsStoredValues}), which folds a min and a max rather than making a mask,
+   * is on the int lane and so is never one. {@code seen} holds the nodes already walked.
+   */
+  private static boolean holdsTwoLaneCheck(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
+    boolean check = switch (node) {
+      case IntArith a -> a.mode() != Overflow.WRAP && a.laneType() == LaneType.LONG;
+      case IntNeg n -> n.mode() != Overflow.WRAP && n.laneType() == LaneType.LONG;
+      case GuardedRange g -> g.child().laneType() == LaneType.LONG;
+      default -> false;
+    };
+    if (check) {
+      return true;
+    }
+    if (!seen.add(node)) {
+      return false;
+    }
+    for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+      if (holdsTwoLaneCheck(child, seen)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
