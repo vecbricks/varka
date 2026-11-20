@@ -1,0 +1,84 @@
+VARKA-605 readings: the compiled test's unsettled long-lane kernels, sanitized and plain
+=========================================================================================
+
+Machine: the laptop, AMD Ryzen AI 9 HX PRO 370 (AVX-512, 24 threads), openjdk 25.0.5.1.
+Code: origin/master 0b8be5a33e4 plus one test line that names the sampled rows in the compiled
+test's info output (VarkaCoverageCompositionFuzzSuite, this task's branch).
+Build: dev/varka_matrix.sh --module catalyst --list (catalyst test classes, exported classpath and
+JVM options in target/varka-matrix/), then build/sbt catalyst/Test/compile after the test line.
+The laptop was shared with other agents' JVMs: one-minute load 28 to 65 on 24 threads during every
+run below, recorded per run. Times are UTC, 20 November 2026.
+
+Every run is one JVM, plain java on the catalyst test classpath, as #1500 ran it:
+
+  SPARK_TESTING=1 SPARK_SCALA_VERSION=2.13 SPARK_LOCAL_IP=127.0.0.1 java $(cat jvm.opts) \
+    -Djava.io.tmpdir=<dir>/tmp -Dvarka.ownJvm=true -Dvarka.fuzz.seed=20261111 <PROPS> \
+    -Dspark.test.timeout=60 -Dvarka.test.watchdog.minutes=60 \
+    -cp sql/catalyst/target/scala-2.13/classes:$(cat classpath) org.scalatest.tools.Runner -oW \
+    -s org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaCoverageCompositionFuzzSuite \
+    -z "coverage rows' kernels agree with the reference evaluator as C2 code"
+
+The compiled test is the suite's first registered test, so in a whole-suite JVM nothing of the
+suite runs before it; the -z form is the whole suite's JVM history up to that test's end.
+<PROPS> per run below. "traps" counts distinct profile_predicate trap events (timestamp and
+compile id) in -Xlog:deoptimization=debug on the kernel's loopMasked0, by trapping bytecode index.
+Kernel class wfuzz<3k+1> is sampled row k's warm-same class and wfuzz<3k+2> its quiet-null class.
+
+R1: the narrow replay, nullif(ntz, ntz2) alone, sanitized
+---------------------------------------------------------
+PROPS: -Dvarka.sanitizeMemory=true -Dvarka.fuzz.coverageRow="nullif(ntz, ntz2)"
+       -Dvarka.fuzz.history=<h> -Xlog:deoptimization=debug:file=deopt.log
+
+  run              unsettled  traps on loopMasked0         load at start  start
+  warm-same 1      0          1 at bci 205                 60.30          07:25:45
+  warm-same 2      0          2 at bci 205                 59.15          07:26:32
+  warm-same 3      0          1 at bci 205                 57.71          07:27:24
+  quiet-null 1     0          1 at bci 205                 55.60          07:28:07
+  quiet-null 2     0          1 at bci 205                 57.75          07:29:00
+  quiet-null 3     0          1 at bci 205                 64.94          07:30:01
+
+R1 does not reproduce: 0 of 6 unsettled (no "unsettled:" line; with one history a case has a
+single run, so the tally prints no per-lane line, see the task file's 11.3).
+
+R2: the compiled test at seed 20261111, the seed's sample of today's table
+-------------------------------------------------------------------------
+PROPS: -Dvarka.sanitizeMemory=<true|false> -Dvarka.fuzz.compositions=400
+       -Xlog:deoptimization=debug:file=deopt.log
+
+The sample is no longer #1500's. The table has 539 rows and LaneType has four values, so the
+test takes 4 rows of each of INT, LONG, FLOAT and DOUBLE, 16 rows, 8 a tallied lane. The run
+names them:
+
+  INT:    (year(d) = 2021 AND i > 0) IS TRUE; zeroifnull(i); d - ym; shiftright(i, i)
+  LONG:   timestampadd(MONTH, l, ntz); CAST(ntz AS TIME(3)); try_subtract(l, l2); nullif(t, t2)
+  FLOAT:  equal_null(f, f2); nvl2(f, f2, f); f < f2; ifnull(f, f2)
+  DOUBLE: nvl(x, x2); x <> x2; x + x2; if(x IS NULL, x2, NULL)
+
+nullif(ntz, ntz2) is not in it. The long-tallied lane (LONG and DOUBLE), settled of 8:
+
+  run        sanitizer  warm-same  quiet-null  unsettled rows (both histories unless noted)    load    start
+  s1         on         5/8        5/8         try_subtract(l, l2); nullif(t, t2);               55.08   07:31:16
+                                               if(x IS NULL, x2, NULL)
+  p1         off        7/8        6/8         try_subtract(l, l2); nullif(t, t2) quiet-null     45.50   07:36:54
+  s2         on         8/8        8/8         none                                              35.23   07:41:26
+  s3         on         5/8        5/8         try_subtract(l, l2); nullif(t, t2);               37.83   07:43:58
+                                               if(x IS NULL, x2, NULL)
+
+The int-tallied lane settled 8/8 in both histories in all four runs. Every unsettled line reads
+"traps {profile_predicate=7..24[, unstable_if=1..2]} levels {epilogueMasked0=4, loopMasked0=0}":
+the epilogue is C2 code and the masked loop is not, at the deadline.
+
+Traps on the unsettled rows' loopMasked0 (warm-same class / quiet-null class):
+
+  row                          bci     s1      p1      s2      s3
+  try_subtract(l, l2)          205     1/1     0/0     1/1     1/1
+                               392     5/4     21/20   9/8     8/8
+  nullif(t, t2)                205     1/1     0/0     2/1     1/1
+                               412     6/6     9/17    4/8     7/10
+  if(x IS NULL, x2, NULL)      195     2/1     0/0     1/2     1/1
+                               362     7/7     0/0     0/0     11/9
+
+So the case reproduces at the seed under another row name, sanitized in 2 of 3 runs, and the
+plain control reproduces it too (2 of the same rows): the sanitizer is not needed for it. In s2,
+the run that settled everything, the same classes still trapped 4 to 9 times at the same
+bytecodes before settling inside the deadline.

@@ -1022,7 +1022,8 @@ class VarkaCoverageCompositionFuzzSuite
       for ((sql, plan) <- kernels) {
         tally.add(runCompiled(sql, plan, opts, settings))
       }
-      info(s"${kernels.size} of $rowCount coverage rows' kernels")
+      info(s"${kernels.size} of $rowCount coverage rows' kernels: " +
+        kernels.map { case (sql, plan) => s"$sql (${plan.lane(opts)})" }.mkString("; "))
       if (settings.witnessed) VarkaTierWitness.get().settle()
       tally.report(settings.witnessed).asScala.foreach(info(_))
       if (settings.witnessed) {
