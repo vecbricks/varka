@@ -16804,12 +16804,10 @@
       "16" : "428658efc530520b"
     },
     "narrowGroupStore=MASKED over lanesOverride=4" : {
-      "4" : "cb156d14546b2e72",
-      "16" : "cb156d14546b2e72"
+      "4" : "cb156d14546b2e72"
     },
     "narrowGroupStore=COMBINED over lanesOverride=4" : {
-      "4" : "d8ad86a8c79b4182",
-      "16" : "d8ad86a8c79b4182"
+      "4" : "d8ad86a8c79b4182"
     },
     "narrowLanes=true" : {
       "4" : "eec478b80a6fdf68",
