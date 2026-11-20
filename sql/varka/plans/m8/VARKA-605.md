@@ -109,7 +109,7 @@ None.
 |---|---|
 | `results/VARKA-605-readings.txt` | R1 to R4, commands and tallies |
 | `VarkaCompiledCheck.java` | ending 3 only: the expected-unsettled table and its tally line |
-| `VarkaCoverageCompositionFuzzSuite.scala` | ending 3 only: a test of the table's tally lines |
+| `VarkaCoverageCompositionFuzzSuite.scala` | names its sample (built); ending 3: a tally test |
 
 ## 5. Tests, and what each is for
 
@@ -211,14 +211,15 @@ run's command, tally, trap counts and load are in `results/VARKA-605-readings.tx
    `if_icmpge 415`. That is row 383's trap: the same reason and action, on the same construct
    (`VARKA-383.md` 9.3 found `goto 241`, the back edge, at bytecode 566). The compared calls show
    the lower tier: in `warm-same`, sanitized run 1 counted 5 cases `all C2` and 3 `all mixed`,
-   one for each case left unsettled.
+   as many as it left unsettled (a count that matches, not a tier read per row).
    A sixfold deadline does not settle it: at `-Dvarka.fuzz.settleMillis=60000` two of the rows
    were still unsettled with 42 to 52 back-edge traps a class, about one every 1.2 s, so it is a
    cycle and not a deadline starved by load. Alone, a row's loop traps at its head (bytecode 205)
    once or twice and never at its back edge.
 5. **The sanitizer is not in the loop.** The kernel maps its buffers through
    `VarkaVectorSupport.ofAddress`, whose sanitizer check runs at bytecodes 34 to 173, before the
-   loop; the loop body calls only `validityBitsAt8`, `orValidityBitsAt8` and Vector API methods.
+   loop; the loop body calls only `validityBitsAt8`, `orValidityBitsAt8` (a byte get and set on
+   the validity segment, no sanitizer branch) and Vector API methods.
    So no hoisted window test can be the failing predicate, and row 430's mechanism is ruled out
    for this kernel.
 6. **The case depends on what the JVM compiled before it.** `try_subtract(l, l2)` and
@@ -229,8 +230,10 @@ run's command, tally, trap counts and load are in `results/VARKA-605-readings.tx
    Vector API), which every kernel shares; this is an inference, not a reading.
 7. **R4, the flag, settles it.** With `-XX:+UnlockDiagnosticVMOptions
    -XX:-UseProfiledLoopPredicate`, sanitized, the three rows settled in 3 of 3 runs, and the logs
-   hold no `profile_predicate` trap at all. One of the three (load 68) left three other rows
-   unsettled with no trap and their epilogues at no tier: a starved compile queue, not this case.
+   hold no `profile_predicate` trap at all. One of the three (load 68) left two other rows
+   unsettled in three cases (`timestampadd(MONTH, l, ntz)` in both histories, `d - ym` in
+   `quiet-null`) with no `profile_predicate` trap (one `unstable_if` for `d - ym`) and their
+   epilogues at no tier: a starved compile queue, not this case.
 
 ### 11.2 The ending
 
@@ -249,9 +252,12 @@ stale in every single-row replay (R1, R1b) and miss the other rows the sample ha
    held**. 2 of 3 sanitized runs reproduced, but no plain run of three settled 8 of 8, and the
    sample R2 ran was not the one the prediction assumed.
 3. `loopMasked0` traps at `profile_predicate` and R4 settles it in at least 2 of 3: **held** (3 of
-   3). The bytecode did not separate 383 from 430 the way risk 2 said: a profile predicate's trap
-   is reported at its loop's bytecode whichever test was hoisted into it (HotSpot's
-   `GraphKit::add_parse_predicates` at the loop head, `parse1.cpp`); what separated them was the
+   3). The bytecode did not separate 383 from 430 the way risk 2 said: C2 places a loop's parse
+   predicates, the profile predicate among them, at the loop's entry (at the `if` dominating the
+   loop, `Parse::maybe_add_predicate_after_if` in `parse2.cpp`, or at the head block's start in
+   `parse1.cpp`), and every predicate hoisted into the loop traps there, so the trap's bytecode is
+   a position in the loop whichever test failed. Why the cycling trap reports the back edge's
+   `goto` rather than the head is observed, not explained. What separated 383 from 430 was the
    plain control and the place of the sanitizer's check in the bytecode.
 4. Time, R1 about 1 minute a run, R2 3 to 6 minutes, all under 45 minutes: **held for R1**
    (45 to 60 s), **R2 within its range** (2.5 to 5.7 minutes); the whole set took about 70 minutes

@@ -6,8 +6,8 @@ Code: origin/master 0b8be5a33e4 plus one test line that names the sampled rows i
 test's info output (VarkaCoverageCompositionFuzzSuite, this task's branch).
 Build: dev/varka_matrix.sh --module catalyst --list (catalyst test classes, exported classpath and
 JVM options in target/varka-matrix/), then build/sbt catalyst/Test/compile after the test line.
-The laptop was shared with other agents' JVMs: one-minute load 28 to 65 on 24 threads during every
-run below, recorded per run. Times are UTC, 20 November 2026.
+The laptop was shared with other agents' JVMs: one-minute load 19 to 68 on 24 threads during the
+runs below, recorded per run. Times are UTC, 20 November 2026.
 
 Every run is one JVM, plain java on the catalyst test classpath, as #1500 ran it:
 
@@ -38,7 +38,7 @@ PROPS: -Dvarka.sanitizeMemory=true -Dvarka.fuzz.coverageRow="nullif(ntz, ntz2)"
   quiet-null 3     0          1 at bci 205                 64.94          07:30:01
 
 R1 does not reproduce: 0 of 6 unsettled (no "unsettled:" line; with one history a case has a
-single run, so the tally prints no per-lane line, see the task file's 11.3).
+single run, so the tally prints no per-lane line, see the task file's 11.4).
 
 R2: the compiled test at seed 20261111, the seed's sample of today's table
 -------------------------------------------------------------------------
