@@ -584,7 +584,7 @@ lane with the lane's extremes, and the batches with nulls answer.
 **Tests.**
 
 * `VarkaExpressionCompilerSuite`, two tests: the IR of `bit_get` at each target type, by a literal
-  and by a column (the guard's bounds 7, 15, 31 and 63, the literal tables), the five literal
+  and by a column (the guard's bounds 7, 31 and 63, the `SMALLINT` literal 15, the literal tables), the five literal
   declines and their reason; `bit_count` of a boolean column, of an int and a long comparison
   (the narrowing) and of a narrow one (an int value).
 * `VarkaEmitterBitGetSuite`, new, JUnit under `@VarkaSuite(ownJvm = true)`: each expression
@@ -611,9 +611,19 @@ lane with the lane's extremes, and the batches with nulls answer.
   `getbit(l, 63)`, `bit_get(l, i)` (`i BETWEEN 0 AND 63`), `bit_count(b)` in the bitwise
   family, and `bit_get(y1, 7)` and `bit_get(s1, i)` (`i BETWEEN 0 AND 15`) in the narrow one.
   `VarkaDomains`' edges fixture gains the `i` values -1, 15, 16, 31, 32, 63 and 64, the guards'
-  ends and one past each (0 was there).
+  ends and one past each, and 0.
 
-@RESULTS@
+**What the regeneration moved** (`dev/varka_regen_generated.sh --all`, every step passing).
+`coverage.json` and `docs/sql-varka.md` gained the seven rows; `emitted_bytes.json` gained their
+hashes at both lane counts, and the aggregate option-arm hashes moved, as section 9.4's rows moved
+them; no existing row's method hash changed. `width_audit.json` gained the rows: none is refused at
+512 or 256 bits, and at 128 bits `bit_get(l, i)` carries the six refusals every masked long-lane row
+carries at two long lanes; its header's JDK moved from `25.0.5.0.3` to `25.0.5.1`, the laptop's JDK
+having been updated in place this morning. The census:
+
+| | prediction (before the census ran) | measured | |
+| :-- | :-- | :-- | :-- |
+| 1 | fused pairs move by 9, fully fused entries by 3 | 533 to 542 pairs, 65 to 68 entries | held, exactly |
 
 **Not done here, and why.** No benchmark: section 6 claims no speed for the family, and a
 shift and a mask restate the int and long lanes' numbers. No fuzz-grammar draw: the narrow and
@@ -634,7 +644,7 @@ cancels with the width-decline reasons the integral-cast suite uses, which may w
    taken. Its cost is the over-decline above, a batch with a null target beside a bad position;
    a guard under the row's validity would need a node this row does not add.
 2. **The narrow targets compute at the int lane**, widened by their sign, rather than as a
-   narrow-lane shift: section 1's "the narrow shifts as int shifts over a cast", and a byte
+   narrow-lane shift: row 335's text in `m8/PLAN.md`, "the narrow shifts as int shifts over a cast", and a byte
    lane's vector shift masks its count to three bits, which the guard makes moot but a reader
    would have to check.
 3. **`bit_count(bool)` is built in `VarkaNodeCompiler`**, mirroring `VarkaIntegralCastCompiler`'s
