@@ -911,8 +911,16 @@ public final class VarkaEmitterNarrowArithSuite {
     // the second group's store, and quarter(d) then reads that group's unwritten scratch as
     // month 0 and answers 0 where the reference answers the quarter. The MASKED instance of the
     // same stale set has no reproducing shape; VARKA-603.md 10 records the shape tried.
+    // The two loop methods are the emit defaults' grouping of these roots: a matrix
+    // configuration that changes the group budget or the method byte budget, or stops sharing
+    // the prefix, puts the outputs in one method and leaves no prefix to cross, so those three
+    // are pinned to the defaults (as VarkaEmitterValiditySuite pins them for VARKA-411).
+    VarkaEmitOptions defaults = VarkaEmitOptions.DEFAULTS;
     VarkaEmitOptions options = VarkaMatrixRuns.BASE.toBuilder().lanesOverride(4)
-        .narrowGroupStore(NarrowGroupStore.COMBINED).build();
+        .narrowGroupStore(NarrowGroupStore.COMBINED)
+        .groupBudget(defaults.groupBudget())
+        .methodByteBudget(defaults.methodByteBudget())
+        .shareChronoPrefix(defaults.shareChronoPrefix()).build();
     Attribute i = VarkaSqlResolve.column("i", IntegerType$.MODULE$);
     Attribute d = VarkaSqlResolve.column("d", new DateType());
     List<Expression> exprs = List.of(
