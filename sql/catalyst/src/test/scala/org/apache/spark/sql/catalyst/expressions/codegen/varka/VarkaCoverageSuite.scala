@@ -1295,7 +1295,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("b BETWEEN b2 AND b", "false before true: two orderings and an AND"),
       Row("equal_null(b, b2)"))),
     // The null family over DECIMAL columns within 18 digits (VARKA-578), under a comparison or a
-    // null test, since a decimal value is no output yet (row 348's part 348b). Coercion gives
+    // null test; the family "DECIMAL values" holds the choices as outputs. Coercion gives
     // every operand of a function one type, widerDecimalType's, so a column of the smaller scale
     // carries its rescale. The null of nullif, nullifzero and a CASE without an ELSE is the long
     // lane's NullValue, and its null test is false. The int zero's cast is a constant, which the
@@ -1634,6 +1634,25 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("-(d9 + d9b) = d9s4", "the negation of a sum, compared at DECIMAL(12, 4)"),
       Row("try_multiply(d8, d9) IS NULL", "null only where an operand is: no product within "
         + "18 digits overflows, so TRY's null past the precision never fires"))),
+
+    // DECIMAL values within 18 digits as a projection's output (VARKA-348b): each is the value a
+    // comparison reads, written by the decimal store (VARKA-157), the low word and its sign
+    // extension per sixteen-byte slot. Every value is within its type's precision, so the store
+    // needs no check, and each kernel checks the slots it loads as the predicates' do.
+    Family("DECIMAL values", predicates = false, Seq(
+      Row("CASE WHEN d9 < d9b THEN d9 ELSE d9b END", "a DECIMAL(9, 2) choice, the comparison "
+        + "and the blend on the long lane"),
+      Row("if(d9 < d9b, d18, d18b)", "a DECIMAL(18, 2) choice under a DECIMAL(9, 2) condition"),
+      Row("coalesce(d9, d9s4)", "DECIMAL(11, 4): d9 times 10^2, then the first valid operand"),
+      Row("greatest(d18, d18b)", "the null-skipping pick, of one scale"),
+      Row("least(d9, d9s4)", "the null-skipping pick at DECIMAL(11, 4), d9 carrying its "
+        + "rescale"),
+      Row("-d18", "a negation, which cannot overflow: an unscaled value within 18 digits is "
+        + "never the long lane's minimum"),
+      Row("abs(d18)", "a compare with zero, a negation and a blend; the lanewise ABS is the "
+        + "decimalAbsLanewise option"),
+      Row("try_subtract(d9, d9s4)", "DECIMAL(12, 4), row 349's difference stored by the same "
+        + "path: no difference within 18 digits overflows, so TRY's null never fires"))),
 
     Family("Time arithmetic", predicates = false, Seq(
       Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),
@@ -2237,7 +2256,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "DECIMAL lane pair" -> Proved("decimal128.smt2"),
     // The 64-bit decimal rows, each refined whole from the IR the compiler builds (VARKA-506).
     "DECIMAL columns" -> Rendered,
-    "DECIMAL arithmetic" -> Rendered)
+    "DECIMAL arithmetic" -> Rendered,
+    "DECIMAL values" -> Rendered)
 
   // The pair's null tests and its null-safe equality: decimal128.smt2 models the words' values,
   // not their validity, so these rows are checked by the differential suites alone.

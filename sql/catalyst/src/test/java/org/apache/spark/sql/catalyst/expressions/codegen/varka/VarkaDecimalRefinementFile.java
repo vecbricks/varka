@@ -64,9 +64,9 @@ final class VarkaDecimalRefinementFile {
   static final String IN_SET = "d18 IN (11 to 16 decimal literals)";
 
   /**
-   * The rows of {@code VarkaCoverageSuite}'s families "DECIMAL columns" (VARKA-347, VARKA-348)
-   * and "DECIMAL arithmetic" (VARKA-349), in its order; that suite fails a row of either family
-   * this file does not echo, so the list cannot fall behind the table.
+   * The rows of {@code VarkaCoverageSuite}'s families "DECIMAL columns" (VARKA-347, VARKA-348),
+   * "DECIMAL arithmetic" (VARKA-349) and "DECIMAL values" (VARKA-348b), in its order; that suite
+   * fails a row of any of them this file does not echo, so the list cannot fall behind the table.
    */
   static final List<String> SHAPES = List.of("d9 < d9b", "d9 <= d9b", "d9 > d9b", "d9 >= d9b",
       "d9 = d9b", "d9 <> d9b", "d9 <=> d9b", "d9 = 0.42", "d9 < d18", "d18 < d18b", "d18 = d18b",
@@ -77,7 +77,9 @@ final class VarkaDecimalRefinementFile {
       "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0", "d9 IN (0.42, 0.00, -1.25)",
       "d9 IN (0.425, 1.5)", IN_SET, "d9 + d9b < d18", "d9 - d8 >= d9b", "d8 * d9 <= d9b",
       "try_add(d9, d9b) > d18", "d9 * 0.5 > d9b", "d9 + 1.5 < d9b", "d9 - d9s4 > 0.00",
-      "d9 + d16s9 > d9s4", "-(d9 + d9b) = d9s4", "try_multiply(d8, d9) IS NULL");
+      "d9 + d16s9 > d9s4", "-(d9 + d9b) = d9s4", "try_multiply(d8, d9) IS NULL",
+      "CASE WHEN d9 < d9b THEN d9 ELSE d9b END", "if(d9 < d9b, d18, d18b)", "coalesce(d9, d9s4)",
+      "greatest(d18, d18b)", "least(d9, d9s4)", "-d18", "abs(d18)", "try_subtract(d9, d9s4)");
 
   private static Attribute column(String name, int precision, int scale) {
     return VarkaSqlResolve.column(name, DataTypes.createDecimalType(precision, scale));
@@ -111,14 +113,15 @@ final class VarkaDecimalRefinementFile {
     var out = new StringBuilder(VarkaProofFiles.LICENSE);
     out.append("""
         ; The 64-bit decimal kernels refined against Spark (VARKA-506 2.6). Per coverage row of the
-        ; families "DECIMAL columns" and "DECIMAL arithmetic", compiled as VarkaCoverageSuite
-        ; compiles it under an ANSI and a LEGACY session: the kernel printed by VarkaSmtNodes from
-        ; the IR the compiler built, its decline the emitter's guards on the lanes Analysis
-        ; qualifies them by, every long in the word form with its obligations; and the
-        ; specification read from Spark's analyzed expression into decimal_spec.smt2's spec.dec.*,
-        ; a column's valid slot past its precision raising as Spark's reader does, a result past
-        ; its type's precision raising under ANSI and null otherwise. The five checks are
-        ; refinement.smt2's; a row whose two sessions print alike is checked once.
+        ; families "DECIMAL columns", "DECIMAL arithmetic" and "DECIMAL values", compiled as
+        ; VarkaCoverageSuite compiles it under an ANSI and a LEGACY session (a predicate as a
+        ; filter's condition, a value as a projection's output): the kernel printed by
+        ; VarkaSmtNodes from the IR the compiler built, its decline the emitter's guards on the
+        ; lanes Analysis qualifies them by, every long in the word form with its obligations;
+        ; and the specification read from Spark's analyzed expression into decimal_spec.smt2's
+        ; spec.dec.*, a column's valid slot past its precision raising as Spark's reader does, a
+        ; result past its type's precision raising under ANSI and null otherwise. The five checks
+        ; are refinement.smt2's; a row whose two sessions print alike is checked once.
         ;
         ; Refused, each keeping the verification VarkaCoverageSuite names for it:
         """);
@@ -167,9 +170,6 @@ final class VarkaDecimalRefinementFile {
       Outcome p = VarkaSmtSamples.printed(o, root, words);
       var spec = new Spec(k.inputOrdinals());
       Spec.Value s = spec.of(e);
-      if (s.precision() >= 0) {
-        throw new Refused("not a predicate");
-      }
       String raises = Spec.or(s.raise(), Spec.any(spec.reads));
       var setup = setup(printer.facts, spec.ordinals, List.of(p.decline(), p.valid(), p.data()),
           words.obligations);
@@ -209,15 +209,30 @@ final class VarkaDecimalRefinementFile {
     return new InSet(COLUMNS.get(2), CollectionConverters.asScala(set).toSet());
   }
 
-  /** The row's one fused kernel, as {@code VarkaCoverageSuite} compiles a predicate row. */
+  /**
+   * The row's one fused kernel, as {@code VarkaCoverageSuite} compiles it: a predicate row as a
+   * filter's condition, a decimal-valued row as a projection's one output, whose root is the
+   * decimal store over the value ({@code WidenDecimal}, which the printer reads through).
+   */
   private static CompiledVarkaProjection kernelOf(String sql, Expression e) {
-    CompiledVarkaPredicate p = VarkaExpressionCompiler.compilePredicate(e,
-        CollectionConverters.asScala(COLUMNS).toSeq(), VarkaEmitOptions.DEFAULTS,
-        VarkaAdmission.NO_HOST_REFUSAL).orElseThrow(() -> new Refused("it does not compile"));
-    CompiledVarkaProjection k = p.fused();
-    if (!p.specs().stream().allMatch(VarkaConjunctSpec::fused) || p.clauses().size() != 1
-        || k.outputs().size() != 1) {
-      throw new Refused("not one fused root");
+    var columns = CollectionConverters.asScala(COLUMNS).toSeq();
+    CompiledVarkaProjection k;
+    if (e.dataType() instanceof DecimalType) {
+      k = VarkaExpressionCompiler.compile(CollectionConverters.asScala(
+              List.of(VarkaSqlResolve.named(e, "c"))).toSeq(), columns, VarkaEmitOptions.DEFAULTS)
+          .orElseThrow(() -> new Refused("it does not compile"));
+      if (k.outputs().size() != 1) {
+        throw new Refused("not one fused root");
+      }
+    } else {
+      CompiledVarkaPredicate p = VarkaExpressionCompiler.compilePredicate(e, columns,
+          VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL)
+          .orElseThrow(() -> new Refused("it does not compile"));
+      k = p.fused();
+      if (!p.specs().stream().allMatch(VarkaConjunctSpec::fused) || p.clauses().size() != 1
+          || k.outputs().size() != 1) {
+        throw new Refused("not one fused root");
+      }
     }
     if (!k.inputBounds().isEmpty() || !k.derivedInputs().isEmpty()) {
       throw new Refused("an input bound or a derived input, which the printer does not read");
