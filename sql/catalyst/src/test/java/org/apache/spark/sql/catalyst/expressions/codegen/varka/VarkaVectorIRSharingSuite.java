@@ -219,9 +219,11 @@ public final class VarkaVectorIRSharingSuite {
     }
   }
 
-  /** The nodes whose hash starts from their class (VARKA-337): a canonicalisation, its bits. */
-  private static final Set<Class<?>> CLASS_TAGGED = Set.of(VarkaVectorIR.CanonicalFloat.class,
-      VarkaVectorIR.CanonicalBits.class);
+  /**
+   * The nodes whose hash starts from their class (VARKA-337): a canonical value's bits, over a
+   * canonicalisation that itself shares its child's hash.
+   */
+  private static final Set<Class<?>> CLASS_TAGGED = Set.of(VarkaVectorIR.CanonicalBits.class);
 
   /**
    * A node of {@code type} over leaves, by reflection as {@code VarkaIrFuzzSuite.admitsLongLanes}
