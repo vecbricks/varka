@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -61,19 +62,12 @@ public final class VarkaMathCompilerSuite {
       VarkaSqlResolve.column("y", DataTypes.DoubleType),
       VarkaSqlResolve.column("i", DataTypes.IntegerType))).toSeq();
 
-  /** The functions that fuse, as SQL: row 356's one-argument functions. */
-  private static final List<String> FUSED = fused();
-
-  private static List<String> fused() {
-    var m = new ArrayList<String>();
-    for (String f : List.of("sin", "cos", "tan", "asin", "acos", "atan", "sec", "csc", "cot")) {
-      m.add(f + "(x)");
-    }
-    // An int operand reaches the function through its cast to double, which the floating casts
-    // family lowers; the math family's call is over the cast.
-    m.add("sin(i)");
-    return Collections.unmodifiableList(m);
-  }
+  /**
+   * The functions that fuse, as SQL: row 356's one-argument functions, and an int operand, which
+   * reaches the call through its cast to double, lowered by the floating casts family.
+   */
+  private static final List<String> FUSED = Stream.concat(Stream.of("sin", "cos", "tan", "asin",
+      "acos", "atan", "sec", "csc", "cot").map(f -> f + "(x)"), Stream.of("sin(i)")).toList();
 
   /** Each other function as SQL, with the name its reason gives and the row that fuses it. */
   private static final Map<String, String> FUNCTIONS = functions();
@@ -98,9 +92,7 @@ public final class VarkaMathCompilerSuite {
 
   /** Every function as SQL, the fused and the declined. */
   private static List<String> allFunctions() {
-    var all = new ArrayList<>(FUSED);
-    all.addAll(FUNCTIONS.keySet());
-    return all;
+    return Stream.concat(FUSED.stream(), FUNCTIONS.keySet().stream()).toList();
   }
 
   /** The reason {@code sql} declines with, or empty where it fuses. */

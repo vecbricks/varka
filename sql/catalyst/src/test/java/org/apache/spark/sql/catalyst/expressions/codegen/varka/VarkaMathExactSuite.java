@@ -112,12 +112,14 @@ public final class VarkaMathExactSuite {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * Whether the kernel's bits {@code got} are Spark's answer for {@code x}, at
-   * {@link VarkaSameAnswer.Level#EXACT}: the kernel and the reference call one method on one JVM,
-   * so even a NaN the function makes from a number has the same bits in both.
+   * The mismatch, or null where the kernel's bits {@code got} are Spark's answer for {@code x}
+   * at {@link VarkaSameAnswer.Level#EXACT}, a NaN's raw bits too (the class comment says why).
    */
-  private static boolean same(Fn f, double x, long got) {
-    return Double.doubleToRawLongBits(f.spark().applyAsDouble(x)) == got;
+  private static String mismatch(Fn f, double x, long got) {
+    double want = f.spark().applyAsDouble(x);
+    return Double.doubleToRawLongBits(want) == got ? null
+        : f.name() + "(" + hex(x) + "): want " + hex(want) + ", got "
+            + hex(Double.longBitsToDouble(got));
   }
 
   private static String hex(double v) {
@@ -157,7 +159,6 @@ public final class VarkaMathExactSuite {
     assumeTrue(Lane.emitLanes(options, Lane.DOUBLE) != 0, "no baked lane count for the call");
     var loaded = VarkaEmitterFixtures.load(
         VarkaEmitterFixtures.emit(List.of(f.root()), 1, f.lits().length, options));
-    VarkaFusedKernel kernel = loaded.kernel();
     long mismatches = 0;
     var rnd = new SplittableRandom(0x356L * 31 + f.name().hashCode());
     try (Arena arena = Arena.ofConfined()) {
@@ -170,17 +171,12 @@ public final class VarkaMathExactSuite {
           for (int i = 0; i < BATCH; i++) {
             in.set(ValueLayout.JAVA_LONG, i * 8L, draw(f, d, rnd));
           }
-          run(kernel, f, col, out, BATCH);
+          run(loaded.kernel(), f, col, out, BATCH);
           for (int i = 0; i < BATCH; i++) {
-            double x = in.get(ValueLayout.JAVA_DOUBLE, i * 8L);
-            long got = out.data().get(ValueLayout.JAVA_LONG, i * 8L);
-            if (!same(f, x, got)) {
-              mismatches++;
-              if (firstFew.size() < 5) {
-                firstFew.add(f.name() + "(" + hex(x) + "): want "
-                    + hex(f.spark().applyAsDouble(x)) + ", got "
-                    + hex(Double.longBitsToDouble(got)));
-              }
+            String why = mismatch(f, in.get(ValueLayout.JAVA_DOUBLE, i * 8L),
+                out.data().get(ValueLayout.JAVA_LONG, i * 8L));
+            if (why != null && mismatches++ < 5) {
+              firstFew.add(why);
             }
           }
         }
@@ -234,11 +230,10 @@ public final class VarkaMathExactSuite {
     var bits = new ArrayList<Long>();
     for (double e : edges) {
       long b = Double.doubleToRawLongBits(e);
+      // A neighbour past a zero or an infinity steps into the other sign's or the NaNs'
+      // patterns, which are inputs too.
       for (int k = -64; k <= 64; k++) {
-        long n = b + k;
-        // A neighbour past a zero or an infinity steps into the other sign's or the NaNs'
-        // patterns, which are inputs too.
-        bits.add(n);
+        bits.add(b + k);
       }
     }
     bits.add(Double.doubleToRawLongBits(Double.POSITIVE_INFINITY));
@@ -283,12 +278,10 @@ public final class VarkaMathExactSuite {
                   if (valid == isNull.test(i)) {
                     failures.add(where + ": validity " + valid);
                   } else if (valid) {
-                    double x = Double.longBitsToDouble(vectors[i]);
-                    long got = out.data().get(ValueLayout.JAVA_LONG, i * 8L);
-                    if (!same(f, x, got)) {
-                      failures.add(where + ": " + f.name() + "(" + hex(x) + ") want "
-                          + hex(f.spark().applyAsDouble(x)) + ", got "
-                          + hex(Double.longBitsToDouble(got)));
+                    String why = mismatch(f, Double.longBitsToDouble(vectors[i]),
+                        out.data().get(ValueLayout.JAVA_LONG, i * 8L));
+                    if (why != null) {
+                      failures.add(where + ": " + why);
                     }
                   }
                 }
@@ -325,8 +318,7 @@ public final class VarkaMathExactSuite {
     try {
       for (Fn f : FUNCTIONS) {
         long n = sampledMismatches(f, VarkaMatrixRuns.BASE, new ArrayList<>());
-        boolean differs = f.trig();
-        assertTrue(differs ? n > 0 : n == 0, f.name() + " under the planted call: " + n
+        assertTrue(f.trig() ? n > 0 : n == 0, f.name() + " under the planted call: " + n
             + " mismatches");
       }
     } finally {

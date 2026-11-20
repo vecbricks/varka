@@ -101,9 +101,8 @@ public final class VarkaFamilySwitchSuite {
 
   /**
    * The families whose arm fuses nothing yet, each with an expression of the family that a row of
-   * the plan will fuse, on which its switch is checked since no coverage row holds it. A family
-   * leaves this map the day a coverage row holds it, which the switch test enforces; none is in
-   * it now.
+   * the plan will fuse, on which its switch is checked until a coverage row holds the family and
+   * the switch test makes it leave this map. None is in it now.
    */
   private static final Map<VarkaFamily, String> UNBUILT = Map.of();
 
