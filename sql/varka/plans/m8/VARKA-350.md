@@ -667,3 +667,130 @@ Forty sections of `VarkaDecimalBaselineBenchmark`, the plan's list of section 4 
 A section now carries the SQL settings both sessions run it under, as the integral cast baseline's
 do, so the modes are explicit rather than the session's default. The new columns come after every
 other, so no earlier section's values move.
+
+### 10.3 Step 3: 350a, the integer casts
+
+*20 November 2026, on branch `varka-350a-integer-casts`, stacked on step 1 and 2's branch. Built
+while the owner was away; nothing pushed, so the PR Build, the option matrix and the width audit's
+runner columns are owed.*
+
+**What was built.** `VarkaDecimalCastCompiler`, under a new family `DECIMAL_CAST` (its switch
+`spark.sql.codegen.varka.family.decimalCast.enabled`), with the table of 2.1 but for the floating
+targets:
+
+- **to an integral type** in the three modes: `t = trunc(u / 10^s)`; `BIGINT` is `t`; the narrow
+  targets are `NarrowLane(t)` under LEGACY and `NarrowLane(GuardedRange(t, MIN, MAX, d))` under
+  ANSI and TRY, the exact rule at every precision up to 18 (decision 1 below), the guard dropped
+  where `10^(p - s) - 1` fits the target;
+- **to `BOOLEAN`**: `NOT(u = 0)` as a condition, reached from `compileCond` under the family's
+  switch;
+- **into a decimal**: the rescale up behind its input guard (guard-the-inputs), the rescale down by
+  `HALF_UP` then the precision check (check-after, its quotient below `10^18`), the precision check
+  alone at one scale; each guard dropped where the types prove it dead, as 2.1 lists; coercion's
+  widening rescale stays 348's, outside the family;
+- **from an integral type and `BOOLEAN`** (350a1b, stacked on 350a): the value widened to the long
+  lane behind `|v| <= 10^(P - S) - 1`, dead where the type's digits fit, then times `10^S`
+  (coercion's `INT` into `DECIMAL(10, 0)` has no guard); a boolean is 332's select at the long
+  lane times `10^S`, behind a guard of 0 into `DECIMAL(P, P)`.
+
+A guard into a decimal is `FAIL` under ANSI and `NULL` under LEGACY and TRY. The two divisions are
+2.2's with one change (decision 2): below `2^52` the truncation is one `ConstDivide` of the signed
+value by `10^k` and the rounding adds DuckDB's signed half first; at and above it, the magnitude
+takes the logical shift by `k` and the division by `5^k`, the sign put back, and at the twelve
+`(p, k)` of item 0.15 the magnitude is guarded below `2^(52 + k)` first (`GUARD`, the only arm until
+350d). `VarkaDecimalCompiler.valid` reads through a cast into a decimal only where it has no guard
+(the widening rescale, or a cast whose source's widest value fits), to the operand's validity
+(350a1b: a column's word for an integral operand); over a guarded cast a null test declines, in every mode:
+under LEGACY and TRY the guard nulls lanes the operand's validity does not show, and under ANSI its
+failure, Spark's error, is in the value the null test does not keep.
+
+**Tests.** `VarkaDecimalCastQuerySuite` (sql/core) runs every cast against vanilla Spark over an
+Arrow-cached table in LEGACY, ANSI and TRY, rows or the same error, and checks each runs in a
+Varka node: the named cases of section 3 item 2 that need no floating lane - `0.999999999999999999`
+as `DECIMAL(18, 18)` and `2147483647.99999999` as `DECIMAL(18, 8)` to `INT` (0 and `Int.MaxValue`,
+the exact rule), item 0.14's three first differences, which take the exact rule's answer, the
+bounds of each target and one past, `Int.MinValue` as `DECIMAL(10, 0)`, `-0.5`, `-1.5`, `1.5`,
+Trino's `184467440737095517` at `(18, 0)` into `(18, 2)`, and `9.99` and `9.95` into `(2, 1)` (the
+carry that overflows). 350a1b adds `true` into `DECIMAL(2, 2)` and both sides of the division
+guard at `(18, 2)` (`2^54 - 51` and `2^54`) and at `(16, 1)`, `(17, 3)` and `(18, 7)` (`2^(52 + k)
+- 1` and `2^(52 + k)`), each batch inside a guard checked to run in the kernel. Fifteen coverage
+rows in two families, "Decimal casts" and "Decimal cast predicates", each guarded row with its
+domain, which `VarkaCoverageHarnessSuite` checks at its boundary (decision 6); 350a1b adds five
+over the integral and boolean sources, `TINYINT` and `SMALLINT` among them.
+
+**The parts** (the 1000-line cap): 350a, the casts from a decimal; 350a1b, stacked on it, the
+casts into a decimal from an integral type and `BOOLEAN` and the division guard's boundary test;
+350a2, stacked on that: `decimal_casts.smt2`, the proof file
+the house rule asks of a bounded lowering, which `VarkaDecimalCastProofFile` renders from the
+compiler's constants; the table test of section 3 item 1, every guard decision held to Spark's
+`Decimal.changePrecision` and `Cast.canNullSafeCastToDecimal`; and the planted multiply-then-check
+fault for row 504. Until 350a2 the integer rules are held by the differential suites alone.
+
+**Finding, not this row's.** `CAST(b AS DECIMAL(2, 2)) = 0` over a `BOOLEAN` column fails in Spark's
+optimizer on both engines, a `NullPointerException` in `UnwrapCastInBinaryComparison` (the cast of
+`true` has no value in `DECIMAL(2, 2)`, and the rule compares the null it gets); the suite compares
+against a column instead. Vanilla Spark's, recorded for an upstream report, not a Varka row.
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **The three narrow ANSI and TRY casts follow the exact rule at every precision up to 18, not the
+   double rule at 17 and 18.** The plan's opening note (1 November 2026) and `VARKA-365.md` 11 record
+   that vanilla Spark answers these casts by the exact rule on every SQL read of the Arrow cache,
+   and the owner's standing rule is that row answers follow vanilla Spark. Section 2.3's double rule
+   at 17 and 18, and question 1's answer of 7 November, which keep the double there through 366's
+   arm, rest on the premise that the 1 November correction had already replaced; built that way,
+   the kernel would answer `20643709109999999` at scale 7 as 2064370911 where vanilla Spark answers 2064370910. The
+   query suite holds the exact rule to vanilla Spark at precision 17 and 18 (`f` and `k`, `m`
+   columns), so the kernel needs no floating lane for these casts, and 350c loses its double-rule
+   item. Reverting is one condition in `VarkaDecimalCastCompiler.toIntegral` if the owner decides
+   otherwise.
+2. **Below `2^52` the divisions skip the pre-shift.** `ConstDivide` truncates a signed dividend as
+   Java's `/` does, so `trunc(u / 10^k)` is one node where `|u| < 2^52` (precision 15 and below),
+   and `HALF_UP` is DuckDB's signed half, `u +- h`, then that division; the magnitude, shift and sign
+   restore of 2.2 run only where the bound needs them. Fewer nodes for the same answers; the pre-shift
+   identity is 2.2's and unchanged where it runs.
+3. **No `decimalDivisionForm` option yet.** With one arm built an option has nothing to choose; it
+   lands with `LIMB_MAGIC` in 350d, where both arms are measured.
+4. **Steps 1 and 2 share one branch and pull request**, both test-only on the unchanged code; the
+   baseline is still its own pull request ahead of any lowering, as section 4 asks.
+5. **The census cell for the limb multiply stands on its own** (`long.MUL_masked_broadcast`): row
+   360b has no `WideMul` cells to read it through.
+6. **The coverage harness reads decimals.** `VarkaDomains.laneValue` now reads a decimal of 18
+   digits or fewer as its unscaled long, the long lane's value, three lines; with it every
+   guarded decimal row's domain is checked as the other guarded rows' are. The three guarded
+   casts into a decimal move from predicate rows to value rows read through `BIGINT`
+   (`CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)` and its kin): a null test over a guarded cast
+   declines by design, so as a predicate the harness's null-test, partition and boolean-output
+   forms could never fuse it.
+7. **At two long lanes the family's values decline.** On an x86 host whose 64-bit species have
+   two lanes or fewer (the session setting of rows 104 and 503), every decimal cast's value
+   declines with `VarkaDecimalCastCompiler.TWO_LANE_REASON`. The evidence is C2's assembly under
+   `dev/varka_emit.sh --asm --width=16`: the dense body of `CAST(x AS BIGINT)` over
+   `DECIMAL(9, 2)` (one constant division, no guard) and `DECIMAL(16, 9)` (the magnitude, shift
+   and sign restore) calls into the Vector API's Java fallback for `Long128Vector.rearrange`,
+   `compare`, `blend` and the mask `or`, 21 and 25 static calls and 34 allocation sites in the
+   standard compilation. The rearranges are the decimal slots' load, which row 596 measured at
+   0.2X of the row path for a decimal compare written as a value; so the decline covers the
+   unguarded casts too, not only the guarded ones.
+
+**State (20 November 2026, about 04:30 UTC).** 350a is one commit on
+`varka-350a-integer-casts`, 350a1b one on `varka-350a1b-integral-sources` stacked on it; nothing
+pushed. Passing on the laptop for 350a: `VarkaCoverageHarnessSuite` (2641 of 2641), `VarkaDecimalCastQuerySuite` (8 of 8),
+`VarkaDecimalBaselineQueriesSuite` (11 of 11), `VarkaExpressionCompilerSuite`'s two-lane tests,
+`VarkaFamilySwitchSuite`, `VarkaFamilyChainSuite`, `VarkaDecimalValueSuite`, and every suite
+`dev/varka_regen_generated.sh --all` runs, the width audit at the laptop's widths among them. Under `JDK_JAVA_OPTIONS=-XX:UseAVX=2` the width audit (5 of 7, the
+two failures expected of an AVX2 run against the laptop's committed file) moves the decimal casts
+at 256 bits from `[]` to the long-double conversions' misses (`cast#513/3`, `cast#515/3` at
+`vlen2=4`), the constant division's exact double path, as it moves `CAST(ntz AS DATE)` and the
+other constant divisions, 62 rows outside this row's; its second probe timed out at 600 s beside
+the other agents' load. Whether AVX2 hosts should take another division form there is for 350d's
+runner measurement, which reads the EPYC 7763, an AVX2 host. Left: 350a2, and the runner columns.
+
+**Why the decimal casts and not every long-lane projection.** The width audit at 128 bits records
+the same intrinsic misses (`not supported ... vlen=2 etype=long`) for long-lane projections with a
+compare or a constant division that stay fused there, `CAST(l AS INT)` under ANSI among them; row
+503 measured those at 1.3X to 5.6X of the row path, their fallback masks cheaper than the row
+path's work. The decimal casts are the first decimal values a projection writes (every other
+decimal form is a comparison's operand, refused at two lanes as a condition), and their load is
+the one row 596 measured at 0.2X, so they decline with it. The runner pair at 128 bits can
+confirm it once the benchmark runs.

@@ -127,7 +127,9 @@ import org.apache.spark.sql.internal.SQLConf;
  * {@code DECIMAL(18, 14)} {@code CAST(x AS INT)} under ANSI, {@code try_cast(x AS INT)},
  * {@code CAST(x AS DOUBLE)} and {@code CAST(x AS FLOAT)}; and over the {@code BIGINT} column
  * {@code l16}, below {@code 10^16} in magnitude, {@code CAST(l AS DECIMAL(18, 2))} under LEGACY
- * and ANSI. Their columns come last, after {@code l}.
+ * and ANSI. Their columns come last, after {@code l}. The casts to an integral type and the
+ * filter fuse whole (VARKA-350) where the session takes a 64-bit kernel's masks; the floating
+ * targets and the decimal outputs run on the row path.
  *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -157,7 +159,10 @@ import org.apache.spark.sql.internal.SQLConf;
  * row path, the lane pair's among them, since its words are on the long lane, and the projected
  * {@code x < y} sections too, a boolean output over a decimal column (VARKA-596), so they are
  * {@code NONE} there; the time producers stay {@code WHOLE}.
- * Every other section is {@code NONE}. A row that fuses more of a section sets its new class,
+ * The cast sections to an integral type (VARKA-350) and their {@code CAST(x AS BOOLEAN)}
+ * filter are {@code WHOLE} where the session takes a 64-bit condition and {@code NONE} where it
+ * refuses one, a decimal cast's value declining there with the condition. Every
+ * other section is {@code NONE}. A row that fuses more of a section sets its new class,
  * so that its fusion cannot turn a baseline section into a fused one unnoticed, and the results
  * file notes the class of each section that fuses.
  *
@@ -659,18 +664,20 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       addWidening(out, d);
     }
     for (Density d : Density.values()) {
-      addCasts(out, d);
+      addCasts(out, d, fusedFilter);
     }
     return out;
   }
 
   /**
    * Adds the cast sections at density {@code d} (VARKA-350, VARKA-366), in the order the class
-   * javadoc lists them. No decimal cast but coercion's widening rescale fuses yet, so every
-   * section is {@code NONE}. The ANSI and LEGACY sections name their mode, and the filter runs
-   * with constraint propagation off, so that it is the cast alone.
+   * javadoc lists them. The casts to an integral type and the filter are {@code fused}: whole
+   * (VARKA-350), but {@code NONE} on a session that refuses a 64-bit kernel's masks, where a
+   * decimal cast's value declines too; a cast to a floating type, or a decimal as an output,
+   * runs on the row path, {@code NONE}. The ANSI and LEGACY sections name their mode, and the
+   * filter runs with constraint propagation off, so that it is the cast alone.
    */
-  private static void addCasts(List<Section> out, Density d) {
+  private static void addCasts(List<Section> out, Density d, Fusion fused) {
     Map<String, String> legacy = Map.of(SQLConf.ANSI_ENABLED().key(), "false");
     Map<String, String> ansi = Map.of(SQLConf.ANSI_ENABLED().key(), "true");
     Map<String, String> noConstraints =
@@ -686,13 +693,13 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     String d18 = "DECIMAL(18, 4) ";
     String d18s14 = "DECIMAL(18, 14) ";
     out.add(new Section(d9 + "CAST(x AS BIGINT)" + tail,
-        "SELECT CAST(" + x9 + " AS BIGINT)" + value, Fusion.NONE));
+        "SELECT CAST(" + x9 + " AS BIGINT)" + value, fused));
     out.add(new Section(d9 + "CAST(x AS INT), LEGACY" + tail,
-        "SELECT CAST(" + x9 + " AS INT)" + value, Fusion.NONE, legacy));
+        "SELECT CAST(" + x9 + " AS INT)" + value, fused, legacy));
     out.add(new Section(d9 + "CAST(x AS INT), ANSI" + tail,
-        "SELECT CAST(" + x9 + " AS INT)" + value, Fusion.NONE, ansi));
+        "SELECT CAST(" + x9 + " AS INT)" + value, fused, ansi));
     out.add(new Section(d9 + "try_cast(x AS SMALLINT), past the range on most rows" + tail,
-        "SELECT try_cast(" + x9 + " AS SMALLINT)" + value, Fusion.NONE));
+        "SELECT try_cast(" + x9 + " AS SMALLINT)" + value, fused));
     out.add(new Section(d9 + "CAST(x AS DOUBLE)" + tail,
         "SELECT CAST(" + x9 + " AS DOUBLE)" + value, Fusion.NONE));
     out.add(new Section(d9 + "CAST(x AS FLOAT)" + tail,
@@ -700,12 +707,12 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     out.add(new Section(d9 + "CAST(x AS DECIMAL(9, 0))" + tail,
         "SELECT CAST(" + x9 + " AS DECIMAL(9, 0))" + value, Fusion.NONE));
     out.add(new Section(d9 + "filter CAST(x AS BOOLEAN)" + tail,
-        "SELECT " + x9 + " FROM varka_decimal WHERE CAST(" + x9 + " AS BOOLEAN)", Fusion.NONE,
+        "SELECT " + x9 + " FROM varka_decimal WHERE CAST(" + x9 + " AS BOOLEAN)", fused,
         noConstraints));
     out.add(new Section(d18 + "CAST(x AS BIGINT)" + tail,
-        "SELECT CAST(" + x18 + " AS BIGINT)" + value, Fusion.NONE));
+        "SELECT CAST(" + x18 + " AS BIGINT)" + value, fused));
     out.add(new Section(d18 + "CAST(x AS INT), LEGACY" + tail,
-        "SELECT CAST(" + x18 + " AS INT)" + value, Fusion.NONE, legacy));
+        "SELECT CAST(" + x18 + " AS INT)" + value, fused, legacy));
     out.add(new Section(d18 + "CAST(x AS DOUBLE)" + tail,
         "SELECT CAST(" + x18 + " AS DOUBLE)" + value, Fusion.NONE));
     out.add(new Section(d18 + "CAST(x AS FLOAT)" + tail,
@@ -715,9 +722,9 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     out.add(new Section("DECIMAL(15, 4) CAST(x AS FLOAT)" + tail,
         "SELECT CAST(" + x15s4 + " AS FLOAT)" + value, Fusion.NONE));
     out.add(new Section(d18s14 + "CAST(x AS INT), ANSI" + tail,
-        "SELECT CAST(" + x18s14 + " AS INT)" + value, Fusion.NONE, ansi));
+        "SELECT CAST(" + x18s14 + " AS INT)" + value, fused, ansi));
     out.add(new Section(d18s14 + "try_cast(x AS INT)" + tail,
-        "SELECT try_cast(" + x18s14 + " AS INT)" + value, Fusion.NONE));
+        "SELECT try_cast(" + x18s14 + " AS INT)" + value, fused));
     out.add(new Section(d18s14 + "CAST(x AS DOUBLE)" + tail,
         "SELECT CAST(" + x18s14 + " AS DOUBLE)" + value, Fusion.NONE));
     out.add(new Section(d18s14 + "CAST(x AS FLOAT)" + tail,

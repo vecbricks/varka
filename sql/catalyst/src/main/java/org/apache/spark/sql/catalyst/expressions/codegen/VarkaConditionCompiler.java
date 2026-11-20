@@ -897,6 +897,12 @@ final class VarkaConditionCompiler {
     if (cast != null) {
       return VarkaNodeCompiler.inFamily(VarkaFamily.INTEGRAL_CAST, cast, expr, sink);
     }
+    // A decimal cast to BOOLEAN is the decimal cast family's (VARKA-350).
+    Supplier<Optional<Cond>> decimalCast = VarkaDecimalCastCompiler.condArm(expr, inputs,
+        literals, sink);
+    if (decimalCast != null) {
+      return VarkaNodeCompiler.inFamily(VarkaFamily.DECIMAL_CAST, decimalCast, expr, sink);
+    }
     Supplier<Optional<Cond>> arm;
     try {
       arm = condArm(expr, inputs, literals, sink);

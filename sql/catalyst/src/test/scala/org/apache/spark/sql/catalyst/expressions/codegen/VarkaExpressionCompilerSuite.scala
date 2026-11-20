@@ -3421,6 +3421,23 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
   }
 
+  test("a decimal cast's value declines on a two-lane host, and fuses elsewhere") {
+    // Its decimal load, the division's sign and its guards are long-lane masks and rearranges,
+    // which run as the Java fallback at two 64-bit lanes (VARKA-350.md 10.3).
+    val x = AttributeReference("x", DecimalType(16, 9))()
+    val columns = withLong :+ x
+    val casts = Seq(Cast(x, LongType), Cast(x, IntegerType, evalMode = EvalMode.ANSI),
+      Cast(Cast(x, DecimalType(10, 2)), LongType))
+    for (e <- casts) {
+      def reasons(admission: VarkaAdmission): Seq[String] =
+        VarkaExpressionCompiler.declines(Seq(out(e)), columns, VarkaEmitOptions.DEFAULTS,
+          admission).asScala.values.map(_.reason).toSeq
+      assert(reasons(new VarkaAdmission(java.util.Set.of(), true)) ===
+        Seq(VarkaDecimalCastCompiler.TWO_LANE_REASON), e)
+      assert(reasons(VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
+    }
+  }
+
   test("a bigint IN beside a date comparison fuses both conjuncts at the long lane") {
     val in = VarkaExpressionCompiler.compilePredicate(
       And(GreaterThan(d, d2), In(l, Seq(Literal(1L), Literal(2L)))), withLong,
