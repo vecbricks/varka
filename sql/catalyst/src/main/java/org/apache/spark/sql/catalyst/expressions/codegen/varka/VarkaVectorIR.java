@@ -1506,8 +1506,9 @@ public sealed interface VarkaVectorIR
         throw VarkaErrors.illegalArgument("a canonicalisation of a canonicalisation: build it "
             + "through CanonicalFloat.of, which answers its operand");
       }
-      // The class as a tag, so the node does not share its only child's hash.
-      hash = hashOf(CanonicalFloat.class, child);
+      // The records' formula over the components, as every node's (VarkaVectorIRSharingSuite):
+      // like any one-child node it shares its child's hash, and equality tells the two apart.
+      hash = hashOf(child);
     }
 
     public CanonicalFloat(VarkaVectorIR child) { this(child, 0); }
