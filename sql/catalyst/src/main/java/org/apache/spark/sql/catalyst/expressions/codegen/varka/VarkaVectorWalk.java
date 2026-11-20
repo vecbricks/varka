@@ -276,6 +276,10 @@ final class VarkaVectorWalk {
       case RoundToIntegral n ->
           VarkaRoundingLowering.emitRint(cb, n, dense, analysis, s, computed);
       case CanonicalFloat n -> emitCanonicalFloat(cb, n, dense, analysis, s, computed);
+      case VarkaVectorIR.CanonicalBits n ->
+          VarkaHashLowering.emitCanonicalBits(cb, n, dense, analysis, s, computed);
+      case VarkaVectorIR.HashStep n ->
+          VarkaHashLowering.emitHashStep(cb, n, dense, analysis, s, computed);
       case DateDiff n -> {
         lane.requireInt(n);
         emitAndValidatedOp(cb, node, n.end(), n.start(), "sub", LANEWISE_VV,
@@ -490,7 +494,7 @@ final class VarkaVectorWalk {
         } else {
           cb.aload(s.species(lane));
           cb.lload(s.kt.get(n.cond()));
-          emitMaskOfWord(cb, analysis);
+          emitMaskOfWord(cb, lane, analysis);
         }
         cb.invokevirtual(lane.vector, "blend", lane.blend);
         // A narrow pick passes its arms' unreduced int values through - a blend commutes with
@@ -526,7 +530,7 @@ final class VarkaVectorWalk {
         } else {
           cb.aload(s.species(lane));
           cb.lload(s.kt.get(n.cond()));
-          emitMaskOfWord(cb, analysis);
+          emitMaskOfWord(cb, lane, analysis);
         }
         cb.invokevirtual(lane.vector, "add", lane.lanewiseVIMasked);
         if (!dense && s.ownWord.contains(node)) {
@@ -1693,7 +1697,7 @@ final class VarkaVectorWalk {
     if (!dense && word != null && word != WORD_ALL_TRUE) {
       cb.aload(s.species);
       loadWord(cb, s, word);
-      emitMaskOfWord(cb, analysis);
+      emitMaskOfWord(cb, analysis.lane, analysis);
       cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
     }
     emitArmContext(cb, node, dense, analysis, s);
@@ -1808,7 +1812,7 @@ final class VarkaVectorWalk {
         cb.loadConstant(-1L);
         cb.lxor();
       }
-      emitMaskOfWord(cb, analysis);
+      emitMaskOfWord(cb, analysis.lane, analysis);
     }
   }
 
@@ -1835,7 +1839,7 @@ final class VarkaVectorWalk {
     cb.aload(s.species);                                // [word, species]
     cb.dup_x2();                                        // [species, word, species]
     cb.pop();                                           // [species, word]
-    cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+    emitFromLong(cb, analysis.lane, analysis);
   }
 
   /**
@@ -1860,7 +1864,7 @@ final class VarkaVectorWalk {
     cb.aload(s.species(to));                            // [word, species]
     cb.dup_x2();                                        // [species, word, species]
     cb.pop();                                           // [species, word]
-    cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+    emitFromLong(cb, to, analysis);
   }
 
   /**
@@ -1874,16 +1878,134 @@ final class VarkaVectorWalk {
    * (VARKA-491). Every word-to-mask conversion of the masked body goes through here, whether or not
    * its word can carry a {@code toLong}, so each has the same bytes; words made with {@code toLong}
    * that never become a mask, such as a filter's, pay nothing. Under {@code fromLongMasks} the
-   * word goes to {@code fromLong} as it is.
+   * word goes to {@code fromLong} as it is, and under {@code maskFromWord}, which emits no
+   * {@code fromLong}, to {@link VarkaMaskFromWord} as it is.
    */
-  static void emitMaskOfWord(CodeBuilder cb, Analysis analysis) {
-    if (!analysis.options.fromLongMasks()) {
+  static void emitMaskOfWord(CodeBuilder cb, Lane lane, Analysis analysis) {
+    if (!analysis.options.fromLongMasks() && !analysis.options.maskFromWord()) {
       cb.getstatic(MASK_GUARD, "ones", ConstantDescs.CD_long);
       cb.getstatic(MASK_GUARD, "OPEN", ConstantDescs.CD_long);
       cb.lor();
       cb.land();
     }
-    cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+    emitFromLong(cb, lane, analysis);
+  }
+
+  /**
+   * {@code [species, word] -> [mask]} at {@code lane}'s species: {@code VectorMask.fromLong}, or
+   * under {@code maskFromWord} the same mask built without the mask-from-bits instruction an
+   * aarch64 core has only with SVE2's bit permute (VARKA-375). Every word-to-mask conversion an
+   * emitted kernel makes comes here.
+   *
+   * <p>The construction is emitted in the kernel, operator by operator: the word broadcast at the
+   * integral lane of the lane's width, an {@code AND} with {@link VarkaMaskFromWord}'s table of
+   * each lane's bit, a compare with zero, and for a floating lane a cast to its species. Each of
+   * those is a Vector API method C2 force-inlines, where a call to a helper of Varka's is an
+   * ordinary call that C2 stops inlining once a wide kernel's method reaches
+   * {@code DesiredMethodLimit} or {@code NodeCountInliningCutoff}, which a warm-up probe under
+   * {@code -XX:+PrintInlining} showed, the kernel then allocating a mask a call. A byte species
+   * past 8 lanes or a short one past 16 has lanes whose bits are in another element of the word;
+   * there each lane first picks its element with {@code selectFrom}, as
+   * {@link VarkaMaskFromWord} does.
+   */
+  static void emitFromLong(CodeBuilder cb, Lane lane, Analysis analysis) {
+    if (!analysis.options.maskFromWord()) {
+      cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+      return;
+    }
+    Lane integral = switch (lane) {
+      case BYTE, SHORT, INT, LONG -> lane;
+      case FLOAT -> Lane.INT;
+      case DOUBLE -> Lane.LONG;
+    };
+    var species = integral.speciesField(analysis.lanesOf(lane));
+    int lanes = analysis.lanesOf(lane) == 0 ? lane.preferredLanes : analysis.lanesOf(lane);
+    boolean narrow = integral == Lane.BYTE || integral == Lane.SHORT;
+    // At SPECIES_PREFERRED the lane count is the running JVM's, which may be wider than this
+    // one's (a reproduction file replayed on another host), so a narrow lane takes the element
+    // select, which is right at any count.
+    if (narrow && (lanes > integral.bits || analysis.lanesOf(lane) == 0)) {
+      // A byte or short lane past one element's bits: the word broadcast as longs at the same
+      // width, viewed at the lane, and each lane's element picked by selectFrom by the table of
+      // lane i's element, i / bits. [species, word] -> [vector]; the species is the constant's.
+      cb.getstatic(Lane.LONG.vector, Lane.LONG.speciesField(analysis.lanesOf(lane) == 0 ? 0
+          : lanes * integral.bits / Long.SIZE), VECTOR_SPECIES);
+      cb.dup_x2();
+      cb.pop();
+      cb.invokestatic(Lane.LONG.vector, "broadcast", Lane.LONG.broadcast);
+      cb.invokevirtual(Lane.LONG.vector, integral == Lane.BYTE ? "reinterpretAsBytes"
+          : "reinterpretAsShorts", MethodTypeDesc.of(integral.vector));
+      cb.swap();
+      var elements = integral.scalar.arrayType();
+      cb.getstatic(MASK_FROM_WORD, integral == Lane.BYTE ? "BYTE_ELEMENT" : "SHORT_ELEMENT",
+          elements);
+      cb.iconst_0();
+      cb.invokestatic(integral.vector, "fromArray",
+          MethodTypeDesc.of(integral.vector, VECTOR_SPECIES, elements, ConstantDescs.CD_int));
+      cb.swap();
+      cb.invokevirtual(integral.vector, "selectFrom", integral.lanewiseVV);
+      emitLaneBitsTest(cb, integral, species);
+      return;
+    }
+    if (lanes > integral.bits) {
+      // An int species past 32 lanes, wider than 1024 bits, which no host the milestone measures
+      // has: the helper's element select.
+      cb.invokestatic(MASK_FROM_WORD, lane == Lane.INT ? "ofInt" : "ofFloat", FROM_LONG);
+      return;
+    }
+    if (integral != lane) {
+      // [species, word] -> [species, intSpecies, word]: the floating species stays for the cast.
+      cb.getstatic(integral.vector, species, VECTOR_SPECIES);
+      cb.dup_x2();
+      cb.pop();
+    }
+    if (integral != Lane.LONG) {
+      cb.l2i();
+      if (integral == Lane.SHORT) {
+        cb.i2s();
+      } else if (integral == Lane.BYTE) {
+        cb.i2b();
+      }
+    }
+    cb.invokestatic(integral.vector, "broadcast", integral.broadcast);
+    emitLaneBitsTest(cb, integral, species);
+    if (integral != lane) {
+      cb.swap();
+      cb.invokevirtual(VECTOR_MASK, "cast", MASK_CAST);
+    }
+  }
+
+  /**
+   * {@code [vector] -> [mask]} at an integral lane: lane {@code i} set where the vector's lane
+   * holds lane {@code i}'s bit, by an {@code AND} with {@link VarkaMaskFromWord}'s table of each
+   * lane's bit at the lane's constant {@code species} and a compare with zero.
+   */
+  private static void emitLaneBitsTest(CodeBuilder cb, Lane integral, String species) {
+    cb.getstatic(integral.vector, species, VECTOR_SPECIES);
+    var table = integral.scalar.arrayType();
+    cb.getstatic(MASK_FROM_WORD, laneBitsTable(integral), table);
+    cb.iconst_0();
+    cb.invokestatic(integral.vector, "fromArray",
+        MethodTypeDesc.of(integral.vector, VECTOR_SPECIES, table, ConstantDescs.CD_int));
+    cb.invokevirtual(integral.vector, "and", integral.lanewiseVV);
+    cb.getstatic(VECTOR_OPERATORS, "NE", VO_COMPARISON);
+    if (integral == Lane.LONG) {
+      cb.loadConstant(0L);
+    } else {
+      cb.iconst_0();
+    }
+    cb.invokevirtual(integral.vector, "compare", integral.compareVI);
+  }
+
+  /** The {@link VarkaMaskFromWord} table of each lane's bit at an integral lane. */
+  private static String laneBitsTable(Lane integral) {
+    return switch (integral) {
+      case BYTE -> "BYTE_BITS";
+      case SHORT -> "SHORT_BITS";
+      case INT -> "INT_BITS";
+      case LONG -> "LONG_BITS";
+      case FLOAT, DOUBLE -> throw VarkaErrors.illegalArgument("no bit table at " + integral);
+    };
   }
 
   /**
@@ -1915,7 +2037,7 @@ final class VarkaVectorWalk {
     loadWord(cb, s, s.wordRef.get(left));
     cb.loadConstant(-1L);
     cb.lxor();
-    emitMaskOfWord(cb, analysis);
+    emitMaskOfWord(cb, lane, analysis);
     cb.invokevirtual(lane.vector, "blend", lane.blend);
     cb.aload(tmp[1]);
     cb.aload(tmp[0]);
@@ -1923,7 +2045,7 @@ final class VarkaVectorWalk {
     loadWord(cb, s, s.wordRef.get(right));
     cb.loadConstant(-1L);
     cb.lxor();
-    emitMaskOfWord(cb, analysis);
+    emitMaskOfWord(cb, lane, analysis);
     cb.invokevirtual(lane.vector, "blend", lane.blend);
     emitPickOp(cb, lane, op, tmp);
     if (s.ownWord.contains(node)) {
@@ -2368,7 +2490,7 @@ final class VarkaVectorWalk {
         if (dense) {
           cb.aload(s.species(analysis.laneOf(node)));
           loadDataBits(cb, n, analysis, s);
-          cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+          emitFromLong(cb, analysis.laneOf(node), analysis);
           cb.astore(s.condMask.get(node));
         } else {
           // kT = d & v; kF = ~d & v. The data bit under a null slot is arbitrary and v clears it.
@@ -2390,7 +2512,7 @@ final class VarkaVectorWalk {
         if (dense) {
           cb.aload(s.species(analysis.laneOf(node)));
           cb.loadConstant(isTrue ? -1L : 0L);
-          cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+          emitFromLong(cb, analysis.laneOf(node), analysis);
           cb.astore(s.condMask.get(node));
         } else {
           cb.loadConstant(isTrue ? -1L : 0L);
@@ -2557,7 +2679,7 @@ final class VarkaVectorWalk {
           // condition alike.
           cb.aload(s.species(analysis.laneOf(node)));
           cb.loadConstant(-1L);
-          cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+          emitFromLong(cb, analysis.laneOf(node), analysis);
           cb.astore(s.condMask.get(node));
         } else {
           // kT = word(child); kF = ~word(child) - total: both masks cover every lane. The

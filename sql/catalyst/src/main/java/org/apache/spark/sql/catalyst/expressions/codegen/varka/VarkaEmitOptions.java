@@ -488,6 +488,16 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        folds away where it is off, is right on every host and JDK; true is the losing arm, an
  *        AND a site cheaper on x86 below AVX-512, kept for the A/B and for the JDKs that fix the
  *        rule ({@code m9/SCOPE.md} item 114).
+ * @param maskFromWord whether every word an emitted kernel turns into a mask is built by the
+ *        construction of {@link VarkaMaskFromWord} - a broadcast, an {@code AND} with each lane's
+ *        bit and a compare with zero, emitted in the kernel - rather than by
+ *        {@code VectorMask.fromLong} (VARKA-375). JDK 25's C2 lowers
+ *        {@code fromLong} on aarch64 only with SVE2's bit-permute extension, so on a NEON-only or
+ *        SVE1 core it is the Vector API's allocating Java fallback; the construction uses no
+ *        mask-from-bits instruction. Under it the masked body's words skip the
+ *        {@code VarkaMaskGuard} AND, which guards only {@code fromLong}. False, {@code fromLong},
+ *        is the default: it is intrinsic on every host the milestone measures at its default
+ *        width; true is the arm for a host without the instruction.
  * @param decimalAbsLanewise whether a long-lane {@code abs}, a decimal's unscaled value's
  *        (VARKA-348 2.6) and a {@code BIGINT}'s alike (VARKA-104), so that the arm moves both, is
  *        the lanewise {@code ABS}, one {@code evpabsq} where x86 has
@@ -590,6 +600,7 @@ public record VarkaEmitOptions(
     boolean dropStackMaps,
     int misdescribeDataBytes,
     boolean fromLongMasks,
+    boolean maskFromWord,
     boolean decimalAbsLanewise,
     boolean dropDecimalBound,
     DecimalStore decimalStore,
@@ -825,7 +836,7 @@ public record VarkaEmitOptions(
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
-          false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
+          false, false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
           false, NarrowGroupStore.MASKED, FloatingFault.NONE, IntervalFault.NONE);
 
   public VarkaEmitOptions {
@@ -944,6 +955,7 @@ public record VarkaEmitOptions(
       b.dropStackMaps = dropStackMaps;
       b.misdescribeDataBytes = misdescribeDataBytes;
       b.fromLongMasks = fromLongMasks;
+      b.maskFromWord = maskFromWord;
       b.decimalAbsLanewise = decimalAbsLanewise;
       b.dropDecimalBound = dropDecimalBound;
       b.decimalStore = decimalStore;
@@ -1006,6 +1018,7 @@ public record VarkaEmitOptions(
     private boolean dropStackMaps;
     private int misdescribeDataBytes;
     private boolean fromLongMasks;
+    private boolean maskFromWord;
     private boolean decimalAbsLanewise;
     private boolean dropDecimalBound;
     private DecimalStore decimalStore;
@@ -1259,6 +1272,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder maskFromWord(boolean fromWord) {
+      this.maskFromWord = fromWord;
+      return this;
+    }
+
     public Builder decimalAbsLanewise(boolean lanewise) {
       this.decimalAbsLanewise = lanewise;
       return this;
@@ -1317,7 +1335,7 @@ public record VarkaEmitOptions(
           severalKernels,
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
-          misdescribeDataBytes, fromLongMasks, decimalAbsLanewise, dropDecimalBound,
+          misdescribeDataBytes, fromLongMasks, maskFromWord, decimalAbsLanewise, dropDecimalBound,
           decimalStore, wideConversionForm, roundToOddByShifts, mathUlpContract,
           narrowGroupStore,
           floatingFault, intervalFault);

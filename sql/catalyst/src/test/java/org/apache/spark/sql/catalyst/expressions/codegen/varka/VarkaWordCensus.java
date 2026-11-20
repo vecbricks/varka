@@ -164,6 +164,9 @@ public final class VarkaWordCensus {
       case MathUnary x -> pure(x.child(), coalesce, absorb);
       case RoundToIntegral x -> pure(x.child(), coalesce, absorb);
       case CanonicalFloat x -> pure(x.child(), coalesce, absorb);
+      case CanonicalBits x -> pure(x.child(), coalesce, absorb);
+      // A hash step skips a null word: its validity is its seed's.
+      case HashStep x -> pure(x.seed(), coalesce, absorb);
       case Greatest x -> orW(pure(x.left(), coalesce, absorb), pure(x.right(), coalesce, absorb),
           absorb);
       case Least x -> orW(pure(x.left(), coalesce, absorb), pure(x.right(), coalesce, absorb),

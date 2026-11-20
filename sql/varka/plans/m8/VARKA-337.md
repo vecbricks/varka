@@ -668,6 +668,39 @@ table's text in `docs/sql-varka.md` (the widened `covers`) and the laptop's JDK 
 `width_audit.json`. The side sequence is unpinned, so no committed fuzz block moved. Predictions 1
 to 4 and 6 are the hash's and stay open.
 
+**337a2, the hash steps** (20 November 2026, branch `varka-337a2-hash`, stacked on 337a1, local,
+built while the owner was away; decisions 11 to 15 below). Built: `HashStep(mix, seed, word)` with
+`HashMix`'s five primitive tails (decision 13) and `CanonicalBits`, a canonical value's bits
+(decision 12); their lowering in `VarkaHashLowering`, Spark's constants and operator order, the
+word's half emitted before the seed, `h * 5` as `(h << 2) + h`, and the null skip inside the step
+in the masked body, its mask through `emitMaskOfWord` (decision 14); every exhaustive switch gains
+the two nodes (analysis, slots and word liveness, budget weights 17, 8, 17, 15, 16 and 1, cost
+features `HashStep/<mix>` and `CanonicalBits/<lane>` on the awaiting-refit list, range analysis,
+same answer, kernel plan, operand position, the text form `(hash:<MIX> s w)` and `(canonBits x)`
+and their parser); the warm-up's shift list gains `ROL` and both floating blocks the
+reinterpretation; the reference answers each step by Spark's `Murmur3_x86_32` and `XXH64`, a
+Murmur3 pair by `hashLong`. No compiler arm builds the nodes yet, so no query reaches them and no
+generated file moves.
+
+Tests: `VarkaEmitterHashSuite` (new) holds the kernels of `hash` and `xxhash64` over one `INT`,
+`BIGINT`, `FLOAT` and `DOUBLE` column to `Murmur3HashFunction.hash` and `XxHash64Function.hash`
+over the extremes, the powers of two and their negatives, the floating cells of
+`VarkaEmitterCanonicalFloatSuite` (both zeros, NaN payloads of both signs, the four `DOUBLE` NaN
+range endpoints) and 4000 drawn values, at five seeds, every seventh row null and hashing to its
+seed; a fold of an `INT` and a `BIGINT` child with nulls in either and both positions; the
+constructors' refusals; and, behind `-Dvarka.sweep=true`, every `INT` and every `FLOAT` pattern
+through both hashes (3.1). The suites that list node types take both nodes. `VarkaVectorIRSharingSuite`'s
+hash formula is the records' own for both nodes: `CanonicalFloat` keeps 337a1's
+`hashOf(child)`, as #1566 settled it, and `CanonicalBits` takes the same `hashOf(child)` by the
+owner's decision of 20 November 2026, so neither mixes its class in.
+
+Left of 337a: the compiler, the `HASH` family and the coverage rows (part 337a3, stacked on this
+one); the IR grammar's productions of 2.6 (the fuzz and grammar suites list both nodes as not
+drawn yet, pointing here), `hash.smt2` with the step, fold and blend claims of 3.4, and the
+planted faults of 3.9's second and third bullets. Then, by section 5's order, the baseline (its
+build sheet below) and the spike, and the measurement that scores predictions 1 to 4; the PR
+build and the option matrix (3.8).
+
 ## Decisions taken while the owner was away (20 November 2026)
 
 1. **The canonicalisation first, as its own part (337a1), before the baseline and the spike.**
@@ -707,6 +740,37 @@ to 4 and 6 are the hash's and stay open.
    differs from the committed AVX-512 file in 134 cells, all of them masked `BYTE` stores and
    64-bit masks at two lanes, which AVX2 has no lowering for (`sql/varka/AGENTS.md`). None holds the
    node. The committed file stays the AVX-512 host's.
+
+Taken for part 337a2, the hash steps (branch `varka-337a2-hash`, stacked on 337a1):
+
+11. **The hash steps before the baseline and the spike.** The coordinator's brief of 20 November
+   2026 ordered the hash steps first, the baseline and the spike after them if section 5 puts them
+   before 337b. Section 5 puts both before 337a, so they are not after anything left here: the
+   baseline's build sheet asks for its own branch off origin/master and runner results, and the
+   spike for runner times, neither of which this window can take. Both stay owed, in section 5's
+   order, and the measurement that scores predictions 1 to 4 needs both.
+12. **A floating value's bits are a node of their own, `CanonicalBits`**, not a read inside the
+   step as 2.2 has it. With the bits as an `INT` or `LONG` value, Murmur3 over a `DOUBLE` and
+   XXH64 over a `FLOAT` take their lane crossings from the nodes that exist (`NarrowLane`,
+   `WidenLane`, `BitOp`), so every `HashStep` is on one lane and the analysis, the kernel plan
+   and the reference need no crossing rule of their own. The guard 2.2 asks of the step moves with
+   it: `CanonicalBits` takes a `CanonicalFloat` child and nothing else.
+13. **Murmur3's `hashLong` is two steps.** `HashMix` has five members, one per primitive tail:
+   `MURMUR3_INT`, `MURMUR3_LOW` (the first `mixH1`, no finalisation), `MURMUR3_HIGH` (the second
+   and `fmix(8)`), `XXH64_INT` and `XXH64_LONG`. A 64-bit word's halves are `NarrowLane`s of the
+   word and of `word >>> 32`, row 28's representation, as 2.2 says. The reference answers the
+   pair by Spark's `hashLong` and refuses a half alone, which no compiler path builds.
+14. **The null skip is the step's own, as 2.2 has it**: in the masked body the seed is kept under
+   the step and blended back where the word is null, the mask from the word's validity word, and
+   the step's validity is the seed's (aliased, a null-skipping node for the all-null shortcut). No
+   blend is emitted where the word's validity is constant true, nor in the dense body. A
+   composition, `IfElse(IsNotNull(word), step, seed)`, was built first and failed: the emitter's
+   null test reads only a column's word (`Analysis`: "IsNotNull child must be a ColumnRef ..."),
+   so every computed word, a long's halves and a float's bits among them, would have declined.
+15. **337a is split by the size cap**: 337a2 holds the two nodes, their lowering, the IR's
+   consumers, the reference, the warm-up and the kernel suite; 337a3 the compiler, the family, the
+   coverage rows and the generated files; a later part the grammar productions of 2.6,
+   `hash.smt2` and the step and fold planted faults of 3.9.
 
 ## Build sheet (11 November 2026)
 
