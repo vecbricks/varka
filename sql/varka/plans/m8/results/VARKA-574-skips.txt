@@ -1,0 +1,61 @@
+VARKA-574 admission check: the skipped Varka tests of one Build and the reasons their JUnit
+reports carry, read 20 November 2026.
+
+Source: Build 44179170857 on MaxGekk/spark (head 070ff991805, branch varka-603b, success,
+17 November 2026), its six varka-scoped-junit-* artifacts (catalyst and sql, three shards
+each), 208 TEST-*.xml files, every suite run at the defaults through VarkaSuiteRunner
+(dev/varka_matrix.sh, dev/varka_scoped_suites.sh). A test counts as skipped when its
+<testcase> holds <skipped>, and as carrying a reason when that element has a non-empty
+message attribute or text.
+
+Totals: 115 skipped; 52 with a reason, 63 without.
+
+By the writer of the file:
+  ScalaTest suites (org.scalatest.tools.JUnitXmlReporter, -u):  63 skipped, 0 with a reason
+  JUnit 5 classes (the runner's XML listener):                  52 skipped, 52 with a reason
+
+So every skip without a reason is a ScalaTest one, and every ScalaTest skip is without one.
+The reporter writes a cancelled test as <skipped/> and drops the TestCanceled event's message.
+
+The 63 ScalaTest skips by suite, and whether the test's name says opt-in:
+  VarkaAssemblySuite                                14  no reason in the name
+  VarkaChronoSuite                                   4  opt-in in the name
+  VarkaCompilationWatchSuite                         2  opt-in in the name
+  VarkaCoverageSuite                                 1  opt-in in the name
+  VarkaEmittedBytesSuite                             2  no reason in the name
+  VarkaEmitterBitwiseSuite                           2  opt-in in the name
+  VarkaEmitterChronoSuite                            4  opt-in in the name
+  VarkaEmitterDivisionSuite                         21  opt-in in the name
+  VarkaEmitterYmDivideSuite                          1  no reason in the name
+  VarkaIrFuzzSuite                                   2  opt-in in the name
+  VarkaSQLQueryTestSuite                             1  no reason in the name
+  VarkaTpcdsCodegenCensusSuite                       1  no reason in the name
+  VarkaTpcdsNoPaddingCodegenCensusSuite              1  no reason in the name
+  VarkaTpcdsNoPaddingWithStatsCodegenCensusSuite     1  no reason in the name
+  VarkaTpcdsWithStatsCodegenCensusSuite              1  no reason in the name
+  VarkaTpchCodegenCensusSuite                        1  no reason in the name
+  VarkaTpchWithStatsCodegenCensusSuite               1  no reason in the name
+  VarkaWarmupEndToEndSuite                           2  no reason in the name
+  VarkaWidthAuditSuite                               1  no reason in the name
+36 say opt-in in the name, 27 do not.
+
+What the code of the 27 says (each cancels through assume or cancel with a message):
+  VarkaAssemblySuite (14)       cancel(why) when no hsdis disassembler is installed; the Build's
+                                assembly gate job sets VARKA_HSDIS_REQUIRED and runs them there.
+                                A missing resource, by design.
+  census suites (6)             assume(outDir.isDefined, "the census runs only with
+                                -Dvarka.tpc.census.dir"). Opt-in.
+  VarkaEmittedBytesSuite (2)    assume on VARKA_OPTION_AUDIT and VARKA_PAIRS_AUDIT. Opt-in.
+  VarkaWarmupEndToEndSuite (2)  assume(VarkaMemorySanitizer.ENABLED, "run with
+                                -Dvarka.sanitizeMemory=true"); the Build runs the suite only in
+                                its quiet step, without the sanitizer; the option matrix's runs
+                                have it on. A configuration skip, by design.
+  VarkaWidthAuditSuite (1)      cancel when the committed census is another CPU model's. A host
+                                skip, by design.
+  VarkaSQLQueryTestSuite (1)    the test's name says it runs only in its own JVM with
+                                -Dvarka.goldenSuite.arm. Opt-in.
+  VarkaEmitterYmDivideSuite (1) assume on -Dvarka.sweep.long. Opt-in.
+None is a dead test: each names a condition another job or an opt-in run meets.
+
+The 52 JUnit 5 skips carry assumeTrue's message, for example "Assumption failed: owed by the
+registers: x + y (LEGACY, value): rows 330,104,..." in VarkaDecimalConformanceSuite.
