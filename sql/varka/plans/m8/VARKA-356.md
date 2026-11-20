@@ -632,12 +632,10 @@ wrote coverage, docs, emitted bytes, width audit and census; no existing shape's
 
 ### Decisions taken while the owner was away (20 November 2026)
 
-1. **356a before 345b and 358a**: of 345b only the `LANE_CALL` lowering. No function of 356 needs
-   358a's domain null.
+1. **356a before 345b and 358a**: of 345b only the `LANE_CALL` lowering.
 2. **The call is unrolled over `lane` and `withLane`, not 2.2's scratch loop**: the price is a
    baked lane count; the scratch loop is the one to measure.
-3. **Every lane is called, dead ones too**: the call is pure.
-4. **The `PORT` arms are the next part.** Each fdlibm port (`asin`, `acos`, `atan`, `atan2`) is
+3. **The `PORT` arms are the next part.** Each fdlibm port (`asin`, `acos`, `atan`, `atan2`) is
    ported to `vfdlibm` from its committed C, never the JDK, any departure proven in `PROOFS.md`,
    and Varka's kernel is cross-checked lane for lane against `VFdlibm.<fn>`. Varka's side needs
    345b's `PORT` frame and the `exp` template first.
