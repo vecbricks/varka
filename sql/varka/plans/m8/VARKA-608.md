@@ -209,9 +209,12 @@ the plan, `sql/varka/AGENTS.md` or the plan's own recommendations favour.
    (`predicates.scala`, `buildCanonicalizedPlan`) gathers the whole `AND` spine, sorts its
    operands by hash and re-reduces them, so every `AND` tree is semantically equal to its own
    fold. `rewriteFilter` compares `fused != condition` (case-class equality, the conjuncts being
-   the condition's own nodes), and the test asserts the same way. A false "not the fold" from a
+   the condition's own nodes: `predicateOnce` stores each untouched element of
+   `conjuncts(condition)` in its `VarkaConjunctSpec`, `VarkaExpressionCompiler.java:976`, so an
+   over-scan filter's fold equals its condition and its plan string keeps `None`), and the test
+   asserts the same way. A false "not the fold" from a
    rewritten conjunct is the harmless direction (risk 1): the fallback then reads Spark's tree.
-2. **The reproducer's vehicle is a union with `PushDownPredicates` excluded, not a `LIMIT`.**
+2. **The reproducer's vehicle is a union with two pushdown rules excluded, not a `LIMIT`.**
    Section 2's `LIMIT` child cannot fuse: both of `VarkaColumnarRule`'s filter arms require
    `child.supportsColumnar && arrowFriendly(child)`, and `GlobalLimitExec` and `LocalLimitExec`
    are row nodes (`limit.scala` has no `supportsColumnar`). An aggregate or a join, the plan's
@@ -261,8 +264,9 @@ Predictions (section 6.1):
 1. Before the change, Spark raises and Varka answers in the elimination-on, codegen-off cell:
    **owed** (step 1 not run; decision 3).
 2. After it, all cells agree: **owed** (the run below stopped at the shape check).
-3. Test time under 4 s: **owed**; the failed run took 15.1 s to its shape check, which includes
-   the suite's session start and the cached tables' first build, so it scores nothing yet.
+3. Test time under 4 s: **owed**, and the evidence so far is against it: the failed run took
+   15.1 s to reach its shape check, before any of the eight cells. Part of that is the suite's
+   session start and the cached tables' first build, which a rerun measures apart.
 4. Plan strings move only for a filter not over a scan whose tree is not its fold: **owed**
    (step 4); by decision 2's reading, no filter planned at the default configuration moves.
 
@@ -273,5 +277,6 @@ shape. The control passed first: with codegen off and elimination on, Spark's fi
 scan answered `[2]`. Then Spark's physical `FilterExec` condition was its own left fold: with
 only `PushDownPredicates` excluded, the filter had still been pushed into both children of the
 union as `pushDown.reduceLeft(And)`, by `PushPredicateThroughNonJoin` in `SparkOptimizer`'s
-"Extract UDFs" batch. The test now excludes that rule as well. It compiles, and has not been run
+"Extract UDFs" batch. The test now excludes that rule as well. The run's log is kept at
+`target/varka-608/run608.log` in the worktree. It compiles, and has not been run
 again: the window allowed one run. Whether the shape now holds, and the cells, are owed.
