@@ -969,7 +969,8 @@ checks that the root is `WidenDecimal` and that the output type is the expressio
 value at one, two, four and eight long lanes. It uses the precision's ends, one unit inside them,
 zero, one each way and every null pattern, and holds each row to Spark's `eval` at the output's
 scale. It covers `abs` under both lowerings, the sums and differences, and the decline past 18
-digits naming 359. Two later tests are compiled but not run. The first runs the whole root, the
+digits naming 359. The bare rescaling cast `CAST(a AS DECIMAL(18, 4))` was added to the first
+test's shapes after that run. Two later tests are compiled but not run. The first runs the whole root, the
 store over the decimal leaves, into a `DecimalVector` of the output's type under both
 `decimalStore` arms, and reads it back through `ArrowColumnVector`. The second checks that a
 constant and a typed null fuse as outputs beside a column's value. `VarkaExpressionCompilerSuite`'s test that the TIME producers decline below a
@@ -1004,9 +1005,10 @@ since section 4 already holds the projected choice.
 
 **Left in the row.** The runner measurements: the projections against the baseline at 256 and
 128 bits on the EPYC 7763 (prediction 4 of section 4), and `abs`'s two lowerings at 512 bits on
-the laptop (prediction 3), are owed. The laptop reading is not taken in this window because the
-owner's order for it (20 November 2026, 07:30 CET) puts tests and measurements in a later phase,
-and other agents' JVMs share the machine. `sql/varka/CLAUDE.md`'s measurement rules need it quiet. The baseline class has `abs(x) < y` as a filter only, so the
+the laptop (prediction 3), are owed. The laptop reading was not taken on 20 November 2026,
+because the methodology `sql/varka/CLAUDE.md` fixes ("Measurements, not adjectives",
+`VARKA-14.md` 2.1) needs an otherwise idle machine. That day other agents' JVMs shared the laptop,
+and `dev/varka_bench_regen.sh` refuses a busy machine. The baseline class has `abs(x) < y` as a filter only, so the
 projection arms are an addition to it, the house's own pull request first. The generated files
 (`coverage.json`, `docs/sql-varka.md`, `emitted_bytes.json`, `width_audit.json`, `census.tsv`,
 `decimal_refinement.smt2`) and the runs the body lists are owed too.

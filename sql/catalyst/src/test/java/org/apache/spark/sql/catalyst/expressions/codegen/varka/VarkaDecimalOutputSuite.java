@@ -88,7 +88,8 @@ public final class VarkaDecimalOutputSuite {
       new Shape("-a", D18, D18),
       new Shape("abs(a)", D18, D18),
       new Shape("abs(b)", D9, D9S4),
-      new Shape("-greatest(a, b)", D9, D9S4));
+      new Shape("-greatest(a, b)", D9, D9S4),
+      new Shape("CAST(a AS DECIMAL(18, 4))", D9, D9));
 
   /** The sums and differences within 18 digits, row 349's arithmetic stored by the same path. */
   private static final List<Shape> ARITHMETIC = List.of(
