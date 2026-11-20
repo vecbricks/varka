@@ -34,6 +34,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Boo
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
@@ -65,7 +66,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -1545,12 +1545,17 @@ public final class VarkaIrGrammar {
    * {@link FloatingShapes}, or a condition root (a filter) one time in five.
    */
   public static DrawnLong drawFloatingLaneShape(Random rnd, LaneType lane) {
+    return drawFloating(rnd, lane, false);
+  }
+
+  /** The floating draw, a value a canonicalisation one time in four with {@code canonical}. */
+  private static DrawnLong drawFloating(Random rnd, LaneType lane, boolean canonical) {
     if (!lane.isFloating()) {
       throw new IllegalArgumentException("not a floating lane: " + lane);
     }
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
-    var shapes = new FloatingShapes(rnd, lane, numInputs, numLiterals);
+    var shapes = new FloatingShapes(rnd, lane, numInputs, numLiterals, canonical);
     int depth = 1 + rnd.nextInt(4);
     if (rnd.nextInt(5) == 0) {
       return new DrawnLong(List.of(shapes.cond(depth)), numInputs, numLiterals);
@@ -1570,22 +1575,7 @@ public final class VarkaIrGrammar {
    * {@link CanonicalFloat#of} collapses into one node. From {@link #CANONICAL_FUZZ_SEED}.
    */
   public static DrawnLong drawCanonicalShape(Random rnd, LaneType lane) {
-    if (!lane.isFloating()) {
-      throw new IllegalArgumentException("not a floating lane: " + lane);
-    }
-    int numInputs = 1 + rnd.nextInt(3);
-    int numLiterals = rnd.nextInt(3);
-    var shapes = new FloatingShapes(rnd, lane, numInputs, numLiterals, true);
-    int depth = 1 + rnd.nextInt(4);
-    if (rnd.nextInt(5) == 0) {
-      return new DrawnLong(List.of(shapes.cond(depth)), numInputs, numLiterals);
-    }
-    int count = 1 + rnd.nextInt(3);
-    var drawn = new ArrayList<VarkaVectorIR>();
-    for (int i = 0; i < count; i++) {
-      drawn.add(shapes.value(depth));
-    }
-    return new DrawnLong(distinct(drawn), numInputs, numLiterals);
+    return drawFloating(rnd, lane, true);
   }
 
   /**

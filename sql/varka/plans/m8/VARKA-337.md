@@ -690,8 +690,9 @@ to 4 and 6 are the hash's and stay open.
    `compileNode`, rather than admitted there and claimed by an arm: it builds no node and is no
    family's (2.3). The coverage suite lists it with the infrastructure classes, with the reason,
    since no coverage row can hold it, which is open point 5's option (a) as the owner settled it.
-   `NormalizeNaNAndZero` lives in Spark's `optimizer` package, which the suite's class scan does
-   not resolve, so it needs no entry.
+   `NormalizeNaNAndZero` lives in Spark's `optimizer` package, which the suite's class scan did
+   not resolve; the scan now resolves that package too, and the normaliser has the same entry for
+   the same reason.
 6. **The side sequence is one seed for both lanes**, 20261120, with the canonicalisation drawn by
    a coin that only the flag draws, so the pinned `fuzz_float` and `fuzz_double` shapes do not
    move; 341's sequences take the production over at row 352's refit.

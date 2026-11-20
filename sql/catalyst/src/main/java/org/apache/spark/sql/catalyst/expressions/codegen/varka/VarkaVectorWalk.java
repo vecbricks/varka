@@ -38,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Boo
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
@@ -68,7 +69,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -1195,17 +1195,17 @@ final class VarkaVectorWalk {
     emitValue(cb, n.child(), dense, analysis, s, computed);
     line(cb, analysis, n);
     Lane lane = analysis.laneOf(n);
-    boolean isDouble = lane.laneType == VarkaVectorIR.LaneType.DOUBLE;
     cb.astore(x);                                               // []
     cb.aload(x);
     if (VarkaFloatingFault.planted() != VarkaFloatingFault.CANONICAL_ZERO_DROPPED) {
       lane.pushZero(cb);
       cb.invokevirtual(lane.vector, "add", lane.lanewiseVI);   // [x + 0.0]
     }
-    if (isDouble) {
-      cb.loadConstant(Double.NaN);
-    } else {
-      cb.loadConstant(Float.NaN);
+    switch (lane.laneType) {
+      case FLOAT -> cb.loadConstant(Float.NaN);
+      case DOUBLE -> cb.loadConstant(Double.NaN);
+      case BYTE, SHORT, INT, LONG -> throw VarkaErrors.illegalArgument(
+          "a canonicalisation at the integral lane " + lane.laneType + ": " + n);
     }
     emitIsNaN(cb, lane, x);                                     // [x + 0.0, NaN, isNaN(x)]
     cb.invokevirtual(lane.vector, "blend", lane.lanewiseVIMasked);
