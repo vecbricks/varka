@@ -48,8 +48,8 @@ import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeInter
  * from the shared fuzz grammar at a fixed seed, and ten thousand random long-lane trees from
  * its long grammar at that grammar's own seed (VARKA-119). Each shape is emitted at two
  * widths, 128 and 512 bits - `lanesOverride` 4 and 16 at the int lane, 2 and 8 at the long
- * one - and the narrow store's arms add 64 bits, `lanesOverride` 2 at the int lane and 1 at the
- * long one - and every method body of the emitted class is rendered symbolically
+ * one - and the narrow store's arms add 64 bits, `lanesOverride` 2, over the int-lane shapes
+ * alone - and every method body of the emitted class is rendered symbolically
  * (`VarkaEmitterTestSupport.methodBodies`: opcodes and resolved operands, labels numbered, no
  * constant-pool indices and no line tables) and hashed.
  *
@@ -77,9 +77,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   /**
    * The widths every shape is pinned at, and the third one the narrow store's arms add: only a
    * byte or short store at two int lanes has four parts, so the 64-bit width is pinned for the
-   * store arms alone. Emitting every other shape and arm at it as well cost about a third of
-   * the suite's work for bytes no part count can differ in, and put the whole-shape test
-   * against its watchdog on a slow runner (Build 44140064906, 17 November 2026).
+   * store arms alone, and over the int-lane shapes alone (`pinsAt`). Emitting every other shape
+   * and arm at it as well would cost about a third of the suite's work for bytes no part count
+   * can differ in, and would put the whole-shape test against its watchdog on a slow runner.
    */
   private val widths = Seq(4, 16)
   private val storeWidths = Seq(2, 4, 16)
@@ -522,10 +522,22 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       subject: VarkaEmitOption.Subject): VarkaEmitOptions => VarkaEmitOptions =
     (o: VarkaEmitOptions) => a.apply.apply(subject.apply.apply(o))
 
-  /** One hash over every shape the oracle holds, emitted under `arm` at `lanes`. */
+  /**
+   * Whether a shape is pinned at `lanes`: always at the oracle's widths, and at the store arms'
+   * 64 bits only where the drive is not 64-bit. Half of two lanes is one, which bakes no lane
+   * count (`Lane.emitLanes` gives 0 for it), so a long or double shape there would be the
+   * preferred species' emission again rather than 64 bits of its lane.
+   */
+  private def pinsAt(roots: Seq[VarkaVectorIR], lanes: Int): Boolean =
+    widths.contains(lanes) || !VarkaKernelPlan.driveOf(roots.asJava, VarkaMatrix.base)
+      .filter(_.bits() == java.lang.Long.SIZE).isPresent
+
+  /** One hash over every shape the oracle holds at `lanes` (`pinsAt`), emitted under `arm`. */
   private def armDigest(arm: VarkaEmitOptions => VarkaEmitOptions, lanes: Int): String = {
     // One line per shape, each computed on the pool and joined in the order they were before.
-    def line(label: String, roots: Seq[VarkaVectorIR], numInputs: Int, numLiterals: Int) = {
+    def line(label: String, roots: Seq[VarkaVectorIR], numInputs: Int, numLiterals: Int):
+        String = {
+      if (!pinsAt(roots, lanes)) return ""
       val sb = new StringBuilder(label)
       methodHashes(roots, numInputs, numLiterals, lanes, arm).foreach { case (m, h) =>
         sb.append(' ').append(m).append('=').append(h)
@@ -590,8 +602,15 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
           "blocks" -> narrowBlocks(doubleShapes)))
     }
     val storeNames = storeArms.map(_._1).toSet
+    // An arm whose subject sets the lane count (narrowGroupStore over lanesOverride=4) emits the
+    // same bytes at every oracle width, so it is pinned once, at the width its subject sets.
+    def fixedWidth(arm: VarkaEmitOptions => VarkaEmitOptions): Option[Int] = {
+      val set = widths.map(w => arm(VarkaMatrix.base.withLanesOverride(w)).lanesOverride).distinct
+      if (set.size == 1) Some(set.head).filter(widths.contains) else None
+    }
     val armHashes = ordered(pinnedArms.map { case (name, arm) =>
-      val armWidths = if (storeNames(name)) storeWidths else widths
+      val armWidths =
+        if (storeNames(name)) storeWidths else fixedWidth(arm).map(Seq(_)).getOrElse(widths)
       name -> ordered(armWidths.map(w => w.toString -> armDigest(arm, w)): _*)
     }: _*)
     val doc = ordered(
@@ -601,7 +620,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         "coverage row and for a fixed sequence of fuzz shapes at the int and long lanes, over " +
         "both, and at each narrow and floating lane, at 128 and 512 bits " +
         "(lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one), and the " +
-        "narrow-store arms also at 64 bits (2 at the int lane, 1 at the long one). A difference " +
+        "narrow-store arms also at 64 bits (2 at the int lane, over its int-lane shapes alone); " +
+        "an arm whose subject sets the lane count is pinned at that width alone. A difference " +
         "is a change in what an emitted method does. `option_arms` covers emissions beyond the " +
         "defaults: one digest over every coverage row and int, long and mixed shape at each " +
         "width per value of spark.sql.codegen.varka.emit.useAVX, an emit option a " +

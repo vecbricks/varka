@@ -905,14 +905,12 @@ public final class VarkaEmitterNarrowArithSuite {
   @DisplayName("a later lane group's outputs load the date prefix an earlier group stored")
   public void laterGroupLoadsTheDatePrefixAnEarlierGroupStored() {
     // Under COMBINED the narrowing cast's store makes an iteration compute two int lane groups
-    // at four int lanes, and the two quarters put the date's calendar prefix in two loop-method
-    // groups, so the second output group loads the scratch the first stores (VARKA-198). The
-    // store is emitted once per lane group; when only the first group's was, quarter(d) read
-    // the second group's unwritten scratch as month 0 and answered 0 where the reference
-    // answers the quarter. The shape reproduces the matrix's failure with the fix's clear
-    // disabled (checked on 17 November 2026). The MASKED instance of the same stale-set bug,
-    // which a narrow value load would reach, has no reproducing shape yet; VARKA-603.md 10
-    // records the shape tried and why it does not reach it.
+    // at four int lanes, and the two quarters put the date's calendar prefix in two loop
+    // methods, so a later method loads the scratch an earlier one stores (VARKA-198). The store
+    // must be emitted once per lane group: a prefix-store set that outlives its lane group skips
+    // the second group's store, and quarter(d) then reads that group's unwritten scratch as
+    // month 0 and answers 0 where the reference answers the quarter. The MASKED instance of the
+    // same stale set has no reproducing shape; VARKA-603.md 10 records the shape tried.
     VarkaEmitOptions options = VarkaMatrixRuns.BASE.toBuilder().lanesOverride(4)
         .narrowGroupStore(NarrowGroupStore.COMBINED).build();
     Attribute i = VarkaSqlResolve.column("i", IntegerType$.MODULE$);
@@ -925,6 +923,11 @@ public final class VarkaEmitterNarrowArithSuite {
     EmittedClass emitted = emitAll(exprs, List.of(i, d), options, where);
     assertTrue(VarkaKernelPlan.of(emitted.roots(), options).narrowGroups() >= 2,
         where + ": the shape does not split the iteration into two int lane groups");
+    // The prefix crosses a method boundary only where the outputs take two loop methods a body.
+    long denseMethods = loopMethods(emitted.bytes()).stream()
+        .filter(m -> m.startsWith("loopDense")).count();
+    assertTrue(denseMethods >= 2, where + ": the outputs share one dense loop method, so no "
+        + "method loads a prefix another stored: " + loopMethods(emitted.bytes()));
     Batch batch = batch(64, row -> false, List.of(3, 19000));
     withKernel(emitted, kernel -> assertEquals(0,
         VarkaKernelChecks.runLoadedNarrow(where, kernel, emitted.roots(), emitted.numInputs(),

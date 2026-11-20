@@ -634,6 +634,14 @@ public record VarkaEmitOptions(
   public enum DecimalStore { REARRANGE, SELECT_FROM }
 
   /**
+   * The forms of a narrow store whose species is wider than the int lane group
+   * ({@link VarkaEmitOptions#narrowGroupStore}). {@link #MASKED} stores each group under the mask
+   * of its own lanes and is the reference form; {@link #COMBINED} ORs the groups' parts into one
+   * whole vector and stores that once a run of groups. Both give the same bytes in the column.
+   */
+  public enum NarrowGroupStore { MASKED, COMBINED }
+
+  /**
    * The AVX2 forms of {@code L2D} ({@code VarkaConversionLowering}). {@link #XOR_SPLIT}, the
    * default (VARKA-583), and {@link #SPLIT}, part 343b1's, are exact over every long: both
    * convert the high and the low word apart and add them, the first by a logical shift and an
@@ -643,14 +651,6 @@ public record VarkaEmitOptions(
    * not take are arms kept to be measured against it.
    */
   public enum WideConversionForm { SPLIT, MAGIC, XOR_SPLIT }
-
-  /**
-   * The forms of a narrow store whose species is wider than the int lane group
-   * ({@link VarkaEmitOptions#narrowGroupStore}). {@link #MASKED} stores each group under the mask
-   * of its own lanes and is the reference form; {@link #COMBINED} ORs the groups' parts into one
-   * whole vector and stores that once a run of groups. Both give the same bytes in the column.
-   */
-  public enum NarrowGroupStore { MASKED, COMBINED }
 
   /*
    * A note this enum cannot express, kept beside it rather than inside its javadoc, which
@@ -1436,10 +1436,6 @@ public record VarkaEmitOptions(
     return toBuilder().decimalStore(form).build();
   }
 
-  public VarkaEmitOptions withWideConversionForm(WideConversionForm form) {
-    return toBuilder().wideConversionForm(form).build();
-  }
-
   /**
    * The narrow store's form ({@link #narrowGroupStore}): the masked per-group store that ships,
    * or the combined whole store kept to be measured against it on a host without a predicated
@@ -1447,6 +1443,10 @@ public record VarkaEmitOptions(
    */
   public VarkaEmitOptions withNarrowGroupStore(NarrowGroupStore form) {
     return toBuilder().narrowGroupStore(form).build();
+  }
+
+  public VarkaEmitOptions withWideConversionForm(WideConversionForm form) {
+    return toBuilder().wideConversionForm(form).build();
   }
 
   public VarkaEmitOptions withRoundToOddByShifts(boolean byShifts) {
