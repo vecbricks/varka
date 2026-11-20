@@ -443,8 +443,8 @@ master. The table gains `u` in `[-1, 1)` for `asin`, `acos` and `atanh`, `c` in 
 `ln(q)`, each with a null column at rows of its own; `log(2.0, x)`, `ln` and `log1p` read `p`, the
 positive column, as 345's logarithms do, and `pow(x, 3.0)` reads `p` as `pow(p, 3.0)`. A section
 records the rows in ten its function nulls by its domain, which the queries suite adds to the
-expected nulls, one for `ln(q)`. Owed: the queries suite's run, and the EPYC 7763 runs at 256 and
-128 bits, whose results replace the committed baseline files at both widths; until those land,
+expected nulls, one for `ln(q)`. `sql/Test/compile` is clean (749 s). Owed: the queries suite's
+run, and the EPYC 7763 runs at 256 and 128 bits, whose results replace the committed baseline files at both widths; until those land,
 rows 356 to 358 cannot score their predictions against the nineteen.*
 
 **Each fusing pull request** reruns the class with the fuse check lifted and diffs against the
