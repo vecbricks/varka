@@ -260,6 +260,12 @@ public final class VarkaEmitterCanonicalFloatSuite {
             if (status != 0) {
               return CHUNK;
             }
+            // Every row is valid: a dense body that wrote a wrong validity word fails here.
+            for (long w = 0; w < CHUNK / 8L; w++) {
+              if (validity.get(ValueLayout.JAVA_BYTE, w) != (byte) 0xff) {
+                return CHUNK;
+              }
+            }
           }
           for (int i = 0; i < CHUNK; i++) {
             int want = sparkFloat(c * CHUNK + i);

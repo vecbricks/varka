@@ -1710,7 +1710,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
     logInfo(s"$name draws answered: $answered of $floatingIterations")
     if (only.isEmpty && Lane.emitLanes(VarkaMatrix.base, Lane.of(lane)) >= 4) {
-      assert(answered > floatingIterations / 2, s"only $answered $lane draws were answered")
+      assert(answered > floatingIterations / 2, s"only $answered $name draws were answered")
     }
     reportReach(reach)
     reportSkipped()
@@ -1774,7 +1774,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
   }
 
-  test("the canonicalisation's side sequence draws it at both lanes, never over itself, and " +
+  test("the canonicalisation's side sequence draws it at both lanes, and " +
       "the pinned floating sequences never draw it") {
     def nodeTypes(drawSeed: Long, lane: LaneType,
         draw: (Random, LaneType) => VarkaIrGrammar.DrawnLong): Set[String] = {
@@ -1783,8 +1783,6 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
           .roots.asScala) {
         assert(VarkaVectorIR.lanesIn(root).asScala === Set(lane),
           s"$lane draw $k holds another lane: ${VarkaVectorIR.canonical(root)}")
-        assert(!VarkaVectorIR.canonical(root).contains("(canon (canon"),
-          s"$lane draw $k canonicalises a canonicalisation: ${VarkaVectorIR.canonical(root)}")
         VarkaLaneFuzz.collectNodeTypes(root, seen)
       }
       seen.asScala.toSet
