@@ -65,6 +65,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -208,6 +209,15 @@ public final class VarkaIrGrammar {
    */
   public static final long FLOAT_FUZZ_SEED = 20261111L;
   public static final long DOUBLE_FUZZ_SEED = 20261112L;
+
+  /**
+   * The seed of the canonicalisation's side sequence ({@link #drawCanonicalShape}): the floating
+   * sequences' trees with {@link CanonicalFloat} drawn among their values (VARKA-337 2.6), a
+   * sequence of its own so that the pinned floating shapes do not move. It is unpinned until row
+   * 352's refit folds it in; {@code VarkaIrFuzzSuite} runs it at both floating lanes from this
+   * one seed.
+   */
+  public static final long CANONICAL_FUZZ_SEED = 20261120L;
 
   // The generator's magnitude bounds saturate rather than wrap, in *every* arm that combines
   // two of them - `boundsOf` and the generator alike. Four nested multiplies of a column's own
@@ -390,6 +400,7 @@ public final class VarkaIrGrammar {
       // The grammar draws no floating tree, whose values have no integer bound.
       case MathUnary n -> throw new IllegalArgumentException("a floating node: " + n);
       case RoundToIntegral n -> throw new IllegalArgumentException("a floating node: " + n);
+      case CanonicalFloat n -> throw new IllegalArgumentException("a floating node: " + n);
       // A condition as a value is 0 or 1; its condition's operands may hold producers.
       case CondValue n -> new Bounds(1L, guard(n.cond()));
       // Null everywhere, its vector zero, and no producer below it.
@@ -1553,6 +1564,31 @@ public final class VarkaIrGrammar {
   }
 
   /**
+   * Shape {@code k} of the canonicalisation's side sequence at {@code lane}: as
+   * {@link #drawFloatingLaneShape} draws it, with a value a canonicalisation one time in four,
+   * over any value of the sequence, another canonicalisation among them, which
+   * {@link CanonicalFloat#of} collapses into one node. From {@link #CANONICAL_FUZZ_SEED}.
+   */
+  public static DrawnLong drawCanonicalShape(Random rnd, LaneType lane) {
+    if (!lane.isFloating()) {
+      throw new IllegalArgumentException("not a floating lane: " + lane);
+    }
+    int numInputs = 1 + rnd.nextInt(3);
+    int numLiterals = rnd.nextInt(3);
+    var shapes = new FloatingShapes(rnd, lane, numInputs, numLiterals, true);
+    int depth = 1 + rnd.nextInt(4);
+    if (rnd.nextInt(5) == 0) {
+      return new DrawnLong(List.of(shapes.cond(depth)), numInputs, numLiterals);
+    }
+    int count = 1 + rnd.nextInt(3);
+    var drawn = new ArrayList<VarkaVectorIR>();
+    for (int i = 0; i < count; i++) {
+      drawn.add(shapes.value(depth));
+    }
+    return new DrawnLong(distinct(drawn), numInputs, numLiterals);
+  }
+
+  /**
    * The generator at a floating lane, over the forms the floating lanes order and choose with
    * (VARKA-341): the leaves, the choice, {@code greatest} and {@code least}, and the conditions -
    * every comparison in Spark's order and the three IEEE ones a compare against a literal is
@@ -1571,13 +1607,21 @@ public final class VarkaIrGrammar {
     private final LaneType lane;
     private final int numInputs;
     private final int numLiterals;
+    /** Whether a value is a canonicalisation one time in four; off in the pinned sequences. */
+    private final boolean canonical;
     private int budget = 20;
 
     FloatingShapes(Random rnd, LaneType lane, int numInputs, int numLiterals) {
+      this(rnd, lane, numInputs, numLiterals, false);
+    }
+
+    FloatingShapes(Random rnd, LaneType lane, int numInputs, int numLiterals,
+        boolean canonical) {
       this.rnd = rnd;
       this.lane = lane;
       this.numInputs = numInputs;
       this.numLiterals = numLiterals;
+      this.canonical = canonical;
     }
 
     private VarkaVectorIR leaf() {
@@ -1592,6 +1636,10 @@ public final class VarkaIrGrammar {
         return leaf();
       }
       budget -= 1;
+      // The coin is drawn only with the flag, so the pinned sequences draw what they always drew.
+      if (canonical && rnd.nextInt(4) == 0) {
+        return CanonicalFloat.of(value(depth - 1));
+      }
       return switch (rnd.nextInt(5)) {
         case 0 -> new Greatest(value(depth - 1), value(depth - 1));
         case 1 -> new Least(value(depth - 1), value(depth - 1));

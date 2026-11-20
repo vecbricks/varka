@@ -78,6 +78,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -211,6 +212,9 @@ final class Slots {
    * construction and twice more by the NaN's compare where it is emitted.
    */
   final Map<VarkaVectorIR, int[]> roundTmp = new HashMap<>();
+
+  /** The scratch local of a {@link CanonicalFloat}: its operand, read by the add and the test. */
+  final Map<VarkaVectorIR, int[]> canonTmp = new HashMap<>();
   /** Per DayOfWeek/WeekDay/NextDay: {@code emitFloorMod7}'s own original-value and fold
    * temporaries. NextDay needs no third slot for the date it reuses after the mod - its
    * emitValue arm keeps that copy on the operand stack instead (dup/swap). */
@@ -1032,6 +1036,9 @@ final class Slots {
           if (node instanceof RoundToIntegral) {
             s.roundTmp.put(node, new int[] {slot++});
           }
+          if (node instanceof CanonicalFloat) {
+            s.canonTmp.put(node, new int[] {slot++});
+          }
           // The multiply-high form reads its dividend three times - two halves and the sign
           // bit - so it parks the vector in one slot rather than juggling the stack.
           if (node instanceof ConstDivide n
@@ -1215,6 +1222,7 @@ final class Slots {
       case BitCount n -> s.wordRef.get(n.child());
       case MathUnary n -> s.wordRef.get(n.child());
       case RoundToIntegral n -> s.wordRef.get(n.child());
+      case CanonicalFloat n -> s.wordRef.get(n.child());
       // Greatest/Least (OR) and IfElse (blend) always compute their own word.
       default -> Integer.MIN_VALUE;
     };
@@ -1732,6 +1740,7 @@ final class Slots {
         case BitCount x -> { }
         case MathUnary x -> { }
         case RoundToIntegral x -> { }
+        case CanonicalFloat x -> { }
         case IfElse x -> { }
         // Its word is the condition's two known words ORed, and the condition demands its
         // operands' words in its own arms; its own word is demanded like any value node's.
@@ -1817,6 +1826,7 @@ final class Slots {
         case BitCount x -> { }
         case MathUnary x -> { }
         case RoundToIntegral x -> { }
+        case CanonicalFloat x -> { }
         case Compare x -> { }
         case NullSafeEqual x -> { }
         case BoolColumn x -> { }

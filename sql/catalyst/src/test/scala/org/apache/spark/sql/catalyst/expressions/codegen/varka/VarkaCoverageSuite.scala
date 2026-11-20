@@ -2048,11 +2048,15 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * projection entry, `Attribute` is a column before binding, which the predicate compiler asks
    * of a null test's operand (VARKA-598), `BinaryArithmetic` is an abstract class, matched only
    * to name a floating operand's decline, `BoundReference` is what a column becomes once bound,
-   * `Literal` is a constant inside another row, and `RuntimeReplaceable` is a trait the compiler
-   * unwraps.
+   * `Literal` is a constant inside another row, `RuntimeReplaceable` is a trait the compiler
+   * unwraps, and `KnownFloatingPointNormalized` is a tag the optimizer puts over a normalised
+   * join, window or aggregate key, compiled as its child, which no projection or filter holds
+   * (`VARKA-337.md` 0 item 4; the census keeps it uncounted, by the owner's option (a) of 8
+   * point 5).
    */
   private val infrastructure = Set(
-    "Alias", "Attribute", "BinaryArithmetic", "BoundReference", "Literal", "RuntimeReplaceable")
+    "Alias", "Attribute", "BinaryArithmetic", "BoundReference", "Literal", "RuntimeReplaceable",
+    "KnownFloatingPointNormalized")
 
   /**
    * Expressions the compiler matches only in order to decline them with a specific reason.

@@ -55,6 +55,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -397,6 +398,7 @@ public final class VarkaRangeAnalysis {
       // A floating value has no integer range.
       case MathUnary n -> VarkaValueRange.UNKNOWN;
       case RoundToIntegral n -> VarkaValueRange.UNKNOWN;
+      case CanonicalFloat n -> VarkaValueRange.UNKNOWN;
       // A condition as a value is 0 or 1 where it is known; an unknown row is null, whose value
       // no consumer reads.
       case CondValue n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, 1);

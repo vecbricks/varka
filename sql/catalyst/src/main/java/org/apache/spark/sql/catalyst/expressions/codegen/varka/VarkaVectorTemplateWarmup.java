@@ -837,6 +837,9 @@ final class VarkaVectorTemplateWarmup {
         // negation and abs.
         acc += (long) (x.add(y).lane(0) + x.sub(y).lane(0) + x.mul(y).lane(0)
             + x.lanewise(VectorOperators.NEG).lane(0) + x.lanewise(VectorOperators.ABS).lane(0));
+        // The canonicalisation's calls (VARKA-337): the add of a scalar zero and the blend of
+        // the scalar NaN under the NaN test; the double block above has both forms already.
+        acc += (long) x.add(0.0f).blend(Float.NaN, x.test(VectorOperators.IS_NAN)).lane(0);
       }
       return acc;
     }

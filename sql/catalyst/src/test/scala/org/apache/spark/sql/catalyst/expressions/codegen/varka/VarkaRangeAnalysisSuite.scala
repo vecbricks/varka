@@ -460,6 +460,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
         case x: BitCount => value(x.child(), Kind.INT)
         case x: MathUnary => value(x.child(), Kind.INT)
         case x: RoundToIntegral => value(x.child(), Kind.INT)
+        case x: CanonicalFloat => value(x.child(), Kind.INT)
         case x: ConvertLane => value(x.child(), Kind.INT)
         case c: Cond => cond(c)
       }
@@ -564,6 +565,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: BitCount => go(x.child(), armed)
       case x: MathUnary => go(x.child(), armed)
       case x: RoundToIntegral => go(x.child(), armed)
+      case x: CanonicalFloat => go(x.child(), armed)
       case x: ConvertLane => go(x.child(), armed)
       // A typed null reads nothing, so no row is declined on its account.
       case _: ColumnRef | _: DecimalColumn | _: DecimalWord | _: LiteralSlot | _: NullValue => true

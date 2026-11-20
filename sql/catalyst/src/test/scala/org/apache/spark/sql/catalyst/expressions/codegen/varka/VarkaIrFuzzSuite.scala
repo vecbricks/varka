@@ -1210,13 +1210,14 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // The floating math function (VARKA-342) is out with the floating lanes: the grammar draws no
     // floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a production is a row
     // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it.
+    // The canonicalisation (VARKA-337) is a floating node too: its side sequence below draws it.
     // The floating conversion (VARKA-343) and the lane crossing under it have their own draw, on
     // its own seed, so that no shape here moves: the floating cast test above runs it, and the
     // test after it asserts its reach.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
       "BoolOutput" - "DecimalColumn" - "DecimalWord" - "NullValue" - "WidenDecimal" - "MathUnary" -
-      "RoundToIntegral" -
+      "RoundToIntegral" - "CanonicalFloat" -
       "ConvertLane" - "CrossLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
@@ -1686,20 +1687,24 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * the plan refuses none; the host's refusal of a two-lane condition (row 503) is the
    * session's, not the plan's, and the harness runs such a kernel as emitted.
    */
-  private def runOneFloating(lane: LaneType, drawSeed: Long, iteration: Int): Boolean = {
+  private def runOneFloating(lane: LaneType, drawSeed: Long, iteration: Int,
+      draw: (Random, LaneType) => VarkaIrGrammar.DrawnLong =
+        VarkaIrGrammar.drawFloatingLaneShape): Boolean = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
-    val drawn = VarkaIrGrammar.drawFloatingLaneShape(rnd, lane)
+    val drawn = draw(rnd, lane)
     runChecked(VarkaLaneFuzz.drawCase(drawSeed, iteration, rnd, drawn,
       VarkaLaneFuzz.LaneSource.floating(lane, narrowEdgeOneIn), valueStream(drawSeed, iteration),
       r => randomOptions(r, VarkaMatrix.base, drawSeed, iteration)))
   }
 
-  private def runFloatingSequence(lane: LaneType, drawSeed: Long): Unit = {
+  private def runFloatingSequence(lane: LaneType, drawSeed: Long,
+      draw: (Random, LaneType) => VarkaIrGrammar.DrawnLong =
+        VarkaIrGrammar.drawFloatingLaneShape): Unit = {
     val name = lane.toString.toLowerCase(java.util.Locale.ROOT)
     val reach = VarkaEmitReach.attach(randomTrace, s"$name draws")
     val answered = try {
       only.map(Seq(_)).getOrElse(0 until floatingIterations)
-        .count(runOneFloating(lane, drawSeed, _))
+        .count(runOneFloating(lane, drawSeed, _, draw))
     } finally {
       VarkaEmitReach.detach(randomTrace)
     }
@@ -1753,6 +1758,44 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
         s"${(wanted -- nodeTypes).toSeq.sorted}")
       val unseen = VarkaIrGrammar.FloatingShapes.OPS.asScala.toSet -- ops
       assert(unseen.isEmpty, s"the $lane sequence never compared with: ${unseen.toSeq}")
+    }
+  }
+
+  // The canonicalisation's side sequence (VARKA-337 2.6): the floating sequences' trees with
+  // `CanonicalFloat` among their values, at both lanes from one seed, unpinned until row 352's
+  // refit folds it in.
+  private val canonicalSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.CANONICAL_FUZZ_SEED)
+
+  for (lane <- Seq(LaneType.FLOAT, LaneType.DOUBLE)) {
+    test(s"random $lane IR trees with canonicalisations match the reference evaluator " +
+        s"(seed $canonicalSeed, $floatingIterations iterations)") {
+      runFloatingSequence(lane, canonicalSeed, VarkaIrGrammar.drawCanonicalShape)
+    }
+  }
+
+  test("the canonicalisation's side sequence draws it at both lanes, never over itself, and " +
+      "the pinned floating sequences never draw it") {
+    def nodeTypes(drawSeed: Long, lane: LaneType,
+        draw: (Random, LaneType) => VarkaIrGrammar.DrawnLong): Set[String] = {
+      val seen = new java.util.HashSet[String]()
+      for (k <- 0 until 2000; root <- draw(VarkaIrGrammar.shapeRandom(drawSeed, k), lane)
+          .roots.asScala) {
+        assert(VarkaVectorIR.lanesIn(root).asScala === Set(lane),
+          s"$lane draw $k holds another lane: ${VarkaVectorIR.canonical(root)}")
+        assert(!VarkaVectorIR.canonical(root).contains("(canon (canon"),
+          s"$lane draw $k canonicalises a canonicalisation: ${VarkaVectorIR.canonical(root)}")
+        VarkaLaneFuzz.collectNodeTypes(root, seen)
+      }
+      seen.asScala.toSet
+    }
+    for ((lane, pinnedSeed) <- Seq(LaneType.FLOAT -> VarkaIrGrammar.FLOAT_FUZZ_SEED,
+        LaneType.DOUBLE -> VarkaIrGrammar.DOUBLE_FUZZ_SEED)) {
+      val side = nodeTypes(VarkaIrGrammar.CANONICAL_FUZZ_SEED, lane,
+        VarkaIrGrammar.drawCanonicalShape)
+      assert(side.contains("CanonicalFloat"), s"the $lane side sequence never canonicalised")
+      assert(!nodeTypes(pinnedSeed, lane, VarkaIrGrammar.drawFloatingLaneShape)
+        .contains("CanonicalFloat"), s"the pinned $lane sequence drew a canonicalisation")
     }
   }
 
