@@ -297,6 +297,13 @@ Not run in this window, and owed (8 step 3): the benchmark on the Xeon 8573C (AV
 predictions are scored, the default per host is chosen by prediction 4's rule, and `VARKA-104.md`
 9 records the choice.
 
+**Tests in this window.** `VarkaEmitterLongLaneSuite` passed (13), before the review's fixes;
+`VarkaIrFuzzSuite` passed after them (42, 2 canceled), its guarded draw over 300 iterations
+included; catalyst and sql/core test sources compile. Owed under the owner's order of 07:30 CET:
+the long-lane suite again, every suite that lists the node types, the regeneration with the
+width audit under `UseAVX=2`, `VarkaBigintArithmeticBaselineQueriesSuite`, and a second
+`/code-review high` over the fix round.
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **`BY_HOST` is built now, not after the readings, and is not the default.** The coordinator's
