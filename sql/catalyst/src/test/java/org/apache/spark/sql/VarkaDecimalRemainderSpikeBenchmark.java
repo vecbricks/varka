@@ -1518,7 +1518,8 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
   /**
    * {@link #fallbacks(List, String)} for a method of {@code owner}, which with {@code body} false
    * holds its vector code itself rather than in a body forced inline, so no body site is looked
-   * for: the out-of-line arm's {@link VarkaDecimalRemainderOps} loop.
+   * for: the out-of-line arm's {@link VarkaDecimalRemainderOps} loop. A compile with no Vector API
+   * site in its tree then proves nothing, as one without the body does, and throws.
    */
   static List<String> fallbacks(List<String> lines, String owner, String method, boolean body) {
     String name = VarkaDecimalRemainderSpikeBenchmark.class.getName();
@@ -1556,6 +1557,8 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
         inlined |= line.contains("force inline by CompileCommand");
       } else if (current != null && (line.contains("jdk.internal.vm.vector.VectorSupport::")
           || line.contains("jdk.incubator.vector."))) {
+        // Without a body to find, the method's own vector code is what shows it was read.
+        inlined |= !body && current == last;
         // A site's messages are separated by runs of spaces, its verdict the last of them.
         String[] said = line.strip().split("\\s{2,}");
         String verdict = said[said.length - 1];
@@ -1568,8 +1571,9 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
       }
     }
     require(last != null, "the intrinsic check found no level-4 compile of " + method);
-    require(inlined || !body, "the intrinsic check found the body not inlined into " + method
-        + "'s compile");
+    require(inlined, body
+        ? "the intrinsic check found the body not inlined into " + method + "'s compile"
+        : "the intrinsic check found no Vector API site in " + method + "'s compile");
     return last;
   }
 

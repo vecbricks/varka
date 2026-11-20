@@ -272,8 +272,26 @@ org.apache.spark.sql.VarkaDecimalRemainderSpikeSuite'`, 10 tests, all passed.
   suite's check of every arm, the new one included, passed.
 - Prediction 2: right. `loop64` is 1,672 bytes of bytecode (`javap -c`, its `lreturn` at
   1,671), about five times `FreqInlineSize`.
-- Not read here: the run at two lanes (`-XX:MaxVectorSize=16 -XX:UseAVX=2`), which is the
-  setting the helper is for, and any allocation reading. Both are owed (9.3).
+- Not read in that run: the suites at two lanes (`-XX:MaxVectorSize=16 -XX:UseAVX=2`), the
+  setting the helper is for; owed (9.3).
+
+**Step 2 of 8, on the helper's own shape** (`results/VARKA-604-step2.txt`, from
+`results/VARKA-604/Probe604b.java` and `run-step2.sh`). The admission verdict was read under
+compile commands, a body forced inline and `pmod` constant; the helper has none of those, so the
+probe was re-run on it at two long lanes, three JVMs a mode, before building on it (12, decision
+7). With the template warm-up on, 0 of 21 JVMs kept the residual, after the polluter or not, for
+`x % y` and `pmod`: 40 or 120 bytes a call, the segments the driver maps. With the warm-up off,
+6 of 6 JVMs after the polluter kept 16 bytes a row (65,656 bytes a 4,096-row call), and 0 of 3
+with no polluter. So the shape built here keeps the admission's verdict, and the control bites
+every time without the warm-up, where the admission's bit in 8 of 9 JVMs. The helper's class
+initializer runs the warm-up at its first call (`beforeVectorCode`), so a JVM whose first vector
+code is a polluter is protected by the order the probe's "mixed-late" mode tests.
+
+**Test 5.3 at the helper's level**, `VarkaDecimalRemainderAllocationSuite`, an `ownJvm` at
+`-XX:MaxVectorSize=16 -XX:UseAVX=2`: the warm-up through the helper's first call, the polluter
+(moved from the probe into the test tree), then `VarkaAllocationSampler.suspect` false over
+4,096-row calls. Written, not run here (owed). The kernel-level form of 5.3, through
+`VarkaKernelWarmup`, waits for 577b's kernel.
 
 ### 9.3 Left for part 2 and after
 
@@ -285,6 +303,17 @@ org.apache.spark.sql.VarkaDecimalRemainderSpikeSuite'`, 10 tests, all passed.
 - Test 5.5 at 128 bits needs the runner's flags; the spike's intrinsic check of the new arm runs
   in the benchmark (6).
 - The runner readings of 6.
+- The proof the house rule asks of a bounded lowering: F's arithmetic is now main code, and its
+  exactness rests on E's argument over the rounding errors (`VARKA-577.md` 10.2); the SMT proof
+  `VARKA-577.md` 3.1 owes for E and F lands with 577b or before part 2, under
+  `sql/varka/proofs/`.
+- `sql/varka/coverage/emitter.md` gains the helper's row at its next coverage run
+  (`dev/varka_gen_coverage.sh`); nothing gates that file.
+- **Dependencies on the rows built beside this one.** Row 349 edits `VarkaEmitOption.java` and
+  `VarkaEmitOptions.java`, which part 2's option needs; row 348 edits
+  `VarkaDecimalBaselineBenchmark.java` (6's option-on sections) and
+  `VarkaDecimalConformanceSuite.java` (test 5.2). Part 2 is built after both merge. Part 1
+  touches none of their files.
 
 ## 10. Questions for the owner
 
@@ -334,5 +363,13 @@ org.apache.spark.sql.VarkaDecimalRemainderSpikeSuite'`, 10 tests, all passed.
    into the driver, which the probe did not try; step 2's re-run reads that shape.
 4. **One `loop64` with `pmod` an argument**, not `remainder64` and `pmod64` (9.1), as a result of
    3.
-5. **The suite lives in `org.apache.spark.sql`**, beside the spike's suite, since it draws the
+5. **The arm is titled "out-of-line F"**, not 3.1's "split F, transposed out of line": the
+   spike picks arms by a substring of their label (`-Dvarka.bench.only`), and its titles are
+   chosen so that no label holds another's; "x % y, split F" is inside 3.1's title.
+6. **The suite lives in `org.apache.spark.sql`**, beside the spike's suite, since it draws the
    spike's package-private edge rows (`row`, `slot`), the data 5.1 names.
+7. **Step 2's probe pulled forward, on the laptop.** 8 placed the probe re-run after 577b
+   merges, but decisions 3 and 4 changed the shape the admission had read, so building on it
+   unread would have risked the done-when. The probe reads bytes a row, which the laptop's load
+   does not move, and drives the helper as 577b's call will; it is re-run on 577b's master as 8
+   says once the kernel calls it.
