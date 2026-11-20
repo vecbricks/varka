@@ -542,7 +542,9 @@ or the plan's own recommendation favours, and says why.
 5. **A decline on rows Spark raises on must carry a guard's status** (`MAKE_DATE`,
    `INT_OVERFLOW`, `VALUE_RANGE`, `DECIMAL_SLOT`, `DIVIDE_BY_ZERO`); a refusal status there is a
    `varka` finding. A batch the evaluator sent to the row path without running a kernel
-   (`FELL_BACK`) is not, since no guard was asked.
+   (`FELL_BACK`) is not, since no guard was asked. `VALUE_RANGE` cannot tell the two apart: a `GuardedRange` raises it where
+   Spark raises and also where a lowering is exact only within a bound, such as the
+   `ConstDivide` of the finding below, so a decline with it passes either way.
 6. **Spark's two projections disagreeing is a finding of kind `spark`**, failing unless
    `expression_excluded.tsv` lists the test, rather than passing silently as 2.4's table has it:
    a row no one compared is what the exclusions' stale rule exists to keep visible. None arose.
@@ -561,6 +563,14 @@ or the plan's own recommendation favours, and says why.
 10. **The random arm's `minSuccessful`, the batch-outcome artifact and the nightly job are 368b's**,
     with the census rules: 368a's trait runs the random checks through Varka under
     `-Dvarka.suites.random=true` and records nothing from them.
+11. **The column path reads Arrow through `ArrowColumnVector`, as item 0.11 settles, and not
+    through `VarkaRowView`.** The review of part 1 pointed out that an exec node reading the Arrow
+    cache (`readsArrowCache`) reads a decimal of precision 18 or less through `VarkaRowView`'s
+    long-backed value, the exact rule, where `ArrowColumnVector`'s `BigDecimal` follows the double
+    rule; the harness builds its evaluators with `readsArrowCache=false`, whose row path is
+    `ArrowColumnVector`'s, so the harness is self-consistent. No `read-path` finding arose in the
+    three suites. Which reader the harness should model, the cache node's or the plain columnar
+    node's, is left to the owner; nothing moves today.
 
 ## 10. Outcome
 

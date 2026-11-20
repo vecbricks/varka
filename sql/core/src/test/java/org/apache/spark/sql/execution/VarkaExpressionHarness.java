@@ -132,6 +132,13 @@ public final class VarkaExpressionHarness {
    * it raises out of {@code serveBatch}, are held to Spark's answers.
    */
   public record Options(boolean arrowRows, boolean rowPath) {
+    public Options {
+      if (rowPath && !arrowRows) {
+        // The row path reads the batch's rows, so it is held to Spark's answers over them.
+        throw new IllegalArgumentException("a row path needs Spark's answers over the Arrow rows");
+      }
+    }
+
     /** What the harness's suites run under: the fixture's rows, and a row path that is counted. */
     public static final Options DEFAULT = new Options(false, false);
 

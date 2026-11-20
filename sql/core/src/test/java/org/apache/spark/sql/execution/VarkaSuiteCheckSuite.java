@@ -129,12 +129,16 @@ public final class VarkaSuiteCheckSuite {
   @Test
   @DisplayName("a check passes where the kernel answers as Spark does")
   void fusedCheckPasses() {
-    VarkaSuiteCheck.beginTest("VarkaSuiteCheckSuite", "fused");
-    VarkaSuiteCheck.check("VarkaSuiteCheckSuite", new Cast(Literal.create(1L << 40,
-        DataTypes.LongType), DataTypes.IntegerType, Option.empty(), EvalMode.LEGACY()),
-        InternalRow.empty(), false, VarkaSuiteCheck.Expect.VALUE);
-    VarkaSuiteCheck.Decision d = VarkaSuiteCheck.endTest("VarkaSuiteCheckSuite", "fused");
-    assertEquals("pass", d.action(), d.message());
+    // A suite name of its own, so that the counts are this check's alone.
+    String suite = "VarkaSuiteCheckSuite.fused";
+    VarkaSuiteCheck.beginTest(suite, "fused");
+    VarkaSuiteCheck.check(suite, new Cast(Literal.create(1L << 40, DataTypes.LongType),
+        DataTypes.IntegerType, Option.empty(), EvalMode.LEGACY()), InternalRow.empty(), false,
+        VarkaSuiteCheck.Expect.VALUE);
+    VarkaSuiteCheck.Decision d = VarkaSuiteCheck.endTest(suite, "fused");
+    assertEquals(VarkaSuiteCheck.Action.PASS, d.action(), d.message());
+    String summary = VarkaSuiteCheck.summary(suite);
+    assertTrue(summary.endsWith(" 1 fused"), "the check did not reach the harness: " + summary);
   }
 
   @Test
@@ -152,7 +156,7 @@ public final class VarkaSuiteCheckSuite {
     VarkaSuiteCheck.check("VarkaSuiteCheckSuite", add, InternalRow.empty(), false,
         VarkaSuiteCheck.Expect.VALUE);
     VarkaSuiteCheck.Decision d = VarkaSuiteCheck.endTest("VarkaSuiteCheckSuite", "planted");
-    assertEquals("fail", d.action(), d.message());
+    assertEquals(VarkaSuiteCheck.Action.FAIL, d.action(), d.message());
     assertTrue(d.message().contains("[varka]") && d.message().contains("Spark raises"),
         d.message());
   }

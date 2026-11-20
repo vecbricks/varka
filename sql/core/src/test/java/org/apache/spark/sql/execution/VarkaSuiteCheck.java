@@ -87,14 +87,34 @@ public final class VarkaSuiteCheck {
    * three are not the kernel's, but each fails its test too: a row no one compared is not a
    * pass.
    */
-  public record Finding(String kind, String text) {}
+  public record Finding(Kind kind, String text) {}
+
+  /** The kinds of {@link Finding}, each with the name the lists and messages give it. */
+  public enum Kind {
+    VARKA("varka"),
+    READ_PATH("read-path"),
+    LIFT("lift"),
+    SPARK("spark");
+
+    public final String label;
+
+    Kind(String label) {
+      this.label = label;
+    }
+  }
 
   /** What the lift made of a check: the expression over columns, and the fixture it reads. */
   public record Lifted(Expression expression, VarkaHarnessPlans.Fixture fixture, int lifted) {}
 
-  /** What the end of a test decides: pass or fail it, with the message. */
-  public record Decision(String action, String message) {
-    static final Decision PASS = new Decision("pass", "");
+  /** What the end of a test can do with it. */
+  public enum Action {
+    PASS,
+    FAIL
+  }
+
+  /** What the end of a test decides, with the message. */
+  public record Decision(Action action, String message) {
+    static final Decision PASS = new Decision(Action.PASS, "");
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -271,21 +291,21 @@ public final class VarkaSuiteCheck {
   /**
    * Runs one check of {@code suite} through Varka: {@code prepared} is the suite's expression as
    * {@code ExpressionEvalHelper} prepares it, {@code input} the row it is evaluated on. A check
-   * this test already ran (the same expression, row and kind) is not run again. {@code record}
-   * says whether the check is a fixed-value one, whose bare cast joins the record; the random
-   * properties' are not. A check outside any test fails at once on what it finds.
+   * this test already ran (the same expression, row, kind and expectation) is not run again.
+   * {@code record} says whether the check is a fixed-value one, whose bare cast joins the record;
+   * the random properties' are not. A check outside any test fails at once on what it finds.
    */
   public static synchronized void check(String suite, Expression prepared, InternalRow input,
       boolean record, Expect expect) {
     @Nullable TestState current = CURRENT.get(suite);
     TestState state = current != null ? current : new TestState();
-    if (!state.seen.add(List.of(prepared, input.copy(), record))) {
+    if (!state.seen.add(List.of(prepared, input.copy(), record, expect))) {
       return;
     }
     try {
       checkOnce(suite, prepared, input, record, expect, state.findings);
     } catch (RuntimeException | AssertionError e) {
-      state.findings.add(new Finding("varka", prepared.sql() + ": the check failed: " + e));
+      state.findings.add(new Finding(Kind.VARKA, prepared.sql() + ": the check failed: " + e));
     }
     if (current == null && !state.findings.isEmpty()) {
       throw new AssertionError("a Varka check outside a test found:\n  "
@@ -296,6 +316,9 @@ public final class VarkaSuiteCheck {
   /**
    * The statuses a kernel declines a batch with on a value Spark raises on: its guards'. The
    * others are refusals of a range its lowering covers, after which the row path still answers.
+   * {@code VALUE_RANGE} is both: a {@code GuardedRange} raises it where Spark raises and also
+   * where a lowering is exact only within a bound (a {@code ConstDivide}'s dividend), so a decline
+   * with it on a raising row passes either way.
    */
   static final int VALUE_STATUSES = VarkaFusedKernel.STATUS_MAKE_DATE
       | VarkaFusedKernel.STATUS_INT_OVERFLOW | VarkaFusedKernel.STATUS_VALUE_RANGE
@@ -335,15 +358,16 @@ public final class VarkaSuiteCheck {
     });
     for (VarkaExpressionHarness.Outcome o : outcomes) {
       for (String f : o.findings) {
-        findings.add(new Finding(f.contains("projections disagree") ? "spark" : "varka", f));
+        // The harness's findings are the kernel's and the evaluator's, but for this one.
+        findings.add(new Finding(f.contains("projections disagree") ? Kind.SPARK : Kind.VARKA, f));
       }
       for (String f : o.readPath) {
-        findings.add(new Finding("read-path", f));
+        findings.add(new Finding(Kind.READ_PATH, f));
       }
     }
     String lift = liftDifference(prepared, input, lifted);
     if (lift != null) {
-      findings.add(new Finding("lift", context + ": " + lift));
+      findings.add(new Finding(Kind.LIFT, context + ": " + lift));
     }
     for (VarkaExpressionHarness.Outcome o : outcomes) {
       raised(context, o, expect, findings);
@@ -364,7 +388,7 @@ public final class VarkaSuiteCheck {
     }
     for (VarkaExpressionHarness.Batch b : o.batches) {
       if (b.status() > 0 && (b.status() & VALUE_STATUSES) == 0) {
-        findings.add(new Finding("varka", context + ": the batch of rows " + b.start()
+        findings.add(new Finding(Kind.VARKA, context + ": the batch of rows " + b.start()
             + " on which Spark raises declined with status " + b.status() + ", no guard's"));
       }
     }
@@ -372,9 +396,11 @@ public final class VarkaSuiteCheck {
       boolean met = expect.condition() != null
           ? x instanceof org.apache.spark.SparkThrowable t
               && expect.condition().equals(t.getCondition())
-          : expect.message() == null || String.valueOf(x.getMessage()).contains(expect.message());
+          // A hot JDK throw may have no message (OmitStackTraceInFastThrow), as sameError allows.
+          : expect.message() == null || x.getMessage() == null
+              || x.getMessage().contains(expect.message());
       if (!met) {
-        findings.add(new Finding("lift", context + ": the row path raised " + x + ", the suite "
+        findings.add(new Finding(Kind.LIFT, context + ": the row path raised " + x + ", the suite "
             + "expects " + expect));
       }
     }
@@ -396,20 +422,39 @@ public final class VarkaSuiteCheck {
    * its input row, interpreted, else the difference: the value, or the error's class and message.
    */
   static @Nullable String liftDifference(Expression prepared, InternalRow input, Lifted lifted) {
-    String own = interpreted(prepared, input);
+    Answer own = interpreted(prepared, input);
     Expression bound = VarkaSqlResolve.bind(lifted.expression(), lifted.fixture().columns());
-    String over = interpreted(bound, lifted.fixture().rows().get(0));
-    return own.equals(over) ? null
+    Answer over = interpreted(bound, lifted.fixture().rows().get(0));
+    return own.agrees(over) ? null
         : "Spark answers the suite's expression " + own + " and the lifted one " + over;
   }
 
-  private static String interpreted(Expression e, InternalRow row) {
+  /**
+   * Spark's interpreted answer: a value's text, or an error's class and message, which a hot JDK
+   * throw may lack (OmitStackTraceInFastThrow), so that a missing one agrees with any.
+   */
+  private record Answer(String text, @Nullable String errorClass, @Nullable String message) {
+    boolean agrees(Answer o) {
+      if (errorClass == null || o.errorClass == null) {
+        return errorClass == null && o.errorClass == null && text.equals(o.text);
+      }
+      return errorClass.equals(o.errorClass)
+          && (message == null || o.message == null || message.equals(o.message));
+    }
+
+    @Override
+    public String toString() {
+      return errorClass == null ? "value " + text : "error " + errorClass + ": " + message;
+    }
+  }
+
+  private static Answer interpreted(Expression e, InternalRow row) {
     try {
       UnsafeProjection p = InterpretedUnsafeProjection.createProjection(
           CollectionConverters.asScala(List.of(e)).toList());
-      return "value " + p.apply(row).copy();
+      return new Answer(p.apply(row).copy().toString(), null, null);
     } catch (RuntimeException x) {
-      return "error " + x.getClass().getName() + ": " + x.getMessage();
+      return new Answer("", x.getClass().getName(), x.getMessage());
     }
   }
 
@@ -422,9 +467,9 @@ public final class VarkaSuiteCheck {
     }
     var text = new ArrayList<String>();
     for (Finding f : findings) {
-      text.add("[" + f.kind() + "] " + f.text());
+      text.add("[" + f.kind().label + "] " + f.text());
     }
-    return new Decision("fail", "Varka found " + findings.size() + " thing(s):\n  "
+    return new Decision(Action.FAIL, "Varka found " + findings.size() + " thing(s):\n  "
         + String.join("\n  ", text));
   }
 }
