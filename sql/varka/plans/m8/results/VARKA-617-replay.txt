@@ -130,3 +130,36 @@ The default chosen by VARKA-617.md 3.3's rule: part-seconds, with fewer bins ove
 alone's 1) on this branch's files, and the tie at 0 on the run's own files going to it too.
 VarkaSparkFuzzSuite's 36 part runs in config-suite-part-seconds.tsv: 78.5 to 225.0 s at shares
 of 0.034 to 0.345; its whole run's median in suite-seconds.tsv is 182.2 s.
+
+Out of sample: run 43655530012 (14 to 15 November 2026, head d88234a6db6, varka-fuzz-1533, with
+its reach record), whose pairs and part runs are in none of this branch's files. Its build job
+planned 155 bins, 73113 s, and the replay cuts the same 155. At its head there is no part file
+and no part-alone list, so the three weighings plan alike there. On this branch's files the
+part runs weigh 43642146943's seconds; 43655530012 itself ran 558 part runs, 37 of them
+VarkaSparkFuzzSuite's, at shares of 0.241 to 0.345. Re-checked on this branch's head:
+whole_runs over 43642146943's tree still gives its report artifact's 8392 pairs exactly.
+
+== 43655530012 --plan-from d88234a6db6
+slots 38, a runner's median wait 2 s
+a bin job's median set-up and upload 32 s, a JVM's median overhead 1.4 s
+measured bin phase         32.3 min
+jobs as run                32.3 min
+as run                     32.0 min   155 bins, the longest 883 s, 17 over 600 s
+replanned, share           31.8 min   155 bins, the longest 882 s, 16 over 600 s
+replanned, part-seconds    31.8 min   155 bins, the longest 882 s, 16 over 600 s
+replanned, alone           31.8 min   155 bins, the longest 882 s, 16 over 600 s
+pairs the run has no seconds for: share 0, part-seconds 0, alone 0
+bin jobs with no artifact: none
+== 43655530012 on this branch's files
+slots 38, a runner's median wait 2 s
+a bin job's median set-up and upload 32 s, a JVM's median overhead 1.4 s
+measured bin phase         32.3 min
+jobs as run                32.3 min
+as run                     32.0 min   155 bins, the longest 883 s, 17 over 600 s
+replanned, share           29.8 min   175 bins, the longest 695 s, 7 over 600 s
+replanned, part-seconds    30.0 min   179 bins, the longest 625 s, 1 over 600 s
+replanned, alone           30.0 min   181 bins, the longest 624 s, 1 over 600 s
+pairs the run has no seconds for: share 0, part-seconds 0, alone 0
+bin jobs with no artifact: none
+Out of sample, bins over 600 s: share 7, part-seconds 1, alone 1; the longest bin 695 s, 625 s
+and 624 s. The model: "as run" 32.0 min against the measured 32.3, 0.9 per cent under.

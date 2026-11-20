@@ -1322,8 +1322,13 @@ class SelfTest(unittest.TestCase):
         # The listed part run weighs its measured seconds, an unlisted one its share.
         self.assertEqual(got[("x=1", "F")], 150.0)
         self.assertEqual(got[("x=1", "G")], 100.0)
-        # A pair of the part file is never read for a whole run, as the defaults run F.
+        # A pair of the part file is never read for a whole run, as the defaults run F, or as
+        # every configuration runs every test without a record.
         self.assertEqual(got[("defaults", "F")], 200.0)
+        bare = units(
+            ["x=1"], suites, lambda s: 200.0, {}, 480.0, None, None, (), "part-seconds", measured
+        )
+        self.assertEqual({u[3] - JVM_START for u in bare if u[0] == "x=1"}, {200.0})
 
     def test_a_suite_planned_apart_is_a_unit_of_its_own_at_its_whole_run(self):
         suites = [("sql", [("F", False), ("G", False), ("H", False)])]

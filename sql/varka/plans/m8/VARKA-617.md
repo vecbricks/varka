@@ -289,11 +289,24 @@ with none. More bins, but a shorter phase.
 branch's files (0 against B's 1), and the tie at 0 on the run's own files goes to A as well. B
 stays as `--part-weight alone`, with its list, by the house rule for losing options.
 
+**Out of sample, run 43655530012.** This run is not in any committed file. It is the other
+fresh 14 November run that section 1 names, with its own reach record, and its part runs weigh
+43642146943's seconds on this branch's files. The replay cuts its 155 bins back as its build
+job planned them. On this branch's files it leaves 7 bins over 600 s under `share`, 1 under A
+and 1 under B, with the longest bin at 695 s, 625 s and 624 s. A is still the default by 3.3's
+tie rule, and it beats `share` out of sample: the tail falls from 7 bins to 1, and the longest
+bin by 70 s. Decision 7 below rests on this. "as run" is 32.0 minutes against the measured
+32.3, so the model holds on a third run.
+
 Section 10's three conditions now hold on the branch. The committed file holds the 14 November
 run. Its replay on its own pairs is 30.4 minutes against the measured 34.4 (31.0 on the
 committed two-run file). `VarkaSparkFuzzSuite`'s part runs carry their own seconds in
 `config-suite-part-seconds.tsv`. Still owed: the two pull requests' reviews and merges, and step
-5's dispatch on master, the out-of-sample score.
+5's dispatch on master. A master dispatch reads a reach record only when a Build of the same
+commit has left one (`dev/varka_matrix_reuse.py`); 44485292430 found none. Without a record,
+step 5 scores the pair file alone, because every configuration runs every test and no part run
+is weighed. The default's own out-of-sample score in CI then waits for the first matrix that
+has a reach record, a pull request's.
 
 ## 12. Decisions taken while the owner was away (20 November 2026)
 
