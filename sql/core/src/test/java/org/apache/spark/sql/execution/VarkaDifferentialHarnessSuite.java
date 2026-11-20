@@ -837,7 +837,8 @@ public final class VarkaDifferentialHarnessSuite {
             shape("CAST(l AS DOUBLE) + 1.5D AS v", SERVED),
             shape("CAST(l AS DOUBLE) AS a, CAST(l AS FLOAT) AS b, x AS c", SERVED)))));
     // The bounded L2D declines a batch with a bigint past 2^51, which the row engine answers,
-    // and serves one inside its window; L2F has one form under either arm.
+    // and serves one inside its window; every L2F form is exact on every long, so each serves,
+    // the windowed one also over the window's edges.
     var source = table("l, x", "CAST(NULL AS BIGINT), CAST(NULL AS DOUBLE)",
         conversionRows.toArray(String[]::new));
     var window = table("l, x", "CAST(NULL AS BIGINT), CAST(NULL AS DOUBLE)",
@@ -846,7 +847,7 @@ public final class VarkaDifferentialHarnessSuite {
     UnaryOperator<VarkaEmitOptions> magic = o -> o.withUseAVX(2)
         .withWideConversionForm(VarkaEmitOptions.WideConversionForm.MAGIC);
     out.add(new Case("at level 2 a bigint cast to DOUBLE or FLOAT fuses by its AVX2 form and "
-        + "matches the row engine; the bounded form declines past 2^51",
+        + "matches the row engine under every form; the bounded form declines past 2^51",
         List.of(options(o -> o.withUseAVX(2)
                 .withWideConversionForm(VarkaEmitOptions.WideConversionForm.XOR_SPLIT)
                 .withRoundToOddByShifts(false), source,
@@ -859,6 +860,20 @@ public final class VarkaDifferentialHarnessSuite {
                 .withRoundToOddByShifts(true), source,
             shape("CAST(l AS DOUBLE) AS v", SERVED),
             shape("CAST(l AS FLOAT) AS v", SERVED)),
+          options(o -> o.withUseAVX(2)
+                .withNarrowConversionForm(VarkaEmitOptions.NarrowConversionForm.WINDOWED),
+              source,
+            shape("CAST(l AS FLOAT) AS v", SERVED),
+            shape("CAST(l AS DOUBLE) AS a, CAST(l AS FLOAT) AS b, x AS c", SERVED)),
+          options(o -> o.withUseAVX(2)
+                .withNarrowConversionForm(VarkaEmitOptions.NarrowConversionForm.WINDOWED),
+              window,
+            shape("CAST(l AS FLOAT) AS v", SERVED)),
+          options(o -> o.withUseAVX(2)
+                .withNarrowConversionForm(VarkaEmitOptions.NarrowConversionForm.SCALAR),
+              source,
+            shape("CAST(l AS FLOAT) AS v", SERVED),
+            shape("CAST(l AS DOUBLE) AS a, CAST(l AS FLOAT) AS b, x AS c", SERVED)),
           options(magic, source,
             shape("CAST(l AS DOUBLE) AS v", DECLINES),
             shape("CAST(l AS FLOAT) AS v", SERVED)),

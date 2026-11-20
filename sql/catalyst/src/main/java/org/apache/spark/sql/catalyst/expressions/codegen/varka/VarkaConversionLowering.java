@@ -20,9 +20,9 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescriptors.*;
 
 import java.lang.classfile.CodeBuilder;
+import java.lang.classfile.Label;
 
-import javax.annotation.Nullable;
-
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.WideConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
@@ -62,7 +62,18 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  *   sign and {@code sel} take a logical shift where part 343b1's took an arithmetic one and
  *   more steps, kept as {@code roundToOddByShifts} (VARKA-583); the arm is
  *   {@code m ^ ((m ^ t12) & sel)}; and the magic number, {@code 2^64} on the large arm, whose ulp
- *   {@code 2^12} scales {@code t} as it converts, takes {@code v}'s sign bit.</li>
+ *   {@code 2^12} scales {@code t} as it converts, takes {@code v}'s sign bit. This is
+ *   {@link NarrowConversionForm#ROUND_TO_ODD}, the default.</li>
+ *   <li>{@code L2F}, {@link NarrowConversionForm#WINDOWED} (VARKA-600): {@code (v + 2^51) >>> 52}
+ *   is zero on exactly the lanes with {@code -2^51 <= v < 2^51}, and its OR over the group's
+ *   lanes is one scalar long, so the test needs no mask. Where it is zero the group takes the
+ *   bounded magic, exact there, and one {@code D2F}, which is then the one rounding of {@code v};
+ *   elsewhere it takes the rounding to odd. Both arms leave a float vector of the same species,
+ *   so the join merges one type.</li>
+ *   <li>{@code L2F}, {@link NarrowConversionForm#SCALAR} (VARKA-600): each long lane read,
+ *   converted by Java's {@code l2f} and inserted into a zero float vector, which is the cast
+ *   itself. C2 intrinsifies the read, the insert and the window test's reduction under
+ *   {@code -XX:UseAVX=2} at 128 and 256 bits ({@code plans/m8/results/VARKA-600}).</li>
  * </ul>
  */
 final class VarkaConversionLowering {
@@ -98,11 +109,27 @@ final class VarkaConversionLowering {
   static final long ODD_EXPONENT = (long) ODD_SHIFT << SMALL_BITS;
   /** The small arm's bound {@code 2^52} as a long, which the default {@code sel} subtracts. */
   static final long TWO_52_INT = 1L << SMALL_BITS;
+  /**
+   * {@link NarrowConversionForm#WINDOWED}'s test: {@code (v + MAGIC_WINDOW) >>> WINDOW_SHIFT} is
+   * zero exactly where {@code -2^51 <= v < 2^51}, inside the magic's window.
+   */
+  static final int WINDOW_SHIFT = Long.numberOfTrailingZeros(MAGIC_WINDOW) + 1;
 
   /** The lane calls of each form, which {@code VarkaEmitBudget.weightOf} weighs them by. */
   static final int SPLIT_CALLS = 10;
   static final int XOR_SPLIT_CALLS = 8;
   static final int ODD_CALLS = 24;
+  /** The window test's three calls, the bounded magic's three and its {@code D2F}. */
+  static final int WINDOW_CALLS = 3;
+  static final int WINDOWED_FAST_CALLS = 4;
+  /** Both of {@link NarrowConversionForm#WINDOWED}'s arms, which share its method. */
+  static final int WINDOWED_CALLS = WINDOW_CALLS + WINDOWED_FAST_CALLS + ODD_CALLS;
+
+  /** {@link NarrowConversionForm#SCALAR}'s calls at {@code lanes} long lanes: a read and an
+   *  insert a lane, and the zero vector. */
+  static int scalarCalls(int lanes) {
+    return 2 * lanes + 1;
+  }
 
   /** Whether {@code n} takes an AVX2 form: Slots, the refusals and the emission all ask. */
   static boolean takesWideForm(Analysis analysis, ConvertLane n) {
@@ -116,15 +143,32 @@ final class VarkaConversionLowering {
         && analysis.options.wideConversionForm() == WideConversionForm.MAGIC;
   }
 
-  /** How many scratch locals {@code n}'s form parks values in: {@code L2F}'s four, else none. */
+  /**
+   * How many scratch locals {@code n}'s form parks values in: the rounding to odd's four, which
+   * the windowed form shares, the scalar form's one long vector, and none for {@code L2D}.
+   */
   static int scratch(Analysis analysis, ConvertLane n) {
-    return takesWideForm(analysis, n) && n.target() == LaneType.FLOAT ? 4 : 0;
+    if (!takesWideForm(analysis, n) || n.target() != LaneType.FLOAT) {
+      return 0;
+    }
+    return switch (analysis.options.narrowConversionForm()) {
+      case ROUND_TO_ODD, WINDOWED -> 4;
+      case SCALAR -> 1;
+    };
   }
 
   /** {@code [v] -> [d]}, a float filling the low half of its species. */
   static void emit(CodeBuilder cb, ConvertLane n, boolean dense, Analysis analysis, Slots s) {
     if (n.target() == LaneType.FLOAT) {
-      emitRoundToOdd(cb, s.convertTmp.get(n), analysis);
+      int[] tmp = s.convertTmp.get(n);
+      if (tmp == null) {
+        throw VarkaErrors.illegalState("an L2F form with no scratch planned: " + n);
+      }
+      switch (analysis.options.narrowConversionForm()) {
+        case ROUND_TO_ODD -> emitRoundToOdd(cb, tmp, analysis);
+        case WINDOWED -> emitWindowed(cb, tmp, analysis);
+        case SCALAR -> emitScalarLanes(cb, tmp[0], analysis);
+      }
       return;
     }
     // Reached only where takesWideForm holds, so MAGIC here is takesMagic.
@@ -209,10 +253,56 @@ final class VarkaConversionLowering {
     cb.invokevirtual(LONG_VECTOR, "lanewise", Lane.LONG.integral().lanewiseUnary());
   }
 
-  private static void emitRoundToOdd(CodeBuilder cb, @Nullable int[] tmp, Analysis analysis) {
-    if (tmp == null) {
-      throw VarkaErrors.illegalState("an L2F form with no scratch planned");
+  /**
+   * {@code [v] -> [f]} by {@link NarrowConversionForm#WINDOWED}: the window test on scalars, then
+   * either arm. The rounding to odd parks {@code v} in the same local the test reads it from.
+   */
+  private static void emitWindowed(CodeBuilder cb, int[] tmp, Analysis analysis) {
+    int v = tmp[0];
+    Label outside = cb.newLabel();
+    Label join = cb.newLabel();
+    cb.astore(v);
+    // w = OR over the lanes of (v + 2^51) >>> 52: zero exactly where every lane is in the window.
+    cb.aload(v);
+    emitScalar(cb, "add", MAGIC_WINDOW);
+    emitShift(cb, "LSHR", WINDOW_SHIFT);
+    cb.getstatic(VECTOR_OPERATORS, "OR", VO_ASSOCIATIVE);
+    cb.invokevirtual(LONG_VECTOR, "reduceLanes", LONG_REDUCE_LANES);
+    cb.lconst_0();
+    cb.lcmp();
+    cb.ifne(outside);
+    // Inside: bitsToDouble(v + bits(M)) - M is v exactly, and D2F its one rounding.
+    cb.aload(v);
+    emitMagic(cb, "add", MAGIC_BITS, MAGIC);
+    VarkaVectorWalk.emitShapeConversion(cb, Lane.DOUBLE, Lane.FLOAT, analysis);
+    cb.goto_(join);
+    cb.labelBinding(outside);
+    cb.aload(v);
+    emitRoundToOdd(cb, tmp, analysis);
+    cb.labelBinding(join);
+  }
+
+  /**
+   * {@code [v] -> [f]} by {@link NarrowConversionForm#SCALAR}: the float species of the kernel's
+   * width, zero, with lane {@code k} replaced by {@code (float) v.lane(k)} for every long lane, so
+   * the upper half is zero as {@code convertShape}'s part 0 leaves it.
+   */
+  private static void emitScalarLanes(CodeBuilder cb, int v, Analysis analysis) {
+    cb.astore(v);
+    cb.getstatic(Lane.FLOAT.vector, Lane.FLOAT.speciesField(analysis.lanesOf(Lane.FLOAT)),
+        VECTOR_SPECIES);
+    cb.invokestatic(Lane.FLOAT.vector, "zero", FLOAT_ZERO);
+    for (int k = 0; k < analysis.lanesOf(Lane.LONG); k++) {
+      cb.loadConstant(k);                                       // [f, k]
+      cb.aload(v);
+      cb.loadConstant(k);
+      cb.invokevirtual(LONG_VECTOR, "lane", LONG_LANE);
+      cb.l2f();                                                 // [f, k, (float) v.lane(k)]
+      cb.invokevirtual(Lane.FLOAT.vector, "withLane", FLOAT_WITH_LANE);
     }
+  }
+
+  private static void emitRoundToOdd(CodeBuilder cb, int[] tmp, Analysis analysis) {
     int v = tmp[0];
     int a = tmp[1];
     int m = tmp[2];

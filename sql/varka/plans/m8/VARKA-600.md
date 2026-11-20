@@ -204,7 +204,118 @@ decline to the row path happens only where a baseline section shows the fused ca
 
 ## 9. Outcome
 
-Not built.
+### 9.1 Part 600a, built 20 November 2026 (branch `varka-600-bigint-float-avx2`)
+
+Steps 1 to 3 are built. Nothing is measured on the runners yet, and no suite beyond the
+compile and the one run named in 9.5 has run.
+
+**Step 1, the JDK-only model** (`results/VARKA-600/NarrowL2F600.java`). It runs both new forms
+in plain Vector API code and checks every row against `(float) v`, inside the window and past
+it. Under `-XX:UseAVX=2` at `MaxVectorSize` 16 and 32 on the laptop, C2 compiled
+`VectorSupport.reductionCoerced` (the window test's `reduceLanes(OR)`), `extract` (`lane`) and
+`insert` (`withLane`) as intrinsics in the forms' methods, and printed no `failed to inline
+(intrinsic)` and no `not supported` line for them. The four logs are
+`results/VARKA-600/intrinsics-{windowed,scalar}-{128,256}bit.txt`. So risks 1 and 2 are not
+taken, and both forms are built at every width. Three caveats on the record:
+
+* The first runs were tiered, with no `compileonly`. They did print `failed to inline
+  (intrinsic)` lines, one `reductionCoerced` at 128 bits among them. Those lines came from
+  compiles of other methods, interleaved in the output, and could not be attributed. Those logs
+  were overwritten. The committed logs are the rerun with `-XX:-TieredCompilation` and
+  `compileonly` on the model's three methods, so every line in them belongs to the forms.
+* In `intrinsics-windowed-128bit.txt` no `insert` line appears. The model's slow branch there
+  is the scalar lanes, and C2 did not parse that branch's inserts at 128 bits. So the `withLane`
+  evidence at 128 bits is `intrinsics-scalar-128bit.txt` alone.
+* `compileonly` leaves the rest of the model interpreted, so the ns a row the logs print is not
+  a measurement and is not quoted. A tiered rerun read the thread's allocation over 1000 warm
+  calls: 0.0 bytes a row for both forms at both widths. So the windowed form's join of two float
+  vectors did not keep a box in the model. `skills/emitter-and-ir.md` records a join of a whole
+  and a masked load form that did keep one. The emitted kernel is not the model, so the
+  runner's allocation is still to be read (risk 5 below).
+
+**Step 2, the option and both forms.** `VarkaEmitOptions.narrowConversionForm`
+(`NarrowConversionForm`: `ROUND_TO_ODD`, the default, `WINDOWED`, `SCALAR`) with its
+`VarkaEmitOption.TABLE` entry: a `MACHINE` choice, read by a `ConvertLane` alone, whose subject
+is `useAVX=2`. The option matrix therefore gains `useAVX=2,narrowConversionForm=WINDOWED` and
+`useAVX=2,narrowConversionForm=SCALAR`. `VarkaConversionLowering` gains `emitWindowed`
+(the test `(v + MAGIC_WINDOW) >>> WINDOW_SHIFT`, `reduceLanes(OR)`, `lcmp`, `ifne`, then the
+bounded magic and `D2F`, or the rounding to odd, which parks `v` in the same local) and
+`emitScalarLanes` (the zero float vector, then per long lane `lane`, `l2f`, `withLane`). The
+scratch is the rounding to odd's four locals for both of those, and one for the scalar form.
+The proof claims are in `VarkaProofFiles.roundToOdd`: the test is zero exactly on the window,
+the magic's double rounded once is `(float) v` there, and a test one bit wider admits a `v`
+whose float the magic gets wrong (sat). The suite cells are in
+`VarkaEmitterWideConversionSuite`: both forms at the cells, widths and bodies, the window's
+edges, the combined kernel, the binades, the no-`L2F` check, and a new straddle test. That test
+puts one outside lane at every row of a batch two groups and a remainder long, at 2, 4 and 8
+lanes, so it reaches every lane index and the epilogue. `VarkaDifferentialHarnessSuite` holds
+both forms to the row engine at level 2.
+
+**Step 3, the benchmark.** `VarkaWideConversionBenchmark` gains the arms
+`cast(l AS float), windowed` and `cast(l AS float), scalar lanes`. It also gains a fourth rung,
+sized for L2, whose magnitudes run from `2^52` to `2^62` of either sign, so every group is outside
+the window. The bounded magic `L2D` is left out of that rung, because it would decline every
+batch. The laptop run at `-XX:UseAVX=2` that step 3's done-when asks for has not been made
+(9.5).
+
+### 9.2 Registered op counts, by hand and held by the budget suite
+
+`dev/varka_emit.sh --table` was not run in this window. The counts below are the emitted lane
+calls as `VarkaEmitterBudgetSuite` counts them, and that suite now asserts each one:
+
+| form | lane calls | the plan's 3.3 said |
+|---|---|---|
+| `ROUND_TO_ODD`, either step variant | 24 | 24: right |
+| `WINDOWED` | 31: the test 3, the magic arm 4, the round to odd 24 | about 7 plus 24: right |
+| `SCALAR` | `2 * lanes + 1`: 5, 9, 17 at 2, 4, 8 lanes | about 3 a lane: wrong, 2 a lane |
+
+The plan's `SCALAR` count was one call a lane too high. The conversion is the `l2f` bytecode,
+not a lane call. Only the read and the insert are lane calls, plus the one zero vector.
+
+### 9.3 Where the plan was wrong
+
+* **Section 5's fuzzer bullet.** `VarkaIrFuzzSuite` does not draw the new option from its
+  table entry. `VarkaEmitOption.drawnInGeneral` leaves out every option that `readOnlyBy`
+  names, which a `ConvertLane`-only option is (`VarkaEmitOptionSuite` asserts this for all
+  five). Only the option matrix's two new configurations run the fuzzer and the suites under
+  the new forms.
+* **Section 3.3's `SCALAR` count** (9.2).
+
+### 9.4 Decisions taken while the owner was away (20 November 2026)
+
+1. **The default stays `ROUND_TO_ODD` in 600a.** Step 2 says "default unchanged", and question
+   10.1 (a per-width default) needs the runner numbers and the owner's answer. So no width
+   reads the option yet. 600b sets the default.
+2. **The budget weighs an `L2F` at `WINDOWED_CALLS` (31), up from 24.** This follows section
+   3.3 and the `L2D` precedent: the weight is the largest form's, since `weightOf` cannot ask
+   which form will be emitted. It applies at every level, the defaults' too. So a
+   default-option kernel holding a `BIGINT` to `FLOAT` cast can group differently, and the
+   regeneration and bytes-moved check are owed (9.5). The other choice was to leave 24 and
+   under-weigh `WINDOWED`. That would have broken the budget suite's rule that the weight is
+   the largest form's.
+3. **The slow arm is an in-kernel branch, not a batch decline** (question 10.2). The plan
+   builds the branch, and the decline would have needed a refusal that `ROUND_TO_ODD` makes
+   unnecessary.
+4. **The scalar form starts from a zero float vector**, not the spill through arrays that
+   section 3.1 kept as a fallback. Step 1 found `withLane` intrinsic, so the fallback was not
+   needed, and the zero leaves the upper half as `convertShape`'s part 0 does.
+5. **The benchmark's past-window rung leaves out the bounded magic `L2D`**, which would
+   decline every batch there, and keeps every other arm. That includes the `DOUBLE` controls,
+   which the values do not change.
+
+### 9.5 Owed
+
+* Runs not made in this window. Each is listed with its reason in the draft PR body
+  (`~/varka-ops/bodies/pr600-draft.md`): the regeneration (`emitted_bytes.json` option arms, the
+  bytes-moved check after the weight change, `round_to_odd.smt2` rendered from the new
+  claims), `dev/varka_prove.sh --solver both round_to_odd.smt2`, the suites listed in step 2's
+  done-when, the width audit under `JDK_JAVA_OPTIONS=-XX:UseAVX=2` at both widths, the
+  registry, option and matrix suites, and the option matrix's two new configurations.
+* Step 3's laptop run of the benchmark under `-XX:UseAVX=2`.
+* 600b in full: the runner runs at both widths, section 6.1 scored, the default per width.
+* Risk 5 (new): the emitted windowed kernel's allocation. The benchmark's harness does not
+  print allocation, so 600b reads it beside the runner run, by the thread allocation counter
+  the model used, before a slow windowed arm is read as the form's own cost.
 
 ## 10. Questions for the owner
 

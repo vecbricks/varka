@@ -700,17 +700,22 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
   test("a bigint conversion to a floating lane weighs its AVX2 form, the larger of its forms",
       PinsDefaults) {
     // One convertShape at level 3, and below it VarkaConversionLowering's form, whose calls the
-    // weight counts: L2D's largest, part 343b1's split, since the budget cannot ask which form
-    // emits; the XOR split and the bounded L2D, three calls and its guard's two compares, are
-    // smaller, and both L2F forms emit the same count.
+    // weight counts: the largest of each conversion's forms, since the budget cannot ask which
+    // form emits. For L2D that is part 343b1's split; the XOR split and the bounded L2D, three
+    // calls and its guard's two compares, are smaller. For L2F it is the windowed form, whose
+    // method holds both its arms; both steps of the rounding to odd emit the same count, and the
+    // scalar form two calls a lane and its zero vector.
+    import VarkaEmitOptions.NarrowConversionForm
     import VarkaEmitOptions.WideConversionForm._
     def ops(target: LaneType, options: VarkaEmitOptions): Int = vectorOps(emitMulti(
       Seq(new ConvertLane(new ColumnRef(0, LaneType.LONG), target)), 1, 0, options)._2)
     def form(target: LaneType, options: VarkaEmitOptions): Int =
       ops(target, options) - ops(target, VarkaMatrix.base.withUseAVX(3)) + 1
     val avx2 = VarkaMatrix.base.withUseAVX(2).withRoundToOddByShifts(false)
+      .withNarrowConversionForm(NarrowConversionForm.ROUND_TO_ODD)
+    val windowed = avx2.withNarrowConversionForm(NarrowConversionForm.WINDOWED)
     for ((target, options) <- Seq(LaneType.DOUBLE -> avx2.withWideConversionForm(SPLIT),
-        LaneType.FLOAT -> avx2, LaneType.FLOAT -> avx2.withRoundToOddByShifts(true))) {
+        LaneType.FLOAT -> windowed, LaneType.FLOAT -> windowed.withRoundToOddByShifts(true))) {
       val weight = VarkaEmitBudget.weightOf(new ConvertLane(new ColumnRef(0, LaneType.LONG),
         target))
       val emits = form(target, options)
@@ -720,6 +725,17 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     assert(xorSplit === VarkaConversionLowering.XOR_SPLIT_CALLS, s"the XOR split emits $xorSplit")
     val magic = form(LaneType.DOUBLE, avx2.withWideConversionForm(MAGIC))
     assert(magic === 5 && magic < xorSplit, s"the magic emits $magic")
+    for (shifts <- Seq(false, true)) {
+      val odd = form(LaneType.FLOAT, avx2.withRoundToOddByShifts(shifts))
+      assert(odd === VarkaConversionLowering.ODD_CALLS, s"the rounding to odd emits $odd")
+    }
+    for (lanes <- Seq(2, 4, 8)) {
+      val scalar = form(LaneType.FLOAT, avx2.withNarrowConversionForm(NarrowConversionForm.SCALAR)
+        .withLanesOverride(lanes)) - form(LaneType.FLOAT, avx2.withLanesOverride(lanes)) +
+        VarkaConversionLowering.ODD_CALLS
+      assert(scalar === VarkaConversionLowering.scalarCalls(lanes),
+        s"the scalar form emits $scalar at $lanes long lanes")
+    }
   }
 
   test("int-lane divisions over four columns take a loop method each, and a subtraction from " +
