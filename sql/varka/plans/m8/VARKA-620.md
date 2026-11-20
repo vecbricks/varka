@@ -122,6 +122,8 @@ under `-XX:MaxVectorSize=16`, which gives 128-bit vectors. The control rows are 
 and Spark's row path, which the cap cannot touch. Its two sections are `chain depth past the cap:
 BIGINT lane` and `chain depth past the cap: INT lane`.
 
+*Corrected 21 November 2026: the two committed result files first carried each other's names. Each file's provenance records its own inputs, and the `-128bit` file is now the run under `-XX:MaxVectorSize=16`, as its name says.*
+
 ### 6.1 Predictions, registered before the run
 
 1. **No method is too big for C2 through depth 64.** Every dense loop method stays under
