@@ -227,6 +227,11 @@ owed.
 
 **Where the plan was wrong, or silent.**
 
+0. 2 item 3 left the decimal forms untraced (**[I]**). Read now: `VarkaDecimalCompiler` builds
+   every long-lane `IntArith` and `IntNeg` in `WRAP` and no `GuardedRange` (its checks are the
+   slot refusals of the decimal store), so the walk refuses no decimal projection and question
+   10.1's "decimal" reach is empty. The census file is the check of that reading.
+
 1. The plan's file table lists only the day-time suites, but the walk reaches every baseline
    whose queries suite checks its sections' classes under both refusal settings
    (`forEachTwoLaneRefusal`). See 9.2 for the ones changed and the ones owed.

@@ -368,12 +368,13 @@ public final class VarkaKernelPlan {
    * Each tests its lanes with a long-lane mask, so the check runs as the fallback whatever the
    * output's type. The fused day-time interval arms that carry one - {@code dt + dt2 - dt},
    * {@code abs(dt)}, {@code dt * 3} - ran at 0.5X to 0.7X of the row path at two lanes with one
-   * row in ten null, against 3.9X to 4.4X at four ({@code m8/VARKA-612.md} 2); the {@code TIME},
-   * {@code TIMESTAMP_NTZ} and decimal checks build the same nodes and are refused by the
-   * mechanism, untimed. The compiler declines a checked {@code BIGINT} operation itself, before
-   * the tree is built, so that {@code EXPLAIN} names the operation; this walk is the net under
-   * every family. A blend, a {@code LEGACY} or lattice-demoted {@code WRAP} form and an int-lane
-   * check make no long mask of a check and are admitted.
+   * row in ten null, against 3.9X to 4.4X at four ({@code m8/VARKA-612.md} 2); the {@code TIME}
+   * and {@code TIMESTAMP_NTZ} checks build the same nodes and are refused by the mechanism,
+   * untimed. The decimal compiler builds no such check: its long-lane operations wrap. The
+   * compiler declines a checked {@code BIGINT} operation itself, before the tree is built, so
+   * that {@code EXPLAIN} names the operation; this walk is the net under every family. A blend,
+   * a {@code LEGACY} or lattice-demoted {@code WRAP} form and an int-lane check make no long mask
+   * of a check and are admitted.
    */
   private static Optional<Refusal> hostRefusal(List<VarkaVectorIR> roots, VarkaKernelPlan plan) {
     if (plan.drive.bits() != 64) {

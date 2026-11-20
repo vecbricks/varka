@@ -25,7 +25,7 @@ import java.util.Set;
  * 64-bit lane (one reading a column of any type on the long or the {@code DOUBLE} lane), a
  * projection's {@code BOOLEAN} output over a decimal column (VARKA-596) and a projection entry
  * holding a check on a 64-bit lane - a checked {@code BIGINT} operation (VARKA-104), and the
- * day-time interval, {@code TIME}, {@code TIMESTAMP_NTZ} and decimal checks (VARKA-612) - are
+ * day-time interval, {@code TIME} and {@code TIMESTAMP_NTZ} checks (VARKA-612) - are
  * refused on an x86 host whose 64-bit species
  * have two lanes or fewer (VARKA-503, {@link VarkaKernelPlan#admit}). Neither setting is an
  * emit option - neither changes a kernel's bytes -

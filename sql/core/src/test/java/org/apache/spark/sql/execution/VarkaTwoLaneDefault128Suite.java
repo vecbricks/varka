@@ -49,6 +49,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChildJvm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
 import org.apache.spark.sql.execution.benchmark.VarkaArrowSessions;
 import org.apache.spark.sql.execution.metric.SQLMetric;
+import org.apache.spark.sql.internal.SQLConf;
 
 /**
  * The two-lane refusal at its production default, on the host it is for (VARKA-503): a JVM of its
@@ -103,6 +104,8 @@ public final class VarkaTwoLaneDefault128Suite {
     for (SparkSession session : List.of(off, varka)) {
       session.sql(tableSql()).createOrReplaceTempView("two_lane_default");
       VarkaArrowSessions.cache(session, "two_lane_default");
+      // The TIME column's type is behind its flag outside the test harness's own default.
+      session.conf().set(SQLConf.TIME_TYPE_ENABLED().key(), "true");
       session.sql(checksTableSql()).createOrReplaceTempView("two_lane_checks");
       VarkaArrowSessions.cache(session, "two_lane_checks");
     }
