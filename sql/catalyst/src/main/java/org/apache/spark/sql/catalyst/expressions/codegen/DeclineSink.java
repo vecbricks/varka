@@ -35,6 +35,9 @@ import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.FloatingFault;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.IntervalFault;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
@@ -67,11 +70,14 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
  * {@code input[1, int, true]}; the child's attributes go back in before the text is kept, so a
  * reason reads in the query's own column names.
  *
- * <p>It also carries the one compile option the condition arms read, {@code rangeSets}, for the
- * same reason as the long table: every arm already has the sink in hand; and, for the same
- * reason, the families the session has switched off and the families the accepted entries used
- * (VARKA-318), the latter under the bounds' rollback discipline so that a declining entry's
- * families are not reported for the kernel.
+ * <p>It also carries the compile options the arms read - {@code rangeSets} and the two fault
+ * injectors, {@link #floatingFault} and {@link #intervalFault} - for the same reason as the long
+ * table: every arm already has the sink in hand. A fault travels this way rather than as a
+ * JVM-wide static, so a compile under one keys apart from a clean compile and no other compile
+ * in the process sees it (VARKA-548); and, for the same reason, the families the session has
+ * switched off and the families the accepted entries used (VARKA-318), the latter under the
+ * bounds' rollback discipline so that a declining entry's families are not reported for the
+ * kernel.
  */
 final class DeclineSink {
 
@@ -88,6 +94,8 @@ final class DeclineSink {
 
   private final Seq<Attribute> childOutput;
   private final boolean rangeSets;
+  private final FloatingFault floatingFault;
+  private final IntervalFault intervalFault;
   private final Set<VarkaFamily> familiesOff;
   private final boolean declinesTwoLaneChecks;
   private final List<VarkaFamily> used = new ArrayList<>();
@@ -100,12 +108,13 @@ final class DeclineSink {
   private boolean decimalProbe;
   private VarkaDecline first;
 
-  DeclineSink(Seq<Attribute> childOutput, boolean rangeSets) {
-    this(childOutput, rangeSets, Set.of());
+  DeclineSink(Seq<Attribute> childOutput, VarkaEmitOptions options) {
+    this(childOutput, options, Set.of());
   }
 
-  DeclineSink(Seq<Attribute> childOutput, boolean rangeSets, Set<VarkaFamily> familiesOff) {
-    this(childOutput, rangeSets, new VarkaAdmission(familiesOff, false));
+  DeclineSink(Seq<Attribute> childOutput, VarkaEmitOptions options,
+      Set<VarkaFamily> familiesOff) {
+    this(childOutput, options, new VarkaAdmission(familiesOff, false));
   }
 
   /**
@@ -113,15 +122,27 @@ final class DeclineSink {
    * checked {@code BIGINT} operation declines on a host whose 64-bit species have two lanes
    * ({@link #declinesTwoLaneChecks}).
    */
-  DeclineSink(Seq<Attribute> childOutput, boolean rangeSets, VarkaAdmission admission) {
+  DeclineSink(Seq<Attribute> childOutput, VarkaEmitOptions options, VarkaAdmission admission) {
     this.childOutput = childOutput;
-    this.rangeSets = rangeSets;
+    this.rangeSets = options.rangeSets();
+    this.floatingFault = options.floatingFault();
+    this.intervalFault = options.intervalFault();
     this.familiesOff = Set.copyOf(admission.familiesOff());
     this.declinesTwoLaneChecks = admission.declineTwoLaneConditions();
   }
 
   boolean rangeSets() {
     return rangeSets;
+  }
+
+  /** The floating arithmetic's fault injector the compile runs under (VARKA-548). */
+  FloatingFault floatingFault() {
+    return floatingFault;
+  }
+
+  /** The day-time interval lowerings' fault injector the compile runs under (VARKA-548). */
+  IntervalFault intervalFault() {
+    return intervalFault;
   }
 
   /**

@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
+import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.security.MessageDigest
@@ -26,15 +27,16 @@ import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters._
 
 import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
+import org.scalatest.exceptions.TestFailedException
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference,
-  EvalMode, Expression, Multiply, NumericEvalContext, Subtract}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, EvalMode, Expression,
+  Multiply, NumericEvalContext, Subtract}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIrGrammar._
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
+import org.apache.spark.sql.types.DecimalType
 
 /**
  * The emitted-bytes oracle (VARKA-85, step 1): what the emitter produces for every shape, pinned
@@ -48,8 +50,8 @@ import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeInter
  * from the shared fuzz grammar at a fixed seed, and ten thousand random long-lane trees from
  * its long grammar at that grammar's own seed (VARKA-119). Each shape is emitted at two
  * widths, 128 and 512 bits - `lanesOverride` 4 and 16 at the int lane, 2 and 8 at the long
- * one - and the narrow store's arms add 64 bits, `lanesOverride` 2 at the int lane and 1 at the
- * long one - and every method body of the emitted class is rendered symbolically
+ * one - and the narrow store's arms add 64 bits, `lanesOverride` 2, over the shapes not driven
+ * at a 64-bit lane - and every method body of the emitted class is rendered symbolically
  * (`VarkaEmitterTestSupport.methodBodies`: opcodes and resolved operands, labels numbered, no
  * constant-pool indices and no line tables) and hashed.
  *
@@ -77,66 +79,17 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   /**
    * The widths every shape is pinned at, and the third one the narrow store's arms add: only a
    * byte or short store at two int lanes has four parts, so the 64-bit width is pinned for the
-   * store arms alone. Emitting every other shape and arm at it as well cost about a third of
-   * the suite's work for bytes no part count can differ in, and put the whole-shape test
-   * against its watchdog on a slow runner (Build 44140064906, 17 November 2026).
+   * store arms alone, and over the shapes not driven at a 64-bit lane (`pinsAt`). Emitting every
+   * other shape and arm at it as well would cost about a third of the suite's work for bytes no
+   * part count can differ in, and would put the whole-shape test against its watchdog on a slow
+   * runner.
    */
   private val widths = Seq(4, 16)
   private val storeWidths = Seq(2, 4, 16)
 
-  // The coverage table's columns, as `VarkaCoverageSuite` declares them.
-  private val d = AttributeReference("d", DateType)()
-  private val d2 = AttributeReference("d2", DateType)()
-  private val i = AttributeReference("i", IntegerType)()
-  private val ymm = AttributeReference("ymm",
-    YearMonthIntervalType(YearMonthIntervalType.MONTH, YearMonthIntervalType.MONTH))()
-  private val ymy = AttributeReference("ymy",
-    YearMonthIntervalType(YearMonthIntervalType.YEAR, YearMonthIntervalType.YEAR))()
-  private val ym = AttributeReference("ym",
-    YearMonthIntervalType(YearMonthIntervalType.YEAR, YearMonthIntervalType.MONTH))()
-  private val l = AttributeReference("l", LongType)()
-  private val l2 = AttributeReference("l2", LongType)()
-  private val t = AttributeReference("t", TimeType(6))()
-  private val t2 = AttributeReference("t2", TimeType(6))()
-  private val dt = AttributeReference("dt", DayTimeIntervalType())()
-  private val dt2 = AttributeReference("dt2", DayTimeIntervalType())()
-  // BOOLEAN columns, as conditions: two so a comparison can be column against column.
-  private val b = AttributeReference("b", BooleanType)()
-  private val b2 = AttributeReference("b2", BooleanType)()
-  // TINYINT and SMALLINT columns (VARKA-329, VARKA-330), two of each, as `VarkaCoverageSuite`
-  // declares them: the rows are pinned at two widths, and at four int lanes the widened
-  // arm's byte load reads a 64-bit species and converts it in two parts, so its methods
-  // have their own hashes there rather than a decline.
-  private val y1 = AttributeReference("y1", ByteType)()
-  private val y2 = AttributeReference("y2", ByteType)()
-  private val s1 = AttributeReference("s1", ShortType)()
-  private val s2 = AttributeReference("s2", ShortType)()
-  // TIMESTAMP_NTZ columns (VARKA-338), as `VarkaCoverageSuite` declares them.
-  private val ntz = AttributeReference("ntz", TimestampNTZType)()
-  private val ntz2 = AttributeReference("ntz2", TimestampNTZType)()
-  // The floating columns (VARKA-341), as `VarkaCoverageSuite` declares them.
-  private val x = AttributeReference("x", DoubleType)()
-  private val x2 = AttributeReference("x2", DoubleType)()
-  private val f = AttributeReference("f", FloatType)()
-  private val f2 = AttributeReference("f2", FloatType)()
-  // DECIMAL columns (VARKA-347), as `VarkaCoverageSuite` declares them.
-  private val d9 = AttributeReference("d9", DecimalType(9, 2))()
-  private val d9b = AttributeReference("d9b", DecimalType(9, 2))()
-  private val d18 = AttributeReference("d18", DecimalType(18, 2))()
-  private val d18b = AttributeReference("d18b", DecimalType(18, 2))()
-  // Two scales beside the four of scale 2 (VARKA-348), so a comparison can rescale: d9s4 against
-  // d9 compares at DECIMAL(11, 4), and d16s9 meets every other at a common type it names.
-  private val d9s4 = AttributeReference("d9s4", DecimalType(9, 4))()
-  private val d16s9 = AttributeReference("d16s9", DecimalType(16, 9))()
-  private val d8 = AttributeReference("d8", DecimalType(8, 2))()
-  // The 128-bit pair's columns (VARKA-359), as `VarkaCoverageSuite` declares them.
-  private val d19 = AttributeReference("d19", DecimalType(19, 2))()
-  private val d38 = AttributeReference("d38", DecimalType(38, 2))()
-  private val d38b = AttributeReference("d38b", DecimalType(38, 2))()
-  private val d3810 = AttributeReference("d3810", DecimalType(38, 10))()
-  private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
-    y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
-    d9s4, d16s9, d8, d19, d38, d38b, d3810)
+  /** The coverage table's columns, from the file `VarkaCoverageSuite` writes them to. */
+  private lazy val columns: Seq[Attribute] =
+    VarkaCoverageRows.columns(getWorkspaceFilePath("sql", "varka", "coverage.json"))
 
   private val className = "org.apache.spark.sql.varka.execution.VarkaEmittedBytesOracle"
 
@@ -223,50 +176,51 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
    * Every row of the table as IR, through the compiler: a projection row's compiled outputs, a
    * predicate row's fused condition root.
    *
-   * Two ways a row can fail to produce IR, and they are not the same thing. A row whose SQL does
-   * not parse is recorded as skipped, by name, so the file says what it does not pin; the table
-   * carries an `executable` spelling for every row today, so the list is empty and a name
-   * appearing in it is a table that grew a caption. A row that parses and then declines is a
-   * coverage regression - `VarkaCoverageSuite` asserts every row fuses - so it fails here
-   * rather than quietly moving into that list, where a regeneration would bless it.
+   * Two ways a row can fail to produce IR, and both fail the suite rather than leave a row
+   * unpinned. A row whose SQL does not parse or resolve against the table's columns fails naming
+   * the row and the resolver's reason, which for a column the table lacks is "unknown column"
+   * and its name. A row that resolves and then declines is a coverage regression -
+   * `VarkaCoverageSuite` asserts every row fuses - so it fails here too, rather than moving into
+   * a list a regeneration would bless.
    */
-  private lazy val coverage: (Seq[CoverageShape], Seq[String]) = {
-    val file = getWorkspaceFilePath("sql", "varka", "coverage.json").toFile
+  private lazy val coverage: Seq[CoverageShape] =
+    coverageOf(getWorkspaceFilePath("sql", "varka", "coverage.json").toFile)
+
+  /** [[coverage]] over the table in `file`, against that file's own columns. */
+  private def coverageOf(file: File): Seq[CoverageShape] = {
+    val cols = VarkaCoverageRows.columns(file.toPath)
     val doc = new ObjectMapper().readTree(file)
-    val shapes = Seq.newBuilder[CoverageShape]
-    val skipped = Seq.newBuilder[String]
-    doc.get("expressions").elements().asScala.foreach { e =>
+    doc.get("expressions").elements().asScala.toSeq.map { e =>
       val sql = e.get("sql").asText()
       val executable = Option(e.get("executable")).map(_.asText()).getOrElse(sql)
       val form = e.get("form").asText()
       val catalyst = Option(e.get("catalyst"))
         .map(_.elements().asScala.map(_.asText()).toSet).getOrElse(Set.empty[String])
-      // The parse guard covers the parse and the resolve, and nothing else: `inSetAsClaimed`
-      // fails the suite on purpose when a row's spelling and its catalyst field disagree, and a
-      // catch around it would turn that into a silent skip.
-      val parsed: Option[Expression] =
-        try Some(VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(executable), columns))
-        catch { case _: Exception => None }
-      val resolved = parsed.map(VarkaSqlResolve.inSetAsClaimed(_, catalyst.contains("InSet")))
-      val compiled = resolved.flatMap { expr =>
+      // The guard covers the parse and the resolve, and nothing else: `inSetAsClaimed` fails the
+      // suite on purpose when a row's spelling and its catalyst field disagree, with its own
+      // message.
+      val resolved =
+        try VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(executable), cols)
+        catch {
+          case e: Exception => fail(s"coverage row `$sql` does not resolve against the columns " +
+            s"of ${file.getName}: ${e.getMessage}", e)
+        }
+      val claimed = VarkaSqlResolve.inSetAsClaimed(resolved, catalyst.contains("InSet"))
+      val compiled =
         if (form == "predicate") {
-          VarkaExpressionCompiler.compilePredicate(expr, columns, VarkaEmitOptions.DEFAULTS,
+          VarkaExpressionCompiler.compilePredicate(claimed, cols, VarkaEmitOptions.DEFAULTS,
             VarkaAdmission.NO_HOST_REFUSAL).toScala.map(_.fused)
         } else {
-          VarkaExpressionCompiler.compile(Seq(Alias(expr, "c")()), columns).toScala
+          VarkaExpressionCompiler.compile(Seq(Alias(claimed, "c")()), cols).toScala
         }
-      }
       compiled match {
         case Some(c) =>
-          shapes += CoverageShape(sql, c.outputs.asScala.toSeq, c.inputOrdinals.size,
-              c.numLiterals)
-        case None if resolved.isEmpty => skipped += sql
+          CoverageShape(sql, c.outputs.asScala.toSeq, c.inputOrdinals.size, c.numLiterals)
         case None =>
           fail(s"coverage row does not fuse, so the oracle cannot pin it: $sql. " +
             "VarkaCoverageSuite asserts every row fuses; fix that first.")
       }
     }
-    (shapes.result(), skipped.result())
   }
 
   // ---------------------------------------------------------------------------------------
@@ -522,17 +476,29 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       subject: VarkaEmitOption.Subject): VarkaEmitOptions => VarkaEmitOptions =
     (o: VarkaEmitOptions) => a.apply.apply(subject.apply.apply(o))
 
-  /** One hash over every shape the oracle holds, emitted under `arm` at `lanes`. */
+  /**
+   * Whether a shape is pinned at `lanes`: always at the oracle's widths, and at the store arms'
+   * 64 bits only where the drive is not 64-bit. Half of two lanes is one, which bakes no lane
+   * count (`Lane.emitLanes` gives 0 for it), so a long or double shape there would be the
+   * preferred species' emission again rather than 64 bits of its lane.
+   */
+  private def pinsAt(roots: Seq[VarkaVectorIR], lanes: Int): Boolean =
+    widths.contains(lanes) || !VarkaKernelPlan.driveOf(roots.asJava, VarkaMatrix.base)
+      .filter(_.bits() == java.lang.Long.SIZE).isPresent
+
+  /** One hash over every shape the oracle holds at `lanes` (`pinsAt`), emitted under `arm`. */
   private def armDigest(arm: VarkaEmitOptions => VarkaEmitOptions, lanes: Int): String = {
     // One line per shape, each computed on the pool and joined in the order they were before.
-    def line(label: String, roots: Seq[VarkaVectorIR], numInputs: Int, numLiterals: Int) = {
+    def line(label: String, roots: Seq[VarkaVectorIR], numInputs: Int, numLiterals: Int):
+        String = {
+      if (!pinsAt(roots, lanes)) return ""
       val sb = new StringBuilder(label)
       methodHashes(roots, numInputs, numLiterals, lanes, arm).foreach { case (m, h) =>
         sb.append(' ').append(m).append('=').append(h)
       }
       sb.append('\n').toString
     }
-    val (rows, _) = coverage
+    val rows = coverage
     val rowLines = inOrder(rows.size) { i =>
       val r = rows(i)
       line(r.sql, r.roots, r.numInputs, r.numLiterals)
@@ -552,7 +518,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       pairs.foreach { case (k, v) => map.put(k, v) }
       map
     }
-    val (rows, skipped) = coverage
+    val rows = coverage
     val perWidth = widths.map { lanes =>
       val coverageHashes = ordered(inOrder(rows.size) { i =>
         val r = rows(i)
@@ -590,8 +556,15 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
           "blocks" -> narrowBlocks(doubleShapes)))
     }
     val storeNames = storeArms.map(_._1).toSet
+    // An arm whose subject sets the lane count (narrowGroupStore over lanesOverride=4) emits the
+    // same bytes at every oracle width, so it is pinned once, at the width its subject sets.
+    def fixedWidth(arm: VarkaEmitOptions => VarkaEmitOptions): Option[Int] = {
+      val set = widths.map(w => arm(VarkaMatrix.base.withLanesOverride(w)).lanesOverride).distinct
+      if (set.size == 1) Some(set.head).filter(widths.contains) else None
+    }
     val armHashes = ordered(pinnedArms.map { case (name, arm) =>
-      val armWidths = if (storeNames(name)) storeWidths else widths
+      val armWidths =
+        if (storeNames(name)) storeWidths else fixedWidth(arm).map(Seq(_)).getOrElse(widths)
       name -> ordered(armWidths.map(w => w.toString -> armDigest(arm, w)): _*)
     }: _*)
     val doc = ordered(
@@ -601,7 +574,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         "coverage row and for a fixed sequence of fuzz shapes at the int and long lanes, over " +
         "both, and at each narrow and floating lane, at 128 and 512 bits " +
         "(lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one), and the " +
-        "narrow-store arms also at 64 bits (2 at the int lane, 1 at the long one). A difference " +
+        "narrow-store arms also at 64 bits (2 at the int lane, over the shapes not driven at a " +
+        "64-bit lane); " +
+        "an arm whose subject sets the lane count is pinned at that width alone. A difference " +
         "is a change in what an emitted method does. `option_arms` covers emissions beyond the " +
         "defaults: one digest over every coverage row and int, long and mixed shape at each " +
         "width per value of spark.sql.codegen.varka.emit.useAVX, an emit option a " +
@@ -616,7 +591,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         "opt-in mode " +
         "(mathUlpContract=true), which spark.sql.codegen.varka.math.ulpContract.enabled " +
         "reaches. The rest of VarkaEmitOptions is test-only."),
-      "coverage_rows_skipped" -> skipped.asJava,
+      // Always empty: a row that does not resolve or fuse fails `coverageOf`. The key stays so
+      // the file keeps its bytes, and the check's skip comparison below stays with it.
+      "coverage_rows_skipped" -> java.util.List.of[String](),
       "lanes" -> ordered(perWidth: _*),
       "option_arms" -> armHashes)
     new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(doc) + "\n"
@@ -631,7 +608,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
     // keeping no mutable state between emissions, and the compiler emits at planning on the
     // Spark driver, where concurrent queries plan on several threads: a structure shared between
     // emissions would show here as a shape whose bytes depend on its neighbours.
-    val (rows, _) = coverage
+    val rows = coverage
     val corpus = rows.map(r => (r.roots, r.numInputs, r.numLiterals)) ++
       intShapes.take(2000).map(s => (s.roots, s.numInputs, s.numLiterals))
     val racing = newPool(math.max(4, availableProcessors))
@@ -752,8 +729,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         (keysOf(bArms) -- keysOf(aArms)).foreach(arm => moved += s"option arm gone $arm")
         (keysOf(aArms) -- keysOf(bArms)).foreach(arm => moved += s"new option arm $arm")
         (keysOf(aArms) intersect keysOf(bArms)).foreach { arm =>
-          widths.foreach { lanes =>
-            if (hashOf(bArms.get(arm), lanes.toString) != hashOf(aArms.get(arm), lanes.toString)) {
+          // Every width either file pins the arm at: the store arm's 2 as well as 4 and 16.
+          (keysOf(bArms.get(arm)) ++ keysOf(aArms.get(arm))).foreach { lanes =>
+            if (hashOf(bArms.get(arm), lanes) != hashOf(aArms.get(arm), lanes)) {
               moved += s"lanes $lanes: option arm $arm"
             }
           }
@@ -783,6 +761,21 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
           "  VARKA_BYTES_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'\n" +
           "and say so in the task's plan. What moved:\n  " + moved.result().mkString("\n  "))
       }
+    }
+  }
+
+  test("a coverage row over a column the table lacks fails the oracle, naming the row and the " +
+      "column") {
+    withTempDir { dir =>
+      val file = new File(dir, "cov.json")
+      Files.writeString(file.toPath,
+        """{"columns": {"i": "int", "l": "bigint"}, "expressions": [
+          |  {"sql": "i + 1", "executable": "i + 1", "form": "projection", "catalyst": ["Add"]},
+          |  {"sql": "q + 1", "executable": "q + 1", "form": "projection", "catalyst": ["Add"]}
+          |]}""".stripMargin)
+      val e = intercept[TestFailedException](coverageOf(file))
+      assert(e.getMessage.contains("`q + 1`"), e.getMessage)
+      assert(e.getMessage.contains("unknown column q"), e.getMessage)
     }
   }
 
@@ -875,7 +868,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
     // Over the coverage rows and 200 fuzz shapes per lane at two widths, the set the audit
     // measured the defaults' silence on. At the defaults no value root keeps a per-group validity
     // OR, so the option has nothing to order; if that changes, the subject is no longer needed.
-    val (rows, _) = coverage
+    val rows = coverage
     val sampled = 200
     val flag = VarkaEmitOption.named("validityOrFirst").asInstanceOf[VarkaEmitOption.Flag]
     val subject = subjectOf(flag).getOrElse(fail("validityOrFirst has no subject"))
@@ -904,7 +897,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
     // A single shape emitted at 4 and 16 lanes must render differently somewhere: the species
     // constant is baked into the class, and a width that left every method identical would
     // mean the override was ignored and the second width pins nothing.
-    val (rows, _) = coverage
+    val rows = coverage
     assert(rows.nonEmpty)
     val r = rows.head
     val at4 = methodHashes(r.roots, r.numInputs, r.numLiterals, 4).toMap
@@ -960,7 +953,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   test("the option audit: which options move the emitted bytes, and on which shapes") {
     assume(sys.env.get("VARKA_OPTION_AUDIT").contains("true"),
       "opt-in: set VARKA_OPTION_AUDIT=true")
-    val (rows, _) = coverage
+    val rows = coverage
     val sampled = 200
     val report = Seq.newBuilder[String]
     report += "# Which emit options move the emitted bytes, over the oracle's own shapes."
@@ -1071,7 +1064,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   test("the pairs audit: which pairs of options emit kernels neither option emits alone") {
     assume(sys.env.get("VARKA_PAIRS_AUDIT").contains("true"),
       "opt-in: set VARKA_PAIRS_AUDIT=true")
-    val (rows, _) = coverage
+    val rows = coverage
     val sampled = 200
     // Every shape the option audit emits, in its order: coverage rows (kind 0), then int (1)
     // and long (2) fuzz shapes.

@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import java.nio.file.{Files, Path}
 
-import org.json4s.{DefaultFormats, JString}
+import org.json4s.{DefaultFormats, JObject, JString}
 import org.json4s.jackson.JsonMethods.parse
 
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression}
@@ -80,13 +80,26 @@ object VarkaCoverageRows {
 
   case class Table(columns: Seq[Attribute], projections: Seq[Row], predicates: Seq[Row])
 
+  /**
+   * The table's columns, in the file's order, which is the order `VarkaCoverageSuite` declares
+   * them in and so the kernels' input ordinals: the object's fields are walked as written,
+   * whatever a `Map` would do with them.
+   */
+  def columns(path: Path): Seq[Attribute] =
+    parse(new String(Files.readAllBytes(path), "UTF-8")) \ "columns" match {
+      case JObject(fields) => fields.map {
+        case (name, JString(t)) => AttributeReference(name, CatalystSqlParser.parseDataType(t))()
+        case (name, other) => throw new IllegalArgumentException(
+          s"column $name of $path has no SQL type: $other")
+      }
+      case other => throw new IllegalArgumentException(s"$path has no columns object: $other")
+    }
+
   /** The table at `path`, the committed file the coverage suite keeps. */
   def read(path: Path): Table = {
     implicit val formats: DefaultFormats.type = DefaultFormats
     val json = parse(new String(Files.readAllBytes(path), "UTF-8"))
-    val columns = (json \ "columns").extract[Map[String, String]].toSeq.map { case (name, t) =>
-      AttributeReference(name, CatalystSqlParser.parseDataType(t))()
-    }
+    val cols = columns(path)
     val rows = (json \ "expressions").children.map { row =>
       val executable = (row \ "executable") match {
         case JString(s) if s.nonEmpty => s
@@ -96,7 +109,7 @@ object VarkaCoverageRows {
     }
     val (predicates, projections) = rows.partition(_.predicate)
     require(projections.size > 40 && predicates.size > 10, s"${rows.size} rows read from $path")
-    Table(columns, projections, predicates)
+    Table(cols, projections, predicates)
   }
 
   /** `sql` bound against the table's columns and analysed, as the planner would hand it on. */

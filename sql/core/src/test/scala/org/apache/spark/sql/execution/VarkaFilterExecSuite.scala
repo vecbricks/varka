@@ -58,6 +58,12 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
   private val withDouble: Seq[Attribute] = Seq(attrD, intAttr, doubleAttr)
   private val doubleResidual = GreaterThan(doubleAttr, Literal(5.0d))
   private val residual = GreaterThan(Pow(doubleAttr, Literal(2.0d)), Literal(5.0d))
+  /**
+   * `withDouble` with no column nullable, for the split tests: `pow` is off the order rule's
+   * error-free list, so `d < ...` ahead of it would be demoted where `d` can be NULL, since Spark
+   * goes on past a NULL conjunct to one that can raise (VARKA-386).
+   */
+  private val notNullWithDouble: Seq[Attribute] = withDouble.map(_.withNullability(false))
 
   /** `d < DATE(epoch day 10)`: the workhorse predicate of these tests. */
   private def dLess10 = LessThan(attrD, Literal(10, DateType))
@@ -478,7 +484,7 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
   }
 
   test("VarkaColumnarRule: the pre stage rewrites an eligible filter, splitting conjuncts") {
-    val child = TestColumnarBatchPlan(Nil, withDouble)
+    val child = TestColumnarBatchPlan(Nil, notNullWithDouble)
     val eligible = FilterExec(dLess10, child)
     val mixed = FilterExec(And(dLess10, residual), child)
     // A double comparison alone fuses on the DOUBLE lane, and so does double arithmetic since
@@ -506,7 +512,7 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
   }
 
   test("VarkaColumnarRule: the post stage fuses the transition, or absorbs one") {
-    val child = TestColumnarBatchPlan(Nil, withDouble)
+    val child = TestColumnarBatchPlan(Nil, notNullWithDouble)
     withSQLConf(SQLConf.VARKA_ENABLED.key -> "true") {
       // The transition the pre-stage node received is fused into the row-out filter.
       assert(VarkaColumnarRule.postColumnarTransitions(
