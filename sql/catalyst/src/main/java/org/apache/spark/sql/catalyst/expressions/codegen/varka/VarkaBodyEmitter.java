@@ -908,7 +908,9 @@ final class VarkaBodyEmitter {
    * {@code loopBound} with no back edge, {@code lanes} becomes the remainder so every
    * validity helper is bounded by it, and {@code indexInRange} supplies the mask the loads
    * and the stores take. Nothing between a load and a store is masked, exactly as in the
-   * loop.
+   * loop. A narrow value is the exception where the lane count is baked: it is loaded and
+   * stored one row at a time, bounded by the remainder, since x86 without AVX512BW has no
+   * masked byte or short store ({@code VarkaVectorWalk.narrowRowsInEpilogue}).
    *
    * <p>A kernel whose loop stops early is the exception to "no back edge": its epilogue runs
    * this body in a loop of its own ({@code emitMixedEpilogue}). A kernel that converts between
@@ -1201,10 +1203,13 @@ final class VarkaBodyEmitter {
    * and stored whole in a loop body where that species is no wider than an int group, under the
    * mask of its first {@code lanes} lanes otherwise and in an epilogue. In a kernel driven at the
    * long lane the same holds of the int group of the long width, whose loop bound leaves room for
-   * it; AVX2 has no masked byte or short store, so a masked one in the loop scalarises, and that
-   * kernel's epilogue, which runs on every batch, stores its rows one at a time
-   * ({@link #emitNarrowRowsStore}). The truncation is Spark's {@code CAST(int AS TINYINT)} under
-   * {@code LEGACY}, which is what a {@code TINYINT} expression's result is.
+   * it. AVX2 has no masked byte or short store, so a masked one scalarises: an epilogue with a
+   * baked lane count stores its rows one at a time ({@link #emitNarrowRowsStore}), and so does
+   * the loop body of a long kernel whose int group has no narrow species of its own, a byte at
+   * two long lanes. A loop body of an int kernel whose narrow species is wider than its group,
+   * a byte at four int lanes, keeps the masked store under {@code MASKED}: the combined form
+   * serves it ({@code VARKA-550.md} 11). The truncation is Spark's {@code CAST(int AS TINYINT)}
+   * under {@code LEGACY}, which is what a {@code TINYINT} expression's result is.
    *
    * <p>A loop body's store of a species wider than the int group takes the combined form under
    * {@link VarkaEmitOptions.NarrowGroupStore#COMBINED} ({@link #emitCombinedNarrowStore}).
@@ -1219,7 +1224,11 @@ final class VarkaBodyEmitter {
           + "this kernel is driven at the " + analysis.lane + " lane");
     }
     if (VarkaVectorWalk.narrowRowsInEpilogue(analysis, s)) {
-      emitNarrowRowsStore(cb, stored, analysis, s, o);
+      emitNarrowRowsStore(cb, stored, Lane.INT, analysis, s, o, true);
+      return;
+    }
+    if (VarkaVectorWalk.narrowRowsInBody(analysis, s, stored)) {
+      emitNarrowRowsStore(cb, stored, Lane.INT, analysis, s, o, false);
       return;
     }
     // The narrow species the widening load reads, which {@code convertShape} fills from part 0
@@ -1332,19 +1341,24 @@ final class VarkaBodyEmitter {
   }
 
   /**
-   * A narrow root in the epilogue of a kernel driven at the long lane
-   * ({@code VarkaVectorWalk.narrowRowsInEpilogue}): {@code [int vector] -> []}, lane {@code k}
+   * A narrow root stored one row at a time ({@code VarkaVectorWalk.narrowRowsInEpilogue},
+   * {@code VarkaVectorWalk.narrowRowsInBody}): {@code [vector of from] -> []}, lane {@code k}
    * read with {@code lane(k)} at a constant index and stored as row {@code i + k} by
    * {@code VarkaVectorSupport.putByteAt} or {@code putShortAt}, which truncate as {@code I2B} and
-   * {@code I2S} do, for each {@code k} below the remainder {@code lanes}. The rows past it are
-   * past the batch, so the first {@code k} at or past it ends the stores. Each store reads a copy
-   * of the vector, so the one that reaches the end is the same value on every path.
+   * {@code I2S} do, for each {@code k} below the drive's lane count. {@code from} is the int lane
+   * where the value is computed widened, and the root's own lane in a kernel driven at it, whose
+   * {@code lane(k)} returns the {@code byte} or {@code short} the store takes as an {@code int}.
+   * When {@code bounded}, in an epilogue, the rows past the remainder {@code lanes} are past the
+   * batch, so the first {@code k} at or past it ends the stores; a loop body's group is whole.
+   * Each store reads a copy of the vector, so the one that reaches the end is the same value on
+   * every path.
    */
-  private static void emitNarrowRowsStore(
-      CodeBuilder cb, Lane stored, Analysis analysis, Slots s, int o) {
+  private static void emitNarrowRowsStore(CodeBuilder cb, Lane stored, Lane from,
+      Analysis analysis, Slots s, int o, boolean bounded) {
+    MethodTypeDesc laneAt = MethodTypeDesc.of(from.scalar, ConstantDescs.CD_int);
     Label done = cb.newLabel();
     for (int k = 0; k < analysis.lanes; k++) {
-      if (k > 0) {
+      if (bounded && k > 0) {
         // The epilogue's group holds at least one row, so the first store needs no test.
         cb.iload(s.lanes);
         cb.loadConstant(k);
@@ -1352,7 +1366,7 @@ final class VarkaBodyEmitter {
       }
       cb.dup();
       cb.loadConstant(k);
-      cb.invokevirtual(Lane.INT.vector, "lane", INT_LANE);      // [v, lane k]
+      cb.invokevirtual(from.vector, "lane", laneAt);            // [v, lane k]
       cb.aload(s.dstSeg[o]);
       cb.iload(s.iVar);
       cb.loadConstant(k);
@@ -1533,6 +1547,12 @@ final class VarkaBodyEmitter {
         emitNarrowTypeStore(cb, stored, analysis, s, o, root);
       } else if (!analysis.sameCount(analysis.laneOf(root))) {
         emitLowHalfStore(cb, analysis.laneOf(root), analysis, s, o);
+      } else if (analysis.laneOf(root).isNarrow()
+          && VarkaVectorWalk.narrowRowsInEpilogue(analysis, s)) {
+        // A narrow-driven kernel's own root in its epilogue: its rows one at a time, as a
+        // widened root's are, since the masked subword store has no lowering on AVX2.
+        Lane at = analysis.laneOf(root);
+        emitNarrowRowsStore(cb, at, at, analysis, s, o, true);
       } else {
         // The drive's lane, or the other lane of its width, whose vector is as long: stored
         // whole at its own class, under the bounds mask cast to its species in an epilogue.

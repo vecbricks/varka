@@ -873,6 +873,66 @@ public final class VarkaEmitterNarrowSuite {
   }
 
   @Test
+  @DisplayName("an epilogue moves its narrow rows one at a time at every remainder, at the int "
+      + "lane and at a narrow lane")
+  public void narrowRowsAnswerEveryRemainderAtEveryDrive() {
+    // The row form (VARKA-550) at every baked count each drive reaches: columns widened beside
+    // an int one and values stored narrow from the int lane, and a byte and a short choice
+    // driven at its own lane under the native arm. Every length from 1 to two groups and one
+    // past them meets every remainder, and the kernel maps each segment at exactly the batch's
+    // bytes, so a row read or written past the batch fails instead of landing in slack. A long
+    // kernel's narrow store, whose loop body at two long lanes takes the row form too, is held
+    // by VarkaEmitterIntegralCastSuite's casts at 2, 4 and 8 long lanes.
+    Cond intGuard = new Compare(CompareOp.LT, new ColumnRef(2, LaneType.INT),
+        new ColumnRef(3, LaneType.INT));
+    VarkaVectorIR widenedChoice = new NarrowLane(new IfElse(intGuard,
+        new WidenLane(BYTE_COL, LaneType.INT), new WidenLane(BYTE_COL_2, LaneType.INT)),
+        LaneType.BYTE);
+    VarkaVectorIR shortBesideInt = new IntArith(IntOp.ADD, Overflow.WRAP,
+        new WidenLane(SHORT_COL, LaneType.INT), new ColumnRef(1, LaneType.INT));
+    VarkaVectorIR toByte = new NarrowLane(new ColumnRef(0, LaneType.INT), LaneType.BYTE);
+    VarkaVectorIR toShort = new NarrowLane(new ColumnRef(0, LaneType.INT), LaneType.SHORT);
+    VarkaVectorIR byteChoice = new IfElse(new Compare(CompareOp.GT, BYTE_COL, BYTE_COL_2),
+        BYTE_COL, BYTE_COL_2);
+    VarkaVectorIR shortChoice = new IfElse(new Compare(CompareOp.GT, SHORT_COL, SHORT_COL_2),
+        SHORT_COL, SHORT_COL_2);
+    record Case(String name, VarkaVectorIR root, int inputs, IntBinaryOperator value) {}
+    IntBinaryOperator bytes = (c, row) -> ((row * (7 + 6 * c) + 13 * c) % 256) - 128;
+    IntBinaryOperator shorts = (c, row) -> ((row * (4051 + 2 * c) + 17 * c) % 65536) - 32768;
+    var cases = List.of(
+        new Case("a widened byte choice stored byte", widenedChoice, 4,
+            (c, row) -> c < 2 ? bytes.applyAsInt(c, row) : (row * (3 + c)) % 7 - 3),
+        new Case("a widened short beside an int", shortBesideInt, 2,
+            (c, row) -> c == 0 ? shorts.applyAsInt(c, row) : row * 40009 - 65536),
+        new Case("an int stored byte", toByte, 1, (c, row) -> ((row * 37) % 1024) - 512),
+        new Case("an int stored short", toShort, 1,
+            (c, row) -> ((row * 7919) % 200000) - 100000),
+        new Case("a byte choice", byteChoice, 2, bytes),
+        new Case("a short choice", shortChoice, 2, shorts));
+    for (int lanes : new int[] {2, 4, 8, 16}) {
+      for (Arm arm : ARMS) {
+        VarkaEmitOptions options = arm.options().toBuilder().lanesOverride(lanes).build();
+        for (Case k : cases) {
+          for (int len = 1; len <= 2 * lanes + 1; len++) {
+            int[][] data = new int[k.inputs()][];
+            for (int c = 0; c < k.inputs(); c++) {
+              int column = c;
+              data[c] = tabulate(len, row -> k.value().applyAsInt(column, row));
+            }
+            for (int body = 0; body < 3; body++) {
+              // No nulls, every seventh row null, and the masked body forced over all-valid data.
+              IntPredicate pattern = body == 1 ? row -> row % 7 == 3 : row -> false;
+              checkValues(k.name() + " at " + lanes + " lanes, " + arm.name() + ", body " + body,
+                  List.of(k.root()), k.inputs(), new int[0], len, data, pattern, body == 2,
+                  options);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @Test
   @DisplayName("the reference narrows a stored byte and short as the lane does")
   public void theReferenceNarrowsAStoredByteAndShortAsTheLaneDoes() {
     // The oracle itself: a value written at a narrow width reads back sign-extended, which is

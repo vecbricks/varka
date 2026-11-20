@@ -249,6 +249,46 @@ set on 20 November 2026 (implementation first, tests and CI later).
 
 Not run in this window (owed): the suite itself, on the laptop and under `UseAVX=2`; P1.
 
+### 10.2 Part 2, the row form at every baked count (20 November 2026, built locally)
+
+Stacked on part 1 as `varka-550b-narrow-rows-every-drive`.
+
+- **Every epilogue with a baked lane count moves its narrow rows one at a time.**
+  `narrowRowsInEpilogue` drops its long-lane condition: `s.epilogue && analysis.lanes != 0`.
+  `emitNarrowRowsLoad` takes the lane it builds (`into`): the int lane for a column widened in a
+  long or an int kernel, as before, and the column's own lane in a kernel driven at it, where the
+  `ColumnRef` load now takes the form in the epilogue; `withLane` and `zero` are named from that
+  lane (`ByteVector.withLane(int, byte)` takes the `int` the row read returns as its `byte`).
+  `emitNarrowRowsStore` takes the lane it reads (`from`) and whether the remainder bounds it: an
+  int kernel's narrow root and a narrow-driven kernel's own root (the drive-lane store branch of
+  `emitLaneGroup`) take it in the epilogue. An epilogue's group holds at most the drive's lane count
+  of rows (`emitMixedEpilogue`), so the unroll is at most 16 rows at a baked count.
+- **The long kernel's loop body at two long lanes stores its narrow root row by row** (11, item 4),
+  through `narrowRowsInBody`, whose doc now covers the store as well as row 575's load.
+- **Stated out, with their reasons (11):** an int kernel's `TINYINT` root at four int lanes in its
+  loop body under `MASKED` (item 3), a long kernel with no baked count (2.3), and every
+  narrow-driven kernel at an unbaked count, which is a `BYTE` kernel at 256 and 512 bits and a
+  `SHORT` kernel at 512 (item 5). The last is the gap between this part and the done-when.
+- **The test of 3.2 and 3.3**: `VarkaEmitterNarrowSuite` "an epilogue moves its narrow rows one
+  at a time at every remainder, at the int lane and at a narrow lane": six shapes (a widened byte
+  choice stored byte, a widened short beside an int, an int stored byte and short, a byte and a
+  short choice at their own lane), at 2, 4, 8 and 16 lanes, both arms, every length from 1 to
+  `2 * lanes + 1`, with no nulls, every seventh row null and the masked body forced. A kernel
+  maps each segment at exactly `length * stride` bytes (`VarkaSegments.map`), so a row read or
+  written past the batch throws: the remainder bound of 3.3 is held by every length. The long
+  kernel's store at two lanes is held by `VarkaEmitterIntegralCastSuite`'s casts at 2, 4 and 8
+  long lanes, which already run there.
+- **Test 3.4, the bytes oracle, is a comparison against the merge base** rather than a suite: after
+  the regeneration, every method key of `emitted_bytes.json` whose hash moved must be an
+  `epilogue*` method or the `<class>` entry (the constant pool), and a `loop*` or `run*` key that
+  moved fails it. A suite comparing the file with itself after a regeneration would pass on any
+  change, so the check is a one-off read of the two files, given in the pull request.
+- **P3 scored, wrong in its premise**: the method cap is `HUGE_METHOD_LIMIT`, 8,000 bytes, not 64
+  KiB. At the baked counts the unroll is at most 16 rows, about 450 bytes a narrow operation,
+  so no shape is expected to cross the budget **[A]**; the unbaked 32 and 64 rows are where it
+  would bind (11, item 5).
+- **The allowance of 10.1 stays**: the narrow-driven epilogues at unbaked counts still refuse.
+
 ## 11. Decisions taken while the owner was away (20 November 2026)
 
 The owner set an implementation-first window on 20 November 2026 with no one to ask; each

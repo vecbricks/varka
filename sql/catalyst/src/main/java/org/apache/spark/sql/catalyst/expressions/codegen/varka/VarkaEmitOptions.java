@@ -540,7 +540,7 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        ({@code VARKA-603.md} 0). {@link NarrowGroupStore#COMBINED} converts each group's
  *        {@code I2B} or {@code I2S} at its own part, ORs it into an accumulator and stores the
  *        accumulator whole once every {@code parts} groups, at the run's first row; both answer
- *        every row, and the epilogue keeps the masked store under either, cold on an even batch.
+ *        every row, and the epilogue stores its rows one at a time under either (VARKA-550).
  *        Which is faster on a host where both lower is a measurement's, so the losing form stays
  *        the reference the differential checks against. It also sizes the loop's iteration: under
  *        {@code COMBINED} the group count counts the narrow roots stored as well as the narrow
