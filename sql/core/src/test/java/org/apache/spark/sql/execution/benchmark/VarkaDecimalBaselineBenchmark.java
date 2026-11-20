@@ -144,6 +144,15 @@ import org.apache.spark.sql.internal.SQLConf;
  * columns' integer parts keep every value inside the type, since an overflow would raise under
  * ANSI. Their columns ({@link #PRODUCT_COLUMNS}) come after {@code l16}.
  *
+ * <p>Six more time the shapes whose scale Spark cuts past 38 digits (VARKA-363), as projections
+ * at both null densities: {@code x19s8 * y19s8}, a {@code DECIMAL(39, 16)} capped to
+ * {@code DECIMAL(38, 15)}, its product within 128 bits and rounded by one digit;
+ * {@code x38 * y38} at {@code DECIMAL(38, 10)}, a {@code DECIMAL(77, 20)} capped to
+ * {@code DECIMAL(38, 6)}, a 256-bit product rounded by fourteen digits with a live {@code 10^38}
+ * check; and {@code x38 + y38}, a {@code DECIMAL(39, 10)} capped to {@code DECIMAL(38, 9)}, the
+ * equal-scale capped sum rounded by one digit. Their columns ({@link #CUT_COLUMNS}) come after
+ * those of {@link #PRODUCT_COLUMNS}.
+ *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
  * session with it. Where nothing fuses both are the row path, so they should tie.
@@ -408,6 +417,18 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       new WideColumn("w38s2", new Precision(38, 2, "", 19_000_000_000_000_000L), 4));
 
   /**
+   * The columns of row 363's cut product, after those of {@link #PRODUCT_COLUMNS}: {@code x19s8}
+   * and {@code y19s8}, {@code DECIMAL(19, 8)}s with integer parts at half their eleven digits'
+   * range, so that {@code x19s8 * y19s8} is below {@code 2.6 * 10^21}, inside the 23 integer
+   * digits of its {@code DECIMAL(38, 15)}. The other two cut sections read {@code x38} and
+   * {@code y38}, whose integer parts of {@code 5 * 10^12} keep their product below
+   * {@code 2.6 * 10^25}, inside the 32 integer digits of its {@code DECIMAL(38, 6)}.
+   */
+  static final List<WideColumn> CUT_COLUMNS = List.of(
+      new WideColumn("x19s8", new Precision(19, 8, "", 50_000_000_000L), 2),
+      new WideColumn("y19s8", new Precision(19, 8, "", 50_000_000_000L), 6));
+
+  /**
    * The two null densities every section is timed at: the suffix of the columns a section reads,
    * empty for those with no null and {@code n} for their copies with one row in ten null, and
    * the end of its title.
@@ -526,7 +547,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * and {@code y20}, the {@code DECIMAL(20, 2)} pair, each with its nullable copy; then the
    * columns of {@link #OPERAND_COLUMNS}, then those of {@link #WIDE_COLUMNS}, then the
    * {@code BIGINT} column {@code l}, then those of {@link #CAST_COLUMNS} and the {@code BIGINT}
-   * column {@code l16}, then those of {@link #PRODUCT_COLUMNS}, each with its nullable copy.
+   * column {@code l16}, then those of {@link #PRODUCT_COLUMNS}, then those of
+   * {@link #CUT_COLUMNS}, each with its nullable copy.
    */
   static String tableSql(int rows) {
     List<String> values = new ArrayList<>();
@@ -554,6 +576,9 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     }
     addColumn(CAST_BIGINT_COLUMN, castBigintSql(seed++), BIGINT_NULL_ROW, values, columns);
     for (WideColumn c : PRODUCT_COLUMNS) {
+      addColumn(c.name(), c.type(), seed++, c.nullRow(), values, columns);
+    }
+    for (WideColumn c : CUT_COLUMNS) {
       addColumn(c.name(), c.type(), seed++, c.nullRow(), values, columns);
     }
     return "select " + String.join(", ", columns) + " from (select id, "
@@ -612,8 +637,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * each precision, then each null density, then each shape; then the 64-bit comparisons' six
    * shapes in the same order; then the 64-bit arithmetic's six at each null density; then the
    * two remainders, each remainder precision, then each null density; then the widening
-   * arithmetic's eleven at each null density; then the casts' twenty and row 362's four products
-   * at each null density. Every filter that fuses
+   * arithmetic's eleven at each null density; then the casts' twenty, row 362's four products
+   * and row 363's three cut scales, each group at each null density. Every filter that fuses
    * is {@code NONE} when the session refuses its condition ({@code declinesLongConditions}),
    * since every decimal lane, the lane pair's words among them, is a 64-bit one, and so is every
    * comparison as a value, a boolean output over a decimal column.
@@ -736,6 +761,9 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     }
     for (Density d : Density.values()) {
       addFullProducts(out, d);
+    }
+    for (Density d : Density.values()) {
+      addCutScales(out, d);
     }
     return out;
   }
@@ -886,6 +914,26 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     out.add(new Section("DECIMAL(20, 2) x * y < z filter, y a DECIMAL(17, 2)" + tail,
         "SELECT " + x20 + " FROM varka_decimal WHERE " + x20 + " * " + y17s2 + " < " + z20,
         Fusion.NONE));
+  }
+
+  /**
+   * Adds row 363's sections at density {@code d}: the cut product within 128 bits, the 256-bit
+   * one, and the equal-scale capped sum, as projections. Nothing fuses a cut scale yet, so each
+   * is {@code NONE}.
+   */
+  private static void addCutScales(List<Section> out, Density d) {
+    String x19s8 = d.column("x19s8");
+    String y19s8 = d.column("y19s8");
+    String x38 = d.column("x38");
+    String y38 = d.column("y38");
+    String tail = ", " + d.words();
+    String value = " AS a FROM varka_decimal";
+    out.add(new Section("DECIMAL(19, 8) x * y as a value, its scale cut" + tail,
+        "SELECT " + x19s8 + " * " + y19s8 + value, Fusion.NONE));
+    out.add(new Section("DECIMAL(38, 10) x * y as a value, its scale cut" + tail,
+        "SELECT " + x38 + " * " + y38 + value, Fusion.NONE));
+    out.add(new Section("DECIMAL(38, 10) x + y as a value, its scale cut" + tail,
+        "SELECT " + x38 + " + " + y38 + value, Fusion.NONE));
   }
 
   /** The column at another scale {@code p}'s {@code x} is compared with, which it must have. */
