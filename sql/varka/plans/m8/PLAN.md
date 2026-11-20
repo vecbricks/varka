@@ -126,7 +126,9 @@ ones.**
    either a construction's declined band (346, recorded with its bounds) or a named row of
    `m9/SCOPE.md`; the pairs an owner's decision removed (decimal division) are outside the 881 and
    carry that decision in the census's reason column. Today the counts are 15 entries and 96
-   pairs. A type counts as fused only where a
+   pairs (*corrected 20 November 2026: the census now holds 180 in-scope entries and 878 pairs, so
+   the figures 183, 122, 881 and 661 above are superseded by 180, 120, 878 and 659, as row 354
+   reads, and the counts were 65 and 533 on that day*). A type counts as fused only where a
    coverage row reads a column of it, which `dev/varka_census.py` checks against `coverage.json` and
    row 328 makes exact.
 3. **The cast matrix is fused and proven.** Every one of the 106 legal pairs of `m8/casts.tsv`
@@ -1354,6 +1356,11 @@ catalogue keep theirs. Sizes are the house's small, medium and large.
 | 616 | **Done** (fixed on branch `varka-fuzz-1533`, 14 November 2026, and merged as #1544 on 15 November 2026, merge commit `ea82c60635f`). **A body's arm-chain reach is its planned emitted set, not its outputs' full subtrees.** The nightly fuzz's run 43575499009 failed in the duplicated variant at seed 202611140, iteration 22330: the variant puts each root in two loop groups, so a later group loads the civil-from-days prefix an earlier one materialized (VARKA-198), and `Slots.plan` leaves the loaded date's subtree out of the body and its value columns. The reach was still taken over the roots' full subtrees, so a day producer under the loaded date counted as reached, `emitChainConditions` emitted its enclosing `IfElse`'s arm condition over `col:0`, and `Slots.srcSeg` refused a column with no data segment under `elideUnreadLocals` (VARKA-239). `VarkaBodyEmitter.emitLaneGroup` now installs `Slots.emittedBody`, the set `Slots.plan` decides before numbering slots, and `Analysis.reachOf` is gone; the regression test "the duplicated variant of a draw whose root fills a materialized prefix compares" pins draw 22330 and asserts its emission compares and reaches `PREFIX_LOADED`. Recorded: **(a)** a guard shared between a loaded date's subtree and an emitted use in the loading body can stay unqualified there, because the chains whose `IfElse` steps lie under the materialized date are dropped and `underMaterializedDate` then returns none, so the body declines batches the row engine answers, which is never wrong but is a fallback on the shapes the duplicated variant creates and is untested by `VarkaGuardEdgeSuite` (a test would build one root whose date one group materializes and whose guard another group also emits, over a batch where that guard's arm fails and the other does not); **(b)** `Slots.emittedNodes` and `Slots.bodyUses` are two models of which edges the emission skips - they already differ on chrono fragment sharing and the word-only `IsNotNull` skip - each now says what it owns, and unifying them is owed. **Done when** the pinned draw compares and reaches the mechanism, the fuzzer runs green at the pinned seed, and the default path's emitted bytes are unchanged | the nightly's run 43575499009, seed 202611140 iteration 22330; `VARKA-198.md` (materialized prefixes), `VARKA-239` (elideUnreadLocals); `VarkaIrFuzzSuite.scala`, `Slots.java`, `VarkaBodyEmitter.java` | small |
 | 617 | **Planned** (`VARKA-617.md`, 20 November 2026; the admission check: it holds, as the committed pair file is still October's while the 14 November run's own file has 8,392 pairs and master's run of 19 November 10,846, 51 suites with no committed pair and the shared pairs spread 0.65 to 1.65 times their committed seconds (`results/VARKA-617-pairs.txt`), and no replay is a command yet, so the plan adds one that times a run as run and as replanned before the part-run variants are chosen by it) **Planned** (added 15 November 2026, when closing row 533: the replay of run 40961304094 put the bin phase at 27.4 minutes against that run's measured 35.3, 22 per cent under, and the fresh runs, 43642146943 and 43655530012, measured 34.4 and 32.3 with 155 bins at 38 slots against the replay's 106 bins at 30, so the two figures are not comparable; `sql/varka/matrix/config-suite-seconds.tsv` still holds runs 40961304094 and 40956699711 from October, and the report job only writes and uploads each run's file; `VarkaSparkFuzzSuite`'s part runs, whose seconds follow neither their reach share nor a whole run's weight, are the tail). **The option matrix's replay is measured against another run, and the pair file it reads is stale.** A replay at another run's bin count and concurrency cannot say whether the planner is right about its own run, and the committed file the planner reads holds no run after October although each run's report writes its pairs. In steps: (1) one of the fresh runs' pair files committed from its report artifact; (2) a replay of a run on its own pairs, compared with that run's measured phase, the only apples-to-apples check; (3) `VarkaSparkFuzzSuite`'s part runs weighed by their own seconds or planned apart, since a part run's time follows the compositions it drew, not its reach share. **Done when** the committed file holds a run of 14 or 15 November, a replay of that run on its own pairs is within a fifth of its measured bin phase, and `VarkaSparkFuzzSuite`'s part runs carry their own seconds | rows 507, 508 and 533; `m8/results/VARKA-533-config-weights.txt`; `results/VARKA-513-ci-wall-20261115.txt`; runs 43642146943 and 43655530012 | medium |
 | 618 | **Planned** (`VARKA-618.md`, 20 November 2026; the admission check: it holds, since `assumeOneSpecies` still reads the test JVM's preferred species and the probe gets only that JVM's width flags, and a probe given `-XX:MaxVectorSize` of four bytes a lane prefers that lane count wherever the host can make it, 4 lanes under AVX-512 and AVX2 alike (`results/VARKA-618-species.txt`), so the probe runs at the configuration's width and only a host that cannot make the lanes skips) **Planned** (added 15 November 2026, closing row 523 with this finding: in run 43642146943 the catalyst unit under `lanesOverride=4` (b053) drew an Intel Xeon 8573C, whose preferred int species at `MaxVectorSize=64` is 16, and the unit under `=16` (b033) drew an AMD EPYC 7763, whose preferred is 8, so `assumeOneSpecies` skipped the six forked tests of `VarkaKernelWarmupSuite` in both, 6 of 14 against 0 at the defaults; on a 512-bit host `lanesOverride=16` is the preferred species and the six would run, but nothing pins a configuration's catalyst unit to a host class). **The C2Code warm-up tests' lane-count coverage depends on which host the catalyst unit draws.** Row 523's done-when asks the tagged tests to run at the defaults and under a lane count, and its only lane-count evidence is a draw in which each configuration was a second species for its host. In steps: (1) the assumption read for what it needs of the forked probe's species and whether the probe's own `-XX:MaxVectorSize` can give it, since `assumeOneSpecies` reads the test JVM's preferred species and the probe is a forked JVM of its own; (2) either the six tests made to hold at a second species, with the probe's templates warmed for the species it measures, or a lane-count configuration pinned to a runner class where that lane count is preferred, if the matrix can pin one; (3) the matrix's JUnit counts showing the six run under a lane count on both runner classes the matrix uses. **Done when** a lane-count configuration runs all 14 tests of `VarkaKernelWarmupSuite` on each runner class the matrix uses without depending on the draw, and the report shows them | rows 517 and 523; `VarkaKernelWarmupSuite.scala`; `results/VARKA-513-ci-wall-20261115.txt`; run 43642146943's bins b053 and b033 | small |
+| 622 | **Filed** (20 November 2026, from the mid-course review's follow-up of `PLAN.md` 12; a probe at `52bf5a99683` added the coverage row `positive(i) + 1` to `VarkaCoverageSuite`, whose check that every documented expression compiles to a fused kernel failed with "no entry fused", although `UnaryPositive` is `RuntimeReplaceable`, which the compiler asks again as its child; the same suite credits `ceil(i)` as `Ceil` over a double through its cast, so `ceil` and `ceiling` have no credit for `int`, `smallint` and `tinyint`; in this milestone because each is a census pair of an integral type, item 2) Find why a row over `positive` declines and fuse it, and credit `ceil` and `ceiling` for the three integral types or write down why they cannot. **Done when** `positive` and `ceiling` each have a fused coverage row for every integral type, or the census names the reason | `PLAN.md` 12 | small |
+| 623 | **Filed** (20 November 2026, carved out of row 344, which keeps the baseline and `rint`, `floor`, `ceil` and `round`; in this milestone because `factorial` over `INT` is an unfused census pair, item 2) The compiler arm for `factorial`: a table of 21 entries, null outside it (`VARKA-344.md`). **Done when** `factorial(i)` fuses in LEGACY and ANSI with Spark's answers at every `int`, and the census credits it | row 344 | small |
+| 624 | **Filed** (20 November 2026, from `PLAN.md` 12.1: the census holds one `decimal` type, so the summary's split by representation counts coverage rows read off the SQL text, an upper bound that does not say which representation a fused claim covers; in this milestone because row 354 reads the census at the close and item 2's decimal share is the gap) Split `decimal` in the census inputs by representation, with a per-band fused marker, and a unit test over the column reading. **Done when** `dev/varka_census.py --summary` prints fused and admitted pairs per representation from the inputs, the 180 entries, 878 pairs and the targets 120 and 659 are kept or restated in the same change, and `--check`, the cast matrix and `dev/varka_push_check.py` read the new layout | `PLAN.md` 12 | small |
+| 625 | **Filed** (20 November 2026, from the self-review of the same day: the first-push CI failures of the afternoon, a new emit option with no matrix configuration and two declines a skip list did not name, would have shown in a local `VarkaMatrixSuite` and one configuration run; in this milestone because CI wall time is the constraint on landing rows, `PLAN.md` 12.2 item 5) A push check for an option change: when the diff touches `VarkaEmitOption.TABLE`, the options' arms or `sql/varka/matrix/skips.tsv`, `dev/varka_push_check.py` gets a rule that runs `VarkaMatrixSuite` and the matrix configuration of each option the diff names, over the suites it lists. **Done when** a push that changes an option without them is refused with the command to run | `PLAN.md` 12.3 | small |
+| 626 | **Filed** (20 November 2026, from the day's regen runs, `results/VARKA-626-regen-times.txt`: `dev/varka_regen_generated.sh --all` took 12 to 18 minutes of sbt time on each of seven runs, 752 of 1059 seconds in the last one in `VarkaWidthAuditSuite`, whose probes run one after another, and ran in full for a benchmark-only change that cannot move the audit; row 581 measured four probes at once at 165 seconds against 572 one after another; in this milestone because section 12's one-pull-request-at-a-time path ("What to change") includes a regen, so its wall time gates each landing, and the fifth finding there names wall time as the constraint) Make the regen cheap when nothing it reads changed, and faster when something did: skip the width audit and the bytes steps when no file under `sql/varka` or `sql/catalyst`'s main sources, no test source of the audit, and neither the JDK nor the host CPU changed since the committed files were written, and run the audit's probes four at a time, within the `childTimeoutSeconds` of each. A skipped step still writes the push check's regen marker, and the hash is kept outside the generated files, which the merge driver merges. **Done when** a regen of a branch that changes none of those inputs takes under three minutes on a warm tree, one that does takes under 600 seconds with the same files written, and a changed input is never skipped | `results/VARKA-626-regen-times.txt` | small |
 
 ## 4. Ordering
 
@@ -1919,3 +1926,101 @@ never deleted.
   `VarkaCoverageHarnessSuite`, whose rows are dynamic tests, is a full run that reads as a narrow
   one (`VARKA-557.md` 8.1). Closing it: match the filter against each dynamic test's display
   name, with a test that a filtered factory suite runs only its matching rows.
+
+## 12. Mid-course review (20 November 2026)
+
+The review of milestone 7 at its close (`m7/PLAN.md`, VARKA-261) read the milestone against its
+own done-when list and not against the task table. This one does the same in the middle, on
+`origin/master` at `416bb8d1a69`. Section 4's ordering stays as the record; 12.4 orders what is
+left. The counts of built work below are approximate: about 150 local branches that are neither
+merged nor identical to a pushed branch, leaving out the `-pre-rebase`, `-backup` and `-wip`
+copies, which is about 70 rows once the stacked parts of one row are counted once.
+
+### 12.1 Where the done-when list stands
+
+Measured on that commit from `dev/varka_census.py --summary`, `coverage.json`, the plan table and
+the commit log. The targets are the ones row 354 reads: two thirds of the 180 in-scope entries and
+three quarters of the 878 pairs, which are 120 and 659 (1.1 item 2 still quotes the older 122, 661
+and 881).
+
+* **Item 2 (most of the census) is the furthest behind.** 65 entries are fused for every type they
+  admit, against 120 required, and 533 of 878 entry-and-type pairs are fused, against 659. The
+  shortfall is 126 pairs. The pairs by type say where: `decimal` 2 of 66, `double` 45 of 102,
+  `float` 36 of 66 and `bigint` 58 of 85, while `timestamp_ntz` is 49 of 54, `tinyint` and
+  `smallint` 50 of 75 and `date` 49 of 63. The three types that carry the milestone's theme, the
+  floating pair and the decimal, are the three that are least fused.
+* **Item 1 (the seven types read and written)**: `timestamp_ntz`, `tinyint`, `smallint` and
+  `boolean` are 49 of 54, 50 of 75, 50 of 75 and 28 of 41; `double` and `float` are 45 of 102 and
+  36 of 66; `decimal` is 2 of 66 (`IS NULL` and `IS NOT NULL`), so its representations are mostly
+  on branches. The census holds one `decimal` type, so a fused claim does not say which
+  representation it covers; `dev/varka_census.py --summary` prints, for each, the entries with a
+  coverage row that reads a decimal column of that band: 40 of the 66 for precision 18 or less
+  and 29 for above 18 (an upper bound, since a row that reads both bands credits both). Of
+  `coverage.json`'s 765 rows, every type has comparison and choice rows; the roles are matched
+  on each row's SQL text, which finds no arithmetic row for a decimal above 18; 17 rows in
+  all read a decimal column above 18.
+* **Item 3 (the cast matrix)** stands at 42 of the 106 legal pairs fused at least in part.
+* **Item 5 (the math family)**: no math function is fused on master. The trigonometric family is
+  open as #1567, its baseline is built, and the fdlibm ports (345a to 345e) are on branches.
+* **Item 6**: done are 39, 333, 334 and 336; started are 104 (arithmetic merged as #1484) and
+  103 (103a1 merged as #1534); done in part are 89 and 335; planned are 30 (its baseline is
+  open) and 95.
+* **Items 7 and 8**: the post (355), the 4.3.0 comparisons (552, 553) and the close (354) are
+  planned with no branch; the support table (353) is built on `varka-353-support-table`, two
+  commits not yet pushed. Row 354's admission check says the close cannot run yet.
+
+### 12.2 What the review found
+
+1. **Much of the work is built and not landed.** About 70 rows are built on local branches. The
+   rate of `[VARKA-n]` commits on master fell: 347 since 20 October, 179 since 1 November, 68
+   since 10 November and 9 since 15 November. Of those 9, five landed row work (#1546, #1556,
+   #1565, #1566 and #1568), so rows do land, at about one a day; the build rate ran far ahead of
+   it, partly because 20 November was spent building rows locally and recovering from an
+   out-of-memory crash.
+2. **The three types with the lowest census share are the ones the theme names.** A row with a
+   clear measurement wins the next slot, and decimal rows are large, held by wrong-answer findings
+   (363, 364a0) or stacked on one another (the 361 to 363 chain is 25 to 31 commits deep). A
+   baseline row moves no census cell.
+3. **Wrong-answer findings are open and each holds a chain**: 363's scale-down ignores a NULL in
+   magnitude words its limbs never read; 364a0's double rule raises under ANSI where Spark answers;
+   358's constant log base is evaluated with no guard. 351c, 613, 369, 612b and 347c are also held
+   for findings of their own. The high review found them before a push, which is the process
+   working; none is fixed yet.
+4. **Rows built are not rows done.** The reviews of 20 November found the wrong answers above in
+   rows built under the implementation-first mode, so a built row is not a landed one until its
+   review findings are fixed.
+5. **CI and the weekly API limit are now the constraint, not the build.** The fork runs one matrix
+   in about an hour and a Build in about 30 minutes, and the EPYC benchmark runs wait on a runner
+   whose CPU is not guaranteed (an hourly retry). At the rate of 2 PRs a day, the rows left cannot
+   all land in the time left unless they are chosen for their census share.
+6. **The post and the 4.3.0 comparisons have no branch.** As in milestone 6 (`m6/PLAN.md` 9), the
+   track without numbers has been given no turn.
+
+### 12.3 What to change
+
+* Choose the next row by census cells moved per PR, then by size, not by clarity of its
+  measurement. A decimal arithmetic row moves up to 60 cells; a baseline moves none.
+* One PR at a time through the whole path (merge master, compile, suites, regen, push, Build,
+  matrix, merge), with at most two in flight.
+* Fix the held rows' findings before more rows are stacked on them: 363, 364a0 and 358 first, since
+  the decimal chain and the casts wait on them.
+* Give the post and the 4.3.0 comparison their turn once item 2's shortfall is inside 60 pairs, or
+  in the last week, whichever comes first.
+* A new task row needs a reason, written in it, to be done in this milestone and not in
+  `m9/SCOPE.md`; findings that do not move a census cell go to `m9/SCOPE.md`.
+* A push that changes an emit option runs `VarkaMatrixSuite` and one configuration of the option
+  first: both first-push CI failures of 20 November (a missing matrix configuration, two declines a
+  skip list did not name) would have shown there.
+
+### 12.4 Order for what remains
+
+1. Land what is open: #1567, #1570 to #1573 and the math baseline (357).
+2. The decimal chain, in census order: 350 (casts to 64-bit), 351a and its proofs, 359 to 360, then
+   361 to 363 after 363's finding is fixed, and the 364 casts after 364a0's.
+3. The floating pair: the 342 arithmetic, the 345 ports with their vfdlibm PRs, 346, 358 after its
+   finding.
+4. Rows that move census cells and are small: 30, 95, 103 and 612 (the existing types), and the
+   support table (353), which is built.
+5. The post and 552 and 553.
+6. Item 2's gap is closed when 126 more pairs are fused; the milestone's close (354) reads the
+   list again, and the rows that miss it go to `m9/SCOPE.md` with the reason named in the census.
