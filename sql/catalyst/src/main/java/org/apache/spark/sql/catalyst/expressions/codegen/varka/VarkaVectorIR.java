@@ -1585,8 +1585,9 @@ public sealed interface VarkaVectorIR
    * Null-intolerant: the validity is the three operands' AND.
    *
    * <p>Its NaN's bits are fixed nowhere. {@code Math.fma} run in Java answers the canonical NaN
-   * for any NaN, the instruction an operand's NaN chosen by the form the register allocator picks,
-   * or the host's default NaN for {@code inf * 0}; so a NaN answer is compared by NaN-ness.
+   * for any NaN and for {@code inf * 0}; the instruction answers by its own rule over its own
+   * operand order (x86's {@code vfmadd231}, {@code c = a * b + c}), an operand's NaN or the
+   * host's default one; so a NaN answer is compared by NaN-ness.
    */
   record Fma(VarkaVectorIR a, VarkaVectorIR b, VarkaVectorIR c, int hash)
       implements VarkaVectorIR {

@@ -68,8 +68,8 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     // fold into the corpora with row 352's refit. It is rebuilt directly below.
     // The floating square root and the FMA (VARKA-342) are in no grammar for the same reason:
     // the grammars draw no floating tree, whose values have no integer bound, and a floating draw
-    // would move the committed sequences. `VarkaEmitterFloatingArithSuite` holds both to the
-    // reference, and each is rebuilt directly below.
+    // would move the committed sequences. `VarkaEmitterFloatingArithSuite` holds the square root
+    // to the reference and `VarkaEmitterFmaSuite` the FMA, and each is rebuilt directly below.
     // No grammar draws the floating conversion (VARKA-343) yet, for the same reason; it is
     // rebuilt directly below. The canonicalisation (VARKA-337) is drawn by a side sequence of its
     // own, which these grammars are not, and is rebuilt directly below.

@@ -1209,8 +1209,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // moves: the decimal-store test above runs it.
     // The floating math function and the FMA (VARKA-342) are out with the floating lanes: the
     // grammar draws no floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a
-    // production is a row of the same refit. `VarkaEmitterFloatingArithSuite` covers both, and
-    // the coverage rows the square root.
+    // production is a row of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage
+    // rows cover the square root, `VarkaEmitterFmaSuite` the FMA.
     // The canonicalisation (VARKA-337) is a floating node too: its side sequence below draws it.
     // The hash step and a canonical value's bits (VARKA-337) have no production yet;
     // `VARKA-337.md` 10 names the part that adds them, in a side sequence of their own.

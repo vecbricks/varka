@@ -157,8 +157,8 @@ public final class VarkaSameAnswer {
 
     /**
      * A node whose NaN no tier fixes, over any operands: an FMA, which {@code Math.fma} run in
-     * Java answers with the canonical NaN, and the instruction with an operand's NaN or the
-     * host's default one ({@code VarkaVectorIR.Fma}). Every NaN of the node is open.
+     * Java answers with the canonical NaN, and the instruction by its own rule, an operand's NaN
+     * or the host's default one ({@code VarkaVectorIR.Fma}). Every NaN of the node is open.
      */
     record Unfixed<N>() implements Step<N> {}
   }

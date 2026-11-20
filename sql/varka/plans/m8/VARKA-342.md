@@ -586,10 +586,10 @@ stack on it.
   other floating nodes, and the SMT renderer refuses it as it refuses `MathUnary`.
 - **Its NaN is open everywhere.** `Math.fma` run in Java answers `Double.NaN`, the canonical
   NaN, for any NaN (`Math.java:2393-2394` in the local `jdk-25-ga` source) and for `inf * 0`
-  (`:2404`); the instruction answers an operand's NaN, which operand depending on the
-  `vfmadd132`, `213` or `231` form the register allocator picks, or the host's default NaN for
-  `inf * 0` (negative on x86). So which bits a NaN answer has depends on the tier and the
-  allocation even over operands that are not NaNs, and `VarkaSameAnswer` gives the node its own
+  (`:2404`); the instruction answers by the hardware's own rule over its own operand order, an
+  operand's NaN or the host's default NaN for `inf * 0`: HotSpot emits x86's `vfmadd231`, `c = a *
+  b + c` (`cpu/x86/x86.ad:8965-8966`, `macroAssembler_x86.cpp:1665`). So which bits a NaN answer
+  has depends on the tier even over operands that are not NaNs, and `VarkaSameAnswer` gives the node its own
   step, `Unfixed`, open wherever it answers a NaN. A non-NaN answer is compared bit for bit:
   IEEE's fused operation has one correctly rounded result.
 - **No compiler arm.** Nothing in Spark is an FMA, so no coverage row, family or census cell
@@ -607,10 +607,11 @@ stack on it.
   `VarkaEmitCostSuite`, `VarkaRangeAnalysisSuite`) name it.
 - **Predictions**, to score when the tests run: no existing shape's bytes move
   (`emitted_bytes.json` unchanged, the node being reachable from no compiler arm and no fuzz
-  sequence); `VarkaEmitterFmaSuite` runs under 20 s; under `-XX:UseAVX=2` the width audit has
+  sequence, 5.4's sequences being new ones); `VarkaEmitterFmaSuite` runs under 20 s; under `-XX:UseAVX=2` the width audit has
   nothing to say, since no audited shape holds the node.
 - **What ran (20 November 2026, the laptop).** `build/sbt catalyst/Test/compile` passed on the
-  first try. `VarkaEmitterFmaSuite` passed, 5 tests in 9.1 s in its own JVM, scoring the time
+  first try. `VarkaEmitterFmaSuite` ran twice, one run past the brief's one targeted run, since
+  the first failed on the harness: the second passed, 5 tests in 9.1 s in its own JVM, scoring the time
   prediction (under 20 s): held. Its first run in the shared JVM failed three tests on
   `VarkaSpeciesGuard`, the two widths of one lane in one JVM, so the class runs in a JVM of its
   own (`@VarkaSuite(ownJvm = true)`), as `VarkaEmitterFloatingArithSuite` does. The registry
