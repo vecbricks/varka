@@ -458,7 +458,13 @@ public final class VarkaDecimalPairSuite {
         CollectionConverters.asScala(List.of(entry)).toSeq(), seq(columns), VarkaMatrixRuns.BASE)
         .orElseThrow(() -> new AssertionError(sql + " does not fuse as an output"));
     Expression bound = VarkaSqlResolve.bind(VarkaSqlResolve.replaced(e), seq(columns));
-    List<Row> rows = rows(ta, tb);
+    for (List<Row> rows : List.of(rows(ta, tb), denseRows(ta, tb))) {
+      checkStoredRows(sql, p, bound, type, rows, ta, tb);
+    }
+  }
+
+  private static void checkStoredRows(String sql, CompiledVarkaProjection p, Expression bound,
+      DecimalType type, List<Row> rows, DecimalType ta, DecimalType tb) {
     for (int lanes : WIDTHS) {
       BigInteger[] got = stored(p, rows, ta, tb, lanes);
       for (int i = 0; i < rows.size(); i++) {

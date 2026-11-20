@@ -512,9 +512,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        What the slot table plants to show it catches a leaf that misses its bound. A 128-bit
  *        column's word pair, whose check is the digit check alone, checks nothing under it.
  *        False in production.
- * @param decimalStore how a {@code WidenDecimal} root interleaves its words into Arrow's
- *        sixteen-byte decimal slots (VARKA-157 2.2): see {@link DecimalStore}. No other root reads
- *        it, so every shape without a decimal output emits the same bytes under either value.
+ * @param decimalStore how a {@code WidenDecimal} or {@code InterleaveDecimal} root interleaves
+ *        its words into Arrow's sixteen-byte decimal slots (VARKA-157 2.2): see
+ *        {@link DecimalStore}. No other root reads it, so every shape without a decimal output
+ *        emits the same bytes under either value.
  * @param wideConversionForm the form of {@code L2D} where {@link #convertsFallBack()} holds:
  *        see {@link WideConversionForm}. No other shape reads it.
  * @param roundToOddByShifts how {@code L2F}'s form where {@link #convertsFallBack()} holds takes

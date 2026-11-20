@@ -111,17 +111,6 @@ public final class VarkaTypes {
         return band(type).filter(Admission.Band::read).isPresent();
       }
 
-      /** The widest precision a column takes one word at: the last one-word band's. */
-      public int oneWordPrecision() {
-        int widest = 0;
-        for (Band b : bands) {
-          if (b.words() == 1) {
-            widest = b.maxPrecision();
-          }
-        }
-        return widest;
-      }
-
       /** The widest precision a kernel reads today, or 0 when no band's reader is built. */
       public int maxReadPrecision() {
         int widest = 0;
