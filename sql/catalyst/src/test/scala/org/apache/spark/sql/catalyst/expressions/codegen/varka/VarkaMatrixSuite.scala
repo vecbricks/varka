@@ -165,7 +165,8 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(VarkaMatrixRuns.changesC2("lanesOverride=4"))
     assert(VarkaMatrixRuns.changesC2("useAVX=2"))
     assert(VarkaMatrixRuns.changesC2("narrowHalfSpecies=true"))
-    assert(VarkaMatrixRuns.changesC2("narrowGroupStore=COMBINED"))
+    assert(!VarkaMatrixRuns.changesC2("narrowGroupStore=COMBINED"))
+    assert(VarkaMatrixRuns.changesC2("lanesOverride=4,narrowGroupStore=COMBINED"))
     assert(VarkaMatrixRuns.changesC2("cse=false,lanesOverride=16"))
     assert(!VarkaMatrixRuns.changesC2("cse=false"))
     assert(!VarkaMatrixRuns.changesC2(

@@ -30,6 +30,7 @@ import java.util.function.LongBinaryOperator;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
+import org.apache.spark.sql.catalyst.optimizer.NormalizeFloatingNumbers$;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils$;
 import org.apache.spark.sql.catalyst.util.SQLOrderingUtil;
@@ -166,6 +167,10 @@ public final class VarkaReference {
           v -> Float.floatToRawIntBits(mathFloat(n.fn(), Float.intBitsToFloat(v))));
       case RoundToIntegral n -> throw VarkaErrors.illegalArgument(
           "a rounding takes a double child, which is no int-lane value: " + n);
+      // Spark's own normaliser, NormalizeNaNAndZero's, so the reference is not the lowering.
+      case CanonicalFloat n -> map(n.child(), row, isNull, lits,
+          v -> Float.floatToRawIntBits((Float) NormalizeFloatingNumbers$.MODULE$
+              .FLOAT_NORMALIZER().apply(Float.intBitsToFloat(v))));
       case IntNeg n -> {
         var c = value(n.child(), row, isNull, lits);
         if (c.isEmpty()) {
@@ -515,6 +520,12 @@ public final class VarkaReference {
         double v = Double.longBitsToDouble(c.getAsLong());
         yield OptionalLong.of(Double.doubleToRawLongBits(
             Double.isNaN(v) ? Double.NaN : StrictMath.rint(v)));
+      }
+      case CanonicalFloat n -> {
+        var c = longValue(n.child(), row, isNull, lits);
+        yield c.isEmpty() ? c : OptionalLong.of(Double.doubleToRawLongBits(
+            (Double) NormalizeFloatingNumbers$.MODULE$.DOUBLE_NORMALIZER()
+                .apply(Double.longBitsToDouble(c.getAsLong()))));
       }
       case IntNeg n -> {
         var c = longValue(n.child(), row, isNull, lits);

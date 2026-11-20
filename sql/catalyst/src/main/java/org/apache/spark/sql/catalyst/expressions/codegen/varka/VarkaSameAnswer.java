@@ -40,6 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.Least;
 import org.apache.spark.sql.catalyst.expressions.NaNvl;
 import org.apache.spark.sql.catalyst.expressions.Rint;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
+import org.apache.spark.sql.catalyst.optimizer.NormalizeNaNAndZero;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DateType;
 import org.apache.spark.sql.types.DayTimeIntervalType;
@@ -148,8 +149,9 @@ public final class VarkaSameAnswer {
     record Other<N>(List<N> children) implements Step<N> {}
 
     /**
-     * A node whose NaN is one fixed NaN whatever its children's: {@code rint}, which answers the
-     * canonical NaN, so no NaN of the node is open, not even over an open operand.
+     * A node whose NaN is one fixed NaN whatever its children's: {@code rint} and the
+     * canonicalisation, which answer the canonical NaN, so no NaN of the node is open, not even
+     * over an open operand.
      */
     record Canonical<N>() implements Step<N> {}
   }
@@ -262,6 +264,7 @@ public final class VarkaSameAnswer {
           case VarkaVectorIR.IntArith a -> new Step.Arith<>(a.left(), a.right(),
               a.op() == VarkaVectorIR.IntOp.ADD || a.op() == VarkaVectorIR.IntOp.MUL);
           case VarkaVectorIR.RoundToIntegral _ -> new Step.Canonical<>();
+          case VarkaVectorIR.CanonicalFloat _ -> new Step.Canonical<>();
           case VarkaVectorIR.IfElse i ->
               new Step.Pick<>(row.holds(i.cond()) ? i.thenNode() : i.elseNode());
           case VarkaVectorIR.Greatest g -> new Step.FirstNaN<>(List.of(g.left(), g.right()));
@@ -332,7 +335,7 @@ public final class VarkaSameAnswer {
           return new Step.Arith<>(a.left(), a.right(),
               !(a instanceof Subtract || a instanceof Divide));
         }
-        if (n instanceof Rint) {
+        if (n instanceof Rint || n instanceof NormalizeNaNAndZero) {
           return new Step.Canonical<>();
         }
         if (children.size() == 1) {
