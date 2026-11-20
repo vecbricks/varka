@@ -859,8 +859,8 @@ final class VarkaVectorTemplateWarmup {
      * and widened to the int lane, and a value compared or selected in the lane is stored back
      * truncated. The dense and masked loads and stores of the lane, its compare, blend, min,
      * max and broadcast, the widening {@code B2I}/{@code S2I} conversion, and the three mask
-     * calls a selection makes - {@code toLong}, {@code not} and {@code or}; its whole-vector
-     * OR seeds the combined narrow store's accumulator ({@code VARKA-603.md}).
+     * calls a selection makes - {@code toLong}, {@code not} and {@code or}, and the lane's
+     * whole-vector OR.
      * One block a lane; the masked forms are the epilogue's, so their mask is a remainder.
      */
     private static long bytes(VectorSpecies<Byte> s, MemorySegment seg) {
@@ -956,7 +956,10 @@ final class VarkaVectorTemplateWarmup {
      * take (two at four int lanes, where one load spans two groups), the {@code I2B} truncation
      * back and the dense and masked stores of the narrowed value. These go to that species'
      * classes - a Byte64 where the preferred byte species is wider - which {@link #bytes} never
-     * reaches.
+     * reaches. The combined narrow store ({@code narrowGroupStore=COMBINED}, VARKA-603) runs at
+     * this species too: each group's {@code I2B} at its own block, the negative part
+     * {@code -part}, which the JDK takes by a slice rather than part 0's plain convert, the
+     * parts OR-ed into one vector and that stored whole.
      */
     private static long widenedBytes(VectorSpecies<Byte> w, VectorSpecies<Integer> is,
         MemorySegment seg) {
@@ -974,13 +977,18 @@ final class VarkaVectorTemplateWarmup {
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (byte) 0).toLong()
             + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong();
+        ByteVector combined = a;
         for (int part = 0; part < parts; part++) {
           IntVector widened = (IntVector) a.convertShape(VectorOperators.B2I, is, part);
           ByteVector back = (ByteVector) widened.convertShape(VectorOperators.I2B, w, 0);
-          acc += widened.lane(0) + back.lane(0);
+          ByteVector block =
+              part == 0 ? back : (ByteVector) widened.convertShape(VectorOperators.I2B, w, -part);
+          combined = part == 0 ? block : combined.or(block);
+          acc += widened.lane(0) + back.lane(0) + block.lane(0);
           back.intoMemorySegment(seg, 1024, ByteOrder.LITTLE_ENDIAN);
           back.intoMemorySegment(seg, 1088, ByteOrder.LITTLE_ENDIAN, tail);
         }
+        combined.intoMemorySegment(seg, 1152, ByteOrder.LITTLE_ENDIAN);
         acc += c.lane(0) + (tail.anyTrue() ? 1 : 0);
       }
       return acc;
@@ -1003,13 +1011,18 @@ final class VarkaVectorTemplateWarmup {
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
             + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong();
+        ShortVector combined = a;
         for (int part = 0; part < parts; part++) {
           IntVector widened = (IntVector) a.convertShape(VectorOperators.S2I, is, part);
           ShortVector back = (ShortVector) widened.convertShape(VectorOperators.I2S, w, 0);
-          acc += widened.lane(0) + back.lane(0);
+          ShortVector block =
+              part == 0 ? back : (ShortVector) widened.convertShape(VectorOperators.I2S, w, -part);
+          combined = part == 0 ? block : combined.or(block);
+          acc += widened.lane(0) + back.lane(0) + block.lane(0);
           back.intoMemorySegment(seg, 1024, ByteOrder.LITTLE_ENDIAN);
           back.intoMemorySegment(seg, 1088, ByteOrder.LITTLE_ENDIAN, tail);
         }
+        combined.intoMemorySegment(seg, 1152, ByteOrder.LITTLE_ENDIAN);
         acc += c.lane(0) + (tail.anyTrue() ? 1 : 0);
       }
       return acc;
