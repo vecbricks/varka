@@ -77,6 +77,7 @@ final class VarkaDescriptors {
       ClassDesc.of("org.apache.spark.sql.varka.vector.VarkaVectorSupport");
   static final ClassDesc FUSED_KERNEL = ClassDesc.of(VarkaFusedKernel.class.getName());
   static final ClassDesc MASK_GUARD = ClassDesc.of(VarkaMaskGuard.class.getName());
+  static final ClassDesc MASK_FROM_WORD = ClassDesc.of(VarkaMaskFromWord.class.getName());
 
   static final ClassDesc LONG_ARRAY = ConstantDescs.CD_long.arrayType();
   static final ClassDesc INT_ARRAY = ConstantDescs.CD_int.arrayType();

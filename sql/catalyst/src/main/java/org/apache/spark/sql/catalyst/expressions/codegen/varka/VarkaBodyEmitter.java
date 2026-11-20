@@ -231,7 +231,7 @@ final class VarkaBodyEmitter {
       for (int acc : guardAccs(s)) {
         cb.aload(s.species);
         cb.loadConstant(0L);
-        cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+        VarkaVectorWalk.emitFromLong(cb, analysis.lane, analysis);
         cb.astore(acc);
       }
       // The min-and-max guards' accumulators start at their own bounds, so that they compare

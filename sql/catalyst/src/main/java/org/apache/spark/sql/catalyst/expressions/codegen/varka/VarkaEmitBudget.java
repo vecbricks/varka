@@ -727,6 +727,17 @@ final class VarkaEmitBudget {
       // blend, where the operand can hold a NaN other than the canonical one.
       case VarkaVectorIR.RoundToIntegral n ->
           VarkaRoundingLowering.mayHoldOtherNaN(n) ? 12 : 10;
+      // The canonicalisation: the add of zero, the NaN test and the blend.
+      case VarkaVectorIR.CanonicalFloat _ -> 3;
+      // A reinterpretation: one lane call, which C2 emits as nothing.
+      case VarkaVectorIR.CanonicalBits _ -> 1;
+      // The lane operations of each step (VARKA-337 2.4), the operand fetches not counted.
+      case VarkaVectorIR.HashStep n -> switch (n.mix()) {
+        case MURMUR3_INT, MURMUR3_HIGH -> 17;
+        case MURMUR3_LOW -> 8;
+        case XXH64_INT -> 15;
+        case XXH64_LONG -> 16;
+      };
     };
   }
 

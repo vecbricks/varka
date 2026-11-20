@@ -28,11 +28,14 @@ import java.util.OptionalLong;
 import java.util.function.IntBinaryOperator;
 import java.util.function.LongBinaryOperator;
 
+import org.apache.spark.sql.catalyst.expressions.XXH64;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
+import org.apache.spark.sql.catalyst.optimizer.NormalizeFloatingNumbers$;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils$;
 import org.apache.spark.sql.catalyst.util.SQLOrderingUtil;
+import org.apache.spark.unsafe.hash.Murmur3_x86_32;
 
 /**
  * The reference evaluator (VARKA-11): an independent implementation of the IR's semantics -
@@ -166,6 +169,10 @@ public final class VarkaReference {
           v -> Float.floatToRawIntBits(mathFloat(n.fn(), Float.intBitsToFloat(v))));
       case RoundToIntegral n -> throw VarkaErrors.illegalArgument(
           "a rounding takes a double child, which is no int-lane value: " + n);
+      // Spark's own normaliser, NormalizeNaNAndZero's, so the reference is not the lowering.
+      case CanonicalFloat n -> map(n.child(), row, isNull, lits,
+          v -> Float.floatToRawIntBits((Float) NormalizeFloatingNumbers$.MODULE$
+              .FLOAT_NORMALIZER().apply(Float.intBitsToFloat(v))));
       case IntNeg n -> {
         var c = value(n.child(), row, isNull, lits);
         if (c.isEmpty()) {
@@ -202,6 +209,10 @@ public final class VarkaReference {
       });
       // BitwiseCount's definition: the popcount of the value widened to a long.
       case BitCount n -> map(n.child(), row, isNull, lits, v -> Long.bitCount((long) v));
+      // Spark's own hash steps and floatToIntBits, so the reference is not the lowering.
+      case CanonicalBits n -> map(n.child(), row, isNull, lits,
+          v -> Float.floatToIntBits(Float.intBitsToFloat(v)));
+      case HashStep n -> murmur3(n, row, isNull, lits);
       // At the FLOAT lane by Spark's ordering, the first of two equal operands kept: the bits of
       // `greatest(-0.0, 0.0)` are -0.0's, and of two NaNs the first's.
       case Greatest(var left, var right, _) when node.laneType() == LaneType.FLOAT ->
@@ -515,6 +526,31 @@ public final class VarkaReference {
         double v = Double.longBitsToDouble(c.getAsLong());
         yield OptionalLong.of(Double.doubleToRawLongBits(
             Double.isNaN(v) ? Double.NaN : StrictMath.rint(v)));
+      }
+      case CanonicalBits n -> {
+        OptionalLong c = longValue(n.child(), row, isNull, lits);
+        yield c.isEmpty() ? c : OptionalLong.of(
+            Double.doubleToLongBits(Double.longBitsToDouble(c.getAsLong())));
+      }
+      // Spark skips a null child: a null word answers the seed.
+      case HashStep n -> {
+        OptionalLong h = longValue(n.seed(), row, isNull, lits);
+        if (h.isEmpty()) {
+          yield h;
+        }
+        OptionalLong w = longValue(n.word(), row, isNull, lits);
+        yield w.isEmpty() ? h : OptionalLong.of(switch (n.mix()) {
+          case XXH64_INT -> XXH64.hashInt((int) w.getAsLong(), h.getAsLong());
+          case XXH64_LONG -> XXH64.hashLong(w.getAsLong(), h.getAsLong());
+          case MURMUR3_INT, MURMUR3_LOW, MURMUR3_HIGH -> throw new IllegalArgumentException(
+              "a Murmur3 step is an int-lane node: " + n);
+        });
+      }
+      case CanonicalFloat n -> {
+        var c = longValue(n.child(), row, isNull, lits);
+        yield c.isEmpty() ? c : OptionalLong.of(Double.doubleToRawLongBits(
+            (Double) NormalizeFloatingNumbers$.MODULE$.DOUBLE_NORMALIZER()
+                .apply(Double.longBitsToDouble(c.getAsLong()))));
       }
       case IntNeg n -> {
         var c = longValue(n.child(), row, isNull, lits);
@@ -1013,6 +1049,43 @@ public final class VarkaReference {
       case BYTE -> (byte) v;
       case SHORT -> (short) v;
       case INT, LONG, FLOAT, DOUBLE -> v;
+    };
+  }
+
+  /**
+   * An int-lane hash step by Spark's {@code Murmur3_x86_32}: {@code hashInt}, or {@code hashLong}
+   * for a high half over its low half, the pair the compiler builds for a 64-bit word, a null
+   * word answering the seed as Spark skips a null child. A half alone has no Spark primitive to
+   * answer it, nor a pair whose halves differ in validity, so the reference refuses them.
+   */
+  private static OptionalInt murmur3(HashStep n, int[] row, boolean[] isNull, int[] lits) {
+    return switch (n.mix()) {
+      case MURMUR3_INT -> {
+        OptionalInt h = value(n.seed(), row, isNull, lits);
+        OptionalInt w = value(n.word(), row, isNull, lits);
+        yield h.isEmpty() || w.isEmpty() ? h
+            : OptionalInt.of(Murmur3_x86_32.hashInt(w.getAsInt(), h.getAsInt()));
+      }
+      case MURMUR3_HIGH -> {
+        if (!(n.seed() instanceof HashStep low) || low.mix() != HashMix.MURMUR3_LOW) {
+          throw new IllegalArgumentException(
+              "a Murmur3 high half over no low half: " + VarkaVectorIR.canonical(n));
+        }
+        OptionalInt h = value(low.seed(), row, isNull, lits);
+        OptionalInt lo = value(low.word(), row, isNull, lits);
+        OptionalInt hi = value(n.word(), row, isNull, lits);
+        if (lo.isPresent() != hi.isPresent()) {
+          throw new IllegalArgumentException("the halves of one word differ in validity: "
+              + VarkaVectorIR.canonical(n));
+        }
+        yield h.isEmpty() || lo.isEmpty() ? h
+            : OptionalInt.of(Murmur3_x86_32.hashLong(((long) hi.getAsInt() << 32)
+                | (lo.getAsInt() & 0xFFFFFFFFL), h.getAsInt()));
+      }
+      case MURMUR3_LOW -> throw new IllegalArgumentException(
+          "a Murmur3 low half outside hashLong's pair: " + VarkaVectorIR.canonical(n));
+      case XXH64_INT, XXH64_LONG -> throw new IllegalArgumentException(
+          "an XXH64 step is a long-lane node: " + n);
     };
   }
 

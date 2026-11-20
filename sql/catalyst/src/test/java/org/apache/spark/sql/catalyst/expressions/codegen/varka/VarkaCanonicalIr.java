@@ -199,6 +199,9 @@ public final class VarkaCanonicalIr {
       case "bitCount" -> new BitCount(node());
       case "math" -> new MathUnary(MathFn.valueOf(parts[1]), node());
       case "round" -> new RoundToIntegral(RoundMode.valueOf(parts[1]), node());
+      case "canon" -> CanonicalFloat.of(node());
+      case "canonBits" -> new CanonicalBits(node());
+      case "hash" -> new HashStep(HashMix.valueOf(parts[1]), node(), node());
       default -> throw new IllegalArgumentException("no IR node is rendered as '" + head + "'");
     };
     expect(")");

@@ -582,6 +582,13 @@ public sealed interface VarkaEmitOption
       new Flag("fromLongMasks", Reason.MISCOMPILED, false,
           VarkaEmitOptions::fromLongMasks, Builder::fromLongMasks,
           new FlagTag("fromLongMasks", true)),
+      // A machine choice (VARKA-375): fromLong is intrinsic on every host the milestone measures
+      // at its default width, and the construction is the form for a host without the
+      // instruction, an aarch64 core without SVE2's bit permute. Its tag keeps the default's
+      // rendering empty.
+      new Flag("maskFromWord", Reason.MACHINE, false,
+          VarkaEmitOptions::maskFromWord, Builder::maskFromWord,
+          new FlagTag("maskFromWord", true)),
       // A long-lane abs is a decimal's (VARKA-348 2.6): the compare, negation and blend by
       // default, intrinsic on every x86 host at 256 and 512 bits; the lanewise ABS is the arm,
       // intrinsic only with AVX-512, measured against the blend there. Only a shape over a
