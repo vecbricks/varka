@@ -104,7 +104,8 @@ public final class VarkaMathContract {
         "witness_library", "witness_row_engine");
 
     public MeasuredLine {
-      if (library == VarkaMathBinding.Library.NONE || bits < 128 || inputs < 1
+      if (library == VarkaMathBinding.Library.NONE || bits < 128 || Integer.bitCount(bits) != 1
+          || inputs < 1
           || differing < 0 || differing > inputs || largestSteps < 0) {
         throw VarkaErrors.illegalArgument("not a measured line: " + library + " at " + bits
             + " bits, " + differing + " of " + inputs + " lanes, " + largestSteps + " steps");
@@ -123,17 +124,22 @@ public final class VarkaMathContract {
     }
 
     /**
-     * Whether {@code symbol} is {@code library}'s name for {@code function} at {@code bits}, as
-     * {@link VarkaMathBinding} names it: SVML's {@code __jsvml_<op><lanes>_}, SLEEF's
-     * {@code <op>d<lanes>_} or, for a scalable species, {@code <op>dx_}.
+     * Whether {@code symbol} is a name {@link VarkaMathBinding} gives {@code function} at
+     * {@code bits} in {@code library}: SVML's {@code __jsvml_<op><lanes>_ha_<level>}, the level
+     * {@code z0} at 512 bits alone; SLEEF's {@code <op>d2_<tier>advsimd} at 128 bits or
+     * {@code <op>dx_<tier>} with {@code sve} or {@code rvv}, the tier {@code u05} for
+     * {@code HYPOT}.
      */
     private static boolean names(String symbol, VarkaMathBinding.Library library,
         Operator function, int bits) {
       String op = function.symbolName();
-      int lanes = bits / 64;
-      return Integer.bitCount(bits) == 1 && (library == VarkaMathBinding.Library.SVML
-          ? symbol.startsWith("__jsvml_" + op + lanes + "_")
-          : symbol.startsWith(op + "d" + lanes + "_") || symbol.startsWith(op + "dx_"));
+      if (library == VarkaMathBinding.Library.SVML) {
+        String level = bits == 512 ? "z0" : "(l9|e9|ex)";
+        return symbol.matches("__jsvml_" + op + bits / 64 + "_ha_" + level);
+      }
+      String tier = function == Operator.HYPOT ? "u05" : "u10";
+      return symbol.matches(op + "dx_" + tier + "(sve|rvv)")
+          || bits == 128 && symbol.equals(op + "d2_" + tier + "advsimd");
     }
 
     private static boolean witness(String text, boolean none, int words) {

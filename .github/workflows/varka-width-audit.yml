@@ -163,7 +163,8 @@ jobs:
         name: operator-census-${{ matrix.arch }}
         path: sql/varka/operator_census.json
     - name: Check the math library binding
-      # !cancelled(): a census step that failed above does not skip this one.
+      # !cancelled(): a failed census summary above (a census that wrote no file) does not
+      # skip this check, which reads nothing the census writes.
       if: ${{ !cancelled() && matrix.arch == 'aarch64' }}
       # The math family's binding check (VarkaMathBindingSuite, VARKA-345.md 2.5): a JVM run
       # with the vector DEBUG property names the symbol the JDK binds each math operator to at

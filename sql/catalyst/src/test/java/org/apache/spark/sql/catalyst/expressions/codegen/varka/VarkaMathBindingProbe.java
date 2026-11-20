@@ -45,8 +45,8 @@ public final class VarkaMathBindingProbe {
     String property = System.getProperty(VarkaMathBinding.LIBRARY_PROPERTY);
     System.out.println("HOST arch=" + System.getProperty("os.arch") + " os="
         + System.getProperty("os.name").replace(' ', '_') + " avx="
-        + Math.max(0, VarkaEmitOptions.HOST_USE_AVX) + " max=" + max + " property="
-        + (property == null ? "-" : property));
+        + Math.max(0, VarkaEmitOptions.HOST_USE_AVX) + " max=" + max
+        + (property == null ? "" : " property=" + property));
     for (int bits = 64; bits <= max; bits *= 2) {
       VectorSpecies<Double> species =
           VectorSpecies.of(double.class, VectorShape.forBitSize(bits));

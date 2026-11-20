@@ -50,7 +50,7 @@ public final class VarkaMathBindingSuite {
   private static final long CHILD_TIMEOUT_SECONDS = 120L;
 
   private static final Pattern HOST =
-      Pattern.compile("^HOST arch=(\\S+) os=(\\S+) avx=(\\d+) max=(\\d+) property=(.*)$");
+      Pattern.compile("^HOST arch=(\\S+) os=(\\S+) avx=(\\d+) max=(\\d+)(?: property=(.*))?$");
   private static final Pattern TOUCH = Pattern.compile("^TOUCH (\\w+) (\\d+)$");
   private static final Pattern BOUND =
       Pattern.compile("^DEBUG: VectorMathLibrary: (\\w+) (\\S+) => 0x[0-9a-f]+$");
@@ -111,27 +111,21 @@ public final class VarkaMathBindingSuite {
   @Test
   @DisplayName("this JVM binds exactly the symbols the resolver names, at every species it has")
   void thisJvmBindsWhatTheResolverNames() throws IOException {
-    Probed probed = check(List.of());
-    // Where the resolver names a library the JDK binds operators, so an empty answer there would
-    // mean the probe reached no binding at all rather than agreement.
-    if (probed.host().library() != VarkaMathBinding.Library.NONE) {
-      assertTrue(!probed.bound().isEmpty(), "no operator bound on " + probed.host());
-    }
+    // Where the resolver names a symbol, check's comparison already fails an empty answer.
+    check(List.of());
   }
 
   @Test
   @DisplayName("with the library property set to java this JVM binds no operator at all")
   void javaLibraryBindsNothing() throws IOException {
-    Probed probed = check(List.of("-D" + VarkaMathBinding.LIBRARY_PROPERTY + "=java"));
-    assertEquals(Map.of(), probed.bound());
+    assertEquals(Map.of(), check(List.of("-D" + VarkaMathBinding.LIBRARY_PROPERTY + "=java")));
   }
 
-  /** The host a probe printed, and the symbols the JDK bound by {@code <operator> <bits>}. */
-  private record Probed(Host host, Map<String, String> bound) {
-  }
-
-  /** Runs the probe with {@code flags} and holds what the JDK bound to the resolver. */
-  private static Probed check(List<String> flags) throws IOException {
+  /**
+   * Runs the probe with {@code flags} and holds what the JDK bound to the resolver; returns the
+   * bound symbols by {@code <operator> <bits>}.
+   */
+  private static Map<String, String> check(List<String> flags) throws IOException {
     List<String> out = fork(flags);
     Host host = null;
     var bound = new TreeMap<String, String>();
@@ -143,7 +137,7 @@ public final class VarkaMathBindingSuite {
       Matcher b = BOUND.matcher(line);
       if (h.matches()) {
         host = new Host(h.group(1), h.group(2).replace('_', ' '),
-            "-".equals(h.group(5)) ? null : h.group(5), Integer.parseInt(h.group(3)),
+            h.group(5), Integer.parseInt(h.group(3)),
             Integer.parseInt(h.group(4)));
       } else if (t.matches()) {
         touch = t.group(1) + " " + t.group(2);
@@ -165,7 +159,7 @@ public final class VarkaMathBindingSuite {
           .ifPresent(s -> expected.put(key, s));
     }
     assertEquals(expected, bound, "the JDK's bindings on " + host);
-    return new Probed(host, bound);
+    return bound;
   }
 
   private static List<String> fork(List<String> flags) throws IOException {

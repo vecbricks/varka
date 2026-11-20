@@ -144,7 +144,8 @@ public final class VarkaMathContractSuite {
         good.replace("\t130\t", "\t16777217\t"),
         // Another operator's symbol, or another width's, is not this line's.
         good.replace("__jsvml_sin4", "__jsvml_cos4"),
-        good.replace("\t256\t", "\t512\t"))) {
+        good.replace("\t256\t", "\t512\t"),
+        good.replace("_l9", "_z0"))) {
       assertThrows(IllegalArgumentException.class, () -> MeasuredLine.parse("epyc", bad), bad);
     }
     // A binary operator's input is the pair, and no other witness holds two words.
@@ -162,6 +163,9 @@ public final class VarkaMathContractSuite {
     // A SLEEF symbol under SVML, or the reverse, is refused.
     assertThrows(IllegalArgumentException.class, () -> MeasuredLine.parse("epyc",
         good.replace("__jsvml_sin4_ha_l9", "sind2_u10advsimd")));
+    // SLEEF's lane count is 128 bits' alone; above it the scalable name.
+    assertThrows(IllegalArgumentException.class, () -> MeasuredLine.parse("arm", good.replace(
+        "SVML\t__jsvml_sin4_ha_l9", "SLEEF\tsind4_u10sve")));
     // Lanes that differ only in a NaN's payload are 0 steps apart: a line may count them.
     String payloads = String.join("\t", "sin", "SLEEF", "sind2_u10advsimd", "128", JDK, CPU,
         "16777216", "2", "0", "0x7ff0000000000000", "0xfff8000000000000", "0x7ff8000000000000");
