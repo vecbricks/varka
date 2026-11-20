@@ -143,6 +143,11 @@ public final class VarkaMaskFromWord {
    */
   @SuppressWarnings("unchecked")
   public static <E> VectorMask<E> of(VectorSpecies<E> s, long word) {
+    if (s.length() > WORD_BITS) {
+      // Past the tables' 64 lanes, which only SVE above 512 bits reaches: fromLong's mask, so the
+      // template warm-up never throws on such a host.
+      return VectorMask.fromLong(s, word);
+    }
     Class<E> type = s.elementType();
     VectorSpecies<?> any = s;
     VectorMask<?> mask;

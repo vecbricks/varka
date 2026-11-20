@@ -400,5 +400,13 @@ option are the coverage differential's and the fuzzer's, run under
   allocation there; if the fallback does not allocate, the row closes on the record with the
   option kept as an arm.
 * **The option matrix's `maskFromWord=true` configuration on CI**, which runs every suite under it.
+* Review findings left for the row's next step: an int or float kernel at `SPECIES_PREFERRED` is
+  emitted in the broadcast form, right up to 32 int lanes and wrong on a host past 1024 bits if
+  its class is replayed there; a preferred short species of 16 lanes takes the element select,
+  which AVX2 does not lower (the fallback, on a host the option is not for); an int species past
+  32 lanes calls the helper, which a wide kernel may not inline; and no test compares the emitted
+  form with `fromLong` kernel by kernel, beyond the coverage differential and the fuzzer under the
+  option, which passed on the laptop (`maskFromWord=true`, `lanesOverride=4,maskFromWord=true`,
+  `validityByWidth=false,maskFromWord=true`).
 * Prediction 3 of 6.1 (ties on x86) is not scored: the laptop was loaded, and 491's runner pairs
   are the measurement that would score it.
