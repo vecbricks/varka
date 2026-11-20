@@ -1,0 +1,148 @@
+# VARKA-620: measure the emitter's chain-depth cap past 16
+
+## 1. Where this came from
+
+On 20 November 2026 the owner decided to measure before raising `VarkaEmitBudget.MAX_CHAIN_DEPTH`
+(16). Five decimal rows build shapes deeper than it: 362b, 363, 363b, 364 and 366, whose shapes
+run 26 to 60 deep. A read-only investigation of the same day found that only a raise would let
+them fuse. An output's height flows through the CSE slots, so parking a subtree in a slot does not
+shorten it. The cap was set by `VARKA-9.md` 5.2 from a chain measured to depth 16 and no further:
+"No spill cliff appears at either width through depth 16", so the cap bounds method size and
+register pressure "by policy rather than marking a performance edge". Nothing has measured
+register pressure, method size or speed past 16. This row is that measurement. Raising the cap is
+not part of it.
+
+## 2. The admission check, done
+
+Read on master at `6ac76f86cb3`.
+
+* **One constant decides the depth, in two places.** `Analysis.analyzeRoot` throws "chain deeper
+  than MAX_CHAIN_DEPTH=16" past it, and `VarkaLoopEmitter.fitsBudgets`, the compiler's mirror of
+  the emitter's caps, refuses the same heights through `budgetWalk`. Both have the emit options
+  in hand, so one option read in both moves the depth check alone.
+* **The constant has a third reader that is not a depth.** `Slots` hoists the broadcast literals
+  into vector locals only when a loop body has one output and `numLiterals <= MAX_CHAIN_DEPTH`.
+  That threshold is a literal count. It gets its own constant at the same value, so moving the
+  depth does not move the hoist.
+* **`budgetWalk` disagrees with `Analysis` on two leaves.** `Analysis` gives a `DecimalColumn`
+  and a `DecimalWord` height 0, through `registerInput`. `budgetWalk`'s leaf list names
+  `ColumnRef`, `LiteralSlot`, `BoolColumn`, `CondConst` and `NullValue` only, so it counts each
+  decimal leaf as an op of height 1. The off-by-one is real. The compiler refuses a decimal shape
+  exactly 16 high that the emitter would accept, and without a byte budget it counts the decimal
+  leaves toward `MAX_FUSED_NODES` too. The fix is the only change at the default options, and it
+  is its own commit with a test at the cap and one past it over each leaf.
+* **Three test sites follow the constant or its message.** `VarkaEmitterContractSuite` emits a
+  chain one past it. `VarkaSteering` and `VarkaIrFuzzSuite` skip a draw whose message holds
+  `MAX_CHAIN_DEPTH=`. The message keeps that text, with the value in force after it.
+* **What the check would have rejected.** A cap whose height is recomputed somewhere the options
+  do not reach. No such site exists. `VarkaConditionCompiler` and `VarkaNodeCompiler` name the cap
+  only in comments, to explain why they build balanced folds.
+
+## 3. The design
+
+### 3.1 The cap as an emit option, and the benchmark
+
+`VarkaEmitOptions.maxChainDepth`, default `MAX_CHAIN_DEPTH`, is a `Count` in
+`VarkaEmitOption.TABLE` with reason `KNOB` and the tag `chainDepth=`. The tag renders only off
+the default, so the default canonical string and every shape hash stay as they are. It has no
+fuzz draws and no audit values: the fuzzer, the option matrix and `emitted_bytes.json` do not
+draw it. It is a measurement knob, and no session conf sets it.
+
+`VarkaChainDepthBenchmark` is a new class, by the per-feature-files rule, since a depth ladder
+past the cap is not a shape the parity file prices. Each arm is one SQL expression over two
+columns `x` and `y`, parsed and compiled through `VarkaExpressionCompiler.compile` under the
+raised cap. So the fused arm and Spark's row arm evaluate the same Catalyst tree. The shape is a
+decimal-like mix repeated to the target height: `e + y`, `e * 3`, `shiftright(e, 2)` and
+`CASE WHEN e > y THEN e - y ELSE e END`, with ANSI arithmetic as a decimal's checked operations
+have it. The cycle is five levels deep. A remainder of one to four levels is taken from the cycle's
+first single-level steps. The arms are:
+
+* depths 16, 24, 32, 48 and 64, at the `BIGINT` lane and the `INT` lane;
+* per depth, the fused kernel under the cap raised to 64, Spark's row path (the generated
+  `UnsafeProjection` over one row at a time), and a scalar Java loop of the same steps;
+* at depth 16 only, the fused kernel under the default cap too, whose class bytes must equal the
+  raised cap's (the option moves nothing below the cap).
+
+The run drives a million rows in chunks of 4096, Spark's batch size, null-free. Before each arm
+is timed, every output is checked against Spark's answers, and the fused arm is settled on the
+tier witness. Beside each table the file notes each loop method's bytecode size and whether C2
+compiled every dense loop method. The emit asserts that the compiled IR's height is the depth
+the label names, and that the default options refuse every depth past 16. The literal table is
+the same two values at every depth, so the broadcast hoist does not change along the ladder.
+
+### 3.2 What is deliberately unchanged
+
+* The default cap. Raising it is the owner's decision on the runner readings, not this row's.
+* The masked body. The arms are null-free. A mixed-null arm is a follow-up if the dense ladder
+  shows a cliff the masked body would only make worse.
+* The decimal rows' own shapes. They do not fuse yet for reasons beside the depth. This ladder is
+  a stand-in for their operation mix on the integer lanes.
+
+## 4. Files
+
+| file | what |
+|---|---|
+| `VarkaEmitBudget.java` | `HOIST_LITERALS`, the literal-count threshold, apart from the depth |
+| `VarkaEmitOptions.java`, `VarkaEmitOption.java` | `maxChainDepth` and its table entry |
+| `Analysis.java`, `VarkaLoopEmitter.java`, `Slots.java` | read the option or the new constant; `budgetWalk`'s leaves |
+| `VarkaEmitterContractSuite.scala`, `VarkaEmitterBudgetSuite` | the cap at its option; the leaf fix |
+| `VarkaChainDepthBenchmark.java` | the ladder |
+
+## 5. Tests, and what each is for
+
+* `VarkaEmitterContractSuite`: a chain one past the option's value is refused at the default and
+  at a raised value, and a chain at a raised value is accepted. This catches an option that one
+  of the two readers ignores.
+* `VarkaEmitterBudgetSuite`: `fitsBudgets` accepts a 16-high chain over a `DecimalColumn` and
+  over a `DecimalWord` leaf and refuses one 17 high, as `Analysis` does.
+* `VarkaEmitOptionSuite`: the table entry, which the suite requires of a new record component.
+* The benchmark's dry run: every arm builds, its height is its label, and its first call answers
+  as Spark does.
+
+## 6. The measurement
+
+The runners, not the laptop. `VarkaChainDepthBenchmark` runs on an AMD EPYC 7763 at 256 bits and
+under `-XX:MaxVectorSize=16`, which gives 128-bit vectors. The control rows are the scalar loop
+and Spark's row path, which the cap cannot touch. Its two sections are `chain depth past the cap:
+BIGINT lane` and `chain depth past the cap: INT lane`.
+
+### 6.1 Predictions, registered before the run
+
+1. **No method is too big for C2 through depth 64.** Every dense loop method stays under
+   HotSpot's 8000-byte `HugeMethodLimit`, and the tier witness reads C2 code for every arm. The
+   chain adds about 20 to 40 bytes of bytecode a level, which is under 3 KB at 64.
+2. **Fused time grows with depth and no faster.** The shape is a dependent chain per lane group
+   with three values live (the running value, `y` and one literal), well inside 16 vector
+   registers. So the fused rate at depth 64 is between a quarter and a third of its rate at 16,
+   with no step between adjacent rungs more than 1.25x worse than the op count predicts.
+3. **The fused-to-scalar ratio holds.** At every depth it is within 20% of its value at 16. A
+   fall of more than that at any rung is the register-pressure cliff this row looks for.
+4. **The fused-to-Spark ratio grows with depth**, since Spark's per-row overhead is fixed and the
+   kernel pays none. It is above 5x at 64 on both lanes.
+5. **The BIGINT lane is the weaker one at 256 bits.** AVX2 has no 64-bit lane multiply, and C2
+   builds it from 32-bit ones, so the multiply levels cost more there than at the INT lane.
+
+**The decision rule the owner reads.** A cap of N is supported where predictions 1 and 3 hold at
+every rung up to N, at both widths and both lanes. Where 1 fails, the cap stops below the first
+rung whose loop method C2 does not compile. Where 3 fails, it stops below the rung that broke it.
+
+## 7. Risks
+
+1. The compiler may lower the `CASE WHEN` other than as an `IfElse` two levels deep. The
+   benchmark asserts each arm's height and fails the emit rather than mislabel a rung.
+2. The byte budget may refuse the deepest rungs rather than the cap. That is then the rung's
+   result, recorded with its reason. No other option is moved to get past it.
+3. A checked `BIGINT` multiply may decline on a host whose 64-bit masks fall back. The runners
+   are x86, and the dry run shows whether it fuses there.
+
+## 8. Sequencing
+
+1. This plan and the row.
+2. `HOIST_LITERALS` and the `maxChainDepth` option, with the contract test.
+3. `budgetWalk`'s decimal leaves, with the budget test.
+4. The benchmark, and its dry run at the smallest size.
+5. The runner dispatches at 256 and 128 bits, which the owner starts.
+
+## 9. Outcome
+
+Not measured yet.
