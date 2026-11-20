@@ -35,6 +35,7 @@ import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.AttributeReference;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
+import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.InterpretedUnsafeProjection;
@@ -64,10 +65,12 @@ import org.junit.jupiter.api.Assertions;
 
 /**
  * One check of a Spark expression suite run again through the Varka evaluator, with each literal
- * of a type a kernel reads lifted into a column ({@code m8/VARKA-368.md} 2.2 to 2.5). A suite
- * hands each check here after its own has passed; this class lifts it, asks the compiler for its
- * verdict, runs a fused check through {@link VarkaExpressionHarness} on the column path, and says
- * at the end of each test whether what it found fails the test.
+ * of a type a kernel reads lifted into a column ({@code m8/VARKA-368.md} 2.2 to 2.7). The Scala
+ * trait {@code VarkaSuiteArm} hands each check here after the suite's own has passed; this class
+ * lifts it, asks the compiler for its verdict, runs a fused check through
+ * {@link VarkaExpressionHarness} on the column path, hands each bare cast's verdict to
+ * {@link VarkaSuiteRecord}, and says at the end of each test whether what it found fails the
+ * test, is a listed exclusion, or passes.
  */
 public final class VarkaSuiteCheck {
 
@@ -88,8 +91,8 @@ public final class VarkaSuiteCheck {
    * from Arrow differing from its answer over the fixture's own; {@code lift}, Spark's answer
    * to the lifted expression differing from its answer to the suite's; {@code spark}, Spark's
    * interpreted and generated projections disagreeing, so the row was not compared. The last
-   * three are not the kernel's, but each fails its test too: a row no one compared is not a
-   * pass.
+   * three are not the kernel's, and a test whose findings are all of one of them is cancelled
+   * when {@code expression_excluded.tsv} lists it under that kind, and fails otherwise.
    */
   public record Finding(Kind kind, String text) {}
 
@@ -113,7 +116,8 @@ public final class VarkaSuiteCheck {
   /** What the end of a test can do with it. */
   public enum Action {
     PASS,
-    FAIL
+    FAIL,
+    CANCEL
   }
 
   /** What the end of a test decides, with the message. */
@@ -351,6 +355,9 @@ public final class VarkaSuiteCheck {
     Seq<Attribute> columns = lifted.fixture().columns();
     @Nullable String unresolved = unresolved(e);
     Verdict verdict = unresolved != null ? null : verdict(e, columns);
+    if (record) {
+      VarkaSuiteRecord.record(suite, e, verdict, unresolved);
+    }
     if (verdict == null || !verdict.fused()) {
       return;
     }
@@ -388,6 +395,11 @@ public final class VarkaSuiteCheck {
     }
     for (VarkaExpressionHarness.Outcome o : outcomes) {
       raised(context, o, expect, findings);
+    }
+    VarkaExpressionHarness.Outcome first = outcomes.get(0);
+    if (record && VarkaSuiteRecord.recording() && e instanceof Cast cast
+        && cast.child() instanceof AttributeReference) {
+      VarkaSuiteRecord.batchDecline(suite, cast, first, findings, context);
     }
   }
 
@@ -475,18 +487,40 @@ public final class VarkaSuiteCheck {
     }
   }
 
-  /** At the end of {@code test}: fails it on anything its checks found. */
+  /**
+   * At the end of {@code test}: fails it on a finding of the kernel's; cancels it when every
+   * finding is of the kind {@code expression_excluded.tsv} lists it under; fails a listed test
+   * that found nothing, or something of another kind.
+   */
   public static synchronized Decision endTest(String suite, String test) {
     TestState state = CURRENT.remove(suite);
     List<Finding> findings = state == null ? List.of() : state.findings;
+    @Nullable String[] listed = VarkaSuiteRecord.excluded(suite, test);
+    Decision decision = decide(findings, listed);
+    if (decision.action() != Action.FAIL) {
+      VarkaSuiteRecord.completed(suite);
+    }
+    return decision;
+  }
+
+  private static Decision decide(List<Finding> findings, @Nullable String[] listed) {
     if (findings.isEmpty()) {
-      return Decision.PASS;
+      // A configuration may decline what the defaults fuse, so a line is stale at the defaults.
+      if (listed == null || !VarkaSuiteRecord.recording()) {
+        return Decision.PASS;
+      }
+      return new Decision(Action.FAIL, "expression_excluded.tsv lists this test (" + listed[0]
+          + ": " + listed[1] + "), and it found nothing: a stale line, to be removed");
     }
     var text = new ArrayList<String>();
+    boolean allListed = listed != null;
     for (Finding f : findings) {
       text.add("[" + f.kind().label + "] " + f.text());
+      allListed &= listed != null && f.kind().label.equals(listed[0]);
     }
-    return new Decision(Action.FAIL, "Varka found " + findings.size() + " thing(s):\n  "
-        + String.join("\n  ", text));
+    String message = "Varka found " + findings.size() + " thing(s):\n  "
+        + String.join("\n  ", text);
+    return allListed ? new Decision(Action.CANCEL, listed[0] + ": " + listed[1] + "\n" + message)
+        : new Decision(Action.FAIL, message);
   }
 }

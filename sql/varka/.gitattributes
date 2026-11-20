@@ -15,6 +15,7 @@
 /matrix/skips.tsv merge=union
 # Other files a tool writes (VARKA-554): the pull-request size check does not count them, and
 # GitHub folds them in a diff. Results files under results/ and benchmarks/ need no line here.
+/plans/m8/casts_suites.tsv linguist-generated
 /ci/step-budget.tsv linguist-generated
 /ci/suite-times.tsv linguist-generated
 /matrix/*seconds.tsv linguist-generated
