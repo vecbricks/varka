@@ -1925,15 +1925,23 @@ final class Analysis {
         // condition (VARKA-28).
         // A decimal column's word is a column's too; its leaf is emitted under the test all the
         // same, for the slot check Spark's IS NULL makes by reading the value (VARKA-347).
-        VarkaVectorIR column = n.child() instanceof WidenLane w ? w.child() : n.child();
+        // The compiler lifts a narrow test to the int lane and then to the long lane, so the
+        // column may sit under a chain of widenings, every one of which reads its word
+        // (VARKA-619).
+        VarkaVectorIR column = unwidened(n.child());
         if (!(column instanceof ColumnRef) && !(n.child() instanceof DecimalColumn)
             && !(n.child() instanceof DecimalWord) && !(n.child() instanceof Cond)) {
           throw VarkaErrors.illegalArgument("IsNotNull child must be a ColumnRef, a widened one, "
               + "a DecimalColumn, a DecimalWord or a Cond, got " + n.child());
         }
-        if (lane == Lane.LONG && n.child() instanceof WidenLane
-            && column.laneType().isNarrow()) {
-          validityOnlyNarrow.add(column);
+        if (lane == Lane.LONG) {
+          // Every narrow node of the chain is read for the word alone: the column, and a
+          // narrow widening above it, a byte widened to the short lane first.
+          for (VarkaVectorIR v = n.child(); v instanceof WidenLane w; v = w.child()) {
+            if (w.child().laneType().isNarrow()) {
+              validityOnlyNarrow.add(w.child());
+            }
+          }
         }
         // skips = true states the semantics - known output from a null input - for the value
         // over a condition that reaches a root: IfElse, which marks skipping itself, and
@@ -1946,6 +1954,19 @@ final class Analysis {
     }
     topoOrder.add(node);
     lineNumbers.put(node, topoOrder.size());
+  }
+
+  /**
+   * {@code node} below every widening that wraps it: the value a chain of {@link WidenLane}
+   * reads, which is {@code node} itself when it is no widening. A widening keeps its child's
+   * validity word, so a null test over the chain tests the value at its bottom.
+   */
+  static VarkaVectorIR unwidened(VarkaVectorIR node) {
+    VarkaVectorIR value = node;
+    while (value instanceof WidenLane w) {
+      value = w.child();
+    }
+    return value;
   }
 
   /**

@@ -2636,6 +2636,30 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(compiled.get.specs.asScala.map(_.fused) === Seq(true, true))
   }
 
+  test("a narrow column's null test in an int disjunct beside a bigint conjunct emits") {
+    // VARKA-619: the disjunct lifts the null test to the int lane beside `i < 3`, and the
+    // conjunction lifts the disjunct to the long lane beside the bigint conjunct, so the column
+    // reaches its test through two widenings. The test reads the column's validity word alone,
+    // so the kernel emits at the long lane at the byte and the short column alike.
+    val options = VarkaMatrix.base.withLanesOverride(16).withValidityByWidth(true)
+    val ll = AttributeReference("ll", LongType)()
+    for ((column, lane) <- Seq(by -> LaneType.BYTE, sh -> LaneType.SHORT)) {
+      val pred = And(GreaterThan(ll, Literal(0L)), Or(IsNotNull(column), LessThan(i, Literal(3))))
+      val compiled = VarkaExpressionCompiler.compilePredicate(pred, childOutput :+ ll, options,
+        VarkaAdmission.NO_HOST_REFUSAL).toScala
+      assert(compiled.isDefined, s"the predicate over $lane should fuse")
+      assert(compiled.get.specs.asScala.map(_.fused) === Seq(true, true), lane)
+      val canonical = compiled.get.fused.outputs.asScala.map(VarkaVectorIR.canonical).mkString
+      assert(canonical.contains("(widen:LONG (widen:INT col:"),
+        s"the null test reads the column through two widenings: $canonical")
+      val bytes = VarkaLoopEmitter.emit(
+        s"org.apache.spark.sql.varka.execution.VarkaNullTestChain${System.nanoTime()}",
+        compiled.get.fused.outputs, compiled.get.fused.inputOrdinals.size,
+        compiled.get.fused.numLiterals, null, null, options)
+      assert(bytes.nonEmpty)
+    }
+  }
+
   test("a boolean equality of two narrow conditions lifts into an int-lane conjunction") {
     // A comparison of two boolean conditions is a mask over them, so one over two narrow
     // comparisons is itself narrow - `compare` builds the BoolCompare with narrow operands -

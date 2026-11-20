@@ -599,10 +599,12 @@ public final class VarkaKernelPlan {
     return Optional.empty();
   }
 
-  /** Whether {@code n} tests a narrow column, bare or widened, and nothing else narrow. */
+  /**
+   * Whether {@code n} tests a narrow column, bare or through a chain of widenings, and nothing
+   * else narrow.
+   */
   private static boolean readsColumnWord(VarkaVectorIR.IsNotNull n) {
-    VarkaVectorIR child = n.child() instanceof VarkaVectorIR.WidenLane w ? w.child() : n.child();
-    return child instanceof VarkaVectorIR.ColumnRef;
+    return Analysis.unwidened(n.child()) instanceof VarkaVectorIR.ColumnRef;
   }
 
   /**
