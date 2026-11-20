@@ -134,9 +134,16 @@ object VarkaSparkFuzz {
   def coverageRows(file: java.io.File): Seq[CoverageRow] =
     new ObjectMapper().readTree(file).get("expressions").elements().asScala.toSeq.map { e =>
       CoverageRow(e.get("sql").asText(), e.get("executable").asText(), e.get("form").asText())
-    }.filterNot(r =>
-      VarkaCoverageRows.readsBoolean(r.executable) || VarkaCoverageRows.readsNarrow(r.executable)
-        || VarkaCoverageRows.readsDecimal(r.executable))
+    }.filterNot(r => leftOut(r.executable))
+
+  /**
+   * Whether the draws leave out `executable`: SQL that reads a BOOLEAN, narrow or DECIMAL column.
+   * A column's name is the SQL that reads it, so the fixture's check of its columns asks the
+   * same of each name.
+   */
+  def leftOut(executable: String): Boolean =
+    VarkaCoverageRows.readsBoolean(executable) || VarkaCoverageRows.readsNarrow(executable) ||
+      VarkaCoverageRows.readsDecimal(executable)
 
   /** The families the coverage table names, which the expected-errors list's rows cite. */
   def coverageFamilies(file: java.io.File): Set[String] =

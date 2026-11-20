@@ -25,11 +25,12 @@ leaves and emitter arms, and its tests. The members, entries and arms are exhaus
 the compiler lists every one a new lane misses. The sites below are not: each compiles without the
 lane and ignores it silently, so this script walks them. Per lane: the compiler's admission (the
 registry puts a Spark type on it), the template warm-up's load of the lane's vector class, a fuzz
-grammar leaf and a benchmark. Per Spark type on the lane: a coverage column, a width-audit column
-and a census entry fused today, so a new type on an existing lane - `TIMESTAMP_NTZ` on the long lane
-- is checked too, though the lane's own sites are already wired. It prints each site with no case,
-with the file and what the site does. It cannot prove a case is right; it proves the site was looked
-at. A type starts here at the registry: until it is on a lane, nothing knows of it.
+grammar leaf and a benchmark. Per Spark type on the lane: a coverage column and a census entry
+fused today, so a new type on an existing lane - `TIMESTAMP_NTZ` on the long lane - is checked too,
+though the lane's own sites are already wired. The catalyst suites read their columns from
+`coverage.json`, which the coverage column is written to, so it is one site. It prints each site
+with no case, with the file and what the site does. It cannot prove a case is right; it proves the
+site was looked at. A type starts here at the registry: until it is on a lane, nothing knows of it.
 
 The lanes are read from the code, not listed here: the `LaneType` members from `VarkaVectorIR`,
 each lane's Vector API class from `Lane`, and the Spark types on each lane, with their census
@@ -61,7 +62,6 @@ REGISTRY = f"{CODEGEN}/varka/VarkaTypes.java"
 WARMUP = f"{CODEGEN}/varka/VarkaVectorTemplateWarmup.java"
 FUZZ_TYPES = "sql/varka/fuzz/types.tsv"
 COVERAGE_SUITE = f"{CODEGEN_SCALA_TEST}/varka/VarkaCoverageSuite.scala"
-WIDTH_AUDIT = f"{CODEGEN_SCALA_TEST}/varka/VarkaWidthAuditShapes.scala"
 CENSUS = "sql/varka/plans/m8/census.tsv"
 TYPES = "sql/varka/types.tsv"
 BENCHMARKS = [
@@ -211,7 +211,6 @@ def check(lanes_wanted):
         owner = f"row {', '.join(sorted(rows))} (the fuzz descriptor, {FUZZ_TYPES})"
         OWED[("fuzz grammar", lane)] = owner
     coverage = column_types(COVERAGE_SUITE)
-    audit = column_types(WIDTH_AUDIT)
     fused = census_fused()
     warmup = read(WARMUP)
     benches = benchmark_sources()
@@ -264,12 +263,6 @@ def check(lanes_wanted):
                     COVERAGE_SUITE,
                     f"a {t} column, so a coverage row can read one",
                     t in coverage,
-                ),
-                (
-                    "width audit",
-                    WIDTH_AUDIT,
-                    f"a {t} column among the per-width shapes",
-                    t in audit,
                 ),
                 (
                     "census",
