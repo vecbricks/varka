@@ -1,0 +1,19 @@
+VARKA-571 admission check: benchmark.yml dispatches of Varka classes since the tpcds-kit fix,
+read 20 November 2026 from the Actions jobs API (repos/vecbricks/varka/actions/runs/<run>/jobs).
+
+The fix: SPARK-60478 (668fdddb148, "Fix tpcds-kit build failure with GCC 15 on Ubuntu 26.04
+GitHub runners") builds tpcds-kit with LINUX_CFLAGS="-O3 -std=gnu89". It reached Varka's master
+with the apache sync merged as b90e6799220 (#1427) on 9 November 2026.
+
+Every benchmark.yml run on vecbricks/varka created after 5 November 2026 whose job "Generate an
+TPC-DS dataset with SF=1" was not skipped (that is, dispatched with generate-tpcds left at its
+default of true):
+
+run          head         class                                      data job          benchmark
+42794013318  de7b7894b7d  *.VarkaBigintArithmeticBaselineBenchmark  success, 8.6 min  success
+42794019027  de7b7894b7d  *.VarkaBigintArithmeticBaselineBenchmark  success, 10.6 min success
+43183588553  3020f58dd79  *.VarkaDecimalBaselineBenchmark           success, 13.1 min success
+
+Generation minutes are the job's started_at to completed_at: 09:50:10 to 09:58:45, 09:50:12 to
+10:00:49 and 08:31:08 to 08:44:11 UTC. The benchmark job needs the generation job, so it starts
+after it. Every other run of the window passed generate-tpcds=false and skipped the job.

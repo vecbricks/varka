@@ -53,6 +53,11 @@ here; file and line are at that commit, under `sql/catalyst/.../expressions/code
    the default, unknown level still declines the conversion (`VarkaEmitOptions.levelUnknown`,
    681). So B is buildable on the runners at the split's cost and is measured there rather than
    ruled out, but cannot be the default; A ships first and C stays the exact candidate.
+   *Corrected 20 November 2026 (`VARKA-611.md` 2 item 2):* "the default, unknown level" is the
+   emitter's default, not the session's. The session's default,
+   `spark.sql.codegen.varka.emit.useAVX = -2`, resolves an AVX2 host whose long species is 256
+   bits or more to level 2, where the conversion takes its AVX2 form, so B can be a per-host
+   default there; row 611 measures it.
 7. **The two-lane hosts (row 503).** A long kernel that checks overflow builds a mask, which C2 on
    x86 does not lower at two 64-bit lanes (`VarkaTwoLaneLongBenchmark`'s javadoc); 503 refuses
    only filter conditions there. So the checked arms are measured at 128 bits before they are
