@@ -24,7 +24,8 @@ import org.scalatest.exceptions.TestFailedException
 
 import org.apache.spark.SparkArithmeticException
 import org.apache.spark.sql.{QueryTest, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaCoverageRows,
+  VarkaTestWatchdog}
 import org.apache.spark.sql.catalyst.util.DateTimeConstants
 import org.apache.spark.sql.execution.VarkaMaybeThrows.{difference => outcomeDifference, Answered, Raised}
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
@@ -171,6 +172,20 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
   test("the coverage table has rows to run") {
     assert(rows.size >= 57, s"only ${rows.size} rows read from sql/varka/coverage.json")
     assert(rows.forall(_.executable.nonEmpty))
+  }
+
+  test("every fixture holds every column of coverage.json, at its type") {
+    // A type's column joins the table in `VarkaCoverageSuite`, which writes the file; a fixture
+    // that lacks it would fail only the rows over it, one by one, rather than here.
+    val columns =
+      VarkaCoverageRows.columns(getWorkspaceFilePath("sql", "varka", "coverage.json"))
+    (fixtures.map(_._1) :+ extremes._1).foreach { name =>
+      val schema = spark.table(name).schema
+      columns.foreach { a =>
+        assert(schema.find(_.name == a.name).map(_.dataType) === Some(a.dataType),
+          s"$name.${a.name}")
+      }
+    }
   }
 
   /**

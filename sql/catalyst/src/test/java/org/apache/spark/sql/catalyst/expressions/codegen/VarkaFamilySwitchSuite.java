@@ -257,7 +257,7 @@ public final class VarkaFamilySwitchSuite {
     var claimers = new ArrayList<>(VarkaNodeCompiler.families());
     claimers.add(VarkaNodeCompiler.predicates());
     claimers.add(VarkaNodeCompiler.castConditions());
-    var sink = new DeclineSink(columns, true);
+    var sink = new DeclineSink(columns, OPTIONS);
     var stack = new ArrayList<Expression>(List.of(bound));
     while (!stack.isEmpty()) {
       Expression e = stack.remove(stack.size() - 1);

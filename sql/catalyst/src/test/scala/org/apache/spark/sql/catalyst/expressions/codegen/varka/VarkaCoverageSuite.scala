@@ -1921,6 +1921,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
   }
 
+  test("coverage.json's columns read back in the order and at the types this suite declares " +
+      "them") {
+    // Every other catalyst suite takes the table's columns from the file, and a column's position
+    // is a kernel's input ordinal, so the order read back is part of what they compile.
+    val read = VarkaCoverageRows.columns(getWorkspaceFilePath("sql", "varka", "coverage.json"))
+    assert(read.map(a => a.name -> a.dataType) === columns.map(a => a.name -> a.dataType))
+  }
+
   // --- what the table's kernels reach of the emitter (VARKA-280) ------------------------------
 
   /**

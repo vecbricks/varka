@@ -144,12 +144,16 @@ Check: `build/sbt 'sql/testOnly *VarkaKernelEvaluatorSuite *VarkaWarmupEndToEndS
 
 **11. Give it coverage rows.** A load, a comparison, a choice and an output in
 `VarkaCoverageSuite.scala` - without them the type does not count as fused, whatever the emitter
-does. A type with no column in the table yet needs one in five places: `VarkaCoverageSuite`'s
-`columns`, which `coverage.json`'s column map is written from; the copies `VarkaEmittedBytesSuite`
-and `VarkaWidthAuditShapes` keep (a row over a column the bytes suite lacks is listed in
-`coverage_rows_skipped` rather than hashed, and the width audit's probe fails on it); and the
-fixtures of `VarkaCoverageDifferentialSuite` and `VarkaSparkFuzz`, which may derive the column from
-existing ones, as the `TIMESTAMP_NTZ` columns are derived from a date and a time. Regenerate in this order: `VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly
+does. A type with no column in the table yet needs one in three places:
+`VarkaCoverageSuite`'s `columns`, which `coverage.json`'s column map is written from and every
+catalyst suite reads its columns from (`VarkaCoverageRows.columns`); and the fixtures of
+`VarkaCoverageDifferentialSuite` and `VarkaSparkFuzz`, which may derive the column from existing
+ones, as the `TIMESTAMP_NTZ` columns are derived from a date and a time. Each fixture's suite fails
+on a column of the map it lacks, the fuzz fixture's only for a type its draws read (its test also
+counts those columns, so a column the draws read moves the count in `VarkaSparkFuzzSuite`). A
+column of a type the Spark fuzz cannot build (BOOLEAN, TINYINT or SMALLINT, DECIMAL) also joins
+the matching regex of `VarkaCoverageRows` (`readsBoolean`, `readsNarrow`, `readsDecimal`).
+Regenerate in this order: `VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly
 *VarkaCoverageSuite'`, then `VARKA_AUDIT_REGEN=true build/sbt 'catalyst/testOnly
 *VarkaWidthAuditSuite'`, then `VARKA_BYTES_REGEN=true build/sbt 'catalyst/testOnly
 *VarkaEmittedBytesSuite'`, then `VarkaCoverageSuite` again, and check that only the new rows moved
@@ -195,12 +199,11 @@ the IR's per-kind dispatch, `Lane.of`, the registry's entries and `VarkaLaneArro
 `VarkaTypeId`), and the per-lane switches of the reference evaluator and the fuzz grammar. And
 sites a new lane compiles without, which `dev/varka_new_lane.py --check <LANE>` walks: per lane,
 the registry's admission, the template warm-up, a fuzz-grammar leaf (read from the descriptor
-`sql/varka/fuzz/types.tsv`) and a benchmark; per Spark
-type on the lane, a coverage column, the width audit's shapes and the census, so a new type on an
-existing lane is checked once the registry puts it on the lane. It prints each site with no case,
-and a gap a later row owns as owed to that row. Sites keyed by node kind rather than by lane -
-the cost model's feature names, the census catalog of operators - need no arm for a new lane, only
-for its new nodes (steps 12 and 13).
+`sql/varka/fuzz/types.tsv`) and a benchmark; per Spark type on the lane, a coverage column and the
+census, so a new type on an existing lane is checked once the registry puts it on the lane. It
+prints each site with no case, and a gap a later row owns as owed to that row. Sites keyed by
+node kind rather than by lane - the cost model's feature names, the census catalog of operators -
+need no arm for a new lane, only for its new nodes (steps 12 and 13).
 
 Between them sit the decline sites. A column of a type the registry holds and no lane reads
 declines with the type's name and the registry's reason - the row that builds an owed type, the
