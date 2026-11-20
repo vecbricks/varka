@@ -1124,6 +1124,17 @@ checks passing, five cancelled on forms owed elsewhere), and the pair suite fail
 7. **A pair output declines at two long lanes on x86 before any measurement**, by rows 596 and
    597's rule (the decimal slots' fallback, measured losing for the load); a measured win lifts
    it.
+8. **The conformance suite cancels the pair's stored forms** rather than gaining a pair-output
+   harness in this window: the harness is long-valued throughout (reference, answers, the seen
+   values), and `VarkaDecimalPairSuite` already holds those outputs to Spark; the cancellation
+   names both, so it cannot pass silently.
+9. **A wide `IN` fuses at most eight values**, half the long's cap of 16: each leaf is three
+   nodes where a long's is one, and eight keeps the 31 op nodes the long cap was sized to under
+   `MAX_FUSED_NODES` for the reference form (`VarkaNodeCompiler.MAX_IN_LITERALS`).
+10. **Two suite runs per part, not one.** Part 2's first run found the projection's width check
+   (fixed, then rerun); part 3's first run named the operators still to mark (marked, then
+   rerun); a last run of `VarkaDecimalPairSuite` on the stack's head covers the review's fixes
+   (the dense bodies, the union reason, the `IN` cap).
 
 ## 11. 359a, the build plan (1 November 2026)
 
@@ -1414,7 +1425,3 @@ alone, with the switch-free front half first because nothing emits a pair until 
 **Size**: about four days, as section 5 said, of which the layout-independent half is about one
 and a half and can start before the reading; one pull request, or two if the lead wants the
 registry change (11.5 item 1) reviewed alone, since it touches every reader of the table.
-8. **The conformance suite cancels the pair's stored forms** rather than gaining a pair-output
-   harness in this window: the harness is long-valued throughout (reference, answers, the seen
-   values), and `VarkaDecimalPairSuite` already holds those outputs to Spark; the cancellation
-   names both, so it cannot pass silently.
