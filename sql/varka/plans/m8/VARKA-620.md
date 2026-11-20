@@ -130,6 +130,26 @@ BIGINT lane` and `chain depth past the cap: INT lane`.
 every rung up to N, at both widths and both lanes. Where 1 fails, the cap stops below the first
 rung whose loop method C2 does not compile. Where 3 fails, it stops below the rung that broke it.
 
+*Correction, 20 November 2026, after the first dry run and before any timing.* Three things above
+changed while the benchmark was built, and section 3.1 was edited in place for them: the compare
+step is `e - (CASE WHEN e > y THEN y ELSE 0 END)`, so the cycle is six levels and a remainder
+takes up to five single-level steps; the multiply wraps (risk 3); and the fuzzer draws the option
+at 16 and 32, since `VarkaEmitOptionSuite` requires draws of every option that is not a fault
+injector. Two more change what the readings can say:
+
+* **The run is cache-resident.** One pass over a million rows streams 24 MB at the BIGINT lane,
+  past L3, so a shallow rung would be bound by memory and a deep one by compute, and a ratio
+  against depth 16 would read that boundary. The timed run drives a 16384-row buffer (384 KB,
+  in L2) 64 times instead, a million rows in all, in chunks of 4096. The paragraph above that
+  says "a million rows" means this.
+* **This ladder cannot show a register-pressure cliff.** Every rung keeps a handful of vectors
+  live: the running value, `y` and three literals. It prices method size, the tier C2 reaches and
+  a dependent chain's speed, not the register file. So prediction 3 holding says the deeper
+  chains cost what their op count says, not that no register-pressure cliff exists, and the
+  decision rule supports a cap for shapes this narrow. A wide arm, with a literal per level or
+  several live intermediates, which is what a 128-bit decimal pair's words make, is owed before
+  a raise covers the decimal rows' shapes in general.
+
 ## 7. Risks
 
 1. The compiler may lower the `CASE WHEN` other than as an `IfElse` two levels deep. The
@@ -160,4 +180,8 @@ literal table holds 3 entries at every rung. The largest group method, the maske
 1142 bytes at depth 16, 1504 at 24, 1875 at 32, 2612 at 48 and 3358 at 64, and the dense loop
 619, 785, 988, 1361 and 1771, the same at both lanes: about 23 bytes a level in the dense loop,
 inside prediction 1's range and far under 8000. Spark's arm is the generated
-`SpecificUnsafeProjection`.
+`SpecificUnsafeProjection`. A second dry run, after the timed run moved to a cache-resident buffer,
+settles the depth-64 rung of each lane on the tier witness: 8 drives of a million rows each, and
+`loopDense0` is C2 code (level 4) at both lanes. The fuzzer's suite, with the option drawn at 16
+and 32, passes in its own JVM on the laptop (41 tests, 2 opt-in cancels); its C2 test took 8
+minutes 24 seconds of the Build's 9-minute cap on a loaded machine.

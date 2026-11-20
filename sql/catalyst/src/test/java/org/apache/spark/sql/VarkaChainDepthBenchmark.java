@@ -93,7 +93,8 @@ import org.apache.spark.sql.types.DataTypes;
  * column.
  *
  * <p><b>What a section records.</b> Per depth, a table of the three arms over {@link #numRows}
- * null-free rows in chunks of {@link #CHUNK}, Spark's batch size; a note of every group method's
+ * null-free rows, {@link #BUFFER_ROWS} of them driven again and again in chunks of {@link #CHUNK},
+ * Spark's batch size, so every arm runs from L2; a note of every group method's
  * bytecode size, against HotSpot's 8000-byte {@code HugeMethodLimit}; and a note of the fused
  * arm's tier state, read by {@link VarkaTierWitness} after the arm is settled: whether every
  * dense loop method is C2 code. The two sections, {@code chain depth past the cap: BIGINT lane}
@@ -102,7 +103,7 @@ import org.apache.spark.sql.types.DataTypes;
  *
  * <p>A dry run ({@code -Dvarka.bench.dryRun=true}) emits every kernel, prints the byte notes and
  * runs each arm once over {@link #DRY_ROWS} rows, one chunk and a ragged tail, checking every
- * answer; it times nothing.
+ * answer, and settles the deepest rung of each lane on the tier witness; it times nothing.
  *
  * <pre>
  *   build/sbt "catalyst/Test/runMain org.apache.spark.sql.VarkaChainDepthBenchmark"
@@ -125,6 +126,15 @@ public class VarkaChainDepthBenchmark extends VarkaBenchmarkBase {
 
   /** The rows of a timed run. Read at run time, never folded into a timed loop by javac. */
   private static int numRows = 1 << 20;
+
+  /**
+   * The buffer a timed run re-drives to {@link #numRows}: 16384 rows, three columns of at most
+   * eight bytes, 384 KB, inside a core's L2 at both lanes ({@code VarkaLongLaneBenchmark}'s
+   * in-L2 rung). One pass over a million rows would stream 24 MB at the BIGINT lane, which leaves
+   * L3, so a shallow rung would price memory and a deep one compute, and a ratio against depth 16
+   * would read the cache boundary instead of the depth.
+   */
+  private static final int BUFFER_ROWS = 16384;
 
   /** The rows of a dry run: one chunk and a ragged tail. */
   private static final int DRY_ROWS = CHUNK + 3;
@@ -493,19 +503,6 @@ public class VarkaChainDepthBenchmark extends VarkaBenchmarkBase {
         rungs.put(lane, list);
       }
       reportCaseIds();
-      if (dryRun()) {
-        for (Lane lane : LANES) {
-          Columns c = Columns.of(arena, lane, DRY_ROWS);
-          for (Rung r : rungs.get(lane)) {
-            String label = lane.label() + " depth " + r.depth();
-            checkArms(label, r, c, new FusedDrive(r, c));
-            System.out.println("dry run, " + label + ": " + DRY_ROWS + " rows answer as Spark "
-                + "does; " + r.fused().numLiterals() + " literals; bytes " + methodBytes(r.bytes())
-                + "; Spark's projection " + r.spark().getClass().getSimpleName());
-          }
-        }
-        return;
-      }
       // The witness records from before any kernel runs, so it sees every compile of each.
       var witness = VarkaTierWitness.get();
       for (List<Rung> list : rungs.values()) {
@@ -513,18 +510,38 @@ public class VarkaChainDepthBenchmark extends VarkaBenchmarkBase {
           witness.watch(r.kernel().getClass().getName());
         }
       }
+      if (dryRun()) {
+        for (Lane lane : LANES) {
+          Columns c = Columns.of(arena, lane, DRY_ROWS);
+          for (Rung r : rungs.get(lane)) {
+            String label = lane.label() + " depth " + r.depth();
+            var fused = new FusedDrive(r, c);
+            checkArms(label, r, c, fused);
+            System.out.println("dry run, " + label + ": " + DRY_ROWS + " rows answer as Spark "
+                + "does; " + r.fused().numLiterals() + " literals; bytes " + methodBytes(r.bytes())
+                + "; Spark's projection " + r.spark().getClass().getSimpleName());
+            // The settle the timed run makes, once, on the deepest rung of each lane, so the
+            // witness and its note are exercised without a timing. A drive is a million rows,
+            // as the timed run's is: one pass of the small buffer is too little work for C2 to
+            // reach the loop inside the settle's wait.
+            if (r.depth() == DEPTHS.get(DEPTHS.size() - 1)) {
+              System.out.println("dry run, tier at " + label + ", fused: "
+                  + settle(fused, numRows / DRY_ROWS));
+            }
+          }
+        }
+        return;
+      }
       for (Lane lane : LANES) {
         section("chain depth past the cap: " + lane.label() + " lane", () -> {
-          Columns c = Columns.of(arena, lane, numRows);
+          Columns c = Columns.of(arena, lane, BUFFER_ROWS);
           for (Rung r : rungs.get(lane)) {
             runRung(lane, r, c);
           }
         });
       }
     } finally {
-      if (!dryRun()) {
-        VarkaTierWitness.close();
-      }
+      VarkaTierWitness.close();
       loader.release();
     }
   }
@@ -536,12 +553,13 @@ public class VarkaChainDepthBenchmark extends VarkaBenchmarkBase {
     checkArms(label, r, c, fused);
     String[] tier = {"not run"};
     boolean[] settled = {false};
-    var benchmark = benchmark("depth " + r.depth() + ", " + c.rows() + " rows in chunks of "
-        + CHUNK, c.rows()).timed().build();
+    int passes = numRows / c.rows();
+    var benchmark = benchmark("depth " + r.depth() + ", " + passes + " passes over "
+        + c.rows() + " rows in chunks of " + CHUNK, (long) passes * c.rows()).timed().build();
     benchmark.addTimerCase("fused, cap raised to " + RAISED_CAP, timer -> {
       if (!settled[0]) {
         settled[0] = true;
-        tier[0] = settle(fused);
+        tier[0] = settle(fused, passes);
         c.dst().fill((byte) 0x5A);
         fused.driveChecked();
         for (int i = 0; i < c.rows(); i++) {
@@ -549,22 +567,36 @@ public class VarkaChainDepthBenchmark extends VarkaBenchmarkBase {
         }
       }
       timer.startTiming();
-      fused.drive();
+      for (int p = 0; p < passes; p++) {
+        fused.drive();
+      }
       timer.stopTiming();
     });
     benchmark.addCase("Spark row path (generated UnsafeProjection)",
-        iteration -> sparkDrive(r.spark(), c));
-    benchmark.addCase("scalar loop", iteration -> scalarDrive(r, c));
+        iteration -> {
+          for (int p = 0; p < passes; p++) {
+            sparkDrive(r.spark(), c);
+          }
+        });
+    benchmark.addCase("scalar loop", iteration -> {
+      for (int p = 0; p < passes; p++) {
+        scalarDrive(r, c);
+      }
+    });
     runCases(benchmark);
     note("bytes at " + label + ": " + methodBytes(r.bytes()));
     note("tier at " + label + ", fused: " + tier[0]);
   }
 
   /** Drives the fused arm until the tier witness reads every dense loop as C2 code. */
-  private static String settle(FusedDrive fused) {
+  private static String settle(FusedDrive fused, int passes) {
     Class<?> kernelClass = fused.kernel.getClass();
     var s = new Settle(kernelClass, VarkaEmitterTestSupport.loopLevels(kernelClass).keySet(),
-        Map.of(), fused::driveChecked,
+        Map.of(), () -> {
+          for (int p = 0; p < passes; p++) {
+            fused.driveChecked();
+          }
+        },
         new Settle.Bounds(MIN_WARM_DRIVES, STEADY_FRACTION, WARM_WAIT_MILLIS), true);
     TierState t = Settle.drive(s);
     return (t.settled() ? "settled" : "not settled" + t.why()) + " after " + t.drives()
