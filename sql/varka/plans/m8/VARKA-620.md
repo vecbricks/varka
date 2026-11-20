@@ -45,23 +45,27 @@ Read on master at `6ac76f86cb3`.
 `VarkaEmitOptions.maxChainDepth`, default `MAX_CHAIN_DEPTH`, is a `Count` in
 `VarkaEmitOption.TABLE` with reason `KNOB` and the tag `chainDepth=`. The tag renders only off
 the default, so the default canonical string and every shape hash stay as they are. It has no
-fuzz draws and no audit values: the fuzzer, the option matrix and `emitted_bytes.json` do not
-draw it. It is a measurement knob, and no session conf sets it.
+audit values, so the option matrix and `emitted_bytes.json` do not draw it. The fuzzer draws 16
+and 32, as `VarkaEmitOptionSuite` requires of every option that is not a fault injector, so a
+fuzz variant that grows a draw past 16 is emitted and checked under 32 rather than skipped. It is
+a measurement knob, and no session conf sets it.
 
-`VarkaChainDepthBenchmark` is a new class, by the per-feature-files rule, since a depth ladder
-past the cap is not a shape the parity file prices. Each arm is one SQL expression over two
-columns `x` and `y`, parsed and compiled through `VarkaExpressionCompiler.compile` under the
-raised cap. So the fused arm and Spark's row arm evaluate the same Catalyst tree. The shape is a
-decimal-like mix repeated to the target height: `e + y`, `e * 3`, `shiftright(e, 2)` and
-`CASE WHEN e > y THEN e - y ELSE e END`, with ANSI arithmetic as a decimal's checked operations
-have it. The cycle is five levels deep. A remainder of one to four levels is taken from the cycle's
-first single-level steps. The arms are:
+`VarkaChainDepthBenchmark` is a new class, by the per-feature-files rule, since a depth ladder past
+the cap is not a shape the parity file prices. Each arm is one SQL expression over two columns `x`
+and `y`, parsed and compiled through `VarkaExpressionCompiler.compile` under the raised cap. So the
+fused arm and Spark's row arm evaluate the same Catalyst tree. The shape is a decimal-like mix
+repeated to the target height: `e + y`, `e * 3`, `shiftright(e, 2)` and `e - (CASE WHEN e > y THEN y
+ELSE 0 END)`, with ANSI arithmetic as a decimal's checked operations have it (the multiply excepted,
+risk 3). The `CASE` reads `e` twice rather than three times, so the Catalyst tree's paths double,
+not triple, at each compare. The cycle is six levels deep. A remainder of one to five levels is
+taken from the cycle's single-level steps. The arms are:
 
 * depths 16, 24, 32, 48 and 64, at the `BIGINT` lane and the `INT` lane;
 * per depth, the fused kernel under the cap raised to 64, Spark's row path (the generated
   `UnsafeProjection` over one row at a time), and a scalar Java loop of the same steps;
-* at depth 16 only, the fused kernel under the default cap too, whose class bytes must equal the
-  raised cap's (the option moves nothing below the cap).
+* at depth 16 only, the kernel under the default cap is emitted too, and its class bytes must
+  equal the raised cap's (the option moves nothing a default admits). Being the same class, it
+  is not timed twice.
 
 The run drives a million rows in chunks of 4096, Spark's batch size, null-free. Before each arm
 is timed, every output is checked against Spark's answers, and the fused arm is settled on the
@@ -133,7 +137,11 @@ rung whose loop method C2 does not compile. Where 3 fails, it stops below the ru
 2. The byte budget may refuse the deepest rungs rather than the cap. That is then the rung's
    result, recorded with its reason. No other option is moved to get past it.
 3. A checked `BIGINT` multiply may decline on a host whose 64-bit masks fall back. The runners
-   are x86, and the dry run shows whether it fuses there.
+   are x86, and the dry run shows whether it fuses there. *20 November 2026, the first dry run,
+   before any timing:* it declines on the laptop too, as "checked bigint multiply whose operands
+   do not rule out overflow (row 104's 128-bit product)". So the multiply step wraps (Spark's
+   `LEGACY` mode) at both lanes, and the adds and subtracts stay ANSI-checked. The values never
+   overflow, so the answers are the checked ones.
 
 ## 8. Sequencing
 
@@ -145,4 +153,11 @@ rung whose loop method C2 does not compile. Where 3 fails, it stops below the ru
 
 ## 9. Outcome
 
-Not measured yet.
+Not measured yet. *20 November 2026, the dry run on the laptop (no timings):* every rung of both
+lanes compiles, has the height its label names, is refused by the default cap past 16, and
+answers as Spark does over 4099 rows; at depth 16 the raised cap's bytes are the default's. The
+literal table holds 3 entries at every rung. The largest group method, the masked epilogue, is
+1142 bytes at depth 16, 1504 at 24, 1875 at 32, 2612 at 48 and 3358 at 64, and the dense loop
+619, 785, 988, 1361 and 1771, the same at both lanes: about 23 bytes a level in the dense loop,
+inside prediction 1's range and far under 8000. Spark's arm is the generated
+`SpecificUnsafeProjection`.
