@@ -26,9 +26,9 @@ import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, BRound, CaseWhen, Cast, Ceil, CollationAwareMurmur3Hash, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideDTInterval, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, GreaterThanOrEqual, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, KnownFloatingPointNormalized, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeTimestampNTZ, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyDTInterval, MultiplyYMInterval, Murmur3Hash, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, Round, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, SubtractTimestamps, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, Truncate, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, XxHash64, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, BRound, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideDTInterval, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, GreaterThanOrEqual, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, KnownFloatingPointNormalized, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeTimestampNTZ, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyDTInterval, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, Round, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, SubtractTimestamps, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, Truncate, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterHashSuite, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaFamily, VarkaKernelPlan, VarkaKernelWarmup, VarkaShapeKey}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isStage
@@ -1305,49 +1305,6 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       VarkaEmitOptions.DEFAULTS,
       new VarkaAdmission(java.util.Set.of(VarkaFamily.FLOATING_ARITHMETIC), false))
     assert(off.get(0).reason === VarkaFamily.FLOATING_ARITHMETIC.offReason())
-  }
-
-  test("hash and xxhash64 fold each child's word into the seed, one step a child") {
-    val i = AttributeReference("i", IntegerType)()
-    val l = AttributeReference("l", LongType)()
-    val dbl = AttributeReference("dbl", DoubleType)()
-    val flt = AttributeReference("flt", FloatType)()
-    val cols = Seq(i, l, dbl, flt)
-    def outputs(e: Expression, from: Seq[Attribute]): Seq[VarkaVectorIR] =
-      VarkaExpressionCompiler.compile(Seq(out(e)), from).get.outputs.asScala.toSeq
-    val intSeed = new LiteralSlot(0, LaneType.INT)
-    val longSeed = new LiteralSlot(0, LaneType.LONG)
-    // One column of each lane: the trees VarkaEmitterHashSuite runs against Spark.
-    for ((col, lane) <- Seq(i -> LaneType.INT, l -> LaneType.LONG, dbl -> LaneType.DOUBLE,
-        flt -> LaneType.FLOAT)) {
-      val c = new ColumnRef(0, lane)
-      assert(outputs(new Murmur3Hash(Seq(col)), Seq(col)) ===
-        Seq(VarkaEmitterHashSuite.step(false, intSeed, c, longSeed)), s"hash($col)")
-      assert(outputs(new XxHash64(Seq(col)), Seq(col)) === Seq(VarkaEmitterHashSuite.step(true,
-        longSeed, c, new LiteralSlot(1, LaneType.LONG))), s"xxhash64($col)")
-    }
-    // A normalised key canonicalised once more by the hash is one canonicalisation.
-    assert(outputs(new Murmur3Hash(Seq(KnownFloatingPointNormalized(NormalizeNaNAndZero(dbl)))),
-      Seq(dbl)) === outputs(new Murmur3Hash(Seq(dbl)), Seq(dbl)))
-    // Two children: the second step's seed is the first step's value, and a null literal child
-    // is no step.
-    val two = outputs(new Murmur3Hash(Seq(i, Literal(null, IntegerType), l)), Seq(i, l))
-    assert(VarkaVectorIR.canonical(two.head).split("hash:").length === 4, two)
-    // A floating child declines with the floating arithmetic family off, an integral one not.
-    val off = new VarkaAdmission(java.util.Set.of(VarkaFamily.FLOATING_ARITHMETIC), false)
-    assert(VarkaExpressionCompiler.declines(Seq(out(new Murmur3Hash(Seq(dbl)))), cols,
-      VarkaEmitOptions.DEFAULTS, off).get(0).reason ===
-      VarkaFamily.FLOATING_ARITHMETIC.offReason())
-    assert(VarkaExpressionCompiler.declines(Seq(out(new Murmur3Hash(Seq(i)))), cols,
-      VarkaEmitOptions.DEFAULTS, off).isEmpty)
-    val hashOff = new VarkaAdmission(java.util.Set.of(VarkaFamily.HASH), false)
-    assert(VarkaExpressionCompiler.declines(Seq(out(new XxHash64(Seq(i)))), cols,
-      VarkaEmitOptions.DEFAULTS, hashOff).get(0).reason === VarkaFamily.HASH.offReason())
-    // The decimal above 18 is row 337b's, and the collation-aware form is not claimed.
-    val wide = AttributeReference("wide", DecimalType(38, 2))()
-    assert(declineReason(new Murmur3Hash(Seq(wide)), childOutput :+ wide).contains("337b"))
-    assert(declineReason(new CollationAwareMurmur3Hash(Seq(i)), childOutput :+ i)
-      .nonEmpty)
   }
 
   private def declineReason(e: Expression, output: Seq[Attribute] = childOutput): String = {

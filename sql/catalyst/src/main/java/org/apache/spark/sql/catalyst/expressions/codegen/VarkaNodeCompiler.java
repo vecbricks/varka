@@ -63,7 +63,6 @@ import org.apache.spark.sql.catalyst.expressions.LessThan;
 import org.apache.spark.sql.catalyst.expressions.LessThanOrEqual;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.Multiply;
-import org.apache.spark.sql.catalyst.expressions.Murmur3Hash;
 import org.apache.spark.sql.catalyst.expressions.MultiplyDTInterval;
 import org.apache.spark.sql.catalyst.expressions.MultiplyYMInterval;
 import org.apache.spark.sql.catalyst.expressions.NaNvl;
@@ -82,7 +81,6 @@ import org.apache.spark.sql.catalyst.expressions.ToDegrees;
 import org.apache.spark.sql.catalyst.expressions.ToRadians;
 import org.apache.spark.sql.catalyst.expressions.Truncate;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
-import org.apache.spark.sql.catalyst.expressions.XxHash64;
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDerivedKind;
@@ -221,8 +219,8 @@ final class VarkaNodeCompiler {
   /**
    * The chain, in order: the date leaves, the four families, then the int arithmetic and the
    * picks, then the floating arithmetic, which claims only floating-valued nodes, then the
-   * floating casts, the integral casts row 28's arms do not hold, the rounding functions, the
-   * math functions and last the two hashes. The int arithmetic comes after the calendar family
+   * floating casts, the integral casts row 28's arms do not hold, the rounding functions and
+   * last the math functions. The int arithmetic comes after the calendar family
    * so that the {@code Add(WeekDay, 1)} shape keeps its dedicated node, and its guard says so as
    * well.
    */
@@ -237,8 +235,7 @@ final class VarkaNodeCompiler {
       new Family(VarkaFamily.FLOATING_CAST, VarkaFloatingCastCompiler::arm),
       new Family(VarkaFamily.INTEGRAL_CAST, VarkaIntegralCastCompiler::arm),
       new Family(VarkaFamily.ROUNDING, VarkaRoundingCompiler::arm),
-      new Family(VarkaFamily.MATH, VarkaMathCompiler::arm),
-      new Family(VarkaFamily.HASH, VarkaHashCompiler::arm));
+      new Family(VarkaFamily.MATH, VarkaMathCompiler::arm));
 
   /**
    * The predicate family, which is not a link of the chain: {@code compileNode} never claims a
@@ -397,9 +394,8 @@ final class VarkaNodeCompiler {
         || e instanceof Add || e instanceof Subtract || e instanceof Multiply
         || e instanceof Divide || e instanceof UnaryMinus || e instanceof Abs
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
-        // Its canonicalisation (VARKA-337), which a later key operator builds, and the two
-        // hashes, which canonicalise a floating child under that family's switch.
-        || e instanceof NormalizeNaNAndZero || e instanceof Murmur3Hash || e instanceof XxHash64
+        // Its canonicalisation (VARKA-337), which a later key operator builds.
+        || e instanceof NormalizeNaNAndZero
         || (e instanceof Signum s && (isFloating(s.child().dataType())
             || VarkaFloatingCompiler.intervalLane(s.child().dataType()).isPresent()))
         // The rounding family's forms (VARKA-344): rint, and floor and ceil, whose arm builds
