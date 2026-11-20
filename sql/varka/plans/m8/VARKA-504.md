@@ -222,8 +222,14 @@ tell matches a species class and not a shared superclass"). The live case - a lo
 call chain meets two species, read from C2's printer in a forked JVM - is not built: it is a
 JVM-forking probe cell, out of this window's cheap-checks rule, and owed to part 2.
 
-**Predictions.** P1 and P2 are scored when the suites run (owed, see the draft PR body). P3 is
-not scored: no suite ran in this window.
+**Run in this window.** One targeted run, `catalyst/testOnly *VarkaConformancePlantSuite
+*VarkaUpstreamPinsSuite`: 4 of 4 passed (the plant suite in its own JVM, 6.8 s; the pin 0.05 s,
+the message dropped within the first ten thousand overflows). The other plants and every
+refactored check have compiled and not run.
+
+**Predictions.** P1 holds for the four plants that ran: each check failed on its planted input,
+and on the disagreement it exists for. P2 is not yet scored: no plant has found a check that
+missed its fault so far, and the rest are owed. P3 is not scored: the suites' times are owed.
 
 ### Decisions taken while the owner was away (20 November 2026)
 
