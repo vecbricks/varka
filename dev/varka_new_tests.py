@@ -130,10 +130,9 @@ JAVA_UNLISTABLE = re.compile(r"^\s*@(?:ParameterizedTest|RepeatedTest|TestFactor
 def names_a_template(text, pos):
     """Whether the @DisplayName at `pos` sits on a @ParameterizedTest, a @RepeatedTest or a
     @TestFactory, whose own display name is no test's: its tests are keyed by their generated
-    names (VARKA-477). The annotations read are those from the blank line before it to the
-    method's body."""
+    names (VARKA-477). The lines read are those from the blank line before it to the next."""
     start = text.rfind("\n\n", 0, pos)
-    end = text.find("{", pos)
+    end = text.find("\n\n", pos)
     return bool(JAVA_UNLISTABLE.search(text, max(start, 0), end if end >= 0 else len(text)))
 
 
@@ -702,8 +701,8 @@ class NewTestsTest(unittest.TestCase):
     def test_a_parameterized_tests_display_name_is_not_listed(self):
         head = JAVA_BASE.replace(
             "void tiers() {}\n",
-            'void tiers() {}\n\n  @ParameterizedTest(name = "of {0}")\n'
-            '  @DisplayName("a template")\n  void each(int n) {}\n',
+            'void tiers() {}\n\n  @DisplayName("a template")\n  @ValueSource(ints = {1, 2})\n'
+            '  @ParameterizedTest(name = "of {0}")\n  void each(int n) {}\n',
         )
         found, bad = new_tests({JAVA: JAVA_BASE}, {JAVA: head}, [JAVA])
         self.assertEqual(found, [])

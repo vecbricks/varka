@@ -203,7 +203,12 @@ Built on 20 November 2026 on the local branch `varka-477-junit-parameterized` (n
   `VarkaEmitterNarrowArithSuite` as one template. `dev/varka_new_tests.py` stops listing a
   template's own display name as a test, and `dev/varka_lint.py`'s skip-list rule accepts a line
   naming a template's invocation.
-- **Measured, locally.** `VarkaSuiteHarnessSuite` 24 of 24 pass, among them the child-JVM run of
+- **Review.** `/code-review high` found seven issues (two important: a template failing as a
+  whole went unreported, and a generated key equal to a plain test's name went unchecked; one
+  pre-existing: class templates were not refused; four nits in the lint, the listener's disabled
+  templates, the new-tests window and `{default_display_name}`). All were fixed in one round,
+  with tests.
+- **Measured, locally.** `VarkaSuiteHarnessSuite` passes (all of its tests), among them the child-JVM run of
   section 3 item 3: the listed failing invocation is cancelled, the listed passing one fails as a
   stale entry, and the fused-batch report holds exactly the six keys.
   `VarkaEmitterNarrowArithSuite` passes in its own JVM (38 tests, 19 opt-in cancels).

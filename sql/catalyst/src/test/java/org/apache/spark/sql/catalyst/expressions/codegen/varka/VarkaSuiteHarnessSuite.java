@@ -53,7 +53,9 @@ import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.condition.DisabledIf;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedClass;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.discovery.DiscoverySelectors;
@@ -477,6 +479,71 @@ public final class VarkaSuiteHarnessSuite {
         "a repeated test repetition 2", "a dynamic test"), ran);
   }
 
+  /**
+   * While planted: a template whose source gives no case, which JUnit fails as a whole; a
+   * disabled template; and a template whose key is a plain test's name. Three passing tests and
+   * a passing invocation each when sbt runs it alone.
+   */
+  @VarkaSuite
+  static final class TemplateOutcomesFixture {
+    static Stream<String> cases() {
+      return planted ? Stream.of() : Stream.of("one");
+    }
+
+    static Stream<Integer> clashing() {
+      return Stream.of(planted ? 1 : 2);
+    }
+
+    static boolean isPlanted() {
+      return planted;
+    }
+
+    @ParameterizedTest(name = "of {0}", quoteTextArguments = false)
+    @MethodSource("cases")
+    @DisplayName("a template with no cases, when planted")
+    void empty(String which) {}
+
+    @ParameterizedTest(name = "of {0}")
+    @ValueSource(ints = 1)
+    @DisabledIf("isPlanted")
+    @DisplayName("a disabled template, when planted")
+    void disabled(int i) {}
+
+    @Test
+    @DisplayName("a plain test of 1")
+    void plain() {}
+
+    @ParameterizedTest(name = "of {0}")
+    @MethodSource("clashing")
+    @DisplayName("a plain test")
+    void clash(int i) {}
+  }
+
+  @Test
+  @DisplayName("a template that fails as a whole fails, a disabled one is ignored, and a key "
+      + "that is a plain test's name fails")
+  void templateOutcomes() {
+    var bytes = new ByteArrayOutputStream();
+    var listener = new VarkaSuiteListener(Optional.empty(),
+        new PrintStream(bytes, true, StandardCharsets.UTF_8));
+    planted = true;
+    try {
+      launch(TemplateOutcomesFixture.class, Optional.of(listener));
+    } finally {
+      planted = false;
+    }
+    List<String> lines = bytes.toString(StandardCharsets.UTF_8).lines().toList();
+    assertTrue(lines.contains("- a template with no cases, when planted *** FAILED ***"),
+        lines.toString());
+    assertTrue(lines.contains("- a disabled template, when planted !!! IGNORED !!!"),
+        lines.toString());
+    assertTrue(lines.contains("- a plain test of 1") && lines.contains(
+        "- a plain test of 1 *** FAILED ***"), lines.toString());
+    assertTrue(lines.stream().anyMatch(l -> l.contains("names more than one test")),
+        lines.toString());
+    assertEquals(new VarkaSuiteListener.Counts(1, 2, 0, 1, 0, 1, 0), listener.counts());
+  }
+
   /** Templates whose names make keys or do not: never run, only read. */
   abstract static class TemplateNames {
     @ParameterizedTest
@@ -497,6 +564,9 @@ public final class VarkaSuiteHarnessSuite {
     @ParameterizedTest(name = "{1,number,#} and {arguments}")
     void formatted(int a, int b) {}
 
+    @ParameterizedTest(name = "{0} {default_display_name}")
+    void defaulted(int i) {}
+
     @RepeatedTest(2)
     void totalled() {}
 
@@ -516,8 +586,8 @@ public final class VarkaSuiteHarnessSuite {
         refused.add(m.getName());
       }
     }
-    assertEquals(Set.of("byDefault", "indexed", "displayed", "constant", "totalled", "other"),
-        refused);
+    assertEquals(Set.of("byDefault", "indexed", "displayed", "constant", "defaulted", "totalled",
+        "other"), refused);
     String byDefault = VarkaSuiteExtension.templateRefusal(
         TemplateNames.class.getDeclaredMethod("byDefault", int.class)).orElseThrow();
     assertTrue(byDefault.contains("'{default_display_name}'")
@@ -594,6 +664,16 @@ public final class VarkaSuiteHarnessSuite {
     }
   }
 
+  /** A class template, whose invocations rerun each test under one name: never run. */
+  @VarkaSuite
+  @ParameterizedClass
+  @ValueSource(ints = {2, 4})
+  abstract static class ClassTemplateTests {
+    @Test
+    @DisplayName("each class invocation")
+    void each() {}
+  }
+
   /** The annotation on a base class only, which dev/varka_matrix.sh cannot see. */
   @VarkaSuite
   abstract static class AnnotatedBase {}
@@ -605,8 +685,8 @@ public final class VarkaSuiteHarnessSuite {
   }
 
   @Test
-  @DisplayName("a template with no stable key, a nested class and an inherited annotation are "
-      + "refused, and a dynamic test is held, in an ownJvm class too")
+  @DisplayName("a template with no stable key, a class template, a nested class and an inherited "
+      + "annotation are refused, and a dynamic test is held, in an ownJvm class too")
   void shapesRefused() {
     var template = assertThrows(IllegalStateException.class,
         () -> VarkaSuiteExtension.checkShape(TemplateTests.class));
@@ -614,6 +694,9 @@ public final class VarkaSuiteHarnessSuite {
         && !template.getMessage().contains("dynamic"), template.getMessage());
     VarkaSuiteExtension.checkShape(DynamicTests.class);
     VarkaSuiteExtension.checkShape(OwnJvmDynamicTests.class);
+    var classTemplate = assertThrows(IllegalStateException.class,
+        () -> VarkaSuiteExtension.checkShape(ClassTemplateTests.class));
+    assertTrue(classTemplate.getMessage().contains("class template"), classTemplate.getMessage());
     var nested = assertThrows(IllegalStateException.class,
         () -> VarkaSuiteExtension.checkShape(NestedTests.class));
     assertTrue(nested.getMessage().contains("@Nested"), nested.getMessage());

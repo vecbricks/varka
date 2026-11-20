@@ -1396,8 +1396,10 @@ Java is one (`sql/varka/AGENTS.md`). What to know when writing and running one:
   does) nor `{displayName}`, and a `@RepeatedTest` is named `"repetition {currentRepetition}"`
   (no total). Any other kind of `@TestTemplate` is refused. Set `quoteTextArguments = false`
   where a `String` argument is rendered, or JUnit 6 renders it in quotes. An argument renders by
-  its `toString`, so a record argument overrides it to its name. A key used twice in a class
-  fails the test. The argument source, and a factory's body, also run in the shared JVM of an
+  its `toString`, so a record argument overrides it to its name. A key used twice in a class,
+  or equal to a plain test's name, fails the test. A template that fails as a whole (its source
+  threw or gave no case) is reported as one failed test under its display name, and a disabled
+  one as one ignored test. A class template (`@ParameterizedClass`) is refused. The argument source, and a factory's body, also run in the shared JVM of an
   `ownJvm` class to learn the keys the child answers, so they stay a cheap static list - never
   kernels emitted to name tests. `VarkaEmitterNarrowArithSuite`'s slices are the example. An
   opt-in sweep stays a `@Test` per case: `dev/varka_sweeps.py --check` selects a shard's opt-in

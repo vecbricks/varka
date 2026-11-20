@@ -139,8 +139,9 @@ public final class VarkaSuiteListener implements TestExecutionListener {
   @Override
   public synchronized void executionSkipped(TestIdentifier id, String reason) {
     ClassRun run = classRunOf(id);
-    // An invocation the runner's filters leave out is not shown, as a filtered test is not.
-    if (id.isTest() && run != null && !VarkaSuiteRunner.NOT_SELECTED.equals(reason)) {
+    // An invocation the runner's filters leave out is not shown, as a filtered test is not. A
+    // disabled template or factory, whose tests are never generated, is shown as one test.
+    if (run != null && !VarkaSuiteRunner.NOT_SELECTED.equals(reason)) {
       String name = nameOf(id);
       out.println("- " + name + " !!! IGNORED !!!");
       run.cases().add(new Case(name, new Skipped(reason), 0.0));
@@ -156,7 +157,10 @@ public final class VarkaSuiteListener implements TestExecutionListener {
       return;
     }
     ClassRun run = classRunOf(id);
-    if (!id.isTest() || run == null) {
+    // A template or a factory that fails as a whole - its argument source threw or gave none -
+    // generated no test to report, so it is reported as a test of its own, under its name.
+    if (run == null
+        || (!id.isTest() && result.getStatus() == TestExecutionResult.Status.SUCCESSFUL)) {
       return;
     }
     Long start = testStarts.remove(id.getUniqueId());
