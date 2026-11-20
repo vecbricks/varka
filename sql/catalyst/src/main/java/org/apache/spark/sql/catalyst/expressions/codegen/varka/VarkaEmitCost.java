@@ -123,6 +123,7 @@ final class VarkaEmitCost {
       case BitCount n -> name + '/' + n.laneType();
       case VarkaVectorIR.MathUnary n -> name + '/' + n.fn() + '/' + n.laneType();
       case VarkaVectorIR.RoundToIntegral n -> name + '/' + n.mode() + '/' + n.laneType();
+      case VarkaVectorIR.CanonicalFloat n -> name + '/' + n.laneType();
       // A failing guard collects into the batch's status and a nulling one clears its own word:
       // two lowerings, so the NULL mode is its own feature, the FAIL key unchanged beside it.
       case GuardedRange n -> name + (n.mode() == Overflow.NULL ? "/NULL/" : "/") + n.laneType();
