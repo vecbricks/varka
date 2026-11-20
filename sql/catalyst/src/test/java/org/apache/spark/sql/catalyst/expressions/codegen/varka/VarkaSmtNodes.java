@@ -268,6 +268,7 @@ final class VarkaSmtNodes {
           ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
           TruncDate _, TruncDateDynamic _, WeekOfYear _, AddMonths _, MakeDate _, GuardedDay _,
           ConstDivide _, BoundedDivide _, BitCount _, MathUnary _, RoundToIntegral _, ConvertLane _,
+          ReinterpretLane _,
           CrossLane _, InRanges _, BoolCompare _, BoolNullSafeEq _, CanonicalFloat _,
           CanonicalBits _, HashStep _ ->
           throw refused(node);

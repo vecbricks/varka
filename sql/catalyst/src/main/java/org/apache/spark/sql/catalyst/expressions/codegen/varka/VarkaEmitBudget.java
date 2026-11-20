@@ -674,7 +674,7 @@ final class VarkaEmitBudget {
       // node of its own), the narrowing conversion, the compare (an unsigned one too: it is the
       // lane's own compare operator, intrinsic at more than two long lanes, VARKA-376 9).
       case AddDays _, SubDays _, DateDiff _, Greatest _, Least _, WidenLane _,
-          NarrowLane _, ConvertLane _, Compare _, NullSafeEqual _ -> 1;
+          NarrowLane _, ConvertLane _, ReinterpretLane _, Compare _, NullSafeEqual _ -> 1;
       // The blend, plus the shift pair a narrow pick may reduce with at the int lane.
       case IfElse n -> n.laneType().isNarrow() ? 3 : 1;
       // The broadcast 0 and the add of 1 under the known-true mask; its validity, the OR of the

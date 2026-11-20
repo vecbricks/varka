@@ -71,6 +71,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lea
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathFn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -322,6 +323,14 @@ final class VarkaVectorWalk {
         emitValue(cb, n.child(), dense, analysis, s, computed);
         line(cb, analysis, node);
         emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
+      }
+      case ReinterpretLane n -> {
+        // The child's bits at the other kind of its width, a view of the same vector: the
+        // species of the target's lane has the child's lane count at the child's width, in a
+        // kernel of either width. The word is the child's.
+        emitValue(cb, n.child(), dense, analysis, s, computed);
+        line(cb, analysis, node);
+        emitReinterpret(cb, n.target());
       }
       case ConvertLane n -> {
         // Java's primitive cast as one conversion, part 0, into the target's species of the
@@ -823,6 +832,20 @@ final class VarkaVectorWalk {
     cb.aload(shuffle);
     cb.aload(halves[1]);
     cb.invokevirtual(LONG_VECTOR, "rearrange", REARRANGE_TWO);
+  }
+
+  /**
+   * The vector on the stack viewed at {@code target}, the other kind of its width: its bits
+   * unchanged, in the species of {@code target}'s lane with the same lane count.
+   */
+  private static void emitReinterpret(CodeBuilder cb, VarkaVectorIR.LaneType target) {
+    switch (target) {
+      case LONG -> cb.invokevirtual(VECTOR, "reinterpretAsLongs", REINTERPRET_L);
+      case DOUBLE -> cb.invokevirtual(VECTOR, "reinterpretAsDoubles", REINTERPRET_D);
+      case INT -> cb.invokevirtual(VECTOR, "reinterpretAsInts", REINTERPRET_I);
+      case FLOAT -> cb.invokevirtual(VECTOR, "reinterpretAsFloats", REINTERPRET_F);
+      case BYTE, SHORT -> throw VarkaErrors.illegalArgument("no reinterpretation to " + target);
+    }
   }
 
   /**

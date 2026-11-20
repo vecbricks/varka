@@ -33,6 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Int
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 
 /**
@@ -820,7 +821,7 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _,
           VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _,
           VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _, VarkaVectorIR.NullValue _,
-          ConvertLane _ ->
+          ConvertLane _, ReinterpretLane _ ->
           LongNarrowRole.NONE;
     };
   }
@@ -875,7 +876,7 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.Least _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,
           VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _,
           VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _,
-          VarkaVectorIR.NullValue _, ConvertLane _ ->
+          VarkaVectorIR.NullValue _, ConvertLane _, ReinterpretLane _ ->
           LongNarrowReader.NONE;
     };
   }

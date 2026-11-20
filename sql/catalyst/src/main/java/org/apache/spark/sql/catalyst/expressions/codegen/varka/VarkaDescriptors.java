@@ -228,6 +228,13 @@ final class VarkaDescriptors {
   /** {@code LongVector Vector.reinterpretAsLongs()}. */
   static final MethodTypeDesc REINTERPRET_L = MethodTypeDesc.of(LONG_VECTOR);
 
+  /** {@code IntVector Vector.reinterpretAsInts()}. */
+  static final MethodTypeDesc REINTERPRET_I = MethodTypeDesc.of(INT_VECTOR);
+
+  /** {@code FloatVector Vector.reinterpretAsFloats()}. */
+  static final MethodTypeDesc REINTERPRET_F =
+      MethodTypeDesc.of(ClassDesc.of("jdk.incubator.vector.FloatVector"));
+
   /** {@code VectorMask DoubleVector.compare(VectorOperators.Comparison, Vector)}. */
   static final MethodTypeDesc COMPARE_DD =
       MethodTypeDesc.of(VECTOR_MASK, VO_COMPARISON, VECTOR);

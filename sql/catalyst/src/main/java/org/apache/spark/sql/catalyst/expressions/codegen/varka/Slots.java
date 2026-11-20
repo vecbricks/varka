@@ -81,6 +81,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -1199,6 +1200,7 @@ final class Slots {
           : s.wordRef.get(n.child());
       case WidenLane n -> s.wordRef.get(n.child());
       case ConvertLane n -> s.wordRef.get(n.child());
+      case ReinterpretLane n -> s.wordRef.get(n.child());
       case NarrowLane n -> s.wordRef.get(n.child());
       case WidenDecimal n -> s.wordRef.get(n.child());
       case Year n -> s.wordRef.get(n.days());
@@ -1700,6 +1702,7 @@ final class Slots {
         // it - a root write, a guard, or a consumer above.
         case WidenLane g -> { }
         case ConvertLane g -> { }
+        case ReinterpretLane g -> { }
         case NarrowLane g -> { }
         case WidenDecimal g -> { }
         // The rest read no word here. A value node's own word, where it needs one, is
@@ -1779,6 +1782,7 @@ final class Slots {
         case GuardedRange x -> demand(analysis.wordOwner.get(x.child()));
         case WidenLane x -> demand(analysis.wordOwner.get(x.child()));
         case ConvertLane x -> demand(analysis.wordOwner.get(x.child()));
+        case ReinterpretLane x -> demand(analysis.wordOwner.get(x.child()));
         case NarrowLane x -> demand(analysis.wordOwner.get(x.child()));
         case WidenDecimal x -> demand(analysis.wordOwner.get(x.child()));
         case SubDays x -> { demand(analysis.wordOwner.get(x.days()));
