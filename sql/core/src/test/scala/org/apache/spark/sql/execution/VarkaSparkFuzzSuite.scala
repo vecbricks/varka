@@ -32,6 +32,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaCatalystGra
   VarkaShapeCache, VarkaTypeId}
 import org.apache.spark.sql.catalyst.plans.logical.Filter
 import org.apache.spark.sql.execution.VarkaSparkFuzz._
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * Random compositions of the coverage table's rows over random data, run with Varka off and on,
@@ -605,6 +606,35 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     val withPivot = c.copy(data = data, pivot = Some(data(5)))
     val kept = shrink(withPivot, "values differ", _ => Some("values differ"))
     assert(kept.data.contains(data(5)) && kept.data.size == 1, kept.data)
+  }
+
+  test("a NaN pivot row whose batch Spark's cache prunes on both sides is reported as missing " +
+      "(SPARK-58482), not passed as two engines agreeing") {
+    // VARKA-504's planted fault. The cache's statistics leave NaN out, so with its pruning on a
+    // one-row batch of NaN is dropped from a filter that NaN passes, on both engines alike: the
+    // comparison of the two sees no difference, and only the pivot check can tell that neither
+    // read the row. The fuzzer runs a floating case with the pruning off for this reason.
+    val view = "varka_nan_pivot"
+    val query = s"SELECT x FROM $view WHERE NOT (x < 1.5D)"
+    Seq(spark, varkaSpark).foreach { session =>
+      session.range(1).selectExpr("CAST('NaN' AS DOUBLE) AS x").createOrReplaceTempView(view)
+      session.catalog.cacheTable(view)
+    }
+    try {
+      val alone = outcome(spark, s"SELECT x FROM $view")
+      def check(prune: Boolean): (Option[String], Option[String]) =
+        withBothConf(SQLConf.IN_MEMORY_PARTITION_PRUNING.key, prune.toString) {
+          val (off, on) = (outcome(spark, query), outcome(varkaSpark, query))
+          (difference(off, on), pivotMissing(off, on, alone))
+        }
+      assert(check(prune = false) == ((None, None)))
+      assert(check(prune = true) == ((None, Some("pivot row not selected by Varka"))))
+    } finally {
+      Seq(spark, varkaSpark).foreach { session =>
+        session.catalog.uncacheTable(view)
+        session.catalog.dropTempView(view)
+      }
+    }
   }
 
   test("a reproducer with a forced output parses back to what was rendered") {
