@@ -290,7 +290,16 @@ public final class VarkaFamilySwitchSuite {
       if (on.kernel().isEmpty()) {
         // A row the width cannot serve declines before any family is consulted; the census
         // records which rows those are, and why.
-        if (!isRecordedDecline(recordedDeclines, row, on) && !isConfigurationDecline(on)) {
+        if (isConfigurationDecline(on)) {
+          // A family whose every row the configuration declines (the math family's per-lane
+          // calls with no baked lane count) is still seen to work: switched off, it declines
+          // with its own reason before the kernel plan refuses the width.
+          for (VarkaFamily family : claims.sure()) {
+            if (compile(row, Set.of(family)).reason().equals(Optional.of(family.offReason()))) {
+              declined.merge(family, 1, Integer::sum);
+            }
+          }
+        } else if (!isRecordedDecline(recordedDeclines, row, on)) {
           failures.add("`" + row.sql() + "` does not fuse with every family on: " + on.reason());
         }
         continue;
