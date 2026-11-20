@@ -407,7 +407,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   private def pinnedArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] =
     Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 0, 1, 2, 3).map { level =>
       s"useAVX=$level" -> ((o: VarkaEmitOptions) => o.withUseAVX(level))
-    } ++ subjectArms ++ laneArms ++ storeArms ++ referenceArms ++ contractArms
+    } ++ subjectArms ++ laneArms ++ storeArms ++ referenceArms ++ contractArms ++ maskArms
 
   /**
    * The narrow store's combined arm, pinned beside the lane arms (VARKA-603): a machine option
@@ -421,6 +421,16 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       .find(_.name == "narrowGroupStore=COMBINED").getOrElse(
         fail("the options table has no arm narrowGroupStore=COMBINED to pin"))
     Seq(arm.name -> ((o: VarkaEmitOptions) => arm.apply.apply(o)))
+  }
+
+  /**
+   * The mask construction (VARKA-375), pinned for the reason the combined store is: a machine
+   * option no session setting selects, whose emission a refactor must move a hash to change.
+   */
+  private def maskArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] = {
+    val arm = optionArms.find(_.name == "maskFromWord=true").getOrElse(
+      fail("the options table has no arm maskFromWord=true to pin"))
+    Seq(arm.name -> arm.arm)
   }
 
   /** The math family's opt-in arm, by its table name, as the lane arms are pinned. */
@@ -590,7 +600,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         "int groups rather than under a per-group mask (VARKA-603); and the math family's " +
         "opt-in mode " +
         "(mathUlpContract=true), which spark.sql.codegen.varka.math.ulpContract.enabled " +
-        "reaches. The rest of VarkaEmitOptions is test-only."),
+        "reaches; and the mask construction (maskFromWord=true), which builds each mask " +
+        "without VectorMask.fromLong (VARKA-375). The rest of VarkaEmitOptions is test-only."),
       // Always empty: a row that does not resolve or fuse fails `coverageOf`. The key stays so
       // the file keeps its bytes, and the check's skip comparison below stays with it.
       "coverage_rows_skipped" -> java.util.List.of[String](),
