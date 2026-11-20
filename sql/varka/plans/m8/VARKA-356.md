@@ -610,72 +610,37 @@ matrix with `mathPort` drawn pass.
 
 ### 10.1 356a1: the one-argument functions in `LANE_CALL` (20 November 2026)
 
-Built on branch `varka-356-trig` while the owner was away, ahead of 345b and 358a (decision 1).
+Built on branch `varka-356-trig` ahead of 345b and 358a. `MathFn` gains `SIN`, `COS`, `TAN`
+(`java.lang.Math`) and `ASIN`, `ACOS`, `ATAN` (`java.lang.StrictMath`), each naming the static
+`(D)D` method its call invokes. The emitter unrolls a call as `v.lane(k)`, the method and
+`v.withLane(k, r)` over the baked lane count (`emitMathLaneCall`); `VarkaKernelPlan` refuses a call
+at a width with no baked lane count (`Kind.MATH_CALL`), and `VarkaEmitBudget` weighs it as 16 lane
+ops. `VarkaMathCompiler` lowers the six to the call and `sec`, `csc`, `cot` to `1.0 / call`;
+`atan2` and rows 357 and 358 decline as "... is row 35x's: not fused yet". A test-only emit option,
+`VarkaEmitOptions.FloatingFault.MATH_OTHER_CLASS`, plants the other class's method.
 
-**As built.** `MathFn` gains `SIN`, `COS`, `TAN` (`java.lang.Math`) and `ASIN`, `ACOS`, `ATAN`
-(`java.lang.StrictMath`), each naming the static `(D)D` method its call invokes; `laneCall()` tells
-them from `SQRT`'s operator, and `MathUnary` refuses a non-`DOUBLE` child for a call. The emitter
-unrolls a call as `v.lane(k)` -> the method -> `v.withLane(k, r)` over the baked lane count, with no
-local or scratch (`emitMathLaneCall`); `VarkaKernelPlan` refuses a call at a width with no baked
-lane count (`Kind.MATH_CALL`), and `VarkaEmitBudget` weighs a call as 16 lane ops.
-`VarkaMathCompiler` lowers `sin`, `cos`, `tan`, `asin`, `acos`, `atan` to the call and `sec`, `csc`,
-`cot` to `IntArith(DIV, WRAP, 1.0, call)`; `atan2` and rows 357 and 358 decline as "... is row
-35x's: not fused yet". `ownerOf` became a table of classes, which `VarkaCoverageSuite`'s source scan
-reads, so only lowered classes count as admitted. `VarkaReference` evaluates by `Math`'s methods; a
-test-only emit option, `VarkaEmitOptions.FloatingFault.MATH_OTHER_CLASS`, plants the other class's
-method.
+**Tests.** `VarkaMathExactSuite` (own JVM) compares 2^24 sampled inputs a function over five draws
+and fixed vectors (21 edges, the infinities, nine NaN payloads) with Spark's code as scalar Java,
+by raw bits; the planted other-class call fails it for `sin`, `cos`, `tan` and their reciprocals on
+x86; and a warmed kernel allocates nothing a batch. `VarkaMathCompilerSuite` holds the fused and
+the declined tables. Coverage gains "Math functions" (11 rows) and one condition row. The regen
+wrote coverage, docs, emitted bytes, width audit and census; no existing shape's bytes moved
+(prediction 1 held), and the suite ran in 33 s for nine functions (prediction 7). The audit's
+`-XX:UseAVX=2` rerun timed out under load and is owed on a quiet machine.
 
-**Tests.** `VarkaMathExactSuite` (new, own JVM): 2^24 sampled inputs a function over five draws
-(uniform bits, the domain, `[-2, 2]`, magnitudes to `2^-60`, and `2^20` to `1e300` for the
-trigonometric functions or the neighbourhood of `+-1` for the inverse ones) against Spark's code as
-scalar Java, by raw bits, a NaN's too (stricter than 3 test 1; both sides call one method on one
-JVM); fixed vectors (21 edges with 64 neighbours each way, the infinities, nine NaN payloads) over
-four null patterns, three lengths, two and eight lanes; the planted other-class call, failing the
-differential for `sin`, `cos`, `tan` and their reciprocals on x86 and changing nothing for the
-inverse ones; and a warmed kernel allocating nothing a batch. `VarkaMathCompilerSuite` holds the
-fused table, the declined one and the refusal without baked lanes; `VarkaFamilySwitchSuite`'s
-`UNBUILT` map is empty. Coverage gains "Math functions" (11 rows) and "Math functions as
-conditions" (one); the nine functions' census lines read `double|done|356`.
-
-**Generated files** (`dev/varka_regen_generated.sh --all`): coverage, docs, emitted bytes, width
-audit, census. The audit passed at the laptop's width; at 128 bits `sin(i)` meets the two-lane long
-mask C2 does not lower and `sin(x) < 0.5D` the two-lane condition refusal, as every `DOUBLE` filter
-does. Its `-XX:UseAVX=2` rerun timed out (600 s watchdogs at a load of 13 to 25) and is owed on a
-quiet machine. Eleven suites, 149 tests, pass.
-
-**Predictions.** 1 (no existing shape's bytes move) held; only the option arms' digests move, each
-being one digest over every coverage row. 7 (test time): the suite ran in 33 s for nine functions,
-against "under 30 s for the 27". 2 to 6 wait for the runner measurement.
-
-**Review** (`/code-review high`, one round): arms with no baked lane count explain the call's
-refusal (`VarkaMatrixRuns.isUnbakedWidthDecline`); the allocation test runs first, at the host's
-lane count only; `skips.tsv` lists the math rows of those arms (the CI fix). Kept: `asin`,
-`acos`, `atan` call `StrictMath` per 2.1, the `Math` reference catching a JDK that departs.
-
-**Left of 356a.** `atan2` (356a2: `MathBinary`, the `+ 0.0` on each side); the IR fuzz productions
-(with the grammar's floating arithmetic); the live-word narrowing and its plant (345b, 2.9); the
-vectors files; the warm-up reach entries; the cost register's feature; the runner measurement.
+**Review** (`/code-review high`): arms with no baked lane count explain the call's refusal
+(`VarkaMatrixRuns.isUnbakedWidthDecline`), and `skips.tsv` lists the math rows of those arms.
+**Left of 356a:** `atan2` (356a2), the IR fuzz productions, the live-word narrowing (345b, 2.9),
+the vectors files and the runner measurement.
 
 ### Decisions taken while the owner was away (20 November 2026)
 
-1. **356a before 345b and 358a**, by the window's mode of building as much of the row as possible:
-   of 345b only the `LANE_CALL` lowering, with no `MathForm` field (345b adds it with `PORT` and
-   `LIBRARY`), no test hook and no vectors format. No function of 356 needs 358a's domain null.
-2. **The call unrolled over `lane` and `withLane`, not 2.2's scratch loop** (a per-node scratch
-   region only a calendar prefix has today); C2 keeps the vector unboxed, and the price is a baked
-   lane count, `validityByWidth=false` declining by name. The scratch loop is the one to measure.
-3. **Every lane is called, dead ones too.** The call is pure, so only a dead lane's time differs;
-   the live-word narrowing and its plant (3 test 4) are left to 345b, which owns 2.9.
-4. **The fixed vectors are generated in the suite**; they move to `sql/varka/math/<fn>.vectors`
-   when 345b's format exists.
-5. **The form is named in each coverage row's note**, 345a2's column not being merged.
-6. **This part rewrites the nine functions' census lines** to `done` and `356` (open point 5).
-7. **A function not yet built declines as "<fn> is row 35x's: not fused yet"**.
-8. **The `PORT` arms are the next part.** The owner's rule, given during the window: each fdlibm
-   port (`asin`, `acos`, `atan`, `atan2`) is ported to `vfdlibm` from its committed
-   `reference/fdlibm-5.3/` C, never the JDK, any departure proven in `PROOFS.md` with a hinge
-   test, tested bit for bit against `StrictMath` at every species, and Varka's kernel is
-   cross-checked lane for lane against `VFdlibm.<fn>` (`vfdlibm`'s `PLAN.md` 2), one function per
-   branch, as two pull requests. Not started: Varka's side needs 345b's `PORT` frame, IR helpers
-   and the `exp` template (`VARKA-345.md` 5 step 4), and the trigonometric ports come after
-   `exp`'s (5 item 5). A test path from Varka's suites to `vfdlibm` is owed with the first port.
+1. **356a before 345b and 358a**: of 345b only the `LANE_CALL` lowering. No function of 356 needs
+   358a's domain null.
+2. **The call is unrolled over `lane` and `withLane`, not 2.2's scratch loop**: C2 keeps the vector
+   unboxed, and the price is a baked lane count. The scratch loop is the one to measure.
+3. **Every lane is called, dead ones too**: the call is pure. The live-word narrowing is 345b's.
+4. **The `PORT` arms are the next part.** Each fdlibm port (`asin`, `acos`, `atan`, `atan2`) is
+   ported to `vfdlibm` from its committed C, never the JDK, any departure proven in `PROOFS.md`,
+   and Varka's kernel is cross-checked lane for lane against `VFdlibm.<fn>`. Varka's side needs
+   345b's `PORT` frame and the `exp` template first.
