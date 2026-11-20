@@ -299,13 +299,13 @@ switch selection at run time, `m7` row 374's two-lane x86 fallback, and 331's bo
 *20 November 2026, built in the owner's absence on branch `varka-375-mask-from-long-arm` off
 `342ed6851f8`; local only, nothing pushed or dispatched.*
 
-### 9.0 Decisions taken while the owner was away (20 November 2026)
+### 9.2 Decisions taken while the owner was away (20 November 2026)
 
 1. **The build half is built before the admission run, behind its option, default off.** Section 0
    item 2 says not to build it until the `UseSVE=1` run admits it; the brief for this window asked
    for the alternative so that x86 tests can force it, and the run cannot be made in the window
    (no dispatches). Building it changes nothing at the defaults (section 3.2 holds: the bytes
-   oracle is unchanged, 9.2), so the order costs nothing if the run closes the row on the record:
+   oracle is unchanged, 9.4), so the order costs nothing if the run closes the row on the record:
    the option then stays an arm, as `fromLongMasks` does. The run still decides whether any host
    gets it; this section does not admit it.
 2. **The `UseSVE=1` run goes through the canary, as one more fixed `probe` line on aarch64**, the
@@ -340,12 +340,12 @@ switch selection at run time, `m7` row 374's two-lane x86 fallback, and 331's bo
    are now one emitter method, `VarkaVectorWalk.emitFromLong`.
 8. **The x86 long-at-128-bits cell is settled by the probe, not by a census cell.** Section 0
    predicted the construction would not rescue it; the laptop's probe at `MaxVectorSize=16`
-   shows both forms allocating there (9.1), so no census cell is added.
+   shows both forms allocating there (9.3), so no census cell is added.
 9. **The template warm-up makes each lane's mask both ways** (`VarkaVectorTemplateWarmup.masks`),
    by section 0's warm-up rule, though `VarkaWarmupReachSuite` would not catch the omission: it
    reads the Vector API calls a kernel's bytes make, and the kernel calls the helper.
 
-### 9.1 What was built and measured
+### 9.3 What was built and measured
 
 * `VarkaMaskFromWord` (catalyst main): `ofByte`, `ofShort`, `ofInt`, `ofLong`, `ofFloat`,
   `ofDouble`, and `of` by element type for the warm-up and the tests.
@@ -363,15 +363,15 @@ switch selection at run time, `m7` row 374's two-lane x86 fallback, and 331's bo
   x86, is **confirmed**, and worse than the inference: the construction allocates more, since its
   compare and its cast both make two-lane masks.
 
-### 9.2 Tests
+### 9.4 Tests
 
 `VarkaMaskFromWordSuite` (own JVM): the construction equals `fromLong` for all six lane types at
 64, 128, 256 and 512 bits over 4,196 words; under `maskFromWord` no coverage row's kernel calls
 `fromLong` and most call the construction; at the defaults none calls it. The answers under the
 option are the coverage differential's and the fuzzer's, run under
-`-Dvarka.matrix.config=maskFromWord=true` and at `lanesOverride=4` as well (section 9.3).
+`-Dvarka.matrix.config=maskFromWord=true` and at `lanesOverride=4` as well (section 9.5).
 
-### 9.3 What is owed
+### 9.5 What is owed
 
 * **The canary run on the Arm runner** (`varka-canary.yml`, `canary=MathLaneProbe`): its
   `fromlong-usesve1` pass scores predictions 1 and 2 of 6.1 and (a) and (b) of section 0, and its

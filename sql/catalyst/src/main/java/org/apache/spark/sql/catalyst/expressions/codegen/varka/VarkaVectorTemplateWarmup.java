@@ -874,7 +874,7 @@ final class VarkaVectorTemplateWarmup {
         // The narrow arithmetic (VARKA-330): the lane's add, subtract and multiply, the lanewise
         // NEG and ABS the emitter negates and takes abs with, the saturating operators the ANSI
         // overflow check compares against, and the mask calls a range test makes - fromLong is
-        // the masked body's guard collect.
+        // the masked body's guard collect, and VarkaMaskFromWord its form under maskFromWord.
         ByteVector sum = a.add(b);
         ByteVector satAdd = a.lanewise(VectorOperators.SADD, b);
         VectorMask<Byte> inRange = sum.compare(VectorOperators.EQ, satAdd);
@@ -886,6 +886,7 @@ final class VarkaVectorTemplateWarmup {
             + a.lanewise(VectorOperators.NEG).lane(1)
             + a.lanewise(VectorOperators.ABS).lane(1)
             + VectorMask.fromLong(s, 0x5L).and(inRange).toLong()
+            + VarkaMaskFromWord.of(s, acc).toLong()
             + a.lanewise(VectorOperators.SSUB, b).lane(0)
             + a.compare(VectorOperators.GT, (byte) 0).toLong()
             // The condition as a value (VARKA-332): 1 added under the known-true mask.
@@ -921,6 +922,7 @@ final class VarkaVectorTemplateWarmup {
             + a.lanewise(VectorOperators.NEG).lane(1)
             + a.lanewise(VectorOperators.ABS).lane(1)
             + VectorMask.fromLong(s, 0x5L).and(inRange).toLong()
+            + VarkaMaskFromWord.of(s, acc).toLong()
             + a.lanewise(VectorOperators.SSUB, b).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
             // The condition as a value (VARKA-332): 1 added under the known-true mask.

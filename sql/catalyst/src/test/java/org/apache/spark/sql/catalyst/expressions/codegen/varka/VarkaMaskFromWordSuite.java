@@ -103,7 +103,9 @@ public final class VarkaMaskFromWordSuite {
     for (int bits : new int[] {64, 128, 256, 512}) {
       for (Class<?> type : LANE_TYPES) {
         var s = VectorSpecies.of(type, VectorShape.forBitSize(bits));
-        // Enough rounds that the method is compiled, by C2 among others, while it is checked.
+        // The species is not a constant here, so whatever is compiled runs the Vector API's Java
+        // forms: this checks the construction's arithmetic. Its intrinsic forms, at a kernel's
+        // constant species, are checked by the coverage differential under the option.
         for (int round = 0; round < 3; round++) {
           wrong.addAll(differences(s, words));
         }

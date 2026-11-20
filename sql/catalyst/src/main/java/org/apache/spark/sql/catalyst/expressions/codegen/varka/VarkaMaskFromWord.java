@@ -43,7 +43,14 @@ import jdk.incubator.vector.VectorSpecies;
  *
  * <p>Each method is small and reads its species once, so C2 inlines it into a kernel and folds the
  * branches on the lane count, whose species is a constant there. The constant vectors are loads
- * from the tables below; nothing writes them.
+ * from the tables below; nothing writes them. A species of at most 64 lanes is served, as many as
+ * a word describes and more than any species up to 512 bits has; a wider one throws from the
+ * tables' loads.
+ *
+ * <p>Where the construction is itself a fallback: the byte and short forms past one element's
+ * lanes need a rearrange, which x86 C2 lowers for bytes only with AVX-512 VBMI at 512 bits and for
+ * shorts only with AVX512BW; and any mask of two 64-bit lanes on x86, which C2 does not lower at
+ * all (m7 row 374). {@code fromLong} is the default for those hosts.
  */
 public final class VarkaMaskFromWord {
 
