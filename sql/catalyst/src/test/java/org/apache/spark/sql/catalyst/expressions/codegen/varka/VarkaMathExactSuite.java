@@ -314,15 +314,12 @@ public final class VarkaMathExactSuite {
       + "differ")
   void otherClassIsCaught() {
     assumeTrue(VarkaHostIsa.isX86(System.getProperty("os.arch")), "the classes differ on x86");
-    VarkaMathFault.plantForTesting(VarkaMathFault.OTHER_CLASS);
-    try {
-      for (Fn f : FUNCTIONS) {
-        long n = sampledMismatches(f, VarkaMatrixRuns.BASE, new ArrayList<>());
-        assertTrue(f.trig() ? n > 0 : n == 0, f.name() + " under the planted call: " + n
-            + " mismatches");
-      }
-    } finally {
-      VarkaMathFault.plantForTesting(VarkaMathFault.NONE);
+    VarkaEmitOptions planted =
+        VarkaMatrixRuns.BASE.withFloatingFault(VarkaEmitOptions.FloatingFault.MATH_OTHER_CLASS);
+    for (Fn f : FUNCTIONS) {
+      long n = sampledMismatches(f, planted, new ArrayList<>());
+      assertTrue(f.trig() ? n > 0 : n == 0, f.name() + " under the planted call: " + n
+          + " mismatches");
     }
   }
 

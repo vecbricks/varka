@@ -608,7 +608,7 @@ lane count (`Kind.MATH_CALL`), and `VarkaEmitBudget` weighs a call as 16 lane op
 `cot` to `IntArith(DIV, WRAP, 1.0, call)`; `atan2` and rows 357 and 358 decline as "... is row
 35x's: not fused yet". `ownerOf` became a table of classes, which `VarkaCoverageSuite`'s source scan
 reads, so only lowered classes count as admitted. `VarkaReference` evaluates by `Math`'s methods; a
-test-only `VarkaMathFault.OTHER_CLASS` plants the other class's method.
+test-only `VarkaEmitOptions.FloatingFault.MATH_OTHER_CLASS` (an emit option since #1557 moved every fault into the options) plants the other class's method.
 
 **Tests.** `VarkaMathExactSuite` (new, own JVM): 2^24 sampled inputs a function over five draws
 (uniform bits, the domain, `[-2, 2]`, magnitudes to `2^-60`, and `2^20` to `1e300` for the

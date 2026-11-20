@@ -699,7 +699,14 @@ public record VarkaEmitOptions(
      * {@code degrees} multiplying by the constant rounded to nine digits rather than by
      * {@code Math.toDegrees(1.0)}'s bits, which differs from Spark's answer in the last bits.
      */
-    DEGREES_ROUNDED;
+    DEGREES_ROUNDED,
+    /**
+     * A math function's per-lane call of the other class's method, {@code StrictMath.sin} for
+     * Spark's {@code Math.sin} and {@code Math.asin} for {@code StrictMath.asin}: on x86 the
+     * first differs from Spark's answer for {@code sin}, {@code cos} and {@code tan} on thousands
+     * of inputs in a million, and the second never does, since {@code Math} delegates there.
+     */
+    MATH_OTHER_CLASS;
   }
 
   /**

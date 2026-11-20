@@ -1207,8 +1207,9 @@ final class VarkaVectorWalk {
       throw VarkaErrors.illegalState("a per-lane " + fn + " needs a double vector at a baked "
           + "lane count of a 64-bit drive lane, not " + lane + " at " + analysis.lanes);
     }
-    String called = VarkaMathFault.planted() == VarkaMathFault.OTHER_CLASS
-        ? otherClass(fn.owner()) : fn.owner();
+    String called =
+        analysis.options.floatingFault() == VarkaEmitOptions.FloatingFault.MATH_OTHER_CLASS
+            ? otherClass(fn.owner()) : fn.owner();
     ClassDesc owner = ClassDesc.ofInternalName(called);
     for (int k = 0; k < analysis.lanes; k++) {
       cb.dup();                                                 // [v, v]
