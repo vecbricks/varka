@@ -33,7 +33,8 @@ import org.apache.spark.sql.execution.{CoalesceExec, CollectLimitExec, GlobalLim
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.exchange.{ReusedExchangeExec, ShuffleExchangeExec}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, LongType, TimeType}
+import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, DoubleType, FloatType,
+  IntegerType, LongType, ShortType, TimeType}
 
 /**
  * The decimal baseline's sections, run at a small scale on both sessions in every build, so a
@@ -48,6 +49,15 @@ import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, LongType,
  * a null (with ANSI mode off) fails here rather than going into the timed run as a cheap null.
  */
 class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
+
+  /** Runs `body` with the section's SQL settings on both sessions. */
+  private def withSettings(s: VarkaDecimalBaselineBenchmark.Section)(body: => Unit): Unit = {
+    def run(settings: List[(String, String)]): Unit = settings match {
+      case (key, value) :: rest => withBothConf(key, value)(run(rest))
+      case Nil => body
+    }
+    run(s.conf.asScala.toList)
+  }
 
   /** Runs `body` with the benchmark's table, at `rows` rows, cached on both sessions. */
   private def withTable(rows: Int)(body: => Unit): Unit = {
@@ -82,12 +92,16 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         Seq("z20", "z20n").map(_ -> DecimalType(20, 2)) ++
         Seq("y20s4", "y20s4n").map(_ -> DecimalType(20, 4)) ++
         Seq("x38s2", "x38s2n", "y38s2", "y38s2n").map(_ -> DecimalType(38, 2)) ++
-        Seq("l", "ln").map(_ -> LongType)
+        Seq("l", "ln").map(_ -> LongType) ++
+        // The cast sections' columns of row 350, after the BIGINT.
+        Seq("x15s4", "x15s4n").map(_ -> DecimalType(15, 4)) ++
+        Seq("x18s14", "x18s14n").map(_ -> DecimalType(18, 14)) ++
+        Seq("l16", "l16n").map(_ -> LongType)
       val schema = spark.table("varka_decimal").schema
       assert(schema.map(f => f.name -> f.dataType) === expected)
 
       val sections = VarkaDecimalBaselineBenchmark.sections(false).asScala
-      assert(sections.size === 126)
+      assert(sections.size === 166)
       // The result type of each shape, as Spark's decimal rules give it: the chain widens at each
       // node and is capped at 38, and the cast is the one the precision names. The time sections
       // are time_to_seconds, DECIMAL(14, 6), and the seconds with their fraction, DECIMAL(8, 6).
@@ -100,7 +114,8 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // DECIMAL(23, 2) and DECIMAL(25, 4); the products are x15 * y15, DECIMAL(31, 4),
       // x15 * (1 - y15), DECIMAL(32, 4), l * x9, DECIMAL(30, 2), and l * x18, whose precision 39
       // Spark caps at 38 keeping the scale (VARKA-361.md 0 item 5), DECIMAL(38, 4). Their two
-      // filters return x20 and x15.
+      // filters return x20 and x15. The casts of row 350 have their targets' types, the filter
+      // returning x9.
       val chain = Map(9 -> DecimalType(21, 4), 18 -> DecimalType(38, 7), 38 -> DecimalType(38, 6))
       val resultTypes = VarkaDecimalBaselineBenchmark.PRECISIONS.asScala.flatMap { p =>
         val own = DecimalType(p.precision, p.scale)
@@ -122,8 +137,22 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           .flatMap(t => Seq.fill(4)(t)) ++
         Seq.fill(2)(Seq(DecimalType(21, 2), DecimalType(23, 4), DecimalType(38, 2),
           DecimalType(23, 2), DecimalType(25, 4), DecimalType(20, 2), DecimalType(31, 4),
-          DecimalType(32, 4), DecimalType(30, 2), DecimalType(38, 4), DecimalType(15, 2))).flatten
-      assert(sections.map(s => spark.sql(s.query).schema.head.dataType) === resultTypes)
+          DecimalType(32, 4), DecimalType(30, 2), DecimalType(38, 4), DecimalType(15, 2)))
+          .flatten ++
+        Seq.fill(2)(Seq(LongType, IntegerType, IntegerType, ShortType, DoubleType, FloatType,
+          DecimalType(9, 0), DecimalType(9, 2), LongType, IntegerType, DoubleType, FloatType,
+          DecimalType(18, 2), FloatType, IntegerType, IntegerType, DoubleType, FloatType,
+          DecimalType(18, 2), DecimalType(18, 2))).flatten
+      // The one section null on most rows by design; named once, so a reworded title fails here.
+      val mostlyNullTitle = "try_cast(x AS SMALLINT), past the range on most rows"
+      assert(sections.count(_.title.contains(mostlyNullTitle)) === 2)
+      val castSections = sections.drop(126)
+      assert(castSections.forall(_.fusion == VarkaSqlBenchmarkBase.Fusion.NONE))
+      var types = Seq.empty[DataType]
+      for (s <- sections) {
+        withSettings(s)(types :+= spark.sql(s.query).schema.head.dataType)
+      }
+      assert(types === resultTypes)
       def condition(query: String): Expression = spark.sql(query).queryExecution.analyzed
         .collectFirst { case f: Filter => f.condition }.get
       def comparison(query: String): BinaryComparison = condition(query) match {
@@ -189,12 +218,20 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           assert(!values.exists(_.isNullAt(0)))
         }
       }
+      // A section over the columns with no null answers no null, but for the TRY cast whose
+      // operand is past the target's range on most rows by design, which answers null there.
       for (s <- sections) {
         withClue(s.title) {
-          val answer = spark.sql(s.query).collect().toSeq
-          checkAnswer(varkaSpark.sql(s.query), answer)
-          if (s.title.endsWith("no nulls")) {
-            assert(!answer.exists(_.isNullAt(0)))
+          withSettings(s) {
+            val answer = spark.sql(s.query).collect().toSeq
+            checkAnswer(varkaSpark.sql(s.query), answer)
+            val mostlyNull = s.title.contains(mostlyNullTitle)
+            if (s.title.endsWith("no nulls") && !mostlyNull) {
+              assert(!answer.exists(_.isNullAt(0)))
+            }
+            if (mostlyNull) {
+              assert(answer.count(_.isNullAt(0)) > rows / 2)
+            }
           }
         }
       }
@@ -228,8 +265,10 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           varkaSpark.conf.set(key, declines.toString)
           for (s <- VarkaDecimalBaselineBenchmark.sections(declines).asScala) {
             withClue(s"${s.title}, refusal $declines") {
-              val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-              assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+              withSettings(s) {
+                val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+                assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+              }
             }
           }
         }
