@@ -137,5 +137,51 @@ committed files are unchanged.
 
 ## 11. Outcome
 
-*Filled in when the work lands: the runs with their commands, section 6.1's predictions scored
-one by one, and what moved that this plan did not list.*
+Built on 20 November 2026, on branch `varka-615-width-audit-admission`, in the window the owner
+set for local work (no push, no CI).
+
+**What was built.** As section 3.1 plans it, with one addition the review asked for (below):
+`coverageRows(coverageJson, admission, keep)` compiles the rows whose SQL `keep` accepts under
+`admission`, `predicateRow` takes the admission, and the one-argument form passes
+`hostAdmission` and every row. The d18 `IN` test asks under `NO_HOST_REFUSAL` for that one row
+and requires a `Shape`, then under the host's admission as before.
+
+**The runs.** Both with `SPARK_LOCAL_IP=127.0.0.1`, each a fresh `build/sbt` under the heavy lock:
+
+| run | command | result | the test's time |
+|---|---|---|---|
+| defaults | `build/sbt 'catalyst/testOnly *VarkaWidthAuditSuite -- -z "d18 IN row"'` | passed | 44 s |
+| sweep flags | the same under `JDK_JAVA_OPTIONS='-XX:UseAVX=2 -XX:MaxVectorSize=16'` | passed | 34 s |
+
+The test does not print which branch the host's half took, so that half is inferred, not seen:
+`hostAdmission` refuses where `VarkaKernelPlan.twoLaneMasksFallBack` holds, which on x86 reads
+the running JVM's preferred long species, two lanes under `MaxVectorSize=16`; and the committed
+census agrees, `width_audit.json`'s `"128"` width recording this row as the two-lane decline.
+`git status --porcelain` after both runs listed only the four files this change edits.
+
+**Predictions scored.**
+
+1. *Under the sweep's flags the host's half declines with the two-lane reason and the
+   `NO_HOST_REFUSAL` half is a `Shape`; at the defaults both are `Shape`s.* Half observed. The
+   `NO_HOST_REFUSAL` half is asserted a `Shape` and passed in both runs; the host's half passed
+   both runs, and which of its two accepted answers it gave is inferred as above, not printed.
+2. *The added time is one more compile of one row, under 1 s.* Not measured directly: no run of
+   the unchanged test was taken to subtract, so the 44 s and 34 s are the whole test, almost all
+   of it the host half's compile of the 765-row table, which the test paid before this change.
+   As first written the new half compiled the whole table a second time, which the review caught
+   against this prediction; with the `keep` filter it compiles the one row.
+
+**What the plan did not list.** The `keep` parameter, below.
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **`coverageRows` takes a row filter beside the admission.** Section 3.1 gives the two-argument
+   form an admission alone; the review found that the new half then compiled all 765 rows to
+   read one. The form is `coverageRows(coverageJson, admission, keep)`, the filter applied before
+   any row resolves or compiles. The one-argument form passes every row, so the probe, `all` and
+   the census are unchanged, which is the plan's own constraint.
+
+**Review.** `/code-review high` on the WIP commit found four nits, all fixed in one round: the
+whole-table second compile (the `keep` filter), a comment in the projection branch that still
+said "on the host's terms" after the branch took any admission, a doc paragraph left unevenly
+wrapped, and the plan record not yet written (this section and row 615's note).

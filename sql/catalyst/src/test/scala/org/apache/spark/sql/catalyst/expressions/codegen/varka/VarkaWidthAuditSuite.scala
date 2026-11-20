@@ -367,15 +367,22 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     val resolved = VarkaWidthAuditShapes.resolvedRow(executable, catalyst)
     assert(resolved.isInstanceOf[InSet],
       s"the audit resolved the row to ${resolved.getClass.getSimpleName}: $resolved")
-    // The audit's own path: on a host that compiles the row's condition the row is a shape, not
-    // a decline. The two forms lower alike, so the census alone cannot tell which one was
-    // audited. On an x86 host whose 64-bit species have two lanes or fewer, C2 lowers no mask
-    // for a filter's condition, so the audit declines this row's condition before its shape can
-    // matter; that decline is the row's answer there, and any other decline is a failure
-    // (VARKA-607).
-    val audited = VarkaWidthAuditShapes.coverageRows(coverageJson)
-      .find(_.name == sql).getOrElse(fail(s"the audit has no entry for '$sql'"))
-    audited match {
+    // The audit's own path, with the two-lane refusal off: on every host the row is a shape,
+    // not a decline. The two forms lower alike, so the census alone cannot tell which one was
+    // audited (VARKA-615).
+    def audited(entries: Seq[VarkaWidthAuditShapes.Entry]): VarkaWidthAuditShapes.Entry =
+      entries.find(_.name == sql).getOrElse(fail(s"the audit has no entry for '$sql'"))
+    val unrefused =
+      VarkaWidthAuditShapes.coverageRows(coverageJson, VarkaAdmission.NO_HOST_REFUSAL, _ == sql)
+    audited(unrefused) match {
+      case _: VarkaWidthAuditShapes.Shape =>
+      case other => fail(s"the audit did not compile the row with no host refusal: $other")
+    }
+    // On the host's terms, as the census records it: on an x86 host whose 64-bit species have
+    // two lanes or fewer, C2 lowers no mask for a filter's condition, so the audit declines this
+    // row's condition before its shape can matter; that decline is the row's answer there, and
+    // any other decline is a failure (VARKA-607).
+    audited(VarkaWidthAuditShapes.coverageRows(coverageJson)) match {
       case _: VarkaWidthAuditShapes.Shape =>
       case VarkaWidthAuditShapes.Declined(_, VarkaKernelPlan.TWO_LANE_CONDITION_REASON) =>
       case other =>

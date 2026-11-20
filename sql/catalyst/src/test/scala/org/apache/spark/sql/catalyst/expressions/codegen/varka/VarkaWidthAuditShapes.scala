@@ -144,11 +144,26 @@ object VarkaWidthAuditShapes {
    * declines and a missing row would be an error, since `VarkaCoverageSuite` holds that every
    * row fuses; a width the row's load cannot be named at is a real answer about that width -
    * the audit's job - so it is recorded with the compiler's reason instead
-   * (`VarkaWidthAuditSuite` asserts the preferred width has none).
+   * (`VarkaWidthAuditSuite` asserts the preferred width has none). Every caller that writes or
+   * reads the census compiles on the host's terms, which this form keeps.
    */
-  def coverageRows(coverageJson: File): Seq[Entry] = {
+  def coverageRows(coverageJson: File): Seq[Entry] =
+    coverageRows(coverageJson, hostAdmission, _ => true)
+
+  /**
+   * The coverage rows whose SQL `keep` accepts, compiled under `admission` rather than the
+   * host's: a test asks with `VarkaAdmission.NO_HOST_REFUSAL` whether the audit's path compiles
+   * a row that a two-lane host refuses, as `VarkaWarmupReach` does. Nothing that writes the
+   * census passes one.
+   */
+  def coverageRows(
+      coverageJson: File,
+      admission: VarkaAdmission,
+      keep: String => Boolean): Seq[Entry] = {
     val doc = new ObjectMapper().readTree(coverageJson)
-    doc.get("expressions").elements().asScala.toSeq.map { e =>
+    val rows = doc.get("expressions").elements().asScala.toSeq
+      .filter(e => keep(e.get("sql").asText()))
+    rows.map { e =>
       val sql = e.get("sql").asText()
       val executable = Option(e.get("executable")).map(_.asText()).getOrElse(sql)
       val form = e.get("form").asText()
@@ -164,19 +179,19 @@ object VarkaWidthAuditShapes {
             throw new IllegalArgumentException(s"coverage row '$sql': ${e.getMessage}", e)
         }
       if (form == "predicate") {
-        predicateRow(sql, resolved)
+        predicateRow(sql, resolved, admission)
       } else {
-        // On the host's terms too: a two-lane x86 host refuses a BOOLEAN row over a decimal
-        // column (VARKA-596) and a checked BIGINT operation (VARKA-104), as a predicate row's
-        // 64-bit condition is.
+        // On `admission`'s terms too: under the host's, a two-lane x86 host refuses a BOOLEAN
+        // row over a decimal column (VARKA-596) and a checked BIGINT operation (VARKA-104), as
+        // a predicate row's 64-bit condition is.
         val list = Seq[NamedExpression](Alias(resolved, "c")())
         VarkaExpressionCompiler.compilePartial(list, columns, VarkaEmitOptions.DEFAULTS,
-            hostAdmission).toScala
+            admission).toScala
           .filter(_.specs.asScala.forall(_.isInstanceOf[VarkaOutputSpec.FusedOutput]))
           .map(_.fused) match {
           case Some(c) => Shape(sql, c.outputs.asScala.toSeq, c.inputOrdinals.size, c.numLiterals)
           case None => Declined(sql, VarkaExpressionCompiler.declines(list, columns,
-            VarkaEmitOptions.DEFAULTS, hostAdmission).asScala.values.map(_.reason).mkString("; "))
+            VarkaEmitOptions.DEFAULTS, admission).asScala.values.map(_.reason).mkString("; "))
         }
       }
     }
@@ -187,18 +202,19 @@ object VarkaWidthAuditShapes {
     VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host()))
 
   /**
-   * A predicate row on the host's own terms: an x86 host at two 64-bit lanes or fewer refuses a
-   * filter's condition in a kernel driven at a 64-bit lane (VARKA-503), which is this width's
-   * answer as a narrow load's is. A row with a conjunct the host refused is declined, though the
-   * others fused: its kernel is not the row's, so C2's verdict on it would record the row as
-   * vectorized when the refused part runs on the row path. The reason names the refused conjunct
-   * where another one fused. A row that fused in part for any other reason records the fused
-   * kernel's shape, as before the refusal, since that is a property of the row and not of the
-   * width; one with nothing fused is declined with every conjunct's reason.
+   * A predicate row on `admission`'s terms, the host's own unless a test asks otherwise. On the
+   * host's terms an x86 host at two 64-bit lanes or fewer refuses a filter's condition in a
+   * kernel driven at a 64-bit lane (VARKA-503), which is this width's answer as a narrow load's
+   * is. A row with a conjunct the host refused is declined, though the others fused: its kernel
+   * is not the row's, so C2's verdict on it would record the row as vectorized when the refused
+   * part runs on the row path. The reason names the refused conjunct where another one fused. A
+   * row that fused in part for any other reason records the fused kernel's shape, as before the
+   * refusal, since that is a property of the row and not of the width; one with nothing fused
+   * is declined with every conjunct's reason.
    */
-  private def predicateRow(sql: String, resolved: Expression): Entry = {
+  private def predicateRow(sql: String, resolved: Expression, admission: VarkaAdmission): Entry = {
     val explained = VarkaExpressionCompiler.explainAndCompilePredicate(resolved, columns,
-      VarkaEmitOptions.DEFAULTS, hostAdmission)
+      VarkaEmitOptions.DEFAULTS, admission)
     val specs = explained.specs.asScala.toSeq
     val refused = specs.filterNot(_.fused)
     // The spec carries the reason and not the refusal's kind; the reason is the kind's alone.
