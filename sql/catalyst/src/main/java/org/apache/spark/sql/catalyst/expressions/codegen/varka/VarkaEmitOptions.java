@@ -704,7 +704,13 @@ public record VarkaEmitOptions(
      * {@code degrees} multiplying by the constant rounded to nine digits rather than by
      * {@code Math.toDegrees(1.0)}'s bits, which differs from Spark's answer in the last bits.
      */
-    DEGREES_ROUNDED;
+    DEGREES_ROUNDED,
+    /**
+     * The canonicalisation without its add of zero (VARKA-337 3.9): the NaN blend alone, so
+     * {@code -0.0} keeps its sign bit where Spark's {@code NormalizeNaNAndZero} answers
+     * {@code 0.0}.
+     */
+    CANONICAL_ZERO_DROPPED;
   }
 
   /**
