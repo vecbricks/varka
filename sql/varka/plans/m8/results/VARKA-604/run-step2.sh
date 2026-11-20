@@ -18,6 +18,7 @@
 # Row 604's step-2 probe (VARKA-604.md 9.2): three JVMs a mode at two long lanes, no compile
 # commands. CP is a file holding catalyst's test classpath (build/sbt 'export
 # catalyst/Test/fullClasspath', its last line); OFF=1 switches the template warm-up off.
+# BOTH=1 runs the modes that serve both operations in one JVM.
 here="$(cd "$(dirname "$0")" && pwd)" || exit 1
 out="${P604_OUT:-$HOME/p604-step2}"
 mkdir -p "$out" || exit 1
@@ -33,6 +34,7 @@ run() {
 specs=("alone rem" "mixed rem" "warm rem" "warm-mixed rem" "mixed-late rem" "mixed pmod"
   "warm-mixed pmod")
 [ -n "$off" ] && specs=("alone rem" "mixed rem" "mixed pmod")
+[ -n "${BOTH:-}" ] && specs=("mixed both" "warm-mixed both")
 for spec in "${specs[@]}"; do
   read -r mode op <<< "$spec"
   for i in 1 2 3; do run "$mode" "$op" & done; wait

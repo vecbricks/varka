@@ -49,7 +49,11 @@ public class Probe604b {
 
   public static void main(String[] args) {
     String mode = args[0];
-    boolean pmod = args.length > 1 && args[1].equals("pmod");
+    // "both" runs x % y, then pmod, then x % y again in this one JVM, so that loop64 is compiled
+    // with both arms of its pmod branch, as a JVM serving both operations compiles it.
+    String op = args.length > 1 ? args[1] : "rem";
+    boolean[] ops = op.equals("both") ? new boolean[] {false, true, false}
+        : new boolean[] {op.equals("pmod")};
     var threads = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
     boolean late = mode.contains("late");
     if (mode.contains("warm") && !late) {
@@ -88,22 +92,24 @@ public class Probe604b {
       long xa = x.address();
       long ya = y.address();
       long oa = out.address();
-      for (int c = 0; c < 20_000; c++) {
-        VarkaDecimalRemainderOps.remainder(xa, ya, oa, words, 64, pmod);
+      for (boolean pmod : ops) {
+        for (int c = 0; c < 20_000; c++) {
+          VarkaDecimalRemainderOps.remainder(xa, ya, oa, words, 64, pmod);
+        }
+        long end = System.nanoTime() + 8_000_000_000L;
+        while (System.nanoTime() < end) {
+          VarkaDecimalRemainderOps.remainder(xa, ya, oa, words, N, pmod);
+        }
+        int reps = 256;
+        long before = threads.getCurrentThreadAllocatedBytes();
+        for (int k = 0; k < reps; k++) {
+          VarkaDecimalRemainderOps.remainder(xa, ya, oa, words, N, pmod);
+        }
+        long bytes = threads.getCurrentThreadAllocatedBytes() - before;
+        System.out.printf("mode=%s op=%s L=%d bytes/row=%.3f bytes/call=%.1f%n", mode,
+            pmod ? "pmod" : "rem", LongVector.SPECIES_PREFERRED.length(),
+            bytes / (double) (N * reps), bytes / (double) reps);
       }
-      long end = System.nanoTime() + 8_000_000_000L;
-      while (System.nanoTime() < end) {
-        VarkaDecimalRemainderOps.remainder(xa, ya, oa, words, N, pmod);
-      }
-      int reps = 256;
-      long before = threads.getCurrentThreadAllocatedBytes();
-      for (int k = 0; k < reps; k++) {
-        VarkaDecimalRemainderOps.remainder(xa, ya, oa, words, N, pmod);
-      }
-      long bytes = threads.getCurrentThreadAllocatedBytes() - before;
-      System.out.printf("mode=%s op=%s L=%d bytes/row=%.3f bytes/call=%.1f%n", mode,
-          pmod ? "pmod" : "rem", LongVector.SPECIES_PREFERRED.length(),
-          bytes / (double) (N * reps), bytes / (double) reps);
     }
   }
 }

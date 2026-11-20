@@ -952,7 +952,8 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
     FI("inserted F", Layout.SLOTS),
     FS("split F", Layout.SPLIT),
     FT("transposed F", Layout.SLOTS),
-    // VARKA-604's arm: the engine's helper, its transpose out of line, its block reused.
+    // VARKA-604's arm: the engine's helper, its transpose out of line, its block reused. Its two
+    // operations share one compiled loop, the helper's loop64, with pmod an argument.
     FX("out-of-line F", Layout.SLOTS);
 
     final String title;

@@ -250,7 +250,9 @@ and under his implementation-first order of that morning (the decisions are in 1
 - **The spike's arm** "out-of-line F" (`Form.FX`, loops `loopRemainderFX` and `loopPmodFX`) calls
   the helper over the slots. The harness reads the arm's compile unit where the vector code is,
   `VarkaDecimalRemainderOps::loop64`: the code list's level and the intrinsic check's inlining
-  tree are read there, and the check does not look for a forced body in it.
+  tree are read there, and the check does not look for a forced body in it. Unlike every other
+  arm, the two operations' arms share one compiled method, so the `pmod` arm's reading is of a
+  `loop64` that may have been compiled with the other operation's profile, as in production.
 - **Test 5.1** is `VarkaDecimalRemainderOpsSuite`: both operations at 1, 3, 63, 64, 65, 4,096 and
   4,133 rows over the spike's edge rows against `BigInteger`, every zero-divisor word, the 64
   bytes past the batch left unwritten; a short block after a full block of the thread's reused
@@ -282,7 +284,11 @@ probe was re-run on it at two long lanes, three JVMs a mode, before building on 
 7). With the template warm-up on, 0 of 21 JVMs kept the residual, after the polluter or not, for
 `x % y` and `pmod`: 40 or 120 bytes a call, the segments the driver maps. With the warm-up off,
 6 of 6 JVMs after the polluter kept 16 bytes a row (65,656 bytes a 4,096-row call), and 0 of 3
-with no polluter. So the shape built here keeps the admission's verdict, and the control bites
+with no polluter. Each of those JVMs served one operation, so C2 compiled `loop64` with the
+other arm of its `pmod` branch pruned; a third run served `x % y`, then `pmod`, then `x % y`
+again in each JVM, the compile a JVM serving both makes, and 0 of 18 readings in 6 JVMs kept the
+residual, with the polluter and with the warm-up before it. So the shape built here keeps the
+admission's verdict, and the control bites
 every time without the warm-up, where the admission's bit in 8 of 9 JVMs. The helper's class
 initializer runs the warm-up at its first call (`beforeVectorCode`), so a JVM whose first vector
 code is a polluter is protected by the order the probe's "mixed-late" mode tests.
@@ -290,7 +296,8 @@ code is a polluter is protected by the order the probe's "mixed-late" mode tests
 **Test 5.3 at the helper's level**, `VarkaDecimalRemainderAllocationSuite`, an `ownJvm` at
 `-XX:MaxVectorSize=16 -XX:UseAVX=2`: the warm-up through the helper's first call, the polluter
 (moved from the probe into the test tree), then `VarkaAllocationSampler.suspect` false over
-4,096-row calls. Written, not run here (owed). The kernel-level form of 5.3, through
+4,096-row calls. One run on the laptop, with the spike suite: passed, 55 s for its own JVM
+(the spike suite's six cases, the new one included, passed in 9 s). The kernel-level form of 5.3, through
 `VarkaKernelWarmup`, waits for 577b's kernel.
 
 ### 9.3 Left for part 2 and after
@@ -373,3 +380,7 @@ code is a polluter is protected by the order the probe's "mixed-late" mode tests
    unread would have risked the done-when. The probe reads bytes a row, which the laptop's load
    does not move, and drives the helper as 577b's call will; it is re-run on 577b's master as 8
    says once the kernel calls it.
+8. **One run of each branch's new suite.** The brief allowed one quick targeted run of the new
+   suite; read per branch, part 1 ran `VarkaDecimalRemainderOpsSuite` and part 2 ran
+   `VarkaDecimalRemainderAllocationSuite`, each with the spike suite, since a first-run failure
+   of an `ownJvm` suite's flags is cheap to find before the test phase and dear after it.
