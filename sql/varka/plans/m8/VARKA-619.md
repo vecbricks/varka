@@ -39,10 +39,12 @@ row 619 named the second; the compiler test's red run met the first. The plan (`
 
 Two parts, either of which alone stops the failure:
 
-- **The emitter reads a chain of any depth.** `Analysis.unwidened` peels every widening, and the
-  `IsNotNull` case reads the column through it; at the long lane it marks every narrow node of the
-  chain as validity-only, the column and any narrow widening above it (a byte widened to the short
-  lane first, which the IR admits and the compiler does not build). Nothing else in the emitter
+- **The emitter reads a chain of any depth.** `VarkaVectorIR.unwidened` peels every widening, and
+  the `IsNotNull` case reads the column through it; at the long lane it marks every narrow node of
+  the chain as validity-only: the column by value (`validityOnlyNarrow`), and a narrow widening
+  above it (a byte widened to the short lane first, which the IR admits and the compiler does not
+  build) by identity (`validityOnlyWidenings`), since an equal widening read as a value elsewhere
+  in the kernel has no lowering and must still fail the lane rule. Nothing else in the emitter
   changed: the word reference of a widening is its child's (`Slots`, `Analysis.wordOwner`),
   recursively, so the test reads the column's word at any depth. `VarkaKernelPlan.readsColumnWord`,
   the double kernel's admission of a widened null test, peeled one level the same way and reads
@@ -54,8 +56,9 @@ Two parts, either of which alone stops the failure:
   emitted `widen:INT` as an int node), sets up an int species it does not use and prices the chain
   as emitted ops; the review found it (section 5).
 
-`VarkaConditionCompiler.java` is shared with other compiler rows; the change there is the one case
-of `onLongLane` and a five-line helper.
+`VarkaConditionCompiler.java` and `VarkaVectorIR.java` are shared with other rows; the changes
+there are one case of `onLongLane` and the thirteen-line `unwidened` helper, which the compiler, the
+analysis and the plan all call so that they cannot disagree on what a null test reads.
 
 ### 3.1 The other sites that peel one widening
 
@@ -83,3 +86,37 @@ Every `WidenLane` match in the emitter and the plan was read for the same mistak
 - The reproducer, now `status: regression`, replayed by `VarkaSparkReproducerSuite`.
 
 ## 5. Outcome
+
+Built on 20 November 2026 in the window the owner set (local commits only, no CI). Both parts as
+section 3 says; the tests of section 4 pass, and each new test was red before its part: the
+compiler test on master with the `INTERNAL_ERROR`, and the emitter test with `Analysis.java` and
+`VarkaKernelPlan.java` put back to master's (`IsNotNull child must be a ColumnRef`). Run green:
+`VarkaExpressionCompilerSuite`, `VarkaEmitterNarrowSuite`, `VarkaEmitterMixedLaneSuite`,
+`VarkaEmitterLongLaneSuite`, `VarkaEmitterValiditySuite`, `VarkaEmitterFloatingCastSuite`,
+`VarkaKernelPlanSuite`, `VarkaEmittedBytesSuite` (no pinned digest moved), `VarkaIrFuzzSuite` at its
+default seed, `VarkaCoverageSuite`, `VarkaCoverageCompositionFuzzSuite`, and
+`VarkaSparkReproducerSuite` with the reproducer as a `regression`, both of its tests passing; the sbt run with the sql/core compile took 523 s).
+
+Where the plan was wrong: row 619 named the lane rule as the failure; the analysis's child check
+threw first (section 2). The emitter test also needed its helper (`checkConds`) to run a 64-bit-lane
+kernel through its own entry point and answer it with the reference's mixed evaluator, which no
+narrow test had needed.
+
+Owed: `VarkaSparkFuzzSuite` at its default seed with the narrow columns drawn, which exists only on
+row 352's branch; that branch drops its `known VARKA-619` copy of the reproducer and its README line
+when it rebases on this one. The IR fuzzer draws no widened null test at the long lane; teaching it
+one moves pinned corpora, so it is left to row 352's sequences.
+
+## 6. Decisions taken while the owner was away (20 November 2026)
+
+- **Both parts, not one.** The row allowed the emitter or the compiler. The emitter part is the
+  general fix the row's done-when asks for (a chain of any depth); the compiler part keeps the
+  kernel the single-lane shape VARKA-480 already planned, which the first review showed the chain
+  alone does not.
+- **The reproducer is added here as a `regression`**, rather than left `known` on row 352's branch,
+  since this branch is the one that makes it agree; the two branches then touch the same file and
+  README line, and 352's rebase takes this side.
+- **`VarkaOperandPosition.admits` and `loweredAtLong` keep their one-level reads** (section 3.1):
+  each declines a deeper chain to the row engine, never fails, and the compiler builds neither
+  shape under a null test.
+
