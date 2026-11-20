@@ -1,0 +1,47 @@
+The last 40 runs of `benchmark.yml` on vecbricks/varka as of 21:30 CET on 20 November 2026, read with
+`gh run list -R vecbricks/varka --workflow benchmark.yml --limit 40`, by the hour each was created (UTC)
+and its conclusion. A failure here is the job's CPU probe refusing a runner that is not the expected
+AMD EPYC 7763; the two runners the failing runs named were an Intel Xeon 8573C and an AMD EPYC 9V45.
+
+success 26, failure 14.
+
+2026-11-10T20 success
+2026-11-10T21 failure
+2026-11-10T21 success
+2026-11-11T00 success
+2026-11-11T00 success
+2026-11-11T00 success
+2026-11-11T05 failure
+2026-11-11T05 success
+2026-11-11T05 success
+2026-11-11T05 success
+2026-11-11T06 failure
+2026-11-11T06 failure
+2026-11-11T06 failure
+2026-11-11T06 failure
+2026-11-11T07 failure
+2026-11-11T07 failure
+2026-11-11T07 success
+2026-11-11T07 success
+2026-11-11T07 success
+2026-11-11T07 success
+2026-11-11T09 failure
+2026-11-11T09 success
+2026-11-12T08 success
+2026-11-14T02 success
+2026-11-14T08 success
+2026-11-14T09 success
+2026-11-14T09 success
+2026-11-19T08 failure
+2026-11-19T08 success
+2026-11-19T22 failure
+2026-11-20T04 success
+2026-11-20T04 success
+2026-11-20T06 success
+2026-11-20T14 failure
+2026-11-20T14 failure
+2026-11-20T14 success
+2026-11-20T14 success
+2026-11-20T14 success
+2026-11-20T14 success
+2026-11-20T19 failure
