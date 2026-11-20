@@ -57,7 +57,9 @@ import org.apache.spark.sql.vectorized.ArrowColumnVector
  *  - after transitions, a to-row transition that did get inserted above such a node is fused with
  *    it into a [[VarkaColumnarToRowExec]], which runs the same kernels and converts their output
  *    to rows in one node. That is the plan a row consumer got before this two-stage split existed,
- *    unchanged.
+ *    unchanged, except that a projection whose residual entries outnumber its fused ones is left
+ *    to Spark there ([[VarkaPartialDecline]]), since only there is the consumer known to want
+ *    rows.
  *
  * The post stage also still matches a plain projection over a to-row transition, for a projection
  * the pre stage did not see - another columnar rule may have introduced it, and post rules run in
@@ -108,11 +110,11 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
             filter.wholeCondition, filter.sessionEmit)
         // A projection that fuses in part is left whole to Spark under a row consumer when its
         // residual entries outnumber its fused ones (`VarkaPartialDecline`): Spark's projection
-        // over a plain to-row transition, the plan the session without Varka builds.
+        // over its child's rows (`declinedChild`).
         case ColumnarToRowExec(varka: VarkaProjectExec) =>
           partialDecline(varka.classification.toScala, varka.projectList,
               varka.sessionEmit) match {
-            case Some(_) => ProjectExec(varka.projectList, ColumnarToRowExec(varka.child))
+            case Some(_) => ProjectExec(varka.projectList, declinedChild(varka.child))
             case None => VarkaColumnarToRowExec(varka.projectList, varka.child, varka.sessionEmit)
           }
         case ColumnarToRowExec(varka: VarkaFilterExec) =>
@@ -244,6 +246,23 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
       session: VarkaSessionEmit): Option[PartialVarkaProjection] =
     VarkaExpressionCompiler.compilePartial(projectList, childOutput,
       VarkaColumnarToRowExec.emitOptions(session), session.admission).toScala
+
+  /**
+   * The rows a declined projection reads from `child`, its Varka node's columnar child, as the
+   * transition rule would have given them to a row projection: a source that also produces rows
+   * gives them itself, as it does for the session without Varka (an Arrow-cached scan, read as
+   * rows); a Varka filter becomes its to-row node, which reads the selection bitmap without
+   * compacting, as the arm for a filter under a transition builds it; any other columnar child
+   * gets a to-row transition. `transformUp` does not revisit what an arm returns, so the filter's
+   * node is built here rather than left to that arm.
+   */
+  private def declinedChild(child: SparkPlan): SparkPlan = child match {
+    case filter: VarkaFilterExec =>
+      VarkaFilterColumnarToRowExec(filter.condition, filter.child,
+        wholeCondition = filter.wholeCondition, sessionEmit = filter.sessionEmit)
+    case rows if rows.supportsRowBased => rows
+    case batches => ColumnarToRowExec(batches)
+  }
 
   /**
    * Why a projection, classified as `partial`, is left whole to Spark under a row consumer, or

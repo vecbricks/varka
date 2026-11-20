@@ -244,8 +244,8 @@ Predictions of 6.1, scored on the counted passes:
 
 Built as 3.1 says, with the reason in `VarkaPartialDecline` rather than a fusion report
 (decisions, item 1). `VarkaColumnarRule`'s post stage asks it in the
-`ColumnarToRowExec(VarkaProjectExec)` arm, which then plans `ProjectExec(ColumnarToRowExec(child))`,
-and in the `ProjectExec ... if isVarkaEligible` arm, which then leaves the projection as it is.
+`ColumnarToRowExec(VarkaProjectExec)` arm, which then plans Spark's `ProjectExec` over the
+child's rows (correction below), and in the `ProjectExec ... if isVarkaEligible` arm, which then leaves the projection as it is.
 The blend's class in `VarkaDayTimeIntervalBaselineBenchmark` is `NONE` at both densities.
 `VarkaDecimalBaselineQueriesSuite`'s `x9 < y9, -x38 < y38` ties one to one and stays `PARTIAL`, so
 that suite is unchanged. Only `build/sbt sql/Test/compile` was run in this window; the suites of
@@ -259,6 +259,19 @@ plan's operators instead and has not been run since. Prediction 5 rests on the b
 varka off arm reading batches too, as its `VarkaArrowSessions` session sets the vectorized cache
 reader; the owed plan-only dry run of the baseline is where to check it.
 
+*Correction, the same day, before any further run.* That guess was wrong, and the failure was a
+finding about the code, not the test. `ApplyColumnarRulesAndInsertTransitions` inserts no to-row
+transition under a row parent when the child produces rows as well as batches
+(`ensureOutputsRowBased`), and the Arrow-cached `InMemoryTableScanExec` does both. So Spark's
+row-path plan is `Project` over the scan read as rows, in every session without Varka, the
+benchmark's varka off arm included, and the declined `ProjectExec(ColumnarToRowExec(scan))` was a
+third plan that nobody had measured. The decline now gives the projection its child's rows as the
+transition rule would (`declinedChild`): a child that produces rows itself as it is, a Varka filter
+as its to-row node (the second bug the reading found: `transformUp` does not revisit what an arm
+returns, so a compacting `VarkaFilterExec` would have stayed under the declined projection), and
+any other columnar child under a `ColumnarToRowExec`. The suite's comparison with `disabledSpark`
+is back, and a filtered shape is added. Neither change has been run.
+
 ### 9.3 Where the plan was wrong
 
 1. 3.1's procedure has no rule for a failed control or for a shape that reads both ways in two
@@ -269,11 +282,14 @@ reader; the owed plan-only dry run of the baseline is where to check it.
    section): `VARKA_GOLDEN_REGEN=true build/sbt -batch "sql/testOnly *VarkaGoldenCorpusSuite"`.
 3. 3.1's "the node's fusion report records the reason" cannot hold for a declined plan, which
    has no Varka node (decisions, item 1).
+4. 3.1 plans "Spark's `ProjectExec` over a plain `ColumnarToRowExec` of the child", and 6.1 item 5
+   expects "its plan is Spark's". The two disagree over an Arrow-cached scan, which Spark reads as
+   rows; 9.2's correction takes item 5's side.
 
 ### 9.4 Owed
 
-* Step 2's suites: `VarkaPartialDeclineSuite`, `VarkaDayTimeIntervalBaselineQueriesSuite`,
-  `VarkaDecimalBaselineQueriesSuite`.
+* Step 2's suites: `VarkaPartialDeclineSuite` (its one run took 31 s for five tests, before the
+  filtered shape), `VarkaDayTimeIntervalBaselineQueriesSuite`, `VarkaDecimalBaselineQueriesSuite`.
 * Step 3: the golden corpus regenerated with its own switch, then `dev/varka_regen_generated.sh
   --all`, and both diffs read entry by entry.
 * Step 4: the owner's runner dispatch of the day-time baseline at both widths, and beside it
@@ -304,6 +320,10 @@ reader; the owed plan-only dry run of the baseline is where to check it.
    be made quiet in this window, and a third run under the same load would not have been
    cleaner. 9.1 gives the control rule and the reading. (R3) was not taken: it would decline c
    and d, which never lose past 1.3x at 256 bits in any reading. Question 10.1 is therefore moot.
+5. **The declined projection reads its child's rows as Spark would give them** (9.2's
+   correction), not through the `ColumnarToRowExec` 3.1 names. Reason: the done-when compares the
+   declined plan with the row path, and over an Arrow-cached scan the row path reads rows; a
+   to-row transition there would be a plan no session without Varka builds.
 
 ## 10. Questions for the owner
 

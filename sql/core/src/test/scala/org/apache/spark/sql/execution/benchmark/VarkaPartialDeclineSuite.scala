@@ -21,7 +21,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.{QueryTest, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
-import org.apache.spark.sql.execution.{ColumnarToRowExec, ProjectExec, QueryExecution, SparkPlan, VarkaColumnarRule, VarkaColumnarToRowExec, VarkaPartialDecline, VarkaProjectExec, VarkaSharedSessions}
+import org.apache.spark.sql.execution.{ColumnarToRowExec, ProjectExec, QueryExecution, SparkPlan, VarkaColumnarRule, VarkaColumnarToRowExec, VarkaFilterColumnarToRowExec, VarkaFilterExec, VarkaPartialDecline, VarkaProjectExec, VarkaSharedSessions}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.util.QueryExecutionListener
 
@@ -31,8 +31,8 @@ import org.apache.spark.sql.util.QueryExecutionListener
  * extracts of the same column on the row path, (b) the same with the three over another column,
  * (c) three fused arithmetic entries beside a residual extract of their column, and (d) the same
  * three beside a residual over other columns. Under a row consumer the shapes whose residual
- * entries outnumber their fused ones, a and b, plan Spark's own projection over the scan's
- * batches, and c and d keep their `VarkaColumnarToRowExec`; under a
+ * entries outnumber their fused ones, a and b, plan Spark's own projection, the plan of the
+ * session without Varka, and c and d keep their `VarkaColumnarToRowExec`; under a
  * columnar consumer, a `noop` write, every shape keeps its `VarkaProjectExec`. A projection that
  * fuses whole is unchanged. So the suite fails a rule that fires on an all-fused projection,
  * reaches a columnar consumer, or keeps a shape it should decline, at the unnamed emit level and
@@ -54,7 +54,7 @@ class VarkaPartialDeclineSuite extends QueryTest with VarkaSharedSessions {
 
   private def withTable(body: => Unit): Unit = {
     val view = VarkaDayTimeIntervalBaselineBenchmark.VIEW
-    val sessions = Seq(spark, varkaSpark)
+    val sessions = Seq(spark, varkaSpark, disabledSpark)
     try {
       for (session <- sessions) {
         session.sql(VarkaDayTimeIntervalBaselineBenchmark.tableSql(rows))
@@ -82,7 +82,7 @@ class VarkaPartialDeclineSuite extends QueryTest with VarkaSharedSessions {
     case p: VarkaProjectExec => p
   }
 
-  /** The operators' names, from the top. */
+  /** The operators' names, from the top, which the sessions number alike. */
   private def shape(plan: SparkPlan): Seq[String] = plan.collect { case p => p.nodeName }
 
   /** Writes to `noop` and returns the executed plan, which a write does not hand back itself. */
@@ -114,12 +114,11 @@ class VarkaPartialDeclineSuite extends QueryTest with VarkaSharedSessions {
             val df = varkaSpark.sql(query)
             val plan = df.queryExecution.executedPlan
             if (declines) {
-              // Spark's projection over the scan's batches, in one whole-stage stage: the plan
-              // the decline emits, which reads the cache as batches as the kernel would have.
+              // The plan of the session without Varka, operator for operator: Spark's
+              // projection over the scan, which gives it rows itself.
               assert(varkaNodes(plan).isEmpty, plan.treeString)
-              val scan = s"Scan In-memory table ${VarkaDayTimeIntervalBaselineBenchmark.VIEW}"
-              assert(shape(plan) === Seq("WholeStageCodegen (1)", "Project", "ColumnarToRow",
-                "InputAdapter", scan), plan.treeString)
+              assert(shape(plan) === shape(disabledSpark.sql(query).queryExecution.executedPlan),
+                plan.treeString)
             } else {
               val nodes = varkaNodes(plan)
               assert(nodes.size === 1 && nodes.head.isInstanceOf[VarkaColumnarToRowExec],
@@ -128,6 +127,25 @@ class VarkaPartialDeclineSuite extends QueryTest with VarkaSharedSessions {
             checkAnswer(df, spark.sql(query).collect().toSeq)
           }
         }
+      }
+    }
+  }
+
+  test("a declined projection over a fused filter reads the filter's rows without compacting",
+      PinsDefaults) {
+    withTable {
+      // The blend over the filter `dt > dt2`, which fuses: the declined projection is Spark's,
+      // over the filter's to-row node, the node a row consumer of the filter alone gets, and the
+      // compacting columnar filter is left in no plan.
+      val (_, blend, _) = shapes.head
+      val query = s"$blend WHERE dt > dt2"
+      forEachLevel { _ =>
+        val df = varkaSpark.sql(query)
+        val plan = df.queryExecution.executedPlan
+        assert(varkaNodes(plan).isEmpty, plan.treeString)
+        assert(plan.exists(_.isInstanceOf[VarkaFilterColumnarToRowExec]), plan.treeString)
+        assert(!plan.exists(_.isInstanceOf[VarkaFilterExec]), plan.treeString)
+        checkAnswer(df, spark.sql(query).collect().toSeq)
       }
     }
   }
@@ -167,11 +185,14 @@ class VarkaPartialDeclineSuite extends QueryTest with VarkaSharedSessions {
           val planned = varkaSpark.sql(query).queryExecution.sparkPlan
           val project = planned.collectFirst { case p: ProjectExec => p }
             .getOrElse(fail(s"no projection planned:\n${planned.treeString}"))
-          val declined = project.copy(child = ColumnarToRowExec(project.child))
-          val once = varkaSpark.withActive(VarkaColumnarRule.postColumnarTransitions(declined))
-          val twice = varkaSpark.withActive(VarkaColumnarRule.postColumnarTransitions(once))
-          assert(varkaNodes(once).isEmpty && varkaNodes(twice).isEmpty, twice.treeString)
-          assert(twice.isInstanceOf[ProjectExec], twice.treeString)
+          // Over the scan, as the decline plans it, and over a to-row transition of it, which
+          // the arm unwraps.
+          for (declined <- Seq(project, project.copy(child = ColumnarToRowExec(project.child)))) {
+            val once = varkaSpark.withActive(VarkaColumnarRule.postColumnarTransitions(declined))
+            val twice = varkaSpark.withActive(VarkaColumnarRule.postColumnarTransitions(once))
+            assert(varkaNodes(once).isEmpty && varkaNodes(twice).isEmpty, twice.treeString)
+            assert(twice.isInstanceOf[ProjectExec], twice.treeString)
+          }
         }
       }
     }
