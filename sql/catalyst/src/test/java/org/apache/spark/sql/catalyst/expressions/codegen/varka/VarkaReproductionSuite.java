@@ -129,6 +129,10 @@ public final class VarkaReproductionSuite {
         // Murmur3 over a double's canonical bits, its two halves (VARKA-337).
         VarkaEmitterHashSuite.step(false, new LiteralSlot(0), new ColumnRef(0, LaneType.DOUBLE),
             new LiteralSlot(0, LaneType.LONG)),
+        // XXH64 over a double's canonical bits, the step and the reinterpretation built by name.
+        new VarkaVectorIR.HashStep(VarkaVectorIR.HashMix.XXH64_LONG,
+            new LiteralSlot(0, LaneType.LONG), new VarkaVectorIR.CanonicalBits(
+                VarkaVectorIR.CanonicalFloat.of(new ColumnRef(0, LaneType.DOUBLE)))),
         // A double comparison crossed to the long lane of the choice's values (VARKA-343).
         new IfElse(new CrossLane(new Compare(CompareOp.GT, new ColumnRef(2, LaneType.DOUBLE),
             new LiteralSlot(1, LaneType.DOUBLE)), LaneType.LONG), x,
