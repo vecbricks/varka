@@ -20,11 +20,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.time.temporal.IsoFields;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -33,8 +40,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.ToLongFunction;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -75,7 +85,9 @@ import org.apache.spark.sql.types.TimeType;
  * here too, at the same widths: the calendar fields over the guarded date, the weekday forms and
  * the time of day over every long. And {@code make_timestamp_ntz(date, time)} with the cast of a
  * {@code TIME} to {@code TIMESTAMP_NTZ} it serves, at the ends of the days whose midnight is a
- * long.
+ * long. Under {@code -Dvarka.sweep=true} the fields' kernels run over every day the date guard
+ * admits, and the fields that answer every long over every second of sampled days, each row held
+ * to {@code java.time}.
  *
  * <p>In its own JVM: each cast runs a kernel of both lanes, whose int species is the long species'
  * width beside the int lane's own.
@@ -505,6 +517,189 @@ public final class VarkaTimestampNtzCastSuite {
         plan.longLiterals().stream().mapToLong(Long::longValue).toArray(),
         plan.literals().stream().mapToInt(Integer::intValue).toArray(),
         new LongBatch(n, nulls, data, false), true, sparkAnswers(oracle));
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // The sweeps of the fields (opt-in: -Dvarka.sweep=true; VARKA-340)
+  // -------------------------------------------------------------------------------------------
+
+  /** A field's spelling and its answer from {@code java.time}, the sweeps' oracle. */
+  private record Field(String sql, ToLongFunction<LocalDateTime> javaTime) {}
+
+  private static long quarterStart(LocalDate date) {
+    return LocalDate.of(date.getYear(), (date.getMonthValue() - 1) / 3 * 3 + 1, 1).toEpochDay();
+  }
+
+  /** The time of day in nanoseconds, cut to {@code unit}: {@code CAST(ntz AS TIME(p))}. */
+  private static ToLongFunction<LocalDateTime> timeOfDay(ChronoUnit unit) {
+    return t -> t.toLocalTime().truncatedTo(unit).toNanoOfDay();
+  }
+
+  /** The fields that answer every long: the weekday forms and the time of day. */
+  private static final List<Field> OPEN_SWEEP = List.of(
+      new Field("dayofweek(ntz)", t -> t.getDayOfWeek().getValue() % 7 + 1),
+      new Field("weekday(ntz)", t -> t.getDayOfWeek().getValue() - 1),
+      new Field("extract(DAYOFWEEK_ISO FROM ntz)", t -> t.getDayOfWeek().getValue()),
+      new Field("next_day(ntz, 'MONDAY')",
+          t -> t.toLocalDate().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).toEpochDay()),
+      new Field("trunc(ntz, 'WEEK')", t -> t.toLocalDate()
+          .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toEpochDay()),
+      new Field("hour(ntz)", LocalDateTime::getHour),
+      new Field("minute(ntz)", LocalDateTime::getMinute),
+      new Field("second(ntz)", LocalDateTime::getSecond),
+      new Field("CAST(ntz AS TIME(6))", timeOfDay(ChronoUnit.MICROS)),
+      new Field("CAST(ntz AS TIME(3))", timeOfDay(ChronoUnit.MILLIS)),
+      new Field("CAST(ntz AS TIME(0))", timeOfDay(ChronoUnit.SECONDS)));
+
+  /** Every field: the calendar ones, exact inside the date guard, and the open ones. */
+  private static final List<Field> ALL_SWEEP = Stream.concat(Stream.of(
+      new Field("year(ntz)", LocalDateTime::getYear),
+      new Field("month(ntz)", LocalDateTime::getMonthValue),
+      new Field("day(ntz)", LocalDateTime::getDayOfMonth),
+      new Field("quarter(ntz)", t -> (t.getMonthValue() - 1) / 3 + 1),
+      new Field("dayofyear(ntz)", LocalDateTime::getDayOfYear),
+      new Field("weekofyear(ntz)", t -> t.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)),
+      new Field("extract(YEAROFWEEK FROM ntz)", t -> t.get(IsoFields.WEEK_BASED_YEAR)),
+      new Field("last_day(ntz)",
+          t -> t.toLocalDate().with(TemporalAdjusters.lastDayOfMonth()).toEpochDay()),
+      new Field("trunc(ntz, 'YEAR')", t -> t.toLocalDate().withDayOfYear(1).toEpochDay()),
+      new Field("trunc(ntz, 'MONTH')", t -> t.toLocalDate().withDayOfMonth(1).toEpochDay()),
+      new Field("trunc(ntz, 'QUARTER')", t -> quarterStart(t.toLocalDate()))),
+      OPEN_SWEEP.stream()).toList();
+
+  /** The rows of one sweep batch. */
+  private static final int SWEEP_ROWS = 1 << 16;
+
+  /**
+   * Runs each field's kernel at the default width over {@code counts} in batches of
+   * {@link #SWEEP_ROWS}, every row valid, the batches in parallel; each batch must fuse, and each
+   * row's output must be the field of the count's date-time. Returns how many rows it compared.
+   */
+  private long sweep(List<Field> fields, long[] counts) {
+    var plans = new ArrayList<CompiledVarkaProjection>();
+    var loaded = new ArrayList<VarkaEmitterFixtures.Loaded>();
+    try {
+      for (Field field : fields) {
+        CompiledVarkaProjection plan = compiled(resolve(field.sql(), true));
+        String className = "org.apache.spark.sql.varka.execution.VarkaNtzSweep"
+            + CLASS_COUNTER.incrementAndGet();
+        plans.add(plan);
+        loaded.add(VarkaEmitterFixtures.load(
+            new VarkaEmitterFixtures.Emitted(className, emit(plan, className, 0))));
+      }
+      var wrong = new AtomicLong();
+      var firstWrong = new AtomicReference<String>();
+      int batches = (counts.length + SWEEP_ROWS - 1) / SWEEP_ROWS;
+      IntStream.range(0, batches).parallel().forEach(b -> {
+        int from = b * SWEEP_ROWS;
+        int rows = Math.min(SWEEP_ROWS, counts.length - from);
+        try (var arena = Arena.ofConfined()) {
+          MemorySegment in = VarkaEmitterFixtures.alloc(arena, rows * 8L);
+          MemorySegment.copy(counts, from, in, ValueLayout.JAVA_LONG, 0, rows);
+          var outs = new MemorySegment[fields.size()];
+          var wide = new boolean[fields.size()];
+          long validityBytes = (rows + 63) / 64 * 8L;
+          for (int f = 0; f < fields.size(); f++) {
+            VarkaFusedKernel kernel = loaded.get(f).kernel();
+            CompiledVarkaProjection plan = plans.get(f);
+            long stride = plan.outputs().get(0).laneType().bits() / 8;
+            wide[f] = stride == 8;
+            outs[f] = VarkaEmitterFixtures.alloc(arena, rows * stride);
+            MemorySegment validity = VarkaEmitterFixtures.alloc(arena, validityBytes);
+            long[] src = {in.address()};
+            long[] dst = {outs[f].address()};
+            long[] dstValidity = {validity.address()};
+            int[] intLits = plan.literals().stream().mapToInt(Integer::intValue).toArray();
+            long[] longLits = plan.longLiterals().stream().mapToLong(Long::longValue).toArray();
+            int status = VarkaKernelChecks.sanitized(kernel, rows, new long[] {8},
+                new long[] {stride}, src, new long[] {0L}, dst, dstValidity,
+                scratch -> kernel.run(src, new long[] {0L}, new int[] {0}, dst, dstValidity,
+                    intLits, longLits, rows, scratch));
+            if (status != 0) {
+              if (wrong.getAndIncrement() == 0) {
+                firstWrong.set(fields.get(f).sql() + " declined the batch from " + counts[from]
+                    + " with status " + status);
+              }
+              return;
+            }
+            for (int i = 0; i < rows; i += 8) {
+              int bits = Math.min(8, rows - i);
+              if (validity.get(ValueLayout.JAVA_BYTE, i / 8) != (byte) ((1 << bits) - 1)) {
+                wrong.incrementAndGet();
+                firstWrong.compareAndSet(null, fields.get(f).sql() + " nulled a row near "
+                    + counts[from + i]);
+              }
+            }
+          }
+          for (int i = 0; i < rows; i++) {
+            long v = counts[from + i];
+            LocalDateTime t = LocalDateTime.ofEpochSecond(Math.floorDiv(v, 1_000_000L),
+                (int) Math.floorMod(v, 1_000_000L) * 1000, ZoneOffset.UTC);
+            for (int f = 0; f < fields.size(); f++) {
+              long ours = wide[f] ? outs[f].getAtIndex(ValueLayout.JAVA_LONG, i)
+                  : outs[f].getAtIndex(ValueLayout.JAVA_INT, i);
+              long expected = fields.get(f).javaTime().applyAsLong(t);
+              if (ours != expected && wrong.getAndIncrement() == 0) {
+                firstWrong.set(fields.get(f).sql() + " at " + v + " (" + t + ") is " + ours
+                    + ", java.time says " + expected);
+              }
+            }
+          }
+        }
+      });
+      assertEquals(0, wrong.get(), wrong.get() + " wrong answers or batches; the first: "
+          + firstWrong.get());
+      return (long) counts.length * fields.size();
+    } finally {
+      for (VarkaEmitterFixtures.Loaded l : loaded) {
+        l.loader().release();
+      }
+    }
+  }
+
+  /** A time of day drawn from the day, so that the walk meets every part of a day. */
+  private static long drawnTime(long day) {
+    return Math.floorMod(day * 7_919_003_001L, DAY);
+  }
+
+  @Test
+  @DisplayName("every field over every day the date guard admits, at the day's first and last "
+      + "microsecond and a time drawn from it, as java.time answers (opt-in: -Dvarka.sweep=true)")
+  void everyAdmittedDay() {
+    assumeTrue("true".equals(System.getProperty("varka.sweep")),
+        "set -Dvarka.sweep=true to sweep every admitted day");
+    long[] counts = LongStream.rangeClosed(VarkaRangeAnalysis.NTZ_MIN_DAYS,
+        VarkaChrono.NARROW_MAX_DAYS).flatMap(d -> LongStream.of(d * DAY,
+            d * DAY + drawnTime(d), d * DAY + DAY - 1)).toArray();
+    assertTrue(counts.length > 3 * 16_000_000L, "walked " + counts.length);
+    sweep(ALL_SWEEP, counts);
+  }
+
+  @Test
+  @DisplayName("the open fields over every second of sampled days across the long range and of a "
+      + "day at each of its ends, at a microsecond drawn per second, as java.time answers "
+      + "(opt-in: -Dvarka.sweep=true)")
+  void everySecondOfSampledDays() {
+    assumeTrue("true".equals(System.getProperty("varka.sweep")),
+        "set -Dvarka.sweep=true to sweep every second of the sampled days");
+    int seconds = 86_400;
+    // 97 whole days spread over the long range, the epoch's among them, and a day's worth of
+    // seconds up from Long.MIN_VALUE and down from Long.MAX_VALUE, which reach the partial days
+    // at the range's ends.
+    long lowDay = Math.floorDiv(Long.MIN_VALUE, DAY) + 1;
+    long highDay = Math.floorDiv(Long.MAX_VALUE, DAY) - 1;
+    LongStream days = LongStream.concat(LongStream.of(0),
+        LongStream.rangeClosed(0, 95).map(i -> lowDay + (highDay - lowDay) / 95 * i));
+    LongStream sampled = days.flatMap(d -> LongStream.range(0, seconds)
+        .map(s -> d * DAY + s * 1_000_000L + Math.floorMod((d + s) * 7_919L, 1_000_000L)));
+    LongStream ends = LongStream.range(0, seconds).flatMap(s -> {
+      long micro = Math.floorMod(s * 7_919L, 1_000_000L);
+      return LongStream.of(Long.MIN_VALUE + s * 1_000_000L + micro,
+          Long.MAX_VALUE - s * 1_000_000L - micro);
+    });
+    long[] counts = LongStream.concat(sampled, ends).toArray();
+    assertEquals(99L * seconds, counts.length);
+    sweep(OPEN_SWEEP, counts);
   }
 
   // -------------------------------------------------------------------------------------------
