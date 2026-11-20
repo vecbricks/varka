@@ -628,6 +628,17 @@ public record VarkaEmitOptions(
    */
   public enum Division { MAGIC, DOUBLE_RECIP, DOUBLE_DIV }
 
+  /*
+   * A note this enum cannot express, kept beside it rather than inside its javadoc, which
+   * describes the calendar prefix: the 64-bit lane has a fourth lowering, the magic-number
+   * identity of `VarkaLoopEmitter.emitMagicDivide`, and it is selected by {@link #useAVX}
+   * rather than by this enum, because it is a property of the machine and not a variant a
+   * caller chooses. The consequence is that on a host whose conversions fall back there is no
+   * value of this enum that emits the conversion form at the long lane; a test or a benchmark
+   * that wants it asks for a level instead, which is what `withUseAVX` is for. VARKA-88 step 4's
+   * A/B is the reason that matters, and `VARKA-88.md` 9.2 records it.
+   */
+
   /**
    * The two forms of the decimal store's interleave (VARKA-157 2.2). A lane group's words
    * {@code lo} and their sign extensions {@code hi} go into two vectors of slots, the low words
@@ -643,6 +654,14 @@ public record VarkaEmitOptions(
   public enum DecimalStore { REARRANGE, SELECT_FROM }
 
   /**
+   * The forms of a narrow store whose species is wider than the int lane group
+   * ({@link VarkaEmitOptions#narrowGroupStore}). {@link #MASKED} stores each group under the mask
+   * of its own lanes and is the reference form; {@link #COMBINED} ORs the groups' parts into one
+   * whole vector and stores that once a run of groups. Both give the same bytes in the column.
+   */
+  public enum NarrowGroupStore { MASKED, COMBINED }
+
+  /**
    * The AVX2 forms of {@code L2D} ({@code VarkaConversionLowering}). {@link #XOR_SPLIT}, the
    * default (VARKA-583), and {@link #SPLIT}, part 343b1's, are exact over every long: both
    * convert the high and the low word apart and add them, the first by a logical shift and an
@@ -652,25 +671,6 @@ public record VarkaEmitOptions(
    * not take are arms kept to be measured against it.
    */
   public enum WideConversionForm { SPLIT, MAGIC, XOR_SPLIT }
-
-  /**
-   * The forms of a narrow store whose species is wider than the int lane group
-   * ({@link VarkaEmitOptions#narrowGroupStore}). {@link #MASKED} stores each group under the mask
-   * of its own lanes and is the reference form; {@link #COMBINED} ORs the groups' parts into one
-   * whole vector and stores that once a run of groups. Both give the same bytes in the column.
-   */
-  public enum NarrowGroupStore { MASKED, COMBINED }
-
-  /*
-   * A note this enum cannot express, kept beside it rather than inside its javadoc, which
-   * describes the calendar prefix: the 64-bit lane has a fourth lowering, the magic-number
-   * identity of `VarkaLoopEmitter.emitMagicDivide`, and it is selected by {@link #useAVX}
-   * rather than by this enum, because it is a property of the machine and not a variant a
-   * caller chooses. The consequence is that on a host whose conversions fall back there is no
-   * value of this enum that emits the conversion form at the long lane; a test or a benchmark
-   * that wants it asks for a level instead, which is what `withUseAVX` is for. VARKA-88 step 4's
-   * A/B is the reason that matters, and `VARKA-88.md` 9.2 records it.
-   */
 
   /** The two {@code trunc(date, ...)} lowerings; see {@link #truncDate}. */
   public enum TruncDateForm { SUBTRACT, RECOMPOSE }
@@ -1509,10 +1509,6 @@ public record VarkaEmitOptions(
     return toBuilder().decimalStore(form).build();
   }
 
-  public VarkaEmitOptions withWideConversionForm(WideConversionForm form) {
-    return toBuilder().wideConversionForm(form).build();
-  }
-
   /**
    * The narrow store's form ({@link #narrowGroupStore}): the masked per-group store that ships,
    * or the combined whole store kept to be measured against it on a host without a predicated
@@ -1520,6 +1516,10 @@ public record VarkaEmitOptions(
    */
   public VarkaEmitOptions withNarrowGroupStore(NarrowGroupStore form) {
     return toBuilder().narrowGroupStore(form).build();
+  }
+
+  public VarkaEmitOptions withWideConversionForm(WideConversionForm form) {
+    return toBuilder().wideConversionForm(form).build();
   }
 
   public VarkaEmitOptions withRoundToOddByShifts(boolean byShifts) {
