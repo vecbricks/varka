@@ -34,13 +34,16 @@ import org.apache.spark.sql.internal.SQLConf;
  * <p>The operators are {@code div}, {@code %}, {@code try_mod} and {@code pmod} by a column
  * divisor, and {@code %} by the literal 7, over {@code INT} and {@code BIGINT} dividends, each in
  * the modes it has: LEGACY and ANSI, and {@code try_mod}, the one TRY form of the three (Spark
- * builds no TRY {@code div} or {@code pmod}). A {@code SMALLINT} dividend over a
- * {@code SMALLINT} divisor times {@code %} and {@code try_mod}. The same operators run as filters
- * under ANSI ({@code div}, {@code %} and {@code pmod} by the column compared with 0, {@code % 7}
- * compared with 0), so a condition is timed beside each projection. The data never divides by
- * zero and never divides {@code Long.MIN_VALUE} by -1, so an ANSI section raises nowhere and
- * times the division and its zero test rather than an error. A control, {@code i ^ j}, fuses
- * today, so that a run whose Varka session is off fails the fuse check below.
+ * builds no TRY {@code div} or {@code pmod}). Spark's {@code div} takes only {@code BIGINT}
+ * operands, so an {@code INT} section of it times a {@code BIGINT} division of the widened
+ * columns, though its filter is listed with the {@code INT} ones. A {@code SMALLINT} dividend
+ * over a {@code SMALLINT} divisor times {@code %} and {@code try_mod}. The same operators run as
+ * filters under ANSI ({@code div}, {@code %} and {@code pmod} by the column compared with 0,
+ * {@code % 7} compared with 0), so a condition is timed beside each projection. The data never
+ * divides by zero and never divides {@code Long.MIN_VALUE} by -1, so an ANSI section raises
+ * nowhere and times the division and its zero test rather than an error. A control,
+ * {@code i ^ j}, fuses today, so that a run whose Varka session is off fails the fuse check
+ * below.
  *
  * <p>Each section has two arms, named so the labels survive the row landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -112,8 +115,8 @@ public class VarkaIntegralDivisionBaselineBenchmark extends VarkaSqlBenchmarkBas
    *   <li>{@code i} is {@code hash(id, 1)}, over the whole int range and both signs, and
    *       {@code s} a hash reduced to the whole {@code SMALLINT} range.</li>
    *   <li>{@code l} is {@code xxhash64(id, 3)} shifted right by {@code 1 + id % 47}, so its
-   *       magnitudes spread over every bit length up to 62 and both signs: at most {@code 2^62}
-   *       in magnitude, so no section divides {@code Long.MIN_VALUE} by -1.</li>
+   *       magnitudes spread over the bit lengths from about 16 to 62 and both signs: at most
+   *       {@code 2^62} in magnitude, so no section divides {@code Long.MIN_VALUE} by -1.</li>
    *   <li>The divisors {@code j}, {@code l2} and {@code s2} are hashes shifted right by a
    *       per-row count up to their width, so they hold every bit length, both signs, and
    *       {@code 1} and {@code -1} among them; a zero is replaced by 1, so no divisor is

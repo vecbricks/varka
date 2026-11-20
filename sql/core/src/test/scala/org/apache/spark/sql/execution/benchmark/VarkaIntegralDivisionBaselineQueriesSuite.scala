@@ -38,12 +38,13 @@ import org.apache.spark.sql.types._
  *
  * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the
  * id, so these rows already reach the regions the benchmark's javadoc states, which the suite
- * checks before it runs the sections: no divisor zero, the divisors `1` and `-1` present, small
- * and large divisors of every type, dividends of both signs, `l` past the int range and at most
- * `2^62` in magnitude, and the `_n` dividends null at exactly one row in ten. A projection over
- * the columns with no null must answer no null, so a zero divisor's `try_mod` null fails here
- * rather than going into the timed run as a cheap null; one over a column with one row in ten
- * null must answer exactly those nulls. A filter answers no null and keeps some rows, not all.
+ * checks before it runs the sections: no divisor zero, `j` holding `1` and `-1` and `l2` holding
+ * `-1`, small divisors of every type, `l2` past the int range, dividends of both signs, `l` past
+ * the int range and at most `2^62` in magnitude, and the `_n` dividends null at exactly one row
+ * in ten. A projection over the columns with no null must answer no null, so a zero divisor's
+ * `try_mod` null fails here rather than going into the timed run as a cheap null; one over a
+ * column with one row in ten null must answer exactly those nulls. A filter answers no null and
+ * keeps some rows, not all.
  */
 class VarkaIntegralDivisionBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
