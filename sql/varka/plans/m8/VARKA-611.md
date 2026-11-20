@@ -45,9 +45,9 @@ was run.
    `twoLaneChecked`, whose `default` case reads as `WRAP` (risk 1).
 4. **B is sound with the margin `VARKA-104.md` 3.3 argues.** Each conversion of a long to double
    rounds to nearest, a relative error of at most `2^-53`, and so does the product: the computed
-   `|(double) a * (double) b|` is within a factor `(1 + 2^-53)^3` of `|a * b|`. Testing it
-   against `2^62`, where the overflow edge is `2^63`, leaves a factor of two. So every product
-   of `2^62 (1 + 2^-53)^3` or more trips, every overflow among them, and none below
+   `|(double) a * (double) b|` lies between `|a * b| (1 - 2^-53)^3` and `|a * b| (1 + 2^-53)^3`.
+   Testing it against `2^62`, where the overflow edge is `2^63`, leaves a factor of two. So
+   every product of `2^62 / (1 - 2^-53)^3` or more trips, every overflow among them, and none below
    `2^62 / (1 + 2^-53)^3` does; in the band between, a lane may go either way (a product just
    below `2^62` can round up and trip, one just above with an operand past `2^53` can round
    down and pass). B therefore never admits an overflow, and declines products from about
@@ -84,10 +84,15 @@ row engine then raises on the row that overflows, or answers a batch that held n
 (`try_multiply`) it nulls the overflowing rows. A lane B is unsure of is never nulled in the
 kernel, since it may not overflow.
 
-The emitter's arm converts both operands with the existing `ConvertLane` lowering (one
-instruction at level 3, `wideConversionForm`'s form at level 2), multiplies, takes `ABS`, and
+The emitter's arm converts both operands with the existing conversion lowering (one instruction
+at level 3; at level 2 the exact `XOR_SPLIT` form, whatever `wideConversionForm` says),
+multiplies, takes `ABS`, and
 compares with the broadcast `0x1p62` (`GE`), the mask feeding the batch guard's existing decline
-path; the value is the plain long `MUL`. The reference evaluator computes the same double test
+path; the value is the plain long `MUL`. Not `MAGIC` at level 2: that form is exact only for
+`|v| <= 2^51`, and its window is a `VALUE_RANGE` refusal that `Analysis` registers on a real
+`ConvertLane` node, with guard scratch `Slots` plans for it; a conversion inside `GuardedProduct`
+has neither, so the node fixes the exact form and the option matrix's `MAGIC` configuration
+changes nothing in it. The reference evaluator computes the same double test
 per lane in Java, which gives the same bits as the vector lanes (IEEE round to nearest in both),
 so the reference and the kernel decline the same batches.
 
@@ -113,9 +118,12 @@ How a session reaches it. A session's options are `DEFAULTS` with `VarkaSessionE
 configuration is added for an arm. The benchmark's B arm sets the option through
 `VarkaArrowSessions.withEmitOptions`, as the class's other option arms do. A per-host default
 needs no configuration either, since the session already resolves the host to a level: if 6.1's
-rule chooses B at one level and not the other, the default becomes level-keyed in
-`VarkaNodeCompiler` (B at the levels the rule chose, A elsewhere), and the option still overrides
-it. The default changes in the last commit by that rule, or not at all.
+rule chooses B at one level and not the other, the choice gains a third value, `BY_HOST`, made
+the default, which `VarkaNodeCompiler` resolves to B at the levels the rule chose and to A
+elsewhere, so an explicit `BOUND_ONLY` arm stays A. It resolves to B only on x86: aarch64 reports
+level 3 as an AVX512DQ host does (`VarkaSessionEmit.resolve`), and two-lane NEON hosts build B
+under no two-lane refusal (`twoLaneChecked` is x86's), so an Arm host keeps A until B is measured
+there. The default changes in the last commit by that rule, or not at all.
 
 ### 3.3 Alternatives considered, not built
 
@@ -208,10 +216,13 @@ run: item 2.3 settles it.
    under 1.34 at level 3 (prediction 1's 3X) and under 1.67 at level 2 (prediction 2's 1.5X).
    It is scored against the `s` the run measures, so a miss of 1 or 2 does not fail it by
    construction.
-4. **The rule:** B becomes the default at a level where it reads at least 1.3X the row path on
-   each of the three checked sections at both null densities, a bar below predictions 1 and 2 so
-   that missing a prediction alone does not drop B; elsewhere A stays and B stays as the arm.
-   `VARKA-104.md` 9 records the choice per host either way.
+4. **The rule:** B becomes the default at an x86 level where it reads at least 1.3X the row path
+   on each of the three checked sections at both null densities, a bar below predictions 1 and 2
+   so that missing a prediction alone does not drop B, and where the decline section stays within
+   prediction 3's `1 + 1/s`, so a declined batch costs no more than one kernel pass; elsewhere A
+   stays and B stays as the arm. That pass is a slowdown against A for a workload whose products
+   reach `2^62`, which no committed workload holds (3.3); `VARKA-104.md` 9 records it beside the
+   choice per host either way.
 
 ## 7. Risks
 
