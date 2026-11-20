@@ -127,7 +127,7 @@ final class VarkaHashLowering {
       // [h, step] -> [h.blend(step, valid(word))]: a null word's lane keeps its seed.
       cb.aload(s.species(lane));
       loadWord(cb, s, skip);
-      emitMaskOfWord(cb, analysis);
+      emitMaskOfWord(cb, lane, analysis);
       cb.invokevirtual(lane.vector, "blend", lane.blend);
     }
   }
