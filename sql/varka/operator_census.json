@@ -4,7 +4,7 @@
   "host" : {
     "cpu" : "AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M",
     "arch" : "amd64",
-    "jdk" : "25.0.5.0.3+1-1-26.04.1-Ubuntu",
+    "jdk" : "25.0.5.0.3+1-3-26.04.1-Ubuntu",
     "use_avx" : 3,
     "features" : "cx8, cmov, fxsr, ht, mmx, 3dnowpref, sse, sse2, sse3, ssse3, sse4a, sse4.1, sse4.2, popcnt, lzcnt, tsc, tscinvbit, avx, avx2, aes, erms, clmul, bmi1, bmi2, adx, avx512f, avx512dq, avx512cd, avx512bw, avx512vl, sha, fma, vzeroupper, avx512_vpopcntdq, avx512_vpclmulqdq, avx512_vaes, avx512_vnni, clflush, clflushopt, clwb, avx512_vbmi2, avx512_vbmi, rdtscp, rdpid, fsrm, gfni, avx512_bitalg, f16c, pku, ospke, cet_ss, avx512_ifma"
   },
@@ -631,6 +631,11 @@
         "bytes_per_row" : 0.0,
         "intrinsics" : [ "load", "broadcastInt", "store" ]
       },
+      "long.LSHR" : {
+        "verdict" : "I",
+        "bytes_per_row" : 0.0,
+        "intrinsics" : [ "load", "broadcastInt", "store" ]
+      },
       "long.NEG" : {
         "verdict" : "I",
         "bytes_per_row" : 0.0,
@@ -645,6 +650,11 @@
         "verdict" : "I",
         "bytes_per_row" : 0.0,
         "intrinsics" : [ "fromBitsCoerced", "load", "binaryOp", "store" ]
+      },
+      "long.MUL_masked_broadcast" : {
+        "verdict" : "I",
+        "bytes_per_row" : 0.0,
+        "intrinsics" : [ "fromBitsCoerced", "binaryOp", "load", "store" ]
       },
       "byte.fromLong" : {
         "verdict" : "I",
@@ -1317,6 +1327,11 @@
         "bytes_per_row" : 0.0,
         "intrinsics" : [ "load", "broadcastInt", "store" ]
       },
+      "long.LSHR" : {
+        "verdict" : "I",
+        "bytes_per_row" : 0.0,
+        "intrinsics" : [ "load", "broadcastInt", "store" ]
+      },
       "long.NEG" : {
         "verdict" : "I",
         "bytes_per_row" : 0.0,
@@ -1331,6 +1346,11 @@
         "verdict" : "I",
         "bytes_per_row" : 0.0,
         "intrinsics" : [ "fromBitsCoerced", "load", "binaryOp", "store" ]
+      },
+      "long.MUL_masked_broadcast" : {
+        "verdict" : "I",
+        "bytes_per_row" : 0.0,
+        "intrinsics" : [ "fromBitsCoerced", "binaryOp", "load", "store" ]
       },
       "byte.fromLong" : {
         "verdict" : "I",
@@ -2001,6 +2021,11 @@
         "bytes_per_row" : 0.0,
         "intrinsics" : [ "load", "broadcastInt", "store" ]
       },
+      "long.LSHR" : {
+        "verdict" : "I",
+        "bytes_per_row" : 0.0,
+        "intrinsics" : [ "load", "broadcastInt", "store" ]
+      },
       "long.NEG" : {
         "verdict" : "I",
         "bytes_per_row" : 0.0,
@@ -2015,6 +2040,11 @@
         "verdict" : "I",
         "bytes_per_row" : 0.0,
         "intrinsics" : [ "fromBitsCoerced", "load", "binaryOp", "store" ]
+      },
+      "long.MUL_masked_broadcast" : {
+        "verdict" : "I",
+        "bytes_per_row" : 0.0,
+        "intrinsics" : [ "fromBitsCoerced", "binaryOp", "load", "store" ]
       },
       "byte.fromLong" : {
         "verdict" : "I",

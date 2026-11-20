@@ -274,6 +274,10 @@ final class VarkaVectorWalk {
       case RoundToIntegral n ->
           VarkaRoundingLowering.emitRint(cb, n, dense, analysis, s, computed);
       case CanonicalFloat n -> emitCanonicalFloat(cb, n, dense, analysis, s, computed);
+      case VarkaVectorIR.CanonicalBits n ->
+          VarkaHashLowering.emitCanonicalBits(cb, n, dense, analysis, s, computed);
+      case VarkaVectorIR.HashStep n ->
+          VarkaHashLowering.emitHashStep(cb, n, dense, analysis, s, computed);
       case DateDiff n -> {
         lane.requireInt(n);
         emitAndValidatedOp(cb, node, n.end(), n.start(), "sub", LANEWISE_VV,

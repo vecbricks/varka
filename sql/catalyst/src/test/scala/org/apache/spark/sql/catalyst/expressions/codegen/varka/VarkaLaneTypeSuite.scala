@@ -63,6 +63,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     BoundedDivide.of(intCol, 60, 3600),
     new BitOp(BitOpKind.SHL, intCol, intLit),
     new BitCount(intCol),
+    new HashStep(HashMix.MURMUR3_INT, intLit, intCol),
+    new CanonicalBits(CanonicalFloat.of(new ColumnRef(0, LaneType.FLOAT))),
     new Compare(CompareOp.LT, intCol, intLit),
     new NullSafeEqual(intCol, intLit),
     new BoolColumn(0),
@@ -103,7 +105,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     classOf[Compare], classOf[NullSafeEqual], classOf[And], classOf[Or], classOf[Not],
     classOf[IsNotNull], classOf[BoolCompare], classOf[CondIf], classOf[BoolNullSafeEq],
     classOf[ConstDivide], classOf[GuardedRange], classOf[BitOp], classOf[BitCount],
-    classOf[CondValue], classOf[BoolOutput])
+    classOf[CondValue], classOf[BoolOutput],
+    // A hash step's lane is its primitive's, and a floating value's bits are at its width.
+    classOf[HashStep], classOf[CanonicalBits])
 
   /** Every concrete node type the sealed hierarchy permits, nested interfaces expanded. */
   private def concreteNodeTypes(root: Class[_]): Set[Class[_]] =
@@ -508,6 +512,12 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "MathUnary" => new MathUnary(MathFn.SQRT, c)
         case "RoundToIntegral" => new RoundToIntegral(RoundMode.RINT, c)
         case "CanonicalFloat" => CanonicalFloat.of(c)
+        // A hash step on the lane's own primitive, and a canonical floating value's bits at the
+        // integral lane of its width (VARKA-337).
+        case "HashStep" => new HashStep(if (lane == LaneType.INT) HashMix.MURMUR3_INT
+          else HashMix.XXH64_LONG, c, c1)
+        case "CanonicalBits" => new CanonicalBits(CanonicalFloat.of(new ColumnRef(0,
+          if (lane == LaneType.INT) LaneType.FLOAT else LaneType.DOUBLE)))
         // An int converted to a floating lane (VARKA-343): a column to FLOAT in an int kernel,
         // and a bigint narrowed to INT, then to DOUBLE, in one driven at the long lane. A bigint's
         // own conversion is refused by the plan at the unknown level these options carry.
@@ -550,13 +560,14 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       "Compare", "NullSafeEqual", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide",
       "BoolColumn", "CondConst", "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue",
       "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
-      "DecimalColumn", "DecimalWord", "NullValue", "WidenDecimal", "ConvertLane", "CrossLane"),
+      "DecimalColumn", "DecimalWord", "NullValue", "WidenDecimal", "ConvertLane", "CrossLane",
+      "HashStep", "CanonicalBits"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
         "the two conversions, which build over the other lane's child whatever the row, " +
         "VARKA-335's bitwise operations, VARKA-336's null-safe equality, VARKA-460's " +
         "condition as a value, VARKA-27's boolean output, VARKA-347's decimal column, " +
         "VARKA-157's decimal output, VARKA-343's conversion to the double lane and VARKA-333's " +
-        "null leaf")
+        "null leaf, and VARKA-337's hash step and floating bits")
   }
 
   test("a narrowing is an int over a long child, and a kernel that holds one is driven at the " +

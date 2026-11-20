@@ -15,3 +15,4 @@ VarkaTimeFractionSuite	java	varka.sweep.long	class	-	varka-sweeps	every nanoseco
 VarkaEmitterRoundingSuite	java	varka.sweep	class	-	varka-sweeps	the binary32 twin of the rint construction over all 2^32 patterns; seconds on the laptop; every INT through round, bround and truncate at scales -1 to -10, LEGACY and ANSI, 60 sweeps; not yet timed
 VarkaTimestampNtzMonthSuite	java	varka.sweep	class	-	varka-sweeps	the NTZ month shift, scalar and emitted, over every day the date guard admits at three times of day; not yet run: the emitted half's pull-request rate, about 12 us a row, puts it at hours
 VarkaEmitterCanonicalFloatSuite	java	varka.sweep	class	-	varka-sweeps	every FLOAT pattern through the canonicalisation, once and over its own output; the whole class 4.2 s on the laptop
+VarkaEmitterHashSuite	java	varka.sweep	class	-	varka-sweeps	every INT and every FLOAT pattern through hash and xxhash64 against Spark's functions

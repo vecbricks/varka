@@ -73,9 +73,12 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     // No grammar draws the floating conversion (VARKA-343) yet, for the same reason; it is
     // rebuilt directly below. The canonicalisation (VARKA-337) is drawn by a side sequence of its
     // own, which these grammars are not, and is rebuilt directly below.
+    // The hash step and a canonical value's bits (VARKA-337) have no production yet
+    // (`VARKA-337.md` 10), and are rebuilt directly below.
     val undrawn = permitted -- seen - "NullSafeEqual" - "BoolColumn" - "CondConst" -
       "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" - "DecimalColumn" -
       "DecimalWord" - "MathUnary" - "RoundToIntegral" - "CanonicalFloat" - "ConvertLane" -
+      "HashStep" - "CanonicalBits" -
       "CrossLane" // the crossing is drawn from 343a5
     assert(undrawn.isEmpty, s"the grammars never drew: ${undrawn.toSeq.sorted.mkString(", ")}")
   }
@@ -154,6 +157,19 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     assert(CanonicalFloat.of(canon) eq canon)
     intercept[IllegalArgumentException](new CanonicalFloat(canon))
     intercept[IllegalArgumentException](CanonicalFloat.of(new ColumnRef(0)))
+  }
+
+  test("a hash step is rebuilt over its seed and word and keeps its mix") {
+    val seed = new LiteralSlot(0, LaneType.LONG)
+    val canon = CanonicalFloat.of(new ColumnRef(0, LaneType.DOUBLE))
+    val bits = new CanonicalBits(canon)
+    val step = new HashStep(HashMix.XXH64_LONG, seed, bits)
+    assert(VarkaVectorIR.withChildren(step, VarkaVectorIR.childrenOf(step): _*) == step)
+    val other = new ColumnRef(1, LaneType.LONG)
+    assert(VarkaVectorIR.withChildren(step, seed, other) ==
+      new HashStep(HashMix.XXH64_LONG, seed, other))
+    assert(VarkaVectorIR.withChildren(bits, canon) == bits)
+    intercept[IllegalArgumentException](VarkaVectorIR.withChildren(bits, other))
   }
 
   test("a floating conversion is rebuilt over its own child and keeps its target") {
