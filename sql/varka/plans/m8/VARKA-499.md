@@ -260,7 +260,12 @@ All four fixes and their tests are written; none of the runs section 3 names has
    registry through a package seam, so the test defines no class. Its test in
    `VarkaSpeciesGuardSuite`: a widened int sum (a long kernel holding an int vector) passes a
    fresh registry, fails the check naming both fixes, passes with the guard off; a one-lane kernel
-   passes either way.
+   passes either way. A second test establishes the rule on bytes alone: four kernels (a widened
+   int sum, an int column divided by 7, an int sum, a long sum) are each emitted under the three
+   lane configurations and admitted to a registry seeded with that configuration's one-lane int
+   and long kernels, and the rule at the defaults must select exactly the ones some configuration
+   refuses. It passed on the laptop (512-bit vectors, 20 November 2026, 7 of 7 in the suite): the
+   two two-lane kernels are selected and refused, the one-lane kernels neither.
 4. **(c)** `VarkaMatrixRuns.Kind.DRAWS` (`draws`), legal only on the tests
    `VarkaMatrixRuns.SEEDED_DRAWS` names by the start of their names (the two `VarkaSparkFuzzSuite`
    compositions tests, and `VarkaCoverageCompositionFuzzSuite`'s three random-draw tests).
@@ -287,9 +292,17 @@ All four fixes and their tests are written; none of the runs section 3 names has
   for one such kernel: the multiply-high division of an int column (`mulHiDivide`, on by default)
   widens each int half into `LongVector` at the int species' own bit width
   (`VarkaDivisionLowering.Divider.of`, `emitMulHiDivide`), which under `lanesOverride=4` is
-  `SPECIES_128` where the long kernels establish `SPECIES_256`. So the lane-count rule, which
-  selects it, and the registry under a lane configuration should agree on it, and the census
-  decides (10.3).
+  `SPECIES_128` where the long kernels establish `SPECIES_256`. The probe test in 10.1 item 3
+  confirms it: the division is selected at the defaults and refused under a lane configuration,
+  so the lane-count rule and the registry agree on it. That leaves a question the census answers:
+  shared-JVM suites that load such a division beside a long kernel should already fail the
+  matrix's lane configurations, and the record of the last matrix runs does not say they do. The
+  suites outside `ownJvm` whose sources build a `ConstDivide`, `WidenLane` or `NarrowLane`
+  (whether they load it is the gate's question): `VarkaTwoLaneConditionSuite`,
+  `VarkaReproductionSuite`, `VarkaDivisorProofSuite`, `VarkaTimestampNtzArithmeticSuite`,
+  `VarkaLaneTypeSuite`, `VarkaExpressionCompilerSuite`, `VarkaEmittedBytesSuite`,
+  `VarkaCoverageSuite`, `VarkaEmitterFramesSuite`, `VarkaWithChildrenSuite`,
+  `VarkaRangeAnalysisSuite`.
 
 ### 10.3 Owed before the row closes
 
@@ -297,7 +310,9 @@ All four fixes and their tests are written; none of the runs section 3 names has
    `-Dvarka.speciesGuard=report -Dvarka.speciesGuard.report=<file>` at the defaults (the `lanes`
    lines: the predicate's set) and under `lanesOverride=4`, `lanesOverride=16` and
    `narrowHalfSpecies=true` (the conflict lines: the matrix's set). Prediction 1 is scored there.
-   If the sets differ, the predicate becomes 2.1's re-emission under each configuration.
+   If the sets differ, the predicate becomes 2.1's re-emission under each configuration. If the gate
+   (item 2) finds the new check failing many suites that the matrix passes, the check becomes
+   report-only until the census is read, rather than the Build failing on it.
 2. **(a)'s gate at the defaults**: the catalyst Varka suites, to find a shared-JVM suite the new
    check fails that the matrix has not; each takes the annotation or, if it pins the defaults, the
    exemption 2.1 describes.
