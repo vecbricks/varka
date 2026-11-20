@@ -3514,6 +3514,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // Without `splitConditions` the compiler drops the last conjunct it admitted and asks again;
     // with it, the default (VARKA-172), it splits the conjunction instead. The budget is set
     // between what two of these conjuncts and all three emit, measured rather than assumed.
+    // The columns are not null: `add_months` is off the order rule's error-free list, so a
+    // demoted conjunct is a residual one that can raise, and a fused conjunct that could be NULL
+    // ahead of it would be demoted too (VARKA-386), which is not this test's subject.
+    val childOutput = this.childOutput.map(_.withNullability(false))
     val conjuncts = (1 to 3).map(k => GreaterThan(heavy(k * 10, k * 10 + 3), d2))
     val condition = conjuncts.reduceLeft[Expression](And(_, _))
     val two = VarkaExpressionCompiler.compilePredicate(
