@@ -101,11 +101,11 @@ public final class VarkaFamilySwitchSuite {
 
   /**
    * The families whose arm fuses nothing yet, each with an expression of the family that a row of
-   * the plan will fuse: the math family declines every function by its row (VARKA-345), so no
-   * coverage row holds it, and its switch is checked on this expression instead. A family leaves
-   * this map the day a coverage row holds it, which the switch test enforces.
+   * the plan will fuse, on which its switch is checked since no coverage row holds it. A family
+   * leaves this map the day a coverage row holds it, which the switch test enforces; none is in
+   * it now.
    */
-  private static final Map<VarkaFamily, String> UNBUILT = Map.of(VarkaFamily.MATH, "sin(x)");
+  private static final Map<VarkaFamily, String> UNBUILT = Map.of();
 
   /** The prefix the width census gives a shape the compiler declines at that width. */
   private static final String DECLINED = "declined: ";

@@ -1182,6 +1182,28 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `bround(s1, -2)` | `rounding` | `s1 BETWEEN -32749 AND 32749` |  | vector |
 | `truncate(s1, -2)` | `rounding` |  |  | vector |
 
+#### Math functions
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `sin(x)` | `math` |  | exact: a per-lane Math.sin call, the host's answer as Spark's | vector |
+| `cos(x)` | `math` |  | exact: a per-lane Math.cos call | vector |
+| `tan(x)` | `math` |  | exact: a per-lane Math.tan call | vector |
+| `asin(x)` | `math` |  | exact: a per-lane StrictMath.asin call, which Math.asin delegates to | vector |
+| `acos(x)` | `math` |  | exact: a per-lane StrictMath.acos call | vector |
+| `atan(x)` | `math` |  | exact: a per-lane StrictMath.atan call | vector |
+| `sec(x)` | `math` |  | 1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null | vector |
+| `csc(x)` | `math` |  | 1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf | vector |
+| `cot(x)` | `math` |  | 1 / Math.tan(x) | vector |
+| `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | vector |
+| `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | per-lane: mask broadcast, mask test |
+
+#### Math functions as conditions
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `sin(x) < 0.5D` | `predicate`, `math` |  | the call, then the floating compare in Spark's order | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+
 #### Floating casts to BOOLEAN
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -1367,10 +1389,10 @@ operands (a row counts once for each type it reads):
 | `byte` | 56 | 0 | 0 | 0 | 0 | 8 | 48 |
 | `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
 | `dec` | 77 | 1 | 42 | 10 | 0 | 0 | 24 |
-| `double` | 85 | 0 | 0 | 1 | 0 | 0 | 84 |
+| `double` | 97 | 0 | 0 | 1 | 0 | 0 | 96 |
 | `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
-| `int` | 177 | 14 | 0 | 4 | 1 | 1 | 157 |
+| `int` | 178 | 14 | 0 | 4 | 1 | 1 | 158 |
 | `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
 | `short` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
 | `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |

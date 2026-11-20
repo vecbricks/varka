@@ -742,10 +742,21 @@ public final class VarkaReference {
     });
   }
 
-  /** {@code fn} as {@code java.lang.Math} computes it, which is Spark's definition. */
+  /**
+   * {@code fn} as Spark's generated code computes it: {@code java.lang.Math}'s method, which for
+   * {@code asin}, {@code acos} and {@code atan} is {@code StrictMath}'s on every host. Called by
+   * name here, never by the class a lowering names, so a lowering calling the wrong class is
+   * caught.
+   */
   private static double mathDouble(MathFn fn, double v) {
     return switch (fn) {
       case SQRT -> Math.sqrt(v);
+      case SIN -> Math.sin(v);
+      case COS -> Math.cos(v);
+      case TAN -> Math.tan(v);
+      case ASIN -> Math.asin(v);
+      case ACOS -> Math.acos(v);
+      case ATAN -> Math.atan(v);
     };
   }
 
@@ -753,6 +764,8 @@ public final class VarkaReference {
   private static float mathFloat(MathFn fn, float v) {
     return switch (fn) {
       case SQRT -> (float) Math.sqrt(v);
+      case SIN, COS, TAN, ASIN, ACOS, ATAN -> throw VarkaErrors.illegalArgument(
+          fn + " takes a DOUBLE operand only");
     };
   }
 

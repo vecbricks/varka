@@ -38,11 +38,11 @@ rand	Rand	mathExpressions	out	nondeterministic: seeded per partition, its answer
 random	Rand	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
 randn	Randn	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
 uniform	Uniform	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
-acos	Acos	mathExpressions	in		double	double		double	ulp	367,356	Math	
+acos	Acos	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane StrictMath.acos call (VARKA-356)	
 acosh	Acosh	mathExpressions	in		double	double		double	ulp	367,357	Spark's log-and-sqrt formula over StrictMath.log	
-asin	Asin	mathExpressions	in		double	double		double	ulp	367,356	Math	
+asin	Asin	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane StrictMath.asin call, which Math.asin delegates to (VARKA-356)	
 asinh	Asinh	mathExpressions	in		double	double		double	ulp	367,357	Spark's log-and-sqrt formula over StrictMath.log	
-atan	Atan	mathExpressions	in		double	double		double	ulp	367,356	Math	
+atan	Atan	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane StrictMath.atan call (VARKA-356)	
 atan2	Atan2	mathExpressions	in		double	double		double	ulp	367,356	Math	
 atanh	Atanh	mathExpressions	in		double	double		double	ulp	367,357	Spark's formula over StrictMath.log	
 bin	Bin	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026								
@@ -50,8 +50,8 @@ bround	BRound	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,sh
 cbrt	Cbrt	mathExpressions	in		double	double		double	ulp	367,358	Math	
 ceil	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	int,bigint	byte,short,float,double,dec	semantics	344,351,363	double and integral give bigint, decimal a decimal of scale 0; fused for int in `ceil(i)`, the int under a cast to double	
 ceiling	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	bigint	byte,short,float,double,dec	semantics	344,351,363	alias of ceil	
-cos	Cos	mathExpressions	in		double	double		double	ulp	367,356	Math	
-sec	Sec	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.cos	
+cos	Cos	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane Math.cos call (VARKA-356)	
+sec	Sec	mathExpressions	in		double	double	double	double	done	356	1 / Math.cos, Java's division over the per-lane call (VARKA-356)	
 cosh	Cosh	mathExpressions	in		double	double		double	ulp	367,357	Math	
 conv	Conv	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026								
 degrees	ToDegrees	mathExpressions	in		double	double	double	double	done	342	Math.toDegrees is one multiply, bit-exact	
@@ -80,12 +80,12 @@ round	Round	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,shor
 truncate	Truncate	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint	byte,short,float,double,dec	semantics	344,346,351,363	ROUND_DOWN to a scale; integral and decimal are semantics, double as round (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3	
 sign	Signum	mathExpressions	in		double,ym,dt	double	double,ym,dt	double	done	342	exact: a compare and a blend	
 signum	Signum	mathExpressions	in		double,ym,dt	double	double,ym,dt	double	done	342	alias of sign	
-sin	Sin	mathExpressions	in		double	double		double	ulp	367,356	Math	
-csc	Csc	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.sin	
+sin	Sin	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane Math.sin call, the host's answer as Spark's (VARKA-356)	
+csc	Csc	mathExpressions	in		double	double	double	double	done	356	1 / Math.sin, Java's division over the per-lane call (VARKA-356)	
 sinh	Sinh	mathExpressions	in		double	double		double	ulp	367,357	Math	
 sqrt	Sqrt	mathExpressions	in		double	double	double	double	done	342	IEEE 754 rounds sqrt correctly, so a lane is bit-exact	
-tan	Tan	mathExpressions	in		double	double		double	ulp	367,356	Math	
-cot	Cot	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.tan	
+tan	Tan	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane Math.tan call (VARKA-356)	
+cot	Cot	mathExpressions	in		double	double	double	double	done	356	1 / Math.tan, Java's division over the per-lane call (VARKA-356)	
 tanh	Tanh	mathExpressions	in		double	double		double	ulp	367,357	Math	
 width_bucket	WidthBucket	mathExpressions	in		double,time,ym,dt	bigint		double	semantics	344	bucket arithmetic over doubles	
 +	Add	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,ym,dt	byte,short,float,double,dec	semantics	330,104,103,342,349,360	integral overflow modes; decimal result scale; date and timestamp sums are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38	

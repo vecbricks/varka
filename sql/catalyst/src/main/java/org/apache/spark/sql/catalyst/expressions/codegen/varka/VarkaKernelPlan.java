@@ -67,7 +67,9 @@ public final class VarkaKernelPlan {
      * of the host, not of the roots, so the compiler asks for it at admission ({@link #admit})
      * and {@link #of} never makes it.
      */
-    TWO_LANE_CONDITION
+    TWO_LANE_CONDITION,
+    /** A per-lane math call at a width with no baked lane count. */
+    MATH_CALL
   }
 
   private final Optional<Refusal> refusal;
@@ -135,6 +137,13 @@ public final class VarkaKernelPlan {
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
         operands.add(child);
         todo.push(child);
+      }
+    }
+    // A per-lane math call is unrolled over the baked lane count of the 64-bit drive lane.
+    for (VarkaVectorIR node : nodes) {
+      if (node instanceof VarkaVectorIR.MathUnary m && m.fn().laneCall()
+          && (lanes == 0 || lane.bits != Long.SIZE)) {
+        return refused(new Refusal(Kind.MATH_CALL, NO_BAKED_LANES_FOR_A_CALL));
       }
     }
     Set<VarkaVectorIR> storeNarrowings = new HashSet<>();
@@ -497,6 +506,14 @@ public final class VarkaKernelPlan {
   // -------------------------------------------------------------------------------------------
   // The refusals
   // -------------------------------------------------------------------------------------------
+
+  /**
+   * The reason a kernel holding a per-lane math call ({@code MathFn#laneCall}) declines at a
+   * width with no baked lane count, {@code validityByWidth} off: the call is unrolled over the
+   * lanes, so their count must be known when the kernel is emitted.
+   */
+  public static final String NO_BAKED_LANES_FOR_A_CALL =
+      "a per-lane math call needs a baked lane count to be unrolled";
 
   /**
    * The reason a narrow value read or stored by an int-lane kernel declines at a width with no

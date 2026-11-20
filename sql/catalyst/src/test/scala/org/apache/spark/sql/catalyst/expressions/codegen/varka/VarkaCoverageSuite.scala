@@ -1399,6 +1399,25 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         domain = Some("s1 BETWEEN -32764 AND 32764")),
       Row("bround(s1, -2)", "", domain = Some("s1 BETWEEN -32749 AND 32749")),
       Row("truncate(s1, -2)"))),
+    // The math functions (VARKA-345, VARKA-356), exact by default: each lane is passed to the
+    // scalar method Spark's generated code calls, so the bits are that method's on this host -
+    // Math's for sin, cos and tan, StrictMath's for asin, acos and atan, which Math delegates
+    // to - and the work around the call stays in the kernel.
+    Family("Math functions", predicates = false, Seq(
+      Row("sin(x)", "exact: a per-lane Math.sin call, the host's answer as Spark's"),
+      Row("cos(x)", "exact: a per-lane Math.cos call"),
+      Row("tan(x)", "exact: a per-lane Math.tan call"),
+      Row("asin(x)", "exact: a per-lane StrictMath.asin call, which Math.asin delegates to"),
+      Row("acos(x)", "exact: a per-lane StrictMath.acos call"),
+      Row("atan(x)", "exact: a per-lane StrictMath.atan call"),
+      Row("sec(x)", "1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine "
+        + "is an infinity and no null"),
+      Row("csc(x)", "1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf"),
+      Row("cot(x)", "1 / Math.tan(x)"),
+      Row("sin(x) * 2.0D + cos(x2)", "the arithmetic around the calls in the kernel"),
+      Row("sin(i)", "the int converted exactly, then the call"))),
+    Family("Math functions as conditions", predicates = true, Seq(
+      Row("sin(x) < 0.5D", "the call, then the floating compare in Spark's order"))),
     // A floating value as a boolean (VARKA-343 2.5): Spark's x != 0 in every mode, the negation
     // of the lane's EQ against zero, so a NaN is true and both zeros false; never an error.
     Family("Floating casts to BOOLEAN", predicates = false, Seq(
@@ -1990,7 +2009,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * The Catalyst expression classes the compiler matches on, read from its source because there
    * is no runtime list to ask: the arms are a `match`, not a registry. The arms live in
    * `VarkaExpressionCompiler`, in `VarkaNodeCompiler` (the date leaves and the int arithmetic)
-   * and in the four families it chains, so all six files are read. All six are Java: each
+   * and in the five families it chains, so all seven files are read. All seven are Java: each
    * matches in a `switch`, whose type patterns (`case Add a`) and `instanceof` tests are what
    * name its classes.
    *
@@ -2005,7 +2024,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    */
   private lazy val admittedByCompiler: Set[String] = {
     val javaFiles = Seq("VarkaExpressionCompiler", "VarkaNodeCompiler", "VarkaIntervalCompiler",
-      "VarkaTimeCompiler", "VarkaConditionCompiler", "VarkaChronoCompiler")
+      "VarkaTimeCompiler", "VarkaConditionCompiler", "VarkaChronoCompiler", "VarkaMathCompiler")
     def read(name: String): String =
       withoutComments(Files.readString(
         getWorkspaceFilePath("sql", "catalyst", "src", "main", "java",

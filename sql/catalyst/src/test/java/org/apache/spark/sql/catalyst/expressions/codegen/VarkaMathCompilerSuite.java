@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
@@ -38,18 +39,19 @@ import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrixRuns;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSqlResolve;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
 import org.apache.spark.sql.types.DataTypes;
 
 /**
- * The math family before any function fuses (VARKA-345 345a): each of Spark's 27 math functions
- * over {@code DOUBLE} columns is claimed by the family, declines naming the row of the plan that
- * fuses it, and with the family's switch off names the switch instead. The table below is
- * written out rather than read from {@code VarkaMathCompiler}, so a function the arm forgets, or
- * gives another row, fails here; and a function that starts fusing fails here too, which is the
- * prompt to move it into the coverage table.
+ * The math family's claim (VARKA-345 345a, VARKA-356): each of Spark's 27 math functions over
+ * {@code DOUBLE} columns is claimed by the family; the ones built fuse, each other declines naming
+ * the row of the plan that fuses it, and with the family's switch off every one names the switch
+ * instead. The tables below are written out rather than read from {@code VarkaMathCompiler}, so a
+ * function the arm forgets, or gives another row, fails here; and a function that starts fusing
+ * fails here too, which is the prompt to move it into the fused table and the coverage table.
  */
 @VarkaSuite
 public final class VarkaMathCompilerSuite {
@@ -59,14 +61,25 @@ public final class VarkaMathCompilerSuite {
       VarkaSqlResolve.column("y", DataTypes.DoubleType),
       VarkaSqlResolve.column("i", DataTypes.IntegerType))).toSeq();
 
-  /** Each function as SQL, with the name its reason gives and the row that fuses it. */
+  /** The functions that fuse, as SQL: row 356's one-argument functions. */
+  private static final List<String> FUSED = fused();
+
+  private static List<String> fused() {
+    var m = new ArrayList<String>();
+    for (String f : List.of("sin", "cos", "tan", "asin", "acos", "atan", "sec", "csc", "cot")) {
+      m.add(f + "(x)");
+    }
+    // An int operand reaches the function through its cast to double, which the floating casts
+    // family lowers; the math family's call is over the cast.
+    m.add("sin(i)");
+    return Collections.unmodifiableList(m);
+  }
+
+  /** Each other function as SQL, with the name its reason gives and the row that fuses it. */
   private static final Map<String, String> FUNCTIONS = functions();
 
   private static Map<String, String> functions() {
     var m = new LinkedHashMap<String, String>();
-    for (String f : List.of("sin", "cos", "tan", "asin", "acos", "atan", "sec", "csc", "cot")) {
-      m.put(f + "(x)", f + " is row 356's");
-    }
     m.put("atan2(y, x)", "atan2 is row 356's");
     for (String f : List.of("sinh", "cosh", "tanh", "asinh", "acosh", "atanh")) {
       m.put(f + "(x)", f + " is row 357's");
@@ -83,26 +96,31 @@ public final class VarkaMathCompilerSuite {
     return Collections.unmodifiableMap(m);
   }
 
-  private static String reason(String sql, Set<VarkaFamily> off, VarkaEmitOptions options) {
+  /** The reason {@code sql} declines with, or empty where it fuses. */
+  private static Optional<String> outcome(String sql, Set<VarkaFamily> off,
+      VarkaEmitOptions options) {
     Expression e = VarkaSqlResolve.parse(sql, COLUMNS);
     Seq<NamedExpression> entries =
         CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "o"))).toSeq();
     var declines =
         VarkaExpressionCompiler.declines(entries, COLUMNS, options, new VarkaAdmission(off, false));
-    assertTrue(declines.containsKey(0), sql + " fused");
-    return declines.get(0).reason();
+    return declines.containsKey(0) ? Optional.of(declines.get(0).reason()) : Optional.empty();
+  }
+
+  private static String reason(String sql, Set<VarkaFamily> off, VarkaEmitOptions options) {
+    return outcome(sql, off, options).orElseThrow(() -> new AssertionError(sql + " fused"));
   }
 
   @Test
-  @DisplayName("every math function declines naming the row that fuses it, in either mode")
+  @DisplayName("every math function not built declines naming the row that fuses it")
   void eachFunctionNamesItsRow() {
-    assertEquals(27, FUNCTIONS.size() - 1, "the 27 functions and one int operand");
+    assertEquals(27, FUSED.size() + FUNCTIONS.size() - 2, "the 27 functions and two int operands");
     var failures = new ArrayList<String>();
     for (var f : FUNCTIONS.entrySet()) {
       for (boolean contract : List.of(false, true)) {
         String why = reason(f.getKey(), Set.of(),
             VarkaMatrixRuns.BASE.withMathUlpContract(contract));
-        if (!why.equals(f.getValue() + ": no math function fuses yet")) {
+        if (!why.equals(f.getValue() + ": not fused yet")) {
           failures.add(f.getKey() + (contract ? " (contract on)" : "") + ": " + why);
         }
       }
@@ -111,10 +129,30 @@ public final class VarkaMathCompilerSuite {
   }
 
   @Test
+  @DisplayName("row 356's one-argument functions fuse, with the contract off and on")
+  void builtFunctionsFuse() {
+    var failures = new ArrayList<String>();
+    for (String sql : FUSED) {
+      for (boolean contract : List.of(false, true)) {
+        outcome(sql, Set.of(), VarkaMatrixRuns.BASE.withMathUlpContract(contract))
+            .ifPresent(why -> failures.add(sql + (contract ? " (contract on)" : "") + ": " + why));
+      }
+    }
+    assertEquals(List.of(), failures);
+  }
+
+  @Test
+  @DisplayName("a per-lane call declines at a width with no baked lane count")
+  void callNeedsBakedLanes() {
+    String why = reason("sin(x)", Set.of(), VarkaMatrixRuns.BASE.withValidityByWidth(false));
+    assertTrue(why.contains(VarkaKernelPlan.NO_BAKED_LANES_FOR_A_CALL), why);
+  }
+
+  @Test
   @DisplayName("with the math family switched off every math function names the switch")
   void switchedOffNamesTheSwitch() {
     var failures = new ArrayList<String>();
-    for (String sql : FUNCTIONS.keySet()) {
+    for (String sql : allFunctions()) {
       String why = reason(sql, Set.of(VarkaFamily.MATH), VarkaMatrixRuns.BASE);
       if (!why.equals(VarkaFamily.MATH.offReason())) {
         failures.add(sql + ": " + why);
@@ -126,7 +164,7 @@ public final class VarkaMathCompilerSuite {
   @Test
   @DisplayName("the family claims exactly the math classes, and nothing beside them")
   void claimsOnlyMathClasses() {
-    for (String sql : FUNCTIONS.keySet()) {
+    for (String sql : allFunctions()) {
       Expression e = VarkaSqlResolve.parse(sql, COLUMNS);
       assertTrue(VarkaMathCompiler.ownerOf(e).isPresent(), sql);
     }
@@ -134,5 +172,12 @@ public final class VarkaMathCompilerSuite {
       Expression e = VarkaSqlResolve.parse(sql, COLUMNS);
       assertTrue(VarkaMathCompiler.ownerOf(e).isEmpty(), sql);
     }
+  }
+
+  /** Every function as SQL, the fused and the declined. */
+  private static List<String> allFunctions() {
+    var all = new ArrayList<>(FUSED);
+    all.addAll(FUNCTIONS.keySet());
+    return all;
   }
 }
