@@ -901,6 +901,46 @@ prewarm; (4) the flip of the default by those readings, then `emitted_bytes.json
 `L2D`, `D2L`) stays unbuilt: its premise was refuted in 9.2, and this mechanism is not the
 prewarm's. The row is not Done.
 
+### 9.7 The runner tooling of 3.1, built (20 November 2026)
+
+Section 0 step 3 builds `benchmark.yml`'s history mode once the laptop's reading admits half (a),
+which 9.1 did; built here, not dispatched (no dispatch in this window). What exists now:
+
+* `dev/varka_kernel_history.sh --fork-base B`: a shard's forks are `B` to `B + --forks - 1`, their
+  seeds `--seed + B + f` and their log names included, so shards merge into one run. With the
+  default 0 nothing changes for the nightly or a laptop reading.
+* `benchmark.yml`: inputs `history` (the launcher's arguments) and `history-bits` (`256`, `512` or
+  blank). With `history` set, the TPC-DS, benchmark and pair jobs are skipped; a `kernel-history`
+  job per split checks C2's `MaxVectorSize` against `history-bits` before the build and fails on
+  another machine (a rerun of the failed jobs draws another), records the CPU, runs the launcher
+  with `--fork-base (split - 1) * forks` and each word of `extra-java-options` as a `--jvm`, and
+  uploads its logs; `kernel-history-report` merges the shards' logs into one directory and runs
+  `dev/varka_kernel_history.py` over it, with each shard's CPU. `pr` works as for the benchmarks.
+* Not built: 3.1's `--prewarm first`, `--cold` and `--test e2e`, which served half (b), answered
+  in section 0; and the nightly's `--max-long-released`, which waits for a runner number.
+
+**The dispatches the row now needs** (owner's go-ahead; `<N>` is this branch's pull request, run
+on `vecbricks/varka` as the benchmarks are). The arm against the defaults at each width, three
+shards of two forks each, the history of 9.1:
+
+    gh workflow run benchmark.yml -R vecbricks/varka -f pr=<N> -f jdk=25 -f generate-tpcds=false \
+      -f num-splits=3 -f history-bits=256 \
+      -f history="--after 64 --forks 2 --prewarm on --jvms 1 --cpus 4"
+    gh workflow run benchmark.yml -R vecbricks/varka -f pr=<N> -f jdk=25 -f generate-tpcds=false \
+      -f num-splits=3 -f history-bits=256 \
+      -f history="--after 64 --forks 2 --prewarm on --jvms 1 --cpus 4" \
+      -f extra-java-options="-Dvarka.matrix.config=uncountedMainLoop=true"
+
+and the same two with `history-bits=512`. **Cost, predicted** (the calibration table has no
+runner line for the history probe, so 3.1's basis stands: VARKA-257's JIT-bound step at about
+one to one between the laptop and a runner core, 3 min 52 s against 3 minutes): at 9.1's 54
+minutes for 12 forks
+on two laptop JVMs (about 9 minutes a fork with its releases), a defaults shard of two forks is
+about 20 to 40 minutes on a four-vCPU runner plus the catalyst test build (222 to 299 s in
+`sql/varka/ci/step-budget.tsv`), an arm shard 5 to 15 minutes plus the build if prediction 1
+holds (9.4's 4 minutes for 12 forks with the flag); twelve jobs, about four runner hours, and a
+512-bit shard may need reruns until such a machine is drawn.
+
 ### 9.6 Decisions taken while the owner was away (20 November 2026)
 
 * **The fix is an emit option, default off, and the emitted bytes at the defaults do not move.**

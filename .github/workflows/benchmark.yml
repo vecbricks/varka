@@ -105,6 +105,16 @@ on:
         description: 'Pair mode: the base. Blank for the merge base of the head with vecbricks/varka master; HEAD pairs the head with itself (an A/A run, the runner''s own spread); a commit SHA; or a branch of vecbricks/varka.'
         required: false
         default: ''
+      history:
+        type: string
+        description: 'Kernel-history mode (VARKA-383): the arguments of dev/varka_kernel_history.sh, run on each of num-splits runners as shards with distinct forks (--fork-base), the class, tpcds, pair and create-commit inputs not applying; extra-java-options reach every fork as --jvm. Blank for the benchmarks.'
+        required: false
+        default: ''
+      history-bits:
+        type: string
+        description: 'Kernel-history mode: the vector width a shard must run on, 256 or 512 (C2''s MaxVectorSize of 32 or 64 bytes); a shard on another machine fails before the build, and rerunning the failed jobs draws another. Blank for any.'
+        required: false
+        default: ''
 
 # Read-only by default: with `pr` the jobs build and run a pull request's code. Only the harness
 # job, whose create-commit pushes the results to the dispatched branch, may write.
@@ -214,7 +224,7 @@ jobs:
   # Any TPC-DS related updates on this job need to be applied to tpcds-1g job of build_and_test.yml as well
   tpcds-1g-gen:
     name: "Generate an TPC-DS dataset with SF=1"
-    if: needs.matrix-gen.outputs.tpcds == 'true' && !inputs.pair
+    if: needs.matrix-gen.outputs.tpcds == 'true' && !inputs.pair && inputs.history == ''
     needs: matrix-gen
     runs-on: ubuntu-latest
     env:
@@ -268,7 +278,7 @@ jobs:
 
   benchmark:
     name: "Run benchmarks: ${{ matrix.class.name }} (JDK ${{ inputs.jdk }}, Scala ${{ inputs.scala }}, ${{ matrix.split }} out of ${{ inputs.num-splits }} splits)"
-    if: always() && !inputs.pair && needs.matrix-gen.result == 'success'
+    if: always() && !inputs.pair && inputs.history == '' && needs.matrix-gen.result == 'success'
     needs: [matrix-gen, tpcds-1g-gen]
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     permissions:
@@ -473,7 +483,7 @@ jobs:
   # six-hour job cap: a class whose single run takes over about fifty minutes on a runner does not.
   pair:
     name: "Benchmark pair: ${{ matrix.class.name }}"
-    if: inputs.pair
+    if: inputs.pair && inputs.history == ''
     needs: matrix-gen
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: 355
@@ -625,3 +635,111 @@ jobs:
         name: benchmark-pair-${{ matrix.class.slug }}
         path: target/pair
         if-no-files-found: ignore
+
+  # The kernel-history mode (VARKA-383 3.1): dev/varka_kernel_history.sh on num-splits runners,
+  # shard k running forks (k - 1) * --forks onwards, so the shards' logs merge into one run whose
+  # forks each draw a seed of their own. Runners have four vCPUs, so a dispatch passes
+  # --jvms 1 --cpus 4. The launcher builds catalyst's test classes itself (dev/varka_matrix.sh).
+  kernel-history:
+    name: "Kernel history: shard ${{ matrix.split }} of ${{ inputs.num-splits }}"
+    if: inputs.history != ''
+    needs: matrix-gen
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        split: ${{ fromJSON(needs.matrix-gen.outputs.matrix) }}
+    env:
+      SPARK_LOCAL_IP: localhost
+      HISTORY: ${{ inputs.history }}
+      HISTORY_BITS: ${{ inputs.history-bits }}
+      EXTRA_JAVA_OPTIONS: ${{ inputs.extra-java-options }}
+      SPLIT: ${{ matrix.split }}
+    steps:
+    - name: Checkout Spark repository
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ inputs.pr != '' && env.VARKA_BASE_REPO || github.repository }}
+        ref: ${{ inputs.pr != '' && format('refs/pull/{0}/head', inputs.pr) || '' }}
+        persist-credentials: false
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
+      with:
+        java-version: '25'
+        coursier: cache
+    # Before the build, so a shard on the wrong machine costs a minute: C2's widest vector here.
+    - name: Check the vector width
+      run: |
+        bytes="$(java -XX:+PrintFlagsFinal -version 2>/dev/null \
+          | awk '$2 == "MaxVectorSize" { print $4 }')"
+        echo "CPU: $(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //'); MaxVectorSize $bytes"
+        case "$HISTORY_BITS" in
+          '') ;;
+          256|512)
+            if [ "$bytes" != "$((HISTORY_BITS / 8))" ]; then
+              echo "::error::a ${HISTORY_BITS}-bit shard drew a machine of $((bytes * 8)) bits;" \
+                "rerun the failed jobs for another"
+              exit 1
+            fi ;;
+          *) echo "::error::history-bits must be 256, 512 or blank, not '$HISTORY_BITS'"
+             exit 1 ;;
+        esac
+    - name: Run the shard
+      shell: bash
+      run: |
+        read -r -a args <<< "$HISTORY"
+        forks=10
+        for ((i = 0; i < ${#args[@]}; i++)); do
+          [ "${args[$i]}" = --forks ] && forks="${args[$((i + 1))]}"
+        done
+        jvm=()
+        for opt in $EXTRA_JAVA_OPTIONS; do jvm+=(--jvm "$opt"); done
+        mkdir -p target/kernel-history
+        cpu="$(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //')"
+        echo "$cpu" > "target/kernel-history/cpu-$SPLIT.txt"
+        dev/varka_kernel_history.sh "${args[@]}" "${jvm[@]}" \
+          --fork-base "$(( (SPLIT - 1) * forks ))" --out target/kernel-history
+        mv target/kernel-history/provenance.txt "target/kernel-history/provenance-$SPLIT.txt"
+        mv target/kernel-history/summary.txt "target/kernel-history/summary-$SPLIT.txt"
+    - name: Upload the shard's logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: kernel-history-${{ matrix.split }}
+        path: |
+          target/kernel-history/*.log
+          target/kernel-history/*.exit
+          target/kernel-history/*.txt
+        if-no-files-found: ignore
+
+  # The shards' logs in one directory, read as one run: the reader groups forks by their case.
+  kernel-history-report:
+    name: "Kernel history: the merged reading"
+    if: always() && inputs.history != '' && needs.kernel-history.result != 'skipped'
+    needs: kernel-history
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Spark repository
+      uses: actions/checkout@v7
+      with:
+        sparse-checkout: dev
+        persist-credentials: false
+    - name: Download the shards' logs
+      uses: actions/download-artifact@v8
+      with:
+        pattern: kernel-history-*
+        merge-multiple: true
+        path: merged
+    - name: Read the merged run
+      run: |
+        { echo "CPUs by shard:"; for f in merged/cpu-*.txt; do echo "  $f: $(cat "$f")"; done
+          python3 dev/varka_kernel_history.py --dir merged; } | tee merged/summary.txt
+        { echo '### Kernel history'; echo; echo '```'; cat merged/summary.txt; echo '```'; } \
+          >> "$GITHUB_STEP_SUMMARY"
+    - name: Upload the merged reading
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: kernel-history-merged
+        path: merged
