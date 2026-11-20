@@ -1927,7 +1927,11 @@ public final class VarkaLoopEmitter {
     return new int[] {served, analysis.declinedBitmapRoots};
   }
 
-  /** The height of {@code node}, memoized per distinct node like {@code Analysis.height}. */
+  /**
+   * The height of {@code node}, memoized per distinct node like {@code Analysis.height}. The
+   * leaves are the nodes {@code Analysis} gives height 0 and counts as no op: the column reads,
+   * the decimal ones among them, the literal slots and the two constants.
+   */
   private static int budgetWalk(VarkaVectorIR node,
       Map<VarkaVectorIR, Integer> heights, int[] opNodes) {
     Integer memo = heights.get(node);
@@ -1935,8 +1939,10 @@ public final class VarkaLoopEmitter {
       return memo;
     }
     int height;
-    if (node instanceof ColumnRef || node instanceof LiteralSlot || node instanceof BoolColumn
-        || node instanceof CondConst || node instanceof VarkaVectorIR.NullValue) {
+    if (node instanceof ColumnRef || node instanceof VarkaVectorIR.DecimalColumn
+        || node instanceof VarkaVectorIR.DecimalWord || node instanceof LiteralSlot
+        || node instanceof BoolColumn || node instanceof CondConst
+        || node instanceof VarkaVectorIR.NullValue) {
       height = 0;
     } else {
       opNodes[0]++;
