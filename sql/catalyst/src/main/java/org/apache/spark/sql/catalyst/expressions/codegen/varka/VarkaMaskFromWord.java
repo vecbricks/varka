@@ -63,18 +63,22 @@ public final class VarkaMaskFromWord {
   /** The most lanes a word can describe. */
   private static final int WORD_BITS = Long.SIZE;
 
-  /*
-   * Lane i's bit at each integral lane, and below lane i's element at the narrow lanes, public
-   * because emitted kernels load them (they live in another runtime package); nothing may write
-   * them, which VarkaMaskFromWordSuite checks.
-   */
+  // Lane i's bit at each integral lane, and below lane i's element at the narrow lanes, public
+  // because emitted kernels load them (they live in another runtime package); nothing may write
+  // them, which VarkaMaskFromWordSuite checks.
+  @SuppressWarnings("MutablePublicArray") // emitted kernels load it; never written
   public static final long[] LONG_BITS = new long[WORD_BITS];
+  @SuppressWarnings("MutablePublicArray") // emitted kernels load it; never written
   public static final int[] INT_BITS = new int[WORD_BITS];
+  @SuppressWarnings("MutablePublicArray") // emitted kernels load it; never written
   public static final short[] SHORT_BITS = new short[WORD_BITS];
+  @SuppressWarnings("MutablePublicArray") // emitted kernels load it; never written
   public static final byte[] BYTE_BITS = new byte[WORD_BITS];
   /** Lane {@code i}'s element of the word viewed at the lane's width: {@code i / width}. */
   private static final int[] INT_ELEMENT = new int[WORD_BITS];
+  @SuppressWarnings("MutablePublicArray") // emitted kernels load it; never written
   public static final short[] SHORT_ELEMENT = new short[WORD_BITS];
+  @SuppressWarnings("MutablePublicArray") // emitted kernels load it; never written
   public static final byte[] BYTE_ELEMENT = new byte[WORD_BITS];
 
   static {
@@ -141,7 +145,7 @@ public final class VarkaMaskFromWord {
    * The mask of {@code word} at any species, by its element type: for the template warm-up and
    * the tests, which hold a species of a type they do not name.
    */
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // each cast follows the element type it tests
   public static <E> VectorMask<E> of(VectorSpecies<E> s, long word) {
     if (s.length() > WORD_BITS) {
       // Past the tables' 64 lanes, which only SVE above 512 bits reaches: fromLong's mask, so the

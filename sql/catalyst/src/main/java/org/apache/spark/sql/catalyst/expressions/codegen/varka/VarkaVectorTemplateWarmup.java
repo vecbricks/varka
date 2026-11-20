@@ -874,7 +874,7 @@ final class VarkaVectorTemplateWarmup {
         // The narrow arithmetic (VARKA-330): the lane's add, subtract and multiply, the lanewise
         // NEG and ABS the emitter negates and takes abs with, the saturating operators the ANSI
         // overflow check compares against, and the mask calls a range test makes - fromLong is
-        // the masked body's guard collect, and VarkaMaskFromWord its form under maskFromWord.
+        // the masked body's guard collect, and byteWordMask its form under maskFromWord.
         ByteVector sum = a.add(b);
         ByteVector satAdd = a.lanewise(VectorOperators.SADD, b);
         VectorMask<Byte> inRange = sum.compare(VectorOperators.EQ, satAdd);
@@ -885,8 +885,7 @@ final class VarkaVectorTemplateWarmup {
             + sum.lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(1)
             + a.lanewise(VectorOperators.ABS).lane(1)
-            + VectorMask.fromLong(s, 0x5L).and(inRange).toLong()
-            + VarkaMaskFromWord.of(s, acc).toLong()
+            + VectorMask.fromLong(s, 0x5L).and(inRange).toLong() + byteWordMask(s, acc)
             + a.lanewise(VectorOperators.SSUB, b).lane(0)
             + a.compare(VectorOperators.GT, (byte) 0).toLong()
             // The condition as a value (VARKA-332): 1 added under the known-true mask.
@@ -921,8 +920,7 @@ final class VarkaVectorTemplateWarmup {
             + sum.lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(1)
             + a.lanewise(VectorOperators.ABS).lane(1)
-            + VectorMask.fromLong(s, 0x5L).and(inRange).toLong()
-            + VarkaMaskFromWord.of(s, acc).toLong()
+            + VectorMask.fromLong(s, 0x5L).and(inRange).toLong() + shortWordMask(s, acc)
             + a.lanewise(VectorOperators.SSUB, b).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
             // The condition as a value (VARKA-332): 1 added under the known-true mask.
@@ -932,6 +930,32 @@ final class VarkaVectorTemplateWarmup {
         a.intoMemorySegment(seg, 1088, ByteOrder.LITTLE_ENDIAN, tail);
       }
       return acc;
+    }
+
+    /**
+     * The word's mask at a byte species as {@code maskFromWord} emits it in the kernel
+     * (VARKA-375), operator by operator rather than through {@link VarkaMaskFromWord#ofByte}: the
+     * emitted kernel makes these calls itself, at each species it runs, and the warm-up's reach
+     * check counts only the calls this class makes. Past 8 lanes each lane picks its element of
+     * the word with {@code selectFrom}.
+     */
+    private static long byteWordMask(VectorSpecies<Byte> s, long word) {
+      ByteVector words = s.length() <= Byte.SIZE
+          ? ByteVector.broadcast(s, (byte) word)
+          : ByteVector.fromArray(s, VarkaMaskFromWord.BYTE_ELEMENT, 0)
+              .selectFrom(LongVector.broadcast(s.withLanes(long.class), word).reinterpretAsBytes());
+      return words.and(ByteVector.fromArray(s, VarkaMaskFromWord.BYTE_BITS, 0))
+          .compare(VectorOperators.NE, (byte) 0).toLong();
+    }
+
+    /** {@link #byteWordMask} at a short species, the element select past 16 lanes. */
+    private static long shortWordMask(VectorSpecies<Short> s, long word) {
+      ShortVector words = s.length() <= Short.SIZE
+          ? ShortVector.broadcast(s, (short) word)
+          : ShortVector.fromArray(s, VarkaMaskFromWord.SHORT_ELEMENT, 0).selectFrom(
+              LongVector.broadcast(s.withLanes(long.class), word).reinterpretAsShorts());
+      return words.and(ShortVector.fromArray(s, VarkaMaskFromWord.SHORT_BITS, 0))
+          .compare(VectorOperators.NE, (short) 0).toLong();
     }
 
     /**
@@ -971,7 +995,8 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.lanewise(VectorOperators.SADD, b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (byte) 0).toLong()
-            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong();
+            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong()
+            + byteWordMask(w, acc);
         for (int part = 0; part < parts; part++) {
           IntVector widened = (IntVector) a.convertShape(VectorOperators.B2I, is, part);
           ByteVector back = (ByteVector) widened.convertShape(VectorOperators.I2B, w, 0);
@@ -1000,7 +1025,8 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.lanewise(VectorOperators.SADD, b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
-            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong();
+            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong()
+            + shortWordMask(w, acc);
         for (int part = 0; part < parts; part++) {
           IntVector widened = (IntVector) a.convertShape(VectorOperators.S2I, is, part);
           ShortVector back = (ShortVector) widened.convertShape(VectorOperators.I2S, w, 0);
