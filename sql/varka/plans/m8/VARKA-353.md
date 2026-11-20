@@ -207,3 +207,103 @@ The support table is generated into `docs/sql-varka.md` per type (the decimal pe
 and per family, the casts per mode by each mode's own legality, notes included; the Overview,
 Limitations and Configuration list say what the code admits, the math functions exact by default
 and the opt-in mode documented; and `dev/varka_census.py --check` fails when the block drifts.
+
+## 11. What was built (20 November 2026)
+
+Built on master `0b8be5a33e4`, in one branch, steps 1 to 3 of section 8.
+
+* **The renderer** (`dev/varka_census.py`, "the support table" section). `support_block` writes
+  four tables, not the three of 3.1: by type, by family, the math functions and the casts by
+  mode. The math table is the column 3.4 asks for, with one row per plan row that fuses a group
+  of `ulp` entries (356, 357, 358), what each returns by default ("Spark's, bit for bit") and
+  under the opt-in mode (`exact; no contract`, the constant `NO_CONTRACT` until row 367 commits
+  a contract file). The by-type table reads `pair_counts`, which `summary()` now calls too, so
+  the two cannot disagree. A coverage row's columns are read from its `executable` SQL with the
+  quoted literals stripped, and a column's type from `coverage.json`'s `columns`
+  (`column_type`, which fails on a type it cannot place, risk 1); a cross-check over all 765
+  rows found every column type among the row's operand types except the bare `b`, which has no
+  operand. The cast cells reuse `legal()`, `cast_kind()`, `CONTEXT_CASTS` and `casts_fused()`,
+  and a pair legal in a mode with no probe form fails the run rather than reading *declined*.
+* **The block and the check.** `docs/sql-varka.md` has a new section, "What fuses, by type",
+  before "Expression coverage", with the math paragraph and the block. `main()` splices the
+  block (`splice`, which fails on a missing or doubled marker) and `--check` compares the whole
+  file, so a hand edit of one cell fails with `census: docs/sql-varka.md is stale; run
+  dev/varka_census.py` (run once on a hand-edited cell and reverted: exit 1, then 0).
+* **The hook** matches `docs/sql-varka.md` among `census_inputs`.
+* **The merge driver** names the block in `BLOCKS`, so the size check skips it and self-test 22
+  holds the map to the tracked markers. A conflict inside it owes the census, not the file
+  (`block_debt`), so the driver writes no owed line for it and the regeneration runs no
+  coverage suite; the census, which every regeneration runs last, rewrites the block. Self-test
+  28 holds both halves: a support-table conflict takes one side and owes only the census, the
+  same conflict in a coverage suite's block owes that block.
+* **The prose** (3.4): the Overview's "three types" paragraph names the thirteen types and their
+  lanes and introduces the int32 detail as the date family's; the Overview's out-of-scope
+  sentence and the Limitations section's first bullet state the owner's exclusions of 14
+  October 2026; the Expression coverage opening points at `coverage.json`'s column list; the
+  Configuration table gains `spark.sql.codegen.varka.math.ulpContract.enabled`.
+
+Left: step 4, at the close (row 354 step 3).
+
+### 11.1 Where the plan was wrong
+
+1. **The regeneration script cannot tell one block from another.** 3.2 has
+   `varka_regen_generated.sh` skip the coverage run "when the support block alone is owed", but
+   the owed list is by path: the driver writes `docs/sql-varka.md` whatever block it could not
+   merge. The skip lives in the driver instead (`block_debt`, above), and the script is unchanged
+   but for its comment. The driver's hunk parser also tracked only whether it was inside a block,
+   not which; it now carries the name (`block_name`), and falls back to the coverage debt where a
+   hunk moved a marker.
+2. **"Declined band" is not a class the census can attribute.** 3.1 derives it "where `note`
+   names one". The one note that does (`round`, "a band declined (346)") covers the double tie
+   test of one type while its other unfused types are semantics, so classing every unfused type
+   of the entry by the note would misstate float and dec. The table classes by need alone.
+3. **The by-type table has no rows column.** The union of the rows that the unfused entries name
+   ran to thirty rows per type, most of them rows that landed other types of the entry; the rows
+   are in the by-family table, where they are short enough to read, and `left_reason` (owed to
+   row N, with the need) is the per-entry class the doctest names.
+4. **The family table counts four kinds, not three**: every type, some type, in part, and the
+   types owed, since the predicate family's decimal comparisons are in part and would otherwise
+   read as unfused.
+
+### 11.2 Predictions, scored
+
+1. **Held.** `--check` takes 0.54 to 0.74 s on the branch against 0.34 to 0.41 s on master
+   (three runs each, wall time, laptop, not idle): it adds about a quarter of a second, under
+   the second predicted.
+2. **Held.** The by-type table's *Entries* and *Fused* columns equal `--summary`'s pairs by type
+   for all thirteen types on `0b8be5a33e4` (`bool` 28 of 41 to `dt` 34 of 57, `dec` 2 of 66 as
+   one row); they are now one function's output.
+3. **Wrong.** Of the 98 cells legal under ANSI, 3 read *k of n* (`time` to `time`, `ym` to `int`,
+   `dt` to `dt`), 39 fused, 45 declined, 9 identities and 2 `context`: one in thirty-three, not
+   one in five. The interval and decimal pairs that carry many forms decline whole today rather
+   than in part. So the in-part state gets no colour of its own; it reads as text.
+
+## 12. Decisions taken while the owner was away (20 November 2026)
+
+1. **Question 1 (the done-when).** Taken as recommended: the check is `dev/varka_census.py
+   --check`, run by the pre-commit hook and CI's `varka-docs` job, not `VarkaCoverageSuite`.
+   The census and the cast tables are Python's, and a Scala reader would give them two. The row's
+   done-when is left as written for the owner to amend; this file says how it is met.
+2. **Question 2 (now or at the close).** Taken as recommended: built now, since a table each
+   type row regenerates costs less than one rebuilt at the close.
+3. **No per-entry table.** 3.1 names three tables and "notes included"; the census notes are
+   written for the plan's readers (row numbers, section references), and a 180-row table of them
+   would bury the counts. The notes the block carries are each cast cell's kind and declined
+   forms, and the math table's bound; a per-entry table is not built.
+4. **Rows are listed as the census names them**, Done rows included, rather than filtered by
+   reading `m8/PLAN.md`'s status column: that would make every row closure a census input and
+   stale the docs block on each plan edit.
+5. **The cast matrices sit under `<details markdown="1">`**, one per mode (risk 2), which the
+   docs had not used before; whether kramdown renders the table inside it is owed to the Jekyll
+   build (`SKIP_API=1 bundle exec jekyll build` in `docs/`), not run here.
+
+## 13. Tests
+
+Run on the branch: `python3 dev/varka_census.py --self-test` (the new doctests among the file's
+35, all pass); `--check` exit 0, and exit 1 on a hand-edited cell; `python3
+dev/varka_generated_merge.py --self-test` (85 cases, 0 failed, case 28 new); the driver on a
+support-only conflict in a scratch repository wrote no owed line; `dev/varka_regen_generated.sh
+--dry-run` with nothing owed runs no sbt; `python3 dev/varka_quote_check.py` and
+`dev/varka_precommit.sh --working-tree` pass. No JVM suite was run: no Scala or Java changed.
+Owed: the Jekyll docs build, and `VarkaCoverageSuite` on the branch (it reads the docs file and
+checks only its own three blocks, so the fourth must not trip it).
