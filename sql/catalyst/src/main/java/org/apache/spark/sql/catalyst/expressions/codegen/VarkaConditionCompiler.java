@@ -361,15 +361,6 @@ final class VarkaConditionCompiler {
         ? new VarkaVectorIR.WidenLane(node, LaneType.INT) : node;
   }
 
-  /** {@code node} below every widening that wraps it, or {@code node} when it is none. */
-  private static VarkaVectorIR unwidened(VarkaVectorIR node) {
-    VarkaVectorIR value = node;
-    while (value instanceof VarkaVectorIR.WidenLane w) {
-      value = w.child();
-    }
-    return value;
-  }
-
   /**
    * {@code node} as the value of a narrow-typed expression is stored: computed on the int lane
    * and narrowed once at its store, which is a {@link VarkaVectorIR.NarrowLane} to the output's
@@ -686,7 +677,7 @@ final class VarkaConditionCompiler {
       case VarkaVectorIR.IsNotNull n -> n.child() instanceof Cond c
           ? onLongLane(c, memo).map(l -> (Cond) new VarkaVectorIR.IsNotNull(l))
           : Optional.of(new VarkaVectorIR.IsNotNull(
-              new VarkaVectorIR.WidenLane(unwidened(n.child()))));
+              new VarkaVectorIR.WidenLane(VarkaVectorIR.unwidened(n.child()))));
       case VarkaVectorIR.And a -> onLongLane(a.left(), memo).flatMap(l ->
           onLongLane(a.right(), memo).map(r -> (Cond) new VarkaVectorIR.And(l, r)));
       case VarkaVectorIR.Or o -> onLongLane(o.left(), memo).flatMap(l ->

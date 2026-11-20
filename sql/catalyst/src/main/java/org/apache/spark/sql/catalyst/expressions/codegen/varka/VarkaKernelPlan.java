@@ -604,7 +604,7 @@ public final class VarkaKernelPlan {
    * the chain is not checked here: the caller's walk visits it as a node of its own.
    */
   private static boolean readsColumnWord(VarkaVectorIR.IsNotNull n) {
-    return Analysis.unwidened(n.child()) instanceof VarkaVectorIR.ColumnRef;
+    return VarkaVectorIR.unwidened(n.child()) instanceof VarkaVectorIR.ColumnRef;
   }
 
   /**

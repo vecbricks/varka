@@ -481,18 +481,19 @@ public final class VarkaEmitterNarrowSuite {
     Cond longCompare = new Compare(CompareOp.LT, new ColumnRef(1, LaneType.LONG),
         new ColumnRef(2, LaneType.LONG));
     // Each chain with the lane of the column at its bottom.
-    var chains = List.of(
-        Map.entry(new WidenLane(new WidenLane(BYTE_COL, LaneType.INT), LaneType.LONG),
+    record Chain(VarkaVectorIR chain, LaneType column) {}
+    List<Chain> chains = List.of(
+        new Chain(new WidenLane(new WidenLane(BYTE_COL, LaneType.INT), LaneType.LONG),
             LaneType.BYTE),
-        Map.entry(new WidenLane(new WidenLane(SHORT_COL, LaneType.INT), LaneType.LONG),
+        new Chain(new WidenLane(new WidenLane(SHORT_COL, LaneType.INT), LaneType.LONG),
             LaneType.SHORT),
-        Map.entry(new WidenLane(new WidenLane(new WidenLane(BYTE_COL, LaneType.SHORT),
+        new Chain(new WidenLane(new WidenLane(new WidenLane(BYTE_COL, LaneType.SHORT),
             LaneType.INT), LaneType.LONG), LaneType.BYTE));
     RowNulls isNull = (c, row) -> c == 0 ? row % 7 == 3 : c == 1 && row % 11 == 5;
     IntBinaryOperator value = (c, row) -> c == 0 ? ((row * 7) % 256) - 128 : (row * 13 + c) % 97;
-    for (var entry : chains) {
-      VarkaVectorIR chain = entry.getKey();
-      LaneType narrow = entry.getValue();
+    for (Chain entry : chains) {
+      VarkaVectorIR chain = entry.chain();
+      LaneType narrow = entry.column();
       Cond test = new IsNotNull(chain);
       Cond either = new VarkaVectorIR.Or(test, longCompare);
       assertEquals(LaneType.LONG, VarkaKernelPlan.emissionLane(either, WIDENED));

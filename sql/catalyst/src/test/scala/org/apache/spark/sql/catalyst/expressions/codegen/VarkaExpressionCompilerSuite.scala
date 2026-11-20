@@ -2662,7 +2662,6 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
   }
 
-
   test("a boolean equality of two narrow conditions lifts into an int-lane conjunction") {
     // A comparison of two boolean conditions is a mask over them, so one over two narrow
     // comparisons is itself narrow - `compare` builds the BoolCompare with narrow operands -

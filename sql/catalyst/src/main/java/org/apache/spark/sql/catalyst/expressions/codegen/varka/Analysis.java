@@ -23,8 +23,10 @@ import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChron
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.*;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -263,13 +265,21 @@ final class Analysis {
 
   /**
    * The narrow columns a long-lane emission reads for their validity word alone, as
-   * {@code IsNotNull(WidenLane(column))} or under a longer chain of widenings, with any narrow
-   * widening of that chain: the only narrow nodes such an emission may hold, since the word is a
-   * bit per row at every lane and the column's data is never loaded. The plan refuses
+   * {@code IsNotNull(WidenLane(column))} or under a longer chain of widenings: with the narrow
+   * widenings of such a chain ({@link #validityOnlyWidenings}), the only narrow nodes such an
+   * emission may hold, since the word is a bit per row at every lane and the column's data is
+   * never loaded. The plan refuses
    * any narrow value under a long kernel, so a narrow column reached any other way still fails
    * the lane rule.
    */
   private final Set<VarkaVectorIR> validityOnlyNarrow = new HashSet<>();
+  /**
+   * The narrow widenings of {@link #validityOnlyNarrow}'s chains, by identity: unlike a column,
+   * a narrow widening has no lowering as a value under a long kernel, so an equal node read as a
+   * value elsewhere in the kernel still fails the lane rule.
+   */
+  private final Set<VarkaVectorIR> validityOnlyWidenings =
+      Collections.newSetFromMap(new IdentityHashMap<>());
   /**
    * {@code Slots.bodyUses} per group body, keyed by the body's outputs and whether it is dense:
    * a group's loop and epilogue methods visit the same nodes, so the count is made once for both.
@@ -1666,6 +1676,7 @@ final class Analysis {
       // narrow, by the classification it refuses with (VarkaKernelPlan.longNarrowRole,
       // VARKA-332); a validity-only narrow column, which the plan does not see, beside them.
       case LONG -> !type.isNarrow() || validityOnlyNarrow.contains(node)
+          || validityOnlyWidenings.contains(node)
           || VarkaKernelPlan.longNarrowRole(node) != VarkaKernelPlan.LongNarrowRole.NONE;
       // A narrow column alone of the narrow nodes, loaded as the long lane loads it (the plan's
       // narrowRefusal admits no other there).
@@ -1929,7 +1940,7 @@ final class Analysis {
         // The compiler lifts a narrow test to the int lane and then to the long lane, so the
         // column may sit under a chain of widenings, every one of which reads its word
         // (VARKA-619).
-        VarkaVectorIR column = unwidened(n.child());
+        VarkaVectorIR column = VarkaVectorIR.unwidened(n.child());
         if (!(column instanceof ColumnRef) && !(n.child() instanceof DecimalColumn)
             && !(n.child() instanceof DecimalWord) && !(n.child() instanceof Cond)) {
           throw VarkaErrors.illegalArgument("IsNotNull child must be a ColumnRef, a widened one, "
@@ -1939,7 +1950,9 @@ final class Analysis {
           // Every narrow node of the chain is read for the word alone: the column, and a
           // narrow widening above it, a byte widened to the short lane first.
           for (VarkaVectorIR v = n.child(); v instanceof WidenLane w; v = w.child()) {
-            if (w.child().laneType().isNarrow()) {
+            if (w.child() instanceof WidenLane narrow && narrow.laneType().isNarrow()) {
+              validityOnlyWidenings.add(narrow);
+            } else if (w.child().laneType().isNarrow()) {
               validityOnlyNarrow.add(w.child());
             }
           }
@@ -1955,19 +1968,6 @@ final class Analysis {
     }
     topoOrder.add(node);
     lineNumbers.put(node, topoOrder.size());
-  }
-
-  /**
-   * {@code node} below every widening that wraps it: the value a chain of {@link WidenLane}
-   * reads, which is {@code node} itself when it is no widening. A widening keeps its child's
-   * validity word, so a null test over the chain tests the value at its bottom.
-   */
-  static VarkaVectorIR unwidened(VarkaVectorIR node) {
-    VarkaVectorIR value = node;
-    while (value instanceof WidenLane w) {
-      value = w.child();
-    }
-    return value;
   }
 
   /**
