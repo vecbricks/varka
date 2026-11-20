@@ -1047,7 +1047,9 @@ final class VarkaNodeCompiler {
    * away from zero on both sides; the quotient's magnitude is at most {@code 2^62}, so the
    * negation cannot overflow. The chain is ten nodes deep, eleven with the negation, so a
    * decimal literal's guard and multiply and an enclosing comparison or choice stay inside the
-   * emitter's chain depth. {@code dt_arith.smt2} proves the form per divisor in use.
+   * emitter's chain depth. {@code dt_arith.smt2} proves the form per divisor of its
+   * {@code DT_DIVISORS}, with the second division modelled exactly; {@code long_divide.smt2}
+   * states that division's {@link ConstDivide} for the coverage rows' divisors only.
    */
   static VarkaVectorIR halfUpDivLong(VarkaVectorIR x, long k, DeclineSink sink) {
     if (!dividesDay(k) || k == 1 || k == -1) {

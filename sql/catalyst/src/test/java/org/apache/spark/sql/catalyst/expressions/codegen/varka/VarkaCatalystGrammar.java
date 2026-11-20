@@ -252,10 +252,8 @@ public final class VarkaCatalystGrammar {
     // No `<ym> * k` and no `<dt> * k`: the INT position holds only the column `i`, so a product
     // production would draw the column factor, which declines - only an integral literal fuses
     // (VARKA-103 2.2) - and the literal forms are the coverage rows `ym * 3` and
-    // `make_ym_interval(year(d), month(d)) * 2`. The earlier reason, that the fuzzer could not
-    // name the bare ArithmeticException an overflowing product raises, is gone: VARKA-339's
-    // naming covers `Math`'s long overflow and VARKA-103 widened it to the int one of `ym * k`
-    // (VarkaAnsiForm.isExactOverflow).
+    // `make_ym_interval(year(d), month(d)) * 2`. The bare ArithmeticException an overflowing
+    // product raises is named by VarkaAnsiForm.isExactOverflow, the long and the int one.
     choices(out, y, y, 2);
     // The fields of a TIMESTAMP_NTZ (VARKA-340): the date fields through its date, the weekday
     // forms, the time of day, and the casts to TIME at a precision below and at the micros.

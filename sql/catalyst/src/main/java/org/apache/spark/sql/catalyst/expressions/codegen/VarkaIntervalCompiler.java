@@ -411,10 +411,10 @@ public final class VarkaIntervalCompiler {
   /**
    * {@code Math.multiplyExact(months, num)} for the int-family arms. Both operands have to be
    * bounded before the check comes off, and a stored interval column never is, so an int column
-   * multiplier declines; an integral literal is {@link #yearMonthTimesLiteral}. The
-   * {@code Long}, {@code Decimal} and {@code Double} arms are not int32 lanes and decline by type
-   * rather than reaching {@code intOperand}, which would report them as "not an int column or
-   * literal" and hide which of the two is wrong.
+   * multiplier declines; an integral literal of any width is {@link #yearMonthTimesLiteral}. A
+   * {@code BIGINT} column and the {@code Decimal} and {@code Double} arms are not int32 lanes and
+   * decline by type rather than reaching {@code intOperand}, which would report them as "not an
+   * int column or literal" and hide which of the two is wrong.
    */
   private static Optional<VarkaVectorIR> multiply(
       MultiplyYMInterval m,
@@ -643,8 +643,10 @@ public final class VarkaIntervalCompiler {
           + " is not an integral or decimal literal: a floating factor is row 342's lowering", m);
     }
     if (!(m.num() instanceof Literal l)) {
-      return sink.decline("day-time interval factor is not a literal: a column factor needs "
-          + "the checked long multiply of row 104", m);
+      return sink.decline(type instanceof DecimalType
+          ? "day-time interval factor is a decimal column: only a decimal literal fuses"
+          : "day-time interval factor is not a literal: a column factor needs "
+              + "the checked long multiply of row 104", m);
     }
     if (l.value() == null) {
       return sink.decline("day-time interval factor is a NULL literal", m);
@@ -708,8 +710,10 @@ public final class VarkaIntervalCompiler {
           m);
     }
     if (!(m.num() instanceof Literal l)) {
-      return sink.decline("day-time interval divisor is not a literal: a column divisor is "
-          + "row 30's division", m);
+      return sink.decline(type instanceof DecimalType
+          ? "day-time interval divisor is a decimal column: only a decimal literal fuses"
+          : "day-time interval divisor is not a literal: a column divisor is "
+              + "row 30's division", m);
     }
     if (l.value() == null) {
       return sink.decline("day-time interval divisor is a NULL literal", m);
@@ -775,10 +779,11 @@ public final class VarkaIntervalCompiler {
     long n = fraction[0];
     long d = fraction[1];
     int mark = literals.size();
+    int longMark = sink.longMark();
     Optional<VarkaVectorIR> x =
         dayTimeOperand(interval, "the scaled interval", inputs, literals, sink);
     if (x.isEmpty() || (n == 1 && d == 1)) {
-      return rolledBack(x, literals, mark);
+      return rolledBack(x, literals, mark, sink, longMark);
     }
     if (d == 1) {
       return Optional.of(dayTimeTimes(x.get(), n, sink));
@@ -888,10 +893,11 @@ public final class VarkaIntervalCompiler {
     }
     long k = n.longValue();
     int mark = literals.size();
+    int longMark = sink.longMark();
     Optional<VarkaVectorIR> x =
         intervalOperand(m.interval(), "the multiplied interval", inputs, literals, sink);
     if (x.isEmpty() || k == 1) {
-      return rolledBack(x, literals, mark);
+      return rolledBack(x, literals, mark, sink, longMark);
     }
     VarkaVectorIR months = x.get();
     LiteralSlot factor = VarkaNodeCompiler.intSlot((int) k, literals);

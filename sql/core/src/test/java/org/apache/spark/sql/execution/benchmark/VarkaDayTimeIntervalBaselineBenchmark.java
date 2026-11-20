@@ -44,9 +44,9 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * the session's mode, and the data keeps every result and every partial sum inside the long. Two
  * control sections fuse already: the filter {@code dt > dt2}, {@code WHOLE} on a host that admits
  * it, and the projected blend {@code CASE WHEN dt > dt2 THEN dt ELSE dt2 END}, {@code WHOLE} on
- * every host. That was the state the committed results record; a section fused since then is
- * {@code WHOLE} in the list below: {@code dt * 3}, {@code dt * 1.5}, {@code dt / 24} and
- * {@code extract(DAY FROM dt)}.
+ * every host. The fused sections are {@code WHOLE} in the list below: {@code dt * 3},
+ * {@code dt * 1.5}, {@code dt / 24} and {@code extract(DAY FROM dt)}; the committed results files
+ * name the head they were run on.
  *
  * <p>Each section has two arms, named so the labels survive the row landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a

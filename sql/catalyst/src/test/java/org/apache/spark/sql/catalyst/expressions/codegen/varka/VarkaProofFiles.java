@@ -2359,9 +2359,10 @@ final class VarkaProofFiles {
         ;   qF = floorDiv(x, D)            floorDivLong, which long_divide.smt2 proves Math's
         ;   rF = x - qF * D                in [0, D)
         ;   y  = rF + b                    b = h, or (x >> 63) + h for an even m
-        ;   q  = qF * (D / m) + y / m      y in [0, 2D): a ConstDivide under the bound 2D,
-        ;                                  proven exact under it in long_divide.smt2, or a shift
-        ;                                  for a power of two; for m = D, qF + y / m
+        ;   q  = qF * (D / m) + y / m      y in [0, 2D): a ConstDivide far inside its 2^52
+        ;                                  bound (long_divide.smt2 states the coverage rows'
+        ;                                  divisors, 24 and 3), or a shift for a power of two;
+        ;                                  for m = D, qF + y / m
         ;   negated for k < 0
         ;
         ; against Guava's HALF_UP in unbounded integers, the quotient of the magnitudes raised by
