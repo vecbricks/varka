@@ -596,6 +596,71 @@ Predictions, registered before the build:
    arithmetic, `dt * k` and `k * dt`, `extract(DAY FROM dt)` with the planted fault, the day-time
    rows of `dt_arith.smt2` and `long_divide.smt2`, the coverage family's day-time rows, the fuzz
    grammar's day-time productions and the generated files.
+   *12 November 2026, 103a2 built* (`varka-103a2-dt-div`, stacked on 103a1): 2.4's day split
+   and the decimal literal forms. `VarkaNodeCompiler.halfUpDivLong(x, k)` is
+   `LongMath.divide(x, k, HALF_UP)` for a `k` dividing `D` (`dividesDay`): `floorDivLong`'s
+   quotient `qF` and remainder `rF` in `[0, D)`, then `qF * (D / m) + (rF + b) / m` with
+   `m = |k|` and `b = m >> 1`, less one for a negative `x` and an even `m`, negated for `k < 0`;
+   a power of two divides by a shift (cvc5 answers `unknown` on `long_divide.smt2`'s magic form
+   at the divisor 2 inside the lint's limit, so no `ConstDivide` by a power of two is built). A
+   departure from 2.4's form: the step after a truncated quotient by `k` (compare, negate,
+   blend, compare, blend, add) put the chain at 18 nodes, past the emitter's `MAX_CHAIN_DEPTH`
+   of 16, so every form declined "exceeds the emitter's fused budget"; a bias on the remainder
+   of the day's floor rounds the same way (`floor((x + b) / m)` is `HALF_UP`), cannot overflow
+   there, and gives 10 nodes, 13 with a decimal's guard, multiply and negation, so the coverage
+   harness's CASE arm and filter comparison still fit (a first build biased `truncDivLong`'s
+   remainder, 13 nodes, and those two positions declined). It has no `ceil(|k| / 2)` constant,
+   so 3.7's second planted fault has no site here; it stays 103d's, over row 30's forms. In its
+   place for this form, `VarkaIntervalFault.HALF_UP_BIAS_UNSIGNED` gives a negative `x` the
+   non-negative bias at an even divisor: a `sat` witness in `dt_arith.smt2`, and it fails the
+   emitter suite's `-3 / 2` cell while the rest pass.
+   The even bias is `(x >> 63) + (m >> 1)`, not a blend on the sign: a first build blended,
+   and under an untaken CASE arm and a later COALESCE argument `dt * 1.5` then declined the
+   coverage harness's batch where `dt * 3` and `dt / 1.5` were served. The blend's sign compare
+   is an `IfElse` condition, which the emitter computes on every lane, so `Analysis`'s arm walk
+   leaves everything under it unqualified, the product's guard included, and that guard
+   condemned the batch from the extremes row's lane the arm does not take. The shift form has
+   no condition, so the guard is qualified by the arm. No fuzz production is added:
+   the quotients never raise, but the products raise a bare `ArithmeticException`, as
+   `dt * k`'s do.
+   `DivideDTInterval` by an integral literal: `0` declines, `1` is the operand, `-1` declines
+   naming 414, another divisor of `D` is the split, the rest (`Long.MIN_VALUE` among them)
+   declines naming row 30. A decimal literal `u / 10^s` (unscaled value within a long, scale
+   0 to 18) is `HALF_UP(x * n / d)` with `n / d` the product's `u / 10^s` or the quotient's
+   `10^s / u` in lowest terms (`dayTimeFraction`): `d = 1` is the integral product and its exact
+   guard, any other `d` must divide `D` (else row 30), and the operand is guarded to
+   `dayTimeProductBounds(|n|)` before the wrapping multiply and the split by `d`. Departures
+   from 2.4, decided here: (1) the fraction is reduced, as 2.7 does for the casts, so `dt * 1.0`
+   is the operand and `dt * 2.0` the exact product rather than a guard on `x * 10` (2.4 and 3.3
+   say `MAX * 1.0` declines; it now fuses, with Spark's answer), and `dt / 2.0` needs no guard;
+   (2) a decimal divisor under one in magnitude, and `-1.0`, decline naming 414 as `k = -1`
+   does: its quotient can leave the long, and the raise from a declined batch's fallback loses
+   the `== SQL ==` block (`VARKA-414.md` 9), while every other divisor gives a quotient no
+   larger than the operand. Tests: `dt_arith.smt2` proves the split `HALF_UP` per divisor of
+   `DT_DIVISORS` (twelve, both signs, `D` itself) over every long with the biased remainder in
+   `[0, 2D)`, the bias one off either way and the missing negation refuted, and per literal of
+   `DT_FRACTIONS` (ten) Spark's `HALF_UP` on the literal's own digits under the guard;
+   `long_divide.smt2` gains the coverage rows' second divisors 24 and 3, without the conversion
+   bound past `2^53`, which is not theirs; `dt_arith.smt2` moves to the logic `ALL`, under which
+   cvc5 proves it in about 2 s where `QF_NIA` left four checks `unknown`; the emitter suite
+   holds ten divisors and fifteen decimal literals to Spark's `eval` over the 3.3 cells, values
+   about the multiples and drawn longs, and Spark's generated projection to its interpreted one
+   on each; `VarkaDayTimeArithmeticSuite` runs
+   the cells against the row engine with whole-stage code on and with it off and the
+   interpreted projections, `MAX * 1.5` raising `longValueExact`'s bare `ArithmeticException`
+   from the row engine; rows `dt / 24`, `dt * 1.5` and `dt / 1.5`; the baseline's `dt * 1.5` and
+   `dt / 24` `WHOLE`; the harness's ANSI form takes that `Overflow` from an expression too.
+   *20 November 2026, 103a2 re-cut onto master* (`varka-103a2-recut`): 103a1 merged as #1534
+   (`3e4514fcfed`) after the 14 November split, so 103a2's three commits no longer had a parent
+   to stack on. The branch is cut from `origin/master` and carries what #1534 does not hold: the
+   two pieces the split moved here (`ym * k` for an integral literal with its int-lane proof
+   rows, coverage row, emitter test, census note, expected-errors naming and the harness's
+   int-overflow naming; and the `d - dt` cell's product case over a stored `INTERVAL DAY`),
+   then this part's own day split, decimal literal forms and shift bias. The split review's
+   fixes that #1534 merged stay as merged: the ANSI form's first bare-exception row is still
+   `dt * 3`, the expected-errors row still leaves out the day-time product the Spark-level
+   fuzzer cannot reach, and `dt_arith.smt2` still renders the symmetric-bound refutation for
+   `Long.MIN_VALUE`.
 3. **103b, after 332b and 157 and 347**: `HOUR`, `MINUTE`, `SECOND`, `make_dt_interval` (the
    seconds of both, section 8, point 3), the third planted fault, and the measurement against the
    baseline at both widths.

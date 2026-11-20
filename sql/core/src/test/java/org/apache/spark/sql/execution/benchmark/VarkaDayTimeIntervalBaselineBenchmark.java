@@ -44,7 +44,9 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * the session's mode, and the data keeps every result and every partial sum inside the long. Two
  * control sections fuse already: the filter {@code dt > dt2}, {@code WHOLE} on a host that admits
  * it, and the projected blend {@code CASE WHEN dt > dt2 THEN dt ELSE dt2 END}, {@code WHOLE} on
- * every host.
+ * every host. That was the state the committed results record; a section fused since then is
+ * {@code WHOLE} in the list below: {@code dt * 3}, {@code dt * 1.5}, {@code dt / 24} and
+ * {@code extract(DAY FROM dt)}.
  *
  * <p>Each section has two arms, named so the labels survive the row landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -184,9 +186,9 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
       out.add(new Section("dt * 3" + density,
           "SELECT " + dt + " * 3 AS a" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("dt * 1.5" + density,
-          "SELECT " + dt + " * 1.5 AS a" + from, Map.of(), Fusion.NONE));
+          "SELECT " + dt + " * 1.5 AS a" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("dt / 24" + density,
-          "SELECT " + dt + " / 24 AS a" + from, Map.of(), Fusion.NONE));
+          "SELECT " + dt + " / 24 AS a" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("extract(DAY FROM dt)" + density,
           "SELECT extract(DAY FROM " + dt + ") AS a" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("extract(HOUR FROM dt)" + density,

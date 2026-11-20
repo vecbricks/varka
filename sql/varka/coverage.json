@@ -420,8 +420,20 @@
     "operands" : [ "MakeYMInterval:int", "Month:date", "MultiplyYMInterval:int", "MultiplyYMInterval:ym", "Year:date" ],
     "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.interval.enabled" ],
     "domain" : "unix_date(d) BETWEEN -719162 AND 2932896",
-    "note" : "a checked multiply, so bounded operands again: `ym * 2` over a stored interval column declines",
+    "note" : "a checked multiply whose bounded operands take the check off",
     "verified" : "differential"
+  }, {
+    "sql" : "ym * 3",
+    "executable" : "ym * 3",
+    "family" : "Months and year-month intervals",
+    "form" : "projection",
+    "catalyst" : [ "MultiplyYMInterval" ],
+    "casts" : [ ],
+    "operands" : [ "MultiplyYMInterval:int", "MultiplyYMInterval:ym" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "ym BETWEEN INTERVAL '-59652323-6' YEAR TO MONTH AND INTERVAL '59652323-6' YEAR TO MONTH",
+    "note" : "a stored interval column times an integral literal: the count is guarded to the ints whose product fits, exactly, and the multiply wraps; a column factor declines",
+    "verified" : "proof: dt_arith.smt2"
   }, {
     "sql" : "abs(ym)",
     "executable" : "abs(ym)",
@@ -661,6 +673,42 @@
     "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
     "domain" : "if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)",
     "note" : "the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric",
+    "verified" : "proof: dt_arith.smt2"
+  }, {
+    "sql" : "dt / 24",
+    "executable" : "dt / 24",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "DivideDTInterval" ],
+    "casts" : [ ],
+    "operands" : [ "DivideDTInterval:dt", "DivideDTInterval:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "",
+    "note" : "LongMath.divide HALF_UP by a divisor of a day: the floor quotient by a day and its remainder in [0, D), biased by half the divisor (one less for a negative value and an even divisor), give the quotient by 24 exactly over every long; a divisor that does not divide a day declines",
+    "verified" : "proof: dt_arith.smt2"
+  }, {
+    "sql" : "dt * 1.5",
+    "executable" : "dt * 1.5",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "MultiplyDTInterval" ],
+    "casts" : [ ],
+    "operands" : [ "MultiplyDTInterval:dec", "MultiplyDTInterval:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)",
+    "note" : "Spark's Decimal product, HALF_UP(3x / 2): the operand guarded to the longs whose product by 3 fits, then the day split by 2; the guard declines some lanes Spark answers, which the row engine then does",
+    "verified" : "proof: dt_arith.smt2"
+  }, {
+    "sql" : "dt / 1.5",
+    "executable" : "dt / 1.5",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "DivideDTInterval" ],
+    "casts" : [ ],
+    "operands" : [ "DivideDTInterval:dec", "DivideDTInterval:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL, NULL, try_multiply(dt, 2) IS NOT NULL)",
+    "note" : "HALF_UP(2x / 3), the quotient by a decimal at least one in magnitude, which cannot raise; a divisor under one declines (VARKA-414)",
     "verified" : "proof: dt_arith.smt2"
   }, {
     "sql" : "extract(DAY FROM dt)",
@@ -9387,5 +9435,5 @@
     "note" : "a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g)",
     "verified" : "exhaustive: VarkaTimeFractionSuite, the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "
   } ],
-  "catalyst_classes_admitted" : [ "Abs", "Acos", "Add", "AddMonths", "And", "Asin", "Atan", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "Cos", "Cot", "Csc", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyDTInterval", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Sec", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sin", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "Tan", "TimestampAdd", "TimestampAddInterval", "TimestampAddYMInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
+  "catalyst_classes_admitted" : [ "Abs", "Acos", "Add", "AddMonths", "And", "Asin", "Atan", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "Cos", "Cot", "Csc", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideDTInterval", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyDTInterval", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Sec", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sin", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "Tan", "TimestampAdd", "TimestampAddInterval", "TimestampAddYMInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }

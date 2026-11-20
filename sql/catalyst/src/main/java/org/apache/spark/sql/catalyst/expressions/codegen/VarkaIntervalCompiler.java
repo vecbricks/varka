@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Optional;
 
@@ -24,6 +25,7 @@ import org.apache.spark.sql.catalyst.expressions.Abs;
 import org.apache.spark.sql.catalyst.expressions.Add;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Cast;
+import org.apache.spark.sql.catalyst.expressions.DivideDTInterval;
 import org.apache.spark.sql.catalyst.expressions.DivideYMInterval;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.ExtractANSIIntervalDays;
@@ -56,6 +58,8 @@ import org.apache.spark.sql.catalyst.util.DateTimeConstants;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DayTimeIntervalType;
+import org.apache.spark.sql.types.Decimal;
+import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.IntegralType;
 import org.apache.spark.sql.types.YearMonthIntervalType;
 
@@ -79,8 +83,9 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  *
  * <p>The literal and input tables are the classifier's {@link VarkaSlotTable}s.
  *
- * <p>The class is public for {@link #dayTimeProductBounds}, which the proof renderer and the
- * end-to-end suite read from other packages so that they state the compiler's own bounds.
+ * <p>The class is public for {@link #dayTimeProductBounds} and {@link #yearMonthProductBounds},
+ * which the proof renderer and the end-to-end suite read from other packages so that they state
+ * the compiler's own bounds.
  */
 public final class VarkaIntervalCompiler {
 
@@ -227,6 +232,7 @@ public final class VarkaIntervalCompiler {
                   new Compare(CompareOp.LT, x, sink.longSlot(0L)),
                   new IntNeg(Overflow.FAIL, x), x));
       case MultiplyDTInterval m -> () -> dayTimeMultiply(m, inputs, literals, sink);
+      case DivideDTInterval m -> () -> dayTimeDivide(m, inputs, literals, sink);
       // `extract(DAY FROM dt)` is `IntervalUtils.getDays`, `(int) (micros / MICROS_PER_DAY)`,
       // which `truncDivLong` is over every long; the quotient's magnitude is at most 106,751,991,
       // so the narrowing is exact (VARKA-103 2.3). `date_add`'s own offset arm reads it first.
@@ -404,9 +410,8 @@ public final class VarkaIntervalCompiler {
 
   /**
    * {@code Math.multiplyExact(months, num)} for the int-family arms. Both operands have to be
-   * bounded before the check comes off, and a stored interval column never is, so a literal
-   * multiplier alone does not buy it: {@code ym * 2} declines, while
-   * {@code make_ym_interval(year(d), month(d)) * 2} fuses over a bounded interval. The
+   * bounded before the check comes off, and a stored interval column never is, so an int column
+   * multiplier declines; an integral literal is {@link #yearMonthTimesLiteral}. The
    * {@code Long}, {@code Decimal} and {@code Double} arms are not int32 lanes and decline by type
    * rather than reaching {@code intOperand}, which would report them as "not an int column or
    * literal" and hide which of the two is wrong.
@@ -416,6 +421,9 @@ public final class VarkaIntervalCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
+    if (m.num() instanceof Literal l && l.dataType() instanceof IntegralType) {
+      return yearMonthTimesLiteral(m, l, inputs, literals, sink);
+    }
     if (!m.num().dataType().equals(DataTypes.IntegerType)) {
       return sink.decline("interval multiplier of type " + m.num().dataType().simpleString()
           + " is not an int32 lane", m);
@@ -613,15 +621,16 @@ public final class VarkaIntervalCompiler {
   }
 
   /**
-   * {@code dt * k} and {@code k * dt} for an integral literal {@code k}, both of which the
-   * analyzer builds as {@code MultiplyDTInterval(dt, k)}: Spark's {@code Math.multiplyExact(micros,
-   * k)} in every mode, raising a bare {@code ArithmeticException} on overflow (VARKA-103 2.2).
-   * The product overflows exactly where the operand leaves {@link #dayTimeProductBounds}, so the
-   * operand is range-guarded and the multiply wraps: a lane outside the guard declines the batch
-   * and the row engine raises. {@code k = 1} is the operand, and {@code k = 0} a wrapping
-   * multiply that cannot overflow and keeps the operand's nulls. A column factor needs the
-   * checked long multiply of row 104, a decimal literal is 2.4's later step and a floating one
-   * row 342's lowering; each declines.
+   * {@code dt * k} and {@code k * dt} for an integral or decimal literal {@code k}, both of which
+   * the analyzer builds as {@code MultiplyDTInterval(dt, k)} (VARKA-103 2.2, 2.4). An integral
+   * {@code k} is Spark's {@code Math.multiplyExact(micros, k)} in every mode, raising a bare
+   * {@code ArithmeticException} on overflow: the product overflows exactly where the operand
+   * leaves {@link #dayTimeProductBounds}, so the operand is range-guarded and the multiply wraps,
+   * a lane outside the guard declining the batch so that the row engine raises. {@code k = 1} is
+   * the operand, and {@code k = 0} a wrapping multiply that cannot overflow and keeps the
+   * operand's nulls. A decimal {@code k} is {@link #dayTimeByRatio} over its value as a fraction.
+   * A column factor needs the checked long multiply of row 104 and a floating one is row 342's
+   * lowering; each declines.
    */
   private static Optional<VarkaVectorIR> dayTimeMultiply(
       MultiplyDTInterval m,
@@ -629,18 +638,26 @@ public final class VarkaIntervalCompiler {
       VarkaSlotTable literals,
       DeclineSink sink) {
     DataType type = m.num().dataType();
-    if (!(type instanceof IntegralType)) {
+    if (!(type instanceof IntegralType) && !(type instanceof DecimalType)) {
       return sink.decline("day-time interval factor of type " + type.simpleString()
-          + " is not an integral literal", m);
+          + " is not an integral or decimal literal: a floating factor is row 342's lowering", m);
     }
     if (!(m.num() instanceof Literal l)) {
       return sink.decline("day-time interval factor is not a literal: a column factor needs "
           + "the checked long multiply of row 104", m);
     }
-    if (!(l.value() instanceof Number n)) {
+    if (l.value() == null) {
       return sink.decline("day-time interval factor is a NULL literal", m);
     }
-    long k = n.longValue();
+    if (l.value() instanceof Decimal d) {
+      // Spark's Decimal product: the exact x * c, since a long times an unscaled value within a
+      // long has at most 38 digits, inside MathContext(39, DOWN), then setScale(0, HALF_UP)
+      // and longValueExact, a bare ArithmeticException past the long.
+      BigInteger[] c = decimalFraction(d.toJavaBigDecimal(), m, sink);
+      return c == null ? Optional.empty() : dayTimeByRatio(m.interval(), c[0], c[1], m, inputs,
+          literals, sink);
+    }
+    long k = ((Number) l.value()).longValue();
     int mark = literals.size();
     int longMark = sink.longMark();
     Optional<VarkaVectorIR> x =
@@ -648,12 +665,164 @@ public final class VarkaIntervalCompiler {
     if (x.isEmpty() || k == 1) {
       return rolledBack(x, literals, mark, sink, longMark);
     }
-    VarkaVectorIR operand = x.get();
+    return Optional.of(dayTimeTimes(x.get(), k, sink));
+  }
+
+  /**
+   * {@code x * k} for a literal {@code k}, guarded to the longs whose product fits unless
+   * {@code k} is zero, the multiply wrapping under the guard.
+   */
+  private static VarkaVectorIR dayTimeTimes(VarkaVectorIR x, long k, DeclineSink sink) {
+    VarkaVectorIR operand = x;
     if (k != 0) {
       long[] bounds = dayTimeProductBounds(k);
       operand = new GuardedRange(operand, bounds[0], bounds[1]);
     }
-    return Optional.of(new IntArith(IntOp.MUL, Overflow.WRAP, operand, sink.longSlot(k)));
+    return new IntArith(IntOp.MUL, Overflow.WRAP, operand, sink.longSlot(k));
+  }
+
+  /**
+   * {@code dt / k} for an integral or decimal literal {@code k}, {@code DivideDTInterval}, whose
+   * every evaluation is {@code IntervalMathUtils.divide} (VARKA-103 2.4). An integral {@code k}
+   * is {@code LongMath.divide(micros, k, HALF_UP)}: {@code k = 0} raises on every row and
+   * declines here, {@code k = 1} is the operand, a divisor of a day is
+   * {@link VarkaNodeCompiler#halfUpDivLong}, exact over every long, and any other divisor
+   * declines naming row 30, whose constant division claims it. A decimal {@code k} is
+   * {@link #dayTimeByRatio} over {@code 1 / k}.
+   *
+   * <p>A quotient that can leave the long declines, for {@code k = -1} and for a decimal whose
+   * magnitude is under one: the batch a fused kernel declined would fall back to a projection
+   * compiled on the executor, where the division's origin is empty, and Spark's raise there
+   * loses its {@code == SQL ==} block (`VARKA-414.md` 9). Every other quotient is at most the
+   * operand in magnitude and cannot raise, so no fused form loses the block.
+   */
+  private static Optional<VarkaVectorIR> dayTimeDivide(
+      DivideDTInterval m,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    DataType type = m.num().dataType();
+    if (!(type instanceof IntegralType) && !(type instanceof DecimalType)) {
+      return sink.decline("day-time interval divisor of type " + type.simpleString()
+          + " is not an integral or decimal literal: a floating divisor is row 342's lowering",
+          m);
+    }
+    if (!(m.num() instanceof Literal l)) {
+      return sink.decline("day-time interval divisor is not a literal: a column divisor is "
+          + "row 30's division", m);
+    }
+    if (l.value() == null) {
+      return sink.decline("day-time interval divisor is a NULL literal", m);
+    }
+    BigInteger num;
+    BigInteger den;
+    if (l.value() instanceof Decimal d) {
+      BigInteger[] c = decimalFraction(d.toJavaBigDecimal(), m, sink);
+      if (c == null) {
+        return Optional.empty();
+      }
+      // 1 / (u / 10^s) = 10^s / u, the denominator kept positive.
+      num = c[1].multiply(BigInteger.valueOf(c[0].signum()));
+      den = c[0].abs();
+    } else {
+      BigInteger k = BigInteger.valueOf(((Number) l.value()).longValue());
+      num = k.signum() < 0 ? BigInteger.ONE.negate() : BigInteger.ONE;
+      den = k.abs();
+    }
+    if (den.signum() == 0) {
+      return sink.decline("day-time interval divided by a literal zero raises", m);
+    }
+    if (num.abs().compareTo(den) > 0 || num.negate().equals(den)) {
+      return sink.decline("day-time interval divisor under one in magnitude, or -1, gives a "
+          + "quotient that can leave the long, and a declined batch's fallback would raise it "
+          + "without its SQL context (VARKA-414)", m);
+    }
+    return dayTimeByRatio(m.interval(), num, den, m, inputs, literals, sink);
+  }
+
+  /**
+   * {@code HALF_UP(x * num / den)} over the day-time operand {@code interval}, with {@code den}
+   * positive, the fraction taken to its lowest terms first: Spark's answer for a decimal factor
+   * {@code u / 10^s} and a divisor {@code u / 10^s} alike, since {@code Decimal}'s product is
+   * exact and its quotient, cut {@code DOWN} at 39 fractional digits, rounds {@code HALF_UP} to
+   * the same integer as the exact one (VARKA-103 2.4).
+   *
+   * <ul>
+   *   <li>{@code den = 1} is the product by {@code num}, its guard exact as an integral factor's;
+   *   <li>otherwise {@code den} must divide a day, or the form declines naming row 30, whose
+   *       constant division claims the rest. The operand is guarded to the longs whose product
+   *       by {@code |num|} fits, then multiplied wrapping, then divided by {@code den} with
+   *       {@link VarkaNodeCompiler#halfUpDivLong}, the sign of {@code num} taken by dividing by
+   *       {@code -den}. The guard is not Spark's raise: it declines lanes whose product leaves
+   *       the long though the quotient would not, which the row engine answers; where it admits
+   *       a lane every step is exact.
+   * </ul>
+   */
+  private static Optional<VarkaVectorIR> dayTimeByRatio(
+      Expression interval,
+      BigInteger num,
+      BigInteger den,
+      Expression whole,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    long[] fraction = dayTimeFraction(num, den);
+    if (fraction == null) {
+      return sink.decline("day-time interval scaled by a fraction whose denominator "
+          + den.divide(num.gcd(den)) + " does not divide a day: row 30's constant division",
+          whole);
+    }
+    long n = fraction[0];
+    long d = fraction[1];
+    int mark = literals.size();
+    Optional<VarkaVectorIR> x =
+        dayTimeOperand(interval, "the scaled interval", inputs, literals, sink);
+    if (x.isEmpty() || (n == 1 && d == 1)) {
+      return rolledBack(x, literals, mark);
+    }
+    if (d == 1) {
+      return Optional.of(dayTimeTimes(x.get(), n, sink));
+    }
+    long magnitude = Math.abs(n);
+    VarkaVectorIR scaled = magnitude == 1 ? x.get() : dayTimeTimes(x.get(), magnitude, sink);
+    return Optional.of(VarkaNodeCompiler.halfUpDivLong(scaled, n < 0 ? -d : d, sink));
+  }
+
+  /**
+   * {@code num / den}, {@code den} positive, in lowest terms as {@code {n, d}} when {@link
+   * #dayTimeByRatio} lowers it - {@code d} is 1 or divides a day, and both fit a long - or
+   * {@code null}. Public for the proof renderer, which states the compiler's own fractions.
+   */
+  public static long[] dayTimeFraction(BigInteger num, BigInteger den) {
+    BigInteger g = num.gcd(den);
+    BigInteger n = num.divide(g);
+    BigInteger d = den.divide(g);
+    if (n.bitLength() >= Long.SIZE || d.bitLength() >= Long.SIZE
+        || (d.longValue() != 1 && !VarkaNodeCompiler.dividesDay(d.longValue()))) {
+      return null;
+    }
+    return new long[] {n.longValue(), d.longValue()};
+  }
+
+  /**
+   * A decimal literal's value as {@code {u, 10^s}}, its unscaled value over a power of ten, or
+   * {@code null} after declining one past the long's arithmetic: after its trailing zeros are
+   * dropped, an unscaled value past the long or a scale past 18.
+   */
+  private static BigInteger[] decimalFraction(BigDecimal literal, Expression whole,
+      DeclineSink sink) {
+    // Trailing zeros first, so that 2.000 and a scale past 18 of a short value still fit.
+    BigDecimal c = literal.stripTrailingZeros();
+    if (c.scale() < 0) {
+      c = c.setScale(0);
+    }
+    BigInteger u = c.unscaledValue();
+    if (u.bitLength() >= Long.SIZE || c.scale() > 18) {
+      sink.decline("day-time interval scaled by a decimal literal " + c.toPlainString()
+          + " whose unscaled value or scale is past the long", whole);
+      return null;
+    }
+    return new BigInteger[] {u, BigInteger.TEN.pow(c.scale())};
   }
 
   /**
@@ -666,6 +835,15 @@ public final class VarkaIntervalCompiler {
    */
   public static long[] dayTimeProductBounds(long k) {
     return productBounds(k, Long.MIN_VALUE, Long.MAX_VALUE);
+  }
+
+  /**
+   * {@link #dayTimeProductBounds} for the month count: the ints {@code x} whose true product by
+   * {@code k} is an int, which is where {@code ym * k} does not raise, as {@code [lo, hi]}
+   * clamped to the int.
+   */
+  public static long[] yearMonthProductBounds(long k) {
+    return productBounds(k, Integer.MIN_VALUE, Integer.MAX_VALUE);
   }
 
   private static long[] productBounds(long k, long least, long greatest) {
@@ -690,6 +868,39 @@ public final class VarkaIntervalCompiler {
 
   private static BigInteger ceilDiv(BigInteger a, BigInteger b) {
     return floorDiv(a.negate(), b).negate();
+  }
+
+  /**
+   * {@code ym * k} for an integral literal {@code k} (VARKA-103 2.2): Spark's
+   * {@code multiplyExact(months, k)}, or {@code toIntExact} of the long product for a
+   * {@code BIGINT} {@code k}, raising exactly where the true product leaves the int. Unless the
+   * bounds prove it fits, the count is guarded to {@link #yearMonthProductBounds}; the wrapping
+   * multiply by {@code (int) k} is then exact, agreeing with the true product modulo {@code 2^32}.
+   */
+  private static Optional<VarkaVectorIR> yearMonthTimesLiteral(
+      MultiplyYMInterval m,
+      Literal l,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (!(l.value() instanceof Number n)) {
+      return sink.decline("interval multiplier is a NULL literal", m);
+    }
+    long k = n.longValue();
+    int mark = literals.size();
+    Optional<VarkaVectorIR> x =
+        intervalOperand(m.interval(), "the multiplied interval", inputs, literals, sink);
+    if (x.isEmpty() || k == 1) {
+      return rolledBack(x, literals, mark);
+    }
+    VarkaVectorIR months = x.get();
+    LiteralSlot factor = VarkaNodeCompiler.intSlot((int) k, literals);
+    if (k != 0 && (k != (int) k
+        || !VarkaNodeCompiler.cannotOverflow(IntOp.MUL, months, factor, literals, sink))) {
+      long[] bounds = yearMonthProductBounds(k);
+      months = new GuardedRange(months, bounds[0], bounds[1]);
+    }
+    return Optional.of(new IntArith(IntOp.MUL, Overflow.WRAP, months, factor));
   }
 
   /**

@@ -1572,6 +1572,42 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "interval divisor is a NULL literal")
   }
 
+  test("`dt / num` and `dt * num` fuse the day split's forms and decline the rest, naming the " +
+      "row that claims it") {
+    val dt = AttributeReference("dt", DayTimeIntervalType())()
+    val cols = childOutput :+ dt
+    def dec(v: String): Literal = Literal(BigDecimal(v))
+    for (e <- Seq(DivideDTInterval(dt, Literal(24)), DivideDTInterval(dt, Literal(-24.toShort)),
+        DivideDTInterval(dt, Literal(86400000000L)), DivideDTInterval(dt, dec("1.5")),
+        DivideDTInterval(dt, dec("-2.5")), DivideDTInterval(dt, Literal(1)),
+        MultiplyDTInterval(dt, dec("1.5")), MultiplyDTInterval(dt, dec("-0.5")),
+        MultiplyDTInterval(dt, dec("0.0")), MultiplyDTInterval(dt, dec("0.07")))) {
+      assert(fuses(e, cols), e.sql)
+    }
+    val tooSmall = "day-time interval divisor under one in magnitude, or -1, gives a quotient " +
+      "that can leave the long, and a declined batch's fallback would raise it without its " +
+      "SQL context (VARKA-414)"
+    def notADayDivisor(d: String): String = s"day-time interval scaled by a fraction whose " +
+      s"denominator $d does not divide a day: row 30's constant division"
+    Seq(
+      DivideDTInterval(dt, Literal(0L)) -> "day-time interval divided by a literal zero raises",
+      DivideDTInterval(dt, dec("0.00")) -> "day-time interval divided by a literal zero raises",
+      DivideDTInterval(dt, Literal(-1.toByte)) -> tooSmall,
+      DivideDTInterval(dt, dec("-1.0")) -> tooSmall,
+      DivideDTInterval(dt, dec("0.5")) -> tooSmall,
+      DivideDTInterval(dt, Literal(7)) -> notADayDivisor("7"),
+      DivideDTInterval(dt, dec("7.0")) -> notADayDivisor("7"),
+      DivideDTInterval(dt, Literal(Long.MinValue)) -> notADayDivisor("9223372036854775808"),
+      MultiplyDTInterval(dt, dec("1.000000001")) -> notADayDivisor("1000000000"),
+      DivideDTInterval(dt, i) ->
+        "day-time interval divisor is not a literal: a column divisor is row 30's division",
+      DivideDTInterval(dt, Literal(null, IntegerType)) ->
+        "day-time interval divisor is a NULL literal",
+      MultiplyDTInterval(dt, Literal(null, DecimalType(2, 1))) ->
+        "day-time interval factor is a NULL literal"
+    ).foreach { case (e, reason) => assert(declineReason(e, cols) === reason, e.sql) }
+  }
+
   test("`extract(YEAR FROM ym)` fuses over a stored column, which no magic could serve") {
     // The point of the row: the operand is a stored month count with no bound at all, so the
     // calendar's range-narrowed magic is exact over about one forty-thousandth of it and cannot
@@ -1604,10 +1640,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("`ym * num` takes the int lane and names the types that are not one") {
-    // A literal multiplier is bounded and the check comes off; an int column is an unbounded
-    // checked multiply and declines as every other does. Long, Decimal and Double are not
-    // int32 lanes and decline by type, rather than reaching intOperand and being reported as
-    // "not an int column or literal", which would hide which of the two is wrong.
+    // A literal multiplier of any integral width fuses: over a bounded operand the check comes
+    // off, over a stored column a range guard stands in for it. An int column is an unbounded
+    // checked multiply and declines as every other does. A bigint column, Decimal and Double
+    // are not int32 lanes and decline by type, rather than reaching intOperand and being
+    // reported as "not an int column or literal", which would hide which of the two is wrong.
     val byLiteral = VarkaExpressionCompiler.compile(
       Seq(out(MultiplyYMInterval(Cast(Year(d), ymy.dataType), Literal(3)))), withIntervals).get
     // The result widens to YEAR TO MONTH whatever the operand's unit, which is Spark's own
@@ -1615,7 +1652,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(byLiteral.outputTypes.asScala.toSeq === Seq(YearMonthIntervalType()))
     assert(declineReason(MultiplyYMInterval(ymm, i), withIntervals) ===
       "checked int multiply whose operands do not rule out overflow")
-    assert(declineReason(MultiplyYMInterval(ymm, Literal(3L)), withIntervals) ===
+    assert(fuses(MultiplyYMInterval(ymm, Literal(3L)), withIntervals))
+    assert(fuses(MultiplyYMInterval(ymm, Literal(3.toShort)), withIntervals))
+    assert(declineReason(MultiplyYMInterval(ymm, l), withIntervals :+ l) ===
       "interval multiplier of type bigint is not an int32 lane")
     // A floating factor is rounded to the interval's integer, which waits for row
     // 343's conversions to an integral lane.

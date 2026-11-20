@@ -259,7 +259,19 @@ final class VarkaProofFiles {
       100_000L,
       10_000L,
       100L,
-      10L);
+      10L,
+      // The day split's second division, of a biased remainder in [0, 2D), by the coverage
+      // rows' divisors of a day that are not powers of two, which shift: dt / 24, and
+      // dt / 1.5's denominator (VARKA-103).
+      24L,
+      3L);
+
+  /**
+   * The divisors of {@link #LONG_DIVISORS} that only the day split divides by: their dividend is
+   * under twice a day, so where the conversion form first fails past {@code 2^53} is no fact
+   * about them, and the rule that finds it does not hold for them.
+   */
+  private static final List<Long> DAY_SPLIT_DIVISORS = List.of(24L, 3L);
 
   private static final long P52 = 1L << 52;
   private static final long P53 = 1L << 53;
@@ -342,7 +354,7 @@ final class VarkaProofFiles {
       // Where the conversion form first goes wrong past 2^53 is a fact about the TIME divisors,
       // whose dividends reach the bound. The day's odd part is still exact at the dividend the
       // rule renders - both solvers say so - and its caller states a bound near 2^50.
-      if (d != NTZ_DAY_ODD) {
+      if (d != NTZ_DAY_ODD && !DAY_SPLIT_DIVISORS.contains(d)) {
         conversionBound(out, d, m);
       }
       magicExact(out, d, m);
@@ -2249,33 +2261,47 @@ final class VarkaProofFiles {
       (long) Integer.MIN_VALUE, (long) Integer.MAX_VALUE, Long.MIN_VALUE, Long.MAX_VALUE);
 
   /**
+   * The literal factors of {@code ym * k} it proves the month count's guard for, the int lane's
+   * twin: the coverage row's and the tests', a {@code BIGINT} one past the int among them.
+   */
+  static final List<Long> YM_FACTORS = List.of(2L, -2L, 3L, -1L, (long) Integer.MIN_VALUE,
+      (long) Integer.MAX_VALUE, 1L << 31, Long.MIN_VALUE);
+
+  /**
    * {@code dt_arith.smt2}: the range guard {@code VarkaIntervalCompiler.dayTimeMultiply} puts
    * ahead of the wrapping multiply in {@code dt * k} is exact - it admits a long {@code x}
    * exactly when {@code x * k} is a long, which is where {@code Math.multiplyExact} does not
-   * raise - and under it the wrapping product is the true one (VARKA-103 2.2, 3.1). The bounds
-   * are {@code VarkaIntervalCompiler}'s own, pinned to {@code Math.multiplyExact} at both ends
-   * and one past each while rendering.
+   * raise - and under it the wrapping product is the true one (VARKA-103 2.2, 3.1); and the same
+   * of {@code ym * k}'s guard at the int lane, where the wrapping product multiplies by the
+   * factor's low 32 bits. The bounds are {@code VarkaIntervalCompiler}'s own, pinned to
+   * {@code Math.multiplyExact} at both ends and one past each while rendering.
    */
   static String dtArith() {
     var out = new StringBuilder(LICENSE);
     out.append("""
-        ; The day-time interval product by an integral literal (VARKA-103 2.2). Spark computes
-        ; dt * k as Math.multiplyExact(micros, k) in every mode, and VarkaIntervalCompiler emits,
-        ; per lane,
+        ; The interval products by an integral literal (VARKA-103 2.2). Spark computes dt * k as
+        ; Math.multiplyExact(micros, k) and ym * k as Math.multiplyExact(months, k), or for a
+        ; bigint k toIntExact(multiplyExact(months, k)), in every mode, and VarkaIntervalCompiler
+        ; emits, per lane,
         ;
         ;   GuardedRange(x, lo, hi)        the batch declines where a lane leaves [lo, hi]
-        ;   x * k                          wrapping multiply
+        ;   x * k                          wrapping multiply, by (int) k at the int lane
         ;
         ; with [lo, hi] = [ceil(MIN / k), floor(MAX / k)] for k > 0, the two swapped for k < 0,
-        ; clamped to the lane (dayTimeProductBounds). For each factor in
-        ; VarkaProofFiles.DT_FACTORS the solver shows that the guard admits x exactly when the
-        ; true product is in the lane, and that under the guard the wrapping product is the true
-        ; one; and, beside them, that a bound moved one further out admits a product past the
-        ; lane, and that the symmetric bound +-(MAX / |k|) refuses one inside it - rendered only
-        ; for k = 2, -2, Integer.MIN_VALUE and Long.MIN_VALUE, the factors whose product that
-        ; reaches the lane's least value exactly lies outside the symmetric bound.
+        ; clamped to the lane (dayTimeProductBounds, yearMonthProductBounds). For each factor in
+        ; VarkaProofFiles.DT_FACTORS at the long lane and YM_FACTORS at the int lane the solver
+        ; shows that the guard admits x exactly when the true product is in the lane, and that
+        ; under the guard the wrapping product is the true one; and, beside them, that a bound
+        ; moved one further out admits a product past the lane, and that the symmetric bound
+        ; +-(MAX / |k|) refuses one inside it - rendered only for k = 2, -2, Integer.MIN_VALUE and
+        ; Long.MIN_VALUE, the factors whose product that reaches the lane's least value exactly
+        ; lies outside the symmetric bound. Last, the quotients by a divisor of a day and the
+        ; decimal literal forms (VARKA-103 2.4), below.
         """);
-    out.append(rendered("QF_NIA"));
+    // ALL rather than QF_NIA: every claim is linear, multiplies and divides by constants, and
+    // under QF_NIA cvc5 answers unknown on the day split's checks in the 10 s limit, where under
+    // ALL it proves the file in about 2 s.
+    out.append(rendered("ALL"));
     out.append("""
 
         (declare-const x Int)
@@ -2286,8 +2312,161 @@ final class VarkaProofFiles {
       pinProduct(k, b[0], b[1]);
       productGuard(out, "jlong", Long.MIN_VALUE, Long.MAX_VALUE, k, lit(k), b);
     }
+    out.append("(pop 1)\n\n; ym * k at the int lane\n(push 1)\n(assert (jint.in x))\n");
+    for (long k : YM_FACTORS) {
+      long[] b = VarkaIntervalCompiler.yearMonthProductBounds(k);
+      pinYearMonthProduct(k, b[0], b[1]);
+      productGuard(out, "jint", Integer.MIN_VALUE, Integer.MAX_VALUE, k, lit((int) k), b);
+    }
     out.append("(pop 1)\n");
+    dtDivide(out);
     return out.toString();
+  }
+
+  /**
+   * The divisors of a day {@code dt_arith.smt2} proves {@code VarkaNodeCompiler.halfUpDivLong}
+   * for: the coverage rows' and the tests', both signs, powers of two (which shift), a day itself
+   * (which skips the multiply by {@code D / m}) and the fractions' denominators of
+   * {@link #DT_FRACTIONS}.
+   */
+  static final List<Long> DT_DIVISORS = List.of(2L, -2L, 3L, 4L, 5L, 10L, 24L, -24L, 1000L,
+      8192L, 86_400_000_000L, -86_400_000_000L);
+
+  /**
+   * The decimal literals {@code dt_arith.smt2} proves {@code dt * c} or {@code dt / c} for, as
+   * {@code {literal, "*" or "/"}}: the coverage rows', the named cells of `VARKA-103.md` 3.3
+   * spelled as decimals, and a fraction of each sign whose reduction moves both terms.
+   */
+  static final List<String[]> DT_FRACTIONS = List.of(new String[] {"0.5", "*"},
+      new String[] {"-0.5", "*"}, new String[] {"1.5", "*"}, new String[] {"-1.5", "*"},
+      new String[] {"0.70", "*"}, new String[] {"2.0", "/"}, new String[] {"1.5", "/"},
+      new String[] {"-1.5", "/"}, new String[] {"24.0", "/"}, new String[] {"2.5", "/"});
+
+  /**
+   * {@code dt / k} by a divisor of a day and the decimal literal forms (VARKA-103 2.4): the day
+   * split's quotient {@code HALF_UP} for every long, per divisor, with neighbouring forms
+   * refuted; and per decimal literal, under the guard, Spark's {@code HALF_UP(x * u / 10^s)} or
+   * {@code HALF_UP(x * 10^s / u)} with Spark's own {@code u} and {@code s}, the compiler's
+   * reduced fraction on the lowered side.
+   */
+  private static void dtDivide(StringBuilder out) {
+    long day = DateTimeConstants.MICROS_PER_DAY;
+    out.append("""
+
+        ; dt / k for a k dividing a day D, VarkaNodeCompiler.halfUpDivLong, every step the lane's
+        ; wrapping arithmetic, with m = |k| and h = m >> 1:
+        ;
+        ;   qF = floorDiv(x, D)            floorDivLong, which long_divide.smt2 proves Math's
+        ;   rF = x - qF * D                in [0, D)
+        ;   y  = rF + b                    b = h, or (x >> 63) + h for an even m
+        ;   q  = qF * (D / m) + y / m      y in [0, 2D): a ConstDivide under the bound 2D,
+        ;                                  proven exact under it in long_divide.smt2, or a shift
+        ;                                  for a power of two; for m = D, qF + y / m
+        ;   negated for k < 0
+        ;
+        ; against Guava's HALF_UP in unbounded integers, the quotient of the magnitudes raised by
+        ; one when twice the remainder reaches the divisor, signed by x * k. The products and
+        ; quotients by a decimal literal are the same form after a guard and a wrapping multiply
+        ; by the reduced fraction's numerator, against Spark's Decimal arithmetic on the literal's
+        ; own unscaled value and scale.
+
+        (define-fun dt.half.up ((a Int) (b Int)) Int
+          (let ((mag (+ (div (abs a) (abs b)) (ite (>= (* 2 (mod (abs a) (abs b))) (abs b)) 1 0))))
+            (ite (= (>= a 0) (> b 0)) mag (- mag))))
+
+        (declare-const y Int)
+        """);
+    out.append("(push 1)\n(assert (jlong.in y))\n");
+    for (long k : DT_DIVISORS) {
+      long m = Math.abs(k);
+      long h = m >> 1;
+      String spec = "(assert (not (= dt.h (dt.half.up y " + lit(k) + "))))";
+      check(out, "k = " + k + ": the biased remainder lies in [0, 2D)", "unsat",
+          List.of(daySplit("y", m, h, k > 0, day), "(assert (not (and (<= 0 dt.y) (< dt.y "
+              + 2 * day + "))))"));
+      check(out, "k = " + k + ": the day split is HALF_UP(y / k) for every long y", "unsat",
+          List.of(daySplit("y", m, h, k > 0, day), spec));
+      // The refuted biases are stated as a choice on the sign: cvc5 answers unknown on some
+      // of them with the shift inside the limit.
+      check(out, "k = " + k + ": with the bias one lower it is not", "sat",
+          List.of(daySplit("y", m, h - 1, negativeBias(m, h - 1), k > 0, day), spec));
+      check(out, "k = " + k + ": with the bias one higher it is not", "sat",
+          List.of(daySplit("y", m, h + 1, negativeBias(m, h + 1), k > 0, day), spec));
+      if (k == 2) {
+        // The planted fault IntervalFault.HALF_UP_BIAS_UNSIGNED: h for a negative y too.
+        check(out, "k = 2: with the non-negative bias for a negative y too it is not", "sat",
+            List.of(daySplit("y", 2, 1, 1, true, day), spec));
+      }
+      if (k < 0) {
+        check(out, "k = " + k + ": without the negation it is not", "sat",
+            List.of(daySplit("y", m, h, true, day), spec));
+      }
+    }
+    out.append("(pop 1)\n\n; the decimal literal forms\n(push 1)\n(assert (jlong.in x))\n");
+    for (String[] c : DT_FRACTIONS) {
+      var literal = new BigDecimal(c[0]);
+      BigInteger u = literal.unscaledValue();
+      BigInteger p = BigInteger.TEN.pow(literal.scale());
+      boolean product = c[1].equals("*");
+      // Spark's quotient x * num / den with the literal's own digits, den positive.
+      BigInteger num = product ? u : p.multiply(BigInteger.valueOf(u.signum()));
+      BigInteger den = product ? p : u.abs();
+      long[] f = VarkaIntervalCompiler.dayTimeFraction(num, den);
+      if (f == null || f[1] == 1) {
+        throw new IllegalStateException("dt " + c[1] + " " + c[0] + " is not a day split");
+      }
+      long n = Math.abs(f[0]);
+      long d = f[1];
+      long[] b = VarkaIntervalCompiler.dayTimeProductBounds(n);
+      String guard = n == 1 ? "true"
+          : "(and (<= " + lit(b[0]) + " x) (<= x " + lit(b[1]) + "))";
+      String scaled = n == 1 ? "x" : "(jlong.mul x " + lit(n) + ")";
+      String spec = "(dt.half.up (* x " + lit(num) + ") " + lit(den) + ")";
+      check(out, "dt " + c[1] + " " + c[0] + ": under the guard of x * " + n + ", HALF_UP of "
+          + "the scaled value by " + (f[0] < 0 ? -d : d) + " is Spark's HALF_UP(x * " + num
+          + " / " + den + ")", "unsat", List.of("(assert " + guard + ")",
+              daySplit(scaled, d, d >> 1, f[0] > 0, day),
+              "(assert (not (= dt.h " + spec + ")))"));
+    }
+    out.append("(pop 1)\n");
+  }
+
+  /**
+   * The definitions of {@code halfUpDivLong}'s steps over the long term {@code y}, divisor
+   * magnitude {@code m} and bias {@code h} (less one for a negative {@code y} and an even
+   * {@code m}), negated unless {@code positive}.
+   */
+  private static String daySplit(String y, long m, long h, boolean positive, long day) {
+    // The compiler's bias as it builds it: h alone for an odd m, (y >> 63) + h for an even one.
+    String bias = (m & 1) == 1 ? lit(h) : "(jlong.add (jlong.shr " + y + " 63) " + lit(h) + ")";
+    return daySplit(y, m, bias, positive, day);
+  }
+
+  /** The bias a negative {@code y} takes beside {@code h}: {@code h - 1} for an even {@code m}. */
+  private static long negativeBias(long m, long h) {
+    return (m & 1) == 1 ? h : h - 1;
+  }
+
+  /**
+   * {@link #daySplit} with a negative {@code y}'s bias given as {@code negative}, stated as a
+   * choice on the sign: the refuted alternatives and the planted fault.
+   */
+  private static String daySplit(String y, long m, long h, long negative, boolean positive,
+      long day) {
+    return daySplit(y, m, "(ite (< " + y + " 0) " + lit(negative) + " " + lit(h) + ")", positive,
+        day);
+  }
+
+  /** {@link #daySplit} with the bias term given whole. */
+  private static String daySplit(String y, long m, String bias, boolean positive, long day) {
+    String part = Long.bitCount(m) == 1 ? "(jlong.shr dt.y " + Long.numberOfTrailingZeros(m)
+        + ")" : "(jlong.div dt.y " + m + ")";
+    String q = m == day ? "(jlong.add dt.qF " + part + ")"
+        : "(jlong.add (jlong.mul dt.qF " + day / m + ") " + part + ")";
+    return "(define-fun dt.qF () Int (jlong.floorDiv " + y + " " + day + "))\n"
+        + "(define-fun dt.rF () Int (jlong.sub " + y + " (jlong.mul dt.qF " + day + ")))\n"
+        + "(define-fun dt.y () Int (jlong.add dt.rF " + bias + "))\n"
+        + "(define-fun dt.h () Int " + (positive ? q : "(jlong.neg " + q + ")") + ")";
   }
 
   /**
@@ -2336,6 +2515,27 @@ final class VarkaProofFiles {
     }
     if (hi < Long.MAX_VALUE) {
       requireRaises(hi + 1, k, lo, hi);
+    }
+  }
+
+  /** {@link #pinProduct} for the month count: Spark's int product, or its long one narrowed. */
+  private static void pinYearMonthProduct(long k, long lo, long hi) {
+    for (long x : new long[] {lo - 1, lo, hi, hi + 1}) {
+      boolean inside = lo <= x && x <= hi;
+      if (x < Integer.MIN_VALUE || x > Integer.MAX_VALUE) {
+        continue;
+      }
+      boolean raises;
+      try {
+        Math.toIntExact(Math.multiplyExact(x, k));
+        raises = false;
+      } catch (ArithmeticException e) {
+        raises = true;
+      }
+      if (raises == inside) {
+        throw new IllegalStateException("ym * " + k + " at " + x + (raises ? " raises inside"
+            : " does not raise outside") + " the guard [" + lo + ", " + hi + "]");
+      }
     }
   }
 

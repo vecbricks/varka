@@ -344,7 +344,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `d + ym` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896 AND ym BETWEEN INTERVAL '-2048-0' YEAR TO MONTH AND INTERVAL '2047-0' YEAR TO MONTH` | the interval's month count, under the same range | vector |
 | `d - ym` | `calendar`, `interval` | `unix_date(d) BETWEEN -719162 AND 2932896 AND ym BETWEEN INTERVAL '-2047-0' YEAR TO MONTH AND INTERVAL '2048-0' YEAR TO MONTH` | the negated count under the range, so the bounds change sides | vector |
 | `make_ym_interval(year(d), month(d))` | `calendar`, `interval` | `unix_date(d) BETWEEN -719162 AND 2932896` | the operands must be bounded - over a bare int column the checked multiply inside it keeps its overflow test and declines | vector |
-| `make_ym_interval(year(d), month(d)) * 2` | `calendar`, `interval` | `unix_date(d) BETWEEN -719162 AND 2932896` | a checked multiply, so bounded operands again: `ym * 2` over a stored interval column declines | vector |
+| `make_ym_interval(year(d), month(d)) * 2` | `calendar`, `interval` | `unix_date(d) BETWEEN -719162 AND 2932896` | a checked multiply whose bounded operands take the check off | vector |
+| `ym * 3` | `interval` | `ym BETWEEN INTERVAL '-59652323-6' YEAR TO MONTH AND INTERVAL '59652323-6' YEAR TO MONTH` | a stored interval column times an integral literal: the count is guarded to the ints whose product fits, exactly, and the multiply wraps; a column factor declines | vector |
 | `abs(ym)` | `interval` | `ym > INTERVAL '-178956970-8' YEAR TO MONTH` | interval arithmetic is exact in every mode: the one count whose negation overflows declines | vector |
 | `ym - ymm` | `interval` | `CAST(ym AS BIGINT) - CAST(ymm AS BIGINT) BETWEEN -2147483648 AND 2147483647` | exact in every mode: a difference outside the month count's int declines | vector |
 | `ym + ym` | `interval` | `CAST(ym AS BIGINT) + CAST(ym AS BIGINT) BETWEEN -2147483648 AND 2147483647` | the sum, exact in every mode as the difference is | vector |
@@ -370,7 +371,10 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `dt + INTERVAL '1' DAY` | `interval` | `if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)` | the literal, cast to the column's unit and folded, takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `dt * 3` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `-2 * dt` | `interval` | `if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)` | the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `extract(DAY FROM dt)` | `interval` |  | Java's truncating division by a day, exact over every long and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset | vector |
+| `dt / 24` | `interval` |  | LongMath.divide HALF_UP by a divisor of a day: the floor quotient by a day and its remainder in [0, D), biased by half the divisor (one less for a negative value and an even divisor), give the quotient by 24 exactly over every long; a divisor that does not divide a day declines | vector |
+| `dt * 1.5` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | Spark's Decimal product, HALF_UP(3x / 2): the operand guarded to the longs whose product by 3 fits, then the day split by 2; the guard declines some lanes Spark answers, which the row engine then does | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `dt / 1.5` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 2) IS NOT NULL)` | HALF_UP(2x / 3), the quotient by a decimal at least one in magnitude, which cannot raise; a divisor under one declines (VARKA-414) | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `extract(DAY FROM dt)` | `interval` |  | Java's truncating division by a day, exact over every long and never raising; inside date_add the date arm reads it as the day offset | vector |
 
 #### Integer arithmetic
 
@@ -1387,17 +1391,17 @@ operands (a row counts once for each type it reads):
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `bigint` | 100 | 0 | 0 | 2 | 0 | 2 | 96 |
 | `bool` | 38 | 0 | 0 | 0 | 13 | 0 | 25 |
-| `byte` | 56 | 0 | 0 | 0 | 0 | 8 | 48 |
-| `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
-| `dec` | 77 | 1 | 42 | 10 | 0 | 0 | 24 |
-| `double` | 97 | 0 | 0 | 1 | 0 | 0 | 96 |
-| `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
-| `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
-| `int` | 179 | 14 | 0 | 4 | 1 | 1 | 159 |
-| `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
-| `short` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
+| `byte` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
+| `date` | 127 | 17 | 0 | 0 | 1 | 0 | 109 |
+| `dec` | 62 | 1 | 42 | 12 | 0 | 0 | 7 |
+| `double` | 74 | 0 | 0 | 1 | 0 | 0 | 73 |
+| `dt` | 38 | 2 | 0 | 7 | 0 | 0 | 29 |
+| `float` | 59 | 0 | 0 | 0 | 0 | 0 | 59 |
+| `int` | 160 | 14 | 0 | 6 | 1 | 1 | 138 |
+| `ntz` | 57 | 0 | 0 | 7 | 0 | 0 | 50 |
+| `short` | 52 | 0 | 0 | 0 | 0 | 8 | 44 |
 | `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
-| `ym` | 40 | 7 | 0 | 2 | 0 | 2 | 29 |
+| `ym` | 41 | 7 | 0 | 3 | 0 | 2 | 29 |
 <!-- END generated verification counts -->
 
 ## Glossary
