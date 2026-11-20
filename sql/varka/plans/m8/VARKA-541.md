@@ -110,6 +110,11 @@ JVM was run. Claims marked *[I]* are read from the code, not run; step 1 of sect
 7. **Where Spark does not compile the filter, the two now agree by construction.** Spark's
    `FilterEvaluatorFactory` builds the same `Predicate.create`, and `fallbackCondition` keeps
    the written order there (`VarkaFilterExec.scala:80-90`).
+   *Note, 20 November 2026 (VARKA-608):* this held only where the node carried the filter's own
+   condition, that is with a residual conjunct. With none, the fallback evaluated the fused
+   conjuncts' left fold, which can lack an `AND` of Spark's tree that is a common subexpression,
+   so with elimination on Spark could raise where the fallback answered. Row 608's change passes
+   the tree wherever it is not the fold. SPARK-61197 had no upstream fix when it was written.
 8. **Row 386 no longer holds this row back.** SPARK-60315 (`930c571628d`) is an ancestor of
    master, so the CSE branch this row compares with is the merged one. Row 386 (planned, not
    built) still edits `fallbackCondition` to read the legacy flag; the two rows touch the same

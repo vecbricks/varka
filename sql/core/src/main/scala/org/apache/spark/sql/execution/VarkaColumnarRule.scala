@@ -300,10 +300,16 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
     compiled.toScala.flatMap { predicate =>
       val residuals = predicate.residualConjuncts.asScala.toSeq
       val residual = residuals.reduceLeftOption(And(_, _))
-      // With residual conjuncts split off, a batch the kernel cannot serve is refiltered with
-      // the whole condition, in Spark's order (see VarkaFilterExecBase).
-      val varka = mkVarka(predicate.fusedConjuncts.asScala.reduceLeft(And(_, _)), child,
-        residual.map(_ => condition))
+      val fused = predicate.fusedConjuncts.asScala.reduceLeft(And(_, _))
+      // A batch the kernel cannot serve is refiltered with the filter's own condition, in
+      // Spark's order (see VarkaFilterExecBase), wherever the fused conjuncts' left fold is not
+      // that condition: with residual conjuncts split off, or where the condition's AND tree is
+      // not its own left fold. Spark's uncompiled predicate keeps an AND of the tree that is a
+      // common subexpression as one conjunct (SPARK-61197), which the fold does not have
+      // (VARKA-608). The test is structural: `semanticEquals` would equate every AND tree with
+      // its fold, since `And.canonicalized` gathers and sorts the whole spine.
+      val whole = if (residual.isDefined || fused != condition) Some(condition) else None
+      val varka = mkVarka(fused, child, whole)
       val hoists = varka.fallbackHoistsIntoAnAnd
       val missesElimination = residual.exists { r =>
         varka.compiledBySpark && residualMissesElimination(condition, child, residuals, r, varka)

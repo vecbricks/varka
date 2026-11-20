@@ -198,7 +198,66 @@ whole-stage codegen off, under
 `spark.sql.subexpressionElimination.enabled` true and false, Varka raises or answers exactly as
 Spark does on that batch; `VARKA-541.md` 0 item 7 gets a dated note.
 
+## 10a. Decisions taken while the owner was away (20 November 2026)
+
+Built in a local-only window (the owner's order of 07:30 CET: implementation first, tests and CI
+in a later phase, at most one targeted run of the new test). Each decision below is the option
+the plan, `sql/varka/AGENTS.md` or the plan's own recommendations favour.
+
+1. **The fold test is structural, not `semanticEquals`.** Section 3.1 and risk 1 say
+   "semantically its fused conjuncts' left fold"; that test can never fire. `And.canonicalized`
+   (`predicates.scala`, `buildCanonicalizedPlan`) gathers the whole `AND` spine, sorts its
+   operands by hash and re-reduces them, so every `AND` tree is semantically equal to its own
+   fold. `rewriteFilter` compares `fused != condition` (case-class equality, the conjuncts being
+   the condition's own nodes), and the test asserts the same way. A false "not the fold" from a
+   rewritten conjunct is the harmless direction (risk 1): the fallback then reads Spark's tree.
+2. **The reproducer's vehicle is a union with `PushDownPredicates` excluded, not a `LIMIT`.**
+   Section 2's `LIMIT` child cannot fuse: both of `VarkaColumnarRule`'s filter arms require
+   `child.supportsColumnar && arrowFriendly(child)`, and `GlobalLimitExec` and `LocalLimitExec`
+   are row nodes (`limit.scala` has no `supportsColumnar`). An aggregate or a join, the plan's
+   fallback, is a row node too. The child has to be columnar, arrow-friendly, opaque to
+   `PhysicalOperation` (or `pruneFilterProject` folds the condition) and not pushed through by
+   the optimizer (the pushdowns read rebuild with `reduce(And)`, the one through a union among
+   them). The columnar non-scan children are Varka's own nodes and `UnionExec` (columnar when
+   its children are, `vectorTypes` `None`, so `arrowFriendly`), and a filter stays above either
+   only when a pushdown is blocked: by a nondeterministic expression, which Varka declines, or
+   by an expensive alias (a UDF or a costly regex) projected under the filter. That last path,
+   a partial `VarkaProjectExec` computing the UDF row by row under a filter that reads it twice,
+   was not worked through (`PushPredicateThroughNonJoin`'s split around expensive conditions
+   decides what tree stays up), so a default-configuration reproducer is not ruled out. With `spark.sql.optimizer.excludedRules` naming
+   `PushDownPredicates`, a public conf and an excludable rule, the filter stays above
+   `UNION ALL` of the cached table with itself, and `BasicOperators` keeps the optimizer's tree.
+   The test uses that shape and `SELECT *`, so no column pruning puts a row `ProjectExec`
+   between the filter and the union. **This narrows the row's reach**: the shapes found by
+   reading need a non-default optimizer configuration, or the unexamined expensive-alias path,
+   to show. The fix stays,
+   because it is the by-construction argument of `VARKA-541.md` 0 item 7 and costs a field in
+   the plan string of only the shapes it changes; the owner may prefer to close the row as
+   low-reach once the run confirms.
+3. **The one allowed run is spent after the change**, on test 1. It carries an in-test control
+   in place of the pre-change run: the same `WHERE` directly over the cached table, on Spark
+   alone, with codegen off and elimination on, must answer `[2]` (Spark is handed the fold
+   there), while over the union Spark must raise. That shows the tree and the fold differ in
+   Spark's own uncompiled filter in the same run. Section 8's step 1 (the test on master),
+   step 3 (the planted fault) and step 4 (the four suites) are owed to the test phase.
+
 ## 11. Outcome
 
-*Filled in when the work lands: the runs with their commands, section 6.1's predictions scored
-one by one, and what moved that this plan did not list.*
+*Partial, 20 November 2026: built, one run; the rest is owed to the test phase.*
+
+Built: `rewriteFilter` passes `wholeCondition = Some(condition)` when there is a residual or the
+condition is not structurally its fused conjuncts' fold; the docs of `wholeCondition`,
+`fallbackCondition` and `VarkaFilterExecBase` say so; test 1 in `VarkaDifferentialSuite` over a
+`UNION ALL` with `PushDownPredicates` excluded (decision 2), with the shape checks, the control
+over the scan, the codegen-off cells under elimination on and off, and the codegen-on cells
+through `checkFourCells`; `VARKA-541.md` 0 item 7 has its dated note.
+
+Predictions (section 6.1):
+
+1. Before the change, Spark raises and Varka answers in the elimination-on, codegen-off cell:
+   **owed** (step 1 not run; decision 3).
+2. After it, all cells agree: see the run below.
+3. Test time under 4 s: see the run below.
+4. Plan strings move only for a filter not over a scan whose tree is not its fold: **owed**
+   (step 4); by decision 2's reading, no filter planned at the default configuration moves.
+
