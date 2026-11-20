@@ -126,6 +126,9 @@ public final class VarkaReproductionSuite {
         // The canonicalisation over a float sum (VARKA-337).
         VarkaVectorIR.CanonicalFloat.of(new IntArith(IntOp.ADD, Overflow.WRAP,
             new ColumnRef(0, LaneType.FLOAT), new LiteralSlot(0, LaneType.FLOAT))),
+        // Murmur3 over a double's canonical bits, its two halves (VARKA-337).
+        VarkaEmitterHashSuite.step(false, new LiteralSlot(0), new ColumnRef(0, LaneType.DOUBLE),
+            new LiteralSlot(0, LaneType.LONG)),
         // A double comparison crossed to the long lane of the choice's values (VARKA-343).
         new IfElse(new CrossLane(new Compare(CompareOp.GT, new ColumnRef(2, LaneType.DOUBLE),
             new LiteralSlot(1, LaneType.DOUBLE)), LaneType.LONG), x,

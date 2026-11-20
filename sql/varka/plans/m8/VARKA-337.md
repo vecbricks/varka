@@ -668,6 +668,43 @@ table's text in `docs/sql-varka.md` (the widened `covers`) and the laptop's JDK 
 `width_audit.json`. The side sequence is unpinned, so no committed fuzz block moved. Predictions 1
 to 4 and 6 are the hash's and stay open.
 
+**337a2, the hash steps** (20 November 2026, branch `varka-337a2-hash`, stacked on 337a1, local,
+built while the owner was away; decisions 11 to 16 below). Built: `HashStep(mix, seed, word)` with
+`HashMix`'s five primitive tails (decision 13) and `CanonicalBits`, a canonical value's bits
+(decision 12); their lowering in `VarkaHashLowering`, Spark's constants and operator order, the
+word's half emitted before the seed, `h * 5` as `(h << 2) + h`, and the null skip inside the step
+in the masked body, its mask through `emitMaskOfWord` (decision 14); the `HASH` family with its
+switch and `VarkaHashCompiler`, last in the chain, claiming `Murmur3Hash` and `XxHash64` by exact
+class, folding the children in order from the expression's seed, each child's word by 2.3's table
+(a bare int column through the int operand rule, a boolean as its cast to `INT`, the narrow types
+widened, the floating types canonicalised under the floating arithmetic family's switch, a decimal
+of precision 18 or less as its unscaled long, a null literal or `NullType` child skipped, a decimal
+above 18 declined naming 337b); `floatingDecline` admits both classes; every exhaustive switch
+gains the two nodes (analysis, slots and word liveness, budget weights 17, 8, 17, 15, 16 and 1,
+cost features `HashStep/<mix>` and `CanonicalBits/<lane>` on the awaiting-refit list, range
+analysis, same answer, kernel plan, operand position, the text form `(hash:<MIX> s w)` and
+`(canonBits x)` and their parser); the warm-up's shift list gains `ROL` and both floating blocks
+the reinterpretation; the reference answers each step by Spark's `Murmur3_x86_32` and `XXH64`, a
+Murmur3 pair by `hashLong`; 33 coverage rows in a family "Hash" over every column type of the
+fixtures but the wide decimals.
+
+Tests: `VarkaEmitterHashSuite` (new) holds the kernels of `hash` and `xxhash64` over one `INT`,
+`BIGINT`, `FLOAT` and `DOUBLE` column to `Murmur3HashFunction.hash` and `XxHash64Function.hash`
+over the extremes, the powers of two and their negatives, the floating cells of
+`VarkaEmitterCanonicalFloatSuite` (both zeros, NaN payloads of both signs, the four `DOUBLE` NaN
+range endpoints) and 4000 drawn values, at five seeds, every seventh row null and hashing to its
+seed; a fold of an `INT` and a `BIGINT` child with nulls in either and both positions; the
+constructors' refusals; and, behind `-Dvarka.sweep=true`, every `INT` and every `FLOAT` pattern
+through both hashes (3.1). `VarkaExpressionCompilerSuite` pins the trees the compiler builds to the
+suite's, the normalised key as one canonicalisation, the two switches' declines, the decimal above
+18 naming 337b and the collation-aware form unclaimed.
+
+Left of 337a, for part 337a3: the IR grammar's productions of 2.6 for `HashStep` and
+`CanonicalBits` (the fuzz and grammar suites list both as not drawn yet, pointing here),
+`hash.smt2` with the step, fold and blend claims of 3.4, and the planted faults of 3.9's second
+and third bullets. Then, by section 5's order, the baseline (its build sheet below) and the spike,
+and the measurement that scores predictions 1 to 4; the PR build and the option matrix (3.8).
+
 ## Decisions taken while the owner was away (20 November 2026)
 
 1. **The canonicalisation first, as its own part (337a1), before the baseline and the spike.**
@@ -737,9 +774,9 @@ Taken for part 337a2, the hash steps (branch `varka-337a2-hash`, stacked on 337a
 15. **A `BOOLEAN` child is compiled as `CAST(b AS INT)`**, which is the 1 or 0 Spark hashes, so
    it is under the integral cast family's switch as well as the hash family's.
 16. **337a is split by the size cap**: 337a2 holds the two nodes, their lowering, the compiler
-   and the family, the reference, the warm-up, the coverage rows, the regions and the sweeps;
-   337a3 the grammar productions of 2.6, `hash.smt2`, the step and fold planted faults of 3.9
-   and the census regeneration.
+   and the family, the reference, the warm-up, the coverage rows and the generated files, the
+   regions and the sweeps; 337a3 the grammar productions of 2.6, `hash.smt2` and the step and
+   fold planted faults of 3.9.
 
 ## Build sheet (11 November 2026)
 
