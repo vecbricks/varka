@@ -617,6 +617,36 @@ stack on it.
   own (`@VarkaSuite(ownJvm = true)`), as `VarkaEmitterFloatingArithSuite` does. The registry
   suites, the emitted bytes and the width audit are owed (the draft pull request lists them).
 
+### 5.4 The floating arithmetic fuzz sequences (20 November 2026)
+
+3.10's IR fuzz half, owed by step 3 (5.1, "Still owed"), on part `varka-342b-floating-fuzz`,
+stacked on 5.3's. 341's floating sequences (`fuzz_float`, `fuzz_double`) draw the leaves, the
+picks and the conditions only; their grammar, `VarkaIrGrammar.FloatingShapes`, gains this row's
+nodes behind a flag, drawn from two seeds of their own, `FLOAT_ARITH_FUZZ_SEED` and
+`DOUBLE_ARITH_FUZZ_SEED`, so that the committed sequences and their pinned bytes do not move: the
+plain draw keeps its exact random calls. With the flag a value is one of row 342's nodes four
+times in nine: `+`, `-` and `*` unchecked, the division unchecked or nulling a zero divisor,
+negation and `abs`, the square root and 5.3's FMA, at both floating lanes (the square root and
+the division at `FLOAT` too, which the IR and the reference take though the compiler builds them
+at `DOUBLE`). `VarkaIrFuzzSuite` runs each sequence against the reference, 300 draws as the
+floating sequences do, and a reach test holds each to every form over its first 2,000 draws.
+
+- **The `FAIL` division is not drawn.** A live zero divisor declines the batch, which a draw has
+  no reference answer for, and the edge values draw both zeros often; the emitter suite holds the
+  declined batch, as it does the guards' firing for the other corpora.
+- **Not yet in the bytes oracle.** `VarkaEmittedBytesSuite` pins the floating sequences' first
+  two thousand shapes; pinning these is a regeneration (`emitted_bytes.json`), owed with the
+  pull request's other generated files.
+- **The Spark fuzzer's floating productions** (3.10's other half): its grammar draws only fused
+  coverage rows, so it draws the family's 26 rows and their 11 cast forms already, `x / x2`
+  among them (5.1, the integration fixes); nothing of it is built here.
+- **What ran (20 November 2026, the laptop).** `build/sbt catalyst/Test/compile`, then the three
+  new tests directly in one JVM (`-Dvarka.ownJvm=true` set in the catalyst project, `-z
+  arithmetic`): each sequence answered 300 of 300 draws against the reference, in 3.2 s at
+  `FLOAT` and 2.4 s at `DOUBLE`, and the reach test found every form over 2,000 draws a lane. A
+  first run without the property ran the whole suite in its child JVM and hit the child's
+  nine-minute cap, a harness limit, not a failure (`testing-and-debugging.md` on `VarkaOwnJvm`).
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **The FMA node is built now, as its own part, ahead of the rest of step 4.** The brief's
