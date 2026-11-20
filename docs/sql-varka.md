@@ -380,7 +380,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `i - 1` | `intArithmetic` | `i > -2147483648` | checked under ANSI | vector |
 | `year(d) * 2` | `calendar`, `intArithmetic` | `unix_date(d) BETWEEN -719162 AND 2932896` | a multiply is checked, and only bounded operands take the check off: `i * 2` over a bare int column declines | vector |
 | `-i` | `intArithmetic` | `i > -2147483648` | checked under ANSI | vector |
-| `abs(i)` | `intArithmetic` | `i > -2147483648` | `abs(Int.MinValue)` is out of range, and wraps back to itself in the legacy mode | not audited |
+| `abs(i)` | `intArithmetic` | `i > -2147483648` | `abs(Int.MinValue)` is out of range, and wraps back to itself in the legacy mode | vector |
 | `try_add(i, 1)` | `intArithmetic` |  | an overflowing lane is null, so the kernel declines nothing | vector |
 | `try_subtract(i, 1)` | `intArithmetic` |  | an overflowing lane is null | vector |
 | `year(d) + i` | `calendar`, `intArithmetic` | `unix_date(d) BETWEEN -719162 AND 2932896 AND i <= 2147483647 - year(d)` | checked under ANSI; the lower bound is out of reach, since a year is at least 1 | vector |

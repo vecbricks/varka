@@ -1321,6 +1321,9 @@ final class VarkaVectorWalk {
     }
     // An int abs is the lanewise ABS, intrinsic on an AVX2 host (vpabsd): its wrap of the
     // minimum is Math.abs's, so it falls through to the lanewise form below, after the check.
+    if (n.abs() && n.laneType() == VarkaVectorIR.LaneType.INT && n.mode() == Overflow.NULL) {
+      throw VarkaErrors.illegalArgument("an int abs is wrapping or checked: " + n);
+    }
     if (n.abs() && n.laneType() == VarkaVectorIR.LaneType.LONG) {
       // A long abs is a decimal's, which wraps, or a bigint's (VARKA-104), checked under ANSI
       // by the negation's compare above. Spark has no try_abs, so NULL never reaches here.
