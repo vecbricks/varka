@@ -806,8 +806,10 @@ final class VarkaVectorTemplateWarmup {
         acc += x.compare(VectorOperators.LT, 0x1.0p52).toLong()
             + (long) x.reinterpretAsLongs().and(Long.MIN_VALUE).or(y.reinterpretAsLongs())
             .reinterpretAsDoubles().lane(0);
-        // A per-lane math call (VARKA-356): each lane read, and the result written back.
-        acc += (long) x.withLane(1, y.lane(0)).lane(1);
+        // A per-lane math call (VARKA-356): each lane read, and the result written back. The
+        // last lane, since a 64-bit species has only lane 0.
+        int last = x.length() - 1;
+        acc += (long) x.withLane(last, y.lane(0)).lane(last);
       }
       return acc;
     }
