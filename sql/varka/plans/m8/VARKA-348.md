@@ -975,6 +975,17 @@ store over the decimal leaves, into a `DecimalVector` of the output's type under
 constant and a typed null fuse as outputs beside a column's value. `VarkaExpressionCompilerSuite`'s test that the TIME producers decline below a
 root naming 348 becomes the test that they fuse there, under a sum and a comparison.
 
+**The baseline's classes.** `VarkaDecimalBaselineBenchmark` checks every section's plan against
+its `Fusion` class before timing. Twelve sections fused nothing before this part and now fuse
+whole, so their classes change from `NONE` to `WHOLE` in both sessions, since a value root is no
+condition that row 503's two-lane refusal takes:
+- the choice `CASE WHEN x < y THEN x ELSE y END` at precisions 9 and 18;
+- the cast from `DECIMAL(9, 2)` to `DECIMAL(18, 4)`;
+- the three arithmetic projections at precision 9, each at both densities.
+
+These are the sections that measure section 4's prediction 4. The class gains no new section,
+since section 4 already holds the projected choice.
+
 **Predictions for the test phase, registered before any run.**
 
 1. `VarkaDecimalOutputSuite` passes on its first run: every arm under it already answers as a
@@ -988,6 +999,8 @@ root naming 348 becomes the test that they fuse there, under a sum and a compari
 4. `VarkaAnsiFormSuite` (sql/core) reports a drift for the TIME producers' `CASE` arm, which now
    fuses, and needs its expected-decline map trimmed.
 5. `emitted_bytes.json` gains the eight rows' kernels and moves no existing shape.
+6. `VarkaDecimalBaselineQueriesSuite`, and the benchmark's own plan check, find the twelve
+   sections above `WHOLE` and every other section's class unchanged.
 
 **Left in the row.** The runner measurements: the projections against the baseline at 256 and
 128 bits on the EPYC 7763 (prediction 4 of section 4), and `abs`'s two lowerings at 512 bits on
