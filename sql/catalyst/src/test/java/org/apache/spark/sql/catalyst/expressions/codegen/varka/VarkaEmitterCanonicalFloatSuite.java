@@ -57,7 +57,7 @@ public final class VarkaEmitterCanonicalFloatSuite {
       CanonicalFloat.of(new VarkaVectorIR.ColumnRef(0, VarkaVectorIR.LaneType.DOUBLE));
 
   /** The {@code FLOAT} cells, as raw bits: the regions of 3.2 at the 32-bit width. */
-  private static final int[] FLOAT_CELLS = {
+  static final int[] FLOAT_CELLS = {
       0x00000000, 0x80000000, 0x7fc00000, 0xffc00000, 0x7f800001, 0xff800001, 0x7fffffff,
       0xffffffff, 0x7fa00000, 0xffa00001, 0x7fc00001, 0x7f800000, 0xff800000, 0x00000001,
       0x80000001, 0x007fffff, 0x807fffff, 0x00800000, 0x80800000, 0x7f7fffff, 0xff7fffff,
@@ -68,7 +68,7 @@ public final class VarkaEmitterCanonicalFloatSuite {
    * signalling NaNs of both signs, both zeros, both infinities, the subnormal edges and the
    * extremes.
    */
-  private static final long[] DOUBLE_CELLS = {
+  static final long[] DOUBLE_CELLS = {
       0x7ff0000000000001L, 0x7fffffffffffffffL, 0xfff0000000000001L, 0xffffffffffffffffL,
       0x7ff8000000000000L, 0xfff8000000000000L, 0x7ff8000000000001L, 0xfff8000000000001L,
       0x7ff4000000000000L, 0xfffc000000000000L, 0x0000000000000000L, 0x8000000000000000L,
