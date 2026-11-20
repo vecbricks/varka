@@ -572,10 +572,12 @@ public final class VarkaTimestampNtzCastSuite {
 
   /**
    * Runs each field's kernel at the default width over {@code counts} in batches of
-   * {@link #SWEEP_ROWS}, every row valid, the batches in parallel; each batch must fuse, and each
-   * row's output must be the field of the count's date-time. Returns how many rows it compared.
+   * {@link #SWEEP_ROWS}, the batches in parallel, through both of its bodies: the dense one, every
+   * row valid, and the masked one, the batch's first row null and holding {@code Long.MIN_VALUE}.
+   * Each run must fuse, every live row must be valid and the null one null, and each live row's
+   * output must be the field of the count's date-time.
    */
-  private long sweep(List<Field> fields, long[] counts) {
+  private void sweep(List<Field> fields, long[] counts) {
     var plans = new ArrayList<CompiledVarkaProjection>();
     var loaded = new ArrayList<VarkaEmitterFixtures.Loaded>();
     try {
@@ -587,47 +589,61 @@ public final class VarkaTimestampNtzCastSuite {
         loaded.add(VarkaEmitterFixtures.load(
             new VarkaEmitterFixtures.Emitted(className, emit(plan, className, 0))));
       }
+      var declined = new AtomicLong();
+      var badValidity = new AtomicLong();
       var wrong = new AtomicLong();
-      var firstWrong = new AtomicReference<String>();
+      var first = new AtomicReference<String>();
       int batches = (counts.length + SWEEP_ROWS - 1) / SWEEP_ROWS;
       IntStream.range(0, batches).parallel().forEach(b -> {
         int from = b * SWEEP_ROWS;
         int rows = Math.min(SWEEP_ROWS, counts.length - from);
+        long validityBytes = (rows + 63) / 64 * 8L;
         try (var arena = Arena.ofConfined()) {
-          MemorySegment in = VarkaEmitterFixtures.alloc(arena, rows * 8L);
-          MemorySegment.copy(counts, from, in, ValueLayout.JAVA_LONG, 0, rows);
-          var outs = new MemorySegment[fields.size()];
+          MemorySegment dense = VarkaEmitterFixtures.alloc(arena, rows * 8L);
+          MemorySegment.copy(counts, from, dense, ValueLayout.JAVA_LONG, 0, rows);
+          MemorySegment masked = VarkaEmitterFixtures.alloc(arena, rows * 8L);
+          MemorySegment.copy(dense, 0, masked, 0, rows * 8L);
+          masked.setAtIndex(ValueLayout.JAVA_LONG, 0, Long.MIN_VALUE);
+          MemorySegment inValidity = VarkaEmitterFixtures.alloc(arena, validityBytes);
+          for (int i = 1; i < rows; i++) {
+            inValidity.set(ValueLayout.JAVA_BYTE, i / 8,
+                (byte) (inValidity.get(ValueLayout.JAVA_BYTE, i / 8) | (1 << (i % 8))));
+          }
+          // Each field's outputs, the dense body's then the masked body's.
+          var outs = new MemorySegment[fields.size()][2];
           var wide = new boolean[fields.size()];
-          long validityBytes = (rows + 63) / 64 * 8L;
           for (int f = 0; f < fields.size(); f++) {
             VarkaFusedKernel kernel = loaded.get(f).kernel();
             CompiledVarkaProjection plan = plans.get(f);
             long stride = plan.outputs().get(0).laneType().bits() / 8;
             wide[f] = stride == 8;
-            outs[f] = VarkaEmitterFixtures.alloc(arena, rows * stride);
-            MemorySegment validity = VarkaEmitterFixtures.alloc(arena, validityBytes);
-            long[] src = {in.address()};
-            long[] dst = {outs[f].address()};
-            long[] dstValidity = {validity.address()};
             int[] intLits = plan.literals().stream().mapToInt(Integer::intValue).toArray();
             long[] longLits = plan.longLiterals().stream().mapToLong(Long::longValue).toArray();
-            int status = VarkaKernelChecks.sanitized(kernel, rows, new long[] {8},
-                new long[] {stride}, src, new long[] {0L}, dst, dstValidity,
-                scratch -> kernel.run(src, new long[] {0L}, new int[] {0}, dst, dstValidity,
-                    intLits, longLits, rows, scratch));
-            if (status != 0) {
-              if (wrong.getAndIncrement() == 0) {
-                firstWrong.set(fields.get(f).sql() + " declined the batch from " + counts[from]
-                    + " with status " + status);
+            for (int body = 0; body < 2; body++) {
+              outs[f][body] = VarkaEmitterFixtures.alloc(arena, rows * stride);
+              MemorySegment validity = VarkaEmitterFixtures.alloc(arena, validityBytes);
+              long[] src = {(body == 0 ? dense : masked).address()};
+              long[] srcValidity = {body == 0 ? 0L : inValidity.address()};
+              int[] nullCount = {body};
+              long[] dst = {outs[f][body].address()};
+              long[] dstValidity = {validity.address()};
+              int status = VarkaKernelChecks.sanitized(kernel, rows, new long[] {8},
+                  new long[] {stride}, src, srcValidity, dst, dstValidity,
+                  scratch -> kernel.run(src, srcValidity, nullCount, dst, dstValidity, intLits,
+                      longLits, rows, scratch));
+              String where = fields.get(f).sql() + (body == 0 ? ", dense," : ", masked,")
+                  + " batch from " + counts[from];
+              if (status != 0) {
+                declined.incrementAndGet();
+                first.compareAndSet(null, where + " declined with status " + status);
+                return;
               }
-              return;
-            }
-            for (int i = 0; i < rows; i += 8) {
-              int bits = Math.min(8, rows - i);
-              if (validity.get(ValueLayout.JAVA_BYTE, i / 8) != (byte) ((1 << bits) - 1)) {
-                wrong.incrementAndGet();
-                firstWrong.compareAndSet(null, fields.get(f).sql() + " nulled a row near "
-                    + counts[from + i]);
+              for (int i = 0; i < rows; i++) {
+                boolean valid = (validity.get(ValueLayout.JAVA_BYTE, i / 8) >> (i % 8) & 1) == 1;
+                if (valid != (body == 0 || i > 0)) {
+                  badValidity.incrementAndGet();
+                  first.compareAndSet(null, where + ": row " + i + "'s validity is " + valid);
+                }
               }
             }
           }
@@ -636,20 +652,24 @@ public final class VarkaTimestampNtzCastSuite {
             LocalDateTime t = LocalDateTime.ofEpochSecond(Math.floorDiv(v, 1_000_000L),
                 (int) Math.floorMod(v, 1_000_000L) * 1000, ZoneOffset.UTC);
             for (int f = 0; f < fields.size(); f++) {
-              long ours = wide[f] ? outs[f].getAtIndex(ValueLayout.JAVA_LONG, i)
-                  : outs[f].getAtIndex(ValueLayout.JAVA_INT, i);
               long expected = fields.get(f).javaTime().applyAsLong(t);
-              if (ours != expected && wrong.getAndIncrement() == 0) {
-                firstWrong.set(fields.get(f).sql() + " at " + v + " (" + t + ") is " + ours
-                    + ", java.time says " + expected);
+              for (int body = i == 0 ? 0 : 1; body >= 0; body--) {
+                long ours = wide[f] ? outs[f][body].getAtIndex(ValueLayout.JAVA_LONG, i)
+                    : outs[f][body].getAtIndex(ValueLayout.JAVA_INT, i);
+                if (ours != expected) {
+                  wrong.incrementAndGet();
+                  first.compareAndSet(null, fields.get(f).sql() + (body == 0 ? ", dense," :
+                      ", masked,") + " at " + v + " (" + t + ") is " + ours
+                      + ", java.time says " + expected);
+                }
               }
             }
           }
         }
       });
-      assertEquals(0, wrong.get(), wrong.get() + " wrong answers or batches; the first: "
-          + firstWrong.get());
-      return (long) counts.length * fields.size();
+      assertEquals(0, declined.get() + badValidity.get() + wrong.get(), declined.get()
+          + " declined runs, " + badValidity.get() + " rows of the wrong validity and "
+          + wrong.get() + " wrong answers; the first: " + first.get());
     } finally {
       for (VarkaEmitterFixtures.Loaded l : loaded) {
         l.loader().release();

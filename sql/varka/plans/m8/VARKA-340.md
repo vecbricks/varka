@@ -449,8 +449,10 @@ among the done-when conditions. Both are built here, in `VarkaTimestampNtzCastSu
   `Long.MIN_VALUE` and down from `Long.MAX_VALUE`, each at a microsecond drawn from the second.
 
 Each batch of 65,536 counts runs each kernel through the eight-argument `run` inside the memory
-sanitizer's window (`VarkaKernelChecks.sanitized`), must fuse with every row valid, and each row is
-held to the field of its `LocalDateTime`. The suite is listed in `sql/varka/ci/sweeps.tsv`, so the
+sanitizer's window (`VarkaKernelChecks.sanitized`) twice: through the dense body with every row
+valid, and through the masked body with the batch's first row null and holding `Long.MIN_VALUE`,
+which the date guard must not decline. Each run must fuse with the rows' validity as given, and each
+live row is held to the field of its `LocalDateTime`. The suite is listed in `sql/varka/ci/sweeps.tsv`, so the
 nightly's sweep step runs it.
 
 Prediction, before the first run (the calibration table's VARKA-281 row, 0.08 for a parallel
@@ -458,19 +460,31 @@ Prediction, before the first run (the calibration table's VARKA-281 row, 0.08 fo
 on the laptop, priced at one decode and 22 field reads a row at about 1 us, 50 million rows over the
 laptop's cores.
 
+Measured, the whole suite with and without the property, one JVM each on the shared laptop: 26.7 s
+without (load 20); 42.8 s with the first draft, which ran the dense body alone (load 20 to 30), so
+the sweeps took about 16 s and the prediction held at a ratio of about 0.5; 91.6 s after the review
+added the masked body's run and its per-row validity check (load 37), about 65 s for the sweeps,
+which misses it by about 2. The second figure is the one `sweeps.tsv` carries; the load more than
+doubled between the two runs, so how much of the 65 s is the second body and how much the
+machine is not split.
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **What "the next unbuilt step" is.** Steps 1 to 5 are merged and step 6's measurement is the
    runners' (the coordinator dispatches it). What step 6 leaves that the laptop can build is 3.4's
    opt-in sweep, which 9 counts and 10.1 did not build; this part builds it and nothing else.
 2. **The oracle is `java.time`, not Spark's evaluation.** The pull-request tests already hold the
-   same kernels to Spark at the seams and at the guard's ends; over 50 million rows Spark's
-   evaluator, at the month suite's measured 12 us a row (`sql/varka/ci/sweeps.tsv`), would take
-   hours, and `java.time`'s proleptic calendar is the one Spark's fields read.
+   same kernels to Spark at the seams and at the guard's ends; over 50 million rows the harness's
+   comparison through the reference evaluator and Spark's answers, at the month suite's measured
+   12 us a row (`VARKA-339.md` 10.1, `sql/varka/ci/sweeps.tsv`), would take hours, and `java.time`'s proleptic calendar is the one Spark's fields read.
 3. **The kernels, not a scalar composition beside `VarkaRangeRulesSuite`.** 3.4 asked for both. The
    scalar form would restate 2.1 and 2.2 in Java and test the restatement; the emitted kernel is the
    composition, and the date guard's own range is already exhausted by the range rules. The scalar
-   half is dropped.
+   half is dropped, and with it its oracles beyond `java.time` (`DateTimeUtils`,
+   `timestampNTZToNanosOfDay`; `getMicroseconds` is `SecondWithFraction`'s, which stays 351's).
+   This narrows 9's "the sweep of 3.4 passes" to the kernel sweep of this part, a correction to 9
+   recorded here and not edited into it; 4.3's "the scalar sweep under 10 s" has nothing left to
+   score and is withdrawn. The owner may want the scalar half back; it is about 40 lines.
 4. **One width and one mode.** The default width and ANSI: the kernels at 2 and 8 long lanes and in
    LEGACY are the pull-request tests' (10.1), over the same lowering; the sweep's subject is the
    arithmetic over the range, which the lane count does not change.
