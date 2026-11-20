@@ -30,34 +30,37 @@ pre-warming (#827, the preferred species only) protects a two-lane kernel is unt
 Varka JVM runs that warm-up (`VarkaVectorTemplateWarmup.ensure`, from `VarkaKernelWarmup`'s
 worker) before its first kernel, so a check that skips it tests a JVM production never is.
 
-**The probe.** `results/VARKA-604/Probe604.java`, run by `results/VARKA-604/run.sh`, three JVMs a
-mode on the laptop at `-XX:UseAVX=2 -XX:MaxVectorSize=16` (and 32), the readings, the stubs it
-compiles against and the commands in `results/VARKA-604-admission.txt`. It runs the spike's own
-`loopRemainderFS` over 4,096 Arrow-layout `DECIMAL(38)` slots a block at a time, through a
-transpose into two reused split blocks and back, each in a method of its own, after a chosen
-polluter and with or without the template warm-up first, and reads the thread's allocation over
-256 drives, checking every row against `BigInteger`. The laptop was at a load of 17 to 20; the
-bytes a row do not depend on it.
+**The probe.** `results/VARKA-604/Probe604.java`, built by `results/VARKA-604/build.sh` from this
+checkout and run by `results/VARKA-604/run.sh`, three JVMs a mode on the laptop at `-XX:UseAVX=2
+-XX:MaxVectorSize=16` (and 32), the readings, the stubs it compiles against and the commands in
+`results/VARKA-604-admission.txt`. It runs the spike's own `loopRemainderFS` over 4,096 Arrow-layout
+`DECIMAL(38)` slots a block at a time, through a transpose into two reused split blocks and back,
+each in a method of its own, after a chosen polluter, with the template warm-up before it, after it
+or not at all, and reads the thread's allocation over 256 drives, checking every row against
+`BigInteger`. The laptop was at a load of 17 to 20; the bytes a row do not depend on it.
 
 **What it found** (JVMs that allocated, of those run; every answer exact):
 
 | before split F | block | without the warm-up | with it |
-|---|---|---|---|
-| nothing, three plain add loops, or the spike's boxing arms | 64 | 0 / 9 | 0 / 6 |
-| a lanewise loop over seven species (the polluter) | 64 | 6 / 6, 16 bytes a row | 0 / 12 |
-| the same | 256 | 2 / 3, 16 and 32 | 0 / 3 |
-| the same | 1,024 | 3 / 3, 32 | 3 / 3, 16 |
-| the same, 1,024 transposed, the loop called a 64-row sub-block | 1,024 | 3 / 3 | 0 / 3 * |
+| --- | --- | --- | --- |
+| nothing, or three plain add loops | 64 | 0 / 6 | 0 / 6 |
+| the spike's boxing arms (inserted F and E, transposed F) | 64 | 0 / 3 | 0 / 3 |
+| a lanewise loop over seven species (the polluter) | 64 | 8 / 9, 16 bytes a row | 0 / 15 |
+| the polluter, then the warm-up | 64 | | 0 / 6 |
+| the polluter | 256 | 2 / 3, 16 and 32 | 0 / 3 |
+| the polluter | 1,024 | 3 / 3, 32 | 3 / 3, 16 |
+| the polluter, the loop called a 64-row sub-block | 1,024 | 3 / 3, 17.88 | 3 / 3, 1.88 * |
 | the polluter, at four lanes (`MaxVectorSize=32`) | 64 | 2 / 3, 12 | 0 / 3 |
 
-\* 1.88 bytes a row in every such JVM, the probe's own three `MemorySegment` slices a call; the
-residual above them is 0 with the warm-up and 16 without.
+\* 1.88 bytes a row is the probe's own three `MemorySegment` slices a call, in every JVM of that
+kind; the residual above them is 0 with the warm-up and 16 without.
 
 1. **The residual reproduces**, at 10.4's exact sizes, but not from three plain add loops: the
    polluter that brings it back profiles the shared templates over seven species. 10.4's add
    loops were not committed, so this polluter stands in for them.
 2. **The template warm-up removes it** when the loop runs 64 rows a call, at blocks of 64 and
-   256 rows and in sub-blocks of 64 from a 1,024-row transpose, at two lanes and four.
+   256 rows and in sub-blocks of 64 from a 1,024-row transpose, at two lanes and four, and
+   whether it runs before the polluter or after it.
 3. **It does not when the loop runs 1,024 rows a call**: 16 bytes a row remain with the warm-up.
    So the rows a call matter, not the transpose's size. Why is not read (no compile log).
 
@@ -184,15 +187,16 @@ labels, against the row path. The control: B in the spike, which no width or opt
 2. **A polluter the probe did not try.** The check passes against one polluter; another set of
    shared-template profiles may bring the residual back, as row 373's per-bytecode traps did at a
    4-lane override. The sampler's verdict then releases the kernel to the row path, which is
-   correct and slower, and the option stays opt-in.
+   correct and slower, and the option stays opt-in. The order is covered: other vector code
+   that runs before Varka's first kernel, and so before the warm-up, was probed too (0 of 6).
 3. **577b changes shape.** If 577b's node or its two-lane decline differs from what 3.1 assumes,
    this plan's 3.1 is re-read against it before the build (question 1).
 
 ## 8. Sequencing
 
 1. This plan and the admission probe (one commit).
-2. After 577b merges: re-run the probe on that master (`run.sh` with `MODES="mixed warm-mixed"`)
-   and record it in 9; its result says whether 2's verdict still holds.
+2. After 577b merges: rebuild and re-run the probe on that master (`build.sh`, then `run.sh`
+   with its default modes) and record it in 9; its result says whether 2's verdict still holds.
 3. One pull request, about 650 counted lines: the helper with test 5.1 and the spike's arm; the
    option and the compiler and emitter call, with tests 5.2 to 5.5. Split in two at the helper if
    the count passes the cap.

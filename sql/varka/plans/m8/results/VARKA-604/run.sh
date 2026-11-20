@@ -17,7 +17,8 @@
 #
 # Row 604's admission probe runner (VARKA-604.md 2): three JVMs a mode, side by side.
 # W is MaxVectorSize in bytes, X extra JVM flags (-Dp604.block=<rows>), MODES the modes.
-cd "$(dirname "$0")" || exit 1
+# It runs the probe that build.sh compiled into $P604_OUT/out (default ~/p604-build).
+cd "${P604_OUT:-$HOME/p604-build}" || exit 1
 export SPARK_LOCAL_IP=127.0.0.1
 C=org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark; P=org.apache.spark.sql.Probe604
 run() {
@@ -28,6 +29,6 @@ run() {
     -cp out $P "$1" 2>&1 | grep -v -i 'warning\|incubat'
 }
 W=${W:-16}; X=${X:-}
-for m in ${MODES:-alone adds warm warm-adds}; do
+for m in ${MODES:-alone adds arms mixed warm warm-adds warm-arms warm-mixed mixed-late}; do
   for i in 1 2 3; do run "$m" "$W" "$X" & done; wait
 done

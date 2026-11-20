@@ -142,7 +142,9 @@ public class Probe604 {
   public static void main(String[] args) throws Exception {
     String mode = args[0];
     var threads = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
-    if (mode.contains("warm")) {
+    // "late" runs the template warm-up after the polluters instead of before them.
+    boolean late = mode.contains("late");
+    if (mode.contains("warm") && !late) {
       System.out.println("template warm-up ms " + WarmBridge.warm() / 1_000_000);
     }
     try (Arena arena = Arena.ofConfined()) {
@@ -179,6 +181,9 @@ public class Probe604 {
           VarkaDecimalRemainderSpikeBenchmark.loopRemainderEI(d0.x(), d0.y(), o0, w0, N);
           VarkaDecimalRemainderSpikeBenchmark.loopRemainderFT(d0.x(), d0.y(), o0, w0, N);
         }
+      }
+      if (late) {
+        System.out.println("template warm-up ms " + WarmBridge.warm() / 1_000_000);
       }
       var d = VarkaDecimalRemainderSpikeBenchmark.data(arena, N);
       var e = d.expected().get(VarkaDecimalRemainderSpikeBenchmark.Op.REMAINDER);
