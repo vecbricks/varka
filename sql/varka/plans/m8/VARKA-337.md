@@ -720,7 +720,12 @@ lane to `VarkaEmitterHashSuite`'s, which hold them to Spark's functions; a norma
 the column is; two children and a null literal as three steps; the two switches' declines; the
 decimal above 18 naming 337b; the collation-aware form unclaimed. `VarkaCoverageSuite` compiles
 the 33 rows and checks their domains (none guarded), and `VarkaCoverageHarnessSuite` runs them
-against Spark's row engine.
+against Spark's row engine: 2658 cases, no failure. The width audit under `-XX:UseAVX=2` emits
+every shape with a lowering for every call; its census differs from the committed AVX-512 file in
+136 cells, 337a1's 134 (masked `BYTE` stores and 64-bit masks at two lanes) and two new ones,
+`hash(d9)` and `xxhash64(d18)` at 128 bits, both the decimal slot check's 64-bit masks at two
+lanes. None is a hash step's: the multiplies, rotates and reinterpretations lower at both
+instruction sets. The committed file stays the AVX-512 host's, as decision 10 has it.
 
 ## Decisions taken while the owner was away (20 November 2026)
 
