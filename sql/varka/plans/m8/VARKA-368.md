@@ -490,6 +490,8 @@ three, against item 0.10's 52.8 s for all four unchanged suites together; the Bu
 `casts_suites.tsv` holds 874 lines, 808 distinct (form, form, mode) keys across the three suites,
 647 of them between two census types; 188 lines fused, 686 declined, none unresolved.
 
+**The reviews' fix rounds** (three `/code-review high` runs, one per part after the split) added, beyond what the decisions list: `casts_suites.tsv` under the generated-file merge driver (`merge=varka-generated`, keyed by its first six columns) with a regeneration step in `dev/varka_regen_generated.sh` after `casts_fused.tsv`; a check a value check already ran is not run again, which stops `TryCastSuite`'s error checks, routed through `checkEvaluation`, running the harness twice; and the record counts a test towards completeness only when its body returned.
+
 **The one finding.** `CastWithAnsiOffSuite`'s `SPARK-36924` test casts the extremes of every
 day-time interval form to `BIGINT` with ANSI off, and the kernel declined each such batch with
 `STATUS_VALUE_RANGE` although Spark answers every row: the cast's unit division is a
