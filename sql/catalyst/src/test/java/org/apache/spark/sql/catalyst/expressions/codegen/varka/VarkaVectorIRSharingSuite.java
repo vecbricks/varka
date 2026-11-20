@@ -221,11 +221,17 @@ public final class VarkaVectorIRSharingSuite {
   /**
    * A node of {@code type} over leaves, by reflection as {@code VarkaIrFuzzSuite.admitsLongLanes}
    * builds one: each lane and enum constant in turn until the constructor accepts, so a new node
-   * type is built here unedited; {@code BoundedDivide} checks a pair it derives, so by hand.
+   * type is built here unedited; {@code BoundedDivide} checks a pair it derives, and
+   * {@code CanonicalBits} takes a canonicalisation, so both by hand.
    */
   private static VarkaVectorIR anyNodeOf(Class<?> type) throws ReflectiveOperationException {
     if (type == BoundedDivide.class) {
       return BoundedDivide.of(new ColumnRef(0, LaneType.INT), 3, 10);
+    }
+    // The bits of a floating value take its canonicalisation, never a leaf.
+    if (type == VarkaVectorIR.CanonicalBits.class) {
+      return new VarkaVectorIR.CanonicalBits(
+          VarkaVectorIR.CanonicalFloat.of(new ColumnRef(0, LaneType.FLOAT)));
     }
     RecordComponent[] components = type.getRecordComponents();
     Class<?>[] signature =
