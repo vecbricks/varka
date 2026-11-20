@@ -208,21 +208,29 @@ public final class VarkaEmitterHashSuite {
     return out;
   }
 
-  /** Each row at which a one-column kernel differs from Spark, over the regions at every seed. */
+  /**
+   * Each row at which a one-column kernel differs from Spark, over the regions at every seed: once
+   * with every seventh drawn row null, which runs the masked body, and once with no null, which
+   * runs the dense body that null-free batches take.
+   */
   private static List<String> mismatches(boolean xxh64, LaneType lane) {
     long[] values = data(lane);
     int cells = values.length - DRAWN;
-    IntPredicate isNull = i -> i >= cells && i % 7 == 3;
+    IntPredicate someNull = i -> i >= cells && i % 7 == 3;
+    IntPredicate noNull = i -> false;
     var bad = new ArrayList<String>();
-    for (long seed : SEEDS) {
-      long s = xxh64 ? seed : (int) seed;
-      long[] got = run(xxh64, s, new LaneType[] {lane}, new long[][] {values},
-          new IntPredicate[] {isNull});
-      for (int i = 0; i < values.length; i++) {
-        long want = spark(xxh64, lane, values[i], isNull.test(i), s);
-        if (want != got[i]) {
-          bad.add((xxh64 ? "xxhash64" : "hash") + " " + lane + " seed " + s + " of 0x"
-              + Long.toHexString(values[i]) + ": want " + want + ", got " + got[i]);
+    for (IntPredicate isNull : List.of(someNull, noNull)) {
+      String body = isNull == noNull ? " (dense)" : " (masked)";
+      for (long seed : SEEDS) {
+        long s = xxh64 ? seed : (int) seed;
+        long[] got = run(xxh64, s, new LaneType[] {lane}, new long[][] {values},
+            new IntPredicate[] {isNull});
+        for (int i = 0; i < values.length; i++) {
+          long want = spark(xxh64, lane, values[i], isNull.test(i), s);
+          if (want != got[i]) {
+            bad.add((xxh64 ? "xxhash64" : "hash") + " " + lane + body + " seed " + s + " of 0x"
+                + Long.toHexString(values[i]) + ": want " + want + ", got " + got[i]);
+          }
         }
       }
     }
@@ -269,21 +277,26 @@ public final class VarkaEmitterHashSuite {
     var rnd = new SplittableRandom(3372);
     long[] a = rnd.ints(n).asLongStream().toArray();
     long[] b = rnd.longs(n).toArray();
-    IntPredicate aNull = i -> i % 3 == 1;
-    IntPredicate bNull = i -> i % 5 == 2;
-    for (boolean xxh64 : new boolean[] {false, true}) {
-      long[] got = run(xxh64, SEED, new LaneType[] {LaneType.INT, LaneType.LONG},
-          new long[][] {a, b}, new IntPredicate[] {aNull, bNull});
-      var bad = new ArrayList<String>();
-      for (int i = 0; i < n; i++) {
-        long h = spark(xxh64, LaneType.INT, a[i], aNull.test(i), SEED);
-        h = spark(xxh64, LaneType.LONG, b[i], bNull.test(i), h);
-        if (got[i] != h) {
-          bad.add((xxh64 ? "xxhash64" : "hash") + " row " + i + ": want " + h + ", got "
-              + got[i]);
+    IntPredicate none = i -> false;
+    // Both columns nullable, then one of them with no null, whose word's skip the masked body
+    // leaves out while it keeps the other's.
+    IntPredicate[][] patterns = {{i -> i % 3 == 1, i -> i % 5 == 2}, {i -> i % 3 == 1, none},
+        {none, i -> i % 5 == 2}};
+    for (IntPredicate[] nulls : patterns) {
+      for (boolean xxh64 : new boolean[] {false, true}) {
+        long[] got = run(xxh64, SEED, new LaneType[] {LaneType.INT, LaneType.LONG},
+            new long[][] {a, b}, nulls);
+        var bad = new ArrayList<String>();
+        for (int i = 0; i < n; i++) {
+          long h = spark(xxh64, LaneType.INT, a[i], nulls[0].test(i), SEED);
+          h = spark(xxh64, LaneType.LONG, b[i], nulls[1].test(i), h);
+          if (got[i] != h) {
+            bad.add((xxh64 ? "xxhash64" : "hash") + " row " + i + ": want " + h + ", got "
+                + got[i]);
+          }
         }
+        assertEquals(List.of(), bad);
       }
-      assertEquals(List.of(), bad);
     }
   }
 
