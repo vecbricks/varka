@@ -126,7 +126,10 @@ The setup steps' retries (VARKA-513).
 | `.github/workflows/varka-option-matrix.yml` | watchdog, units, inputs, upload, summary, merge |
 | `.github/workflows/varka-matrix-rerun.yml` | `workflow_run`, `actions: write`, the rerun |
 | `dev/varka_matrix_stragglers.py` | `history`, `decide`, `--selftest` |
-| `dev/varka_ci_ledger.py` | the "Slow" class from `straggler.txt` |
+| `dev/varka_ci_ledger.py` | the "Slow" class from the `Straggler` annotation (11.1) |
+| `dev/varka_bin_units_test.py` | the watchdog's cases, over the step's own text (11.1) |
+| `.github/workflows/build_and_test.yml` | the stragglers selftest beside the CPU retry's |
+| `results/VARKA-570-units-history.txt` | step 1's table |
 | `sql/varka/skills/testing-and-debugging.md` | a section: what a straggler line means |
 
 ## 5. Tests, and what each is for
@@ -153,6 +156,22 @@ The setup steps' retries (VARKA-513).
    within 5 minutes after that, and the rerun starts within 5 minutes of the run's completion.
 3. The watchdog's cost on a bin that is on time is under 1 s, one `sleep` loop per bin, killed
    when the units end.
+
+### 6.2 Scored
+
+1. **Wrong.** `dev/varka_matrix_stragglers.py history` read 19 of the 20 runs of section 2 (the
+   admission check's read had 13; run 43645907563 answered HTTP errors), 3,049 bins' units steps
+   (`results/VARKA-570-units-history.txt`). Two green bins passed 24 minutes, both b092: 24.1 in
+   run 43110513436 and 24.3 in run 43533941181. b094 of run 44141461002 took 23.4 in its units
+   step. The x86 bins' median per run was 6.0 to 7.4 minutes and their longest 14.9 to 24.3; the
+   four Arm platform bins per run took 10.1 to 10.9 at the longest. The planner's seconds for b092
+   are not in the jobs API, so whether its plan was above 480 s is not known. By the rule this
+   prediction set, the floor rises to the next multiple of 480 s above 24.3 minutes: 1,920 s, 32
+   minutes, four lanes. b023's 43 minutes and b021's 91 would both still have been stopped.
+2. Owed: step 5, after the merge.
+3. Owed on a runner: step 5's run gives the on-time bins' units-step times beside this window's.
+   Locally the selftest's on-time case (three 1 s units on two slots under a 30 s deadline) ends
+   in under 4 s, so the step waits on neither the watchdog nor its sleep.
 
 ## 7. Risks
 
@@ -198,3 +217,82 @@ One pull request, about 400 counted lines.
 A bin whose units step runs past three times its plan (at least 24 minutes) stops itself, and the
 run's report names it as a straggler with its CPU. The fork's CI reruns only the straggler bins
 and the report, once, without the laptop. `varka-option-matrix.yml` carries the unit step.
+
+## 11. Built, 20 November 2026
+
+Steps 1 to 4 are built, in two pull requests, since the one the plan sized at about 400 counted
+lines came to about 1,030: part A on branch `varka-570-straggler-bin-rerun` (steps 1 to 3: a
+straggler stops itself and is named, and its run's failed jobs can be rerun by hand at once) and
+part B stacked on it, `varka-570b-matrix-rerun` (step 4: CI reruns it). Step 5 waits for both
+merges and the owner's word.
+
+* Step 1: `dev/varka_matrix_stragglers.py history`, and its table in
+  `results/VARKA-570-units-history.txt`; prediction 1 is scored in 6.2.
+* Step 2: the watchdog, the unit loop under `setsid`, the planted straggler, the upload with
+  `overwrite: true` and `straggler.txt`. `dev/varka_bin_units_test.py --selftest` passes with five
+  new cases (class `Watchdog`): a bin past a 3 s deadline with one unit deaf to TERM ends with
+  exit 3, both units' groups gone and the third unit never started; a finished unit is listed with
+  its exit and seconds; a bin on time ends within 4 s with no marker; a planted straggler starts no
+  unit; another bin's plant changes nothing. Removing the KILL pass, or the step's stop of its
+  watchdog, fails a case. `actionlint` passes on both workflow files.
+* Step 3: the summary's "Stragglers" block, and the ledger's `slow` line from the annotation.
+  `python3 dev/varka_ci_ledger.py --self-test` passes with the new case.
+* Step 4 (part B): `decide` and `.github/workflows/varka-matrix-rerun.yml`;
+  `python3 dev/varka_matrix_stragglers.py --selftest` passes (17 cases: the decisions of section
+  5, the rerun acted on once, a run rerun by hand meanwhile, the history's rows, the report's
+  handling of a stopped unit, and the names read from the workflow files). The selftest runs in
+  the Build's "house rules" step beside the CPU retry's. `decide --rerun --dry-run` over run
+  44141461002 answered `stop: not only stragglers failed: Option matrix: b053 failed its units
+  without a straggler annotation; Option matrix: report is failure`, since that run failed a test
+  in b053; over run 44485292430 `stop: run concluded success`; over run 40942811546, the b021
+  straggler, `stop: run concluded success`, since its attempt 2 passed.
+* `sql/varka/skills/testing-and-debugging.md` has the section on reading a straggler line
+  (part B, since it reads the rerun too).
+
+### 11.1 Where the plan was wrong
+
+1. **The floor** is 32 minutes, not 24 (6.2, prediction 1).
+2. **The report's merge keeps a straggler's units.** Section 3.3 had the merge leave them out so
+   that the report would not fail on them. It does not fail on them as they are: a JVM the
+   watchdog stopped has no `exit` file, and `dev/varka_matrix_report.py` lists such a JVM as "did
+   not finish" without failing, while the declining check only loses the baseline tests that JVM
+   did not reach. Leaving the whole bin out would also drop a unit that finished and failed a test
+   before the stop, and then `decide` would rerun a run with a real failure. So nothing is left
+   out, and `ReportTest` in the selftest holds both halves.
+3. **The ledger reads the annotation, not `straggler.txt`.** With `overwrite: true` the rerun's
+   upload replaces the artifact, so `update`, which reads a run after its rerun, would find no
+   file. The annotation stays on attempt 1's check run, so the watchdog puts the minutes, the plan
+   and the CPU in it.
+4. **Risk 2 is real, and `overwrite: true` is its answer.** Run 40942811546 keeps two artifacts
+   named `varka-option-matrix-b021`, one per attempt, so a rerun's upload of the same name does not
+   fail and does not replace the first. Without `overwrite`, attempt 1's `straggler.txt` could
+   reach attempt 2's report.
+5. **The watchdog's tests are in `dev/varka_bin_units_test.py`**, not in the stragglers selftest:
+   that file already runs this step's text from the workflow against a stub `varka_matrix.sh`.
+6. **`decide --rerun` makes the rerun itself** (`POST .../rerun-failed-jobs`, the call `gh run
+   rerun --failed` makes), after reading the run again, so that a dry run and the rerun share one
+   path.
+7. **Pages of 50 jobs.** A page of 100 jobs of run 40942811546 answered 502 three times, so the
+   tool lists jobs 50 at a time, and `decide` lists none when the run itself answers `stop`.
+8. Step 4's expected answer over run 44141461002 was `stop: no straggler`; that run failed a test,
+   and `decide` says so.
+
+### 11.2 Left
+
+* Step 5, on the owner's word after the merge: one dispatch with `plant-straggler=b005`; done when
+  that run's attempt 2 is green. It scores predictions 2 and 3 and settles risk 2.
+* A scheduled run with a straggler has its `report-failure` job open an issue before the rerun
+  turns the run green: that job runs when the run ends, and the rerun starts after. Not changed
+  here; if the issue proves noise, the job can skip a run whose only failures are stragglers.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **Question 1, CI reruns a straggler by itself:** built as recommended, once, with the dispatch
+   input `rerun-stragglers` (default true) to turn it off. The plan was built on yes, and nothing
+   runs until the merge and step 5's dispatch, which need the owner's word anyway.
+2. **Question 2, the deadline:** three times the plan, with the floor at four lanes (32 minutes)
+   rather than three, because the plan's own rule for prediction 1 says so (6.2).
+3. **No exclusion in the report's merge, the ledger from the annotation, the watchdog's tests in
+   the existing bin-step test:** 11.1 items 2, 3 and 5, each because the plan's version would
+   have dropped a real failure, read a file the rerun deletes, or duplicated a harness.
+
