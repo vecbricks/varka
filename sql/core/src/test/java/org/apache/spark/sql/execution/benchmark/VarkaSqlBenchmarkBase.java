@@ -50,6 +50,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.execution.BaseSubqueryExec;
 import org.apache.spark.sql.execution.CoalesceExec;
 import org.apache.spark.sql.execution.ColumnarToRowTransition;
+import org.apache.spark.sql.execution.FilterExec;
 import org.apache.spark.sql.execution.InputAdapter;
 import org.apache.spark.sql.execution.LeafExecNode;
 import org.apache.spark.sql.execution.LimitExec;
@@ -294,6 +295,12 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    *       of the filter fuses, it stays whole on the row path (VARKA-598), and the section is
    *       {@code NONE}. The varka on arm then times a null-test kernel under the row
    *       path's expression, and the spark row path arm is the baseline.</li>
+   *   <li>{@code SPLIT}: a filter the rule split (VARKA-601). The plan's one Varka node is a
+   *       to-row filter ({@code VarkaFilterColumnarToRowExec}) holding conjuncts that read a
+   *       value, beside the whole condition it was split from, and the plan's one row operator
+   *       is the {@code FilterExec} directly above it holding the residual conjuncts. The varka
+   *       on arm then times the kernel, the copy of each row it keeps into an {@code UnsafeRow},
+   *       and the row path's residual over those rows.</li>
    *   <li>{@code PARTIAL}: no row operator evaluates any of the section, but a Varka projection
    *       leaves an entry to its own per-row fallback ({@link #residue}): the entry
    *       its kernel declines is evaluated row by row inside the Varka node, so the varka on arm
@@ -304,21 +311,23 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * </ul>
    *
    * <p>A plan that is none of these has no class: a Varka node fusing more than null tests while a
-   * row operator still computes part of the section, or a Varka projection that computes but whose
-   * classification is empty, which the rule never plans, so the check cannot say what it fuses.
+   * row operator other than a split's residual filter still computes part of the section, or a
+   * Varka projection that computes but whose classification is empty, which the rule never plans,
+   * so the check cannot say what it fuses.
    * {@link #fusion} answers empty for it, and the check refuses it whatever the section expects.
    *
    * <p>A row operator decides first. Without one, a plan is {@code PARTIAL} or {@code WHOLE} by
    * its Varka projections, whatever its Varka filters fuse, null tests only included. With one, it
-   * is {@code NULL_TESTS} only when every Varka node is a null-test filter, so a Varka projection
-   * beside a row operator, one that leaves entries to rows or one that does not, leaves the plan
-   * with no class rather than {@code PARTIAL}.
+   * is {@code NULL_TESTS} when every Varka node is a null-test filter, and {@code SPLIT} only in
+   * the one shape that class names, so a Varka projection beside a row operator, one that leaves
+   * entries to rows or one that does not, leaves the plan with no class rather than
+   * {@code PARTIAL}, and so does a split filter under a sort or an aggregate.
    *
    * <p>One limit: a Varka node also serves a batch the kernel cannot, a non-Arrow or an empty one
    * or a kernel that fails, by the row path. That is decided per batch when the plan runs, so no
    * plan shows it; a timed run checks its batches by the node's metrics where it needs to.
    */
-  public enum Fusion { NONE, NULL_TESTS, PARTIAL, WHOLE }
+  public enum Fusion { NONE, NULL_TESTS, SPLIT, PARTIAL, WHOLE }
 
   /**
    * The {@link Fusion} class of {@code plan}, or empty when it fits none, a row operator deciding
@@ -343,7 +352,30 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
     }
     boolean beyondNullTests =
         operators.stream().anyMatch(p -> isVarkaNode(p) && !fusesOnlyNullTests(p));
-    return beyondNullTests ? Optional.empty() : Optional.of(Fusion.NULL_TESTS);
+    if (!beyondNullTests) {
+      return Optional.of(Fusion.NULL_TESTS);
+    }
+    return isSplit(operators) ? Optional.of(Fusion.SPLIT) : Optional.empty();
+  }
+
+  /**
+   * Whether {@code operators} are a split filter's, as {@link Fusion#SPLIT} names it: one row
+   * operator, a {@code FilterExec}, whose child is the one Varka node, read through the input
+   * adapter whole-stage codegen puts between them, and that node a to-row filter split off a whole
+   * condition whose own conjuncts are not only null tests.
+   */
+  private static boolean isSplit(List<SparkPlan> operators) {
+    var rowWork = operators.stream().filter(VarkaSqlBenchmarkBase::computesOnRows).toList();
+    var varkaNodes = operators.stream().filter(VarkaSqlBenchmarkBase::isVarkaNode).toList();
+    if (rowWork.size() != 1 || varkaNodes.size() != 1
+        || !(rowWork.getFirst() instanceof FilterExec residual)
+        || !(varkaNodes.getFirst() instanceof VarkaFilterColumnarToRowExec fused)) {
+      return false;
+    }
+    SparkPlan below = residual.child() instanceof InputAdapter adapter
+        ? adapter.child() : residual.child();
+    return below == fused && fused.wholeCondition().isDefined()
+        && !onlyNullTests(fused.condition());
   }
 
   /**
@@ -500,12 +532,12 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
   /**
    * Checks that {@code varka} fuses {@code query} as much as {@code expected} says, the
    * section's {@link Fusion} class, and notes in the results file each section that fuses and
-   * how. A row that changes how a section fuses, from nothing to its null tests, from its null
-   * tests to part or the whole of the section, or from part to the whole, sets the section's new
-   * class, so a later row that fuses more of a section than listed fails the run rather than
-   * timing a kernel under the label of the row path, and a section that fuses less than listed
-   * fails too. {@link #FUSE_CHECK_PROPERTY} set to {@code false} lifts the check for the run that
-   * measures a row, and every section that fuses is still noted with its class.
+   * how. A row that changes how a section fuses, from nothing to its null tests or a split, from
+   * either of those to part or the whole of the section, or from part to the whole, sets the
+   * section's new class, so a later row that fuses more of a section than listed fails the run
+   * rather than timing a kernel under the label of the row path, and a section that fuses less
+   * than listed fails too. {@link #FUSE_CHECK_PROPERTY} set to {@code false} lifts the check for
+   * the run that measures a row, and every section that fuses is still noted with its class.
    *
    * <p>The check plans {@code query} once before the section is timed. Under adaptive execution
    * reading the plan runs its stages ({@link #operators}); the benchmarks' sessions
@@ -530,6 +562,9 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
       case NONE -> { }
       case NULL_TESTS -> note(title + ": fuses only its null tests on the varka on arm, so it "
           + "times a null-test kernel there under the row path's condition");
+      case SPLIT -> note(title + ": fuses the conjuncts that read a value on the varka on arm, so "
+          + "it times a kernel there, the copy of the rows it keeps, and the row path's residual "
+          + "filter over them");
       case PARTIAL -> note(title + ": fuses in part on the varka on arm, so it times a kernel "
           + "there beside the row path's evaluation of the entries the kernel declined");
       case WHOLE -> note(title + ": fuses whole on the varka on arm, so it times a kernel there, "
