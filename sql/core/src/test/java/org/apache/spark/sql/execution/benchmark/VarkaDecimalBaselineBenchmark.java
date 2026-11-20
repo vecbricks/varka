@@ -26,6 +26,7 @@ import java.util.function.Function;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
 import org.apache.spark.sql.execution.VarkaSessionEmit;
+import org.apache.spark.sql.internal.SQLConf;
 
 /**
  * The baseline for {@code DECIMAL} before Varka has a lane for it (VARKA-377): Spark's row path
@@ -107,8 +108,26 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * {@code 1 - y} being a {@code DECIMAL(16, 2)}, a {@code DECIMAL(32, 4)}, the second being TPC-H
  * q1's form, and {@code l * x9} and {@code l * x18}, a {@code DECIMAL(30, 2)} and a {@code
  * DECIMAL(38, 4)}, as projections, and {@code x * y < z} at {@code DECIMAL(15, 2)} as a filter.
- * Their columns ({@link #WIDE_COLUMNS} and {@code l}) come after all the others, so the values
- * of the earlier sections stay as their results files have them.
+ * Their columns ({@link #WIDE_COLUMNS} and {@code l}) come after the earlier sections' columns,
+ * so the values of those sections stay as their results files have them.
+ *
+ * <p>Forty more sections time the casts of a decimal of precision 18 or less to and from the
+ * other numeric types (VARKA-350, VARKA-366), each with no nulls and with one row in ten null,
+ * every one in range for the mode it runs in, since an ANSI section that raised would time the
+ * error. At {@code DECIMAL(9, 2)}: {@code CAST(x AS BIGINT)}, {@code CAST(x AS INT)} under
+ * LEGACY and ANSI, {@code try_cast(x AS SMALLINT)}, past the range on most rows by design, as the
+ * integer parts reach five million, {@code CAST(x AS DOUBLE)}, {@code CAST(x AS FLOAT)},
+ * {@code CAST(x AS DECIMAL(9, 0))}, a rescale down by two digits that rounds {@code HALF_UP},
+ * and {@code CAST(x AS BOOLEAN)} as a filter, with constraint propagation off so that no
+ * inferred {@code IS NOT NULL} test sits beside it. At {@code DECIMAL(18, 4)}, whose unscaled
+ * values mostly lie above {@code 2^53}: {@code CAST(x AS BIGINT)}, {@code CAST(x AS INT)} under
+ * LEGACY only, its values being past the int range, {@code CAST(x AS DOUBLE)},
+ * {@code CAST(x AS FLOAT)} and {@code CAST(x AS DECIMAL(18, 2))}, a rescale down by two digits.
+ * Over {@link #CAST_COLUMNS}: {@code CAST(x AS FLOAT)} at {@code DECIMAL(15, 4)}, and at
+ * {@code DECIMAL(18, 14)} {@code CAST(x AS INT)} under ANSI, {@code try_cast(x AS INT)},
+ * {@code CAST(x AS DOUBLE)} and {@code CAST(x AS FLOAT)}; and over the {@code BIGINT} column
+ * {@code l16}, below {@code 10^16} in magnitude, {@code CAST(l AS DECIMAL(18, 2))} under LEGACY
+ * and ANSI. Their columns come last, after {@code l}.
  *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -153,10 +172,18 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
   static final int NUM_ROWS = 2_000_000;
 
   /**
-   * A section: its title, its query, and how much of it the Varka session fuses today, the
-   * {@link VarkaSqlBenchmarkBase.Fusion} class the run checks its plan against before timing.
+   * A section: its title, its query, how much of it the Varka session fuses today, the
+   * {@link VarkaSqlBenchmarkBase.Fusion} class the run checks its plan against before timing, and
+   * the SQL settings both sessions run it under, an evaluation mode for the casts that have more
+   * than one answer.
    */
-  record Section(String title, String query, Fusion fusion) {}
+  record Section(String title, String query, Fusion fusion, Map<String, String> conf) {
+
+    /** A section run under the sessions' own settings. */
+    Section(String title, String query, Fusion fusion) {
+      this(title, query, fusion, Map.of());
+    }
+  }
 
   /**
    * A precision the class measures: the column type, the suffix of its columns, the largest
@@ -291,13 +318,32 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       new WideColumn("y38s2", new Precision(38, 2, "", 500_000_000_000_000_000L), 4));
 
   /**
-   * The {@code BIGINT} column of the widening sections, the last of the table. Its nullable copy
-   * is null at row 5 of ten, where neither {@code x9} nor {@code x18} is.
+   * The {@code BIGINT} column of the widening sections, after {@link #WIDE_COLUMNS} and ahead of
+   * {@link #CAST_COLUMNS}. Its nullable copy is null at row 5 of ten, where neither {@code x9} nor
+   * {@code x18} is.
    */
   static final String BIGINT_COLUMN = "l";
 
   /** The row of ten the {@code BIGINT} column's nullable copy is null at. */
   static final int BIGINT_NULL_ROW = 5;
+
+  /**
+   * The decimal columns the cast sections add after {@code l} (VARKA-350): {@code x15s4}, a
+   * {@code DECIMAL(15, 4)} with integer parts to five times ten to the tenth, so that its
+   * unscaled values reach fifteen digits, past a float's exact range and within a double's, for
+   * the cast to {@code FLOAT}; and {@code x18s14}, a {@code DECIMAL(18, 14)} with integer parts
+   * below {@code 10^4}, inside the int range, whose unscaled values reach eighteen digits, for
+   * the casts to {@code INT} under ANSI and TRY and to the floating types.
+   */
+  static final List<WideColumn> CAST_COLUMNS = List.of(
+      new WideColumn("x15s4", new Precision(15, 4, "", 50_000_000_000L), 1),
+      new WideColumn("x18s14", new Precision(18, 14, "", 9_999L), 4));
+
+  /** The {@code BIGINT} column of the cast sections, after {@link #CAST_COLUMNS}. */
+  static final String CAST_BIGINT_COLUMN = "l16";
+
+  /** The largest magnitude of {@link #CAST_BIGINT_COLUMN}, {@code 10^16 - 1}. */
+  static final long CAST_BIGINT_MAX = 9_999_999_999_999_999L;
 
   /**
    * The two null densities every section is timed at: the suffix of the columns a section reads,
@@ -393,6 +439,16 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
   }
 
   /**
+   * The cast sections' {@code BIGINT} column's value: spread evenly over {@code -(10^16 - 1)} to
+   * {@code 10^16 - 1}, so that {@code CAST(l16 AS DECIMAL(18, 2))}, whose sixteen integer digits
+   * hold it, is in range in every mode.
+   */
+  static String castBigintSql(int seed) {
+    return "pmod(xxhash64(id, " + seed + "), " + (2 * CAST_BIGINT_MAX + 1) + ") - "
+        + CAST_BIGINT_MAX;
+  }
+
+  /**
    * The {@code TIME(6)} column's value: microseconds of the day from a hash of the row id, so the
    * values cover the whole day and every digit of the fraction.
    */
@@ -407,7 +463,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * {@code TIME(6)}, and {@code tn}, the same values with one row in ten null; then {@code x20}
    * and {@code y20}, the {@code DECIMAL(20, 2)} pair, each with its nullable copy; then the
    * columns of {@link #OPERAND_COLUMNS}, then those of {@link #WIDE_COLUMNS}, then the
-   * {@code BIGINT} column {@code l}, each with its nullable copy.
+   * {@code BIGINT} column {@code l}, then those of {@link #CAST_COLUMNS} and the {@code BIGINT}
+   * column {@code l16}, each with its nullable copy.
    */
   static String tableSql(int rows) {
     List<String> values = new ArrayList<>();
@@ -429,7 +486,11 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     for (WideColumn c : WIDE_COLUMNS) {
       addColumn(c.name(), c.type(), seed++, c.nullRow(), values, columns);
     }
-    addColumn(BIGINT_COLUMN, bigintSql(seed), BIGINT_NULL_ROW, values, columns);
+    addColumn(BIGINT_COLUMN, bigintSql(seed++), BIGINT_NULL_ROW, values, columns);
+    for (WideColumn c : CAST_COLUMNS) {
+      addColumn(c.name(), c.type(), seed++, c.nullRow(), values, columns);
+    }
+    addColumn(CAST_BIGINT_COLUMN, castBigintSql(seed), BIGINT_NULL_ROW, values, columns);
     return "select " + String.join(", ", columns) + " from (select id, "
         + String.join(", ", values) + " from range(0, " + rows + "))";
   }
@@ -486,7 +547,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * each precision, then each null density, then each shape; then the 64-bit comparisons' six
    * shapes in the same order; then the 64-bit arithmetic's six at each null density; then the
    * two remainders, each remainder precision, then each null density; then the widening
-   * arithmetic's eleven at each null density. Every filter that fuses
+   * arithmetic's eleven at each null density; then the casts' twenty at each null density.
+   * Every filter that fuses
    * is {@code NONE} when the session refuses its condition ({@code declinesLongConditions}),
    * since every decimal lane, the lane pair's words among them, is a 64-bit one, and so is every
    * comparison as a value, a boolean output over a decimal column.
@@ -597,7 +659,74 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     for (Density d : Density.values()) {
       addWidening(out, d);
     }
+    for (Density d : Density.values()) {
+      addCasts(out, d);
+    }
     return out;
+  }
+
+  /**
+   * Adds the cast sections at density {@code d} (VARKA-350, VARKA-366), in the order the class
+   * javadoc lists them. No decimal cast but coercion's widening rescale fuses yet, so every
+   * section is {@code NONE}. The ANSI and LEGACY sections name their mode, and the filter runs
+   * with constraint propagation off, so that it is the cast alone.
+   */
+  private static void addCasts(List<Section> out, Density d) {
+    Map<String, String> legacy = Map.of(SQLConf.ANSI_ENABLED().key(), "false");
+    Map<String, String> ansi = Map.of(SQLConf.ANSI_ENABLED().key(), "true");
+    Map<String, String> noConstraints =
+        Map.of(SQLConf.CONSTRAINT_PROPAGATION_ENABLED().key(), "false");
+    String x9 = d.column("x9");
+    String x18 = d.column("x18");
+    String x15s4 = d.column("x15s4");
+    String x18s14 = d.column("x18s14");
+    String l16 = d.column(CAST_BIGINT_COLUMN);
+    String tail = ", " + d.words();
+    String value = " AS a FROM varka_decimal";
+    String d9 = "DECIMAL(9, 2) ";
+    String d18 = "DECIMAL(18, 4) ";
+    String d18s14 = "DECIMAL(18, 14) ";
+    out.add(new Section(d9 + "CAST(x AS BIGINT)" + tail,
+        "SELECT CAST(" + x9 + " AS BIGINT)" + value, Fusion.NONE));
+    out.add(new Section(d9 + "CAST(x AS INT), LEGACY" + tail,
+        "SELECT CAST(" + x9 + " AS INT)" + value, Fusion.NONE, legacy));
+    out.add(new Section(d9 + "CAST(x AS INT), ANSI" + tail,
+        "SELECT CAST(" + x9 + " AS INT)" + value, Fusion.NONE, ansi));
+    out.add(new Section(d9 + "try_cast(x AS SMALLINT), past the range on most rows" + tail,
+        "SELECT try_cast(" + x9 + " AS SMALLINT)" + value, Fusion.NONE));
+    out.add(new Section(d9 + "CAST(x AS DOUBLE)" + tail,
+        "SELECT CAST(" + x9 + " AS DOUBLE)" + value, Fusion.NONE));
+    out.add(new Section(d9 + "CAST(x AS FLOAT)" + tail,
+        "SELECT CAST(" + x9 + " AS FLOAT)" + value, Fusion.NONE));
+    out.add(new Section(d9 + "CAST(x AS DECIMAL(9, 0))" + tail,
+        "SELECT CAST(" + x9 + " AS DECIMAL(9, 0))" + value, Fusion.NONE));
+    out.add(new Section(d9 + "filter CAST(x AS BOOLEAN)" + tail,
+        "SELECT " + x9 + " FROM varka_decimal WHERE CAST(" + x9 + " AS BOOLEAN)", Fusion.NONE,
+        noConstraints));
+    out.add(new Section(d18 + "CAST(x AS BIGINT)" + tail,
+        "SELECT CAST(" + x18 + " AS BIGINT)" + value, Fusion.NONE));
+    out.add(new Section(d18 + "CAST(x AS INT), LEGACY" + tail,
+        "SELECT CAST(" + x18 + " AS INT)" + value, Fusion.NONE, legacy));
+    out.add(new Section(d18 + "CAST(x AS DOUBLE)" + tail,
+        "SELECT CAST(" + x18 + " AS DOUBLE)" + value, Fusion.NONE));
+    out.add(new Section(d18 + "CAST(x AS FLOAT)" + tail,
+        "SELECT CAST(" + x18 + " AS FLOAT)" + value, Fusion.NONE));
+    out.add(new Section(d18 + "CAST(x AS DECIMAL(18, 2))" + tail,
+        "SELECT CAST(" + x18 + " AS DECIMAL(18, 2))" + value, Fusion.NONE));
+    out.add(new Section("DECIMAL(15, 4) CAST(x AS FLOAT)" + tail,
+        "SELECT CAST(" + x15s4 + " AS FLOAT)" + value, Fusion.NONE));
+    out.add(new Section(d18s14 + "CAST(x AS INT), ANSI" + tail,
+        "SELECT CAST(" + x18s14 + " AS INT)" + value, Fusion.NONE, ansi));
+    out.add(new Section(d18s14 + "try_cast(x AS INT)" + tail,
+        "SELECT try_cast(" + x18s14 + " AS INT)" + value, Fusion.NONE));
+    out.add(new Section(d18s14 + "CAST(x AS DOUBLE)" + tail,
+        "SELECT CAST(" + x18s14 + " AS DOUBLE)" + value, Fusion.NONE));
+    out.add(new Section(d18s14 + "CAST(x AS FLOAT)" + tail,
+        "SELECT CAST(" + x18s14 + " AS FLOAT)" + value, Fusion.NONE));
+    out.add(new Section("BIGINT CAST(l AS DECIMAL(18, 2)), LEGACY" + tail,
+        "SELECT CAST(" + l16 + " AS DECIMAL(18, 2))" + value, Fusion.NONE, legacy));
+    out.add(new Section("BIGINT CAST(l AS DECIMAL(18, 2)), ANSI" + tail,
+        "SELECT CAST(" + l16 + " AS DECIMAL(18, 2))" + value, Fusion.NONE, ansi));
   }
 
   /**
@@ -720,16 +849,18 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       List<Section> sections = sections(
           VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
       for (Section s : sections) {
-        requireBaseline(varka, s.title(), s.query(), s.fusion());
+        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fusion()));
       }
       for (Section s : sections) {
-        section(s.title(), () -> {
-          VarkaBenchmark benchmark = benchmark(
-              s.title() + " over " + NUM_ROWS + " Arrow-cached rows", NUM_ROWS).timed().build();
-          benchmark.addCase("spark row path (varka off)", i -> noop(baseline.sql(s.query())));
-          benchmark.addCase("varka on", i -> noop(varka.sql(s.query())));
-          runCases(benchmark);
-        });
+        section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),
+            () -> {
+              VarkaBenchmark benchmark = benchmark(
+                  s.title() + " over " + NUM_ROWS + " Arrow-cached rows", NUM_ROWS)
+                  .timed().build();
+              benchmark.addCase("spark row path (varka off)", i -> noop(baseline.sql(s.query())));
+              benchmark.addCase("varka on", i -> noop(varka.sql(s.query())));
+              runCases(benchmark);
+            })));
       }
     } finally {
       baseline.stop();
