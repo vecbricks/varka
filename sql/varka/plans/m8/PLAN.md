@@ -2038,35 +2038,40 @@ with the clearest measurement do not take every slot.
 
 ### 13.1 The unfused entries, by group
 
-| group | `double` | `float` | rows |
+| group | `double` | `float` | rows (the census's `rows` column) |
 | :--- | ---: | ---: | :--- |
 | transcendentals (`exp`, `log`, `atan`, `cbrt`, `hypot`, `pow`, ...) | 27 | 0 | 345, 356 to 358, 367 |
-| rounding and remainder (`floor`, `ceil`, `round`, `bround`, `truncate`, `mod`, `pmod`, `%`, `try_mod`, `width_bucket`) | 11 | 10 | 344, 346 |
-| casts to the integer types and `decimal` | 6 | 6 | 343, 346 |
+| rounding and remainder (`floor`, `ceil`, `round`, `bround`, `truncate`, `mod`, `pmod`, `%`, `try_mod`, `width_bucket`) | 11 | 10 | 344, 346, 351, 363; 30, 95, 577 for the remainders |
+| casts to the integer types and `decimal` | 6 | 6 | 332, 343, 350, 364 to 366 |
 | interval times and division by a number | 4 | 4 | 342 |
-| hash, `xxhash64`, and the normalising nodes | 5 | 5 | 337 |
-| `positive`, `zeroifnull`, `time_from_seconds`, `try_cast`, `try_eval` | 4 | 5 | 622 and others |
+| hash, `xxhash64`, `known_fp_normalized`, `normalize_nan_and_zero` | 4 | 4 | 337 |
+| plumbing and the rest (`positive`, `zeroifnull`, `known_not_null`, `time_from_seconds`, `try_cast`, `try_eval`) | 5 | 6 | 330, 333, 342, 343, 348, 351, 359, 622 |
 
 ### 13.2 The order
 
 1. **The exact per-lane family** (rows 356 to 358): `sin`, `cos`, `tan` and their inverses first
-   (open as #1567), then the hyperbolic and logarithmic ones. It credits the transcendentals with
-   the default form, a per-lane call of the library function.
-2. **Rounding and remainder** (rows 344 and 346), which need no library: about ten entries on each
-   type, the largest share for the least work, and the nearest to the integral rows.
-3. **The vfdlibm-paired port arms.** A Varka port arm for an fdlibm function gets its vfdlibm pull
-   request opened with it. vfdlibm holds `exp`, `expm1`, `log`, `log10` and `log1p`, and Varka's
-   ports of them (rows 345b to 345e) are on branches.
-4. **The casts and the hash compiler** (rows 343, 346 and 337).
-5. **The remaining ports.** The owner decided on 20 November 2026 that new vfdlibm ports are
-   scheduled in this milestone: `pow`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh` and `hypot`,
-   the eight of the thirteen functions of `VARKA-345.md` that vfdlibm does not hold yet. Each is
-   written twice, in vfdlibm and as Varka's IR expansion, ordered by the census entries it unlocks
-   and by its size (`pow` is about a fifth of the thirteen's code, `hypot` is small).
+   (open as #1567), then the hyperbolic and logarithmic ones, the logarithmic part (358) after
+   the finding of 12.2 item 3 is fixed. It credits the transcendentals with the default form, a
+   per-lane call of the library function.
+2. **Rounding and remainder** (rows 344 and 346, and the remainders of 30, 95 and 577), which need
+   no library: about ten entries on each type, the largest share for the least work.
+3. **The casts and the hash compiler** (rows 343, 346 and 337).
+4. **The vfdlibm-paired port arms**, which move no census pair. A port is an option arm of the
+   exact family (`VARKA-345.md` 2.1), kept either way and the default only where it measures faster
+   on the runners, so a port is ranked by that measurement and the owner's decision and not by
+   pairs moved. vfdlibm holds `exp`, `expm1`, `log`, `log10` and `log1p`, and Varka's ports of them
+   (rows 345b to 345e) are on branches. The owner decided on 20 November 2026 that the new vfdlibm
+   ports are scheduled in this milestone: `pow`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`
+   and `hypot`, the eight of the thirteen functions of `VARKA-345.md` that vfdlibm does not hold
+   yet. Each is written twice, in vfdlibm and as Varka's IR expansion; `pow` is about a fifth of the
+   thirteen's code and `log10` the smallest, and the order of the rest is set by what each port
+   builds on (`sinh` and `cosh` on `exp` and `expm1`).
 
 ### 13.3 The slot
 
-One of every two pull requests that open is a floating-track row until the group of 13.1 with the
-most entries is under ten, and the track's pull requests are ranked by census pairs moved, as
-12.3 sets for the milestone. A pull request that adds a port arm opens its vfdlibm pull request in
-the same sitting.
+Inside the order of 12.4, which the track does not reorder (the decimal chain keeps its place), one
+of every three pull requests that open is a floating-track row of items 1 to 3, ranked by census
+pairs moved as 12.3 sets, until `double` has 77 of its 102 pairs and `float` 50 of its 66, three
+quarters of each, as 1.1 item 2 asks of the census. A pull request that adds a port arm opens its
+vfdlibm pull request in the same sitting, and does not count against the slot, since it moves no
+pair.
