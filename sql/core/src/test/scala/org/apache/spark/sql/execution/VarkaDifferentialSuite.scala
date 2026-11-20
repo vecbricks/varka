@@ -1135,7 +1135,8 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
   test("with codegen off, a filter with no residual conjunct falls back on Spark's condition " +
       "tree, not its conjuncts' fold") {
     import org.apache.spark.sql.catalyst.expressions.{And, Expression}
-    import org.apache.spark.sql.catalyst.optimizer.PushDownPredicates
+    import org.apache.spark.sql.catalyst.optimizer.{PushDownPredicates,
+      PushPredicateThroughNonJoin}
     cacheCseTables()
     // The parenthesised AND is a node of the tree and the IF's condition, so it is common, and
     // so is make_date. Spark's uncompiled predicate over the tree, with elimination on, keeps
@@ -1147,7 +1148,9 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
     // A filter over a scan reaches the rule as its conjuncts' fold: the planner rebuilds it from
     // the split conjuncts (`pruneFilterProject`). Over a union, which is columnar when its
     // children are, the filter keeps the optimizer's tree, and with `PushDownPredicates`
-    // excluded the optimizer leaves it above the union. `SELECT *` leaves no column to prune.
+    // excluded, and `PushPredicateThroughNonJoin`, which `SparkOptimizer`'s "Extract UDFs" batch
+    // runs again on its own, the optimizer leaves it above the union; either one pushes it into
+    // the union's children as a fold. `SELECT *` leaves no column to prune.
     val overUnion = "SELECT * FROM (SELECT * FROM varka_cse_and_nn UNION ALL " +
       s"SELECT * FROM varka_cse_and_nn) WHERE $where"
     val overScan = s"SELECT * FROM varka_cse_and_nn WHERE $where"
@@ -1168,7 +1171,8 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
           assert(answeredIs(control).contains(Seq(2)),
             s"Spark's filter over the scan should answer [2]: $overScan\n$control")
         }
-        withBothConf(SQLConf.OPTIMIZER_EXCLUDED_RULES.key, PushDownPredicates.ruleName) {
+        withBothConf(SQLConf.OPTIMIZER_EXCLUDED_RULES.key,
+            Seq(PushDownPredicates, PushPredicateThroughNonJoin).map(_.ruleName).mkString(",")) {
           val sparkPlan = spark.sql(overUnion).queryExecution.executedPlan
           val tree = collectFirst(sparkPlan) { case f: FilterExec => f.condition }
             .getOrElse(fail(s"no FilterExec in Spark's plan:\n${sparkPlan.treeString}"))

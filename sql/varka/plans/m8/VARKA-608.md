@@ -224,9 +224,12 @@ the plan, `sql/varka/AGENTS.md` or the plan's own recommendations favour.
    by an expensive alias (a UDF or a costly regex) projected under the filter. That last path,
    a partial `VarkaProjectExec` computing the UDF row by row under a filter that reads it twice,
    was not worked through (`PushPredicateThroughNonJoin`'s split around expensive conditions
-   decides what tree stays up), so a default-configuration reproducer is not ruled out. With `spark.sql.optimizer.excludedRules` naming
-   `PushDownPredicates`, a public conf and an excludable rule, the filter stays above
-   `UNION ALL` of the cached table with itself, and `BasicOperators` keeps the optimizer's tree.
+   decides what tree stays up), so a default-configuration reproducer is not ruled out. With
+   `spark.sql.optimizer.excludedRules` naming `PushDownPredicates` and
+   `PushPredicateThroughNonJoin` (a public conf; both rules are excludable), the filter should
+   stay above `UNION ALL` of the cached table with itself, and `BasicOperators` keep the
+   optimizer's tree. The second rule is needed because `SparkOptimizer`'s "Extract UDFs" batch
+   runs it again under its own name, which the run below found.
    The test uses that shape and `SELECT *`, so no column pruning puts a row `ProjectExec`
    between the filter and the union. **This narrows the row's reach**: the shapes found by
    reading need a non-default optimizer configuration, or the unexamined expensive-alias path,
@@ -248,7 +251,8 @@ the plan, `sql/varka/AGENTS.md` or the plan's own recommendations favour.
 Built: `rewriteFilter` passes `wholeCondition = Some(condition)` when there is a residual or the
 condition is not structurally its fused conjuncts' fold; the docs of `wholeCondition`,
 `fallbackCondition` and `VarkaFilterExecBase` say so; test 1 in `VarkaDifferentialSuite` over a
-`UNION ALL` with `PushDownPredicates` excluded (decision 2), with the shape checks, the control
+`UNION ALL` with `PushDownPredicates` and `PushPredicateThroughNonJoin` excluded (decision 2),
+with the shape checks, the control
 over the scan, the codegen-off cells under elimination on and off, and the codegen-on cells
 through `checkFourCells`; `VARKA-541.md` 0 item 7 has its dated note.
 
@@ -256,8 +260,18 @@ Predictions (section 6.1):
 
 1. Before the change, Spark raises and Varka answers in the elimination-on, codegen-off cell:
    **owed** (step 1 not run; decision 3).
-2. After it, all cells agree: see the run below.
-3. Test time under 4 s: see the run below.
+2. After it, all cells agree: **owed** (the run below stopped at the shape check).
+3. Test time under 4 s: **owed**; the failed run took 15.1 s to its shape check, which includes
+   the suite's session start and the cached tables' first build, so it scores nothing yet.
 4. Plan strings move only for a filter not over a scan whose tree is not its fold: **owed**
    (step 4); by decision 2's reading, no filter planned at the default configuration moves.
 
+
+The run, 20 November 2026, after the change: `build/sbt 'sql/testOnly *VarkaDifferentialSuite --
+-z "falls back on Spark"'` failed, in 15.1 s, at the shape check, as designed for a vacuous
+shape. The control passed first: with codegen off and elimination on, Spark's filter over the
+scan answered `[2]`. Then Spark's physical `FilterExec` condition was its own left fold: with
+only `PushDownPredicates` excluded, the filter had still been pushed into both children of the
+union as `pushDown.reduceLeft(And)`, by `PushPredicateThroughNonJoin` in `SparkOptimizer`'s
+"Extract UDFs" batch. The test now excludes that rule as well. It compiles, and has not been run
+again: the window allowed one run. Whether the shape now holds, and the cells, are owed.
