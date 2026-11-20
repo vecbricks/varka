@@ -631,21 +631,22 @@ the division at `FLOAT` too, which the IR and the reference take though the comp
 at `DOUBLE`). `VarkaIrFuzzSuite` runs each sequence against the reference, 300 draws as the
 floating sequences do, and a reach test holds each to every form over its first 2,000 draws.
 
-- **The `FAIL` division is not drawn.** A live zero divisor declines the batch, which a draw has
-  no reference answer for, and the edge values draw both zeros often; the emitter suite holds the
-  declined batch, as it does the guards' firing for the other corpora.
+- **The `FAIL` division is not drawn** (decision 5); the emitter suite holds the declined batch,
+  as it does the guards' firing for the other corpora.
 - **Not yet in the bytes oracle.** `VarkaEmittedBytesSuite` pins the floating sequences' first
   two thousand shapes; pinning these is a regeneration (`emitted_bytes.json`), owed with the
   pull request's other generated files.
 - **The Spark fuzzer's floating productions** (3.10's other half): its grammar draws only fused
   coverage rows, so it draws the family's 26 rows and their 11 cast forms already, `x / x2`
   among them (5.1, the integration fixes); nothing of it is built here.
-- **What ran (20 November 2026, the laptop).** `build/sbt catalyst/Test/compile`, then the three
+- **What ran (20 November 2026, the laptop).** `build/sbt catalyst/Test/compile`, then three runs
+  of `VarkaIrFuzzSuite`, past the brief's one targeted run: two by accident ran the whole suite,
+  the `-z` filter reaching the parent only, and the third ran the three
   new tests directly in one JVM (`-Dvarka.ownJvm=true` set in the catalyst project, `-z
   arithmetic`): each sequence answered 300 of 300 draws against the reference, in 3.2 s at
-  `FLOAT` and 2.4 s at `DOUBLE`, and the reach test found every form over 2,000 draws a lane. A
-  first run without the property ran the whole suite in its child JVM and hit the child's
-  nine-minute cap, a harness limit, not a failure (`testing-and-debugging.md` on `VarkaOwnJvm`).
+  `FLOAT` and 2.4 s at `DOUBLE`, and the reach test found every form over 2,000 draws a lane. The first whole-suite run hit the
+  child JVM's nine-minute cap, a harness limit, not a failure (`testing-and-debugging.md` on
+  `VarkaOwnJvm`); the second, given the property at the root project, was stopped once seen.
 
 ### Decisions taken while the owner was away (20 November 2026)
 
@@ -665,7 +666,19 @@ floating sequences do, and a reach test holds each to every form over its first 
    on such a host is 346a's decision, made with its own measurement.
 4. **The node is in no fuzz grammar.** The grammars draw no floating tree; the floating sequence
    (3.10, still owed) draws it when it is built, on a seed of its own, so that no committed
-   sequence moves.
+   sequence moves. *Corrected the same day:* 5.4's sequences, on part `varka-342b-floating-fuzz`,
+   draw it; no committed sequence draws it, which is what this decision protects.
+5. **The `FAIL` division is not fuzzed** (5.4): a draw has no reference answer for the batch a
+   live zero divisor declines, and the floating edge values draw zeros often enough that most
+   draws holding one would decline.
+6. **The square root and the division are drawn at `FLOAT` too** (5.4), though the compiler
+   builds them at `DOUBLE` only, where the narrow grammar draws only what the compiler builds at
+   its lane. The IR, the emitter and the reference take both at `FLOAT`, and a later row (the
+   float forms of 345 and 356 to 358) may build them there; a fuzzed form the compiler never
+   reaches costs draws, not correctness.
+7. **The fuzz sequences are a stacked part although both parts fit the cap together** (748 and
+   154 counted lines): the brief asks for the FMA node as its own small part, so that row 346a can
+   stack on it without the fuzz change.
 
 ## 6. Out of this row
 

@@ -66,10 +66,9 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     // a committed sequence would move every shape after it and the corpora the cost model is
     // fitted on, so its sequence comes on a seed of its own (`VARKA-347.md` 3 item 5) and its
     // fold into the corpora with row 352's refit. It is rebuilt directly below.
-    // The floating square root and the FMA (VARKA-342) are in no grammar for the same reason:
-    // the grammars draw no floating tree, whose values have no integer bound, and a floating draw
-    // would move the committed sequences. `VarkaEmitterFloatingArithSuite` holds the square root
-    // to the reference and `VarkaEmitterFmaSuite` the FMA, and each is rebuilt directly below.
+    // The floating square root and the FMA (VARKA-342) are drawn only by the floating
+    // arithmetic sequences, which this test's grammars do not include: their values have no
+    // integer bound. Each is rebuilt directly below.
     // No grammar draws the floating conversion (VARKA-343) yet, for the same reason; it is
     // rebuilt directly below. The canonicalisation (VARKA-337) is drawn by a side sequence of its
     // own, which these grammars are not, and is rebuilt directly below.
