@@ -130,9 +130,9 @@ shiftrightunsigned|int,bigint|same|int,bigint|done||item 32; a bigint shifted by
 <<|int,bigint|same|int,bigint|done||alias of shiftleft
 >>|int,bigint|same|int,bigint|done||alias of shiftright
 >>>|int,bigint|same|int,bigint|done||alias of shiftrightunsigned
-bit_count|INTEGRAL,bool|int|int,bigint,byte,short|plumbing|335,329,331|item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int, anywhere in a tree since 335b (20 October 2026); byte and short are the int node over their sign extension (VARKA-329), bool is row 331's
-bit_get|INTEGRAL|byte||plumbing|335|item 32; the byte result was its blocker
-getbit|INTEGRAL|byte||plumbing|335|alias of bit_get
+bit_count|INTEGRAL,bool|int|int,bigint,byte,short,bool|done|335,329,331|item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int, anywhere in a tree; byte and short are the int node over their sign extension (VARKA-329); bool is the condition's value, 1 or 0, over row 331's boolean leaf (335b)
+bit_get|INTEGRAL|byte|int,bigint,byte,short|done|335|item 32; a shift, a mask and a narrowing to the byte result (335b); a position past the width raises in every mode, so a literal one declines and a column one is guarded
+getbit|INTEGRAL|byte|int,bigint,byte,short|done|335|alias of bit_get
 add_months|date,int|date|date,int|done||
 datediff|date|int|date|done||
 date_diff|date|int|date|done||alias of datediff

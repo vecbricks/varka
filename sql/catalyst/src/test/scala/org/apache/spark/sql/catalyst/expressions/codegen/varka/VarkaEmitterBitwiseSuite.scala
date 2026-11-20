@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
 import java.util.stream.LongStream
 
-import org.apache.spark.sql.catalyst.expressions.{BitmapExpressionUtils, BitwiseAnd, BitwiseCount, BitwiseNot, BitwiseOr, BitwiseXor, BoundReference, Expression, ShiftLeft, ShiftRight, ShiftRightUnsigned, SpecificInternalRow}
+import org.apache.spark.sql.catalyst.expressions.{BitmapExpressionUtils, BitwiseAnd, BitwiseCount, BitwiseGet, BitwiseNot, BitwiseOr, BitwiseXor, BoundReference, Expression, ShiftLeft, ShiftRight, ShiftRightUnsigned, SpecificInternalRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.types.IntegerType
@@ -37,9 +37,9 @@ import org.apache.spark.sql.types.IntegerType
  * so the counts here run past the width and below zero. `bit_count` is the other place, since
  * the int lane counts the 32 bits a negative value gains in the widening without widening it.
  *
- * The exhaustive sweeps, every int through `~` and `bit_count` and every int through each shift,
- * run under `-Dvarka.sweep=true` (the nightly's sweep step); a strided slice of the same sweeps
- * runs on every build.
+ * The exhaustive sweeps, every int through `~` and `bit_count`, every int through each shift and
+ * every int through `bit_get` at one position each, run under `-Dvarka.sweep=true` (the
+ * nightly's sweep step); a strided slice of the same sweeps runs on every build.
  */
 class VarkaEmitterBitwiseSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
 
@@ -277,10 +277,11 @@ class VarkaEmitterBitwiseSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
    * Runs `root`, an int-lane kernel over `inputs` int columns with the literals `lits`, over
    * `rows` rows, whose column `c` at row `r` is `input(r, c)`, and compares every row with what
    * `expr`, Spark's own expression over the same columns as bound references, evaluates to.
-   * Chunks run in parallel, each worker on a kernel of its own; the first difference fails.
+   * Chunks run in parallel, each worker on a kernel of its own; the first difference fails. The
+   * root's value is an int, or with `byteOut` a `TINYINT`, stored a byte a row.
    */
   private def sweep(ctx: String, root: VarkaVectorIR, inputs: Int, lits: Array[Int], rows: Long,
-      input: (Long, Int) => Int, expr: Expression): Unit = {
+      input: (Long, Int) => Int, expr: Expression, byteOut: Boolean = false): Unit = {
     val emitted = emitMulti(Seq(root), inputs, lits.length, VarkaMatrix.base)
     val loaders = new ConcurrentLinkedQueue[VarkaGeneratedClassLoader]()
     val kernels = ThreadLocal.withInitial[VarkaFusedKernel] { () =>
@@ -315,8 +316,12 @@ class VarkaEmitterBitwiseSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
               for (c <- 0 until inputs) {
                 row.setInt(c, input(first + i, c))
               }
-              val want = expr.eval(row).asInstanceOf[Int]
-              val got = out._1.get(ValueLayout.JAVA_INT, i * 4L)
+              val want = expr.eval(row) match {
+                case b: java.lang.Byte => b.intValue
+                case v => v.asInstanceOf[Int]
+              }
+              val got = if (byteOut) out._1.get(ValueLayout.JAVA_BYTE, i.toLong).toInt
+                else out._1.get(ValueLayout.JAVA_INT, i * 4L)
               if (got != want) {
                 val operands = (0 until inputs).map(c => input(first + i, c)).mkString(", ")
                 failure.compareAndSet(null, s"$ctx: over ($operands) the kernel gave $got and " +
@@ -366,6 +371,32 @@ class VarkaEmitterBitwiseSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
         BitOpKind.USHR -> ShiftRightUnsigned(int(0), int(1)))) {
       sweep(s"$op over $what", new BitOp(op, c0, c1), 2, Array.empty, rows, input, expr)
     }
+  }
+
+  /**
+   * `bit_get` as the compiler builds it over an int column and an int position column: the
+   * position guarded by `[0, 31]`, the shift, the mask by the literal 1 and the narrowing to the
+   * byte. The position of row `r` is `(r + (r >>> 5)) & 31`, every value of the guard's range,
+   * so that it is not the value's own low five bits: every value is read at one position, and
+   * each residue of a value's low bits meets every position.
+   */
+  private def bitGetSweep(rows: Long, value: (Long, Int) => Int, what: String): Unit = {
+    val root = new NarrowLane(new BitOp(BitOpKind.AND, new BitOp(BitOpKind.SHR, c0,
+      new GuardedRange(c1, 0, 31)), new LiteralSlot(0)), LaneType.BYTE)
+    val input: (Long, Int) => Int = (r, c) =>
+      if (c == 0) value(r, 0) else ((r + (r >>> 5)) & 31).toInt
+    sweep(s"bit_get over $what", root, 2, Array(1), rows, input,
+      BitwiseGet(int(0), int(1)), byteOut = true)
+  }
+
+  test("bit_get matches Spark over a strided slice of the ints, every position in [0, 31]") {
+    bitGetSweep(sliceRows, slice, "the slice")
+  }
+
+  test("bit_get matches Spark over every int, each at one position in [0, 31] " +
+      "(opt-in: -Dvarka.sweep=true; VARKA-335)") {
+    assume(sweepsEnabled, "set -Dvarka.sweep=true to sweep the emitted kernels")
+    bitGetSweep(1L << 32, everyInt, "every int")
   }
 
   test("~ and bit_count match Spark over a strided slice of the ints") {
