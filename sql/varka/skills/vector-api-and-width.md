@@ -539,6 +539,8 @@ bytes a row for the laptop.
 | long lanewise | long | `ASHR` | I | I | I | 347 |
 | long lanewise | long | `NEG`, `ABS` | I | I | I | 348 |
 | long lanewise | long | `MUL_broadcast` (`MUL` by a broadcast constant, a decimal rescale) | I | I | I | 348, 349 |
+| long lanewise | long | `LSHR` (by a constant, a decimal division's pre-shift) | I | I | I | 350 |
+| long lanewise | long | `MUL_masked_broadcast` (`MUL` of a 32-bit limb by a broadcast 32-bit constant) | I | I | I | 350, 360 |
 | masks | byte | `fromLong`, `toLong` | I | I | I | 331, 375, 27 |
 | masks | int | `fromLong`, `toLong` | I | I | I | 331, 375, 27 |
 | masks | long | `fromLong`, `toLong` | I | I | F | 331, 375, 27 |
@@ -602,6 +604,14 @@ at 25.0.5):
   fallback of the long compares does not reach them. The laptop has AVX-512, so these cells are
   the ones `x86.ad` admits there (`evpabsq`, `vpmullq`); the EPYC 7763 has neither, and whether
   its `ABS` falls back and its multiply is the emulation is the runner columns' to say.
+* **The 64-bit decimal division's pre-shift and the limb multiply are intrinsic at every width on
+  the laptop** (VARKA-350 step 1, 20 November 2026): `LSHR` by a constant, and `MUL` of a long
+  masked to its low 32 bits by a broadcast 32-bit constant masked the same way, read `I` with no
+  allocation at 512, 256 and 128 bits. The second is the partial product a 64-bit magic multiply
+  for `10^k` is built of, masked on both sides as `MulVLNode::has_uint_inputs` asks. Whether C2
+  then takes `vpmuludq` on AVX2 rather than the full `MulVL` emulation no census verdict can say,
+  both reading `I`; only the loop's assembly (`dev/varka_emit.sh --asm` or the assembly suite)
+  decides it.
 * **`POW` has no vector stub below 512 bits**: the loop never reaches `libraryBinaryOp`, so the
   Java fallback runs at 256 and 128 (40 and 56 bytes a row). The other math operators, `ATAN2` and `HYPOT` among them, reach
   their library calls at every width.

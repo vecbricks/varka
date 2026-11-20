@@ -31,8 +31,13 @@ import org.apache.spark.sql.VarkaBenchmark;
  *
  * <p>The functions are {@code sin(x)}, {@code tan(x)}, {@code cbrt(x)}, {@code exp(x)},
  * {@code log(p)}, {@code log10(p)}, {@code pow(p, y)}, {@code atan2(y, x)}, {@code sinh(x)},
- * {@code hypot(x, y)}, {@code sec(x)} and the composition {@code exp(x) * 2 + 1}, each with no
- * nulls and with one row in ten null. They span the two kinds of function Spark calls
+ * {@code hypot(x, y)}, {@code sec(x)} and the composition {@code exp(x) * 2 + 1} (VARKA-345.md
+ * 4), then the nineteen of rows 356 to 358 ({@code VARKA-356.md} 4): {@code cos}, {@code asin},
+ * {@code acos}, {@code atan}, {@code csc}, {@code cot}, {@code cosh}, {@code tanh},
+ * {@code asinh}, {@code acosh}, {@code atanh}, {@code expm1}, {@code ln}, {@code log1p},
+ * {@code log2}, {@code log(2.0, p)}, {@code log(c, p)}, {@code ln(q)} over a column with one row
+ * in ten non-positive, and {@code pow(p, 3.0)}; each with no nulls and with one row in ten null.
+ * They span the two kinds of function Spark calls
  * (VARKA-345.md 0, item 3): {@code exp}, {@code log}, {@code log10}, {@code pow}, {@code atan2},
  * {@code sinh} and {@code hypot} are fdlibm on every host, and {@code sin}, {@code tan},
  * {@code cbrt} and {@code sec} (which is {@code 1 / Math.cos}) are the host's own stub on x86.
@@ -87,9 +92,12 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * A section: its title, its query, and how much of it the Varka session fuses today, the
    * {@link VarkaSqlBenchmarkBase.Fusion} class the run checks its plan against before timing. The
    * rest is what the queries suite checks its answer against: whether it reads the columns with
-   * one row in ten null, and how many such columns it reads, since each is null at its own rows.
+   * one row in ten null, and how many such columns it reads, since each is null at its own rows;
+   * and in how many rows in ten the function itself answers null whatever the nulls, which is one
+   * for {@code ln(q)} and none elsewhere.
    */
-  record Section(String title, String query, Fusion fusion, boolean nullInputs, int columns) {}
+  record Section(String title, String query, Fusion fusion, boolean nullInputs, int columns,
+      int domainNullTenths) {}
 
   /**
    * The table: {@code x}, {@code y} and {@code p} as doubles with no null, and {@code x_n},
@@ -111,32 +119,54 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
    *   <li>{@code p} is {@code 10^(hash(id, 3) / 2^31 * 6)}, in {@code [1e-6, 1e6)}, positive and
    *       spread evenly over twelve decades, so {@code log} and {@code log10} answer both signs
    *       and {@code pow(p, y)} stays inside {@code [1e-60, 1e60]}, finite and normal.</li>
+   *   <li>{@code u} is {@code (hash(id, 4) + 0.5) / 2^31}, in {@code (-1, 1)} and off both
+   *       endpoints, the domain of {@code asin}, {@code acos} and {@code atanh}.</li>
+   *   <li>{@code c} is {@code 2 + (hash(id, 5) + 0.5) / 2^31}, in {@code (1, 3)}, where
+   *       {@code acosh} takes both its {@code log1p} and its {@code log} branch, and a positive
+   *       base other than 1 for {@code log(c, p)}.</li>
+   *   <li>{@code q} is {@code p} negated where {@code id % 10 = 3}: one row in ten non-positive, so
+   *       {@code ln(q)} times the log family's domain null on a tenth of the rows.</li>
    * </ul>
+   *
+   * <p>The null columns are null at {@code id % 10} equal to 1, 4, 7, 2, 5 and 8 for {@code x_n},
+   * {@code y_n}, {@code p_n}, {@code u_n}, {@code c_n} and {@code q_n}, so no two share a row.
    */
   static String tableSql(int rows) {
     return """
-        select x, y, p,
+        select x, y, p, u, c, q,
                case when id %% 10 = 1 then null else x end as x_n,
                case when id %% 10 = 4 then null else y end as y_n,
-               case when id %% 10 = 7 then null else p end as p_n
-        from (select id,
-                     hash(id, 1) / 2147483648.0d * 10.0d as x,
-                     hash(id, 2) / 2147483648.0d * 10.0d as y,
-                     power(10.0d, hash(id, 3) / 2147483648.0d * 6.0d) as p
-              from range(0, %d))""".formatted(rows);
+               case when id %% 10 = 7 then null else p end as p_n,
+               case when id %% 10 = 2 then null else u end as u_n,
+               case when id %% 10 = 5 then null else c end as c_n,
+               case when id %% 10 = 8 then null else q end as q_n
+        from (select id, x, y, p, u, c,
+                     case when id %% 10 = 3 then -p else p end as q
+              from (select id,
+                           hash(id, 1) / 2147483648.0d * 10.0d as x,
+                           hash(id, 2) / 2147483648.0d * 10.0d as y,
+                           power(10.0d, hash(id, 3) / 2147483648.0d * 6.0d) as p,
+                           (hash(id, 4) + 0.5d) / 2147483648.0d as u,
+                           2.0d + (hash(id, 5) + 0.5d) / 2147483648.0d as c
+                    from range(0, %d)))""".formatted(rows);
   }
 
   /**
-   * A column placeholder of a {@link Form}'s expression: {@code X}, {@code Y} or {@code P} as a
-   * whole token, so a function name such as {@code EXP} or {@code PI} keeps its letters.
+   * A column placeholder of a {@link Form}'s expression: {@code X}, {@code Y}, {@code P},
+   * {@code U}, {@code C} or {@code Q} as a whole token, so a function name such as {@code EXP} or
+   * {@code PI} keeps its letters.
    */
-  private static final Pattern PLACEHOLDER = Pattern.compile("\\b([XYP])\\b");
+  private static final Pattern PLACEHOLDER = Pattern.compile("\\b([XYPUCQ])\\b");
 
   /**
-   * A function: its title and its expression, with the placeholders {@code X}, {@code Y} and
-   * {@code P} standing for the columns of one null density.
+   * A function: its title and its expression, with the placeholders standing for the columns of
+   * one null density, and the rows in ten its function nulls by its domain.
    */
-  private record Form(String title, String expr) {
+  private record Form(String title, String expr, int domainNullTenths) {
+    Form(String title, String expr) {
+      this(title, expr, 0);
+    }
+
     /** The expression over the columns whose names end in {@code suffix}. */
     String over(String suffix) {
       return PLACEHOLDER.matcher(expr)
@@ -149,7 +179,10 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
     }
   }
 
-  /** Every function, in the order the plan lists them (VARKA-345.md 4). */
+  /**
+   * Every function, in the order the plans list them: VARKA-345.md 4's twelve, then
+   * {@code VARKA-356.md} 4's nineteen.
+   */
   private static final List<Form> FORMS = List.of(
       new Form("DOUBLE sin(x)", "sin(X)"),
       new Form("DOUBLE tan(x)", "tan(X)"),
@@ -165,7 +198,26 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
       // NONE, not PARTIAL: a declined child declines the whole projected entry, so the DOUBLE
       // `*` and `+` around exp stay on the row path too; on 8 November 2026 the queries suite
       // planned both densities as one row Project over the cached scan, with no Varka node.
-      new Form("DOUBLE exp(x) * 2 + 1", "exp(X) * 2 + 1"));
+      new Form("DOUBLE exp(x) * 2 + 1", "exp(X) * 2 + 1"),
+      new Form("DOUBLE cos(x)", "cos(X)"),
+      new Form("DOUBLE asin(u)", "asin(U)"),
+      new Form("DOUBLE acos(u)", "acos(U)"),
+      new Form("DOUBLE atan(x)", "atan(X)"),
+      new Form("DOUBLE csc(x)", "csc(X)"),
+      new Form("DOUBLE cot(x)", "cot(X)"),
+      new Form("DOUBLE cosh(x)", "cosh(X)"),
+      new Form("DOUBLE tanh(x)", "tanh(X)"),
+      new Form("DOUBLE asinh(x)", "asinh(X)"),
+      new Form("DOUBLE acosh(c)", "acosh(C)"),
+      new Form("DOUBLE atanh(u)", "atanh(U)"),
+      new Form("DOUBLE expm1(x)", "expm1(X)"),
+      new Form("DOUBLE ln(p)", "ln(P)"),
+      new Form("DOUBLE log1p(p)", "log1p(P)"),
+      new Form("DOUBLE log2(p)", "log2(P)"),
+      new Form("DOUBLE log(2.0, p)", "log(2.0D, P)"),
+      new Form("DOUBLE log(c, p)", "log(C, P)"),
+      new Form("DOUBLE ln(q), one row in ten non-positive", "ln(Q)", 1),
+      new Form("DOUBLE pow(p, 3.0)", "pow(P, 3.0D)"));
 
   /** Every section, in the order they run: each null density, then each function. */
   static List<Section> sections() {
@@ -175,7 +227,7 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = ", " + (nullInputs ? "one row in ten null" : "no nulls");
       for (Form f : FORMS) {
         out.add(new Section(f.title() + density, "SELECT " + f.over(nulls) + " AS a FROM " + VIEW,
-            Fusion.NONE, nullInputs, f.columns()));
+            Fusion.NONE, nullInputs, f.columns(), f.domainNullTenths()));
       }
     }
     return out;
