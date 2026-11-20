@@ -80,6 +80,7 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
             VarkaVectorIR.BoundedDivide, VarkaVectorIR.BitOp, VarkaVectorIR.BitCount,
             VarkaVectorIR.MathUnary, VarkaVectorIR.RoundToIntegral, VarkaVectorIR.Cond,
+            VarkaVectorIR.CanonicalFloat,
             VarkaVectorIR.GuardedDay, VarkaVectorIR.GuardedRange, VarkaVectorIR.WidenLane,
             VarkaVectorIR.ConvertLane,
             VarkaVectorIR.NarrowLane, VarkaVectorIR.WidenDecimal {
@@ -166,6 +167,7 @@ public sealed interface VarkaVectorIR
       case BitCount n -> n.child().laneType();
       case MathUnary n -> n.child().laneType();
       case RoundToIntegral n -> n.child().laneType();
+      case CanonicalFloat n -> n.child().laneType();
       case Greatest n -> n.left().laneType();
       case Least n -> n.left().laneType();
       case IfElse n -> n.thenNode().laneType();
@@ -231,7 +233,7 @@ public sealed interface VarkaVectorIR
       case BoolColumn b -> b.ordinal();
       case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
           BitCount _, MathUnary _, RoundToIntegral _, Greatest _, Least _, IfElse _, CondValue _,
-          BoolOutput _,
+          BoolOutput _, CanonicalFloat _,
           Compare _, NullSafeEqual _, CondConst _, NullValue _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
@@ -320,7 +322,7 @@ public sealed interface VarkaVectorIR
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
           BitOp _, BitCount _, MathUnary _, RoundToIntegral _, Compare _, NullSafeEqual _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _,
-          InRanges _ -> {
+          InRanges _, CanonicalFloat _ -> {
         for (VarkaVectorIR child : childrenOf(node)) {
           narrowValuesIn(child, lanes, seen);
         }
@@ -367,7 +369,7 @@ public sealed interface VarkaVectorIR
           Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _, TruncDate _, WeekOfYear _,
           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, RoundToIntegral _,
           Compare _, NullSafeEqual _, BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _,
-          CrossLane _, InRanges _ -> {
+          CrossLane _, InRanges _, CanonicalFloat _ -> {
         boolean any = false;
         for (VarkaVectorIR child : childrenOf(node)) {
           any |= needsNarrowSpecies(child, seen);
@@ -1476,6 +1478,49 @@ public sealed interface VarkaVectorIR
   }
 
   /**
+   * Spark's canonical form of a floating value, {@code NormalizeNaNAndZero}'s and the floating
+   * step of {@code hash} and {@code xxhash64}: {@code -0.0} becomes {@code 0.0}, every NaN the
+   * lane's canonical NaN ({@code 0x7fc00000} or {@code 0x7ff8000000000000}, the bits
+   * {@code floatToIntBits} and {@code doubleToLongBits} answer for any NaN), and every other value
+   * stays itself. It is the one canonicalisation in the IR (VARKA-337 2.1): a key a later
+   * operator evaluates takes this node from {@code NormalizeNaNAndZero} as Spark puts it there,
+   * and no second form is written.
+   *
+   * <p>The lowering is {@code blend(x + 0.0, NaN, isNaN(x))}: under round-to-nearest the sum of
+   * {@code -0.0} and {@code +0.0} is {@code +0.0}, any other non-NaN {@code x} plus zero is
+   * {@code x} exactly (the JVM keeps subnormals), and the blend replaces whatever NaN the sum
+   * holds. The NaN test reads the operand, not the sum, so the add and the test are independent.
+   * Null-intolerant: the validity is the child's.
+   *
+   * <p>Idempotent by construction: {@link #of} answers its operand when that is already a
+   * canonicalisation, so a value canonicalised twice - a hash over a normalised join key - is
+   * one node. Build it through {@link #of}.
+   */
+  record CanonicalFloat(VarkaVectorIR child, int hash) implements VarkaVectorIR {
+    public CanonicalFloat {
+      if (!child.laneType().isFloating()) {
+        throw VarkaErrors.illegalArgument("a canonicalisation takes a floating child, not "
+            + child.laneType() + ", from a " + child.getClass().getSimpleName());
+      }
+      if (child instanceof CanonicalFloat) {
+        throw VarkaErrors.illegalArgument("a canonicalisation of a canonicalisation: build it "
+            + "through CanonicalFloat.of, which answers its operand");
+      }
+      // The records' formula over the components, as every node's (VarkaVectorIRSharingSuite):
+      // like any one-child node it shares its child's hash, and equality tells the two apart.
+      hash = hashOf(child);
+    }
+
+    public CanonicalFloat(VarkaVectorIR child) { this(child, 0); }
+    @Override public int hashCode() { return hash; }
+
+    /** {@code x} canonicalised: {@code x} itself when it already is a canonicalisation. */
+    public static VarkaVectorIR of(VarkaVectorIR x) {
+      return x instanceof CanonicalFloat ? x : new CanonicalFloat(x);
+    }
+  }
+
+  /**
    * {@code left OP right} over two operands on one lane, which the constructor requires to
    * agree - dates at the int lane, and the mask this produces is of that lane's species.
    * Null-intolerant: the result is known (true or false) exactly where both operands are valid,
@@ -2268,6 +2313,7 @@ public sealed interface VarkaVectorIR
       case BitCount n -> "(bitCount " + canonical(n.child()) + ")";
       case MathUnary n -> "(math:" + n.fn().name() + " " + canonical(n.child()) + ")";
       case RoundToIntegral n -> "(round:" + n.mode().name() + " " + canonical(n.child()) + ")";
+      case CanonicalFloat n -> "(canon " + canonical(n.child()) + ")";
     };
   }
 
@@ -2381,6 +2427,7 @@ public sealed interface VarkaVectorIR
       case MathUnary n -> "(math:" + n.fn().name() + " " + lineOf.applyAsInt(n.child()) + ")";
       case RoundToIntegral n ->
           "(round:" + n.mode().name() + " " + lineOf.applyAsInt(n.child()) + ")";
+      case CanonicalFloat n -> "(canon " + lineOf.applyAsInt(n.child()) + ")";
     };
   }
 
@@ -2457,6 +2504,7 @@ public sealed interface VarkaVectorIR
       case BitCount n -> new VarkaVectorIR[] {n.child()};
       case MathUnary n -> new VarkaVectorIR[] {n.child()};
       case RoundToIntegral n -> new VarkaVectorIR[] {n.child()};
+      case CanonicalFloat n -> new VarkaVectorIR[] {n.child()};
     };
   }
 
@@ -2537,6 +2585,7 @@ public sealed interface VarkaVectorIR
       case BitCount n -> new BitCount(children[0]);
       case MathUnary n -> new MathUnary(n.fn(), children[0]);
       case RoundToIntegral n -> new RoundToIntegral(n.mode(), children[0]);
+      case CanonicalFloat n -> CanonicalFloat.of(children[0]);
     };
   }
 

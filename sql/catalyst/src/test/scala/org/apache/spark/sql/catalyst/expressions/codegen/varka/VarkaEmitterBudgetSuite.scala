@@ -343,6 +343,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
         VarkaMatrix.base),
       (new RoundToIntegral(RoundMode.RINT, new RoundToIntegral(RoundMode.RINT, dc)), 1, 0,
         VarkaMatrix.base),
+      (CanonicalFloat.of(dc), 1, 0, VarkaMatrix.base),
+      (CanonicalFloat.of(new ColumnRef(0, LaneType.FLOAT)), 1, 0, VarkaMatrix.base),
       (new IntArith(IntOp.DIV, Overflow.WRAP, dc, dc1), 2, 0, VarkaMatrix.base),
       (new IntArith(IntOp.DIV, Overflow.NULL, dc, dc1), 2, 0, VarkaMatrix.base),
       (new IntArith(IntOp.DIV, Overflow.FAIL, dc, dc1), 2, 0, VarkaMatrix.base),

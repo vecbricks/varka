@@ -626,6 +626,88 @@ byte lengths 1, 2, 8, 9, 15 and 16 are 337b's, after row 359a, and the row's don
 
 (Written when the work lands.)
 
+**337a1, the canonicalisation** (20 November 2026, branch `varka-337-float-normalize`, local,
+built while the owner was away; the decisions are in the section below). Built: the IR node
+`CanonicalFloat` (2.1) with `CanonicalFloat.of` as its structural idempotence rule, its constructor
+refusing an integral child and a canonicalisation child; its lowering `blend(x + 0.0, NaN,
+isNaN(x))` in `VarkaVectorWalk.emitCanonicalFloat`, one scratch local, the canonical NaN a
+class-file constant; the arm for `NormalizeNaNAndZero` in `VarkaFloatingCompiler` under the
+floating arithmetic family's switch, whose `covers` text names it; `KnownFloatingPointNormalized`
+compiled as its child at the start of `compileNode`; the node's arms in every exhaustive switch
+(analysis, slots, budget weight 3, cost feature `CanonicalFloat/<lane>` on the awaiting-refit list,
+range analysis, same-answer rule as a canonical NaN, kernel plan, operand position, the canonical
+text form `(canon x)` and its parser); the warm-up's `FLOAT` block gains the scalar add and the
+scalar blend under the NaN test (the `DOUBLE` block had both); the reference evaluates the node by
+Spark's `FLOAT_NORMALIZER` and `DOUBLE_NORMALIZER`; the planted fault `CANONICAL_ZERO_DROPPED` of
+3.9's first bullet; the IR grammar's side sequence (2.6) on seed `CANONICAL_FUZZ_SEED` =
+20261120 at both floating lanes, the pinned floating sequences drawing what they drew.
+
+Tests: `VarkaEmitterCanonicalFloatSuite` (new) holds the kernel to Spark's normalisers over the
+regions of 3.2 at both lanes (both zeros, NaN payloads and signalling NaNs of both signs, the four
+`DOUBLE` NaN range endpoints, infinities, subnormal edges, extremes, 20000 drawn patterns per
+lane, nulls staying null), shows the planted fault failed by the zeros (`0x80000000` against 0) and
+the same check passing without it, and, behind `-Dvarka.sweep=true`, every one of the 2^32 `FLOAT`
+patterns once and again over its own output: no mismatch, the whole suite 4.2 s on the laptop with
+the sweep on (laptop wall time, not a benchmark). `VarkaExpressionCompilerSuite` pins
+`NormalizeNaNAndZero(x)` as one node at each lane, `KnownFloatingPointNormalized(
+NormalizeNaNAndZero(x))` and the form normalised twice as the same one node, the tag over a plain
+value as no canonicalisation, and the family's switch off as the decline naming it.
+`VarkaIrFuzzSuite` runs the side sequence against the reference at both lanes and checks that it
+reaches the node, never nests it, and that the pinned sequences never draw it.
+
+Left of 337a: the hash steps (`HashStep`, `HashFn`, the `HASH` family and `VarkaHashCompiler`, the
+fold and the null skip, every type of 2.3 but the decimal above 18), `hash.smt2`, the 32-bit hash
+sweeps, the coverage rows and the remaining planted faults; before them, by section 5's order, the
+baseline (its build sheet below) and the spike. The node's `DOUBLE` half rests on the sampled
+regions and IEEE's rule as 3.1 says; `hash.smt2`'s blend claim comes with the hash steps. Owed on
+CI: the PR build and the option matrix (3.8).
+
+Prediction 5 of section 4, scored for this part: **held**. `dev/varka_regen_generated.sh --all`
+moved no shape in `emitted_bytes.json` and no row of `coverage.json`; it changed the family switch
+table's text in `docs/sql-varka.md` (the widened `covers`) and the laptop's JDK build string in
+`width_audit.json`. The side sequence is unpinned, so no committed fuzz block moved. Predictions 1
+to 4 and 6 are the hash's and stay open.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **The canonicalisation first, as its own part (337a1), before the baseline and the spike.**
+   Section 5 orders the baseline, the spike, then 337a. The baseline and the spike time `hash`
+   and `xxhash64`; the node alone is reachable from no query (0 item 4), so it has nothing to
+   time and nothing for the baseline to precede. Building it first keeps 337a under the size cap
+   and leaves the baseline's build sheet, which needs runner results, for the owner. The hash
+   steps stay after the baseline as planned.
+2. **The canonical NaN is a class-file constant**, `ldc` of `Float.NaN` or `Double.NaN`, which
+   the class-file API writes through `floatToIntBits` and `doubleToLongBits`
+   (`BufWriterImpl.java:241`, `:262` in jdk-25), so its bits are `0x7fc00000` and
+   `0x7ff8000000000000`, as 2.1 asks; no literal slot, so the node carries no literal and a shape
+   holding it keys on the node alone.
+3. **The NaN test is `test(IS_NAN)`** of the operand, the form item 5's admission checked, not
+   the `x != x` compare `rint`'s NaN blend uses; both select the same lanes.
+4. **The constructor refuses a canonicalisation child**, so every builder goes through
+   `CanonicalFloat.of` and a nested pair cannot be built by accident; `withChildren` rebuilds
+   through `of`, so a rebuilt node over a canonical child is that child.
+5. **`KnownFloatingPointNormalized` is unwrapped before `floatingDecline`**, at the start of
+   `compileNode`, rather than admitted there and claimed by an arm: it builds no node and is no
+   family's (2.3). The coverage suite lists it with the infrastructure classes, with the reason,
+   since no coverage row can hold it, which is open point 5's option (a) as the owner settled it.
+   `NormalizeNaNAndZero` lives in Spark's `optimizer` package, which the suite's class scan did
+   not resolve; the scan now resolves that package too, and the normaliser has the same entry for
+   the same reason.
+6. **The side sequence is one seed for both lanes**, 20261120, with the canonicalisation drawn by
+   a coin that only the flag draws, so the pinned `fuzz_float` and `fuzz_double` shapes do not
+   move; 341's sequences take the production over at row 352's refit.
+7. **Same answer**: the node and Spark's `NormalizeNaNAndZero` answer one fixed NaN, so
+   `VarkaSameAnswer` reads both as its `Canonical` step, `rint`'s.
+8. **A tagged column is forwarded.** `KnownFloatingPointNormalized` over a bare column, as a
+   projection entry, is classified as the column, forwarded with no kernel, as a bare column is.
+9. **The census needs stay `plumbing`.** `dev/varka_census.py --check` accepts `done` only where a
+   coverage row fuses the class, and no coverage row can hold either class (option (a)), so the
+   notes say what 337a1 built and the need column keeps its value.
+10. **The AVX2 width audit run is recorded, not regenerated.** Under `-XX:UseAVX=2` the census
+   differs from the committed AVX-512 file in 134 cells, all of them masked `BYTE` stores and
+   64-bit masks at two lanes, which AVX2 has no lowering for (`sql/varka/AGENTS.md`). None holds the
+   node. The committed file stays the AVX-512 host's.
+
 ## Build sheet (11 November 2026)
 
 The step this sheet builds is section 5's step 1, **the baseline class**, and nothing else: a

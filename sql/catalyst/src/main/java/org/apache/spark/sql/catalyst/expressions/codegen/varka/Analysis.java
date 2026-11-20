@@ -41,6 +41,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Boo
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
@@ -994,6 +995,7 @@ final class Analysis {
         case BitCount n -> { }
         case MathUnary n -> { }
         case RoundToIntegral n -> { }
+        case CanonicalFloat n -> { }
         case Compare n -> { }
         case NullSafeEqual n -> { }
         case BoolColumn n -> { }
@@ -1091,7 +1093,7 @@ final class Analysis {
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
           BitOp _, BitCount _, MathUnary _, RoundToIntegral _, Compare _, NullSafeEqual _,
-          BoolColumn _,
+          BoolColumn _, CanonicalFloat _,
           BoolCompare _,
           CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, CondValue _, NullValue _, BoolOutput _ -> false;
@@ -1441,6 +1443,7 @@ final class Analysis {
       case BitCount n -> wordOwner.get(n.child());
       case MathUnary n -> wordOwner.get(n.child());
       case RoundToIntegral n -> wordOwner.get(n.child());
+      case CanonicalFloat n -> wordOwner.get(n.child());
       case DayOfWeek n -> wordOwner.get(n.days());
       case WeekDay n -> wordOwner.get(n.days());
       case DayOfWeekIso n -> wordOwner.get(n.days());
@@ -1506,6 +1509,7 @@ final class Analysis {
       case BitCount n -> pureWord.get(n.child());
       case MathUnary n -> pureWord.get(n.child());
       case RoundToIntegral n -> pureWord.get(n.child());
+      case CanonicalFloat n -> pureWord.get(n.child());
       case Greatest n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case Least n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case DayOfWeek n -> pureWord.get(n.days());
@@ -1803,6 +1807,7 @@ final class Analysis {
       // A floating math function computes every lane and nulls none.
       case MathUnary n -> analyzeOp(node, false, n.child());
       case RoundToIntegral n -> analyzeOp(node, false, n.child());
+      case CanonicalFloat n -> analyzeOp(node, false, n.child());
       case ConstDivide n -> {
         // A division by a non-zero constant cannot overflow or null a lane, so it carries no
         // overflow mode and joins no validity: it is its child's word exactly, the way
