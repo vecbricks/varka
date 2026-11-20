@@ -266,6 +266,8 @@ final class VarkaSmtNodes {
       case NarrowLane n -> throw new Refused(n, "only the narrowing of a long to an int");
       // The decimal store writes its child's long unchanged (VarkaReference's rule).
       case WidenDecimal n -> child.apply(n.child());
+      case VarkaVectorIR.InterleaveDecimal n -> throw new Refused(n, "a decimal pair's store, "
+          + "whose two words decimal128.smt2 holds");
       case AddDays _, SubDays _, DateDiff _, DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _,
           ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
           TruncDate _, TruncDateDynamic _, WeekOfYear _, AddMonths _, MakeDate _, GuardedDay _,

@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.util.List;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InterleaveDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
@@ -109,7 +110,8 @@ public enum VarkaOperandPosition {
            RoundToIntegral _, CanonicalFloat _, CanonicalBits _, HashStep _, GuardedDay _,
            GuardedRange _,
            ConvertLane _, ReinterpretLane _,
-           WidenDecimal _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
+           WidenDecimal _, InterleaveDecimal _, Year _, Month _, DayOfMonth _, Quarter _,
+           DayOfYear _,
            LastDay _,
            TruncDate _, TruncDateDynamic _, WeekOfYear _,
            Compare _, NullSafeEqual _, And _, Or _, Not _, CrossLane _, IsNotNull _, InRanges _,
@@ -150,7 +152,8 @@ public enum VarkaOperandPosition {
            RoundToIntegral _, CanonicalFloat _, CanonicalBits _, HashStep _, GuardedDay _,
            GuardedRange _,
            WidenLane _, ConvertLane _, ReinterpretLane _,
-           NarrowLane _, WidenDecimal _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
+           NarrowLane _, WidenDecimal _, InterleaveDecimal _, Year _, Month _, DayOfMonth _,
+           Quarter _, DayOfYear _,
            LastDay _,
            TruncDate _, WeekOfYear _, Compare _, NullSafeEqual _, And _, Or _, Not _, CrossLane _,
            IsNotNull _,

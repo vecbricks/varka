@@ -88,12 +88,15 @@ public record CompiledVarkaProjection(
         if (bitmaps) {
           continue;
         }
-        int stored = switch (root.laneType()) {
-          case BYTE -> 1;
-          case SHORT -> 2;
-          case INT, FLOAT -> 4;
-          case LONG, DOUBLE -> 8;
-        };
+        // A wide decimal's two words are its type's sixteen bytes (VARKA-359); a decimal of
+        // 18 digits or fewer is its long, its type's eight.
+        int stored = root instanceof VarkaVectorIR.InterleaveDecimal ? 16
+            : switch (root.laneType()) {
+              case BYTE -> 1;
+              case SHORT -> 2;
+              case INT, FLOAT -> 4;
+              case LONG, DOUBLE -> 8;
+            };
         if (stored != outputTypes.get(i).defaultSize()) {
           throw VarkaErrors.illegalArgument("output " + i + " is stored " + stored
               + " bytes a row at the " + root.laneType() + " lane, but its type "

@@ -985,6 +985,76 @@ negation and `abs` (part 2); the measurement of the baseline's `IN`, `-x < y` an
 sections on the EPYC runners (part 2's, with the choice section); the pair-load node, the planted
 faults for row 504 and the op-count test (below).
 
+### 10.7 359b, part 2: the pair's store and its outputs (20 November 2026)
+
+*Branch `varka-359b-decimal128-store`, stacked on part 1's `varka-359-decimal128-lane-pair`.
+Local commits only.* 2.4's store and the outputs of every form `pair` builds.
+
+**Built.**
+
+1. **One IR node, `InterleaveDecimal(lo, hi)`**, a root only, rendering `(idec <lo> <hi>)`: the
+   store of a value's two words into Arrow's sixteen-byte slot. 2.4 planned "an output of two
+   roots bound to one output"; a root node of two children is the smaller change, since the
+   output binding, `CompiledVarkaProjection` and the evaluator all keep one root an output, and it
+   is the same shape as row 157's `WidenDecimal`, whose interleaved store
+   (`VarkaBodyEmitter.emitInterleavedStore`) it calls with a high word of its own. The walk parks
+   the high words in the store's locals and leaves the low words as a root's value; the output's
+   validity is the low word's, which every producer of a pair makes the value's. Every site that
+   lists the IR's nodes learned it (the analysis, the slots, the budget at 3, the cost model's
+   awaiting-refit list, the plan's two switches, the operand positions, the range analysis, the
+   same-answer walk, the chrono compiler's switch, and the test registries: the parser, the
+   reference, which refuses it as having no one long value, the guard specs, the grammar, the SMT
+   nodes, the variants' pool, the word census, the lane-type suite, the fuzz suite's lists, the
+   width audit's output buffers).
+2. **The admission.** `VarkaTypes.decimalOutputDeclineReason` refuses only a negative scale;
+   `VarkaDecimalCompiler.output` builds a wide output as its pair under the new root, and
+   `outputRoot`, the long's widening, refuses a wide type as a caller's error.
+   `CompiledVarkaProjection` takes the pair's store as sixteen bytes a row, its type's size.
+3. **Two long lanes on x86**: a pair output is refused there
+   (`VarkaKernelPlan.TWO_LANE_DECIMAL_PAIR_OUTPUT_REASON`), under row 596's mechanism and before
+   any measurement: the store's two two-vector rearranges are the same fallback the load's split
+   is, which 596 measured losing, and 597's rule is that no decimal-reading value runs slower than
+   the row path there. The refusal is the plan's, so a measurement that shows a win lifts it.
+4. **Coverage**: a family "DECIMAL lane pair values", seven outputs (`-d38`, `abs(d38)`, a choice,
+   a `CASE` without `ELSE`, `coalesce`, `greatest`, `least`).
+
+**Tests written.** `VarkaDecimalPairSuite.storedValues`: eleven outputs over a narrow-and-wide
+and a wide-and-wide pair of columns, plus `abs` at 19 digits and a choice with a 64-bit side, each
+compiled as a projection, run at 1, 2, 4 and 8 lanes over the word edges and every null pattern,
+its slots read back as two words and held to Spark's own expression. `storeAdmission`: the type
+admits every precision; the rendering. `VarkaTwoLaneConditionSuite.decimalPairOutput`: refused on
+the two-lane host, admitted elsewhere. Flipped: `VarkaTypesSuite` (a 19-digit output is admitted),
+`VarkaExpressionCompilerSuite` (a wide sum as an output names row 360; `outputRoot` refuses a
+wide type), `VarkaLaneArrowSuite` (the allocator builds every precision, and asserts on a negative
+scale).
+
+**Run in this window**: `catalyst/Test/compile` passed; `VarkaDecimalPairSuite` first failed
+`storedValues` on `CompiledVarkaProjection`'s width check (the pair's store counted as a long's
+eight bytes), fixed as item 2 says, then passed 12 of 12; `VarkaTwoLaneConditionSuite` passed 9 of
+9 in the same run. `sql/Test/compile` passed after the last change, and so did part 1's on its
+own head.
+
+**Predictions** (scored in the later phase):
+
+1. *The store's op count*: two rearranges and two stores over the walk's words, the same as row
+   157's store without its shift; `dev/varka_emit.sh "-d38"` reads the negation's six lane calls
+   and the load's ten beside them.
+2. *No existing shape's bytes move*: `WidenDecimal`'s store is unchanged.
+3. *At 256 bits on the EPYC 7763*, the baseline's `(38, 10)` choice section (`CASE WHEN x < y THEN
+   x ELSE y END`, `WHOLE` on this branch) is 10 to 30 times faster than the row
+   path's 390 ns a row, as the comparison filter is; at 128 bits it declines and ties.
+4. *The census*: still unchanged. `negative` and `abs` need the 64-bit decimal's outputs too
+   (row 348b), since a pair counts only when it fuses at every precision.
+
+The baseline's choice section at precision 38 is `WHOLE` on this branch (`NONE` under the
+two-lane refusal), so its plan check holds what this part fuses.
+
+**Not in this part**, owed: the EPYC measurement of every 359b
+section at both widths, the reference evaluator and the generic harness for a pair output (the
+suites that store one read its slots against Spark instead), `readOnlyBy`'s one class for
+`decimalStore` (the option now reaches the pair's store too, so the matrix's reach under-counts
+it), the pair-load node, the planted faults and the op-count test.
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **359b before the pair-load node.** 10.5 names the node as the next part, but its only proof is
@@ -1003,6 +1073,13 @@ faults for row 504 and the op-count test (below).
 5. **Branch cut from master, not from rows 360 to 363's branches**: nothing in this part uses their
    arithmetic; their stacks edit the same `pair` switch, so whichever merges second takes the
    other's arms beside its own.
+6. **The pair's store is one root node of two children**, not the two roots on one output 2.4
+   names: the output binding stays one root an output, and the node is `WidenDecimal`'s shape.
+   It is the one IR node this row adds, against 2.2's "never a pair node", which is about a
+   pair as a value inside the tree; this node is a root and nothing reads it.
+7. **A pair output declines at two long lanes on x86 before any measurement**, by rows 596 and
+   597's rule (the decimal slots' fallback, measured losing for the load); a measured win lifts
+   it.
 
 ## 11. 359a, the build plan (1 November 2026)
 

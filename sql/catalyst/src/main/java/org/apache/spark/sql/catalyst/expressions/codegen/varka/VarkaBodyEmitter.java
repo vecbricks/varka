@@ -37,6 +37,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.BitmapPa
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InterleaveDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
@@ -419,7 +420,7 @@ final class VarkaBodyEmitter {
       List<VarkaVectorIR> outputs, List<Integer> prologueOutputs, Analysis analysis, Slots s) {
     for (int o : prologueOutputs) {
       VarkaVectorIR root = outputs.get(o);
-      if (root instanceof WidenDecimal) {
+      if (root instanceof WidenDecimal || root instanceof InterleaveDecimal) {
         // A decimal output writes Arrow's sixteen-byte slot a row, whatever the driving lane's
         // stride; tested first, as a decimal input's segment is.
         loadDecimalSegment(cb, analysis, P_DST_DATA, o, s.dstSeg[o]);
@@ -1183,6 +1184,22 @@ final class VarkaBodyEmitter {
   }
 
   /**
+   * The store of an {@link InterleaveDecimal} root: {@code [low words] -> []}, its high words
+   * parked by the walk ({@code VarkaVectorWalk}), then the interleaved store of the two as
+   * {@link #emitDecimalStore} makes it of a long and its sign extension (`m8/VARKA-359.md` 2.4).
+   */
+  private static void emitDecimalPairStore(CodeBuilder cb, Analysis analysis, Slots s, int o,
+      VarkaVectorIR root) {
+    int[] tmp = s.decimalStoreTmp.get(root);
+    if (tmp == null || s.decimalZip == null) {
+      throw VarkaErrors.illegalState("a decimal pair output with no store planned: "
+          + VarkaVectorIR.canonical(root));
+    }
+    cb.astore(tmp[0]);                                          // lo; hi is tmp[1]
+    emitInterleavedStore(cb, analysis, s, o, tmp[0], tmp[1]);
+  }
+
+  /**
    * The interleaved store of two word vectors parked in {@code lo} and {@code hi}, row {@code r}'s
    * slot taking lane {@code r} of each: the two halves {@code out0} and {@code out1} of
    * {@link #emitDecimalStore}, whole in the loop and masked in the epilogue. It takes the high
@@ -1532,6 +1549,8 @@ final class VarkaBodyEmitter {
       Lane stored = Lane.of(root.laneType());
       if (root instanceof WidenDecimal) {
         emitDecimalStore(cb, analysis, s, o, root);
+      } else if (root instanceof InterleaveDecimal) {
+        emitDecimalPairStore(cb, analysis, s, o, root);
       } else if (root instanceof NarrowLane narrowRoot && narrowRoot.target().isNarrow()) {
         // A narrow-typed value computed on the int lane - a choice one of whose guards or
         // branches is int-typed (VARKA-329): the value arrived widened and is truncated once,

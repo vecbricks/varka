@@ -237,6 +237,12 @@ public final class VarkaKernelPlan {
       + "C2 lowers no mask or two-vector rearrange there, so the decimal slots' load and check "
       + "and the compare would run the Vector API's Java fallback, slower than the row engine";
 
+  /** The refusal of a decimal output wider than 18 digits at two long lanes (VARKA-359). */
+  public static final String TWO_LANE_DECIMAL_PAIR_OUTPUT_REASON = "a DECIMAL output wider than "
+      + "18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store "
+      + "interleaves its two words with two-vector rearranges, which C2 does not lower there, so "
+      + "the store would run the Vector API's Java fallback, as the decimal slots' load does";
+
   /**
    * Whether {@code host}, read on this JVM, runs every mask of a 64-bit species as the Vector
    * API's Java fallback: {@link #twoLaneMasksFallBack(VarkaHostIsa.Reading, int)} of the reading
@@ -339,7 +345,10 @@ public final class VarkaKernelPlan {
    * {@code DECIMAL(20, 2)}, on the EPYC 7763 as on the laptop, while {@code l < l2} over
    * {@code BIGINT}, whose load is one plain vector, ran at 1.6X and more, and {@code x < x2} over
    * {@code DOUBLE} tied ({@code m8/results/VARKA-596/}). A refused output leaves the other entries
-   * to fuse.
+   * to fuse. A decimal output of the lane pair ({@link VarkaVectorIR.InterleaveDecimal}) is
+   * refused there too, by the same mechanism and before any measurement: its store is the two
+   * two-vector rearranges the load's split is, and its words read a decimal column's slots in
+   * every form but a constant's (`m8/VARKA-359.md` 10.7).
    */
   private static Optional<Refusal> hostRefusal(List<VarkaVectorIR> roots, VarkaKernelPlan plan) {
     if (plan.drive.bits() != 64) {
@@ -351,6 +360,10 @@ public final class VarkaKernelPlan {
       }
       if (root instanceof VarkaVectorIR.BoolOutput && readsDecimal(root, new HashSet<>())) {
         return Optional.of(new Refusal(Kind.TWO_LANE_CONDITION, TWO_LANE_DECIMAL_VALUE_REASON));
+      }
+      if (root instanceof VarkaVectorIR.InterleaveDecimal) {
+        return Optional.of(new Refusal(Kind.TWO_LANE_CONDITION,
+            TWO_LANE_DECIMAL_PAIR_OUTPUT_REASON));
       }
     }
     return Optional.empty();
@@ -827,7 +840,8 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _,
           VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _,
           VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _, VarkaVectorIR.NullValue _,
-          ConvertLane _, ReinterpretLane _ ->
+          VarkaVectorIR.InterleaveDecimal _, ConvertLane _,
+          ReinterpretLane _ ->
           LongNarrowRole.NONE;
     };
   }
@@ -882,7 +896,8 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.Least _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,
           VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _,
           VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _,
-          VarkaVectorIR.NullValue _, ConvertLane _, ReinterpretLane _ ->
+          VarkaVectorIR.NullValue _, VarkaVectorIR.InterleaveDecimal _, ConvertLane _,
+          ReinterpretLane _ ->
           LongNarrowReader.NONE;
     };
   }

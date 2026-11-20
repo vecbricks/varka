@@ -88,7 +88,8 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.HashStep,
             VarkaVectorIR.GuardedDay, VarkaVectorIR.GuardedRange, VarkaVectorIR.WidenLane,
             VarkaVectorIR.ConvertLane, VarkaVectorIR.ReinterpretLane,
-            VarkaVectorIR.NarrowLane, VarkaVectorIR.WidenDecimal {
+            VarkaVectorIR.NarrowLane, VarkaVectorIR.WidenDecimal,
+            VarkaVectorIR.InterleaveDecimal {
 
   /**
    * The physical lane a node's value occupies, a kind and a width: {@code BYTE} is an 8-bit
@@ -205,6 +206,7 @@ public sealed interface VarkaVectorIR
       case ReinterpretLane n -> n.target();
       case NarrowLane n -> n.target();
       case WidenDecimal n -> n.child().laneType();
+      case InterleaveDecimal n -> LaneType.LONG;
       case DayOfWeek n -> LaneType.INT;
       case WeekDay n -> LaneType.INT;
       case DayOfWeekIso n -> LaneType.INT;
@@ -247,7 +249,8 @@ public sealed interface VarkaVectorIR
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
           ConvertLane _, ReinterpretLane _,
-          NarrowLane _, WidenDecimal _, DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _,
+          NarrowLane _, WidenDecimal _, InterleaveDecimal _, DayOfWeek _, WeekDay _,
+          DayOfWeekIso _, NextDay _,
           ThursdayOf _,
           AddMonths _, MakeDate _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
           LastDay _, TruncDate _, TruncDateDynamic _, WeekOfYear _ -> -1;
@@ -342,7 +345,8 @@ public sealed interface VarkaVectorIR
       }
       case LiteralSlot _, BoolColumn _, CondConst _, DecimalColumn _, DecimalWord _,
           NullValue _ -> { }
-      case WidenLane _, NarrowLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _,
+      case WidenLane _, NarrowLane _, ConvertLane _, WidenDecimal _, InterleaveDecimal _,
+          AddDays _, SubDays _,
           ReinterpretLane _, AddMonths _,
           MakeDate _, IntArith _, IntNeg _, GuardedDay _, GuardedRange _, NextDay _,
           TruncDateDynamic _,
@@ -389,7 +393,8 @@ public sealed interface VarkaVectorIR
       case LiteralSlot l -> l.laneType().isNarrow();
       case BoolColumn _, CondConst _, DecimalColumn _, DecimalWord _, NullValue _ -> false;
       case NarrowLane n -> n.target().isNarrow() || needsNarrowSpecies(n.child(), seen);
-      case WidenLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _, AddMonths _,
+      case WidenLane _, ConvertLane _, WidenDecimal _, InterleaveDecimal _, AddDays _, SubDays _,
+          AddMonths _,
           ReinterpretLane _, MakeDate _,
           IntArith _, IntNeg _,
           GuardedDay _, GuardedRange _, NextDay _, TruncDateDynamic _, DateDiff _, Greatest _,
@@ -1125,6 +1130,37 @@ public sealed interface VarkaVectorIR
     }
 
     public WidenDecimal(VarkaVectorIR child) { this(child, 0); }
+    @Override public int hashCode() { return hash; }
+  }
+
+  /**
+   * A {@code DECIMAL(p, s)} output of precision 19 to 38, written from the two words of its
+   * unscaled value {@code v = hi * 2^64 + lo} (`m8/VARKA-359.md` 2.4): row {@code r}'s slot takes
+   * lane {@code r} of {@code lo} and then lane {@code r} of {@code hi}, the interleave
+   * {@link WidenDecimal}'s store makes of a long and its sign extension, here with a high word of
+   * its own. Both children are long-lane values; the compiler builds them as one value's words,
+   * so they are valid on the same rows, and the output's validity is the low word's, which every
+   * producer of a pair makes the value's own. An output root and nothing else, refused below a
+   * root and in a kernel not driven at the long lane, as {@link WidenDecimal} is. Its rendering
+   * is {@code (idec <lo> <hi>)}.
+   */
+  record InterleaveDecimal(VarkaVectorIR lo, VarkaVectorIR hi, int hash)
+      implements VarkaVectorIR {
+    public InterleaveDecimal {
+      for (VarkaVectorIR w : new VarkaVectorIR[] {lo, hi}) {
+        if (w.laneType() != LaneType.LONG) {
+          throw VarkaErrors.illegalArgument("a decimal's words are long-lane values, not a "
+              + w.laneType() + " one from a " + w.getClass().getSimpleName());
+        }
+        if (w instanceof Cond) {
+          throw VarkaErrors.illegalArgument("a decimal's words are values, not the condition "
+              + w);
+        }
+      }
+      hash = hashOf(lo, hi);
+    }
+
+    public InterleaveDecimal(VarkaVectorIR lo, VarkaVectorIR hi) { this(lo, hi, 0); }
     @Override public int hashCode() { return hash; }
   }
 
@@ -2499,6 +2535,7 @@ public sealed interface VarkaVectorIR
           + ")";
       case NarrowLane n -> "(narrow:" + n.target().name() + " " + kid.apply(n.child()) + ")";
       case WidenDecimal n -> "(wdec " + kid.apply(n.child()) + ")";
+      case InterleaveDecimal n -> "(idec " + kid.apply(n.lo()) + " " + kid.apply(n.hi()) + ")";
       case DateDiff n -> "(dateDiff " + kid.apply(n.end()) + " " + kid.apply(n.start()) + ")";
       case Compare n ->
           "(cmp:" + n.op().name() + " " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
@@ -2610,6 +2647,8 @@ public sealed interface VarkaVectorIR
       case ReinterpretLane n -> "(bits:" + n.target().name() + " "
           + lineOf.applyAsInt(n.child()) + ")";
       case WidenDecimal n -> "(wdec " + lineOf.applyAsInt(n.child()) + ")";
+      case InterleaveDecimal n -> "(idec " + lineOf.applyAsInt(n.lo()) + " "
+          + lineOf.applyAsInt(n.hi()) + ")";
       case DateDiff n -> "(dateDiff " + lineOf.applyAsInt(n.end()) + " "
           + lineOf.applyAsInt(n.start()) + ")";
       case Compare n -> "(cmp:" + n.op().name() + " " + lineOf.applyAsInt(n.left()) + " "
@@ -2933,6 +2972,7 @@ public sealed interface VarkaVectorIR
       case ReinterpretLane n -> new VarkaVectorIR[] {n.child()};
       case NarrowLane n -> new VarkaVectorIR[] {n.child()};
       case WidenDecimal n -> new VarkaVectorIR[] {n.child()};
+      case InterleaveDecimal n -> new VarkaVectorIR[] {n.lo(), n.hi()};
       case DateDiff n -> new VarkaVectorIR[] {n.end(), n.start()};
       case DayOfWeek n -> new VarkaVectorIR[] {n.days()};
       case WeekDay n -> new VarkaVectorIR[] {n.days()};
@@ -3017,6 +3057,7 @@ public sealed interface VarkaVectorIR
       case ReinterpretLane n -> new ReinterpretLane(children[0], n.target());
       case NarrowLane n -> new NarrowLane(children[0], n.target());
       case WidenDecimal n -> new WidenDecimal(children[0]);
+      case InterleaveDecimal n -> new InterleaveDecimal(children[0], children[1]);
       case DateDiff n -> new DateDiff(children[0], children[1]);
       case DayOfWeek n -> new DayOfWeek(children[0]);
       case WeekDay n -> new WeekDay(children[0]);

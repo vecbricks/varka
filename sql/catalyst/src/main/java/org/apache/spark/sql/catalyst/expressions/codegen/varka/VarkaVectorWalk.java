@@ -90,6 +90,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Truth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InterleaveDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
@@ -376,6 +377,20 @@ final class VarkaVectorWalk {
         // The value is the child's; the root's store widens it into the slots
         // (VarkaBodyEmitter.emitDecimalStore). The word is the child's.
         emitValue(cb, n.child(), dense, analysis, s, computed);
+        line(cb, analysis, node);
+      }
+      case InterleaveDecimal n -> {
+        // The high words are parked for the root's store, and the low words are left on the
+        // stack as a value root's are (VarkaBodyEmitter.emitDecimalPairStore). The word is the
+        // low word's.
+        int[] tmp = s.decimalStoreTmp.get(node);
+        if (tmp == null) {
+          throw VarkaErrors.illegalState("a decimal pair output with no store planned: "
+              + VarkaVectorIR.canonical(node));
+        }
+        emitValue(cb, n.hi(), dense, analysis, s, computed);
+        cb.astore(tmp[1]);
+        emitValue(cb, n.lo(), dense, analysis, s, computed);
         line(cb, analysis, node);
       }
       case GuardedRange n -> {

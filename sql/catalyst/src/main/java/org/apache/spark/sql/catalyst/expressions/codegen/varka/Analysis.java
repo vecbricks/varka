@@ -92,6 +92,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InterleaveDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
@@ -976,6 +977,7 @@ final class Analysis {
         case ReinterpretLane n -> { }
         case NarrowLane n -> { }
         case WidenDecimal n -> { }
+        case InterleaveDecimal n -> { }
         case NextDay n -> { }
         case TruncDateDynamic n -> { }
         case DateDiff n -> { }
@@ -1098,7 +1100,8 @@ final class Analysis {
       // into "not ring" and leaving an unreduced int value for its readers.
       case ColumnRef _, DecimalColumn _, DecimalWord _, LiteralSlot _, WidenLane _,
           NarrowLane _, ConvertLane _, ReinterpretLane _,
-          WidenDecimal _, AddDays _, SubDays _, AddMonths _, MakeDate _, GuardedDay _,
+          WidenDecimal _, InterleaveDecimal _, AddDays _, SubDays _, AddMonths _, MakeDate _,
+          GuardedDay _,
           GuardedRange _, NextDay _,
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
@@ -1472,6 +1475,8 @@ final class Analysis {
       case ReinterpretLane n -> wordOwner.get(n.child());
       case NarrowLane n -> wordOwner.get(n.child());
       case WidenDecimal n -> wordOwner.get(n.child());
+      // A pair's words are valid on the same rows, and the low word's is the value's.
+      case InterleaveDecimal n -> wordOwner.get(n.lo());
       case Year n -> wordOwner.get(n.days());
       case Month n -> wordOwner.get(n.days());
       case DayOfMonth n -> wordOwner.get(n.days());
@@ -1550,6 +1555,7 @@ final class Analysis {
       case ReinterpretLane n -> pureWord.get(n.child());
       case NarrowLane n -> pureWord.get(n.child());
       case WidenDecimal n -> pureWord.get(n.child());
+      case InterleaveDecimal n -> pureWord.get(n.lo());
       case Year n -> pureWord.get(n.days());
       case Month n -> pureWord.get(n.days());
       case DayOfMonth n -> pureWord.get(n.days());
@@ -1754,6 +1760,14 @@ final class Analysis {
               + " emission: the store interleaves long lanes");
         }
         analyzeOp(node, false, n.child());
+      }
+      // The pair's store, the same interleave over a high word of its own.
+      case InterleaveDecimal n -> {
+        if (lane != Lane.LONG) {
+          throw VarkaErrors.illegalArgument("a decimal output in a " + lane.laneType
+              + " emission: the store interleaves long lanes");
+        }
+        analyzeOp(node, false, n.lo(), n.hi());
       }
       case GuardedRange n -> {
         // At a narrow or the int lane the bounds have to be what the lane can compare against;
@@ -1995,7 +2009,7 @@ final class Analysis {
       }
       // Nor is a decimal output anything but a root: no operator over a decimal value consumes
       // it yet, and its store is the root's (VARKA-157 2.1).
-      if (child instanceof WidenDecimal) {
+      if (child instanceof WidenDecimal || child instanceof InterleaveDecimal) {
         throw VarkaErrors.illegalArgument("a decimal output below a root, under "
             + node.getClass().getSimpleName() + ": " + child);
       }

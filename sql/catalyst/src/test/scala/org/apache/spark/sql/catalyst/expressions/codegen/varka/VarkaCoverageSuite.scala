@@ -1635,6 +1635,20 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         + "or where both are valid and the pick is not smaller, once per word"),
       Row("least(d38, d19) <= 0.00"))),
 
+    // The lane pair's values as outputs (VARKA-359): the two words are written into Arrow's
+    // sixteen-byte slot, row r's slot taking lane r of the low words and then of the high words,
+    // by the store row 157 built for a long and its sign extension, here with a high word of the
+    // value's own. At two long lanes on x86 the store's interleaves are the Java fallback, so an
+    // output declines there.
+    Family("DECIMAL lane pair values", predicates = false, Seq(
+      Row("-d38", "lo' = -lo and hi' = ~hi + (lo = 0), stored as the two words"),
+      Row("abs(d38)"),
+      Row("IF(d18 > 0.00, d38, d38b)", "each word chosen under one condition"),
+      Row("CASE WHEN d38 < 0.00 THEN d38b END", "a missing ELSE is a null in each word"),
+      Row("coalesce(d38, d19)"),
+      Row("greatest(d38, d38b)"),
+      Row("least(d38, d38b, d19)"))),
+
     // Decimal +, - and * whose result stays within 18 digits (VARKA-349), under a comparison:
     // a sum or difference is one long add or subtract of the operands rescaled to the result's
     // scale, a product one long multiply. Within 18 digits the exact result always fits Spark's
@@ -2330,6 +2344,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "Boolean columns choosing values" -> Differential,
     // The pair's comparisons and the sign extension, in both of the file's layers (VARKA-359).
     "DECIMAL lane pair" -> Proved("decimal128.smt2"),
+    // The negation and abs words are the carry layer's; the choices are differential (below).
+    "DECIMAL lane pair values" -> Proved("decimal128.smt2"),
     // The 64-bit decimal rows, each refined whole from the IR the compiler builds (VARKA-506).
     "DECIMAL columns" -> Rendered,
     "DECIMAL arithmetic" -> Rendered,
@@ -2347,7 +2363,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val pairValues = Seq(
     "d38 IN (1.00, 12345678901234567890, -0.50)", "IF(d18 > 0.00, d38, d19) < d38b",
     "CASE WHEN d38 < 0.00 THEN d38b END <=> d38", "coalesce(d38, d19) = d38b",
-    "greatest(d38, d38b) > 0.00", "least(d38, d19) <= 0.00")
+    "greatest(d38, d38b) > 0.00", "least(d38, d19) <= 0.00",
+    "IF(d18 > 0.00, d38, d38b)", "CASE WHEN d38 < 0.00 THEN d38b END", "coalesce(d38, d19)",
+    "greatest(d38, d38b)", "least(d38, d38b, d19)")
 
   // VarkaEmitterNarrowSuite's byte square sweeps every TINYINT pair through the comparisons and
   // the picks, but over values only, with no null row, and its IN is a range set where the rows

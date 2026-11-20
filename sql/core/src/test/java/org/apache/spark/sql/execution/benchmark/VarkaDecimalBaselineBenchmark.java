@@ -147,8 +147,9 @@ import org.apache.spark.sql.internal.SQLConf;
  * their sections, one of each in every density, are {@code WHOLE} too, and so are the three
  * arithmetic filters at both densities (VARKA-349). The lane pair's reading half (VARKA-359)
  * fuses whole the comparison at precision 38 and, at 38 and 20, {@code x <=> y},
- * {@code x IS NULL} and the projected {@code x < y}, and its value half's conditions
- * {@code x IN (c1, c2, c3)}, {@code -x < y} and {@code abs(x) < y} as well; the two filters of
+ * {@code x IS NULL} and the projected {@code x < y}, its value half's conditions
+ * {@code x IN (c1, c2, c3)}, {@code -x < y} and {@code abs(x) < y}, and the choice at precision
+ * 38 as an output, through the pair's store; the two filters of
  * rows 360 and 361, whose sum and product no lowering computes yet, are {@code NONE}: of each,
  * only the null tests Spark infers would fuse, and a filter fusing nothing else stays whole on
  * the row path (VARKA-598). A session that
@@ -584,9 +585,12 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
         out.add(new Section(type + " cast to " + castTo + ", " + density,
             "SELECT CAST(" + x + " AS " + castTo + ") AS a FROM varka_decimal",
             p.precision() == 9 ? Fusion.WHOLE : Fusion.NONE));
+        // Past 18 digits the choice as an output fuses over the lane pair's words and its store
+        // (VARKA-359), and declines at two long lanes as every pair output does.
+        Fusion choice = longLane ? Fusion.WHOLE : fusedFilter;
         out.add(new Section(type + " choice, " + density,
             "SELECT CASE WHEN " + x + " < " + y + " THEN " + x + " ELSE " + y
-                + " END AS a FROM varka_decimal", longLane ? Fusion.WHOLE : Fusion.NONE));
+                + " END AS a FROM varka_decimal", choice));
       }
     }
     for (Density d : Density.values()) {

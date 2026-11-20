@@ -61,6 +61,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InterleaveDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
@@ -776,11 +777,11 @@ final class VarkaDecimalCompiler {
   }
 
   /**
-   * The value of a wide decimal {@code IN} as its {@link Pair}, or empty with the reason noted:
-   * a rescale into the wide common type, the cast coercion puts over a value of a smaller scale,
-   * names rows 359 and 360 as a comparison's side does ({@link #compared}).
+   * A wide decimal {@code IN}'s value or a wide output as its {@link Pair}, or empty with the
+   * reason noted: a rescale into the wide type, the cast coercion puts over a value of a smaller
+   * scale, names rows 359 and 360 as a comparison's side does ({@link #compared}).
    */
-  static Optional<Pair> wideInValue(Expression value, VarkaSlotTable inputs,
+  static Optional<Pair> wideOperand(Expression value, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
     if (!value.foldable() && rescalesIntoWide(value)) {
       return sink.decline(wideReason(value, (DecimalType) value.dataType()), value);
@@ -893,10 +894,12 @@ final class VarkaDecimalCompiler {
 
   /**
    * A decimal-valued output root, or empty with the reason noted (`VARKA-157.md` 2.1,
-   * `VARKA-348.md` 2.4): the output's type is asked first, so a precision above 18 or a negative
-   * scale declines naming its row at plan time, whatever the expression; then the value is
-   * compiled by {@link #value}, as under a comparison, and wrapped by {@link #widened}. Every
-   * form {@link #value} builds is within its type's precision, so the store needs no check.
+   * `VARKA-348.md` 2.4): the output's type is asked first, so a negative scale declines at plan
+   * time, whatever the expression. A type wider than 18 digits is the value's {@link Pair},
+   * every form {@link #pair} builds, stored by an {@link InterleaveDecimal} root
+   * (`m8/VARKA-359.md` 2.4). Within 18 digits the value is compiled by {@link #value}, as under
+   * a comparison, and wrapped by {@link #widened}. Every form either builds is within its type's
+   * precision, so the store needs no check.
    */
   static Optional<VarkaVectorIR> output(Expression e, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
@@ -909,6 +912,10 @@ final class VarkaDecimalCompiler {
     // before the entry's tables can be rolled back to its marks.
     sink.enterDecimal();
     try {
+      if (isWide(e)) {
+        return wideOperand(e, inputs, literals, sink)
+            .map(p -> new InterleaveDecimal(p.lo(), p.hi()));
+      }
       return value(e, inputs, literals, sink).flatMap(v -> widened(e, v, sink));
     } finally {
       sink.exitDecimal();
@@ -934,10 +941,10 @@ final class VarkaDecimalCompiler {
    * The output root of {@code value}, the unscaled long-lane value of the decimal-valued
    * {@code whole}, or empty with the reason noted: {@code WidenDecimal(value)}, whose store writes
    * each row's word and its sign extension into the output's sixteen-byte slot, where the
-   * output's type admits that store ({@code VarkaTypes.decimalOutputDeclineReason}), and a
-   * decline naming row 359 for a precision above 18, so such a shape never fuses rather than
-   * reaching the evaluator's allocator, which refuses it too. The binding that knows an output's
-   * type calls it, through {@link #output}, and only for an output root (`VARKA-157.md` 2.1).
+   * output's type admits that store ({@code VarkaTypes.decimalOutputDeclineReason}) and is of
+   * 18 digits or fewer; a wider type is {@link #output}'s pair, whose store writes its own high
+   * words. The binding that knows an output's type calls it, through {@link #output}, and only
+   * for an output root (`VARKA-157.md` 2.1).
    */
   static Optional<VarkaVectorIR> outputRoot(Expression whole, VarkaVectorIR value,
       DeclineSink sink) {
@@ -948,6 +955,10 @@ final class VarkaDecimalCompiler {
     Optional<String> refused = VarkaTypes.decimalOutputDeclineReason(type);
     if (refused.isPresent()) {
       return sink.decline(refused.get(), whole);
+    }
+    if (type.precision() > MAX_PRECISION) {
+      throw VarkaErrors.illegalArgument("a " + type.simpleString() + " output is stored from "
+          + "its two words, not widened from a long: " + whole);
     }
     return Optional.of(new WidenDecimal(value));
   }

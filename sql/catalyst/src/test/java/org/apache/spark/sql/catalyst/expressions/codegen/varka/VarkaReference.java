@@ -125,6 +125,8 @@ public final class VarkaReference {
       case NarrowLane n -> map(n.child(), row, isNull, lits, v -> narrow(n.target(), v));
       case WidenDecimal n ->
           throw new IllegalArgumentException("a decimal output is on the long lane: " + n);
+      case VarkaVectorIR.InterleaveDecimal n ->
+          throw new IllegalArgumentException("a decimal pair output is on the long lane: " + n);
       // Widening a narrow child into the int lane changes no value: the column's stored byte or
       // short sign-extends to the drawn int, which is the row this evaluator reads (VARKA-329).
       // A widening into the long lane is still the mixed evaluator's.
@@ -602,6 +604,10 @@ public final class VarkaReference {
         }
         yield c;
       }
+      // A pair's output is two words, no one long; the suites that store one read its slots
+      // against Spark's own answer (VarkaDecimalPairSuite).
+      case VarkaVectorIR.InterleaveDecimal n -> throw new IllegalArgumentException(
+          "a decimal pair output has no one long value: " + VarkaVectorIR.canonical(n));
       case WidenLane n -> throw new IllegalArgumentException(
           "a widening reads int rows, and is evaluated through mixedValue: " + n);
       case ConvertLane n -> throw new IllegalArgumentException(
