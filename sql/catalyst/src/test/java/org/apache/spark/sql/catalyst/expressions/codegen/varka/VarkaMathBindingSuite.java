@@ -19,17 +19,12 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -55,7 +50,7 @@ public final class VarkaMathBindingSuite {
   private static final long CHILD_TIMEOUT_SECONDS = 120L;
 
   private static final Pattern HOST =
-      Pattern.compile("^HOST arch=(\\S+) os=(\\S+) avx=(\\d+) max=(\\d+) property=(\\S+)$");
+      Pattern.compile("^HOST arch=(\\S+) os=(\\S+) avx=(\\d+) max=(\\d+) property=(.*)$");
   private static final Pattern TOUCH = Pattern.compile("^TOUCH (\\w+) (\\d+)$");
   private static final Pattern BOUND =
       Pattern.compile("^DEBUG: VectorMathLibrary: (\\w+) (\\S+) => 0x[0-9a-f]+$");
@@ -115,29 +110,28 @@ public final class VarkaMathBindingSuite {
 
   @Test
   @DisplayName("this JVM binds exactly the symbols the resolver names, at every species it has")
-  void thisJvmBindsWhatTheResolverNames() throws IOException, InterruptedException {
-    Map<String, String> bound = check(List.of());
-    // On the architectures CI runs the JDK binds a library, so an empty answer would mean the
-    // probe reached no binding at all rather than agreement.
-    String arch = System.getProperty("os.arch");
-    if (VarkaHostIsa.isX86(arch) || "aarch64".equals(arch)) {
-      assertTrue(!bound.isEmpty(), "no operator bound on " + arch);
+  void thisJvmBindsWhatTheResolverNames() throws IOException {
+    Probed probed = check(List.of());
+    // Where the resolver names a library the JDK binds operators, so an empty answer there would
+    // mean the probe reached no binding at all rather than agreement.
+    if (probed.host().library() != VarkaMathBinding.Library.NONE) {
+      assertTrue(!probed.bound().isEmpty(), "no operator bound on " + probed.host());
     }
   }
 
   @Test
   @DisplayName("with the library property set to java this JVM binds no operator at all")
-  void javaLibraryBindsNothing() throws IOException, InterruptedException {
-    Map<String, String> bound = check(List.of("-D" + VarkaMathBinding.LIBRARY_PROPERTY + "=java"));
-    assertEquals(Map.of(), bound);
+  void javaLibraryBindsNothing() throws IOException {
+    Probed probed = check(List.of("-D" + VarkaMathBinding.LIBRARY_PROPERTY + "=java"));
+    assertEquals(Map.of(), probed.bound());
   }
 
-  /**
-   * Runs the probe with {@code flags} and holds what the JDK bound to the resolver; returns the
-   * bound symbols by {@code <operator> <bits>}.
-   */
-  private static Map<String, String> check(List<String> flags)
-      throws IOException, InterruptedException {
+  /** The host a probe printed, and the symbols the JDK bound by {@code <operator> <bits>}. */
+  private record Probed(Host host, Map<String, String> bound) {
+  }
+
+  /** Runs the probe with {@code flags} and holds what the JDK bound to the resolver. */
+  private static Probed check(List<String> flags) throws IOException {
     List<String> out = fork(flags);
     Host host = null;
     var bound = new TreeMap<String, String>();
@@ -171,38 +165,18 @@ public final class VarkaMathBindingSuite {
           .ifPresent(s -> expected.put(key, s));
     }
     assertEquals(expected, bound, "the JDK's bindings on " + host);
-    return bound;
+    return new Probed(host, bound);
   }
 
-  private static List<String> fork(List<String> flags) throws IOException, InterruptedException {
-    // The child's code runs where the class-use record does not see it.
-    VarkaTestUse.childJvm();
-    var command = new ArrayList<String>();
-    command.add(new File(new File(System.getProperty("java.home"), "bin"), "java").getPath());
-    command.add("--add-modules");
-    command.add("jdk.incubator.vector");
-    command.add("--enable-native-access=ALL-UNNAMED");
-    command.add("-Djdk.incubator.vector.DEBUG=true");
-    command.addAll(flags);
-    command.add("-cp");
-    String dist = System.getenv("SPARK_DIST_CLASSPATH");
-    command.add(dist != null && !dist.isEmpty() ? dist : System.getProperty("java.class.path"));
-    command.add(VarkaMathBindingProbe.class.getName());
-    Path log = Files.createTempFile("varka-math-binding", ".txt");
-    try {
-      Process process = new ProcessBuilder(command).redirectErrorStream(true)
-          .redirectOutput(log.toFile()).start();
-      if (!process.waitFor(CHILD_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-        process.destroyForcibly();
-        throw new IllegalStateException("the binding probe did not finish within "
-            + CHILD_TIMEOUT_SECONDS + " s");
-      }
-      List<String> out = Files.readAllLines(log, StandardCharsets.UTF_8);
-      assertEquals(0, process.exitValue(), () -> "the binding probe failed:\n"
-          + String.join("\n", out));
-      return out;
-    } finally {
-      Files.deleteIfExists(log);
-    }
+  private static List<String> fork(List<String> flags) throws IOException {
+    var jvmFlags = new ArrayList<String>();
+    jvmFlags.add("-Djdk.incubator.vector.DEBUG=true");
+    jvmFlags.addAll(flags);
+    var out = new ArrayList<String>();
+    // The shared launcher destroys the child on its budget and on the watchdog's interrupt.
+    VarkaChildProcess.run("VarkaMathBindingSuite's binding probe", new ProcessBuilder(
+        VarkaChildProcess.javaCommand(jvmFlags, VarkaMathBindingProbe.class.getName(),
+            List.of())), CHILD_TIMEOUT_SECONDS, out::add).requireSuccess(true);
+    return out;
   }
 }

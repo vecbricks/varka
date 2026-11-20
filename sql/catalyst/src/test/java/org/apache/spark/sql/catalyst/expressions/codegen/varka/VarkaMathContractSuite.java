@@ -141,7 +141,10 @@ public final class VarkaMathContractSuite {
         good.replace("0x3ff0000000000001", "1.0000000000000002"),
         good.replace("\t1\t0x", "\t-1\t0x"),
         good + "\textra",
-        good.replace("\t130\t", "\t16777217\t"))) {
+        good.replace("\t130\t", "\t16777217\t"),
+        // Another operator's symbol, or another width's, is not this line's.
+        good.replace("__jsvml_sin4", "__jsvml_cos4"),
+        good.replace("\t256\t", "\t512\t"))) {
       assertThrows(IllegalArgumentException.class, () -> MeasuredLine.parse("epyc", bad), bad);
     }
     // A binary operator's input is the pair, and no other witness holds two words.

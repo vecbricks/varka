@@ -163,7 +163,8 @@ jobs:
         name: operator-census-${{ matrix.arch }}
         path: sql/varka/operator_census.json
     - name: Check the math library binding
-      if: matrix.arch == 'aarch64'
+      # !cancelled(): a census step that failed above does not skip this one.
+      if: ${{ !cancelled() && matrix.arch == 'aarch64' }}
       # The math family's binding check (VarkaMathBindingSuite, VARKA-345.md 2.5): a JVM run
       # with the vector DEBUG property names the symbol the JDK binds each math operator to at
       # each species, and the suite holds them to VarkaMathBinding's resolver. The pull request's

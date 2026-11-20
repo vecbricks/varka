@@ -109,8 +109,9 @@ public final class VarkaMathContract {
         throw VarkaErrors.illegalArgument("not a measured line: " + library + " at " + bits
             + " bits, " + differing + " of " + inputs + " lanes, " + largestSteps + " steps");
       }
-      if (symbol.startsWith("__jsvml_") != (library == VarkaMathBinding.Library.SVML)) {
-        throw VarkaErrors.illegalArgument("the symbol " + symbol + " is not " + library + "'s");
+      if (!names(symbol, library, function, bits)) {
+        throw VarkaErrors.illegalArgument("the symbol " + symbol + " is not " + library + "'s "
+            + function.symbolName() + " at " + bits + " bits");
       }
       boolean none = differing == 0;
       if ((none && largestSteps != 0) || !witness(witnessInput, none, function.binary() ? 2 : 1)
@@ -119,6 +120,20 @@ public final class VarkaMathContract {
             + " where a lane differed and - where none did: " + witnessInput + " "
             + witnessLibrary + " " + witnessRowEngine);
       }
+    }
+
+    /**
+     * Whether {@code symbol} is {@code library}'s name for {@code function} at {@code bits}, as
+     * {@link VarkaMathBinding} names it: SVML's {@code __jsvml_<op><lanes>_}, SLEEF's
+     * {@code <op>d<lanes>_} or, for a scalable species, {@code <op>dx_}.
+     */
+    private static boolean names(String symbol, VarkaMathBinding.Library library,
+        Operator function, int bits) {
+      String op = function.symbolName();
+      int lanes = bits / 64;
+      return Integer.bitCount(bits) == 1 && (library == VarkaMathBinding.Library.SVML
+          ? symbol.startsWith("__jsvml_" + op + lanes + "_")
+          : symbol.startsWith(op + "d" + lanes + "_") || symbol.startsWith(op + "dx_"));
     }
 
     private static boolean witness(String text, boolean none, int words) {

@@ -95,7 +95,12 @@ for a in "$@"; do
   case "$a" in
     --asm) asm=1 ;;
     --width=*) width="${a#--width=}" ;;
-    --jvm-arg=*) jvm+=", \"${a#--jvm-arg=}\"" ;;
+    --jvm-arg=*)
+      # The flag is pasted into a Scala string literal of an sbt `set`, so it cannot hold one.
+      case "$a" in
+        *'"'*|*'\'*|*'$'*) echo "--jvm-arg cannot hold \", \\ or \$: $a" >&2; exit 2 ;;
+      esac
+      jvm+=", \"${a#--jvm-arg=}\"" ;;
     *) pass+=("$a") ;;
   esac
 done
@@ -123,9 +128,10 @@ if [ "$asm" -eq 0 ]; then
     "Test/runMain $main$quoted" > "$log" 2>&1 || true
   # `|| true` again: grep exits 1 when it filters everything out, which under `set -e` would
   # abort here - the same silence, one line further down.
-  report="$(sed -E 's/^\[(info|error)\] ?//' "$log" \
-    | sed -n '/^entry \|^| expression/,$p' | grep -v -E '^\[(success|warn)\]|^WARNING: |^DEBUG: ' \
-    || true)"
+  # The JDK ends each DEBUG line with an empty one, which would split the report's table.
+  report="$(sed -E 's/^\[(info|error)\] ?//' "$log" | sed -n '/^entry \|^| expression/,$p' \
+    | awk '/^DEBUG: / { d = 1; next } d && $0 == "" { d = 0; next } { d = 0; print }' \
+    | grep -v -E '^\[(success|warn)\]|^WARNING: ' || true)"
   if [ -z "$report" ]; then
     echo "the dump produced no report; the run's own output follows" >&2
     sed -E 's/^\[(info|error)\] ?//' "$log" | grep -E 'Exception|Error|error:' | head -5 >&2
