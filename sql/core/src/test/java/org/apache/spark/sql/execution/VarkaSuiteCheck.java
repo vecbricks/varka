@@ -303,7 +303,7 @@ public final class VarkaSuiteCheck {
   /**
    * Runs one check of {@code suite} through Varka: {@code prepared} is the suite's expression as
    * {@code ExpressionEvalHelper} prepares it, {@code input} the row it is evaluated on. A check
-   * this test already ran (the same expression, row, kind and expectation) is not run again.
+   * this test already ran, with the same expectation or as a value check, is not run again.
    * {@code record} says whether the check is a fixed-value one, whose bare cast joins the record;
    * the random properties' are not. Nothing reads it yet, since the record is a later pull
    * request's: today it only belongs to the dedup key, and a check whose form does not fuse is
@@ -314,7 +314,10 @@ public final class VarkaSuiteCheck {
       boolean record, Expect expect) {
     @Nullable TestState current = CURRENT.get(suite);
     TestState state = current != null ? current : new TestState();
-    if (!state.seen.add(List.of(prepared, input.copy(), record, expect))) {
+    // A value check already ran it through the harness; TryCastSuite's error checks arrive
+    // as one, then as themselves.
+    List<Object> key = List.of(prepared, input.copy(), record);
+    if (state.seen.contains(List.of(key, Expect.VALUE)) || !state.seen.add(List.of(key, expect))) {
       return;
     }
     try {
@@ -382,8 +385,8 @@ public final class VarkaSuiteCheck {
     }
     for (VarkaExpressionHarness.Outcome o : outcomes) {
       for (String f : o.findings) {
-        // The harness's findings are the kernel's and the evaluator's, but for this one.
-        findings.add(new Finding(f.contains("projections disagree") ? Kind.SPARK : Kind.VARKA, f));
+        // The harness's findings are the kernel's and the evaluator's, but Spark's own.
+        findings.add(new Finding(o.sparkDisagreements.contains(f) ? Kind.SPARK : Kind.VARKA, f));
       }
       for (String f : o.readPath) {
         findings.add(new Finding(Kind.READ_PATH, f));
@@ -396,10 +399,11 @@ public final class VarkaSuiteCheck {
     for (VarkaExpressionHarness.Outcome o : outcomes) {
       raised(context, o, expect, findings);
     }
-    VarkaExpressionHarness.Outcome first = outcomes.get(0);
     if (record && VarkaSuiteRecord.recording() && e instanceof Cast cast
         && cast.child() instanceof AttributeReference) {
-      VarkaSuiteRecord.batchDecline(suite, cast, first, findings, context);
+      for (VarkaExpressionHarness.Outcome o : outcomes) {
+        VarkaSuiteRecord.batchDecline(suite, cast, o, findings, context);
+      }
     }
   }
 
@@ -490,14 +494,16 @@ public final class VarkaSuiteCheck {
   /**
    * At the end of {@code test}: fails it on a finding of the kernel's; cancels it when every
    * finding is of the kind {@code expression_excluded.tsv} lists it under; fails a listed test
-   * that found nothing, or something of another kind.
+   * that found nothing, or something of another kind. {@code ran} says whether the test's body
+   * returned; one that threw or was cancelled reached part of its checks, so it does not count
+   * towards the suite's record.
    */
-  public static synchronized Decision endTest(String suite, String test) {
+  public static synchronized Decision endTest(String suite, String test, boolean ran) {
     TestState state = CURRENT.remove(suite);
     List<Finding> findings = state == null ? List.of() : state.findings;
     @Nullable String[] listed = VarkaSuiteRecord.excluded(suite, test);
     Decision decision = decide(findings, listed);
-    if (decision.action() != Action.FAIL) {
+    if (ran && decision.action() != Action.FAIL) {
       VarkaSuiteRecord.completed(suite);
     }
     return decision;

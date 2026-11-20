@@ -105,6 +105,11 @@ public final class VarkaSuiteRecord {
     DataType from = cast.child().dataType();
     DataType to = cast.dataType();
     List<String> key = List.of(suite, census(from), census(to), from.sql(), to.sql(), mode(cast));
+    // Every fixed-value check of a form the matrix calls fused, compile-declined or not, is one
+    // a listed batch decline could have met: the stale rule's denominator.
+    if (MATRIX_FUSED.contains(List.of(from.sql(), to.sql(), mode(cast)))) {
+      DECLINES_RAN.add(List.of(suite, from.sql(), to.sql(), mode(cast)));
+    }
     Set<String> found = KEYS.computeIfAbsent(suite, s -> new TreeMap<>(VarkaSuiteRecord::byKey))
         .computeIfAbsent(key, k -> new TreeSet<>());
     if (unresolved != null) {
@@ -189,9 +194,13 @@ public final class VarkaSuiteRecord {
   public static synchronized @Nullable String finish(String suite) {
     System.out.println("VarkaSuiteRecord: " + VarkaSuiteCheck.summary(suite));
     int[] tests = TESTS.getOrDefault(suite, new int[2]);
-    boolean complete = tests[0] > 0 && tests[0] == tests[1];
+    // A test SparkFunSuite's testRetry repeats reaches its decision more than once.
+    boolean complete = tests[0] > 0 && tests[1] >= tests[0];
     var problems = new ArrayList<String>();
     if (!complete || !recording()) {
+      System.out.println("VarkaSuiteRecord: " + suite + ": the record is not compared, "
+          + (recording() ? tests[1] + " of " + tests[0] + " tests reached their decision"
+              : "the run is not at the defaults"));
       KEYS.remove(suite);
       return null;
     }
@@ -342,7 +351,6 @@ public final class VarkaSuiteRecord {
       return;
     }
     List<String> entry = List.of(suite, from, to, mode(cast), "batch");
-    DECLINES_RAN.add(entry.subList(0, 4));
     if (o.declined == 0 || o.sparkRaised > 0) {
       return;
     }

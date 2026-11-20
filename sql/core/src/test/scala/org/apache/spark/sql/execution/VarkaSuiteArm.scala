@@ -49,7 +49,10 @@ trait VarkaSuiteArm extends SparkFunSuite with ExpressionEvalHelper {
 
   override protected def test(testName: String, testTags: Tag*)(testBody: => Any)
       (implicit pos: Position): Unit = {
-    VarkaSuiteRecord.registerTest(varkaSuite)
+    // A test SparkFunSuite excludes runs as ignored, and so never reaches its decision.
+    if (!excluded.contains(testName)) {
+      VarkaSuiteRecord.registerTest(varkaSuite)
+    }
     super.test(testName, testTags: _*) {
       val suite = varkaSuite
       VarkaSuiteCheck.beginTest(suite, testName)
@@ -57,10 +60,10 @@ trait VarkaSuiteArm extends SparkFunSuite with ExpressionEvalHelper {
         testBody
       } catch {
         case e: Throwable =>
-          VarkaSuiteCheck.endTest(suite, testName)
+          VarkaSuiteCheck.endTest(suite, testName, false)
           throw e
       }
-      val decision = VarkaSuiteCheck.endTest(suite, testName)
+      val decision = VarkaSuiteCheck.endTest(suite, testName, true)
       decision.action match {
         case VarkaSuiteCheck.Action.FAIL => fail(decision.message)
         case VarkaSuiteCheck.Action.CANCEL => cancel(decision.message)
