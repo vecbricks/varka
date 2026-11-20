@@ -464,9 +464,13 @@ Measured, the whole suite with and without the property, one JVM each on the sha
 without (load 20); 42.8 s with the first draft, which ran the dense body alone (load 20 to 30), so
 the sweeps took about 16 s and the prediction held at a ratio of about 0.5; 91.6 s after the review
 added the masked body's run and its per-row validity check (load 37), about 65 s for the sweeps,
-which misses it by about 2. The second figure is the one `sweeps.tsv` carries; the load more than
-doubled between the two runs, so how much of the 65 s is the second body and how much the
-machine is not split.
+which misses it by about 2 (the calibration entry `VARKA-340-10.3-1.md`). `sweeps.tsv` carries
+the 91.6 s run and its 65 s of sweeps, since its row runs the whole class; the load nearly doubled
+between the two runs, so how much of the 65 s is the second body and how much the machine is not
+split. The final review then had the output validity filled with set bits before each run, so only
+the kernel can null the null row, a declining field skip only its own comparison, and the sweep's
+field lists checked against the edge tests' lists. The suite after those fixes took 58.7 s with the property at load 28 to 33,
+about 32 s of sweeps, so the 91.6 s run was mostly the machine.
 
 ### Decisions taken while the owner was away (20 November 2026)
 

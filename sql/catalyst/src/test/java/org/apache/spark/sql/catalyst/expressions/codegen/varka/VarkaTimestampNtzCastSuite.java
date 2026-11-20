@@ -612,6 +612,7 @@ public final class VarkaTimestampNtzCastSuite {
           // Each field's outputs, the dense body's then the masked body's.
           var outs = new MemorySegment[fields.size()][2];
           var wide = new boolean[fields.size()];
+          var skipped = new boolean[fields.size()];
           for (int f = 0; f < fields.size(); f++) {
             VarkaFusedKernel kernel = loaded.get(f).kernel();
             CompiledVarkaProjection plan = plans.get(f);
@@ -621,7 +622,9 @@ public final class VarkaTimestampNtzCastSuite {
             long[] longLits = plan.longLiterals().stream().mapToLong(Long::longValue).toArray();
             for (int body = 0; body < 2; body++) {
               outs[f][body] = VarkaEmitterFixtures.alloc(arena, rows * stride);
-              MemorySegment validity = VarkaEmitterFixtures.alloc(arena, validityBytes);
+              // Every bit set, so that only the kernel can make the null row null.
+              MemorySegment validity = VarkaEmitterFixtures.alloc(arena, validityBytes)
+                  .fill((byte) 0xFF);
               long[] src = {(body == 0 ? dense : masked).address()};
               long[] srcValidity = {body == 0 ? 0L : inValidity.address()};
               int[] nullCount = {body};
@@ -634,9 +637,11 @@ public final class VarkaTimestampNtzCastSuite {
               String where = fields.get(f).sql() + (body == 0 ? ", dense," : ", masked,")
                   + " batch from " + counts[from];
               if (status != 0) {
+                // The field's rows are not compared; the other fields of the batch still are.
                 declined.incrementAndGet();
                 first.compareAndSet(null, where + " declined with status " + status);
-                return;
+                skipped[f] = true;
+                continue;
               }
               for (int i = 0; i < rows; i++) {
                 boolean valid = (validity.get(ValueLayout.JAVA_BYTE, i / 8) >> (i % 8) & 1) == 1;
@@ -652,6 +657,9 @@ public final class VarkaTimestampNtzCastSuite {
             LocalDateTime t = LocalDateTime.ofEpochSecond(Math.floorDiv(v, 1_000_000L),
                 (int) Math.floorMod(v, 1_000_000L) * 1000, ZoneOffset.UTC);
             for (int f = 0; f < fields.size(); f++) {
+              if (skipped[f]) {
+                continue;
+              }
               long expected = fields.get(f).javaTime().applyAsLong(t);
               for (int body = i == 0 ? 0 : 1; body >= 0; body--) {
                 long ours = wide[f] ? outs[f][body].getAtIndex(ValueLayout.JAVA_LONG, i)
@@ -688,6 +696,10 @@ public final class VarkaTimestampNtzCastSuite {
   void everyAdmittedDay() {
     assumeTrue("true".equals(System.getProperty("varka.sweep")),
         "set -Dvarka.sweep=true to sweep every admitted day");
+    var swept = ALL_SWEEP.stream().map(Field::sql).sorted().toList();
+    var tested = Stream.concat(CALENDAR_FIELDS.stream(), OPEN_FIELDS.stream()).sorted().toList();
+    assertEquals(tested, swept, "the sweep's fields are not the edge tests' fields");
+    assertEquals(OPEN_FIELDS, OPEN_SWEEP.stream().map(Field::sql).toList());
     long[] counts = LongStream.rangeClosed(VarkaRangeAnalysis.NTZ_MIN_DAYS,
         VarkaChrono.NARROW_MAX_DAYS).flatMap(d -> LongStream.of(d * DAY,
             d * DAY + drawnTime(d), d * DAY + DAY - 1)).toArray();
