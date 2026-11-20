@@ -221,6 +221,8 @@ public final class VarkaEmitterNarrowSuite {
     Emitted emitted = VarkaEmitterFixtures.emit(kernelRoots, lanes.size(), 0, options);
     Loaded loaded = VarkaEmitterFixtures.load(emitted);
     VarkaFusedKernel kernel = loaded.kernel();
+    boolean longKernel = kernelRoots.stream()
+        .anyMatch(r -> VarkaVectorIR.lanesIn(r).contains(LaneType.LONG));
     long bytes = (length + 7) / 8;
     try (Arena arena = Arena.ofConfined()) {
       var data = new ArrayList<MemorySegment>();
@@ -268,8 +270,13 @@ public final class VarkaEmitterNarrowSuite {
           long[] outData = outs.stream().mapToLong(out -> out.data().address()).toArray();
           long[] outValid = outs.stream().mapToLong(out -> out.validity().address()).toArray();
           String body = counts == nullCounts ? "" : ", masked body forced";
-          int status = kernel.run(dataAddrs, validAddrs, counts, outData, outValid, new int[0],
-              length, VarkaEmitterTestSupport.scratch(kernel, length));
+          // A tree holding a long node emits a 64-bit-lane kernel, whose entry point takes the
+          // long literal table too, and is answered by the reference's mixed evaluator.
+          int status = longKernel
+              ? kernel.run(dataAddrs, validAddrs, counts, outData, outValid, new int[0],
+                  new long[0], length, VarkaEmitterTestSupport.scratch(kernel, length))
+              : kernel.run(dataAddrs, validAddrs, counts, outData, outValid, new int[0],
+                  length, VarkaEmitterTestSupport.scratch(kernel, length));
           assertEquals(0, status, ctx + ": declined (length " + length + ", " + fill + body + ")");
           for (int row = 0; row < length; row++) {
             var ints = new int[lanes.size()];
@@ -279,8 +286,11 @@ public final class VarkaEmitterNarrowSuite {
               ints[c] = nulls[c] ? 0 : narrow(lanes.get(c), value.applyAsInt(c, row));
             }
             for (int o = 0; o < kernelRoots.size(); o++) {
-              boolean want = VarkaReference.cond((Cond) kernelRoots.get(o), ints, nulls, new int[0])
-                  .isTrue();
+              Cond root = (Cond) kernelRoots.get(o);
+              boolean want = (longKernel
+                  ? VarkaReference.mixedCond(root, Arrays.stream(ints).asLongStream().toArray(),
+                      nulls, new int[0], new long[0])
+                  : VarkaReference.cond(root, ints, nulls, new int[0])).isTrue();
               boolean got =
                   (outs.get(o).validity().get(ValueLayout.JAVA_BYTE, (row / 8)) & (1 << (row % 8)))
                       != 0;
@@ -478,7 +488,6 @@ public final class VarkaEmitterNarrowSuite {
             LaneType.SHORT),
         Map.entry(new WidenLane(new WidenLane(new WidenLane(BYTE_COL, LaneType.SHORT),
             LaneType.INT), LaneType.LONG), LaneType.BYTE));
-    int length = 300;
     RowNulls isNull = (c, row) -> c == 0 ? row % 7 == 3 : c == 1 && row % 11 == 5;
     IntBinaryOperator value = (c, row) -> c == 0 ? ((row * 7) % 256) - 128 : (row * 13 + c) % 97;
     for (var entry : chains) {
@@ -487,9 +496,17 @@ public final class VarkaEmitterNarrowSuite {
       Cond test = new IsNotNull(chain);
       Cond either = new VarkaVectorIR.Or(test, longCompare);
       assertEquals(LaneType.LONG, VarkaKernelPlan.emissionLane(either, WIDENED));
-      for (Arm arm : ARMS) {
-        checkConds(VarkaVectorIR.canonical(chain) + " " + arm.name(), List.of(test, either),
-            List.of(narrow, LaneType.LONG, LaneType.LONG), length, value, isNull, arm.options());
+      // Both arms, and the widened arm at four and two lanes; lengths below one vector, at a
+      // vector's edge and past it, so the epilogue answers as the loop does.
+      var arms = new ArrayList<>(ARMS);
+      arms.add(new Arm("at four lanes", FOUR_LANES));
+      arms.add(new Arm("at two lanes", TWO_LANES));
+      for (Arm arm : arms) {
+        for (int length : List.of(1, 7, 64, 65, 300)) {
+          checkConds(VarkaVectorIR.canonical(chain) + " " + arm.name(), List.of(test, either),
+              List.of(narrow, LaneType.LONG, LaneType.LONG), length, value, isNull,
+              arm.options());
+        }
       }
     }
   }

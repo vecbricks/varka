@@ -263,8 +263,9 @@ final class Analysis {
 
   /**
    * The narrow columns a long-lane emission reads for their validity word alone, as
-   * {@code IsNotNull(WidenLane(column))}: the one narrow node such an emission may hold, since the
-   * word is a bit per row at every lane and the column's data is never loaded. The plan refuses
+   * {@code IsNotNull(WidenLane(column))} or under a longer chain of widenings, with any narrow
+   * widening of that chain: the only narrow nodes such an emission may hold, since the word is a
+   * bit per row at every lane and the column's data is never loaded. The plan refuses
    * any narrow value under a long kernel, so a narrow column reached any other way still fails
    * the lane rule.
    */

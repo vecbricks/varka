@@ -14,7 +14,12 @@ the row engine answers; a run of 700 at the same seed found it again at iteratio
 A user reaches it with any such filter: the failure is at plan time, so the failure-fallback
 contract (VARKA-275) raises instead of degrading.
 
-## 2. The cause
+## 2. The admission check, and the cause
+
+The admission check holds: on master (`767dcddce50`) the compiler test of section 4 fails before
+the fix with the `INTERNAL_ERROR` below, at the byte column, so the bug is master's and not the
+352 branch's. The fuzzer on master does not draw the narrow columns, which is why only row 352's
+branch met it.
 
 The condition compiler lifts a narrow condition to the int lane beside an int one
 (`VarkaConditionCompiler.onIntLane`, VARKA-329), where `y1 IS NOT NULL` becomes
@@ -27,21 +32,30 @@ disjunct of a long-lane filter is therefore `isNotNull(widen:LONG (widen:INT col
 one, ...` (`IllegalArgumentException`, raised as `INTERNAL_ERROR`); past that check, it would not
 have marked the byte column as read for its validity word alone (`validityOnlyNarrow`), and the
 lane rule would have refused the byte column as a narrow node in a long emission. The brief and
-row 619 named the second; the compiler test's red run met the first.
-The plan (`VarkaKernelPlan.refusalOf`) had admitted the tree, because its walks
+row 619 named the second; the compiler test's red run met the first. The plan (`VarkaKernelPlan.refusalOf`) had admitted the tree, because its walks
 (`needsNarrowSpecies`, `narrowValuesIn`) stop at a null test over a value whatever lies below.
 
 ## 3. The fix
 
-`Analysis.unwidened` peels every widening of a chain, and the `IsNotNull` case reads the column
-through it; at the long lane it marks every narrow node of the chain as validity-only, the column
-and any narrow widening above it (a byte widened to the short lane first, which the IR admits and
-the compiler does not build today). The emitter needed nothing else: the word reference of a
-widening is its child's (`Slots`, `Analysis.wordOwner`), recursively, so the test reads the
-column's word at any depth.
+Two parts, either of which alone stops the failure:
 
-`VarkaKernelPlan.readsColumnWord`, the double kernel's admission of a widened null test, peeled one
-level the same way; it reads through `unwidened` too, so the plan and the analysis keep agreeing.
+- **The emitter reads a chain of any depth.** `Analysis.unwidened` peels every widening, and the
+  `IsNotNull` case reads the column through it; at the long lane it marks every narrow node of the
+  chain as validity-only, the column and any narrow widening above it (a byte widened to the short
+  lane first, which the IR admits and the compiler does not build). Nothing else in the emitter
+  changed: the word reference of a widening is its child's (`Slots`, `Analysis.wordOwner`),
+  recursively, so the test reads the column's word at any depth. `VarkaKernelPlan.readsColumnWord`,
+  the double kernel's admission of a widened null test, peeled one level the same way and reads
+  through `unwidened` too, so the plan and the analysis keep agreeing.
+- **The compiler builds one widening.** `onLongLane` widens the column under any widening the int
+  lift put above it, so the reproducer's test is `isNotNull(widen:LONG col:byte)`, the shape a null
+  test lifted straight to the long lane (VARKA-480) already had. Without this part the emitter
+  answers too, but the kernel plans as a two-lane kernel (`VarkaKernelPlan.of` counts the never
+  emitted `widen:INT` as an int node), sets up an int species it does not use and prices the chain
+  as emitted ops; the review found it (section 5).
+
+`VarkaConditionCompiler.java` is shared with other compiler rows; the change there is the one case
+of `onLongLane` and a five-line helper.
 
 ### 3.1 The other sites that peel one widening
 
@@ -60,10 +74,12 @@ Every `WidenLane` match in the emitter and the plan was read for the same mistak
 - `VarkaEmitterNarrowSuite`, "a narrow column's null test read through a chain of widenings emits
   in a bigint kernel and gives the reference's answer": the byte and the short column through two
   widenings, and a byte through three (via the short lane), each alone and in an `OR` with a bigint
-  comparison, both arms, against `VarkaReference`, dense and masked bodies.
+  comparison, both arms and the widened arm at four and two lanes, at lengths 1, 7, 64, 65 and 300,
+  against `VarkaReference`, dense and masked bodies.
 - `VarkaExpressionCompilerSuite`, "a narrow column's null test in an int disjunct beside a bigint
-  conjunct emits": `ll > 0 AND (by IS NOT NULL OR i < 3)` and the same over `sh` compile to the
-  two-widening chain, both conjuncts fuse, and the kernel emits.
+  conjunct emits": `ll > 0 AND (by IS NOT NULL OR i < 3)` and the same over `sh`: both conjuncts
+  fuse, the test reads its column through one widening, and the kernel emits. Before the fix it
+  failed with the `INTERNAL_ERROR`.
 - The reproducer, now `status: regression`, replayed by `VarkaSparkReproducerSuite`.
 
 ## 5. Outcome

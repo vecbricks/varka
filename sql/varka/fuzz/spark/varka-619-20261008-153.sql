@@ -1,6 +1,6 @@
 -- VARKA-262 reproducer
 -- status: regression
--- note: seed 20261008 iteration 153 (VARKA-352 10.3, VARKA-619): IS NOT NULL over a TINYINT column in a long-lane filter is compiled as isNotNull(widen:LONG(widen:INT col:byte)); the emitter reads the column's validity word through the whole chain of widenings, so the kernel emits and agrees with the row engine
+-- note: seed 20261008 iteration 153 (row 352's Spark-level fuzzer, VARKA-619): IS NOT NULL over a TINYINT column in an int disjunct of a long-lane filter, lifted to the int lane and then to the long lane; the emitter failed on the two widenings the lifts built, and Varka raised INTERNAL_ERROR (VARKA-275) where the row engine answers
 -- ansi: true
 -- kind: unexpected error condition INTERNAL_ERROR from Varka under ANSI
 -- select: CASE WHEN l < l2 THEN l ELSE l2 END AS c0
