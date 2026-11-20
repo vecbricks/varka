@@ -1506,7 +1506,8 @@ public sealed interface VarkaVectorIR
         throw VarkaErrors.illegalArgument("a canonicalisation of a canonicalisation: build it "
             + "through CanonicalFloat.of, which answers its operand");
       }
-      hash = hashOf(child);
+      // The class as a tag, so the node does not share its only child's hash.
+      hash = hashOf(CanonicalFloat.class, child);
     }
 
     public CanonicalFloat(VarkaVectorIR child) { this(child, 0); }

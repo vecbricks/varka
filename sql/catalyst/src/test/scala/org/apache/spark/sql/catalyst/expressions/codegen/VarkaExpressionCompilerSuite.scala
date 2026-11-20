@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isStage
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, BoolCompare, CanonicalFloat, BoolOutput, ColumnRef, Compare, CompareOp, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NarrowLane, NextDay => IRNextDay, Not => IRNot, NullSafeEqual => IRNullSafeEqual, Or => IROr, Overflow, Quarter => IRQuarter, RoundMode, RoundToIntegral, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, WidenLane, Year => IRYear}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, BoolCompare, BoolOutput, CanonicalFloat, ColumnRef, Compare, CompareOp, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NarrowLane, NextDay => IRNextDay, Not => IRNot, NullSafeEqual => IRNullSafeEqual, Or => IROr, Overflow, Quarter => IRQuarter, RoundMode, RoundToIntegral, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, WidenLane, Year => IRYear}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NormalizeNaNAndZero, ReplaceExpressions, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, OneRowRelation, Project}
@@ -1295,6 +1295,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val tagged = outputs(Add(KnownFloatingPointNormalized(dbl), Literal(1.0)))
     assert(tagged.size === 1 && tagged.head.isInstanceOf[IntArith] &&
       !VarkaVectorIR.canonical(tagged.head).contains("canon"), tagged)
+    // The tag over a bare column is that column: forwarded, not copied by a kernel.
+    val forwarded = VarkaExpressionCompiler.compilePartial(
+      Seq(out(KnownFloatingPointNormalized(dbl)), out(Add(dbl, Literal(1.0)))), cols).get
+    assert(forwarded.specs.get(0).isInstanceOf[ForwardedOutput], forwarded.specs)
     // The family's switch off declines the canonicalisation by its name.
     val off = VarkaExpressionCompiler.declines(Seq(out(NormalizeNaNAndZero(dbl))), cols,
       VarkaEmitOptions.DEFAULTS,

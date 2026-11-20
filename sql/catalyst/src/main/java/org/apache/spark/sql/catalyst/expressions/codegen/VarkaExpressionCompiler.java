@@ -46,6 +46,7 @@ import org.apache.spark.sql.catalyst.expressions.BindReferences;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
+import org.apache.spark.sql.catalyst.expressions.KnownFloatingPointNormalized;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.ForwardedOutput;
@@ -629,6 +630,11 @@ public final class VarkaExpressionCompiler {
       // see the Scala trait's superclass, hence the casts.)
       Expression bound = bind.apply((Expression) named);
       Expression e = bound instanceof Alias alias ? alias.child() : bound;
+      // The optimizer's tag over a normalised key is its child (VARKA-337), so a tagged column is
+      // a bare column here too.
+      if (e instanceof KnownFloatingPointNormalized k && k.child() instanceof BoundReference) {
+        e = k.child();
+      }
       // A bare column is compilable as a node but never emitted as an output: emitting it would
       // be a copy loop, while forwarding the input's vector is zero-copy.
       if (e instanceof BoundReference br) {

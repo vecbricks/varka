@@ -1699,8 +1699,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
 
   private def runFloatingSequence(lane: LaneType, drawSeed: Long,
       draw: (Random, LaneType) => VarkaIrGrammar.DrawnLong =
-        VarkaIrGrammar.drawFloatingLaneShape): Unit = {
-    val name = lane.toString.toLowerCase(java.util.Locale.ROOT)
+        VarkaIrGrammar.drawFloatingLaneShape, label: String = ""): Unit = {
+    val name = label + lane.toString.toLowerCase(java.util.Locale.ROOT)
     val reach = VarkaEmitReach.attach(randomTrace, s"$name draws")
     val answered = try {
       only.map(Seq(_)).getOrElse(0 until floatingIterations)
@@ -1708,7 +1708,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     } finally {
       VarkaEmitReach.detach(randomTrace)
     }
-    logInfo(s"$lane draws answered: $answered of $floatingIterations")
+    logInfo(s"$name draws answered: $answered of $floatingIterations")
     if (only.isEmpty && Lane.emitLanes(VarkaMatrix.base, Lane.of(lane)) >= 4) {
       assert(answered > floatingIterations / 2, s"only $answered $lane draws were answered")
     }
@@ -1770,7 +1770,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   for (lane <- Seq(LaneType.FLOAT, LaneType.DOUBLE)) {
     test(s"random $lane IR trees with canonicalisations match the reference evaluator " +
         s"(seed $canonicalSeed, $floatingIterations iterations)") {
-      runFloatingSequence(lane, canonicalSeed, VarkaIrGrammar.drawCanonicalShape)
+      runFloatingSequence(lane, canonicalSeed, VarkaIrGrammar.drawCanonicalShape, "canonical ")
     }
   }
 

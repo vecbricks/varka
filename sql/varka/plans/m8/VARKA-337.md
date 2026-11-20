@@ -698,6 +698,15 @@ to 4 and 6 are the hash's and stay open.
    move; 341's sequences take the production over at row 352's refit.
 7. **Same answer**: the node and Spark's `NormalizeNaNAndZero` answer one fixed NaN, so
    `VarkaSameAnswer` reads both as its `Canonical` step, `rint`'s.
+8. **A tagged column is forwarded.** `KnownFloatingPointNormalized` over a bare column, as a
+   projection entry, is classified as the column, forwarded with no kernel, as a bare column is.
+9. **The census needs stay `plumbing`.** `dev/varka_census.py --check` accepts `done` only where a
+   coverage row fuses the class, and no coverage row can hold either class (option (a)), so the
+   notes say what 337a1 built and the need column keeps its value.
+10. **The AVX2 width audit run is recorded, not regenerated.** Under `-XX:UseAVX=2` the census
+   differs from the committed AVX-512 file in 134 cells, all of them masked `BYTE` stores and
+   64-bit masks at two lanes, which AVX2 has no lowering for (`sql/varka/AGENTS.md`). None holds the
+   node. The committed file stays the AVX-512 host's.
 
 ## Build sheet (11 November 2026)
 
