@@ -627,16 +627,15 @@ the declined tables. Coverage gains "Math functions" (11 rows) and one condition
 wrote coverage, docs, emitted bytes, width audit and census; no existing shape's bytes moved
 (prediction 1 held). The audit's `-XX:UseAVX=2` rerun timed out under load and is owed.
 
-**Review** (`/code-review high`): arms with no baked lane count explain the call's refusal
-(`VarkaMatrixRuns.isUnbakedWidthDecline`), and `skips.tsv` lists the math rows of those arms.
+**Review** (`/code-review high`): `skips.tsv` lists the math rows of the arms with no baked lane count.
 **Left of 356a:** `atan2` (356a2), the IR fuzz productions and the runner measurement.
 
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **356a before 345b and 358a**: of 345b only the `LANE_CALL` lowering. No function of 356 needs
    358a's domain null.
-2. **The call is unrolled over `lane` and `withLane`, not 2.2's scratch loop**: C2 keeps the vector
-   unboxed, and the price is a baked lane count. The scratch loop is the one to measure.
+2. **The call is unrolled over `lane` and `withLane`, not 2.2's scratch loop**: the price is a
+   baked lane count; the scratch loop is the one to measure.
 3. **Every lane is called, dead ones too**: the call is pure.
 4. **The `PORT` arms are the next part.** Each fdlibm port (`asin`, `acos`, `atan`, `atan2`) is
    ported to `vfdlibm` from its committed C, never the JDK, any departure proven in `PROOFS.md`,
