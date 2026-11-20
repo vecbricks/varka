@@ -178,6 +178,8 @@ public final class VarkaReference {
       case CanonicalFloat n -> map(n.child(), row, isNull, lits,
           v -> Float.floatToRawIntBits((Float) NormalizeFloatingNumbers$.MODULE$
               .FLOAT_NORMALIZER().apply(Float.intBitsToFloat(v))));
+      case VarkaVectorIR.GuardedProduct n -> throw VarkaErrors.illegalArgument(
+          "a guarded product is a long-lane value: " + n);
       case IntNeg n -> {
         var c = value(n.child(), row, isNull, lits);
         if (c.isEmpty()) {

@@ -110,8 +110,9 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
 
       val sections = VarkaBigintArithmeticBaselineBenchmark.sections(false).asScala.toSeq
       // 25 sections at each of the two null densities, every one fused whole but a checked
-      // product over a column (VARKA-104): a row that fuses one of these changes this list.
-      assert(sections.size === 2 * 25)
+      // product over a column (VARKA-104), and B's decline section (VARKA-611): a row that fuses
+      // one of these changes this list.
+      assert(sections.size === 2 * 25 + 1)
       assert(sections.map(_.fusion.toString).toSet === Set("WHOLE", "NONE"))
       val unfused = sections.filter(_.fusion == VarkaSqlBenchmarkBase.Fusion.NONE)
       assert(unfused.map(_.title) === Seq(
@@ -120,7 +121,12 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
         "try_multiply(l, m), no nulls",
         "l * 3, ANSI, one row in ten null",
         "l * m, ANSI, one row in ten null",
-        "try_multiply(l, m), one row in ten null"))
+        "try_multiply(l, m), one row in ten null",
+        "l * m, ANSI, products near 2^62, no nulls"))
+      assert(unfused.forall(_.checkedProduct))
+      // The decline section's products are past 2^62 on every row and below 2^63.
+      val near = spark.sql(s"select min(nb * nm), max(nb * nm) from $view").head()
+      assert(near.getLong(0) >= (1L << 62) && near.getLong(1) < Long.MaxValue / 100 * 99)
       for (s <- sections) {
         withClue(s.title) {
           withSettings(s) {
@@ -163,6 +169,15 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
             // The benchmark's kernel check too: a WHOLE projection hands no batch to the row path.
             if (s.checksKernels) {
               VarkaSizeLadder.varkaFused(varkaSpark, s.query)
+            }
+            // B's arm (VARKA-611) plans a kernel wherever a checked BIGINT operation fuses.
+            if (s.checkedProduct) {
+              val checked = if (declines) VarkaSqlBenchmarkBase.Fusion.NONE
+                else VarkaSqlBenchmarkBase.Fusion.WHOLE
+              VarkaArrowSessions.withEmitOptions(VarkaBigintArithmeticBaselineBenchmark.MAGNITUDE) {
+                val planB = varkaSpark.sql(s.query).queryExecution.executedPlan
+                assert(VarkaSqlBenchmarkBase.fusion(planB) === Optional.of(checked))
+              }
             }
           }
         }

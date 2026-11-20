@@ -1310,13 +1310,17 @@ final class VarkaNodeCompiler {
    * {@link GuardedProduct}, option B of {@code VARKA-104.md} 3.3, in place of the decline
    * {@link #arithOver} gives it: where the session's options build one
    * ({@link DeclineSink#guardsLongProducts}, `VARKA-611.md` 3.2). A bounded product stays the
-   * unchecked {@code IntArith} it is today.
+   * unchecked {@code IntArith} it is today, which {@link #arithOver} builds. The bound is asked
+   * here without noting the columns it read, since {@code arithOver} asks it again and notes
+   * them where it is bounded.
    */
   private static boolean guardsProduct(IntOp op, Object mode, VarkaVectorIR x, VarkaVectorIR y,
       VarkaSlotTable literals, DeclineSink sink) {
     return op == IntOp.MUL && overflowOf(mode) != Overflow.WRAP && sink.guardsLongProducts()
         && x.laneType() == LaneType.LONG && y.laneType() == LaneType.LONG
-        && !cannotOverflow(op, x, y, literals, sink);
+        && !(VarkaRangeAnalysis.range(new IntArith(op, Overflow.WRAP, x, y),
+            VarkaRangeAnalysis.Kind.INT, VarkaRangeAnalysis.GuardPolicy.NONE,
+            rangeLiterals(literals, sink), column -> { }) instanceof VarkaValueRange.Bounded);
   }
 
   /** Why a checked bigint operation declines on a two-lane host ({@link #twoLaneChecked}). */

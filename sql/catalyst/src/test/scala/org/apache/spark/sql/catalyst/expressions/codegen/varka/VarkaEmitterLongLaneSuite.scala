@@ -23,7 +23,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference, EvalMode, Expression,
   Literal, Multiply, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.{VarkaExpressionCompiler, VarkaNodeCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isEpilogue, isLoop}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
@@ -643,8 +643,11 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
           val why = reasons(e, options)
           assert(why.size === 1 && why.head.startsWith("checked bigint multiply"), why)
         }
-        assert(reasons(e, magnitude(2), new VarkaAdmission(java.util.Set.of(), true)) ===
-          Seq(VarkaNodeCompiler.TWO_LANE_CHECK_REASON))
+        // VarkaNodeCompiler.TWO_LANE_CHECK_REASON, which this package cannot name.
+        val twoLane = reasons(e, magnitude(2), new VarkaAdmission(java.util.Set.of(), true))
+        assert(twoLane.size === 1 && twoLane.head.startsWith(
+          "a checked bigint operation on an x86 host whose 64-bit species have two lanes"),
+          twoLane)
         // The batches the option matrix's `arrowBatchSize` cuts, over a fixture whose products
         // cross 2^62 near its row 2048: B's own condition, held per batch.
         val left: Long => Long =

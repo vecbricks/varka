@@ -830,6 +830,34 @@ public record VarkaEmitOptions(
     return useAVX == USE_AVX_UNKNOWN;
   }
 
+  /**
+   * The {@code UseAVX} levels at which {@link CheckedLongMultiply#BY_HOST} builds the guarded
+   * product on x86: 2, where each conversion is the {@code XOR_SPLIT} form, and 3, where it is
+   * one instruction. Provisional until the runner readings of {@code VARKA-611.md} 6 score
+   * prediction 4's rule; {@code BY_HOST} is not the default until they do.
+   */
+  public static final Set<Integer> GUARDED_PRODUCT_LEVELS = Set.of(2, 3);
+
+  /**
+   * Whether the compiler builds a {@code GuardedProduct} for a checked {@code BIGINT} multiply
+   * the range lattice cannot bound, on a host whose {@code os.arch} is x86 or not: never under
+   * {@link CheckedLongMultiply#BOUND_ONLY} or at the unknown level, whose conversions the kernel
+   * plan refuses; at every named level under {@link CheckedLongMultiply#MAGNITUDE}; and under
+   * {@link CheckedLongMultiply#BY_HOST} on x86 at {@link #GUARDED_PRODUCT_LEVELS} alone. An Arm
+   * host resolves to level 3 as an AVX512DQ one does, and runs no two-lane refusal, so it keeps
+   * the decline until B is measured there.
+   */
+  public boolean guardsLongProducts(boolean x86) {
+    if (levelUnknown()) {
+      return false;
+    }
+    return switch (checkedLongMultiply) {
+      case BOUND_ONLY -> false;
+      case MAGNITUDE -> true;
+      case BY_HOST -> x86 && GUARDED_PRODUCT_LEVELS.contains(useAVX);
+    };
+  }
+
   private static int readUseAVX() {
     try {
       HotSpotDiagnosticMXBean bean =
@@ -1607,34 +1635,6 @@ public record VarkaEmitOptions(
   /** The checked {@code BIGINT} multiply's form ({@link #checkedLongMultiply}). */
   public VarkaEmitOptions withCheckedLongMultiply(CheckedLongMultiply form) {
     return toBuilder().checkedLongMultiply(form).build();
-  }
-
-  /**
-   * The {@code UseAVX} levels at which {@link CheckedLongMultiply#BY_HOST} builds the guarded
-   * product on x86: 2, where each conversion is the {@code XOR_SPLIT} form, and 3, where it is
-   * one instruction. Provisional until the runner readings of {@code VARKA-611.md} 6 score
-   * prediction 4's rule; {@code BY_HOST} is not the default until they do.
-   */
-  public static final Set<Integer> GUARDED_PRODUCT_LEVELS = Set.of(2, 3);
-
-  /**
-   * Whether the compiler builds a {@code GuardedProduct} for a checked {@code BIGINT} multiply
-   * the range lattice cannot bound, on a host whose {@code os.arch} is x86 or not: never under
-   * {@link CheckedLongMultiply#BOUND_ONLY} or at the unknown level, whose conversions the kernel
-   * plan refuses; at every named level under {@link CheckedLongMultiply#MAGNITUDE}; and under
-   * {@link CheckedLongMultiply#BY_HOST} on x86 at {@link #GUARDED_PRODUCT_LEVELS} alone. An Arm
-   * host resolves to level 3 as an AVX512DQ one does, and runs no two-lane refusal, so it keeps
-   * the decline until B is measured there.
-   */
-  public boolean guardsLongProducts(boolean x86) {
-    if (levelUnknown()) {
-      return false;
-    }
-    return switch (checkedLongMultiply) {
-      case BOUND_ONLY -> false;
-      case MAGNITUDE -> true;
-      case BY_HOST -> x86 && GUARDED_PRODUCT_LEVELS.contains(useAVX);
-    };
   }
 
   public VarkaEmitOptions withRoundToOddByShifts(boolean byShifts) {

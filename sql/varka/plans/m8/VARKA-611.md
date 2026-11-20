@@ -276,11 +276,26 @@ Built on `varka-611-guarded-product` against master `767dcddce50`, local only.
   (`VarkaNodeCompiler.guardsProduct`), and `twoLaneChecked` names the node as `FAIL`.
 - **The kernel plan.** `conversionRefusal` refuses a `GuardedProduct` at the unknown level with
   `Kind.CONVERSION` and `GUARDED_PRODUCT_UNKNOWN_LEVEL`.
-- **The fuzzer.** `LongShapes`' multiply arm draws the node half the time where the product's
-  bound may leave the long, and `VarkaGuardSpecs` holds its declines to `trips`.
+- **The fuzzer.** A draw of its own, `drawGuardedProductShape` on
+  `GUARDED_PRODUCT_FUZZ_SEED`: there `LongShapes`' multiply arm builds the node half the time
+  where the product's bound may leave the long. `VarkaIrFuzzSuite` runs it at levels 2 and 3 in
+  turn, holding each body's status to `VarkaGuardSpecs`' verdict (its arm for the node is
+  `trips`) and an answered batch to the reference. Where 5.3 had the node join the committed
+  long corpus, the review found two reasons against: that corpus is emitted at the unknown
+  level, where the kernel plan refuses the node, so the bytes oracle, the cost corpus and the
+  budget suites would meet a refusal; and the extra draw would move every committed
+  `fuzz_long` block. On its own seed, no committed shape moves.
+- **The benchmark.** `VarkaBigintArithmeticBaselineBenchmark`'s three checked products take a
+  third arm, `varka on, B (checkedLongMultiply=MAGNITUDE)`, checked to plan a kernel where a
+  checked `BIGINT` operation fuses on the host, and one section prices B's decline,
+  `l * m, ANSI, products near 2^62, no nulls`, over two new columns `nb` and `nm` whose
+  products lie in `[1.01 * 2^62, 1.95 * 2^62]`. The queries suite runs the new section and
+  checks the B arm's plan class. Not run here: the readings are the runners'.
 
-Not built in this window: the decline section of the benchmark (6) and the runner readings,
-which are owed (8 step 3).
+Not run in this window, and owed (8 step 3): the benchmark on the Xeon 8573C (AVX512DQ, level
+3, question 1) and on the EPYC 7763 (level 2, the B arm, question 2), owner-dispatched; then 6.1's
+predictions are scored, the default per host is chosen by prediction 4's rule, and `VARKA-104.md`
+9 records the choice.
 
 ### Decisions taken while the owner was away (20 November 2026)
 

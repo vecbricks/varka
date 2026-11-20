@@ -637,6 +637,11 @@ public final class VarkaKernelPlan {
     return true;
   }
 
+  /** Why a {@code GuardedProduct} is refused at the unknown level ({@link #conversionRefusal}). */
+  public static final String GUARDED_PRODUCT_UNKNOWN_LEVEL = "a guarded BIGINT product at an "
+      + "unknown emit level, whose magnitude check converts to DOUBLE on a host that may lack "
+      + "AVX512DQ (row 611)";
+
   /**
    * Why a conversion of these roots has no kernel yet. The emitter lowers the four conversions
    * that are one {@code convertShape} on every x86 host, {@code I2F}, {@code I2D}, {@code F2D}
@@ -660,11 +665,6 @@ public final class VarkaKernelPlan {
    * cast, so neither AVX2 form is needed there
    * ({@code VarkaHostIsa.Reading.conversionsAreInstructions}).
    */
-  /** Why a {@code GuardedProduct} is refused at the unknown level ({@link #conversionRefusal}). */
-  public static final String GUARDED_PRODUCT_UNKNOWN_LEVEL = "a guarded BIGINT product at an "
-      + "unknown emit level, whose magnitude check converts to DOUBLE on a host that may lack "
-      + "AVX512DQ (row 611)";
-
   private static Optional<Refusal> conversionRefusal(List<VarkaVectorIR> roots,
       VarkaEmitOptions options) {
     var seen = new HashSet<VarkaVectorIR>();
