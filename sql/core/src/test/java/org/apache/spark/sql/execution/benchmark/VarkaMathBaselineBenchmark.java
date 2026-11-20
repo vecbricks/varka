@@ -119,11 +119,11 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
    *   <li>{@code p} is {@code 10^(hash(id, 3) / 2^31 * 6)}, in {@code [1e-6, 1e6)}, positive and
    *       spread evenly over twelve decades, so {@code log} and {@code log10} answer both signs
    *       and {@code pow(p, y)} stays inside {@code [1e-60, 1e60]}, finite and normal.</li>
-   *   <li>{@code u} is {@code hash(id, 4) / 2^31}, in {@code [-1, 1)}, the domain of {@code asin},
-   *       {@code acos} and {@code atanh}.</li>
-   *   <li>{@code c} is {@code 2 + hash(id, 5) / 2^31}, in {@code [1, 3)}, where {@code acosh}
-   *       takes both its {@code log1p} and its {@code log} branch, and a positive base for
-   *       {@code log(c, p)}.</li>
+   *   <li>{@code u} is {@code (hash(id, 4) + 0.5) / 2^31}, in {@code (-1, 1)} and off both
+   *       endpoints, the domain of {@code asin}, {@code acos} and {@code atanh}.</li>
+   *   <li>{@code c} is {@code 2 + (hash(id, 5) + 0.5) / 2^31}, in {@code (1, 3)}, where
+   *       {@code acosh} takes both its {@code log1p} and its {@code log} branch, and a positive
+   *       base other than 1 for {@code log(c, p)}.</li>
    *   <li>{@code q} is {@code p} negated where {@code id % 10 = 3}: one row in ten non-positive, so
    *       {@code ln(q)} times the log family's domain null on a tenth of the rows.</li>
    * </ul>
@@ -146,8 +146,8 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
                            hash(id, 1) / 2147483648.0d * 10.0d as x,
                            hash(id, 2) / 2147483648.0d * 10.0d as y,
                            power(10.0d, hash(id, 3) / 2147483648.0d * 6.0d) as p,
-                           hash(id, 4) / 2147483648.0d as u,
-                           2.0d + hash(id, 5) / 2147483648.0d as c
+                           (hash(id, 4) + 0.5d) / 2147483648.0d as u,
+                           2.0d + (hash(id, 5) + 0.5d) / 2147483648.0d as c
                     from range(0, %d)))""".formatted(rows);
   }
 
