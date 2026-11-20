@@ -1073,7 +1073,8 @@ public final class VarkaKernelChecks {
     }
 
     @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
-      return root instanceof WidenDecimal ? DECIMAL_SLOT : stride();
+      return root instanceof WidenDecimal || root instanceof VarkaVectorIR.InterleaveDecimal
+          ? DECIMAL_SLOT : stride();
     }
 
     @Override public void putOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane,
@@ -1350,7 +1351,8 @@ public final class VarkaKernelChecks {
     }
 
     @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
-      if (root instanceof WidenDecimal) {
+      // A pair's store writes the same sixteen-byte slot, which a warm-up's buffers must hold.
+      if (root instanceof WidenDecimal || root instanceof VarkaVectorIR.InterleaveDecimal) {
         return DECIMAL_SLOT;
       }
       return width(laidOut(rootLane));
