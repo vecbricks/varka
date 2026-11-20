@@ -1192,37 +1192,6 @@ final class VarkaVectorWalk {
   }
 
   /**
-   * {@code CanonicalFloat}: {@code blend(x + 0.0, NaN, isNaN(x))}, the lane's canonical NaN a
-   * scalar the blend broadcasts. The class file writes a float or double constant through
-   * {@code floatToIntBits} or {@code doubleToLongBits}, so the pushed NaN is the canonical one.
-   * The word is the operand's, since nothing here nulls a lane. Under the planted fault
-   * {@link VarkaEmitOptions.FloatingFault#CANONICAL_ZERO_DROPPED} the add is left out, so
-   * {@code -0.0} keeps its sign.
-   */
-  private static void emitCanonicalFloat(CodeBuilder cb, CanonicalFloat n, boolean dense,
-      Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
-    int x = Objects.requireNonNull(s.canonTmp.get(n), "the node's scratch local")[0];
-    emitValue(cb, n.child(), dense, analysis, s, computed);
-    line(cb, analysis, n);
-    Lane lane = analysis.laneOf(n);
-    cb.astore(x);                                               // []
-    cb.aload(x);
-    if (analysis.options.floatingFault()
-        != VarkaEmitOptions.FloatingFault.CANONICAL_ZERO_DROPPED) {
-      lane.pushZero(cb);
-      cb.invokevirtual(lane.vector, "add", lane.lanewiseVI);   // [x + 0.0]
-    }
-    switch (lane.laneType) {
-      case FLOAT -> cb.loadConstant(Float.NaN);
-      case DOUBLE -> cb.loadConstant(Double.NaN);
-      case BYTE, SHORT, INT, LONG -> throw VarkaErrors.illegalArgument(
-          "a canonicalisation at the integral lane " + lane.laneType + ": " + n);
-    }
-    emitIsNaN(cb, lane, x);                                     // [x + 0.0, NaN, isNaN(x)]
-    cb.invokevirtual(lane.vector, "blend", lane.lanewiseVIMasked);
-  }
-
-  /**
    * A per-lane call: {@code [v] -> [v']}, each lane {@code k} of the double vector replaced by
    * {@code fn(v.lane(k))}, the scalar method Spark's code calls, so the bits are that method's on
    * every input. The loop is unrolled over the baked lane count, which the kernel plan requires
@@ -1260,6 +1229,37 @@ final class VarkaVectorWalk {
   /** The other of {@code java.lang.Math} and {@code StrictMath}, for the planted fault. */
   private static String otherClass(String owner) {
     return owner.equals("java/lang/Math") ? "java/lang/StrictMath" : "java/lang/Math";
+  }
+
+  /**
+   * {@code CanonicalFloat}: {@code blend(x + 0.0, NaN, isNaN(x))}, the lane's canonical NaN a
+   * scalar the blend broadcasts. The class file writes a float or double constant through
+   * {@code floatToIntBits} or {@code doubleToLongBits}, so the pushed NaN is the canonical one.
+   * The word is the operand's, since nothing here nulls a lane. Under the planted fault
+   * {@link VarkaEmitOptions.FloatingFault#CANONICAL_ZERO_DROPPED} the add is left out, so
+   * {@code -0.0} keeps its sign.
+   */
+  private static void emitCanonicalFloat(CodeBuilder cb, CanonicalFloat n, boolean dense,
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
+    int x = Objects.requireNonNull(s.canonTmp.get(n), "the node's scratch local")[0];
+    emitValue(cb, n.child(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    Lane lane = analysis.laneOf(n);
+    cb.astore(x);                                               // []
+    cb.aload(x);
+    if (analysis.options.floatingFault()
+        != VarkaEmitOptions.FloatingFault.CANONICAL_ZERO_DROPPED) {
+      lane.pushZero(cb);
+      cb.invokevirtual(lane.vector, "add", lane.lanewiseVI);   // [x + 0.0]
+    }
+    switch (lane.laneType) {
+      case FLOAT -> cb.loadConstant(Float.NaN);
+      case DOUBLE -> cb.loadConstant(Double.NaN);
+      case BYTE, SHORT, INT, LONG -> throw VarkaErrors.illegalArgument(
+          "a canonicalisation at the integral lane " + lane.laneType + ": " + n);
+    }
+    emitIsNaN(cb, lane, x);                                     // [x + 0.0, NaN, isNaN(x)]
+    cb.invokevirtual(lane.vector, "blend", lane.lanewiseVIMasked);
   }
 
   /**
