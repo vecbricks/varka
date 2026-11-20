@@ -1,0 +1,28 @@
+VARKA-617 admission check: the committed per-configuration pair file against two fresh runs'
+own files, read 20 November 2026 on the laptop.
+
+The committed file: sql/varka/matrix/config-suite-seconds.tsv, last changed by 6d8a2663b00
+(#1159, 30 October 2026), from option matrix runs 40961304094 and 40956699711; 5,718 pairs.
+
+The fresh files: each run's report artifact `varka-option-matrix-report`, its
+config-suite-seconds.tsv, as the report job's step "Suite seconds" wrote it
+(dev/varka_matrix_bins.py times --per-configuration), downloaded with gh run download:
+  43642146943  14 November 2026, head fab438d4d91 (varka-103a-dt-arith), with the Build's
+               reach record; artifact kept until 14 December 2026
+  44485292430  19 November 2026, head e5d70012bdc (master), with no reach record, so every
+               configuration ran every test whole; artifact kept until 19 December 2026
+
+A pair is (configuration, suite). The ratio is the fresh file's seconds over the committed
+file's, over the pairs both hold at 5 s or more in the committed file.
+
+run          pairs  in both  fresh only  committed only  ratio median  p10   p90   n
+43642146943   8392     5237        3155             481          1.01  0.65  1.65  2301
+44485292430  10846     5475        5371             243          1.01  0.63  1.70  2421
+
+Suites with a pair in the fresh file and none in the committed one: 51 (43642146943) and 52
+(44485292430). Suites with a pair only in the committed file: 0 in both.
+
+VarkaSparkFuzzSuite: 22 pairs in the committed file, 18 in 43642146943's, 58 in 44485292430's.
+Only whole runs are written, so a configuration that ran part of the suite has no pair.
+
+Every pair of 43642146943's file is also in 44485292430's: together they hold 10,846 pairs.
