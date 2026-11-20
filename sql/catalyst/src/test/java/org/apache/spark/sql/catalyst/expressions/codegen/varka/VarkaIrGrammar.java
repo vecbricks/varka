@@ -66,6 +66,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Fma;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
@@ -400,6 +401,7 @@ public final class VarkaIrGrammar {
       case BitCount n -> new Bounds(Long.SIZE, guard(n.child()));
       // The grammar draws no floating tree, whose values have no integer bound.
       case MathUnary n -> throw new IllegalArgumentException("a floating node: " + n);
+      case Fma n -> throw new IllegalArgumentException("a floating node: " + n);
       case RoundToIntegral n -> throw new IllegalArgumentException("a floating node: " + n);
       case CanonicalFloat n -> throw new IllegalArgumentException("a floating node: " + n);
       case VarkaVectorIR.CanonicalBits n -> throw new IllegalArgumentException(

@@ -83,8 +83,9 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.AddMonths, VarkaVectorIR.MakeDate,
             VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
             VarkaVectorIR.BoundedDivide, VarkaVectorIR.BitOp, VarkaVectorIR.BitCount,
-            VarkaVectorIR.MathUnary, VarkaVectorIR.RoundToIntegral, VarkaVectorIR.Cond,
-            VarkaVectorIR.CanonicalFloat, VarkaVectorIR.CanonicalBits, VarkaVectorIR.HashStep,
+            VarkaVectorIR.MathUnary, VarkaVectorIR.Fma, VarkaVectorIR.RoundToIntegral,
+            VarkaVectorIR.Cond, VarkaVectorIR.CanonicalFloat, VarkaVectorIR.CanonicalBits,
+            VarkaVectorIR.HashStep,
             VarkaVectorIR.GuardedDay, VarkaVectorIR.GuardedRange, VarkaVectorIR.WidenLane,
             VarkaVectorIR.ConvertLane, VarkaVectorIR.ReinterpretLane,
             VarkaVectorIR.NarrowLane, VarkaVectorIR.WidenDecimal {
@@ -170,6 +171,7 @@ public sealed interface VarkaVectorIR
       case BitOp n -> n.left().laneType();
       case BitCount n -> n.child().laneType();
       case MathUnary n -> n.child().laneType();
+      case Fma n -> n.a().laneType();
       case RoundToIntegral n -> n.child().laneType();
       case CanonicalFloat n -> n.child().laneType();
       case CanonicalBits n -> n.lane();
@@ -239,8 +241,8 @@ public sealed interface VarkaVectorIR
       case DecimalWord c -> c.ordinal();
       case BoolColumn b -> b.ordinal();
       case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
-          BitCount _, MathUnary _, RoundToIntegral _, Greatest _, Least _, IfElse _, CondValue _,
-          BoolOutput _, CanonicalFloat _, CanonicalBits _, HashStep _,
+          BitCount _, MathUnary _, Fma _, RoundToIntegral _, Greatest _, Least _, IfElse _,
+          CondValue _, BoolOutput _, CanonicalFloat _, CanonicalBits _, HashStep _,
           Compare _, NullSafeEqual _, CondConst _, NullValue _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
@@ -327,7 +329,7 @@ public sealed interface VarkaVectorIR
           DateDiff _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
-          BitOp _, BitCount _, MathUnary _, RoundToIntegral _, Compare _, NullSafeEqual _,
+          BitOp _, BitCount _, MathUnary _, Fma _, RoundToIntegral _, Compare _, NullSafeEqual _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _,
           InRanges _, CanonicalFloat _, CanonicalBits _, HashStep _ -> {
         for (VarkaVectorIR child : childrenOf(node)) {
@@ -374,7 +376,8 @@ public sealed interface VarkaVectorIR
           Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _, WeekDay _, DayOfWeekIso _,
           ThursdayOf _, Year _,
           Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _, TruncDate _, WeekOfYear _,
-          ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, RoundToIntegral _,
+          ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, Fma _,
+          RoundToIntegral _,
           Compare _, NullSafeEqual _, BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _,
           CrossLane _, InRanges _, CanonicalFloat _, CanonicalBits _, HashStep _ -> {
         boolean any = false;
@@ -1573,6 +1576,34 @@ public sealed interface VarkaVectorIR
   }
 
   /**
+   * {@code a * b + c} over a floating lane with one rounding, {@code Math.fma}: the lanewise
+   * {@code FMA}, which is IEEE's fused multiply-add on every host the Vector API intrinsifies it
+   * on, and {@code Math.fma}'s own exact computation in each lane elsewhere. No Spark expression
+   * is an FMA, so the node is built only by a lowering that needs the single rounding (the
+   * floating remainder and the round-to-odd narrowing, VARKA-346), and never from a multiply and
+   * an add: those stay two {@link IntArith} nodes, rounded twice, as Spark computes them.
+   * Null-intolerant: the validity is the three operands' AND.
+   *
+   * <p>Its NaN's bits are fixed nowhere. {@code Math.fma} run in Java answers the canonical NaN
+   * for any NaN, the instruction an operand's NaN chosen by the form the register allocator picks,
+   * or the host's default NaN for {@code inf * 0}; so a NaN answer is compared by NaN-ness.
+   */
+  record Fma(VarkaVectorIR a, VarkaVectorIR b, VarkaVectorIR c, int hash)
+      implements VarkaVectorIR {
+    public Fma {
+      requireSameLane("an FMA", a, b, c);
+      if (!a.laneType().isFloating()) {
+        throw VarkaErrors.illegalArgument("an FMA takes floating operands, not "
+            + a.laneType() + ", from a " + a.getClass().getSimpleName());
+      }
+      hash = hashOf(a, b, c);
+    }
+
+    public Fma(VarkaVectorIR a, VarkaVectorIR b, VarkaVectorIR c) { this(a, b, c, 0); }
+    @Override public int hashCode() { return hash; }
+  }
+
+  /**
    * Spark's {@code rint(child)} over the double lane ({@code MathUtils.rint}): the nearest
    * integer-valued double, a tie going to the even one, with the operand's sign kept on a zero
    * result ({@code rint(-0.3)} is {@code -0.0}), the infinities returned as they are, and every
@@ -2503,6 +2534,8 @@ public sealed interface VarkaVectorIR
           + kid.apply(n.right()) + ")";
       case BitCount n -> "(bitCount " + kid.apply(n.child()) + ")";
       case MathUnary n -> "(math:" + n.fn().name() + " " + kid.apply(n.child()) + ")";
+      case Fma n -> "(fma " + kid.apply(n.a()) + " " + kid.apply(n.b()) + " "
+          + kid.apply(n.c()) + ")";
       case RoundToIntegral n -> "(round:" + n.mode().name() + " " + kid.apply(n.child()) + ")";
       case CanonicalFloat n -> "(canon " + kid.apply(n.child()) + ")";
       case CanonicalBits n -> "(canonBits " + kid.apply(n.child()) + ")";
@@ -2621,6 +2654,8 @@ public sealed interface VarkaVectorIR
           + lineOf.applyAsInt(n.right()) + ")";
       case BitCount n -> "(bitCount " + lineOf.applyAsInt(n.child()) + ")";
       case MathUnary n -> "(math:" + n.fn().name() + " " + lineOf.applyAsInt(n.child()) + ")";
+      case Fma n -> "(fma " + lineOf.applyAsInt(n.a()) + " " + lineOf.applyAsInt(n.b()) + " "
+          + lineOf.applyAsInt(n.c()) + ")";
       case RoundToIntegral n ->
           "(round:" + n.mode().name() + " " + lineOf.applyAsInt(n.child()) + ")";
       case CanonicalFloat n -> "(canon " + lineOf.applyAsInt(n.child()) + ")";
@@ -2919,6 +2954,7 @@ public sealed interface VarkaVectorIR
       case BitOp n -> new VarkaVectorIR[] {n.left(), n.right()};
       case BitCount n -> new VarkaVectorIR[] {n.child()};
       case MathUnary n -> new VarkaVectorIR[] {n.child()};
+      case Fma n -> new VarkaVectorIR[] {n.a(), n.b(), n.c()};
       case RoundToIntegral n -> new VarkaVectorIR[] {n.child()};
       case CanonicalFloat n -> new VarkaVectorIR[] {n.child()};
       case CanonicalBits n -> new VarkaVectorIR[] {n.child()};
@@ -3003,6 +3039,7 @@ public sealed interface VarkaVectorIR
       case BitOp n -> new BitOp(n.op(), children[0], children[1]);
       case BitCount n -> new BitCount(children[0]);
       case MathUnary n -> new MathUnary(n.fn(), children[0]);
+      case Fma n -> new Fma(children[0], children[1], children[2]);
       case RoundToIntegral n -> new RoundToIntegral(n.mode(), children[0]);
       case CanonicalFloat n -> CanonicalFloat.of(children[0]);
       case CanonicalBits n -> new CanonicalBits(children[0]);

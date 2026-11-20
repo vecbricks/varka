@@ -1207,9 +1207,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // the null-lane draw below; an NTZ's null is the long lane's.
     // The decimal output (VARKA-157) has its own draw, on its own seed, so that no shape here
     // moves: the decimal-store test above runs it.
-    // The floating math function (VARKA-342) is out with the floating lanes: the grammar draws no
-    // floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a production is a row
-    // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it.
+    // The floating math function and the FMA (VARKA-342) are out with the floating lanes: the
+    // grammar draws no floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a
+    // production is a row of the same refit. `VarkaEmitterFloatingArithSuite` covers both, and
+    // the coverage rows the square root.
     // The canonicalisation (VARKA-337) is a floating node too: its side sequence below draws it.
     // The hash step and a canonical value's bits (VARKA-337) have no production yet;
     // `VARKA-337.md` 10 names the part that adds them, in a side sequence of their own.
@@ -1221,7 +1222,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
       "BoolOutput" - "DecimalColumn" - "DecimalWord" - "NullValue" - "WidenDecimal" - "MathUnary" -
-      "RoundToIntegral" - "CanonicalFloat" - "HashStep" - "CanonicalBits" -
+      "Fma" - "RoundToIntegral" - "CanonicalFloat" - "HashStep" - "CanonicalBits" -
       "ConvertLane" - "CrossLane" - "ReinterpretLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +

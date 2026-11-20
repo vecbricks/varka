@@ -154,6 +154,13 @@ public final class VarkaSameAnswer {
      * over an open operand.
      */
     record Canonical<N>() implements Step<N> {}
+
+    /**
+     * A node whose NaN no tier fixes, over any operands: an FMA, which {@code Math.fma} run in
+     * Java answers with the canonical NaN, and the instruction with an operand's NaN or the
+     * host's default one ({@code VarkaVectorIR.Fma}). Every NaN of the node is open.
+     */
+    record Unfixed<N>() implements Step<N> {}
   }
 
   /** One tree's view of a node on one row, all the rule reads. */
@@ -178,8 +185,9 @@ public final class VarkaSameAnswer {
    * greatest} or {@code least} its first child whose value is a NaN (Spark's fold keeps the first
    * of equal values, and every NaN compares equal to every other). A {@code rint}
    * ({@code RoundToIntegral} over the IR, Spark's {@code Rint} over an expression) is never
-   * open, whatever its operand, since it answers the canonical NaN for every NaN. Any other node
-   * is open where a floating child whose value is a NaN is.
+   * open, whatever its operand, since it answers the canonical NaN for every NaN. An FMA
+   * ({@code Fma} over the IR, no Catalyst expression being one) is open wherever it answers a
+   * NaN. Any other node is open where a floating child whose value is a NaN is.
    *
    * <p>The rule reads no payload it decides is open. Which values are NaNs is the same on every
    * tier, and an arithmetic compares its operands' bits only once neither is open, when each is
@@ -202,6 +210,7 @@ public final class VarkaSameAnswer {
         yield l != null ? open(a.left(), front) : r != null && open(a.right(), front);
       }
       case Step.Canonical<N> _ -> false;
+      case Step.Unfixed<N> _ -> true;
       case Step.Pass<N> p -> open(p.child(), front);
       case Step.Pick<N> p ->
           p.taken() != null && front.nanBits(p.taken()) != null && open(p.taken(), front);
@@ -265,6 +274,7 @@ public final class VarkaSameAnswer {
               a.op() == VarkaVectorIR.IntOp.ADD || a.op() == VarkaVectorIR.IntOp.MUL);
           case VarkaVectorIR.RoundToIntegral _ -> new Step.Canonical<>();
           case VarkaVectorIR.CanonicalFloat _ -> new Step.Canonical<>();
+          case VarkaVectorIR.Fma _ -> new Step.Unfixed<>();
           case VarkaVectorIR.IfElse i ->
               new Step.Pick<>(row.holds(i.cond()) ? i.thenNode() : i.elseNode());
           case VarkaVectorIR.Greatest g -> new Step.FirstNaN<>(List.of(g.left(), g.right()));

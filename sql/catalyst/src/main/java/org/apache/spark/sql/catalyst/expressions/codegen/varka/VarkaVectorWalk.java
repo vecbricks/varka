@@ -71,6 +71,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lea
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathFn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Fma;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
@@ -274,6 +275,7 @@ final class VarkaVectorWalk {
       case BitOp n -> emitBitOp(cb, n, dense, analysis, s, computed);
       case BitCount n -> emitBitCount(cb, n, dense, analysis, s, computed);
       case MathUnary n -> emitMathUnary(cb, n, dense, analysis, s, computed);
+      case Fma n -> emitFma(cb, n, dense, analysis, s, computed);
       case RoundToIntegral n ->
           VarkaRoundingLowering.emitRint(cb, n, dense, analysis, s, computed);
       case CanonicalFloat n -> emitCanonicalFloat(cb, n, dense, analysis, s, computed);
@@ -1216,6 +1218,28 @@ final class VarkaVectorWalk {
     };
     cb.getstatic(VECTOR_OPERATORS, operator, VO_UNARY);
     cb.invokevirtual(lane.vector, "lanewise", MethodTypeDesc.of(lane.vector, VO_UNARY));
+  }
+
+  /**
+   * {@code Fma}: {@code a.fma(b, c)}, the operands pushed in their order, one rounding. In the
+   * masked body a node that owns its word stores the three operands' AND.
+   */
+  private static void emitFma(CodeBuilder cb, Fma n, boolean dense, Analysis analysis, Slots s,
+      Set<VarkaVectorIR> computed) {
+    emitValue(cb, n.a(), dense, analysis, s, computed);
+    emitValue(cb, n.b(), dense, analysis, s, computed);
+    emitValue(cb, n.c(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    Lane lane = analysis.laneOf(n);
+    cb.invokevirtual(lane.vector, "fma", MethodTypeDesc.of(lane.vector, VECTOR, VECTOR));
+    if (!dense && s.ownWord.contains(n)) {
+      loadWord(cb, s, s.wordRef.get(n.a()));
+      loadWord(cb, s, s.wordRef.get(n.b()));
+      cb.land();
+      loadWord(cb, s, s.wordRef.get(n.c()));
+      cb.land();
+      storeWord(cb, s, s.wordRef.get(n));
+    }
   }
 
   /**
