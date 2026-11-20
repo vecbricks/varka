@@ -418,7 +418,9 @@ The tests, 3.1 to 3.5, and 3.6:
   that overrides no lane count (a lane count's kernels name another species, which the warm-up
   does not feed). `COMBINED`'s `ByteVector.or`/`ShortVector.or` are now called in the warm-up's
   byte and short blocks, so a four-int-lane JVM has the `or` past the old mark; the review found
-  the corpus naming it at 0 calls. The zero vector is not emitted and is not warmed: the run's
+  the corpus naming it at 0 calls. (Corrected 20 November 2026: that `or` runs at the preferred
+  species, not the widened one the combined store uses; the xhigh review's follow-up, item 2,
+  warms the store's own species.) The zero vector is not emitted and is not warmed: the run's
   first group seeds the accumulator from its own part.
 - **3.6**: `emitted_bytes.json` is the one generated file that moved. Its `option_arms` gained
   `narrowGroupStore=COMBINED` and the option's two subject arms over `lanesOverride=4`, 17 arms
@@ -434,7 +436,8 @@ The tests, 3.1 to 3.5, and 3.6:
 
 The `/code-review high` of 603b's fixes: the template warm-up's byte and short blocks call the
 whole-vector `or` the combined store uses; `narrowGroupStore` runs over
-`lanesOverride=4` and joins `C2_OPTIONS`; the benchmark keeps `WIDENED` and `NATIVE` (with
+`lanesOverride=4` and joins `C2_OPTIONS` (left again on 20 November 2026, the xhigh review's
+follow-up, item 11); the benchmark keeps `WIDENED` and `NATIVE` (with
 `WIDENED_COMBINED` and `NATIVE_COMBINED` beside them), so the committed rows still join; the
 store's predicate is `VarkaKernelPlan.narrowStoreParts`, whose closing store asserts
 `narrowGroups % parts == 0` by the named error and tests its accumulator array for null;
@@ -536,10 +539,11 @@ was checked against the code before it was fixed; all twelve held, eleven are fi
    same emission. An arm whose subject fixes the lane count is now pinned at that width alone.
 8. **Placement.** `NarrowGroupStore` sat between `WideConversionForm` and the note that belongs
    to the calendar-prefix `Division`; it and `withNarrowGroupStore` now sit beside the other
-   store form, `DecimalStore`.
+   store form, `DecimalStore`, and the note sits under `Division`, which it describes.
 9. **The ragged test's data.** Its shorts left `SMALLINT`'s range from row 17 and its ints never
-   made `CAST(i AS SMALLINT)` truncate; the shorts now stay in range and the ints run from
-   -35540 to 33763.
+   made `CAST(i AS SMALLINT)` truncate; the shorts now stay in range and the ints,
+   `((i * 40009) mod 131072) - 65536`, leave it on about half the rows, in every group and the
+   epilogue.
 10. **The stored-prefix regression could pass without reaching the bug.** It now also asserts
     two or more dense loop methods, so the prefix crosses a method boundary. Re-proved: with the
     per-lane-group `s.storedPrefixes.clear()` in `VarkaBodyEmitter.emitLaneGroup` disabled it
@@ -558,8 +562,14 @@ before on the laptop and 2 m 9 s after, both beside other agents' loads (a load 
 34 for the second), so the difference is the machine's; the change only removes emissions, and
 both are well inside the ten-minute watchdog. `dev/varka_regen_generated.sh --all` stopped at
 `VarkaWidthAuditSuite`, whose probe JVMs passed their 600 s limit under that load before the
-bytes step ran; `emitted_bytes.json` was regenerated on its own, and the defaults it pins did
-not move.
+bytes step ran; `emitted_bytes.json` was regenerated on its own, the defaults it pins did not
+move, and `VarkaWidthAuditSuite` then passed (7 tests) in check mode against the committed
+`width_audit.json`.
+
+The branch's `/code-review high` found six points and no correctness bug. Five are fixed: the
+ragged test's ints, the `Division` note, the correction pointers in 3.5 and the 15 November
+fixes, the "what moved" report's width 2, and the title. One is declined: a direct test of the
+warm-up's two-part branch, which the warm-up suites already run at `-XX:MaxVectorSize=16`.
 
 ### 10.1 Side readings, candidates for rows (no row added)
 

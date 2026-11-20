@@ -772,8 +772,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         (keysOf(bArms) -- keysOf(aArms)).foreach(arm => moved += s"option arm gone $arm")
         (keysOf(aArms) -- keysOf(bArms)).foreach(arm => moved += s"new option arm $arm")
         (keysOf(aArms) intersect keysOf(bArms)).foreach { arm =>
-          widths.foreach { lanes =>
-            if (hashOf(bArms.get(arm), lanes.toString) != hashOf(aArms.get(arm), lanes.toString)) {
+          // Every width either file pins the arm at: the store arm's 2 as well as 4 and 16.
+          (keysOf(bArms.get(arm)) ++ keysOf(aArms.get(arm))).foreach { lanes =>
+            if (hashOf(bArms.get(arm), lanes) != hashOf(aArms.get(arm), lanes)) {
               moved += s"lanes $lanes: option arm $arm"
             }
           }

@@ -619,6 +619,17 @@ public record VarkaEmitOptions(
    */
   public enum Division { MAGIC, DOUBLE_RECIP, DOUBLE_DIV }
 
+  /*
+   * A note this enum cannot express, kept beside it rather than inside its javadoc, which
+   * describes the calendar prefix: the 64-bit lane has a fourth lowering, the magic-number
+   * identity of `VarkaLoopEmitter.emitMagicDivide`, and it is selected by {@link #useAVX}
+   * rather than by this enum, because it is a property of the machine and not a variant a
+   * caller chooses. The consequence is that on a host whose conversions fall back there is no
+   * value of this enum that emits the conversion form at the long lane; a test or a benchmark
+   * that wants it asks for a level instead, which is what `withUseAVX` is for. VARKA-88 step 4's
+   * A/B is the reason that matters, and `VARKA-88.md` 9.2 records it.
+   */
+
   /**
    * The two forms of the decimal store's interleave (VARKA-157 2.2). A lane group's words
    * {@code lo} and their sign extensions {@code hi} go into two vectors of slots, the low words
@@ -651,17 +662,6 @@ public record VarkaEmitOptions(
    * not take are arms kept to be measured against it.
    */
   public enum WideConversionForm { SPLIT, MAGIC, XOR_SPLIT }
-
-  /*
-   * A note this enum cannot express, kept beside it rather than inside its javadoc, which
-   * describes the calendar prefix: the 64-bit lane has a fourth lowering, the magic-number
-   * identity of `VarkaLoopEmitter.emitMagicDivide`, and it is selected by {@link #useAVX}
-   * rather than by this enum, because it is a property of the machine and not a variant a
-   * caller chooses. The consequence is that on a host whose conversions fall back there is no
-   * value of this enum that emits the conversion form at the long lane; a test or a benchmark
-   * that wants it asks for a level instead, which is what `withUseAVX` is for. VARKA-88 step 4's
-   * A/B is the reason that matters, and `VARKA-88.md` 9.2 records it.
-   */
 
   /** The two {@code trunc(date, ...)} lowerings; see {@link #truncDate}. */
   public enum TruncDateForm { SUBTRACT, RECOMPOSE }

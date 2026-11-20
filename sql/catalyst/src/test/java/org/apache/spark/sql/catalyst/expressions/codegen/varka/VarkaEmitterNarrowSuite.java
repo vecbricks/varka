@@ -834,9 +834,10 @@ public final class VarkaEmitterNarrowSuite {
     var bytes = new int[][] {
         tabulate(length, i -> ((i * 7) % 256) - 128),
         tabulate(length, i -> ((i * 13) % 256) - 128)};
-    // Ints past both SMALLINT bounds, so CAST(i AS SMALLINT) truncates as well as CAST(i AS
-    // TINYINT); shorts inside SMALLINT's range, as a SMALLINT column holds them.
-    var ints = new int[][] {tabulate(length, i -> (i - 20) * 1777)};
+    // Ints past SMALLINT's bounds on about half the rows, in every group and the epilogue, so
+    // CAST(i AS SMALLINT) truncates as well as CAST(i AS TINYINT); shorts inside SMALLINT's
+    // range, as a SMALLINT column holds them.
+    var ints = new int[][] {tabulate(length, i -> ((i * 40009) % 131072) - 65536)};
     var shorts = new int[][] {tabulate(length, i -> ((i * 4001) % 65536) - 32768)};
     for (int lanes : new int[] {4, 2}) {
       for (VarkaEmitOptions.NarrowGroupStore form
