@@ -83,7 +83,8 @@ public sealed interface VarkaEmitOption
     PRICED_CHECK,
     /**
      * A fault injector: it feeds the emitter a wrong input so a test can show that the emitter's
-     * own self-checks fire. The fuzzer never draws one.
+     * own self-checks fire, or plants a plausible wrong lowering so a test can show that the
+     * checks against Spark catch it. The fuzzer never draws one.
      */
     FAULT_INJECTOR,
     /**
@@ -626,7 +627,20 @@ public sealed interface VarkaEmitOption
           NarrowGroupStore.MASKED, VarkaEmitOptions::narrowGroupStore,
           Builder::narrowGroupStore, new ChoiceTag("narrowGroupStore="),
           Optional.<Class<? extends VarkaVectorIR>>empty(),
-          new Subject(o -> o.toBuilder().lanesOverride(4).build())));
+          new Subject(o -> o.toBuilder().lanesOverride(4).build())),
+      // The floating arithmetic's fault injector (m8/VARKA-504.md, m8/VARKA-548.md 2.3): a test
+      // asks for one of the plausible wrong lowerings through the emission's own options rather
+      // than a JVM-wide static, so the faulty compile keys apart and no other compile sees it.
+      // None in production; its tag keeps the default's rendering empty.
+      new Choice<VarkaEmitOptions.FloatingFault>("floatingFault", Reason.FAULT_INJECTOR,
+          VarkaEmitOptions.FloatingFault.class, VarkaEmitOptions.FloatingFault.NONE,
+          VarkaEmitOptions::floatingFault, Builder::floatingFault,
+          new ChoiceTag("floatingFault="), Optional.empty()),
+      // The day-time interval lowerings' fault injector, on the same terms (VARKA-103.md 3.7).
+      new Choice<VarkaEmitOptions.IntervalFault>("intervalFault", Reason.FAULT_INJECTOR,
+          VarkaEmitOptions.IntervalFault.class, VarkaEmitOptions.IntervalFault.NONE,
+          VarkaEmitOptions::intervalFault, Builder::intervalFault,
+          new ChoiceTag("intervalFault="), Optional.empty()));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

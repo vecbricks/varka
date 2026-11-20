@@ -26,6 +26,7 @@ import org.json4s.jackson.JsonMethods.parse
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, BindReferences,
   Expression, RuntimeReplaceable}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSqlResolve
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
@@ -107,7 +108,7 @@ class VarkaFamilyChainSuite extends SparkFunSuite with VarkaTestWatchdog {
     val doubles = Seq.newBuilder[(String, Expression, Seq[String])]
     val inputs = new VarkaSlotTable
     val literals = new VarkaSlotTable
-    val sink = new DeclineSink(columns, true)
+    val sink = new DeclineSink(columns, VarkaEmitOptions.DEFAULTS)
     for (sql <- sqls; node <- nodes(bound(sql))) {
       val claimants = VarkaNodeCompiler.claimants(chain.asJava, node, inputs, literals, sink)
         .asScala.toSeq

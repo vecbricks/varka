@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.ToDegrees;
 import org.apache.spark.sql.catalyst.expressions.ToRadians;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFloatingFault;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.FloatingFault;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypeId;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
@@ -107,7 +107,7 @@ final class VarkaFloatingCompiler {
       // `Math.toDegrees` and `Math.toRadians` are one multiply by a private constant, so the
       // constant is read from the JDK's own function at 1.0 rather than retyped: the product is
       // then the function's bits on every input, which a test pins against the JDK.
-      case ToDegrees t when l == LaneType.DOUBLE -> () -> scale(t.child(), degreesPerRadian(),
+      case ToDegrees t when l == LaneType.DOUBLE -> () -> scale(t.child(), degreesPerRadian(sink),
           inputs, literals, sink);
       case ToRadians t when l == LaneType.DOUBLE -> () -> scale(t.child(), Math.toRadians(1.0),
           inputs, literals, sink);
@@ -189,12 +189,12 @@ final class VarkaFloatingCompiler {
   }
 
   /**
-   * {@code -x}: the sign bit flipped, so {@code 0.0} answers {@code -0.0}. Under the planted
-   * fault {@link VarkaFloatingFault#NEGATION_AS_SUBTRACTION}, {@code 0.0 - x} instead.
+   * {@code -x}: the sign bit flipped, so {@code 0.0} answers {@code -0.0}. Under the compile's
+   * fault {@link FloatingFault#NEGATION_AS_SUBTRACTION}, {@code 0.0 - x} instead.
    */
   private static VarkaVectorIR negate(VarkaVectorIR x, LaneType lane, VarkaSlotTable literals,
       DeclineSink sink) {
-    if (VarkaFloatingFault.planted() != VarkaFloatingFault.NEGATION_AS_SUBTRACTION) {
+    if (sink.floatingFault() != FloatingFault.NEGATION_AS_SUBTRACTION) {
       return new IntNeg(Overflow.WRAP, x);
     }
     VarkaVectorIR zero = lane == LaneType.DOUBLE ? doubleSlot(0.0, sink)
@@ -203,11 +203,11 @@ final class VarkaFloatingCompiler {
   }
 
   /**
-   * {@code Math.toDegrees(1.0)}, the factor {@code degrees} multiplies by; under the planted
-   * fault {@link VarkaFloatingFault#DEGREES_ROUNDED}, that constant rounded to nine digits.
+   * {@code Math.toDegrees(1.0)}, the factor {@code degrees} multiplies by; under the compile's
+   * fault {@link FloatingFault#DEGREES_ROUNDED}, that constant rounded to nine digits.
    */
-  private static double degreesPerRadian() {
-    return VarkaFloatingFault.planted() == VarkaFloatingFault.DEGREES_ROUNDED ? 57.2957795
+  private static double degreesPerRadian(DeclineSink sink) {
+    return sink.floatingFault() == FloatingFault.DEGREES_ROUNDED ? 57.2957795
         : Math.toDegrees(1.0);
   }
 

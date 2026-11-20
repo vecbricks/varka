@@ -36,7 +36,7 @@ import org.apache.spark.sql.catalyst.expressions.MultiplyYMInterval;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIntervalFault;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.IntervalFault;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
@@ -693,12 +693,12 @@ public final class VarkaIntervalCompiler {
   }
 
   /**
-   * Java's {@code micros / MICROS_PER_DAY}, exact over every long; under the planted
-   * {@link VarkaIntervalFault#DAY_BY_MAGNITUDE}, the fault's form.
+   * Java's {@code micros / MICROS_PER_DAY}, exact over every long; under the compile's fault
+   * {@link IntervalFault#DAY_BY_MAGNITUDE}, the fault's form.
    */
   private static VarkaVectorIR days(VarkaVectorIR micros, DeclineSink sink) {
     long day = DateTimeConstants.MICROS_PER_DAY;
-    if (VarkaIntervalFault.planted() == VarkaIntervalFault.DAY_BY_MAGNITUDE) {
+    if (sink.intervalFault() == IntervalFault.DAY_BY_MAGNITUDE) {
       VarkaVectorIR sign = new BitOp(BitOpKind.SHR, micros, sink.longSlot(63));
       VarkaVectorIR magnitude = new IntArith(IntOp.SUB, Overflow.WRAP,
           new BitOp(BitOpKind.XOR, micros, sign), sign);

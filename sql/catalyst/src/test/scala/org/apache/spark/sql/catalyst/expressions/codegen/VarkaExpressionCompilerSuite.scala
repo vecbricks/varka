@@ -1080,20 +1080,21 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // written wrongly, and the evaluator's allocator only asserts what this refuses.
     val value = new ColumnRef(0, LaneType.LONG)
     for (t <- Seq(DecimalType(1, 0), DecimalType(10, 2), DecimalType(18, 6))) {
-      val sink = new DeclineSink(childOutput, false)
+      val sink = new DeclineSink(childOutput, VarkaEmitOptions.DEFAULTS.withRangeSets(false))
       val root = VarkaDecimalCompiler.outputRoot(Literal.create(null, t), value, sink)
       assert(root.toScala === Some(new VarkaVectorIR.WidenDecimal(value)), t)
       assert(sink.take().isEmpty, t)
     }
     for (t <- Seq(DecimalType(19, 0), DecimalType(30, 4), DecimalType(38, 18))) {
-      val sink = new DeclineSink(childOutput, false)
+      val sink = new DeclineSink(childOutput, VarkaEmitOptions.DEFAULTS.withRangeSets(false))
       assert(VarkaDecimalCompiler.outputRoot(Literal.create(null, t), value, sink).isEmpty, t)
       val reason = sink.take().get.reason
       assert(reason.contains(s"a ${t.simpleString} output"), reason)
       assert(reason.contains("row 359's"), reason)
     }
     intercept[IllegalArgumentException](VarkaDecimalCompiler.outputRoot(
-      Literal(1L), value, new DeclineSink(childOutput, false)))
+      Literal(1L), value,
+      new DeclineSink(childOutput, VarkaEmitOptions.DEFAULTS.withRangeSets(false))))
   }
 
   test("a TIME unit or level that is not a literal, or not a unit, declines with the reason") {
@@ -2550,7 +2551,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // leaf and a date add, which is an int-lane value. The fold asks the guard over the
     // compiled operands, since a lowering may put two of them on different lanes, and a mix
     // that reached the pick's constructor would throw (VARKA-329, finding 5).
-    val sink = new DeclineSink(childOutput, false)
+    val sink = new DeclineSink(childOutput, VarkaEmitOptions.DEFAULTS.withRangeSets(false))
     val folded = VarkaConditionCompiler.foldPick(
       BoundReference(3, ShortType, true),
       Seq(BoundReference(3, ShortType, true),
