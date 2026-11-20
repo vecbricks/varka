@@ -246,7 +246,7 @@ public final class VarkaExpressionHarness {
    * where one has no message. Compiled code may throw a JVM's preallocated exception, whose
    * message HotSpot clears (C2's hot throws, {@code -XX:+OmitStackTraceInFastThrow}), so a hot
    * projection can raise the same {@code ArithmeticException} as the interpreted one without its
-   * "long overflow".
+   * "long overflow". {@code VarkaUpstreamPinsSuite} pins the dropped message.
    */
   private static boolean sameError(Raised a, Raised b) {
     return a.type().equals(b.type()) && (Objects.equals(a.message(), b.message())

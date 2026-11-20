@@ -722,8 +722,8 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
     val query = filtered.format(7)
     val cached = varkaSpark.sql(query).queryExecution.executedPlan
     spark.catalog.uncacheTable("varka_dates_big")
-    val uncached = spark.sql(query).queryExecution.executedPlan
-    cacheDatesBig(spark, 1024)
+    val uncached = try spark.sql(query).queryExecution.executedPlan
+      finally cacheDatesBig(spark, 1024)
     sameCacheReads(cached, cached, query, mustRead = true)
     val e = intercept[TestFailedException](sameCacheReads(uncached, cached, query))
     assert(e.getMessage.contains("the row engine reads the cached tables"), e.getMessage)

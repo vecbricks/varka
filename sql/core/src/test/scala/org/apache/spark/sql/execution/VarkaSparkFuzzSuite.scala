@@ -228,6 +228,9 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
       }
     }
     info(s"compared $compared, fused $fused, both errored $bothErrored")
+    // A run that compared nothing, or fused nothing, would pass with no case checked. A replay
+    // of one iteration may fuse nothing, so only a run of several is held to the second.
+    assert(compared > 0 && (fused > 0 || range.size == 1), s"compared $compared, fused $fused")
     if (overflowUnchecked) info(pins.summary)
     pool.foreach { case (k, (n, e)) => info(s"  $k: $n compositions, $e errored on both sides") }
     info(s"  with nested trees: $nested compositions, $nestedErrored errored on both sides, " +

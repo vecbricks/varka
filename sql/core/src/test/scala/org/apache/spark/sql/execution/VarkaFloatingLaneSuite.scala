@@ -161,7 +161,8 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
    * One query on every fixture: fused, the same answer bit for bit, and a kernel ran. A filter
    * is run with the cache's batch pruning off: Spark's batch statistics leave NaN out, so a
    * filter that matches NaN rows could prune their batches on both sides (SPARK-58482), and the
-   * kernel would never see the rows it is tested on.
+   * kernel would never see the rows it is tested on. The test below that names SPARK-58482 pins
+   * the pruning, so this wrap retires with it.
    */
   private def checkFused(query: String): Unit = names.foreach { fixture =>
     val q = query.replace("$t", fixture)
