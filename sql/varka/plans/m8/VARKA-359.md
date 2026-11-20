@@ -1074,9 +1074,9 @@ gained a commit and the stack was rebased).*
 3. **This part: the conformance suite over the pair's outputs.** With part 2 the pair's value
    forms (`if`, `coalesce`, `greatest`, `least` in the round trip, choice and ordering checks)
    fuse, where they had declined and cancelled; the census owed them, which the suite calls
-   drift. The census marks `dec^` on `if`, `coalesce` and `greatest`, and the long
-   representation's suite names the three in `declinesInPart`, since within 18 digits a decimal
-   output is row 348b's. The slot lane's harness reads no pair output yet (its reference has no
+   drift. The census marks `dec^` on `if`, `when`, `coalesce`, `nullif`, `greatest`, `negative`
+   and `abs`, and the long representation's suite names the seven in `declinesInPart`, since
+   within 18 digits a decimal output is row 348b's. The slot lane's harness reads no pair output yet (its reference has no
    one long for one, and its Spark answers are longs), so the suite cancels a check whose fused
    forms store a pair, naming them and `VarkaDecimalPairSuite`, which holds the same outputs to
    Spark over the word edges.
@@ -1090,7 +1090,11 @@ gained a commit and the stack was rebased).*
 5. **Not changed: the families.** A wide output's negation notes no family, as the long decimal
    value's negation does not; its choices and picks note theirs as `value` does.
 
-RESULT_PART3
+**Run in this window**: `catalyst/Test/compile` passed, and the two conformance suites twice.
+The first run, with three operators marked, named the rest the suite saw fuse: `when`, `nullif`,
+`negative` and `abs` beside `least`. With them marked, the long suite passes, 7 of 7 (two
+checks passing, five cancelled on forms owed elsewhere), and the pair suite fails only
+`ordering`, on `least` (item 4), 6 of 7.
 
 **Owed**: the harness's pair-output path (a reference over two words and a `Decimal` oracle above
 18 digits), which would turn the conformance suite's cancellation into checks; `least`'s mark.
