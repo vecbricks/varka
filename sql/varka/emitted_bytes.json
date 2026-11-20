@@ -16540,12 +16540,10 @@
       "16" : "76fa0691c53da0fa"
     },
     "narrowGroupStore=MASKED over lanesOverride=4" : {
-      "4" : "078983b09e8ef0f7",
-      "16" : "078983b09e8ef0f7"
+      "4" : "078983b09e8ef0f7"
     },
     "narrowGroupStore=COMBINED over lanesOverride=4" : {
-      "4" : "4d7418f74945c713",
-      "16" : "4d7418f74945c713"
+      "4" : "4d7418f74945c713"
     },
     "narrowLanes=true" : {
       "4" : "376d8a32a4ca4e84",
@@ -16556,7 +16554,7 @@
       "16" : "6c21d971c272e52b"
     },
     "narrowGroupStore=COMBINED" : {
-      "2" : "61f9c151e6ff2b00",
+      "2" : "8cb4699a93555e28",
       "4" : "2c53d29c9c6903b6",
       "16" : "f215c70ea32b1ef1"
     },
