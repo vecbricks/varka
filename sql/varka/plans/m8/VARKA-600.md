@@ -237,7 +237,8 @@ taken, and both forms are built at every width. Three caveats on the record:
   `UseAVX=2` is owed to confirm it (risk 6).
 * `compileonly` leaves the rest of the model interpreted, so the ns a row the logs print is not
   a measurement and is not quoted. A tiered rerun read the thread's allocation over 1000 warm
-  calls: 0.0 bytes a row for both forms at both widths. So the windowed form's join of two float
+  calls: 0.0 bytes a row for both forms at both widths (`results/VARKA-600/allocation-tiered.txt`,
+rerun after the logs with the reading in place). So the windowed form's join of two float
   vectors did not keep a box in the model. `skills/emitter-and-ir.md` records a join of a whole
   and a masked load form that did keep one. The emitted kernel is not the model, so the
   runner's allocation is still to be read (risk 5 below).
