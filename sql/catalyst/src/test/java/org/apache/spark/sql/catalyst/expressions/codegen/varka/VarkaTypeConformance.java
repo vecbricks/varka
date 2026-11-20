@@ -603,6 +603,7 @@ public abstract class VarkaTypeConformance {
     var owed = new ArrayList<String>();
     var drift = new ArrayList<String>();
     var unbaked = new ArrayList<String>();
+    var pairStores = new ArrayList<String>();
     // Each declinesInPart() entry this check runs a form of, and whether one of them declined.
     var listedDeclined = new HashMap<String, Boolean>();
     for (Form f : forms) {
@@ -618,7 +619,11 @@ public abstract class VarkaTypeConformance {
             listedDeclined.merge(f.register(), compiled.isEmpty(), Boolean::logicalOr);
           }
           if (compiled.isPresent()) {
-            check(f, compiled.get());
+            if (storesPair(compiled.get())) {
+              pairStores.add(f.toString());
+            } else {
+              check(f, compiled.get());
+            }
             continue;
           }
           if (!listed) {
@@ -645,6 +650,10 @@ public abstract class VarkaTypeConformance {
             + f.register() + declineReason(f, expr));
         continue;
       }
+      if (storesPair(compiled.get())) {
+        pairStores.add(f.toString());
+        continue;
+      }
       check(f, compiled.get());
     }
     listedDeclined.forEach((register, declined) -> {
@@ -658,9 +667,20 @@ public abstract class VarkaTypeConformance {
       fail("the registers have drifted from the compiler: " + String.join("; ", drift));
     }
     assumeTrue(owed.isEmpty(), "owed by the registers: " + String.join("; ", owed));
+    assumeTrue(pairStores.isEmpty(), "the decimal slot lane reads no output of the lane pair's "
+        + "store yet, so these fused forms are held to Spark by VarkaDecimalPairSuite instead: "
+        + String.join("; ", pairStores));
     assumeTrue(unbaked.isEmpty(), "this configuration bakes no lane count for a narrow value "
         + "these forms read or store, so the compiler declines them and the row engine answers "
         + "them: " + String.join("; ", unbaked));
+  }
+
+  /**
+   * Whether {@code c} stores a decimal wider than 18 digits as its two words
+   * ({@code InterleaveDecimal}, VARKA-359), an output the slot lane's harness does not read.
+   */
+  private static boolean storesPair(Compiled c) {
+    return c.roots().stream().anyMatch(r -> r instanceof VarkaVectorIR.InterleaveDecimal);
   }
 
   /** Why the compiler declines a value form, as it reports it, for a message; empty otherwise. */
