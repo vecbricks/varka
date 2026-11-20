@@ -1,6 +1,6 @@
 {
   "generated_by" : "VarkaEmittedBytesSuite; regenerate with VARKA_BYTES_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'",
-  "description" : "Hashes of every emitted method body, rendered symbolically, for every coverage row and for a fixed sequence of fuzz shapes at the int and long lanes, over both, and at each narrow and floating lane, at 128 and 512 bits (lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one), and the narrow-store arms also at 64 bits (2 at the int lane, 1 at the long one). A difference is a change in what an emitted method does. `option_arms` covers emissions beyond the defaults: one digest over every coverage row and int, long and mixed shape at each width per value of spark.sql.codegen.varka.emit.useAVX, an emit option a configuration reaches, and per value of each option the defaults never reach, over the options under which it acts (validityOrFirst); and per reference form whose frames span the kernel (groupLocalSlots=false, methodByteBudget=0), which no session selects but where a per-body slot rule can move bytes unseen; and per value of the narrow-lane option (narrowLanes), which picks the lane a tree whose every value is narrow is emitted at (VARKA-329); and the combined narrow store (narrowGroupStore=COMBINED), which writes a narrow root's species whole once a run of int groups rather than under a per-group mask (VARKA-603); and the math family's opt-in mode (mathUlpContract=true), which spark.sql.codegen.varka.math.ulpContract.enabled reaches. The rest of VarkaEmitOptions is test-only.",
+  "description" : "Hashes of every emitted method body, rendered symbolically, for every coverage row and for a fixed sequence of fuzz shapes at the int and long lanes, over both, and at each narrow and floating lane, at 128 and 512 bits (lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one), and the narrow-store arms also at 64 bits (2 at the int lane, over the shapes not driven at a 64-bit lane); an arm whose subject sets the lane count is pinned at that width alone. A difference is a change in what an emitted method does. `option_arms` covers emissions beyond the defaults: one digest over every coverage row and int, long and mixed shape at each width per value of spark.sql.codegen.varka.emit.useAVX, an emit option a configuration reaches, and per value of each option the defaults never reach, over the options under which it acts (validityOrFirst); and per reference form whose frames span the kernel (groupLocalSlots=false, methodByteBudget=0), which no session selects but where a per-body slot rule can move bytes unseen; and per value of the narrow-lane option (narrowLanes), which picks the lane a tree whose every value is narrow is emitted at (VARKA-329); and the combined narrow store (narrowGroupStore=COMBINED), which writes a narrow root's species whole once a run of int groups rather than under a per-group mask (VARKA-603); and the math family's opt-in mode (mathUlpContract=true), which spark.sql.codegen.varka.math.ulpContract.enabled reaches. The rest of VarkaEmitOptions is test-only.",
   "coverage_rows_skipped" : [ ],
   "lanes" : {
     "4" : {
@@ -16540,12 +16540,10 @@
       "16" : "76fa0691c53da0fa"
     },
     "narrowGroupStore=MASKED over lanesOverride=4" : {
-      "4" : "078983b09e8ef0f7",
-      "16" : "078983b09e8ef0f7"
+      "4" : "078983b09e8ef0f7"
     },
     "narrowGroupStore=COMBINED over lanesOverride=4" : {
-      "4" : "4d7418f74945c713",
-      "16" : "4d7418f74945c713"
+      "4" : "4d7418f74945c713"
     },
     "narrowLanes=true" : {
       "4" : "376d8a32a4ca4e84",
@@ -16556,7 +16554,7 @@
       "16" : "6c21d971c272e52b"
     },
     "narrowGroupStore=COMBINED" : {
-      "2" : "61f9c151e6ff2b00",
+      "2" : "8cb4699a93555e28",
       "4" : "2c53d29c9c6903b6",
       "16" : "f215c70ea32b1ef1"
     },
