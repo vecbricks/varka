@@ -45,10 +45,22 @@ Read on master at `6ac76f86cb3`.
 `VarkaEmitOptions.maxChainDepth`, default `MAX_CHAIN_DEPTH`, is a `Count` in
 `VarkaEmitOption.TABLE` with reason `KNOB` and the tag `chainDepth=`. The tag renders only off
 the default, so the default canonical string and every shape hash stay as they are. It has no
-audit values, so the option matrix and `emitted_bytes.json` do not draw it. The fuzzer draws 16
+audit values (corrected on 20 November: it has the value 32, so the matrix runs
+`maxChainDepth=32`, see 3.1a). The fuzzer draws 16
 and 32, as `VarkaEmitOptionSuite` requires of every option that is not a fault injector, so a
 fuzz variant that grows a draw past 16 is emitted and checked under 32 rather than skipped. It is
 a measurement knob, and no session conf sets it.
+
+### 3.1a Correction, 20 November 2026: the matrix runs the raised cap
+
+The first Build failed `VarkaMatrixSuite`'s check that every option the fuzzer draws has a matrix
+configuration, and the review asked that the suites run under a raised cap, not only the fuzzer.
+The option now has the audit value 32. The configuration emits the defaults' bytes for every shape
+the default cap admits, so what it buys is the suites' answers under a raised cap: shapes past 16
+that the fuzzer grows, and every contract suite. Three tests assert the default cap's verdict and
+are listed in `sql/varka/matrix/skips.tsv` as expected failures: two in `VarkaEmitterBudgetSuite`
+and `IR outside the emitter's shape is rejected` in `VarkaEmitterContractSuite`. Pinning the cap
+in those tests, so that no skip is needed, is the cleaner form and is left for a follow-up.
 
 `VarkaChainDepthBenchmark` is a new class, by the per-feature-files rule, since a depth ladder past
 the cap is not a shape the parity file prices. Each arm is one SQL expression over two columns `x`
