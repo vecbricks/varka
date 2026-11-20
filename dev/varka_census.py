@@ -601,20 +601,19 @@ def decimal_representations():
     return reps
 
 
-def decimal_representation_lines(scoped, fused):
-    """The summary lines that split the `dec` pairs by representation: admitted over every
-    in-scope entry that takes `dec`, fused where the entry is fused for `dec` and its class has a
-    coverage row that reads that representation."""
+def decimal_representation_lines(scoped):
+    """The summary lines that split the `dec` entries by the band of the coverage rows that
+    exercise them: an entry counts for a band when a coverage row of one of the classes its claim
+    is checked against (`check_cls_of`) reads a decimal column of that band. This is evidence of
+    coverage, not of fusion: the census holds one `dec` type, so a fused claim does not say which
+    representation it covers, and a row that reads both bands credits both."""
     reps = decimal_representations()
     admitted = [r for r in scoped if "dec" in r[5].split(",")]
-    done = {id(r) for r, t in fused if t == "dec"}
-    lines = ["decimal pairs by representation (fused today / admitted):"]
+    lines = ["decimal entries with a coverage row that reads a decimal column of the band:"]
     for rep, label in (("long", "up to 18, an unscaled long"), ("pair", "above 18, a lane pair")):
-        n = sum(1 for r in admitted if id(r) in done and rep in reps.get(r[1], set()))
-        lines.append(f"  {label:28s} {n:4d} / {len(admitted)}")
-    lines.append("decimal entries with a coverage row, fused or in part (entries / admitted):")
-    for rep, label in (("long", "up to 18, an unscaled long"), ("pair", "above 18, a lane pair")):
-        n = sum(1 for r in admitted if rep in reps.get(r[1], set()))
+        n = sum(
+            1 for r in admitted if any(rep in reps.get(c, set()) for c in check_cls_of(r[0], r[1]))
+        )
         lines.append(f"  {label:28s} {n:4d} / {len(admitted)}")
     return lines
 
@@ -653,7 +652,7 @@ def summary(out):
     for t in ORDER:
         tag = "new" if t in NEW else "existing"
         lines.append(f"  {t:7s} {tag:8s} {per_type_fused.get(t, 0):4d} / {per_type.get(t, 0)}")
-    lines.extend(decimal_representation_lines(scoped, fused))
+    lines.extend(decimal_representation_lines(scoped))
     full = [r for r in scoped if r[9] == "done"]
     lines.append(f"entries fused for every admitted type: {len(full)}")
     some = [r for r in scoped if r[7]]
