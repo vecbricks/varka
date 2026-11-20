@@ -183,5 +183,99 @@ if row 383's loop shape or row 430's fix settles it, this row closes on that rer
 
 ## 11. Outcome
 
-*Filled in when the work lands: the runs with their commands, section 6.1's predictions scored
-one by one, and what moved that this plan did not list.*
+Read on the laptop on 20 November 2026 at origin/master `0b8be5a33e4`, one JVM a run as #1500
+ran it, on a machine shared with other agents (one-minute load 19 to 68 on 24 threads). Every
+run's command, tally, trap counts and load are in `results/VARKA-605-readings.txt`. The ending is
+**2, row 383's mechanism**, and the row's premise that the case needs the sanitizer is refuted.
+
+### 11.1 What the readings show
+
+1. **The seed's sample moved with the table.** At seed 20261111 the compiled test now samples 16
+   rows (four lane types, 4 each, from 539 rows), and `nullif(ntz, ntz2)` is not among them. It
+   holds `nullif(t, t2)`, whose emitted class is byte for byte the same kernel (`javap -c -p` of
+   both classes, dumped by a class-file agent, identical once the class name is masked), so the
+   sample still runs the row's kernel, under another row's name.
+2. **R1, the row alone, settles**: 0 of 6 sanitized runs unsettled; each still takes one
+   `profile_predicate` trap (two in one run) at `loopMasked0` bytecode 205.
+3. **R2, the sample, reproduces the case, with and without the sanitizer.** Sanitized, 2 of 3
+   runs left the long-tallied lane at 5 of 8 settled in both `warm-same` and `quiet-null`, the
+   same three rows each time: `try_subtract(l, l2)`, `nullif(t, t2)` and
+   `if(x IS NULL, x2, NULL)` (a DOUBLE row, tallied with LONG). The plain control left one to
+   three of the same rows unsettled in each of its three runs (warm-same 7, 7 and 6 of 8;
+   quiet-null 6, 8 and 5 of 8). The int-tallied lane settled 8 of 8 in every run.
+4. **R3, the trap.** Each unsettled kernel's `loopMasked0` is at no tier at the deadline while
+   its epilogue is C2 code (`levels {epilogueMasked0=4, loopMasked0=0}`), and its class takes 4
+   to 24 `profile_predicate` traps, `maybe_recompile`, all at one bytecode a kernel: 392, 412 and
+   362. In `nullif(t, t2)`'s class bytecode 412 is `goto 201`, the back edge of the main vector
+   loop `for (i = 0; i < species.loopBound(n); i += species.length())`, whose head at 205 is
+   `if_icmpge 415`. That is row 383's trap: the same reason and action, on the same construct
+   (`VARKA-383.md` 9.3 found `goto 241`, the back edge, at bytecode 566). The compared calls show
+   the lower tier: in `warm-same`, sanitized run 1 counted 5 cases `all C2` and 3 `all mixed`,
+   one for each case left unsettled.
+   A sixfold deadline does not settle it: at `-Dvarka.fuzz.settleMillis=60000` two of the rows
+   were still unsettled with 42 to 52 back-edge traps a class, about one every 1.2 s, so it is a
+   cycle and not a deadline starved by load. Alone, a row's loop traps at its head (bytecode 205)
+   once or twice and never at its back edge.
+5. **The sanitizer is not in the loop.** The kernel maps its buffers through
+   `VarkaVectorSupport.ofAddress`, whose sanitizer check runs at bytecodes 34 to 173, before the
+   loop; the loop body calls only `validityBitsAt8`, `orValidityBitsAt8` and Vector API methods.
+   So no hoisted window test can be the failing predicate, and row 430's mechanism is ruled out
+   for this kernel.
+6. **The case depends on what the JVM compiled before it.** `try_subtract(l, l2)` and
+   `nullif(t, t2)` alone, sanitized, over `warm-same` and `quiet-null`, settled 4 of 4 each (R1b,
+   two runs a row). In the sample they are the third and fourth LONG rows, after
+   `timestampadd(MONTH, l, ntz)` and `CAST(ntz AS TIME(3))`. A kernel class is fresh each history,
+   so what carries over is the profile of the code it inlines (`VarkaVectorSupport` and the
+   Vector API), which every kernel shares; this is an inference, not a reading.
+7. **R4, the flag, settles it.** With `-XX:+UnlockDiagnosticVMOptions
+   -XX:-UseProfiledLoopPredicate`, sanitized, the three rows settled in 3 of 3 runs, and the logs
+   hold no `profile_predicate` trap at all. One of the three (load 68) left three other rows
+   unsettled with no trap and their epilogues at no tier: a starved compile queue, not this case.
+
+### 11.2 The ending
+
+Ending 2: the traps sit at `loopMasked0`'s back edge, R4 clears them, and the plain control
+reproduces them, which is row 383's plain long-lane release. Row 383 is **Started** in this
+milestone and owns the loop shape, so this row builds no expected-unsettled table and closes on
+383's rerun of this reading: R2's form, sanitized and plain, three runs each. Section 3.2's ending
+3 does not fit the case either way: a table keyed by one row's SQL would print the entry as
+stale in every single-row replay (R1, R1b) and miss the other rows the sample happens to hold.
+
+### 11.3 Predictions scored
+
+1. R1 does not reproduce, 0 of 6: **held** (0 of 6). Its reason did not: the sanitizer turned out
+   not to matter, so the one-sided profile row 430 needs is beside the point.
+2. R2 reproduces in at least 2 of 3 sanitized runs, the plain control settles 8 of 8: **half
+   held**. 2 of 3 sanitized runs reproduced, but no plain run of three settled 8 of 8, and the
+   sample R2 ran was not the one the prediction assumed.
+3. `loopMasked0` traps at `profile_predicate` and R4 settles it in at least 2 of 3: **held** (3 of
+   3). The bytecode did not separate 383 from 430 the way risk 2 said: a profile predicate's trap
+   is reported at its loop's bytecode whichever test was hoisted into it (HotSpot's
+   `GraphKit::add_parse_predicates` at the loop head, `parse1.cpp`); what separated them was the
+   plain control and the place of the sanitizer's check in the bytecode.
+4. Time, R1 about 1 minute a run, R2 3 to 6 minutes, all under 45 minutes: **held for R1**
+   (45 to 60 s), **R2 within its range** (2.5 to 5.7 minutes); the whole set took about 70 minutes
+   of machine time with R1b, the class dumps and the extra controls.
+
+### 11.4 What the plan did not list
+
+* The sample's drift: a seed names a sample of the table as it stands, so a tier fact read off a
+  seed is replayable only at its commit. The compiled test now names the rows it sampled (not
+  the whole table), which is the one code change here.
+* The tally prints no lane line when every case ran one history (`Tally.report` counts a case's
+  compiled time only when it ran more than one history), so a single-history replay shows only
+  its `unsettled:` lines. Left as it is; noted for whoever next reads a single-history replay.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **R2 ran the compiled test alone (`-z`), not the whole suite.** The compiled test is the
+   suite's first registered test, so the whole suite's JVM runs nothing before it; `-z` is the
+   same JVM history up to the test's end at a third of the time.
+2. **R2 read today's sample, not #1500's.** Rebuilding #1500's commit to recover its sample would
+   cost a second build, and today's sample holds the same kernel (11.1, item 1).
+3. **`-Xlog:deoptimization=debug` was on in every run**, so R3 is read off R2's own runs; the log
+   writes to a file and does not change what C2 compiles.
+4. **The compiled test names its sample.** A code change before the plan's step 2, which the plan
+   did not list; without it the readings could not say which rows were unsettled at a seed.
+5. **Ending 2, with no table.** Question 1 asked about row 430's mechanism, which the readings rule
+   out; for row 383's the plan's own ending 2 applies, since 383 is Started in this milestone.
