@@ -192,7 +192,110 @@ than the row path at 256 and 128 bits.
 
 ## 9. Outcome
 
-Not built.
+Started 20 November 2026, while the owner was away; steps 1 and 2 are built, steps 3 and 4 are
+owed (below).
+
+### 9.1 Step 1, the probe
+
+`VarkaPartialProjectionProbe` ran on the laptop before the change, three passes of each null
+density: run 1 at 256 and at 128 bits, then run 2 at 256 bits. Its output is
+`results/VARKA-613-probe.txt`. The laptop was shared at a one-minute load of 30 to 60 (about 40 at
+the start of run 1, about 60 at the end of run 2, the file gives each), far busier than 598's
+probe.
+
+**The control decides which passes count.** `extract(DAY FROM dt)` alone is committed at 3.9X on
+the runners, but it lost in the no-null pass of every run (0.8X, 0.9X, 0.8X), and won in every
+nulls pass (2.6X, 1.4X, 2.1X). A pass whose control loses is not measuring the kernel, so only
+the nulls passes are read. This drops c's 2.2X in run 1's no-null pass, which favours (R2), as
+well as both readings that contradict it: a at 1.3X in run 1 and b at 1.6X in run 2, each in a
+pass whose row arm read far slower than the same query at the other density (301 against 103 ms,
+506 against 289).
+
+Best times, ms, row path then varka on, the counted passes:
+
+| shape | run 1, 256 bits | run 2, 256 bits | run 1, 128 bits |
+|---|---|---|---|
+| a. the blend | 103 / 153, loss | 395 / 426, band | 305 / 394, band |
+| b. other inputs | 128 / 136, band | 289 / 351, band | 281 / 402, loss |
+| c. heavy, shared | 118 / 81, win | 328 / 296, band | (row 612's loss) |
+| d. heavy, other | 285 / 183, win | 464 / 515, band | (row 612's loss) |
+
+The 128-bit no-null pass is not read either (its control read 0.9X); there a and b read 0.8X and
+0.5X, losses for both.
+
+**The rule is (R2), residual-heavy.** (R1) declines c, which wins, and keeps b, which loses at
+128 bits, so it fails twice. (R2) declines a and b and keeps c and d, which fits every counted
+reading and the runners' committed loss of the blend at both widths. The rule is
+`VarkaPartialDecline.reason`: decline when the residual entries outnumber the fused ones, the
+entries of every kernel together, with forwarded columns counted as neither.
+
+Predictions of 6.1, scored on the counted passes:
+
+1. Shape a loses at both widths: **half right**. It read 0.7X at 256 bits in run 1 and stayed in
+   the band in run 2 and at 128 bits. Shape c wins at 256 bits by 1.3x: **right** in run 1
+   (1.5X), in the band in run 2.
+2. Shape b within 10% of the row path at 256 bits: **right** in run 1 (6%), **wrong** in run 2
+   (21% slower, still inside the 1.3x band).
+3. Shape d wins at 256 bits by 1.3x: **right** in run 1 (1.6X), in the band in run 2.
+4. (R2) matches, c separates the rules: **right**.
+5. The blend at 1.0X on the runners: owed (step 4).
+
+### 9.2 Step 2, the decline
+
+Built as 3.1 says, with the reason in `VarkaPartialDecline` rather than a fusion report
+(decisions, item 1). `VarkaColumnarRule`'s post stage asks it in the
+`ColumnarToRowExec(VarkaProjectExec)` arm, which then plans `ProjectExec(ColumnarToRowExec(child))`,
+and in the `ProjectExec ... if isVarkaEligible` arm, which then leaves the projection as it is.
+The blend's class in `VarkaDayTimeIntervalBaselineBenchmark` is `NONE` at both densities.
+`VarkaDecimalBaselineQueriesSuite`'s `x9 < y9, -x38 < y38` ties one to one and stays `PARTIAL`, so
+that suite is unchanged. Only `build/sbt sql/Test/compile` was run in this window; the suites of
+step 2's done-when are owed.
+
+### 9.3 Where the plan was wrong
+
+1. 3.1's procedure has no rule for a failed control or for a shape that reads both ways in two
+   passes. The control rule above is the one this probe needed; a later probe should state it
+   before it runs.
+2. Step 3's done-when, `dev/varka_regen_generated.sh --all` leaving no diff, does not cover the
+   golden corpus, which has its own switch (`skills/working-in-this-repo.md`, the `--all`
+   section): `VARKA_GOLDEN_REGEN=true build/sbt -batch "sql/testOnly *VarkaGoldenCorpusSuite"`.
+3. 3.1's "the node's fusion report records the reason" cannot hold for a declined plan, which
+   has no Varka node (decisions, item 1).
+
+### 9.4 Owed
+
+* Step 2's suites: `VarkaPartialDeclineSuite`, `VarkaDayTimeIntervalBaselineQueriesSuite`,
+  `VarkaDecimalBaselineQueriesSuite`.
+* Step 3: the golden corpus regenerated with its own switch, then `dev/varka_regen_generated.sh
+  --all`, and both diffs read entry by entry.
+* Step 4: the owner's runner dispatch of the day-time baseline at both widths, and beside it
+  `VarkaPartialProjectionProbe` on the EPYC 7763 at both widths, which confirms (R2) on a quiet
+  machine or widens it. The blend declines under all three rules, so the row's done-when does not
+  depend on that second run.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **Where the reason lives.** A declined projection has no Varka node, so no fusion report can
+   carry the reason as 3.1 says. The rule is one Java method, `VarkaPartialDecline.reason`,
+   which returns the reason or nothing; both post-stage arms call it, the rule logs the reason at
+   DEBUG with the projection (as it logs a filter it leaves to Spark), and
+   `VarkaPartialDeclineSuite` reads the same method. Reason: it is the smallest place that both
+   the rule and a test can read, and it adds no plan node or tag that Spark's `EXPLAIN` would not
+   show anyway.
+2. **A forced residual is never declined.** `forceResidualAt` (VARKA-296) makes an entry
+   residual so that the Spark differential and the composition fuzzer run the merge path. A
+   forced residual can tip a projection's count, so under the decline a forced shape could lose
+   its Varka node, and the differential would count the force as not applied instead of checking
+   the merge. So the rule returns nothing while the option is set. Reason: the option is a fault
+   injector that no user configuration reaches, and the merge path still runs for every partial
+   projection under a columnar consumer and every one the rule keeps.
+3. **The rule is Java, the arms Scala.** The classification is a sealed `VarkaOutputSpec`
+   matched exhaustively, which is the house style for the IR (AGENTS.md, "Java code"); the rule
+   object stays Scala because it is a Catalyst rule.
+4. **The probe's passes are read by their control, and the rule is (R2).** The laptop could not
+   be made quiet in this window, and a third run under the same load would not have been
+   cleaner. 9.1 gives the control rule and the reading. (R3) was not taken: it would decline c
+   and d, which never lose past 1.3x at 256 bits in any reading. Question 10.1 is therefore moot.
 
 ## 10. Questions for the owner
 
