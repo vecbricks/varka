@@ -343,7 +343,30 @@ over the written and legacy orders, and the default order stays in the loop beca
 `demoteNullCheckMovers` compares within it. The test names the three cases the other orders
 demote alone.
 
-### 10.3 Owed
+Run on the laptop (20 November 2026): `VarkaConjunctOrderSuite` 21 of 21;
+`VarkaExpressionCompilerSuite`, `VarkaCoverageSuite` and `VarkaEmittedBytesSuite` pass, with
+`coverage.json` and `emitted_bytes.json` unchanged (P5 holds there); `VarkaDifferentialSuite`,
+`VarkaFilterRaiseOrderSuite`, `VarkaSplitConditionFusionSuite`, `VarkaRangeFilterFusionSuite`,
+`VarkaSparkReproducerSuite` and `VarkaCodegenGiveUpSuite` pass. Three existing tests built a
+nullable fused conjunct ahead of a residual one off `canRaise`'s list (`add_months` in
+`VarkaExpressionCompilerSuite`'s size-budget test, `pow` in two `VarkaFilterExecSuite` rule
+tests), which the new rule demotes; their subjects are the size demotion and the split, so they
+now run over non-nullable columns.
+
+**Where the plan was wrong.** The plan named no consumer of the legacy conf but the fallback.
+`VarkaColumnarRule` also asks `fallbackHoistsIntoAnAnd` (row 541) at planning, over the fallback
+condition, whose fold the setting changes; the review found that a plan run again after the
+setting changes could pass that check under one fold and run the other. The check now asks both
+folds.
+
+### 10.3 Review
+
+`/code-review high` on the branch found one issue, the planning-time hoist check above, fixed by
+asking it under both settings rather than binding the setting into the node: the fallback keeps
+reading the conf when the plan runs, as `FilterExec` does. The review read the `codegenOrder` port
+step by step against the merged `generatePredicateCode` and found it to match.
+
+### 10.4 Owed
 
 - The PR Build and an option-matrix dispatch (CI, not in this window).
 - P3, the nightly census with nested trees after the merge: a laptop nightly, the done-when's
@@ -364,6 +387,10 @@ demote alone.
    there.
 4. **`VARKA-388.md` is not committed to `m7/`** (question 3): the record of what that branch
    learned is 10.1 here; whether the old plan is kept as a file is the owner's call.
-5. **The m7 row 380 pointer (9 item 2) waits for the merge**, since the switch leaves the
+5. **Three existing tests moved to non-nullable columns** rather than to the inferred null tests:
+   their subjects are not the order rule, and the new rule's demotion is tested in
+   `VarkaConjunctOrderSuite`. The demotion stays on `canRaise`, not Spark's `mayRaise`, as 2.2 says
+   (open point 9 item 3 stays open): `pow` is off both lists.
+6. **The m7 row 380 pointer (9 item 2) waits for the merge**, since the switch leaves the
    nightly only when this branch lands.
 

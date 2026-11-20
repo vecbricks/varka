@@ -80,14 +80,13 @@ private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelpe
    * row there (SPARK-60315); the setting is read as `FilterExec` reads it, from the session's conf
    * when the plan executes, and has no effect on a filter Spark does not compile.
    */
-  protected def fallbackCondition: Expression = {
+  protected def fallbackCondition: Expression =
+    fallbackConditionUnder(conf.legacyFilterShortCircuitOnNullConjunct)
+
+  /** `fallbackCondition` under the given setting of the legacy NULL-conjunct conf. */
+  private def fallbackConditionUnder(legacy: Boolean): Expression = {
     val whole = wholeCondition.getOrElse(condition)
-    if (compiledBySpark) {
-      VarkaConjunctOrder.inCodegenOrder(
-        whole, child.output, conf.legacyFilterShortCircuitOnNullConjunct)
-    } else {
-      whole
-    }
+    if (compiledBySpark) VarkaConjunctOrder.inCodegenOrder(whole, child.output, legacy) else whole
   }
 
   // Whether Spark would compile this filter, the test `fallbackCondition`'s comment describes.
@@ -129,12 +128,16 @@ private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelpe
    * columns, the first two conjuncts are both a prefix of the fallback's chain and the IF's
    * condition, so `make_date` runs before `s = 'x'` and raises on a row whose `s` is 'y'. The
    * analysis is the one `generateConjunctsWithSubexprCodes` makes, over the predicate
-   * `VarkaFallbackPredicate` generates.
+   * `VarkaFallbackPredicate` generates. It is asked under both settings of the legacy NULL-conjunct
+   * conf, whose fold differs: the fallback reads the setting when the plan runs, as Spark's filter
+   * does, and a plan can run again after the setting changes.
    */
   private[sql] def fallbackHoistsIntoAnAnd: Boolean = compiledBySpark &&
-      fallbackEliminatesSubexpressions && {
+      fallbackEliminatesSubexpressions && Seq(false, true).exists(hoistsIntoAnAnd)
+
+  private def hoistsIntoAnAnd(legacy: Boolean): Boolean = {
     val predicate = ExpressionCanonicalizer.execute(
-      BindReferences.bindReference(fallbackCondition, AttributeSeq(child.output)))
+      BindReferences.bindReference(fallbackConditionUnder(legacy), AttributeSeq(child.output)))
     val equivalence = new EquivalentExpressions
     equivalence.addExprTree(predicate)
     val common = equivalence.getCommonSubexpressions
