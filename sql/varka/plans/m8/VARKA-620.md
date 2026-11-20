@@ -135,7 +135,11 @@ changed while the benchmark was built, and section 3.1 was edited in place for t
 step is `e - (CASE WHEN e > y THEN y ELSE 0 END)`, so the cycle is six levels and a remainder
 takes up to five single-level steps; the multiply wraps (risk 3); and the fuzzer draws the option
 at 16 and 32, since `VarkaEmitOptionSuite` requires draws of every option that is not a fault
-injector. Two more change what the readings can say:
+injector. Two statements were left as first written and are wrong: the benchmark builds each
+arm's Catalyst tree directly rather than parsing SQL (the tree is the same one the SQL would
+parse to), and the literal table holds three values at every depth (the multiplier 3, the shift
+2 and the `ELSE 0`), not two, as prediction 2's "one literal" should also read. Two more change
+what the readings can say:
 
 * **The run is cache-resident.** One pass over a million rows streams 24 MB at the BIGINT lane,
   past L3, so a shallow rung would be bound by memory and a deep one by compute, and a ratio

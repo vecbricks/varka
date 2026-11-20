@@ -403,62 +403,134 @@ public class VarkaChainDepthBenchmark extends VarkaBenchmarkBase {
     }
   }
 
-  /** The scalar loop at the BIGINT lane: the cycle written out, then the tail. */
+  /*
+   * The scalar loops. The tail is a prefix of REMAINDER, so each tail length gets its own row
+   * loop with its steps written out: no rung pays a per-row dispatch over its tail's steps, and
+   * every rung costs the same per level. DEPTHS leave tails of 0, 2 and 4 steps only, so those
+   * are the loops there are. The small helpers inline under C2.
+   */
+
+  /** The scalar loop at the BIGINT lane: the cycles, then the tail written out. */
   private static void scalarLong(long[] xs, long[] ys, long[] out, int rows, int cycles,
-      Step[] tail) {
-    for (int i = 0; i < rows; i++) {
-      long x = xs[i];
-      long y = ys[i];
-      for (int c = 0; c < cycles; c++) {
-        x = Math.addExact(x, y);
-        x *= 3L;
-        x >>= 2;
-        x = Math.subtractExact(x, x > y ? y : 0L);
+      int tail) {
+    switch (tail) {
+      case 0 -> {
+        for (int i = 0; i < rows; i++) {
+          long y = ys[i];
+          long x = cyclesLong(xs[i], y, cycles);
+          out[i] = x;
+        }
       }
-      for (Step s : tail) {
-        x = switch (s) {
-          case ADD -> Math.addExact(x, y);
-          case MUL -> x * 3L;
-          case SHR -> x >> 2;
-          case CMP -> Math.subtractExact(x, x > y ? y : 0L);
-        };
+      case 2 -> {
+        for (int i = 0; i < rows; i++) {
+          long y = ys[i];
+          long x = cyclesLong(xs[i], y, cycles);
+          x = addLong(x, y);
+          x = mulLong(x);
+          out[i] = x;
+        }
       }
-      out[i] = x;
+      case 4 -> {
+        for (int i = 0; i < rows; i++) {
+          long y = ys[i];
+          long x = cyclesLong(xs[i], y, cycles);
+          x = addLong(x, y);
+          x = mulLong(x);
+          x = shrLong(x);
+          x = addLong(x, y);
+          out[i] = x;
+        }
+      }
+      default -> throw new IllegalArgumentException("a tail of " + tail + " steps");
     }
+  }
+
+  private static long cyclesLong(long x, long y, int cycles) {
+    for (int c = 0; c < cycles; c++) {
+      x = mulLong(addLong(x, y));
+      x = shrLong(x);
+      x = Math.subtractExact(x, x > y ? y : 0L);
+    }
+    return x;
+  }
+
+  private static long addLong(long x, long y) {
+    return Math.addExact(x, y);
+  }
+
+  private static long mulLong(long x) {
+    return x * 3L;
+  }
+
+  private static long shrLong(long x) {
+    return x >> 2;
   }
 
   /** The scalar loop at the INT lane. */
   private static void scalarInt(long[] xs, long[] ys, long[] out, int rows, int cycles,
-      Step[] tail) {
-    for (int i = 0; i < rows; i++) {
-      int x = (int) xs[i];
-      int y = (int) ys[i];
-      for (int c = 0; c < cycles; c++) {
-        x = Math.addExact(x, y);
-        x *= 3;
-        x >>= 2;
-        x = Math.subtractExact(x, x > y ? y : 0);
+      int tail) {
+    switch (tail) {
+      case 0 -> {
+        for (int i = 0; i < rows; i++) {
+          int y = (int) ys[i];
+          int x = cyclesInt((int) xs[i], y, cycles);
+          out[i] = x;
+        }
       }
-      for (Step s : tail) {
-        x = switch (s) {
-          case ADD -> Math.addExact(x, y);
-          case MUL -> x * 3;
-          case SHR -> x >> 2;
-          case CMP -> Math.subtractExact(x, x > y ? y : 0);
-        };
+      case 2 -> {
+        for (int i = 0; i < rows; i++) {
+          int y = (int) ys[i];
+          int x = cyclesInt((int) xs[i], y, cycles);
+          x = addInt(x, y);
+          x = mulInt(x);
+          out[i] = x;
+        }
       }
-      out[i] = x;
+      case 4 -> {
+        for (int i = 0; i < rows; i++) {
+          int y = (int) ys[i];
+          int x = cyclesInt((int) xs[i], y, cycles);
+          x = addInt(x, y);
+          x = mulInt(x);
+          x = shrInt(x);
+          x = addInt(x, y);
+          out[i] = x;
+        }
+      }
+      default -> throw new IllegalArgumentException("a tail of " + tail + " steps");
     }
   }
 
+  private static int cyclesInt(int x, int y, int cycles) {
+    for (int c = 0; c < cycles; c++) {
+      x = mulInt(addInt(x, y));
+      x = shrInt(x);
+      x = Math.subtractExact(x, x > y ? y : 0);
+    }
+    return x;
+  }
+
+  private static int addInt(int x, int y) {
+    return Math.addExact(x, y);
+  }
+
+  private static int mulInt(int x) {
+    return x * 3;
+  }
+
+  private static int shrInt(int x) {
+    return x >> 2;
+  }
+
   private static void scalarDrive(Rung r, Columns c) {
-    Step[] tail = r.tail().toArray(new Step[0]);
+    int tail = r.tail().size();
     if (c.lane().isLong()) {
       scalarLong(c.xs(), c.ys(), c.scalarOut(), c.rows(), r.cycles(), tail);
     } else {
       scalarInt(c.xs(), c.ys(), c.scalarOut(), c.rows(), r.cycles(), tail);
     }
   }
+
 
   /**
    * Runs Spark's arm and keeps its answers, checks they are far from constant, then runs the

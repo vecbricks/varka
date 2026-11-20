@@ -151,7 +151,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
  *
  * <p>Out-of-shape IR - unknown lane types, a condition in a value position, out-of-range
  * ordinals or slots, a day offset that is neither a literal slot nor a column, trees past
- * {@link VarkaEmitBudget#MAX_CHAIN_DEPTH} or {@link VarkaEmitBudget#MAX_FUSED_NODES} - is
+ * the depth cap {@link VarkaEmitOptions#maxChainDepth} (by default
+ * {@link VarkaEmitBudget#MAX_CHAIN_DEPTH}) or past {@link VarkaEmitBudget#MAX_FUSED_NODES} - is
  * rejected with {@link IllegalArgumentException}, which the evaluator wiring treats as "fall
  * back". Refusing to emit is a normal outcome here, not an error path: the query still runs, on
  * stock Spark.
