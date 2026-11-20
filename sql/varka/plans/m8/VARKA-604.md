@@ -94,6 +94,17 @@ is planned now and built after 577b (8; question 1).
   a time: transpose the block's x and y slots into split blocks, call the 64-row loop, transpose
   the result and the zero-divisor word back. The three blocks (3 KB) are one per thread, in a
   `ThreadLocal`, as `VarkaScratch` keeps its buffer, so a call allocates nothing.
+- **The tail.** The spike's loop takes only multiples of 64 rows. A batch's last block, when
+  shorter, is filled past its live rows with dividend 0 and divisor 1, which no form traps on,
+  and its zero-divisor word is masked to the live rows before 577b reads it, so a padding slot
+  never sets a bit (an `arrowBatchSize=3` batch is one such block).
+- **Inlining, as the probe had it.** The probe's verdict was read under compile commands: the
+  64-row loops and the transposes kept out of line, F's body inlined into the loop (`run.sh`). A
+  production JVM has no such commands, and C2 inlining the 64-row loop into the driver would make
+  the compiled loop span the batch, item 3's failing case. So the helper adds one compiler
+  directive once per JVM, before its first call, as `VarkaKernelCompileDirective` adds its C1
+  exclusion: `dontinline` on the 64-row loops and the transposes, `inline` on the body. Tests
+  5.2 and 5.3 run without the probe's commands, so they hold the production setting.
 - **The option**, `VarkaEmitOptions.decimalRemainderTwoLane`, a flag, reason `MACHINE`, default
   false, read by the compiler. Under it, at two long lanes on x86 (the setting 577b's decline
   reads), the pair remainder of 577b's node lowers to one call of the helper's driver over the
@@ -176,8 +187,9 @@ labels, against the row path. The control: B in the spike, which no width or opt
 2. The baseline's pair sections with the option on are at least 5X the row path (771.3 and 973.4
    ns a row at `DECIMAL(38, 10)`); not the 18 to 20 times 10.5 indicated, since the query also
    reads Arrow and writes its output.
-3. Every arm and section allocates under the sampler's allowance on the runner, in the shared
-   JVM of the benchmark, after its other arms.
+3. The new arm and the option-on baseline sections allocate under the sampler's allowance on
+   the runner, in the shared JVM of the benchmark, after its other arms. Not B, which allocates
+   `BigInteger`s by design, nor the spike's other arms, which no part of this row changes.
 
 ## 7. Risks
 
@@ -196,7 +208,11 @@ labels, against the row path. The control: B in the spike, which no width or opt
 
 1. This plan and the admission probe (one commit).
 2. After 577b merges: rebuild and re-run the probe on that master (`build.sh`, then `run.sh`
-   with its default modes) and record it in 9; its result says whether 2's verdict still holds.
+   with its default modes, and once more with the compile commands replaced by 3.1's directive)
+   and record it in 9; its result says whether 2's verdict still holds. `build.sh` copies the
+   whole remainder spike and cuts only `runBenchmarkSuite`; once row 614 lands, the spike's
+   `requireHarness` and `driveToCompiledCode` call `Settle` and `VarkaTierWitness`, which the
+   stubs lack, so that step first extends the cut to those two methods.
 3. One pull request, about 650 counted lines: the helper with test 5.1 and the spike's arm; the
    option and the compiler and emitter call, with tests 5.2 to 5.5. Split in two at the helper if
    the count passes the cap.
