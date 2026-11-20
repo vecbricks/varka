@@ -648,6 +648,18 @@ floating sequences do, and a reach test holds each to every form over its first 
   child JVM's nine-minute cap, a harness limit, not a failure (`testing-and-debugging.md` on
   `VarkaOwnJvm`); the second, given the property at the root project, was stopped once seen.
 
+### 5.5 Step 2's code, the census cells (20 November 2026)
+
+Step 2 (2.5, item 0.7) on part `varka-342c-census`, stacked on 5.4's: `VarkaOperatorCensusCatalog`
+gains a family, "floating arithmetic", of twelve cells, `ADD`, `SUB`, `MUL`, `DIV`, `NEG` and
+`ABS` at each floating lane, over the probe's binary loops (`bin.float`, `bin.double`) and its
+double unary loop, and a new `un.float` loop in `VarkaOperatorCensusProbe` for the float unary
+two. The census itself, `operator_census.json`, is a measurement: its laptop regeneration
+(`VARKA_CENSUS_REGEN=true`) and the census workflow on both runners are owed, and until the
+laptop's is committed `VarkaOperatorCensusSuite` fails on this host for the twelve missing cells
+(it compares only where its census was taken, so the runners skip it). Prediction 4.2 is scored
+when they run: the twelve intrinsic at every width on the laptop and the EPYC.
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **The FMA node is built now, as its own part, ahead of the rest of step 4.** The brief's

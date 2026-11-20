@@ -53,6 +53,7 @@ public record VarkaOperatorCensusCatalog(String name, String family, String loop
   private static final String LANE_WIDTH = "lane width";
   private static final String FLOAT_COMPARES = "floating compares";
   private static final String FMA = "fused multiply-add";
+  private static final String FLOAT_ARITH = "floating arithmetic";
   private static final String MATH = "math";
   private static final String UNSIGNED = "unsigned long compares";
   private static final String DEINTERLEAVE = "the de-interleave";
@@ -151,11 +152,24 @@ public record VarkaOperatorCensusCatalog(String name, String family, String loop
       of("float", "LT", FLOAT_COMPARES, "cmp.float", "compare", "341"),
       of("float", "LE", FLOAT_COMPARES, "cmp.float", "compare", "341"),
       of("float", "IS_NAN", FLOAT_COMPARES, "test.float", "compare", "341"),
+      // The floating arithmetic's six operators a lane (VARKA-342 2.5, item 0.7).
+      of("float", "ADD", FLOAT_ARITH, "bin.float", "binaryOp", "342"),
+      of("float", "SUB", FLOAT_ARITH, "bin.float", "binaryOp", "342"),
+      of("float", "MUL", FLOAT_ARITH, "bin.float", "binaryOp", "342"),
+      of("float", "DIV", FLOAT_ARITH, "bin.float", "binaryOp", "342"),
+      of("float", "NEG", FLOAT_ARITH, "un.float", "unaryOp", "342"),
+      of("float", "ABS", FLOAT_ARITH, "un.float", "unaryOp", "342"),
       of("float", "FMA", FMA, "fma.float", "ternaryOp", "30, 346, 366"),
       of("double", "EQ", FLOAT_COMPARES, "cmp.double", "compare", "341"),
       of("double", "LT", FLOAT_COMPARES, "cmp.double", "compare", "341"),
       of("double", "LE", FLOAT_COMPARES, "cmp.double", "compare", "341"),
       of("double", "IS_NAN", FLOAT_COMPARES, "test.double", "compare", "341"),
+      of("double", "ADD", FLOAT_ARITH, "bin.double", "binaryOp", "342"),
+      of("double", "SUB", FLOAT_ARITH, "bin.double", "binaryOp", "342"),
+      of("double", "MUL", FLOAT_ARITH, "bin.double", "binaryOp", "342"),
+      of("double", "DIV", FLOAT_ARITH, "bin.double", "binaryOp", "342"),
+      of("double", "NEG", FLOAT_ARITH, "un.double", "unaryOp", "342"),
+      of("double", "ABS", FLOAT_ARITH, "un.double", "unaryOp", "342"),
       of("double", "FMA", FMA, "fma.double", "ternaryOp", "30, 346, 366"),
       of("double", "EXP", MATH, "un.double", "libraryUnaryOp", "345, 356 to 358"),
       of("double", "LOG", MATH, "un.double", "libraryUnaryOp", "345, 356 to 358"),
