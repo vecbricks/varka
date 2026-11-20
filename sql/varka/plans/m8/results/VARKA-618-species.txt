@@ -1,0 +1,21 @@
+VARKA-618 admission check: the preferred int species a JVM gets from -XX:MaxVectorSize,
+read 20 November 2026 on the laptop (AMD Ryzen AI 9 HX PRO 370, AVX-512), JDK 25
+(openjdk version "25.0.5.0.3" 2026-10-24).
+
+The program, run as `java --add-modules jdk.incubator.vector <flags> Pref.java`:
+  public class Pref { public static void main(String[] a) {
+    System.out.println("preferred int lanes "
+        + jdk.incubator.vector.IntVector.SPECIES_PREFERRED.length()); } }
+
+flags                                    preferred int lanes
+(none)                                   16
+-XX:MaxVectorSize=16                      4
+-XX:MaxVectorSize=64                     16
+-XX:UseAVX=2                              8
+-XX:UseAVX=2 -XX:MaxVectorSize=16         4
+-XX:UseAVX=2 -XX:MaxVectorSize=64         8, with HotSpot's warning "MaxVectorSize must be
+                                            at most 32 on this platform"
+
+-XX:UseAVX=2 is the level of the runners' AMD EPYC 7763. A JVM given MaxVectorSize of four
+bytes per int lane has that lane count as its preferred species wherever the host can make it,
+and falls back to the host's widest otherwise.
