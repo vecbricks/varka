@@ -1941,12 +1941,17 @@ Measured today from `dev/varka_census.py --summary`, the commit log and the loca
 * **Item 1 (the seven types read and written)**: the by-type counts above are the evidence.
   `TIMESTAMP_NTZ`, `TINYINT`, `SMALLINT` and `BOOLEAN` are 49 of 54, 50 of 75, 50 of 75 and 28 of
   41; `DOUBLE` and `FLOAT` are 44 of 102 and 36 of 66; `DECIMAL` is 2 of 66, so its representations
-  are mostly on branches. This review did not re-read each type's coverage rows.
+  are mostly on branches. Of `coverage.json`'s 765 rows, every type has comparison and choice rows;
+  a decimal above precision 18 has 17 rows and none for arithmetic or a cast, and a decimal up to
+  18 has no cast row (roles matched on each row's SQL text).
 * **Item 3 (the cast matrix)** stands at 42 of the 106 legal pairs fused at least in part.
 * **Item 5 (the math family)** has its baseline, `sin`, `cos` and the trigonometric family in
   review (#1567), and the fdlibm ports (345a to 345e) on branches, not merged.
-* **Items 6, 7 and 8**: not re-read here. The post (355), the support table (353) and the 4.3.0
-  comparisons (552, 553) have no branch among the 153 local ones.
+* **Item 6**: done are 39, 333, 334 and 336; started are 104 (arithmetic merged as #1484) and 103
+  (103a1 merged as #1534); done in part are 89 and 335; planned are 30 (its baseline is open) and 95.
+* **Items 7 and 8**: the post (355), the support table (353) and the 4.3.0 comparisons (552, 553)
+  are planned and have no branch among the 153 local ones; row 354's admission check says the close
+  cannot run yet.
 
 ### 12.2 What the review found
 
@@ -2000,3 +2005,12 @@ Measured today from `dev/varka_census.py --summary`, the commit log and the loca
 5. The post, the support table and 552 and 553.
 6. Item 2's gap is closed when 148 more pairs are fused; the milestone's close (354) reads the
    list again, and the rows that miss it go to `m9/SCOPE.md` with the reason named in the census.
+
+### 12.5 Habits from the self-review of the same day
+
+The self-review of 20 November found that both first-push CI failures of the afternoon (a missing
+matrix configuration for a new option, and two options whose declines a skip list did not name)
+could have been caught by a local run of `VarkaMatrixSuite` and one configuration of the new
+option before the push. The rows built under the implementation-first mode also carry the wrong
+answers of 12.2 item 3. So a row counts toward item 2 only when it has merged, and a push of an
+option change runs the matrix suite first.
