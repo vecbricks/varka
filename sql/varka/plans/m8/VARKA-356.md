@@ -674,8 +674,10 @@ function. `VarkaMathCompilerSuite`'s fused table gains the nine functions, `log(
 functions" rows. `VarkaMathBaselineBenchmark` marks `cbrt`, `exp`, `log`, `log10` and
 `exp(x) * 2 + 1` `WHOLE`; 358's eight census lines wait for the regeneration (decision 5).
 
-**Run in the window**: `catalyst/Test/compile` and `sql/Test/compile`, and the one targeted run of
-`VarkaMathExactSuite` and `VarkaMathCompilerSuite` that the outcome line below records. Owed:
+**Run in the window**: `catalyst/Test/compile` and `sql/Test/compile`, both clean, and one
+targeted run of `VarkaMathExactSuite` and `VarkaMathCompilerSuite`: 11 tests, all passed
+(the exact suite's five in 443 s, the compiler suite's six in 20 s, at a load average of 31
+from other worktrees' jobs). Owed:
 `dev/varka_regen_generated.sh --all` (coverage, docs, emitted bytes, width audit, census), the
 `-XX:UseAVX=2` width audit, the coverage and Spark-level differentials, the fuzz, the option
 matrix, the Arm runner's cell and every runner measurement of section 4.
@@ -684,6 +686,10 @@ matrix, the Arm runner's cell and every runner measurement of section 4.
 changed, and only new shapes are added. It is unchecked until the regeneration. 2 to 6 wait for
 the runner. 7, the suite's time, was scored at 33 s for nine functions in 356a1. For 18 it is
 predicted at 70 s, twice that, since the sampled differential is linear in the functions.
+Measured: 443 s on a laptop at a load average of 31, so the prediction missed by six times. The
+load explains some of it: 356a1's 33 s was measured on a quieter machine. The other-class plant
+also reruns the sampled differential for all 18 functions. A quiet rerun is owed before this
+joins the calibration table.
 
 **Left of 358a.** `pow` and `hypot` (358a2: the `MathBinary` node, which 356's `atan2` needs
 too, with the registry suites a new node owes); the IR fuzz productions; the vectors files; the
