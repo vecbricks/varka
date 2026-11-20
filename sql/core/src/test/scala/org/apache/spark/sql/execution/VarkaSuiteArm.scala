@@ -21,6 +21,7 @@ package org.apache.spark.sql.execution
 import scala.reflect.ClassTag
 import scala.util.control.NonFatal
 
+import org.scalactic.anyvals.PosInt
 import org.scalactic.source.Position
 import org.scalatest.Tag
 
@@ -43,6 +44,13 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionEvalHelp
  * checks all run first.
  */
 trait VarkaSuiteArm extends SparkFunSuite with ExpressionEvalHelper {
+
+  /**
+   * The random properties' draws per property: ScalaCheck's ten unless
+   * `-Dvarka.suites.minSuccessful` raises them, as the nightly does.
+   */
+  implicit override val generatorDrivenConfig: PropertyCheckConfiguration =
+    PropertyCheckConfiguration(minSuccessful = PosInt.from(VarkaSuiteArm.minSuccessful).get)
 
   /** The suite's name in the record and the lists: the subclass's. */
   private def varkaSuite: String = getClass.getSimpleName
@@ -137,4 +145,7 @@ trait VarkaSuiteArm extends SparkFunSuite with ExpressionEvalHelper {
 object VarkaSuiteArm {
   /** Whether the random properties' checks run through Varka too: the nightly's run. */
   val random: Boolean = sys.props.get("varka.suites.random").contains("true")
+
+  /** The random properties' draws per property, ScalaCheck's ten by default. */
+  val minSuccessful: Int = sys.props.get("varka.suites.minSuccessful").map(_.toInt).getOrElse(10)
 }

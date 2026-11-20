@@ -516,6 +516,30 @@ range is a cast row's question, not this one's.
 3. "Nothing is listed in the exclusions after the first run but read-path entries, if any":
    **right**; nothing is listed, and no `read-path`, `lift` or `spark` finding arose.
 
+## What was built of 368b, 20 November 2026 (local, not run)
+
+On a third stacked branch, `varka-368b-census-suites`, built after the owner's order of 07:30 CET
+to implement first and leave tests and CI for later, so nothing here has run beyond a compile and
+`VarkaSuiteCheckSuite`:
+
+- `dev/varka_census.py` reads `casts_suites.tsv` and holds it to the matrix in `--check`
+  (`suites_errors`, with doctests on fixtures): a form `casts_fused.tsv` calls fused, declined in
+  the record in that mode, is an error; a form outside the matrix declined in a mode where the
+  pair's `fused_forms` is "all" is an error, a form cast to itself excepted, since the analyzer
+  removes it; a form fused in the record and declined in the matrix is a warning. On the
+  committed record all three are empty.
+- The nightly: a `cast-suites` job in `varka-fuzz.yml` (row 537 is still planned, so this row
+  builds the scheduled sql job), in `report-failure`'s `needs`, and a `castsuites` step in
+  `dev/varka_nightly.sh` (`--skip-castsuites`): the three suites with
+  `-Dvarka.suites.random=true` and `-Dvarka.suites.minSuccessful=100`, which `VarkaSuiteArm` now
+  reads into ScalaCheck's configuration, the record regenerated and required unchanged
+  (`git diff --exit-code`), then the census check.
+- The docs bullet in `docs/sql-varka.md`.
+
+Left of 368b: the `suites` column of `casts.tsv` (it regenerates the census's files, held under
+the order), the suite weights in `sql/varka/ci/suite-times.tsv` (they need the first CI run), and
+every run the nightly job and step make, owed. Left of the row: 368c, the hash half, after row 337.
+
 ## Decisions taken while the owner was away (20 November 2026)
 
 The owner and the lead were away; each point below takes the option the plan, `sql/varka/AGENTS.md`

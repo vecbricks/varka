@@ -48,6 +48,7 @@ import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.unsafe.types.UTF8String;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -127,6 +128,8 @@ public final class VarkaSuiteCheckSuite {
   }
 
   @Test
+  // The defaults fuse the cast and the add; a configuration may not.
+  @Tag(VarkaSuite.PINS_DEFAULTS)
   @DisplayName("a check passes where the kernel answers as Spark does")
   void fusedCheckPasses() {
     // A suite name of its own, so that the counts are this check's alone.
@@ -143,6 +146,8 @@ public final class VarkaSuiteCheckSuite {
   }
 
   @Test
+  // The defaults fuse the cast and the add; a configuration may not.
+  @Tag(VarkaSuite.PINS_DEFAULTS)
   @DisplayName("a kernel planted without its overflow check fails as answering a raising row")
   void plantedKernelFails() {
     // No option takes a cast's range guard away, so the planted kernel is an ANSI int add with
