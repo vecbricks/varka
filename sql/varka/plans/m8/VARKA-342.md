@@ -647,6 +647,8 @@ floating sequences do, and a reach test holds each to every form over its first 
   `FLOAT` and 2.4 s at `DOUBLE`, and the reach test found every form over 2,000 draws a lane. The first whole-suite run hit the
   child JVM's nine-minute cap, a harness limit, not a failure (`testing-and-debugging.md` on
   `VarkaOwnJvm`); the second, given the property at the root project, was stopped once seen.
+  In the first, the child's own report shows the registry tests passing with `Fma` listed: "the
+  generator reaches every IR node type" and the long-lane one.
 
 ### 5.5 Step 2's code, the census cells (20 November 2026)
 
@@ -688,8 +690,8 @@ held. The census workflow on the EPYC 7763 and the Neoverse N2 is owed, its half
    its lane. The IR, the emitter and the reference take both at `FLOAT`, and a later row (the
    float forms of 345 and 356 to 358) may build them there; a fuzzed form the compiler never
    reaches costs draws, not correctness.
-7. **The fuzz sequences are a stacked part although both parts fit the cap together** (748 and
-   154 counted lines): the brief asks for the FMA node as its own small part, so that row 346a can
+7. **The fuzz sequences are a stacked part although both parts fit the cap together** (750 and
+   183 counted lines, and 33 for 5.5's part): the brief asks for the FMA node as its own small part, so that row 346a can
    stack on it without the fuzz change.
 
 ## 6. Out of this row
