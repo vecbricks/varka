@@ -380,6 +380,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `i - 1` | `intArithmetic` | `i > -2147483648` | checked under ANSI | vector |
 | `year(d) * 2` | `calendar`, `intArithmetic` | `unix_date(d) BETWEEN -719162 AND 2932896` | a multiply is checked, and only bounded operands take the check off: `i * 2` over a bare int column declines | vector |
 | `-i` | `intArithmetic` | `i > -2147483648` | checked under ANSI | vector |
+| `abs(i)` | `intArithmetic` | `i > -2147483648` | `abs(Int.MinValue)` is out of range, and wraps back to itself in the legacy mode | not audited |
 | `try_add(i, 1)` | `intArithmetic` |  | an overflowing lane is null, so the kernel declines nothing | vector |
 | `try_subtract(i, 1)` | `intArithmetic` |  | an overflowing lane is null | vector |
 | `year(d) + i` | `calendar`, `intArithmetic` | `unix_date(d) BETWEEN -719162 AND 2932896 AND i <= 2147483647 - year(d)` | checked under ANSI; the lower bound is out of reach, since a year is at least 1 | vector |
@@ -1370,7 +1371,7 @@ operands (a row counts once for each type it reads):
 | `double` | 85 | 0 | 0 | 1 | 0 | 0 | 84 |
 | `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
-| `int` | 177 | 14 | 0 | 4 | 1 | 1 | 157 |
+| `int` | 178 | 14 | 0 | 4 | 1 | 1 | 158 |
 | `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
 | `short` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
 | `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
