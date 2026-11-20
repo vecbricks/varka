@@ -582,7 +582,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("bitmap_bucket_number(l)"),
       Row("bitmap_bit_position(l)"),
       Row("bit_get(i, 3)", "a TINYINT result, the bit shifted down, masked and narrowed; a literal "
-        + "position past the width declines, since Spark raises on every row"),
+        + "position past the width declines, since Spark raises on every row with a valid target"),
       Row("bit_get(i, i)", "a position column is guarded by the width, which declines the batch "
         + "Spark raises BIT_POSITION_RANGE on", domain = Some("i BETWEEN 0 AND 31")),
       Row("getbit(l, 63)", "the alias, at the long lane"),

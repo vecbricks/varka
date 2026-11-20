@@ -190,9 +190,11 @@ public final class VarkaDomains {
     ints.addAll(around(-dayLimit, dayLimit));
     ints.addAll(around(minMonths, maxMonths));
     ints.addAll(around(1, 12));
-    // The positions bit_get admits at a SMALLINT, an INT and a BIGINT and one past each end.
+    // The positions bit_get admits at a SMALLINT, an INT and a BIGINT and one past each end: -1,
+    // then each last position and the width; the first, 0, is among the months' edges above.
+    ints.add(-1L);
     for (long width : List.of(16L, 32L, 64L)) {
-      ints.addAll(around(0, width - 1));
+      ints.addAll(List.of(width - 1, width));
     }
     var rows = new ArrayList<String>();
     ints.forEach(i -> rows.add(row("i", Long.toString(i))));
