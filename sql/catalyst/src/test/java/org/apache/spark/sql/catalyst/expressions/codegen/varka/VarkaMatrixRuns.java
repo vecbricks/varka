@@ -136,8 +136,9 @@ public final class VarkaMatrixRuns {
   /**
    * The options that change what C2 compiles a kernel against, not only its bytes: a second
    * vector species in the JVM (the lane count, the half species) or the instructions C2 may use.
-   * The narrow store's form changes only the bytes; its configuration reaches C2 through the
-   * {@code lanesOverride=4} it is set beside.
+   * The narrow store's form changes which calls a kernel makes, not the species or the
+   * instructions; its configuration reaches C2 through its table subject's
+   * {@code lanesOverride=4} ({@code VarkaEmitOption.TABLE}).
    */
   public static final Set<String> C2_OPTIONS =
       Set.of("lanesOverride", "narrowHalfSpecies", "useAVX");

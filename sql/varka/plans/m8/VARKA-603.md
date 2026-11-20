@@ -427,10 +427,10 @@ The tests, 3.1 to 3.5, and 3.6:
   to 20, the new arm pinned in `VarkaEmittedBytesSuite` beside the lane arms, and every default
   hash, every existing arm and the per-lane `lanes` section are unchanged. `width_audit.json`,
   `coverage.json`, `docs/sql-varka.md`, `types.tsv` and the census files are unchanged, as the
-  unchanged defaults require. (The review fixes below move the pinned `COMBINED` arm's width-4
-  digest, pin that arm alone at 64 bits as well, in `option_arms` and not in `lanes`, which holds
-  4 and 16, and add the option's two arms over its subject. Corrected on 20 November 2026 to the
-  merged state, which `44bce64a5a6` set.)
+  unchanged defaults require. (This revision's review adds a width-2 `lanes` column, moves the
+  pinned `COMBINED` arm's digest, and adds the option's two arms over its subject; see below.)
+  Correction, 20 November 2026: the merged state, which `44bce64a5a6` set, pins width 2 for the
+  `COMBINED` arm alone, in `option_arms`; `lanes` holds 4 and 16.
 
 ### Review fixes (15 November 2026)
 
@@ -486,7 +486,7 @@ The second `/code-review high`, on the fix, left these recorded with no code (fo
   extra arm emissions and 8,199 more lines of `emitted_bytes.json`, and put the whole-shape test
   past its ten-minute watchdog on a slow runner (Build `44140064906`, 17 November 2026). Width 2
   is now pinned for the store arms alone, `lanes` holds 4 and 16, and the file lost 8,186 lines;
-  the xhigh review's follow-up below narrows it to the int-lane shapes.
+  the xhigh review's follow-up below narrows it to the shapes not driven at a 64-bit lane.
 - `VarkaEmitterNarrowArithSuite` re-parses each class file once per method name and defines a
   class per batch in the ragged test; `VarkaEmitterTestSupport.methodProfile`/`methodNames` and
   `VarkaKernelChecks.runLoadedNarrow` already do both without the repeats.
@@ -519,6 +519,11 @@ was checked against the code before it was fixed; all twelve held, eleven are fi
    blend) where part 0 is a plain convert. `widenedBytes` and `widenedShorts` now convert at
    every part `-part`, OR the parts and store the result whole; the javadoc that said the OR
    "seeds the accumulator" is gone. The warm-up is not emitted code, so no emitted byte moved.
+   It reaches the combined store only where the preferred int species is 128 bits (four
+   lanes); on a wider host the store arises only under `lanesOverride=4`, whose species the
+   warm-up does not feed (3.5). Owed with 603d's default choice: on a 128-bit production host
+   these calls are warm-up work for a form no session selects while `MASKED` is the default,
+   so if `MASKED` stays the default they should be gated or dropped.
 3. **Recorded, no code (for 603c/603d).** Under `COMBINED` one narrow store makes
    `narrowGroups` kernel-wide (`VarkaKernelPlan.narrowGroups`): every loop method of the kernel
    runs `groups` lane-group copies, including outputs that store no narrow value, and the
@@ -533,7 +538,7 @@ was checked against the code before it was fixed; all twelve held, eleven are fi
 6. **Width 2 pinned no 64-bit lane.** At width 2 a 64-bit drive halves to `lanesOverride=1`,
    which bakes no lane count (`Lane.emitLanes` gives 0), so the long and mixed shapes in the
    `COMBINED` arm's `2` digest were the preferred species' emission. Width 2 now covers only the
-   shapes not driven at 64 bits (`pinsAt`), and the file's description says so.
+   shapes not driven at a 64-bit lane (`pinsAt`), and the file's description says so.
 7. **Two arms were emitted twice for one digest.** `narrowGroupStore=MASKED|COMBINED over
    lanesOverride=4` set the lane count in their subject, so their `4` and `16` digests were the
    same emission. An arm whose subject fixes the lane count is now pinned at that width alone.
@@ -551,7 +556,9 @@ was checked against the code before it was fixed; all twelve held, eleven are fi
     clear restored it passes.
 11. **`C2_OPTIONS` admitted a bytes-only option.** `narrowGroupStore` changes only the bytes, and
     its matrix configuration reaches C2 through the `lanesOverride=4` it is set with; it is
-    dropped from the set, and `VarkaMatrixSuite` checks both spellings.
+    dropped from the set, and `VarkaMatrixSuite` checks both spellings. `COMBINED` does change
+    which Vector API calls C2 meets (the branch review's point); the set's rule is the species
+    and the instruction set, and the option's configuration keeps its C2 tests by its subject.
 12. **The benchmark's class doc** said every case label names both options; the masked arms
     keep their committed names, which it now says.
 
@@ -560,7 +567,7 @@ digest (item 6) and the two subject arms losing their `16` entry (item 7); every
 the `lanes` section and every other arm are unchanged. The whole-shape pin test took 1 m 54 s
 before on the laptop and 2 m 9 s after, both beside other agents' loads (a load average near
 34 for the second), so the difference is the machine's; the change only removes emissions, and
-both are well inside the ten-minute watchdog. `dev/varka_regen_generated.sh --all` stopped at
+both are well inside the ten-minute watchdog; on the branch's final head it took 1 m 25 s. `dev/varka_regen_generated.sh --all` stopped at
 `VarkaWidthAuditSuite`, whose probe JVMs passed their 600 s limit under that load before the
 bytes step ran; `emitted_bytes.json` was regenerated on its own, the defaults it pins did not
 move, and `VarkaWidthAuditSuite` then passed (7 tests) in check mode against the committed
@@ -569,7 +576,13 @@ move, and `VarkaWidthAuditSuite` then passed (7 tests) in check mode against the
 The branch's `/code-review high` found six points and no correctness bug. Five are fixed: the
 ragged test's ints, the `Division` note, the correction pointers in 3.5 and the 15 November
 fixes, the "what moved" report's width 2, and the title. One is declined: a direct test of the
-warm-up's two-part branch, which the warm-up suites already run at `-XX:MaxVectorSize=16`.
+warm-up's two-part branch, which the warm-up suites already run at `-XX:MaxVectorSize=16`. A
+second `/code-review high`, of the fix commit, found seven nits. Five are taken: the width-2
+wording, the reach of item 2's warm-up and its cost on a 128-bit production host (recorded in
+item 2), the `C2_OPTIONS` doc's reason, and this file's first rewritten passage (restored, with
+the correction after it). Two are not: `fixedWidth` collapses only to an oracle width because a
+pinned key must be one, and a diff that reads as moving `withWideConversionForm` leaves its
+order beside the new setter as it was.
 
 ### 10.1 Side readings, candidates for rows (no row added)
 

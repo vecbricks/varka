@@ -48,8 +48,8 @@ import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeInter
  * from the shared fuzz grammar at a fixed seed, and ten thousand random long-lane trees from
  * its long grammar at that grammar's own seed (VARKA-119). Each shape is emitted at two
  * widths, 128 and 512 bits - `lanesOverride` 4 and 16 at the int lane, 2 and 8 at the long
- * one - and the narrow store's arms add 64 bits, `lanesOverride` 2, over the int-lane shapes
- * alone - and every method body of the emitted class is rendered symbolically
+ * one - and the narrow store's arms add 64 bits, `lanesOverride` 2, over the shapes not driven
+ * at a 64-bit lane - and every method body of the emitted class is rendered symbolically
  * (`VarkaEmitterTestSupport.methodBodies`: opcodes and resolved operands, labels numbered, no
  * constant-pool indices and no line tables) and hashed.
  *
@@ -77,9 +77,10 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   /**
    * The widths every shape is pinned at, and the third one the narrow store's arms add: only a
    * byte or short store at two int lanes has four parts, so the 64-bit width is pinned for the
-   * store arms alone, and over the int-lane shapes alone (`pinsAt`). Emitting every other shape
-   * and arm at it as well would cost about a third of the suite's work for bytes no part count
-   * can differ in, and would put the whole-shape test against its watchdog on a slow runner.
+   * store arms alone, and over the shapes not driven at a 64-bit lane (`pinsAt`). Emitting every
+   * other shape and arm at it as well would cost about a third of the suite's work for bytes no
+   * part count can differ in, and would put the whole-shape test against its watchdog on a slow
+   * runner.
    */
   private val widths = Seq(4, 16)
   private val storeWidths = Seq(2, 4, 16)
@@ -620,7 +621,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         "coverage row and for a fixed sequence of fuzz shapes at the int and long lanes, over " +
         "both, and at each narrow and floating lane, at 128 and 512 bits " +
         "(lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one), and the " +
-        "narrow-store arms also at 64 bits (2 at the int lane, over its int-lane shapes alone); " +
+        "narrow-store arms also at 64 bits (2 at the int lane, over the shapes not driven at a " +
+        "64-bit lane); " +
         "an arm whose subject sets the lane count is pinned at that width alone. A difference " +
         "is a change in what an emitted method does. `option_arms` covers emissions beyond the " +
         "defaults: one digest over every coverage row and int, long and mixed shape at each " +
