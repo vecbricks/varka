@@ -634,7 +634,7 @@ against "under 30 s for the 27". 2 to 6 wait for the runner measurement.
 
 **Review** (`/code-review high`, one round): arms with no baked lane count explain the call's
 refusal (`VarkaMatrixRuns.isUnbakedWidthDecline`); the allocation test runs first, at the host's
-lane count only; `skips.tsv`'s lines for those arms are owed with the next part. Kept: `asin`,
+lane count only; `skips.tsv` lists the math rows of those arms (the CI fix). Kept: `asin`,
 `acos`, `atan` call `StrictMath` per 2.1, the `Math` reference catching a JDK that departs.
 
 **Left of 356a.** `atan2` (356a2: `MathBinary`, the `+ 0.0` on each side); the IR fuzz productions
