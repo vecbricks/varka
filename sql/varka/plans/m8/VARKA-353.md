@@ -224,23 +224,44 @@ Built on master `0b8be5a33e4`, in one branch, steps 1 to 3 of section 8.
   rows found every column type among the row's operand types except the bare `b`, which has no
   operand. The cast cells reuse `legal()`, `cast_kind()`, `CONTEXT_CASTS` and `casts_fused()`,
   and a pair legal in a mode with no probe form fails the run rather than reading *declined*.
+  A `CONTEXT_CASTS` pair reads `context` only in a mode where a coverage row casts it. The
+  coverage table is compiled under ANSI, so under LEGACY and TRY the two pairs (`int` to `dt`,
+  `dec` to `dec`) read *declined*, as the probe finds them, and claim no fusion that no row
+  shows in that mode.
 * **The block and the check.** `docs/sql-varka.md` has a new section, "What fuses, by type",
   before "Expression coverage", with the math paragraph and the block. `main()` splices the
   block (`splice`, which fails on a missing or doubled marker) and `--check` compares the whole
-  file, so a hand edit of one cell fails with `census: docs/sql-varka.md is stale; run
+  file (`stale`, doctested on a hand-edited cell), so a hand edit of one cell fails with `census: docs/sql-varka.md is stale; run
   dev/varka_census.py` (run once on a hand-edited cell and reverted: exit 1, then 0).
 * **The hook** matches `docs/sql-varka.md` among `census_inputs`.
 * **The merge driver** names the block in `BLOCKS`, so the size check skips it and self-test 22
   holds the map to the tracked markers. A conflict inside it owes the census, not the file
   (`block_debt`), so the driver writes no owed line for it and the regeneration runs no
   coverage suite; the census, which every regeneration runs last, rewrites the block. Self-test
-  28 holds both halves: a support-table conflict takes one side and owes only the census, the
-  same conflict in a coverage suite's block owes that block.
+  28 checks both halves. A support-table conflict takes one side and owes only the census. The
+  same conflict in a coverage suite's block owes that block. `driver()` itself writes an owed
+  line for the second and none for the first.
 * **The prose** (3.4): the Overview's "three types" paragraph names the thirteen types and their
   lanes and introduces the int32 detail as the date family's; the Overview's out-of-scope
   sentence and the Limitations section's first bullet state the owner's exclusions of 14
   October 2026; the Expression coverage opening points at `coverage.json`'s column list; the
   Configuration table gains `spark.sql.codegen.varka.math.ulpContract.enabled`.
+* **Four more stale claims**, each checked against `coverage.json`:
+  * A `TINYINT` or `SMALLINT` day offset column fuses (`date_add(d, y1)`, `date_add(d, s1)`), so
+    the Overview's "still declines" and the Limitations bullet's "offset columns decline" are
+    rewritten.
+  * The int-arithmetic bullet's "the float and long types are not lowered" now points at their
+    families.
+  * The coverage opening said comparisons fuse "over each of the six types" and `IN` "over dates
+    and year-month intervals". It now says comparisons fuse over all thirteen types, decimals in
+    part, and `IN` over every type but `BOOLEAN`.
+* **The math paragraph** follows `m8/PLAN.md` 2.7.1 and row 345's admission. Spark calls
+  `StrictMath` for `exp`, `log`, `pow` and their neighbours, and `Math` for `sin`, `cos`, `tan`,
+  `tanh` and `cbrt`. So only the second group's last bit is the host's choice.
+* **Stale prose left.** The Troubleshooting section's reason list still quotes "non-integer day
+  offset column of type ..." for a `ShortType`/`ByteType` column, a decline the compiler no
+  longer makes for those two types. It is a catalogue of reasons rather than this row's prose,
+  so it is left for the review to check against the compiler's reasons.
 
 Left: step 4, at the close (row 354 step 3).
 
@@ -267,15 +288,16 @@ Left: step 4, at the close (row 354 step 3).
 
 ### 11.2 Predictions, scored
 
-1. **Held.** `--check` takes 0.54 to 0.74 s on the branch against 0.34 to 0.41 s on master
-   (three runs each, wall time, laptop, not idle): it adds about a quarter of a second, under
-   the second predicted.
+1. **Held.** `--check` takes 0.54 to 0.74 s on the branch (three runs, wall time, laptop not
+   idle). The comparison runs were not taken at the branch's base. On the main checkout at
+   `1958fd1d7a7` they took 0.34 to 1.21 s, and one run in this worktree before the first edit
+   took 0.67 s. Either way the check adds well under the one second predicted.
 2. **Held.** The by-type table's *Entries* and *Fused* columns equal `--summary`'s pairs by type
    for all thirteen types on `0b8be5a33e4` (`bool` 28 of 41 to `dt` 34 of 57, `dec` 2 of 66 as
    one row); they are now one function's output.
 3. **Wrong.** Of the 98 cells legal under ANSI, 3 read *k of n* (`time` to `time`, `ym` to `int`,
    `dt` to `dt`), 39 fused, 45 declined, 9 identities and 2 `context`: one in thirty-three, not
-   one in five. The interval and decimal pairs that carry many forms decline whole today rather
+   one in five. LEGACY (106 legal cells) and TRY (98) have the same 3. The interval and decimal pairs that carry many forms decline whole today rather
    than in part. So the in-part state gets no colour of its own; it reads as text.
 
 ## 12. Decisions taken while the owner was away (20 November 2026)
@@ -289,7 +311,9 @@ Left: step 4, at the close (row 354 step 3).
 3. **No per-entry table.** 3.1 names three tables and "notes included"; the census notes are
    written for the plan's readers (row numbers, section references), and a 180-row table of them
    would bury the counts. The notes the block carries are each cast cell's kind and declined
-   forms, and the math table's bound; a per-entry table is not built.
+   forms, and the math table's bound. So "notes included" is met for the cast cells and the math
+   functions only. Whether to add a per-entry table carrying the census notes is the owner's
+   call.
 4. **Rows are listed as the census names them**, Done rows included, rather than filtered by
    reading `m8/PLAN.md`'s status column: that would make every row closure a census input and
    stale the docs block on each plan edit.
@@ -299,11 +323,25 @@ Left: step 4, at the close (row 354 step 3).
 
 ## 13. Tests
 
-Run on the branch: `python3 dev/varka_census.py --self-test` (the new doctests among the file's
-35, all pass); `--check` exit 0, and exit 1 on a hand-edited cell; `python3
-dev/varka_generated_merge.py --self-test` (85 cases, 0 failed, case 28 new); the driver on a
-support-only conflict in a scratch repository wrote no owed line; `dev/varka_regen_generated.sh
---dry-run` with nothing owed runs no sbt; `python3 dev/varka_quote_check.py` and
-`dev/varka_precommit.sh --working-tree` pass. No JVM suite was run: no Scala or Java changed.
-Owed: the Jekyll docs build, and `VarkaCoverageSuite` on the branch (it reads the docs file and
-checks only its own three blocks, so the fourth must not trip it).
+Run on the branch:
+
+* `python3 dev/varka_census.py --self-test`: 41 doctest examples, all pass, 29 of them new.
+* `--check`: exit 0, and exit 1 on a hand-edited cell.
+* `python3 dev/varka_generated_merge.py --self-test`: 87 cases, 0 failed. Case 28 is new and
+  covers `driver()`'s owed line.
+* The driver on a support-only conflict in a scratch repository wrote no owed line.
+* `dev/varka_regen_generated.sh --dry-run` with nothing owed runs no sbt.
+* `python3 dev/varka_quote_check.py` and `dev/varka_precommit.sh --working-tree` pass.
+
+No JVM suite was run, since no Scala or Java changed.
+
+Owed:
+
+* The Jekyll docs build. Ruby is not installed on the laptop, so nothing has checked how
+  kramdown reads the tables inside `<details markdown="1">`.
+* `VarkaCoverageSuite` on the branch. It reads the docs file but checks only its own three
+  blocks, so the new fourth block must not trip it.
+* `dev/varka_regen_generated.sh --all` before the push. `docs/sql-varka.md` is one of the
+  driver's generated files, and the push check's R3 (`unregenerated` in
+  `dev/varka_push_check.py`) accepts a changed generated file only if an `--all` run wrote that
+  blob.

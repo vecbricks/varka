@@ -1559,6 +1559,22 @@ def review_cases(expect, merged):
                 not real and "<<<<<<<" not in text and "| a | 1 |" in text and only == census_only,
                 f"28: a {block} conflict merged to {text!r}, owing {o.paths}",
             )
+            # The driver writes an owed line, which costs dev/varka_regen_generated.sh a
+            # coverage run, for the coverage suite's block only.
+            saved = globals()["owed_file"], globals()["merge_identity"]
+            owed_path = os.path.join(tmp, f"owed-{census_only}")
+            globals()["owed_file"] = lambda: owed_path
+            globals()["merge_identity"] = lambda: "OURS THEIRS"
+            try:
+                paths = [support_doc(f"d{n}.md", block, n) for n in range(3)]
+                with contextlib.redirect_stderr(io.StringIO()):
+                    rc = driver(*paths, DOCS)
+            finally:
+                globals()["owed_file"], globals()["merge_identity"] = saved
+            expect(
+                rc == 0 and os.path.exists(owed_path) != census_only,
+                f"28: the driver's owed line for a {block} conflict: {os.path.exists(owed_path)}",
+            )
         # 8. Any failure inside the merge falls back to git's text merge, never a traceback.
         saved = globals()["merge_text"]
 

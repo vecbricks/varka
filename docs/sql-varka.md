@@ -86,8 +86,8 @@ residual, having no null-on-overflow lowering.
 
 The supported expression surface, then, over those columns and day offsets that
 are a foldable integer literal, an
-`IntegerType` column (VARKA-38; a `ShortType`/`ByteType` offset column still
-declines) or int arithmetic over those (VARKA-63), including that column
+`IntegerType` column (VARKA-38; a `ByteType` or `ShortType` one fuses too, as
+`date_add(d, y1)` shows) or int arithmetic over those (VARKA-63), including that column
 spelled as a day interval,
 `d + CAST(i AS INTERVAL DAY)` and `d - CAST(i AS INTERVAL DAY)` (VARKA-56; a
 literal interval folds to `date_add` before planning). The cast throws past
@@ -232,8 +232,8 @@ becomes timestamp arithmetic) decline:
   column holding a day outside 0001..9999 can carry a bound that is not true of
   it. A checked multiply whose operands carry no such bound declines: an
   int32 lane has no cheap overflow test for `*`, so it stays on the row engine
-  rather than wrapping silently. `DIV`, `%` and the float and long types are
-  not lowered.
+  rather than wrapping silently. `DIV` and `%` are not lowered; the 64-bit,
+  narrow and floating arithmetic are families of their own (What fuses, by type).
 * Common subtrees shared *across* outputs are computed once per lane group
   (DAG-CSE), which no per-row engine can keep in a vector register.
 
@@ -260,10 +260,11 @@ per fused spelling. An entry absent from the census is out of scope with a recor
 `STRING`, a nested type, an aggregate or a nondeterministic function, say.
 
 **Math functions are exact by default.** Every math function Varka fuses (`sin`, `exp`, `log`,
-`pow` and the rest of the family) returns Spark's answer bit for bit. Java specifies `Math.sin`
-and most of its neighbours only to within one ulp of the exact result, so the last bit of Spark's
-answer is the host JVM's choice inside that bound, and the default reproduces that choice rather
-than relying on the bound. `spark.sql.codegen.varka.math.ulpContract.enabled`, off by default,
+`pow` and the rest of the family) returns Spark's answer bit for bit. Spark computes `exp`,
+`log`, `pow` and their neighbours with `StrictMath`, fdlibm's answer on every host, and `sin`,
+`cos`, `tan`, `tanh` and `cbrt` with `Math`, which Java specifies only to within one ulp of the
+exact result: their last bit is the host JVM's choice inside that bound, and the default
+reproduces that choice rather than relying on the bound. `spark.sql.codegen.varka.math.ulpContract.enabled`, off by default,
 lets a function compute with the JDK's vector math library where the function's bound is
 contracted for the host's library: faster, and within that many representable doubles of Spark's
 answer instead of equal to it. A value computed so and then grouped, joined on, sorted or written
@@ -327,7 +328,7 @@ The functions whose fused form could depart from Spark's answer, by the plan row
 
 #### Casts by mode
 
-One matrix per evaluation mode, rows the source type and columns the target, each cell by that mode's own legality: blank where the mode rejects the cast, `=` for an identity the analyzer removes, `context` where the cast fuses only inside another operator, and otherwise how many of the probe's forms (interval unit pairs, decimal precisions and scales) fuse. LEGACY is the mode with `spark.sql.ansi.enabled` false, ANSI with it true, and TRY is `try_cast`.
+One matrix per evaluation mode, rows the source type and columns the target, each cell by that mode's own legality: blank where the mode rejects the cast, `=` for an identity the analyzer removes, `context` where the cast fuses only inside another operator, as a coverage row (compiled under ANSI) shows, and otherwise how many of the probe's forms (interval unit pairs, decimal precisions and scales) fuse. LEGACY is the mode with `spark.sql.ansi.enabled` false, ANSI with it true, and TRY is `try_cast`.
 
 <details markdown="1">
 <summary>LEGACY</summary>
@@ -337,11 +338,11 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `bool` | = | fused | fused | fused | fused | fused | fused | declined |  |  |  |  |  |
 | `byte` | fused | = | fused | fused | fused | fused | fused | declined |  |  |  | declined | declined |
 | `short` | fused | fused | = | fused | fused | fused | fused | declined |  |  |  | declined | declined |
-| `int` | fused | fused | fused | = | fused | fused | fused | declined |  |  |  | fused | context |
+| `int` | fused | fused | fused | = | fused | fused | fused | declined |  |  |  | fused | declined |
 | `bigint` | fused | fused | fused | fused | = | declined | declined | declined |  |  |  | declined | declined |
 | `float` | fused | declined | declined | declined | declined | = | fused | declined |  |  |  |  |  |
 | `double` | fused | declined | declined | declined | declined | fused | = | declined |  |  |  |  |  |
-| `dec` | declined | declined | declined | declined | declined | declined | declined | context |  |  |  | declined | declined |
+| `dec` | declined | declined | declined | declined | declined | declined | declined | declined |  |  |  | declined | declined |
 | `date` | declined | declined | declined | declined | declined | declined | declined | declined | = | fused |  |  |  |
 | `ntz` |  |  |  |  |  |  |  |  | fused | = | fused |  |  |
 | `time` |  | declined | declined | declined | declined |  |  | declined |  | fused | 3 of 6 |  |  |
@@ -391,11 +392,11 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `bool` | = | fused | fused | fused | fused | fused | fused | declined |  |  |  |  |  |
 | `byte` | fused | = | fused | fused | fused | fused | fused | declined |  |  |  | declined | declined |
 | `short` | fused | fused | = | fused | fused | fused | fused | declined |  |  |  | declined | declined |
-| `int` | fused | fused | fused | = | fused | fused | fused | declined |  |  |  | fused | context |
+| `int` | fused | fused | fused | = | fused | fused | fused | declined |  |  |  | fused | declined |
 | `bigint` | fused | fused | fused | fused | = | declined | declined | declined |  |  |  | declined | declined |
 | `float` | fused | declined | declined | declined | declined | = | fused | declined |  |  |  |  |  |
 | `double` | fused | declined | declined | declined | declined | fused | = | declined |  |  |  |  |  |
-| `dec` | declined | declined | declined | declined | declined | declined | declined | context |  |  |  | declined | declined |
+| `dec` | declined | declined | declined | declined | declined | declined | declined | declined |  |  |  | declined | declined |
 | `date` |  |  |  |  |  |  |  |  | = | fused |  |  |  |
 | `ntz` |  |  |  |  |  |  |  |  | fused | = | fused |  |  |
 | `time` |  | declined | declined | declined | declined |  |  | declined |  | fused | 3 of 6 |  |  |
@@ -427,8 +428,9 @@ projection is unaffected.
 
 Two things are worth stating before the list, because they decide several
 rows and are invisible in the spelling. Every comparison and null test fuses
-over each of the six types, a bare `IntegerType` column included (`i > 0`, as
-`year(d) = 2021` does), and `IN` over dates and year-month intervals. A null
+over each of the thirteen types, a bare `IntegerType` column included (`i > 0`,
+as `year(d) = 2021` does), over `DECIMAL` for the forms *What fuses, by type*
+counts in part, and `IN` over every type but `BOOLEAN`. A null
 test fuses over a predicate as well as over a column, as a filter and as the
 condition of a CASE: `(d = d2) IS NULL` is the predicate's unknown rows, read
 off the masks it already computes. Spark's default optimizer
@@ -2653,9 +2655,8 @@ The real current edges, stated with their numbers where they have one:
   type* says how much of each fuses. `STRING` and its casts, `TIMESTAMP` with
   the local time zone and decimal division are out of scope by the owner's
   decision of 14 October 2026, and `CalendarInterval` and nested types have no
-  representation. A day offset must be a foldable integer literal or an
-  `IntegerType` column - `ShortType`/`ByteType` offset columns decline
-  (VARKA-38).
+  representation. A day offset is a foldable integer literal, an `INT`,
+  `SMALLINT` or `TINYINT` column, or int arithmetic over those.
 * **A SIMD lane cannot throw row-accurately**, which shapes how ANSI overflow
   works rather than excluding it. VARKA-63 fuses integer arithmetic over a
   `datediff` result and over the calendar fields; where the operands' ranges do

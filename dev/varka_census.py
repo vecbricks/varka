@@ -1419,19 +1419,23 @@ def cast_forms(root=ROOT):
     return out
 
 
-def cast_cell(probe, src, dst, mode):
+def cast_cell(probe, shown, src, dst, mode):
     """One cell of a mode's cast matrix, by that mode's own legality: blank where the mode rejects
-    the pair, `=` for an identity, `context` for a pair that fuses only inside another operator,
-    else `fused`, `declined` or `k of n` forms.
+    the pair, `=` for an identity, `context` for a pair that fuses only inside another operator
+    where a coverage row casts it in this mode (`shown`, coverage_index's "#casts"), else
+    `fused`, `declined` or `k of n` forms.
 
-    >>> probe = {("dt", "dt"): ({"ansi": 2}, {"ansi": 1}), ("date", "int"): ({"legacy": 1}, {})}
-    >>> cast_cell(probe, "dt", "dt", "ansi"), cast_cell(probe, "date", "int", "legacy")
-    ('1 of 2', 'declined')
-    >>> cast_cell(probe, "date", "int", "ansi"), cast_cell(probe, "date", "int", "try")
-    ('', '')
-    >>> cast_cell({}, "int", "int", "try"), cast_cell({}, "dec", "dec", "try")
-    ('=', 'context')
-    >>> cast_cell({}, "int", "bigint", "ansi")
+    >>> probe = {("dt", "dt"): ({"ansi": 2}, {"ansi": 1}), ("date", "int"): ({"legacy": 1}, {}),
+    ...          ("dec", "dec"): ({"ansi": 2, "try": 2}, {"ansi": 0, "try": 0})}
+    >>> shown = {("dec", "dec", "ansi")}
+    >>> [cast_cell(probe, shown, *p) for p in [("dt", "dt", "ansi"), ("date", "int", "legacy")]]
+    ['1 of 2', 'declined']
+    >>> [cast_cell(probe, shown, "date", "int", m) for m in ("ansi", "try")]
+    ['', '']
+    >>> [cast_cell(probe, shown, *p) for p in [("int", "int", "try"), ("dec", "dec", "ansi"),
+    ...                                        ("dec", "dec", "try")]]
+    ['=', 'context', 'declined']
+    >>> cast_cell({}, shown, "int", "bigint", "ansi")
     Traceback (most recent call last):
     SystemExit: census: cast int to bigint is legal under ansi and the probe has no form of it
     """
@@ -1439,7 +1443,7 @@ def cast_cell(probe, src, dst, mode):
         return ""
     if cast_kind(src, dst)[0] == "identity":
         return "="
-    if (src, dst) in CONTEXT_CASTS:
+    if (src, dst) in CONTEXT_CASTS and (src, dst, mode) in shown:
         return "context"
     legal_forms, fused = probe.get((src, dst), ({}, {}))
     n, k = legal_forms.get(mode, 0), fused.get(mode, 0)
@@ -1450,14 +1454,14 @@ def cast_cell(probe, src, dst, mode):
     return "fused" if k == n else "declined" if not k else f"{k} of {n}"
 
 
-def cast_tables(probe, forms):
+def cast_tables(probe, shown, forms):
     """The three cast matrices, each under its own `<details>`, with a footnote per cell fused
     in part naming the cast's kind and its declined forms."""
     out = []
     for mode in FUSED_MODES:
         rows, notes = [], []
         for src in ORDER:
-            cells = [cast_cell(probe, src, dst, mode) for dst in ORDER]
+            cells = [cast_cell(probe, shown, src, dst, mode) for dst in ORDER]
             rows.append([f"`{src}`"] + cells)
             for dst, c in zip(ORDER, cells):
                 if " of " in c:
@@ -1518,11 +1522,12 @@ def support_block(out, cov, probe, forms):
         "#### Casts by mode\n",
         "One matrix per evaluation mode, rows the source type and columns the target, each cell"
         " by that mode's own legality: blank where the mode rejects the cast, `=` for an identity"
-        " the analyzer removes, `context` where the cast fuses only inside another operator, and"
+        " the analyzer removes, `context` where the cast fuses only inside another operator, as a"
+        " coverage row (compiled under ANSI) shows, and"
         " otherwise how many of the probe's forms (interval unit pairs, decimal precisions and"
         " scales) fuse. LEGACY is the mode with `spark.sql.ansi.enabled` false, ANSI with it true,"
         " and TRY is `try_cast`.\n",
-        cast_tables(probe, forms),
+        cast_tables(probe, coverage_index()["#casts"], forms),
     ]
     return "\n".join(parts)
 
@@ -1595,6 +1600,25 @@ def conformance_errors(root=ROOT):
     return errors
 
 
+def stale(files, committed):
+    """For each rendered file whose committed text (`committed(path)`) differs, the message that
+    names it and the command that rewrites it: a hand edit of one cell of the support table is a
+    stale docs file.
+
+    >>> b, e = SUPPORT_MARKS
+    >>> fresh = "x\\n" + b + "| a | 1 |\\n" + e
+    >>> stale({DOCS: fresh}, {DOCS: fresh}.get)
+    []
+    >>> stale({DOCS: fresh}, {DOCS: fresh.replace("| 1 |", "| 2 |")}.get)
+    ['census: docs/sql-varka.md is stale; run dev/varka_census.py']
+    """
+    return [
+        f"census: {path} is stale; run dev/varka_census.py"
+        for path, text in files.items()
+        if committed(path) != text
+    ]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="fail if the committed file is stale")
@@ -1621,10 +1645,10 @@ def main():
     files = {OUT: render(out), CASTS_OUT: render_rows(CAST_HEADER, casts)}
     files[DOCS] = splice(read(DOCS), block)
     if args.check:
-        stale = [path for path, text in files.items() if read(path) != text]
-        for path in stale:
-            print(f"census: {path} is stale; run dev/varka_census.py", file=sys.stderr)
-        return 1 if stale else 0
+        found = stale(files, read)
+        for message in found:
+            print(message, file=sys.stderr)
+        return 1 if found else 0
     if not args.summary:
         for path, text in files.items():
             with open(os.path.join(ROOT, path), "w", encoding="utf-8") as f:
