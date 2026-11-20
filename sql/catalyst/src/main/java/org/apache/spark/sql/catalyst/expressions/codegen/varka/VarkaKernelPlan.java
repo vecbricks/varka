@@ -834,7 +834,8 @@ public final class VarkaKernelPlan {
   }
 
   /** {@code node}'s {@link LongNarrowReader}. */
-  private static LongNarrowReader longNarrowReader(VarkaVectorIR node) {
+  // Package-private for VarkaNodePropsEquivalenceSuite.
+  static LongNarrowReader longNarrowReader(VarkaVectorIR node) {
     return switch (node) {
       case WidenLane w -> LongNarrowReader.VALUE;
       case NarrowLane n -> LongNarrowReader.VALUE;

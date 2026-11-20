@@ -1085,7 +1085,8 @@ final class Analysis {
    * overflowing intermediate from hiding behind a later wrap. No node of the int or long lanes
    * is one either: their reductions are the lane's own.
    */
-  private boolean isNarrowRing(VarkaVectorIR node) {
+  // Package-private for VarkaNodePropsEquivalenceSuite.
+  boolean isNarrowRing(VarkaVectorIR node) {
     return switch (node) {
       case IntArith n -> loweredUnchecked(n, n.laneType());
       case IntNeg n -> !n.abs() && loweredUnchecked(n, n.laneType());
