@@ -98,6 +98,7 @@ final class VarkaSmtNodes {
       entry(CanonicalBits.class, "the bits of a floating value: the prelude has no float"),
       entry(HashStep.class, "a hash step: its multiplies are no linear integer term"),
       entry(ConvertLane.class, "a conversion to or from a floating lane"),
+      entry(ReinterpretLane.class, "a view of a floating lane's bits: the prelude has no double"),
       entry(CrossLane.class, "a condition moved between lanes; no decimal shape builds one"),
       entry(InRanges.class, "a range set of the int lane; no decimal shape builds one"),
       entry(BoolCompare.class, "an order of two booleans; no decimal shape builds one"),

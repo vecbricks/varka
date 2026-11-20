@@ -115,6 +115,10 @@ public final class VarkaMathPortSuite {
     return (bits & Long.MAX_VALUE) >>> 32;
   }
 
+  /** The high words the compares are tried at: fdlibm's thresholds and the ends of the range. */
+  private static final int[] THRESHOLDS = {0, 0x3e300000, 0x3fd62e42, 0x40862E42, 0x7fefffff,
+      0x7ff00000, 0x7ff00001, 0x7fffffff};
+
   private static List<Helper> helpers() {
     long low = 0xffff_ffffL;
     var list = new ArrayList<Helper>();
@@ -128,8 +132,7 @@ public final class VarkaMathPortSuite {
         (x, y) -> x & Long.MAX_VALUE));
     list.add(helper("addExponent", p -> VarkaMathPort.bits(p.addExponent(X, Y)),
         (x, y) -> x + (y << 52)));
-    for (int h : new int[] {0, 0x3e300000, 0x3fd62e42, 0x40862E42, 0x7fefffff, 0x7ff00000,
-        0x7ff00001, 0x7fffffff}) {
+    for (int h : THRESHOLDS) {
       list.add(helper("hiBelow " + Integer.toHexString(h),
           p -> asLong(p, p.hiBelow(p.absBits(VarkaMathPort.bits(X)), h)),
           (x, y) -> hx(x) < h ? 1 : 0));
@@ -146,12 +149,18 @@ public final class VarkaMathPortSuite {
   }
 
   /**
-   * The x lanes of the helpers' draw {@code i}: uniform bit patterns, and near every high word a
-   * compare reads, every exponent in both signs with the word's neighbours, NaNs included.
+   * The x lanes of the helpers' draw {@code i}: uniform bit patterns, each tested threshold's
+   * high word and its two neighbours each way in both signs, and every exponent in both signs
+   * with its word's neighbours, NaNs included.
    */
   private static long helperInput(SplittableRandom rnd, int i) {
-    if (i % 2 == 0) {
+    if (i % 4 == 0) {
       return rnd.nextLong();
+    }
+    if (i % 4 == 1) {
+      long word = THRESHOLDS[rnd.nextInt(THRESHOLDS.length)] + rnd.nextInt(-2, 3);
+      long sign = rnd.nextBoolean() ? Long.MIN_VALUE : 0L;
+      return sign | ((word & 0x7fff_ffffL) << 32) | (rnd.nextLong() & 0xffff_ffffL);
     }
     long hiWord = ((long) rnd.nextInt(1 << 12) << 20) + rnd.nextInt(-2, 3);
     return (hiWord << 32) | (rnd.nextLong() & 0xffff_ffffL);

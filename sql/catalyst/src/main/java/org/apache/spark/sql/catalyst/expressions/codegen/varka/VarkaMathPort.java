@@ -133,7 +133,10 @@ public final class VarkaMathPort {
    * {@code cond ? then : otherwise}, lane by lane, with {@code cond} read at the values' lane:
    * a long compare of a port's bits crosses to the double lane by {@link CrossLane}, which at one
    * width is the mask's cast. Where {@code cond} is unknown, over a null operand, the lane takes
-   * {@code otherwise}, as {@link IfElse} does.
+   * {@code otherwise}, as {@link IfElse} does, and the lane's validity is that branch's. So a
+   * port keeps a null operand null only where the {@code otherwise} chain of each of its blends
+   * ends in a value computed from the operand, never in a literal alone; {@code exp}'s does, and
+   * its suite runs it over null lanes.
    */
   static VarkaVectorIR blend(Cond cond, VarkaVectorIR then, VarkaVectorIR otherwise) {
     return new IfElse(at(cond, then.laneType()), then, otherwise);
@@ -198,6 +201,7 @@ public final class VarkaMathPort {
 
   /** fdlibm's {@code hx < h} on {@code |x|}'s bits, one signed 64-bit compare. */
   Cond hiBelow(VarkaVectorIR absBits, int h) {
+    requireHighWord(h);
     return new Compare(CompareOp.LT, absBits, lit(fromHiBits(h)));
   }
 
@@ -207,12 +211,27 @@ public final class VarkaMathPort {
    * ({@code vfdlibm}'s {@code PROOFS.md}, L3).
    */
   Cond hiAtLeast(VarkaVectorIR absBits, int h) {
+    requireHighWord(h);
     return new Compare(CompareOp.GT, absBits, lit(fromHiBits(h) - 1));
   }
 
   /** fdlibm's {@code hx > h}, as {@code hx >= h + 1}, for {@code h} below {@code 0x7fffffff}. */
   Cond hiAbove(VarkaVectorIR absBits, int h) {
+    if (h == Integer.MAX_VALUE) {
+      throw VarkaErrors.illegalArgument("no high word of |x| is above 0x7fffffff");
+    }
     return hiAtLeast(absBits, h + 1);
+  }
+
+  /**
+   * The compares read {@code |x|}'s high word, which is never negative; fdlibm's {@code hx} of
+   * {@code |x|} compared with a negative constant is a compare this frame does not write.
+   */
+  private static void requireHighWord(int h) {
+    if (h < 0) {
+      throw VarkaErrors.illegalArgument("a high word of |x| is at least 0, not "
+          + Integer.toHexString(h));
+    }
   }
 
   /**

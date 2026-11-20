@@ -120,6 +120,8 @@ public final class VarkaReproductionSuite {
         new BitCount(new BitOp(BitOpKind.XOR, new ColumnRef(0), new LiteralSlot(0))),
         // An int column converted to the float lane, at the int lane's count.
         new ConvertLane(new ColumnRef(0), LaneType.FLOAT),
+        // A double column's bits at the long lane, an fdlibm port's word access (VARKA-345).
+        new ReinterpretLane(new ColumnRef(0, LaneType.DOUBLE), LaneType.LONG),
         // A floating lane's square root over its IEEE division, whose zero divisor nulls a lane.
         new MathUnary(MathFn.SQRT, new IntArith(IntOp.DIV, Overflow.NULL,
             new ColumnRef(0, LaneType.DOUBLE), new LiteralSlot(0, LaneType.DOUBLE))),
