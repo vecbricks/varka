@@ -1449,7 +1449,8 @@ final class Analysis {
       case RoundToIntegral n -> wordOwner.get(n.child());
       case CanonicalFloat n -> wordOwner.get(n.child());
       case CanonicalBits n -> wordOwner.get(n.child());
-      case HashStep n -> andOwner(node, n.seed(), n.word());
+      // A hash step skips a null word, so its validity is its seed's.
+      case HashStep n -> wordOwner.get(n.seed());
       case DayOfWeek n -> wordOwner.get(n.days());
       case WeekDay n -> wordOwner.get(n.days());
       case DayOfWeekIso n -> wordOwner.get(n.days());
@@ -1517,7 +1518,7 @@ final class Analysis {
       case RoundToIntegral n -> pureWord.get(n.child());
       case CanonicalFloat n -> pureWord.get(n.child());
       case CanonicalBits n -> pureWord.get(n.child());
-      case HashStep n -> andExpr(pureWord.get(n.seed()), pureWord.get(n.word()));
+      case HashStep n -> pureWord.get(n.seed());
       case Greatest n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case Least n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case DayOfWeek n -> pureWord.get(n.days());
@@ -1817,7 +1818,8 @@ final class Analysis {
       case RoundToIntegral n -> analyzeOp(node, false, n.child());
       case CanonicalFloat n -> analyzeOp(node, false, n.child());
       case CanonicalBits n -> analyzeOp(node, false, n.child());
-      case HashStep n -> analyzeOp(node, false, n.seed(), n.word());
+      // Known over a null word, the seed passing through: a null-skipping node.
+      case HashStep n -> analyzeOp(node, true, n.seed(), n.word());
       case ConstDivide n -> {
         // A division by a non-zero constant cannot overflow or null a lane, so it carries no
         // overflow mode and joins no validity: it is its child's word exactly, the way

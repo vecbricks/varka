@@ -708,6 +708,39 @@ to 4 and 6 are the hash's and stay open.
    64-bit masks at two lanes, which AVX2 has no lowering for (`sql/varka/AGENTS.md`). None holds the
    node. The committed file stays the AVX-512 host's.
 
+Taken for part 337a2, the hash steps (branch `varka-337a2-hash`, stacked on 337a1):
+
+11. **The hash steps before the baseline and the spike.** The coordinator's brief of 20 November
+   2026 ordered the hash steps first, the baseline and the spike after them if section 5 puts them
+   before 337b. Section 5 puts both before 337a, so they are not after anything left here: the
+   baseline's build sheet asks for its own branch off origin/master and runner results, and the
+   spike for runner times, neither of which this window can take. Both stay owed, in section 5's
+   order, and the measurement that scores predictions 1 to 4 needs both.
+12. **A floating value's bits are a node of their own, `CanonicalBits`**, not a read inside the
+   step as 2.2 has it. With the bits as an `INT` or `LONG` value, Murmur3 over a `DOUBLE` and
+   XXH64 over a `FLOAT` take their lane crossings from the nodes that exist (`NarrowLane`,
+   `WidenLane`, `BitOp`), so every `HashStep` is on one lane and the analysis, the kernel plan
+   and the reference need no crossing rule of their own. The guard 2.2 asks of the step moves with
+   it: `CanonicalBits` takes a `CanonicalFloat` child and nothing else.
+13. **Murmur3's `hashLong` is two steps.** `HashMix` has five members, one per primitive tail:
+   `MURMUR3_INT`, `MURMUR3_LOW` (the first `mixH1`, no finalisation), `MURMUR3_HIGH` (the second
+   and `fmix(8)`), `XXH64_INT` and `XXH64_LONG`. A 64-bit word's halves are `NarrowLane`s of the
+   word and of `word >>> 32`, row 28's representation, as 2.2 says. The reference answers the
+   pair by Spark's `hashLong` and refuses a half alone, which no compiler path builds.
+14. **The null skip is the step's own, as 2.2 has it**: in the masked body the seed is kept under
+   the step and blended back where the word is null, the mask from the word's validity word, and
+   the step's validity is the seed's (aliased, a null-skipping node for the all-null shortcut). No
+   blend is emitted where the word's validity is constant true, nor in the dense body. A
+   composition, `IfElse(IsNotNull(word), step, seed)`, was built first and failed: the emitter's
+   null test reads only a column's word (`Analysis`: "IsNotNull child must be a ColumnRef ..."),
+   so every computed word, a long's halves and a float's bits among them, would have declined.
+15. **A `BOOLEAN` child is compiled as `CAST(b AS INT)`**, which is the 1 or 0 Spark hashes, so
+   it is under the integral cast family's switch as well as the hash family's.
+16. **337a is split by the size cap**: 337a2 holds the two nodes, their lowering, the compiler
+   and the family, the reference, the warm-up, the coverage rows, the regions and the sweeps;
+   337a3 the grammar productions of 2.6, `hash.smt2`, the step and fold planted faults of 3.9
+   and the census regeneration.
+
 ## Build sheet (11 November 2026)
 
 The step this sheet builds is section 5's step 1, **the baseline class**, and nothing else: a

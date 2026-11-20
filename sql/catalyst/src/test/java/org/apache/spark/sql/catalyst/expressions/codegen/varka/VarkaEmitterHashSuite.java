@@ -41,8 +41,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Can
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.HashMix;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.HashStep;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -55,7 +53,7 @@ import org.apache.spark.sql.types.DataTypes;
  * Spark's {@code Murmur3HashFunction.hash} and {@code XxHash64Function.hash}, the functions the
  * two expressions evaluate per child. Each kernel is the tree the compiler builds for one child
  * of the type, {@code VarkaExpressionCompilerSuite} pinning that the compiler builds these trees:
- * a step over the column's word from the seed's literal, chosen only where the column is valid.
+ * a step over the column's word from the seed's literal, which skips a null word.
  * The regions: the int and long extremes and the powers of two and their negatives, the
  * {@code FLOAT} and {@code DOUBLE} cells of {@code VarkaEmitterCanonicalFloatSuite} (both zeros,
  * NaN payloads of both signs, the four {@code DOUBLE} NaN range endpoints), then a seeded draw,
@@ -92,12 +90,6 @@ public final class VarkaEmitterHashSuite {
         new HashStep(HashMix.MURMUR3_LOW, seed, new NarrowLane(w, LaneType.INT)), high);
   }
 
-  /** {@link #step} chosen where {@code value} is valid, the seed elsewhere: the null skip. */
-  public static VarkaVectorIR skipping(VarkaVectorIR stepped, VarkaVectorIR seed) {
-    var outer = ((HashStep) stepped).word();
-    return new IfElse(new IsNotNull(outer), stepped, seed);
-  }
-
   /** One column's kernel: its slots, the seed in slot 0 of its lane's table. */
   private record Kernel(VarkaVectorIR root, int[] intLits, long[] longLits, boolean wide) {}
 
@@ -107,7 +99,7 @@ public final class VarkaEmitterHashSuite {
     // The shift count of a Murmur3 high half sits beside the seed: slot 0 of the long table
     // when the seed is an int, slot 1 when it is a long.
     var shift = new LiteralSlot(xxh64 ? 1 : 0, LaneType.LONG);
-    VarkaVectorIR root = skipping(step(xxh64, seedSlot, col, shift), seedSlot);
+    VarkaVectorIR root = step(xxh64, seedSlot, col, shift);
     boolean wide = xxh64 || lane.bits() == Long.SIZE;
     int[] ints = xxh64 ? new int[0] : new int[] {(int) seed};
     long[] longs = xxh64 ? new long[] {seed, 32L} : new long[] {32L};
@@ -294,8 +286,8 @@ public final class VarkaEmitterHashSuite {
       var shift = new LiteralSlot(xxh64 ? 1 : 0, LaneType.LONG);
       var colA = new ColumnRef(0, LaneType.INT);
       var colB = new ColumnRef(1, LaneType.LONG);
-      VarkaVectorIR h1 = skipping(step(xxh64, seed, colA, shift), seed);
-      VarkaVectorIR root = skipping(step(xxh64, h1, colB, shift), h1);
+      VarkaVectorIR h1 = step(xxh64, seed, colA, shift);
+      VarkaVectorIR root = step(xxh64, h1, colB, shift);
       var loaded = VarkaEmitterFixtures.load(VarkaEmitterFixtures.emit(List.of(root), 2, 1,
           VarkaMatrixRuns.BASE));
       try (Arena arena = Arena.ofConfined()) {

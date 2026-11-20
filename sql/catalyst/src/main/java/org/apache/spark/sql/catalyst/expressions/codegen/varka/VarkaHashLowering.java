@@ -76,19 +76,21 @@ final class VarkaHashLowering {
   }
 
   /**
-   * {@code HashStep}: the word's half, then the seed and the rest of the step. Null-intolerant,
-   * so the word is the operands' AND, as {@code VarkaVectorWalk.emitBitOp} stores it.
+   * {@code HashStep}: the word's half, then the seed and the rest of the step. Spark skips a null
+   * child, so in the masked body, where the word can be null, the seed is kept under the step and
+   * the step is blended over it by the word's validity: a null lane answers its seed. The node's
+   * validity is the seed's, aliased, so nothing is stored for it here.
    */
   static void emitHashStep(CodeBuilder cb, HashStep n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
     Lane lane = analysis.laneOf(n);
     emitValue(cb, n.word(), dense, analysis, s, computed);
     line(cb, analysis, n);
+    int skip = dense ? WORD_ALL_TRUE : s.wordRef.get(n.word());
     switch (n.mix()) {
       case MURMUR3_INT, MURMUR3_LOW, MURMUR3_HIGH -> {
         emitMixK1(cb, lane);                                     // [k]
-        emitValue(cb, n.seed(), dense, analysis, s, computed);   // [k, h]
-        line(cb, analysis, n);
+        emitSeed(cb, n, skip, dense, analysis, s, computed);     // [(h,) k, h]
         emitMixH1(cb, lane);                                     // [h]
         if (n.mix() != VarkaVectorIR.HashMix.MURMUR3_LOW) {
           emitMurmur3Fmix(cb, lane, n.mix() == VarkaVectorIR.HashMix.MURMUR3_INT ? 4 : 8);
@@ -99,9 +101,8 @@ final class VarkaHashLowering {
         lane.pushScalar(cb, 0xFFFFFFFFL);
         cb.invokevirtual(lane.vector, "and", lane.lanewiseVI);
         mulScalar(cb, lane, XXH64_P1);                           // [k]
-        emitValue(cb, n.seed(), dense, analysis, s, computed);
-        line(cb, analysis, n);
-        addScalar(cb, lane, XXH64_P5 + 4L);                      // [k, h]
+        emitSeed(cb, n, skip, dense, analysis, s, computed);
+        addScalar(cb, lane, XXH64_P5 + 4L);                      // [(h,) k, h']
         xorVectors(cb, lane);
         rotateLeft(cb, lane, 23);
         mulScalar(cb, lane, XXH64_P2);
@@ -113,9 +114,8 @@ final class VarkaHashLowering {
         mulScalar(cb, lane, XXH64_P2);
         rotateLeft(cb, lane, 31);
         mulScalar(cb, lane, XXH64_P1);                           // [k]
-        emitValue(cb, n.seed(), dense, analysis, s, computed);
-        line(cb, analysis, n);
-        addScalar(cb, lane, XXH64_P5 + 8L);                      // [k, h]
+        emitSeed(cb, n, skip, dense, analysis, s, computed);
+        addScalar(cb, lane, XXH64_P5 + 8L);                      // [(h,) k, h']
         xorVectors(cb, lane);
         rotateLeft(cb, lane, 27);
         mulScalar(cb, lane, XXH64_P1);
@@ -123,8 +123,26 @@ final class VarkaHashLowering {
         emitXxh64Fmix(cb, lane);
       }
     }
-    if (!dense && s.ownWord.contains(n)) {
-      emitAndWord(cb, s, s.wordRef.get(n), s.wordRef.get(n.seed()), s.wordRef.get(n.word()));
+    if (skip != WORD_ALL_TRUE) {
+      // [h, step] -> [h.blend(step, valid(word))]: a null word's lane keeps its seed.
+      cb.aload(s.species(lane));
+      loadWord(cb, s, skip);
+      emitMaskOfWord(cb, analysis);
+      cb.invokevirtual(lane.vector, "blend", lane.blend);
+    }
+  }
+
+  /**
+   * {@code [k] -> [k, h]}, the seed pushed beside the word's half; where the word can be null
+   * ({@code skip} a word slot), {@code [k] -> [h, k, h]}, a copy of the seed kept under both for
+   * the null skip's blend.
+   */
+  private static void emitSeed(CodeBuilder cb, HashStep n, int skip, boolean dense,
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
+    emitValue(cb, n.seed(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    if (skip != WORD_ALL_TRUE) {
+      cb.dup_x1();
     }
   }
 

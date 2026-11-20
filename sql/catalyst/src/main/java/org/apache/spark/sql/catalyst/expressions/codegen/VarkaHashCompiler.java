@@ -38,8 +38,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Can
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.HashMix;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.HashStep;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
@@ -67,8 +65,8 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * and {@code HiveHash} stay unclaimed. Spark's value is a fold: the expression's seed, then for
  * each child in order the child's word hashed into it, a null child leaving it as it is
  * ({@code HashExpression.eval}). The fold here is the same chain of {@link HashStep}s from a
- * literal seed, and a nullable child's step is chosen only where the child is valid, so the
- * root is never null, as Spark's is not.
+ * literal seed; each step skips a null word as Spark skips a null child, so the root is never
+ * null, as Spark's is not.
  *
  * <p>Each child's word is Spark's per-type rule ({@code computeHashWithTailRec}): a
  * {@code BOOLEAN} as the int 1 or 0, the narrow integers sign-extended, an {@code INT},
@@ -119,26 +117,20 @@ final class VarkaHashCompiler {
         return word;
       }
       VarkaVectorIR w = word.get();
-      VarkaVectorIR stepped;
-      VarkaVectorIR outerWord;
       if (xxh64) {
-        outerWord = w.laneType() == LaneType.INT ? new WidenLane(w, LaneType.LONG) : w;
-        stepped = new HashStep(w.laneType() == LaneType.INT ? HashMix.XXH64_INT
-            : HashMix.XXH64_LONG, h, outerWord);
+        h = w.laneType() == LaneType.INT
+            ? new HashStep(HashMix.XXH64_INT, h, new WidenLane(w, LaneType.LONG))
+            : new HashStep(HashMix.XXH64_LONG, h, w);
       } else if (w.laneType() == LaneType.INT) {
-        outerWord = w;
-        stepped = new HashStep(HashMix.MURMUR3_INT, h, w);
+        h = new HashStep(HashMix.MURMUR3_INT, h, w);
       } else {
-        // hashLong: the low int, then the high one, (int) v and (int) (v >>> 32).
+        // hashLong: the low int, then the high one, (int) v and (int) (v >>> 32), both halves
+        // with the value's validity.
         VarkaVectorIR low = new NarrowLane(w, LaneType.INT);
-        outerWord = new NarrowLane(new BitOp(BitOpKind.USHR, w, sink.longSlot(Integer.SIZE)),
-            LaneType.INT);
-        stepped = new HashStep(HashMix.MURMUR3_HIGH, new HashStep(HashMix.MURMUR3_LOW, h, low),
-            outerWord);
+        VarkaVectorIR high = new NarrowLane(
+            new BitOp(BitOpKind.USHR, w, sink.longSlot(Integer.SIZE)), LaneType.INT);
+        h = new HashStep(HashMix.MURMUR3_HIGH, new HashStep(HashMix.MURMUR3_LOW, h, low), high);
       }
-      // Spark skips a null child, so its step is taken only where the child is valid; the
-      // outer word's validity is the child's.
-      h = child.nullable() ? new IfElse(new IsNotNull(outerWord), stepped, h) : stepped;
       any = true;
     }
     if (!any) {
@@ -158,11 +150,10 @@ final class VarkaHashCompiler {
       // A boolean's word is the int 1 or 0, which is its cast to INT.
       case BooleanType b -> lane(new Cast(child, DataTypes.IntegerType, Option.empty(),
           EvalMode$.MODULE$.LEGACY()), LaneType.INT, inputs, literals, sink);
-      case ByteType b -> VarkaNodeCompiler.compileNode(child, inputs, literals, sink)
-          .map(x -> x.laneType().isNarrow() ? new WidenLane(x, LaneType.INT) : x);
-      case ShortType s -> VarkaNodeCompiler.compileNode(child, inputs, literals, sink)
-          .map(x -> x.laneType().isNarrow() ? new WidenLane(x, LaneType.INT) : x);
-      case IntegerType i -> lane(child, LaneType.INT, inputs, literals, sink);
+      case ByteType b -> narrow(child, inputs, literals, sink);
+      case ShortType s -> narrow(child, inputs, literals, sink);
+      // A bare int column is a leaf only where an int operand is read, as arithmetic's are.
+      case IntegerType i -> VarkaNodeCompiler.intOperand(child, inputs, literals, sink);
       case DateType d -> lane(child, LaneType.INT, inputs, literals, sink);
       case YearMonthIntervalType y -> lane(child, LaneType.INT, inputs, literals, sink);
       case LongType l -> lane(child, LaneType.LONG, inputs, literals, sink);
@@ -179,6 +170,20 @@ final class VarkaHashCompiler {
       default -> sink.decline("a hash of a " + t.simpleString() + " child, outside the types "
           + "Varka hashes (VARKA-337)", child);
     };
+  }
+
+  /** A {@code TINYINT} or {@code SMALLINT} child sign-extended to the int lane. */
+  private static Optional<VarkaVectorIR> narrow(Expression e, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    Optional<VarkaVectorIR> x = VarkaNodeCompiler.compileNode(e, inputs, literals, sink);
+    if (x.isPresent() && x.get().laneType().isNarrow()) {
+      return Optional.of(new WidenLane(x.get(), LaneType.INT));
+    }
+    if (x.isPresent() && x.get().laneType() != LaneType.INT) {
+      return sink.decline("a hash child computed on the " + x.get().laneType() + " lane, not "
+          + "INT", e);
+    }
+    return x;
   }
 
   /** {@code e} compiled to a value on {@code lane}, or empty with the reason noted. */

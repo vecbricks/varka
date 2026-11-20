@@ -1226,7 +1226,8 @@ final class Slots {
       case RoundToIntegral n -> s.wordRef.get(n.child());
       case CanonicalFloat n -> s.wordRef.get(n.child());
       case CanonicalBits n -> s.wordRef.get(n.child());
-      case HashStep n -> andRef(s.wordRef.get(n.seed()), s.wordRef.get(n.word()));
+      // The seed's word: a step skips a null word rather than nulling its lane.
+      case HashStep n -> s.wordRef.get(n.seed());
       // Greatest/Least (OR) and IfElse (blend) always compute their own word.
       default -> Integer.MIN_VALUE;
     };
@@ -1342,7 +1343,8 @@ final class Slots {
    * {@code emitGuardCollect} ANDs with the condemning mask;</li> <li>{@code MakeDate}: its own
    * word, always - it stores it unconditionally and its guard reads it - and so, by propagation,
    * its three inputs';</li> <li>{@code Greatest}/{@code Least}, emitted at all: both operands'
-   * words, for the value;</li> <li>every {@code Compare} and {@code NullSafeEqual}, and every
+   * words, for the value;</li> <li>{@code HashStep}, emitted at all: its word's, for the null
+   * skip's blend;</li> <li>every {@code Compare} and {@code NullSafeEqual}, and every
    * {@code IsNotNull} over a column, reached, whether under an {@code IfElse} or a {@code Cond}
    * root: its operands' words,
    * for the known-true/false pair (an {@code IsNotNull} over a condition reads the condition's
@@ -1746,7 +1748,8 @@ final class Slots {
         case RoundToIntegral x -> { }
         case CanonicalFloat x -> { }
         case CanonicalBits x -> { }
-        case HashStep x -> { }
+        // The null skip blends by the word's validity, so that word has to survive.
+        case HashStep x -> demand(analysis.wordOwner.get(x.word()));
         case IfElse x -> { }
         // Its word is the condition's two known words ORed, and the condition demands its
         // operands' words in its own arms; its own word is demanded like any value node's.
@@ -1834,8 +1837,8 @@ final class Slots {
         case RoundToIntegral x -> { }
         case CanonicalFloat x -> { }
         case CanonicalBits x -> { }
-        case HashStep x -> { demand(analysis.wordOwner.get(x.seed()));
-          demand(analysis.wordOwner.get(x.word())); }
+        // Its word aliases the seed's (ownerOf), so it never reaches this queue.
+        case HashStep x -> { }
         case Compare x -> { }
         case NullSafeEqual x -> { }
         case BoolColumn x -> { }

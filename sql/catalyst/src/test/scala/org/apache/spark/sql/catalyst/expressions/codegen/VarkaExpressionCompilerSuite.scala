@@ -1307,7 +1307,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(off.get(0).reason === VarkaFamily.FLOATING_ARITHMETIC.offReason())
   }
 
-  test("hash and xxhash64 fold each child's word into the seed, a nullable child skipped") {
+  test("hash and xxhash64 fold each child's word into the seed, one step a child") {
     val i = AttributeReference("i", IntegerType)()
     val l = AttributeReference("l", LongType)()
     val dbl = AttributeReference("dbl", DoubleType)()
@@ -1321,21 +1321,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for ((col, lane) <- Seq(i -> LaneType.INT, l -> LaneType.LONG, dbl -> LaneType.DOUBLE,
         flt -> LaneType.FLOAT)) {
       val c = new ColumnRef(0, lane)
-      assert(outputs(new Murmur3Hash(Seq(col)), Seq(col)) === Seq(VarkaEmitterHashSuite.skipping(
-        VarkaEmitterHashSuite.step(false, intSeed, c, longSeed), intSeed)), s"hash($col)")
-      assert(outputs(new XxHash64(Seq(col)), Seq(col)) === Seq(VarkaEmitterHashSuite.skipping(
-        VarkaEmitterHashSuite.step(true, longSeed, c, new LiteralSlot(1, LaneType.LONG)),
-        longSeed)), s"xxhash64($col)")
+      assert(outputs(new Murmur3Hash(Seq(col)), Seq(col)) ===
+        Seq(VarkaEmitterHashSuite.step(false, intSeed, c, longSeed)), s"hash($col)")
+      assert(outputs(new XxHash64(Seq(col)), Seq(col)) === Seq(VarkaEmitterHashSuite.step(true,
+        longSeed, c, new LiteralSlot(1, LaneType.LONG))), s"xxhash64($col)")
     }
-    // A column that cannot be null takes its step with no choice, and the seed is the
-    // expression's own.
-    val nn = AttributeReference("nn", IntegerType, nullable = false)()
-    assert(outputs(Murmur3Hash(Seq(nn), 7), Seq(nn)) === Seq(VarkaEmitterHashSuite.step(false,
-      intSeed, new ColumnRef(0, LaneType.INT), longSeed)))
     // A normalised key canonicalised once more by the hash is one canonicalisation.
-    val keyed = outputs(new Murmur3Hash(Seq(KnownFloatingPointNormalized(NormalizeNaNAndZero(
-      dbl)))), Seq(dbl))
-    assert(VarkaVectorIR.canonical(keyed.head).split("canon ").length === 2, keyed)
+    assert(outputs(new Murmur3Hash(Seq(KnownFloatingPointNormalized(NormalizeNaNAndZero(dbl)))),
+      Seq(dbl)) === outputs(new Murmur3Hash(Seq(dbl)), Seq(dbl)))
     // Two children: the second step's seed is the first step's value, and a null literal child
     // is no step.
     val two = outputs(new Murmur3Hash(Seq(i, Literal(null, IntegerType), l)), Seq(i, l))

@@ -1583,8 +1583,9 @@ public sealed interface VarkaVectorIR
    * (VARKA-337 2.2). The compiler folds a hash's children through the steps in Spark's order,
    * the first step's seed the expression's literal seed, and gives each step a word Spark's
    * per-type rule makes: an int, a long, the low or high half of one, or a floating value's
-   * {@link CanonicalBits}. Null-intolerant like every binary node: the compiler skips a null
-   * child as Spark does, by choosing the step's seed where the child is null.
+   * {@link CanonicalBits}. A null word is skipped, as Spark skips a null child: its lane answers
+   * the seed, so the step's validity is the seed's, and a fold from a literal seed is never
+   * null.
    */
   record HashStep(HashMix mix, VarkaVectorIR seed, VarkaVectorIR word, int hash)
       implements VarkaVectorIR {

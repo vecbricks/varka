@@ -532,13 +532,14 @@ public final class VarkaReference {
         yield c.isEmpty() ? c : OptionalLong.of(
             Double.doubleToLongBits(Double.longBitsToDouble(c.getAsLong())));
       }
+      // Spark skips a null child: a null word answers the seed.
       case HashStep n -> {
         var h = longValue(n.seed(), row, isNull, lits);
         if (h.isEmpty()) {
           yield h;
         }
         var w = longValue(n.word(), row, isNull, lits);
-        yield w.isEmpty() ? w : OptionalLong.of(switch (n.mix()) {
+        yield w.isEmpty() ? h : OptionalLong.of(switch (n.mix()) {
           case XXH64_INT -> XXH64.hashInt((int) w.getAsLong(), h.getAsLong());
           case XXH64_LONG -> XXH64.hashLong(w.getAsLong(), h.getAsLong());
           case MURMUR3_INT, MURMUR3_LOW, MURMUR3_HIGH -> throw new IllegalArgumentException(
@@ -1053,13 +1054,18 @@ public final class VarkaReference {
 
   /**
    * An int-lane hash step by Spark's {@code Murmur3_x86_32}: {@code hashInt}, or {@code hashLong}
-   * for a high half over its low half, the pair the compiler builds for a 64-bit word. A half
-   * alone has no Spark primitive to answer it, so the reference refuses one.
+   * for a high half over its low half, the pair the compiler builds for a 64-bit word, a null
+   * word answering the seed as Spark skips a null child. A half alone has no Spark primitive to
+   * answer it, nor a pair whose halves differ in validity, so the reference refuses them.
    */
   private static OptionalInt murmur3(HashStep n, int[] row, boolean[] isNull, int[] lits) {
     return switch (n.mix()) {
-      case MURMUR3_INT -> both(n.seed(), n.word(), row, isNull, lits,
-          (h, w) -> Murmur3_x86_32.hashInt(w, h));
+      case MURMUR3_INT -> {
+        var h = value(n.seed(), row, isNull, lits);
+        var w = value(n.word(), row, isNull, lits);
+        yield h.isEmpty() || w.isEmpty() ? h
+            : OptionalInt.of(Murmur3_x86_32.hashInt(w.getAsInt(), h.getAsInt()));
+      }
       case MURMUR3_HIGH -> {
         if (!(n.seed() instanceof HashStep low) || low.mix() != HashMix.MURMUR3_LOW) {
           throw new IllegalArgumentException(
@@ -1068,7 +1074,11 @@ public final class VarkaReference {
         var h = value(low.seed(), row, isNull, lits);
         var lo = value(low.word(), row, isNull, lits);
         var hi = value(n.word(), row, isNull, lits);
-        yield lo.isEmpty() || h.isEmpty() || hi.isEmpty() ? OptionalInt.empty()
+        if (lo.isPresent() != hi.isPresent()) {
+          throw new IllegalArgumentException("the halves of one word differ in validity: "
+              + VarkaVectorIR.canonical(n));
+        }
+        yield h.isEmpty() || lo.isEmpty() ? h
             : OptionalInt.of(Murmur3_x86_32.hashLong(((long) hi.getAsInt() << 32)
                 | (lo.getAsInt() & 0xFFFFFFFFL), h.getAsInt()));
       }
