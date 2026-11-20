@@ -8,10 +8,11 @@ of `sql/varka/skills/the-jit.md` name them as the exceptions.
 
 ## 1. Where this came from
 
-The review of row 442 (#1531) found that `VARKA-442.md` 6 described the three spike benchmarks
-wrongly: it said they "call `awaitC2Idle` alone and read no levels", but each drives until its
-own `levelInUse` reads level 4 in `Compiler.codelist`. That is the condition row 442 replaced for
-the emitted-kernel benchmarks, because the code list does not mark an on-stack-replacement (OSR)
+The review of row 442 (#1531) found that `VARKA-442.md` 6 described two of the spike benchmarks
+wrongly and left the third, the remainder spike, out: it said the two "call `awaitC2Idle` alone
+and read no levels", but each of the three drives until its own `levelInUse` reads level 4 in
+`Compiler.codelist`. That is the condition row 442 replaced for the emitted-kernel benchmarks,
+because the code list does not mark an on-stack-replacement (OSR)
 version and never shows a loop C2 inlined into its caller. The section was corrected on 14
 November 2026, and the skill's bullet says the three "keep their own loops until their row".
 This is that row.
@@ -42,10 +43,13 @@ written.
    `Set.of(arm.method())`. The three classes' bounds (8 drives, 0.3, 30 s) are the helper's
    `Bounds` record's three fields, and the helper's own idle wait is the spikes' 10 s.
 4. **What the helper needs that the spikes do not do yet.** The caller must start the witness
-   (`VarkaTierWitness.get()`) and `watch` the class before the first call of any loop, or the
-   helper throws (`Settle.drive`'s check, added by #1531's review). Each spike calls its loops
-   before timing (the agreement check, and the remainder spike's 20,000 priming calls), so the
-   witness starts at the top of `runBenchmarkSuite`, after `requireHarness`.
+   (`VarkaTierWitness.get()`) and `watch` the class before the first call of any loop. The helper
+   throws only if the class is not watched at all when `Settle.drive` is called (`isWatching`,
+   added by #1531's review); a loop C2 compiled before `watch` is simply unknown to the
+   recording, so the arm never settles and is timed after the 30 s bound as "did not settle".
+   Each spike calls its loops before timing (the agreement check, and the remainder spike's
+   20,000 priming calls), so the witness starts at the top of `runBenchmarkSuite`, after
+   `requireHarness`.
 5. **The recording during timed cells was priced for the emitted benchmarks.** Row 442's open
    question 2 asked whether the open JFR recording moves timed rows. Its pairs, benchmark run
    43575854826 on an EPYC 7763, were green for all three classes it moved (`VARKA-442.md` 10).
@@ -115,10 +119,12 @@ No new test: the helper's policy is held by `VarkaEmitterTestSupportSuite` and
 2. Each class's dry run, `-Dvarka.bench.dryRun=true` (all three honour it): every arm is still
    built and no loop reference names a missing method.
 3. One short arm of each on the laptop, at 256 bits, with the class's required compile commands,
-   to see the settle line: `VarkaNarrowLaneBenchmark` with `-Dvarka.narrow.arms=scalar`;
+   to see the settle line: `VarkaNarrowLaneBenchmark` with `-Dvarka.narrow.arms=scalar
+   -Dvarka.bench.only="INT i1 < i2, scalar"` (one arm; `scalar` alone is the group's seven);
    `VarkaDecimalPairSpikeBenchmark` with `-Dvarka.pair.forms=p -Dvarka.pair.rungs=l2`;
    `VarkaDecimalRemainderSpikeBenchmark` with `-Dvarka.remainder.rungs=1
-   -Dvarka.bench.only="split F"`. Each run's output is kept in the pull request's description,
+   -Dvarka.bench.only="x % y, split F"` (labels are `<op>, <form>`, so `split F` alone also
+   picks `pmod(x, y), split F`). Each run's output is kept in the pull request's description,
    not committed: these are smoke checks, and a laptop shared with other agents times nothing.
 4. A JVM without the code list cannot be had on the laptop; the policy for it is the helper's,
    already tested through its reader seam.
@@ -134,9 +140,12 @@ is declared settled before timing. A pair on the runner is not asked for (questi
 1. Every smoke arm of 5.3 prints a settled line with its loop confirmed at C2. An arm that does
    not would be the OSR case of 2.2, and it then says so with the reason instead of being timed
    as level 4 in silence.
-2. Each settle takes about one JFR delivery longer, about a second an arm, as row 442's P1
-   registered for the emitted benchmarks; for the remainder spike's full ladder of 24 arms at
-   three rungs that is about a minute on a run of tens of minutes.
+2. Each settle takes longer by the witness's confirmation. Row 442's P1 put that at one JFR
+   delivery, about a second an arm, and is not yet scored. The calibration table
+   (`dev/varka_calibration.py`) has no row for a settle's wait; its nearest, VARKA-274a 6.1 #8,
+   priced the tier witness's added cost and observed 3.8 to 5.0 times the prediction. Stated at
+   that ratio: about 4 to 5 seconds an arm, and for the remainder spike's full ladder of 24 arms
+   at three rungs about 5 to 6 minutes on a run of tens of minutes.
 3. The open recording moves no spike's timed loop: row 442's three pairs were green with it
    (2.5). Not measured here (6).
 
@@ -147,8 +156,10 @@ is declared settled before timing. A pair on the runner is not asked for (questi
    the 30 s bound with the reason. That is the correction the row asks for, but it costs 30 s an
    arm and a later spike reading would show "did not settle" lines; 5.3's smoke at the first
    rung would not see it, so the pull request says so.
-2. **The witness started too late.** A loop called before `watch` makes `Settle.drive` throw; the
-   dry run does not reach it (it returns before `requireHarness`), so 5.3 is the check.
+2. **The witness started too late.** A loop C2 compiled before `watch` throws nothing: the
+   recording never sees the compile, so the arm drives out its 30 s bound and is timed with "did
+   not settle" (2.4). The dry run does not reach it (it returns before `requireHarness`), so 5.3's
+   settle line, not an exception, is the check.
 
 ## 8. Sequencing
 

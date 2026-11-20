@@ -56,10 +56,13 @@ was run.
 5. **Where B's cost lands.** A tripped lane declines its whole batch, which then runs on the row
    path after the kernel's pass: on data whose products reach `2^62`, B costs a kernel pass more
    than A. The baseline's data never reaches it (`l` below `2^49`, `m` in `[-3000, 3000]`, so
-   `|l * m|` is below `2^61`), so its sections price B's win and not its decline; 5 adds the
+   `|l * m|` is below `2^61`), so its sections price B's win and not its decline; 6 adds the
    section that prices the decline, which `VARKA-104.md` 7 risk 3 asks for.
 6. **The domain rule.** Since row 610 (#1537) a coverage row's domain must equal its guards'
-   condition. B's coverage rows take `|(double) a * (double) b| < 2^62` as their domain.
+   condition. `VarkaCoverageSuite` compiles every row under `VarkaEmitOptions.DEFAULTS`, at the
+   unknown level, and its `Row` carries no options or level, so its rows never build B: they keep
+   recording A's decline, with no guard and no domain. B's guard condition,
+   `|(double) a * (double) b| < 2^62`, is asserted where B is built, in 5.4's long-lane tests.
 
 The check would have rejected the row had a form already fused the three sections, or had the
 conversions no lowering below AVX512DQ (then B would be laptop-only, as the row says). Neither.
@@ -88,6 +91,11 @@ path; the value is the plain long `MUL`. The reference evaluator computes the sa
 per lane in Java, which gives the same bits as the vector lanes (IEEE round to nearest in both),
 so the reference and the kernel decline the same batches.
 
+`VarkaKernelPlan.conversionRefusal` refuses a `BIGINT` conversion at the unknown level by finding
+a `ConvertLane` in the tree, and `GuardedProduct` holds its two `L2D` inside its own lowering. So
+that walk learns the node too: a `GuardedProduct` at the unknown level is refused with the same
+`CONVERSION` reason, and the compiler's level gate (3.2) is not the only protection.
+
 A distinct node, not a mode of `IntArith`: an `IntArith(MUL, FAIL)` lowered this way would
 decline batches its reference evaluator (`Math.multiplyExact`) answers, and every differential
 test would then disagree with it.
@@ -98,8 +106,16 @@ test would then disagree with it.
 `MACHINE`, read by the compiler, default `BOUND_ONLY`. Under `MAGNITUDE`, `intArith` builds
 `GuardedProduct` where `cannotOverflow` fails, for ANSI and TRY, in place of declining, at an
 emit level that lowers `L2D` (2 or above; at the unnamed default level the conversion declines,
-and so does B). A bounded product keeps today's unchecked `IntArith`. The default is flipped per
-host in the last commit by 6.1's rule, or not at all.
+and so does B). A bounded product keeps today's unchecked `IntArith`.
+
+How a session reaches it. A session's options are `DEFAULTS` with `VarkaSessionEmit`'s settings
+(the level, the refusal status, the math contract), which names no multiply form, so no new
+configuration is added for an arm. The benchmark's B arm sets the option through
+`VarkaArrowSessions.withEmitOptions`, as the class's other option arms do. A per-host default
+needs no configuration either, since the session already resolves the host to a level: if 6.1's
+rule chooses B at one level and not the other, the default becomes level-keyed in
+`VarkaNodeCompiler` (B at the levels the rule chose, A elsewhere), and the option still overrides
+it. The default changes in the last commit by that rule, or not at all.
 
 ### 3.3 Alternatives considered, not built
 
@@ -134,7 +150,9 @@ level 3, two `L2D`, one double `MUL`, one `ABS`, one compare, the guard's mask t
 | the reference evaluator, the cost and width tables, the warm-up's reach | its other consumers |
 | `varka/VarkaEmitOptions.java`, `varka/VarkaEmitOption.java` | `checkedLongMultiply` |
 | `VarkaNodeCompiler.java` | the arm under the option; `twoLaneChecked` names the node |
-| `VarkaEmitterLongLaneSuite`, `VarkaCoverageSuite` rows | 5 |
+| `VarkaKernelPlan.java` | `conversionRefusal` refuses the node at the unknown level |
+| `VarkaIrGrammar.java` (`LongShapes`) | the fuzzer draws the node |
+| `VarkaEmitterLongLaneSuite` | 5 |
 | `VarkaBigintArithmeticBaselineBenchmark.java` and its queries suite | the decline section |
 | generated: `coverage.json`, `emitted_bytes.json`, `width_audit.json`, census | regenerated |
 
@@ -151,11 +169,17 @@ level 3, two `L2D`, one double `MUL`, one `ABS`, one compare, the guard's mask t
    declines, and no batch whose products all stay below `2^62 (1 - 2^-50)` does. The fixtures
    keep every product out of the rounding band, so the assertion is exact. The decline section
    of 6 draws its products from `[1.01 * 2^62, 0.99 * 2^63]`, inside the declining side.
-3. **Kernel and reference agree** on which batches decline, through the fuzzer: the option enters
-   `VarkaEmitOption.TABLE`, so `VarkaIrFuzzSuite` draws it.
-4. **Coverage rows** for `l * m`, `l * 3` under ANSI and `try_multiply(l, m)` under
-   `MAGNITUDE`, their domain B's condition (item 2.6), at levels 2 and 3; at the unnamed level
-   the row records the decline.
+3. **Kernel and reference agree** on which batches decline, through the fuzzer:
+   `GuardedProduct` joins `VarkaIrGrammar.LongShapes`, so `VarkaIrFuzzSuite` draws the node
+   itself and checks the kernel's declines against the reference evaluator's. The option alone
+   would not do it: the fuzzer draws IR trees and never runs the compiler, the option's only
+   reader.
+4. **The compiled arms**, in `VarkaEmitterLongLaneSuite` (the coverage suite compiles at the
+   defaults only, item 2.6): `l * m`, `l * 3` under ANSI and `try_multiply(l, m)` compiled under
+   `MAGNITUDE` at levels 2 and 3 build `GuardedProduct`, and its guard condition is B's, held
+   against Arrow batches of 1, 3 and 4,096 rows as the option matrix's `arrowBatchSize` cuts
+   them; at the unknown level each declines with the `CONVERSION` reason, from the compiler and,
+   for a hand-built node, from `conversionRefusal`. The coverage rows keep A's decline.
 5. **The two-lane refusal holds**: under `declineTwoLaneConditions` the product declines at
    `lanesOverride=2`.
 6. Every suite that lists the IR's node types runs before the push, since a part adding a node
@@ -167,23 +191,27 @@ level 3, two `L2D`, one double `MUL`, one `ABS`, one compare, the guard's mask t
 plus one new section, `l * m, ANSI, products near 2^62` (every batch holds one in `[1.01 * 2^62,
 0.99 * 2^63]`, nothing overflows), each with three arms: the row path, A (`BOUND_ONLY`, which is the
 row path for these sections) and B (`MAGNITUDE`), both forms named in the labels. Hosts: the EPYC
-7763 at 256 bits (level 2), and an AVX512DQ host at 256 bits (level 3; question 1). The control is
-the class's wrapping `l * m, LEGACY`, unchanged by the option. 128 bits is not run: item 2.3 settles
-it.
+7763 at 256 bits (level 2; question 2), and an AVX512DQ host at 256 bits (level 3; question 1).
+The control is the class's wrapping `l * m, LEGACY`, unchanged by the option. 128 bits is not
+run: item 2.3 settles it.
 
 ### 6.1 Predictions, registered before the run
 
 1. **Level 3 (AVX512DQ):** B is at least 3X the row path on `l * m` and `try_multiply(l, m)`
-   ANSI without nulls, against LEGACY's 8.0X, since it adds about six vector ops to a kernel the
-   load dominates.
-2. **Level 2 (EPYC 7763):** B is at least 1.5X the row path on the same sections; the two
-   `XOR_SPLIT` conversions cost more than the multiply, and less than the row path's 47 ns a
-   row.
-3. **The decline section:** B is slower than the row path by under 1.25 times at both levels,
-   the kernel's pass before every declined batch.
-4. **The rule:** B becomes the default on a host where predictions 1 or 2 hold at both null
-   densities by at least 1.3X; elsewhere A stays and B stays as the arm. `VARKA-104.md` 9 records
-   the choice per host either way.
+   ANSI at both null densities, against LEGACY's 8.0X, since it adds about six vector ops to a
+   kernel the load dominates.
+2. **Level 2 (EPYC 7763):** B is at least 1.5X the row path on the same sections at both null
+   densities; the two `XOR_SPLIT` conversions cost more than the multiply, and less than the row
+   path's 47 ns a row.
+3. **The decline section:** every batch pays B's kernel pass and then the row path, so at a
+   speedup `s` for B on the same host the section reads at most `1 + 1/s` times the row path:
+   under 1.34 at level 3 (prediction 1's 3X) and under 1.67 at level 2 (prediction 2's 1.5X).
+   It is scored against the `s` the run measures, so a miss of 1 or 2 does not fail it by
+   construction.
+4. **The rule:** B becomes the default at a level where it reads at least 1.3X the row path on
+   each of the three checked sections at both null densities, a bar below predictions 1 and 2 so
+   that missing a prediction alone does not drop B; elsewhere A stays and B stays as the arm.
+   `VARKA-104.md` 9 records the choice per host either way.
 
 ## 7. Risks
 
@@ -193,9 +221,11 @@ it.
 2. **The decline cost hides.** B on data near `2^62` is slower than A and looks only "fused";
    test 5.2 and the section of 6 are the defence, as `VARKA-104.md` 7 risk 3 asks.
 3. **The conversion at the unnamed level.** At emit level -1 the `L2D` declines; B must decline
-   there with a reason, not throw. Coverage row 5.4's unnamed-level case holds it.
+   there with a reason, not throw, both where the compiler builds it and where a node reaches the
+   kernel plan another way (a fuzzer draw, a hand-built test). 5.4's unknown-level case holds both.
 4. **The domain check** (row 610): a domain wider than the guard fails the option matrix's
-   `arrowBatchSize` configurations, as #1484's did. 5.4's rows take the guard's condition.
+   `arrowBatchSize` configurations, as #1484's did. The coverage rows never build B (item 2.6),
+   so the check does not reach it; 5.4 asserts B's condition at the matrix's batch sizes instead.
 
 ## 8. Sequencing
 
@@ -223,7 +253,8 @@ it.
 ## 11. Done when
 
 - B is built over the two double lanes behind `checkedLongMultiply`, and measured against A on
-  an AVX512DQ host and on the EPYC 7763 at 256 bits;
+  an AVX512DQ host, and on the EPYC 7763 at 256 bits if the owner answers question 2 yes (the
+  row's own Done-when says the EPYC runners cannot run B, the reading 2.2 corrects);
 - its decline rate against the row path is recorded (test 5.2 and the decline section), as
   `VARKA-104.md` 7 risk 3 requires;
 - `VARKA-104.md` 9 records the choice per host, or B is dated as dropped.
