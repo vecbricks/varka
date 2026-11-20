@@ -625,13 +625,11 @@ by raw bits; the planted other-class call fails it for `sin`, `cos`, `tan` and t
 x86; and a warmed kernel allocates nothing a batch. `VarkaMathCompilerSuite` holds the fused and
 the declined tables. Coverage gains "Math functions" (11 rows) and one condition row. The regen
 wrote coverage, docs, emitted bytes, width audit and census; no existing shape's bytes moved
-(prediction 1 held), and the suite ran in 33 s for nine functions (prediction 7). The audit's
-`-XX:UseAVX=2` rerun timed out under load and is owed on a quiet machine.
+(prediction 1 held). The audit's `-XX:UseAVX=2` rerun timed out under load and is owed.
 
 **Review** (`/code-review high`): arms with no baked lane count explain the call's refusal
 (`VarkaMatrixRuns.isUnbakedWidthDecline`), and `skips.tsv` lists the math rows of those arms.
-**Left of 356a:** `atan2` (356a2), the IR fuzz productions, the live-word narrowing (345b, 2.9),
-the vectors files and the runner measurement.
+**Left of 356a:** `atan2` (356a2), the IR fuzz productions and the runner measurement.
 
 ### Decisions taken while the owner was away (20 November 2026)
 
@@ -639,7 +637,7 @@ the vectors files and the runner measurement.
    358a's domain null.
 2. **The call is unrolled over `lane` and `withLane`, not 2.2's scratch loop**: C2 keeps the vector
    unboxed, and the price is a baked lane count. The scratch loop is the one to measure.
-3. **Every lane is called, dead ones too**: the call is pure. The live-word narrowing is 345b's.
+3. **Every lane is called, dead ones too**: the call is pure.
 4. **The `PORT` arms are the next part.** Each fdlibm port (`asin`, `acos`, `atan`, `atan2`) is
    ported to `vfdlibm` from its committed C, never the JDK, any departure proven in `PROOFS.md`,
    and Varka's kernel is cross-checked lane for lane against `VFdlibm.<fn>`. Varka's side needs
