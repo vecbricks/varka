@@ -625,6 +625,13 @@ having been updated in place this morning. The census:
 | :-- | :-- | :-- | :-- |
 | 1 | fused pairs move by 9, fully fused entries by 3 | 533 to 542 pairs, 65 to 68 entries | held, exactly |
 
+**Tests owed** (the owner's order of 20 November, 07:30 CET: compiles and one quick targeted run
+only from then on): `VarkaCoverageHarnessSuite` over the new rows, their domains and the edges
+fixture's new positions (stopped during sql/core's test compile), `VarkaCoverageDifferentialSuite`,
+the width audit under `JDK_JAVA_OPTIONS=-XX:UseAVX=2`, the catalyst `*Varka*` suites with the
+sanitizer on and `VarkaIrFuzzSuite`, and CI. A `/code-review high` of the final commit is owed too;
+two earlier rounds found no correctness bug and eleven nits, all fixed.
+
 **Not done here, and why.** No benchmark: section 6 claims no speed for the family, and a
 shift and a mask restate the int and long lanes' numbers. No fuzz-grammar draw: the narrow and
 boolean draws are row 352's and the `BitOp`-over-a-conversion draws row 432's (section 9.4).
