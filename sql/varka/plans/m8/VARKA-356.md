@@ -672,7 +672,7 @@ plant must fail the fixed vectors for every function with the domain null and mo
 function. `VarkaMathCompilerSuite`'s fused table gains the nine functions, `log(2.0D, x)`, `log(y, x)` and
 `exp(i)`, and a constant base at or below `0.0` declines by name. Coverage gains 11 "Math
 functions" rows. `VarkaMathBaselineBenchmark` marks `cbrt`, `exp`, `log`, `log10` and
-`exp(x) * 2 + 1` `WHOLE`, and 358's eight census lines read `double|done|358`.
+`exp(x) * 2 + 1` `WHOLE`; 358's eight census lines wait for the regeneration (decision 5).
 
 **Run in the window**: `catalyst/Test/compile` and `sql/Test/compile`, and the one targeted run of
 `VarkaMathExactSuite` and `VarkaMathCompilerSuite` that the outcome line below records. Owed:
@@ -710,6 +710,8 @@ warm-up reach and cost register entries; the runner measurement.
 4. **A foldable base is folded by Catalyst's own `eval`** at compile time, the double Spark
    computes a row, and a null base declines with every row null. 2.1's rule covers the literal
    base; the generalisation covers `log(2, x)`, whose int literal arrives under a cast.
-5. **The census lines are rewritten to `done` by this part** (open point 5, as 356a1 did).
-   `census.tsv` waits for the regeneration, since `dev/varka_census.py --check` reads the coverage
-   rows from `coverage.json`.
+5. **The census lines' rewrite to `done` waits for the regeneration** (open point 5). The
+   pre-commit hook runs `dev/varka_census.py --check`, which fails a curated `done` line until
+   `coverage.json` holds a row with the class, and regeneration is not run in this window. The
+   eight lines are written (`double|done|358` with the form named) and are committed with the
+   regenerated files.
