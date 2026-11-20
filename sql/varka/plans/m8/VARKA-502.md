@@ -263,6 +263,48 @@ variant sweep is the reflective one.
 
 ## 10. Outcome
 
+**Built (20 November 2026, local only, branch `varka-502-ir-replay-file`).** Every item of the build
+sheet's B1 except item 7 (the row stays open, see below):
+
+- `VarkaCanonicalIr`: the `bool:N[:lane]` leaf and the `condConst`, `boolCmp`, `condIf` and
+  `boolNullSafeEq` heads; `condConst` refuses a head of more than three parts. The class javadoc
+  states the round trip's rule.
+- `VarkaReproductionSuite`: `NOT_PARSED_YET` and its stale check deleted; the two boolean trees in
+  `theRest()`; `assertRoundTrips` holds the parsed tree equal to the original after `normalised`
+  (a long-lane `ConstDivide` given `EXACT_DIVIDEND_BOUND`); `everyFormRoundTrips`, the reflective
+  sweep; four boolean refusals in `malformedIrIsRefused`; `booleanKernelReplays` and
+  `decimalKernelReplays`, over a shared `kernelFile` helper.
+- `VarkaReplay.sameClass`, threaded through `done` and `failed`.
+- `VarkaReproductionEndToEndSuite`: `assertReplays` holds `sameClass`, and the boolean test.
+- `dev/varka_push_check.py` no longer names `NOT_PARSED_YET` (ruff formatted the pattern onto one
+  line); the skill bullet in `testing-and-debugging.md`.
+
+**Run.** Listed under "Tests owed" in the pull request body; this window allowed only
+`catalyst/Test/compile` and one run of `VarkaReproductionSuite`. RESULTS_LINE
+
+**Not yet run, so the row is not Done.** The end-to-end suite (whether the boolean query fuses with
+`bool:` and `condIf` in its outputs, and whether `sameClass` holds on every existing replay, section
+9 point 4's risk), `sql/Test/compile`, the planted faults of B3, and `dev/varka_push_check.py` over
+the branch.
+
+**Predictions (section 4), scored so far.** P1: PREDICTION_P1. P2: PREDICTION_P2. P3: holds by
+construction, since no main file changed; to be confirmed by `git status` after the end-to-end run.
+P4: the boolean test is 31 lines against the decimal test's 28; holds.
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **Row 502 stays Started, not Done** (B1 item 7 not applied): the end-to-end suite and the
+   planted faults are owed to the test phase, and the done-when list needs both. The brief forbids
+   marking Done before every done-when condition holds.
+2. **The changed-class replay copies every field of the parsed file** (`withClassByteChanged`)
+   rather than re-calling the constructor with empty strings as B1 wrote it, so the copy differs
+   from the file in the class bytes alone.
+3. **Overlap with row 489** (node descriptor, built in parallel in `varka-489w`): this row touches no
+   main file and no IR switch in `VarkaVectorIR`. Its one IR switch is the parser's head switch in
+   `VarkaCanonicalIr` (test code). If row 489 moves parsing into its descriptor, the five arms here
+   move with it, and `everyFormRoundTrips` checks the result either way. At the time of the build
+   `varka-489w` had no commits or edits, so no conflict could be read.
+
 ## Build sheet (11 November 2026)
 
 Follow `BUILD_SHEETS.md` (same folder) for the environment, the lock, the linters, the commit and

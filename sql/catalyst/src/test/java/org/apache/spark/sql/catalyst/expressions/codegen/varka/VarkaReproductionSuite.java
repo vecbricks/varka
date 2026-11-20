@@ -25,6 +25,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.RecordComponent;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -127,19 +130,18 @@ public final class VarkaReproductionSuite {
         new IfElse(new CrossLane(new Compare(CompareOp.GT, new ColumnRef(2, LaneType.DOUBLE),
             new LiteralSlot(1, LaneType.DOUBLE)), LaneType.LONG), x,
             new LiteralSlot(0, LaneType.LONG)),
-        // Over comparisons: the parser reads no boolean-column leaf yet.
+        // Over comparisons.
         new BoolOutput(new Or(new Not(new IsNotNull(new ColumnRef(0))),
-            new Compare(CompareOp.LT, new ColumnRef(1), new LiteralSlot(0)))));
+            new Compare(CompareOp.LT, new ColumnRef(1), new LiteralSlot(0)))),
+        // Over boolean columns and constants, at the int lane.
+        new BoolOutput(new CondIf(new BoolColumn(0), new BoolCompare(CompareOp.LE,
+            new BoolColumn(1), new CondConst(Truth.NULL)),
+            new BoolNullSafeEq(new BoolColumn(0), new CondConst(Truth.TRUE)))),
+        // A boolean column beside a long comparison, under a long choice.
+        new IfElse(new BoolNullSafeEq(new BoolColumn(0, LaneType.LONG),
+            new Compare(CompareOp.LT, x, new LiteralSlot(0, LaneType.LONG))),
+            new CondValue(new CondConst(Truth.FALSE, LaneType.LONG), LaneType.LONG), x));
   }
-
-  /**
-   * The node types the parser has no arm for yet, so no round trip reaches them: the boolean
-   * value nodes, whose parse arms the owner is turning into a row of their own. Listed by name so
-   * that the completeness check below fails on any other node type left without an entry, and on
-   * one of these once a tree above reaches it.
-   */
-  private static final Set<Class<?>> NOT_PARSED_YET = Set.of(BoolColumn.class, CondConst.class,
-      BoolCompare.class, CondIf.class, BoolNullSafeEq.class);
 
   /** The records under {@code type}, through its sealed subinterfaces. */
   private static void nodeTypes(Class<?> type, Set<Class<?>> out) {
@@ -162,6 +164,72 @@ public final class VarkaReproductionSuite {
     String text = VarkaVectorIR.canonical(tree);
     VarkaVectorIR parsed = VarkaCanonicalIr.parse(text);
     assertEquals(text, VarkaVectorIR.canonical(parsed));
+    assertEquals(normalised(tree), parsed, () -> "the tree read back differs: " + text);
+  }
+
+  /**
+   * {@code tree} as the parser builds it from its rendering: a {@code ConstDivide} off the int
+   * lane carries {@code EXACT_DIVIDEND_BOUND}, the one field the rendering leaves out and the
+   * parser fills by rule. Everything else is kept, so record equality covers the fields the
+   * rendering carries and the ones derived from them.
+   */
+  private static VarkaVectorIR normalised(VarkaVectorIR tree) {
+    VarkaVectorIR[] children = VarkaVectorIR.childrenOf(tree);
+    VarkaVectorIR node = children.length == 0 ? tree : VarkaVectorIR.withChildren(tree,
+        Arrays.stream(children).map(VarkaReproductionSuite::normalised)
+            .toArray(VarkaVectorIR[]::new));
+    if (node instanceof ConstDivide d && d.child().laneType() != LaneType.INT) {
+      return new ConstDivide(d.child(), d.divisor(), ConstDivide.EXACT_DIVIDEND_BOUND);
+    }
+    return node;
+  }
+
+  /** {@code node} and every node under it. */
+  private static void subtrees(VarkaVectorIR node, List<VarkaVectorIR> out) {
+    out.add(node);
+    for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+      subtrees(child, out);
+    }
+  }
+
+  /**
+   * {@code node} rebuilt through its canonical constructor with one enum or boolean component
+   * changed to each other value it can hold, the rest kept; a value the constructor refuses with
+   * an {@code IllegalArgumentException} is skipped. A trailing {@code int hash} component keeps
+   * its value, since every compact constructor recomputes it.
+   */
+  private static List<VarkaVectorIR> variants(VarkaVectorIR node)
+      throws ReflectiveOperationException {
+    RecordComponent[] cs = node.getClass().getRecordComponents();
+    var types = new Class<?>[cs.length];
+    var values = new Object[cs.length];
+    for (int i = 0; i < cs.length; i++) {
+      types[i] = cs[i].getType();
+      cs[i].getAccessor().setAccessible(true);
+      values[i] = cs[i].getAccessor().invoke(node);
+    }
+    Constructor<?> canonical = node.getClass().getDeclaredConstructor(types);
+    canonical.setAccessible(true);
+    var out = new ArrayList<VarkaVectorIR>();
+    for (int i = 0; i < cs.length; i++) {
+      Object[] choices = types[i].isEnum() ? types[i].getEnumConstants()
+          : types[i] == boolean.class ? new Object[] {false, true} : new Object[0];
+      for (Object choice : choices) {
+        if (choice.equals(values[i])) {
+          continue;
+        }
+        Object[] changed = values.clone();
+        changed[i] = choice;
+        try {
+          out.add((VarkaVectorIR) canonical.newInstance(changed));
+        } catch (InvocationTargetException e) {
+          if (!(e.getCause() instanceof IllegalArgumentException)) {
+            throw e;
+          }
+        }
+      }
+    }
+    return out;
   }
 
   private static String hash(List<VarkaVectorIR> roots, int inputs, int literals) {
@@ -186,7 +254,7 @@ public final class VarkaReproductionSuite {
     assertRoundTrips(everyNodeType());
     theRest().forEach(VarkaReproductionSuite::assertRoundTrips);
     // Complete over the sealed interface, so a new node type fails here until a tree above
-    // reaches it or it is listed as not parsed yet.
+    // reaches it.
     Set<Class<?>> all = new HashSet<>();
     nodeTypes(VarkaVectorIR.class, all);
     Set<Class<?>> got = new HashSet<>();
@@ -194,11 +262,22 @@ public final class VarkaReproductionSuite {
     theRest().forEach(t -> reached(t, got));
     Set<Class<?>> missing = new HashSet<>(all);
     missing.removeAll(got);
-    missing.removeAll(NOT_PARSED_YET);
     assertTrue(missing.isEmpty(), () -> "node types no round trip reaches: " + missing);
-    Set<Class<?>> stale = new HashSet<>(NOT_PARSED_YET);
-    stale.retainAll(got);
-    assertTrue(stale.isEmpty(), () -> "node types listed as not parsed yet but reached: " + stale);
+  }
+
+  @Test
+  @DisplayName("every record reads back in every enum and boolean form its constructor admits")
+  void everyFormRoundTrips() throws ReflectiveOperationException {
+    var trees = new ArrayList<VarkaVectorIR>();
+    trees.add(everyNodeType());
+    trees.addAll(theRest());
+    var nodes = new ArrayList<VarkaVectorIR>();
+    trees.forEach(t -> subtrees(t, nodes));
+    for (VarkaVectorIR node : nodes) {
+      for (VarkaVectorIR variant : variants(node)) {
+        assertRoundTrips(variant);
+      }
+    }
   }
 
   @Test
@@ -270,6 +349,14 @@ public final class VarkaReproductionSuite {
     assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("decw:0:p38"));
     assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("decw:0:mid:p38"));
     assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("decw:0:lo:p18"));
+    // A boolean head over values, an unknown truth, and a boolean leaf or constant with a part
+    // too many.
+    assertThrows(IllegalArgumentException.class,
+        () -> VarkaCanonicalIr.parse("(boolCmp:LT col:0 lit:0)"));
+    assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("(condConst:MAYBE)"));
+    assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("bool:0:long:p9"));
+    assertThrows(IllegalArgumentException.class,
+        () -> VarkaCanonicalIr.parse("(condConst:TRUE:long:x)"));
   }
 
   private static VarkaReproduction sample(VarkaReproduction.KernelCall call) {
@@ -466,6 +553,89 @@ public final class VarkaReproductionSuite {
     assertTrue(replay.actual().isEmpty(), String.join("\n", replay.report()));
     assertTrue(replay.notes().contains("the kernel returned"),
         String.join("\n", replay.report()));
+  }
+
+  /**
+   * A kernel-failure file of {@code outputs} at the default options, carrying the class the shape
+   * cache would define for it, as the evaluator's catch writes one.
+   */
+  private static VarkaReproduction kernelFile(List<VarkaVectorIR> outputs, int inputs,
+      int literals, List<Integer> ints, List<Long> longs, VarkaReproduction.KernelCall call) {
+    String hash = hash(outputs, inputs, literals);
+    byte[] bytes = VarkaLoopEmitter.emit(VarkaShapeCacheImpl.classNameFor(hash), outputs, inputs,
+        literals, VarkaShapeCacheImpl.sourceFileFor(hash), "shape " + hash,
+        VarkaEmitOptions.DEFAULTS);
+    return new VarkaReproduction(new VarkaFailureSignature("IndexOutOfBoundsException", "x"),
+        VarkaFallbackEvent.KERNEL_FAILURE, "", "", "", false, hash, inputs, literals, false,
+        VarkaErrorContext.renderOptions(VarkaEmitOptions.DEFAULTS),
+        outputs.stream().map(VarkaVectorIR::canonical).toList(), ints, longs, call, bytes);
+  }
+
+  /** {@code file} with one byte of its class changed. */
+  private static VarkaReproduction withClassByteChanged(VarkaReproduction file, int at) {
+    byte[] bytes = file.classBytes().clone();
+    bytes[at]++;
+    return new VarkaReproduction(file.signature(), file.stage(), file.context(),
+        file.writtenAt(), file.java(), file.sanitizer(), file.shapeHash(), file.numInputs(),
+        file.numLiterals(), file.warmed(), file.options(),
+        file.outputs(), file.intLiterals(), file.longLiterals(), file.call(), bytes);
+  }
+
+  private static void assertReturnsSameClass(VarkaReproduction file) {
+    var replay = VarkaReplay.of(file);
+    assertTrue(replay.actual().isEmpty(), String.join("\n", replay.report()));
+    assertTrue(replay.notes().contains("the kernel returned"),
+        String.join("\n", replay.report()));
+    assertEquals(Optional.of(true), replay.sameClass(), String.join("\n", replay.report()));
+  }
+
+  @Test
+  @DisplayName("a boolean kernel's file replays to the class it carries, byte for byte")
+  void booleanKernelReplays() {
+    var outputs = List.<VarkaVectorIR>of(new BoolOutput(new CondIf(new BoolColumn(0),
+        new Compare(CompareOp.LT, new ColumnRef(2), new LiteralSlot(0)), new BoolColumn(1))));
+    int rows = 100;
+    var random = new Random(502);
+    // Two boolean columns as Arrow keeps them, a bitmap of (rows + 7) / 8 bytes, and an int one.
+    byte[] b0 = new byte[(rows + 7) / 8];
+    byte[] b1 = new byte[(rows + 7) / 8];
+    byte[] x = new byte[rows * 4];
+    random.nextBytes(b0);
+    random.nextBytes(b1);
+    random.nextBytes(x);
+    var call = new VarkaReproduction.KernelCall(rows, 0,
+        List.of(VarkaReproduction.KernelCall.BIT_OUTPUT), List.of(
+            new VarkaReproduction.Input(1, 16, 0, 0, false, b0, null),
+            new VarkaReproduction.Input(1, 16, 0, 0, false, b1, null),
+            new VarkaReproduction.Input(4, rows * 4, 0, 0, false, x, null)), null, false);
+    var written = kernelFile(outputs, 3, 1, List.of(0), List.of(), call);
+    VarkaReproduction file = VarkaReproduction.parse(written.render());
+    assertReturnsSameClass(file);
+    var changed = VarkaReplay.of(withClassByteChanged(file, 100));
+    assertEquals(Optional.of(false), changed.sameClass(), String.join("\n", changed.report()));
+  }
+
+  @Test
+  @DisplayName("a decimal kernel's file replays to the class it carries, byte for byte")
+  void decimalKernelReplays() {
+    var dec = new DecimalColumn(0, LaneType.LONG, 9);
+    var outputs = List.<VarkaVectorIR>of(dec,
+        new IntArith(IntOp.ADD, Overflow.WRAP, dec, new LiteralSlot(0, LaneType.LONG)));
+    int rows = 64;
+    // Sixteen-byte slots, as a decimal vector keeps them: the unscaled long in the low eight
+    // bytes, little-endian, and its sign extension in the high eight.
+    byte[] data = new byte[rows * 16];
+    for (int r = 0; r < rows; r++) {
+      long v = (r - 32) * 1001L;
+      for (int b = 0; b < 8; b++) {
+        data[16 * r + b] = (byte) (v >>> (8 * b));
+        data[16 * r + 8 + b] = (byte) (v < 0 ? -1 : 0);
+      }
+    }
+    var call = new VarkaReproduction.KernelCall(rows, 0, List.of(8, 8), List.of(
+        new VarkaReproduction.Input(16, rows * 16, 0, 0, false, data, null)), null, false);
+    var written = kernelFile(outputs, 1, 1, List.of(), List.of(5L), call);
+    assertReturnsSameClass(VarkaReproduction.parse(written.render()));
   }
 
   @Test
