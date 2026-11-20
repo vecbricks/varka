@@ -792,10 +792,10 @@ final class Slots {
     }
     // Broadcasts are hoisted into vector locals only where they are used - the loop methods - and
     // only in the regime where the hoist measures as a win (see `VARKA-9.md`): one output, at
-    // most a chain's worth of literals. Any wider body inlines them at each use and lets C2
+    // most HOIST_LITERALS (16) literals. Any wider body inlines them at each use and lets C2
     // rematerialize under register pressure (VARKA-10.md).
     boolean hoist = mode == BodyMode.LOOP && outputs.size() == 1
-        && numLiterals <= MAX_CHAIN_DEPTH;
+        && numLiterals <= HOIST_LITERALS;
     s.broadcastSlot = hoist ? new int[driveLiterals] : null;
     if (s.broadcastSlot != null) {
       for (int j = 0; j < driveLiterals; j++) {

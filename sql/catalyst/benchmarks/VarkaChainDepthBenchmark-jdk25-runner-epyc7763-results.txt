@@ -1,0 +1,110 @@
+================================================================================================
+chain depth past the cap: BIGINT lane
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+depth 16, 64 passes over 16384 rows in chunks of 4096:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+fused, cap raised to 64                                          126            129           2          8.3         120.4       1.0X
+Spark row path (generated UnsafeProjection)                       20             20           1         53.3          18.8       6.4X
+scalar loop                                                        5              5           0        206.6           4.8      24.9X
+
+bytes at BIGINT depth 16: loopDense0 618, epilogueDense0 680, loopMasked0 1073, epilogueMasked0 1141; largest 1141 of HugeMethodLimit 8000
+tier at BIGINT depth 16, fused: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=3, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+depth 24, 64 passes over 16384 rows in chunks of 4096:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+fused, cap raised to 64                                          183            184           1          5.7         174.8       1.0X
+Spark row path (generated UnsafeProjection)                       25             26           1         41.5          24.1       7.3X
+scalar loop                                                       10             10           0        104.1           9.6      18.2X
+
+bytes at BIGINT depth 24: loopDense0 784, epilogueDense0 876, loopMasked0 1405, epilogueMasked0 1503; largest 1503 of HugeMethodLimit 8000
+tier at BIGINT depth 24, fused: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+depth 32, 64 passes over 16384 rows in chunks of 4096:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+fused, cap raised to 64                                          248            249           2          4.2         236.1       1.0X
+Spark row path (generated UnsafeProjection)                       29             29           0         36.7          27.3       8.7X
+scalar loop                                                        9              9           0        115.6           8.6      27.3X
+
+bytes at BIGINT depth 32: loopDense0 987, epilogueDense0 1114, loopMasked0 1741, epilogueMasked0 1874; largest 1874 of HugeMethodLimit 8000
+tier at BIGINT depth 32, fused: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=3, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+depth 48, 64 passes over 16384 rows in chunks of 4096:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+fused, cap raised to 64                                          366            369           4          2.9         349.1       1.0X
+Spark row path (generated UnsafeProjection)                       40             40           0         26.5          37.7       9.3X
+scalar loop                                                       19             19           0         55.5          18.0      19.4X
+
+bytes at BIGINT depth 48: loopDense0 1360, epilogueDense0 1552, loopMasked0 2413, epilogueMasked0 2611; largest 2611 of HugeMethodLimit 8000
+tier at BIGINT depth 48, fused: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=3, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+depth 64, 64 passes over 16384 rows in chunks of 4096:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+fused, cap raised to 64                                          529            531           3          2.0         504.4       1.0X
+Spark row path (generated UnsafeProjection)                       59             59           0         17.9          55.9       9.0X
+scalar loop                                                       13             13           0         78.6          12.7      39.6X
+
+bytes at BIGINT depth 64: loopDense0 1770, epilogueDense0 2032, loopMasked0 3089, epilogueMasked0 3357; largest 3357 of HugeMethodLimit 8000
+tier at BIGINT depth 64, fused: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=3, runDense=3}
+
+================================================================================================
+chain depth past the cap: INT lane
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+depth 16, 64 passes over 16384 rows in chunks of 4096:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+fused, cap raised to 64                                            1              1           0        807.5           1.2       1.0X
+Spark row path (generated UnsafeProjection)                       20             21           0         51.9          19.3       0.1X
+scalar loop                                                        5              5           1        218.8           4.6       0.3X
+
+bytes at INT depth 16: loopDense0 618, epilogueDense0 680, loopMasked0 1073, epilogueMasked0 1141; largest 1141 of HugeMethodLimit 8000
+tier at INT depth 16, fused: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=3, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+depth 24, 64 passes over 16384 rows in chunks of 4096:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+fused, cap raised to 64                                            2              2           0        555.5           1.8       1.0X
+Spark row path (generated UnsafeProjection)                       26             27           0         39.7          25.2       0.1X
+scalar loop                                                        7              7           0        146.4           6.8       0.3X
+
+bytes at INT depth 24: loopDense0 784, epilogueDense0 876, loopMasked0 1405, epilogueMasked0 1503; largest 1503 of HugeMethodLimit 8000
+tier at INT depth 24, fused: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=3, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+depth 32, 64 passes over 16384 rows in chunks of 4096:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+fused, cap raised to 64                                            3              3           0        387.3           2.6       1.0X
+Spark row path (generated UnsafeProjection)                       29             30           1         35.9          27.9       0.1X
+scalar loop                                                        8              9           0        123.6           8.1       0.3X
+
+bytes at INT depth 32: loopDense0 987, epilogueDense0 1114, loopMasked0 1741, epilogueMasked0 1874; largest 1874 of HugeMethodLimit 8000
+tier at INT depth 32, fused: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=3, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+depth 48, 64 passes over 16384 rows in chunks of 4096:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+fused, cap raised to 64                                            5              5           0        214.2           4.7       1.0X
+Spark row path (generated UnsafeProjection)                       39             39           1         27.1          36.9       0.1X
+scalar loop                                                       20             20           0         52.8          18.9       0.2X
+
+bytes at INT depth 48: loopDense0 1360, epilogueDense0 1552, loopMasked0 2413, epilogueMasked0 2611; largest 2611 of HugeMethodLimit 8000
+tier at INT depth 48, fused: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=3, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+depth 64, 64 passes over 16384 rows in chunks of 4096:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+fused, cap raised to 64                                            7              7           0        147.8           6.8       1.0X
+Spark row path (generated UnsafeProjection)                       60             61           1         17.4          57.5       0.1X
+scalar loop                                                       13             13           0         78.7          12.7       0.5X
+
+bytes at INT depth 64: loopDense0 1770, epilogueDense0 2032, loopMasked0 3089, epilogueMasked0 3357; largest 3357 of HugeMethodLimit 8000
+tier at INT depth 64, fused: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=3, runDense=3}
+

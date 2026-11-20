@@ -57,6 +57,30 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // emit() rejects numInputs > 64, so the compiler must never accept such a projection.
     assert(fits(Seq(chain(0, 1)), 64, VarkaMatrix.base))
     assert(!fits(Seq(chain(0, 1)), 65, VarkaMatrix.base))
+    // The depth cap is the option's value (VARKA-620), read here as Analysis reads it.
+    assert(fits(Seq(chain(0, 24)), 1, VarkaMatrix.base.withMaxChainDepth(24)))
+    assert(!fits(Seq(chain(0, 25)), 1, VarkaMatrix.base.withMaxChainDepth(24)))
+  }
+
+  test("fitsBudgets counts a decimal leaf as Analysis does: height 0, no op") {
+    // A chain of 64-bit XORs over a decimal column or one word of a decimal pair. Analysis
+    // registers both leaves as inputs of height 0, so the chain's height is its XOR count and
+    // the emitter accepts exactly MAX_CHAIN_DEPTH of them; fitsBudgets must agree at the cap and
+    // one past it, or the compiler declines a shape the emitter would serve.
+    val lit = new LiteralSlot(0, LaneType.LONG)
+    def xors(leaf: VarkaVectorIR, depth: Int): VarkaVectorIR =
+      (0 until depth).foldLeft(leaf)((n, _) => new BitOp(BitOpKind.XOR, n, lit))
+    val cap = VarkaEmitBudget.MAX_CHAIN_DEPTH
+    for (leaf <- Seq[VarkaVectorIR](new DecimalColumn(0, LaneType.LONG, 9),
+        new DecimalWord(0, Word.LOW, 38))) {
+      val atCap = java.util.List.of[VarkaVectorIR](xors(leaf, cap))
+      val past = java.util.List.of[VarkaVectorIR](xors(leaf, cap + 1))
+      assert(VarkaLoopEmitter.fitsBudgets(atCap, 1, VarkaMatrix.base), leaf)
+      assert(emitMulti(atCap.asScala.toSeq, 1, 1)._2.nonEmpty, leaf)
+      assert(!VarkaLoopEmitter.fitsBudgets(past, 1, VarkaMatrix.base), leaf)
+      val e = intercept[IllegalArgumentException](emitMulti(past.asScala.toSeq, 1, 1))
+      assert(e.getMessage.contains("MAX_CHAIN_DEPTH="), e.getMessage)
+    }
   }
 
   test("calendar siblings over one date share a loop method; plain chains, other " +
