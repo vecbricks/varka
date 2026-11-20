@@ -730,7 +730,7 @@ public final class VarkaKernelPlan {
   /**
    * Whether every narrow node of {@code root} is one {@link #longNarrowRefusal} names, read by a
    * node it names: the root by {@link LongNarrowRole#atRoot}, every other narrow node by what its
-   * reader takes ({@link #longNarrowReader}).
+   * reader takes ({@link VarkaNodeProps#longNarrow}).
    */
   private static boolean loweredAtLong(VarkaVectorIR root) {
     if (root.laneType().isNarrow() && !longNarrowRole(root).atRoot()) {
@@ -743,7 +743,7 @@ public final class VarkaKernelPlan {
       if (!seen.add(node)) {
         continue;
       }
-      LongNarrowReader reader = longNarrowReader(node);
+      LongNarrowReader reader = node.props().longNarrow();
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
         if (child.laneType().isNarrow() && !reader.takes(longNarrowRole(child))) {
           return false;
@@ -830,41 +830,6 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _, VarkaVectorIR.NullValue _,
           ConvertLane _, ReinterpretLane _ ->
           LongNarrowRole.NONE;
-    };
-  }
-
-  /** {@code node}'s {@link LongNarrowReader}. */
-  // Package-private for VarkaNodePropsEquivalenceSuite.
-  static LongNarrowReader longNarrowReader(VarkaVectorIR node) {
-    return switch (node) {
-      case WidenLane w -> LongNarrowReader.VALUE;
-      case NarrowLane n -> LongNarrowReader.VALUE;
-      case VarkaVectorIR.Compare c -> LongNarrowReader.VALUE;
-      case VarkaVectorIR.NullSafeEqual e -> LongNarrowReader.VALUE;
-      case VarkaVectorIR.IsNotNull n -> LongNarrowReader.VALUE_OR_COND;
-      case VarkaVectorIR.And a -> LongNarrowReader.COND;
-      case VarkaVectorIR.Or o -> LongNarrowReader.COND;
-      case VarkaVectorIR.Not n -> LongNarrowReader.COND;
-      case VarkaVectorIR.CrossLane c -> LongNarrowReader.COND;
-      case VarkaVectorIR.BoolOutput b -> LongNarrowReader.COND;
-      // Every other node, each named so that a new one is a compile error until it is placed.
-      case VarkaVectorIR.InRanges _, VarkaVectorIR.BoolColumn _, VarkaVectorIR.CondConst _,
-          VarkaVectorIR.BoolCompare _, VarkaVectorIR.CondIf _, VarkaVectorIR.BoolNullSafeEq _,
-          VarkaVectorIR.Chrono _, VarkaVectorIR.ColumnRef _, VarkaVectorIR.DecimalColumn _,
-          VarkaVectorIR.DecimalWord _,
-          VarkaVectorIR.LiteralSlot _, VarkaVectorIR.GuardedDay _, VarkaVectorIR.GuardedRange _,
-          VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _,
-          IntArith _, VarkaVectorIR.IntNeg _, VarkaVectorIR.ConstDivide _,
-          VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
-          VarkaVectorIR.MathUnary _, VarkaVectorIR.Fma _, VarkaVectorIR.RoundToIntegral _,
-          VarkaVectorIR.IfElse _, VarkaVectorIR.CanonicalFloat _, VarkaVectorIR.CanonicalBits _,
-          VarkaVectorIR.HashStep _, VarkaVectorIR.CondValue _,
-          VarkaVectorIR.Greatest _,
-          VarkaVectorIR.Least _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,
-          VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _,
-          VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _,
-          VarkaVectorIR.NullValue _, ConvertLane _, ReinterpretLane _ ->
-          LongNarrowReader.NONE;
     };
   }
 

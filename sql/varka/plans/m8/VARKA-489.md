@@ -270,8 +270,31 @@ fusion dump are owed with 489b, where they first can move.
   records, from the branch's 488 for 47; written from master's arms they are 495, because a
   record states one constructor call of seven arguments and keeps its arm's comment, while the
   branch had a line per argument.
-- **Measured:** `build/sbt catalyst/Test/compile` passes. The suite's time (prediction 2) is not
-  measured yet.
+- **Measured:** `build/sbt catalyst/Test/compile` passes; the suite's time is in 489b below.
+
+**489b, 20 November 2026** (branch `varka-489b-switches`, stacked on 489a). Two commits, as 5
+asks. The first adds `VarkaNodePropsEquivalenceSuite` against every live switch, and widens
+`VarkaLoopEmitter.analyze`, `Analysis.isNarrowRing` and `VarkaKernelPlan.longNarrowReader` to
+package-private for it. Its corpus is every distinct node of 4000 shapes drawn from the eighteen
+grammars plus hand-built variants of every record over every lane, mode, operator, sign, level
+and guard bound the constructors admit; the word rules and the ring rule are compared inside a
+real analysis of each shape under both values of `checkIntOverflow`. One run
+(`build/sbt 'catalyst/testOnly *VarkaNodeProps*'`, on the laptop, in the window):
+
+- **97510 distinct nodes of all 56 record types** agree on `weightOf`, `kindOf`, `admits` for
+  every position, `restrictedOperands`, `inputOrdinal` and `longNarrowReader`; **7850 analyses**
+  (of 8000; 150 the analysis refuses, which the suite skips) agree on `isNarrowRing` for every
+  node and on the word owner and the pure word for **336564 entries**. Prediction 1 holds: no
+  disagreement on any of the 56 types, so no `props()` needed a fix.
+- **Times:** the equivalence suite 8.6 s and `VarkaNodePropsSuite` 0.27 s, as JUnit reports
+  them. Prediction 2 holds for both (under 60 s and under 5 s).
+
+The second commit makes `weightOf`, `kindOf`, `admits`, `restrictedOperands`, `inputOrdinal` and
+`isNarrowRing` read the descriptor, inlines `longNarrowReader` at its one call site as
+`node.props().longNarrow()`, returns `isNarrowRing` to private, and deletes those switches'
+checks and the hand-built corpus from the equivalence suite, which keeps only the word rules for
+489c. Compiled; the byte oracles, the fusion dump (prediction 3) and the scoped suites are owed
+to CI, since a pass now reads the descriptor.
 
 **Rebased onto master, 23 November 2026** (`f3b97c0b503`). Master had added five records since
 the build, `ReinterpretLane`, `Fma`, `CanonicalFloat`, `CanonicalBits` and `HashStep`, each given
