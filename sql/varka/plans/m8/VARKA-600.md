@@ -264,8 +264,13 @@ both forms to the row engine at level 2.
 `cast(l AS float), windowed` and `cast(l AS float), scalar lanes`. It also gains a fourth rung,
 sized for L2, whose magnitudes run from `2^52` to `2^62` of either sign, so every group is outside
 the window. The bounded magic `L2D` is left out of that rung, because it would decline every
-batch. The laptop run at `-XX:UseAVX=2` that step 3's done-when asks for has not been made
-(9.5).
+batch. Step 3's done-when run was made once on the laptop: `build/sbt "project catalyst"
+'set Test/javaOptions += "-XX:UseAVX=2"' "Test/runMain
+org.apache.spark.sql.VarkaWideConversionBenchmark"` (forked JVM, 20 November 2026). Every arm
+printed on all four rungs, nine on the first three and eight on the past-window rung, and every
+kernel's first answer matched Java's cast on every row, the large `FLOAT` arm included. So step 3
+is done. The run was a pass/fail check, not a measurement: no rate from it is quoted, and no
+results file is committed.
 
 ### 9.2 Registered op counts, by hand and held by the budget suite
 
@@ -338,7 +343,6 @@ Also owed as risks for 600b:
   claims), `dev/varka_prove.sh --solver both round_to_odd.smt2`, the suites listed in step 2's
   done-when, the width audit under `JDK_JAVA_OPTIONS=-XX:UseAVX=2` at both widths, the
   registry, option and matrix suites, and the option matrix's two new configurations.
-* Step 3's laptop run of the benchmark under `-XX:UseAVX=2`.
 * 600b in full: the runner runs at both widths, section 6.1 scored, the default per width.
 * Risk 5 (new): the emitted windowed kernel's allocation. The benchmark's harness does not
   print allocation, so 600b reads it beside the runner run, by the thread allocation counter
