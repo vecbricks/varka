@@ -541,3 +541,111 @@ fused-against-row-engine rate at 128 bits for them, so it claims none there. The
 the long-lane work are those of the widths that were measured, and no row yet owns a 128-bit
 speed figure for the shifts and `bit_count`.
 
+
+### 9.5 335b, the rest: `bit_get`, `getbit` and `bit_count(bool)` (20 November 2026)
+
+*Built by an agent in the owner's absence, laptop only, nothing pushed.* With rows 329 (the byte
+store) and 331 (the boolean leaf) merged, the three items section 9.4 left open are built, and with
+them every item of 335b. Section 2's facts held on master `767dcddce50`: `dev/varka_emit.sh`-level
+reading of the compiler showed no arm for `BitwiseGet` (it fell to the unsupported-expression
+fallback) and none for `BitwiseCount` over a `BOOLEAN`.
+
+**Predictions, registered late.** The exhaustive `bit_get` sweep ran before a prediction was
+written down, so none is scored for it; its time is recorded below as a measurement only. One
+prediction was written before its check: *the census moves by 9 fused pairs (four types each of
+`bit_get` and `getbit`, and `bit_count`'s `bool`) and 3 fully fused entries* - scored below.
+
+**What was built.** No IR node, no emitter change: both lower to nodes that exist.
+
+1. **`bit_get(x, pos)` and `getbit`** (one class, `BitwiseGet`; the alias is only its name) in
+   `VarkaNodeCompiler.bitGet`: `NarrowLane(BitOp(AND, BitOp(SHR, x', k), 1), BYTE)`, Spark's
+   `(byte) (((long) x >> pos) & 1)`. `x'` is the target at the int lane for `TINYINT`,
+   `SMALLINT` (a `WidenLane` by the sign, whose low `w` bits are the value's own) and `INT`, and
+   at the long lane for `BIGINT`. Spark raises `BIT_POSITION_RANGE` in every evaluation mode for
+   a position outside `[0, w)`: a literal position there declines at compile time ("bit_get
+   position 40 outside [0, 32), which Spark raises on"), a literal inside is a literal count (a
+   long literal at the long lane), and any other position is a `GuardedRange(pos, 0, w - 1)` in
+   its `FAIL` mode, widened at the long lane, so a batch holding a live out-of-range position
+   declines and the row engine raises on the row. Under the guard the vector shift's own count
+   mask is never reached.
+2. **`bit_count(b)` of a `BOOLEAN`** in `VarkaNodeCompiler.boolCount`: Spark's `b ? 1 : 0`, null
+   where `b` is, which is `CondValue` of the condition at the int lane - the node
+   `CAST(b AS INT)` already is. A condition of boolean leaves alone is read at the int lane
+   (`VarkaIntegralCastCompiler.onLane`), any other at its operands' lane, lifted first when
+   narrow and narrowed after when long (`bit_count(l < l2)` is `NarrowLane(CondValue(...))`). A
+   floating condition declines, as its cast does.
+
+**The guard reads the position's validity, not the row's** (`Analysis`'s `FAIL` range guard ANDs
+the child's word), so a batch whose out-of-range position sits on a row with a null target
+declines, where Spark answers that row null; the row engine then answers it. A test pins that
+decline. A position under a null of its own never trips the guard: the harness poisons a null
+lane with the lane's extremes, and the batches with nulls answer.
+
+**Tests.**
+
+* `VarkaExpressionCompilerSuite`, two tests: the IR of `bit_get` at each target type, by a literal
+  and by a column (the guard's bounds 7, 15, 31 and 63, the literal tables), the five literal
+  declines and their reason; `bit_count` of a boolean column, of an int and a long comparison
+  (the narrowing) and of a narrow one (an int value).
+* `VarkaEmitterBitGetSuite`, new, JUnit under `@VarkaSuite(ownJvm = true)`: each expression
+  through the compiler and the emitted class on both narrow arms, every answered row held to
+  Spark's own `eval` (`VarkaSparkOracle`) and to the reference. Every `TINYINT` and every
+  `SMALLINT` against every position in `[0, w)` (2,048 and 1,048,576 rows, dense, with nulls in
+  each column, and a tail), each literal position over every value; the `INT` and `BIGINT` edge
+  values against every position and five literal positions; each position past the width
+  (`w`, -1, 64, 65 and the int extremes, where outside `[0, w)`) on a valid row, which must
+  decline and on which Spark raises, and on a row with a null target, which must decline too;
+  the literal declines; `bit_count` of a boolean column at every length to 129 and of a byte, an
+  int and a long comparison. 4 of 4 in 16.7 s on the laptop at a load average near 30.
+* `VarkaEmitterBitwiseSuite`, two tests: `bit_get` as the compiler builds it over an int and a
+  guarded int position, against Spark's `BitwiseGet`, over the 2^24-int slice on every build and
+  over every int opt-in (`-Dvarka.sweep=true`, the existing `filter` row of
+  `sql/varka/ci/sweeps.tsv`). An int and a position are 37 bits, past the done-when's exhaustion
+  at 32, so every int meets one position, `(r + (r >>> 5)) & 31`, chosen so that it is not the
+  value's own low five bits and every residue of them meets every position (the shifts' rule of
+  section 9 item 7). The suite, sweeps on, 12 of 12, in 139.7 s in its own JVM at a load
+  average near 30 and in 187 s at one near 43 (74 s on 19 October with the five sweeps it had
+  then); the child JVM runs every test whatever sbt's name filter, so the `bit_get` sweep's own
+  share was not separated, and the load leaves the two runs' difference unread.
+* Coverage: seven rows - `bit_get(i, 3)`, `bit_get(i, i)` (domain `i BETWEEN 0 AND 31`),
+  `getbit(l, 63)`, `bit_get(l, i)` (`i BETWEEN 0 AND 63`), `bit_count(b)` in the bitwise
+  family, and `bit_get(y1, 7)` and `bit_get(s1, i)` (`i BETWEEN 0 AND 15`) in the narrow one.
+  `VarkaDomains`' edges fixture gains the `i` values -1, 15, 16, 31, 32, 63 and 64, the guards'
+  ends and one past each (0 was there).
+
+@RESULTS@
+
+**Not done here, and why.** No benchmark: section 6 claims no speed for the family, and a
+shift and a mask restate the int and long lanes' numbers. No fuzz-grammar draw: the narrow and
+boolean draws are row 352's and the `BitOp`-over-a-conversion draws row 432's (section 9.4).
+Runner measurements are owed: the width audit is the laptop's, re-run under
+`-XX:UseAVX=2` once, and nothing ran on CI (no push in this window); the option matrix's
+configurations (`validityByWidth=false`, `lanesOverride=4`) were not run, and the new suite
+cancels with the width-decline reasons the integral-cast suite uses, which may want
+`sql/varka/matrix/skips.tsv` lines once the matrix has run it.
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **A column position is guarded, not declined.** The plan named `bit_get` without saying what
+   a non-literal position does. Spark raises in every mode, which a kernel cannot, so the
+   choice was between declining every non-literal position and a range guard that declines only
+   the batch that raises. The guard is what the ANSI narrowing cast and the `TIME` arithmetic
+   already do for an error the row engine must raise (`GuardedRange`'s contract), so it was
+   taken. Its cost is the over-decline above, a batch with a null target beside a bad position;
+   a guard under the row's validity would need a node this row does not add.
+2. **The narrow targets compute at the int lane**, widened by their sign, rather than as a
+   narrow-lane shift: section 1's "the narrow shifts as int shifts over a cast", and a byte
+   lane's vector shift masks its count to three bits, which the guard makes moot but a reader
+   would have to check.
+3. **`bit_count(bool)` is built in `VarkaNodeCompiler`**, mirroring `VarkaIntegralCastCompiler`'s
+   `select` and calling its `onLane`, rather than by moving `select` into a shared helper: that
+   file is the integral-cast family's, row 332's, whose remaining work is on a local branch.
+4. **The compile-through tests are a new JUnit suite** (AGENTS.md: a new catalyst suite whose
+   helpers are Java is JUnit 5), and the every-int sweep stays in the Scala
+   `VarkaEmitterBitwiseSuite`, whose `filter` row the nightly's sweep step already selects, so no
+   new manifest row is needed.
+5. **The census marks `bit_get`, `getbit` and `bit_count` `done`**: every type each admits fuses.
+   The row's done-when ("each fuses on every integral type it takes, by exhaustion at 32 bits
+   and below") then holds for the census's entries; the int sweeps pair each value with one
+   count or position, as section 9 item 7 already departed for the shifts, which the row's
+   status names.
