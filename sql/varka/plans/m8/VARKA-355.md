@@ -99,8 +99,9 @@ script from a committed file so that it cannot drift.
    the sampled regions and the fuzzers' draws per floating pair, from the committed fuzz and
    sampled-arm records the rows leave.
 6. **What stays Spark's, and why.** What is declined, and on whose decision. fig74: unfused pairs
-   by reason class (a later row, a declined band, an owner's decision), from `census.tsv`'s
-   `reason` column.
+   by reason class (owed to a later row, a declined band, an owner's decision). The census's
+   `reason` column holds only the decimal-division decision, so the classes are the ones row 353
+   derives from `reason`, `need`, `rows` and `note` and renders into the support table.
 7. **How these were measured.** Provenance, links and 2.11's pointers; no figure.
 
 Words the post defines in one clause where they first appear, as `m7/VARKA-270.md` 3 did: kernel,
@@ -179,8 +180,9 @@ All required, per the decision of 28 September 2026:
 1. The body is 1,800 to 2,400 words before the owner's edit, five figures, each from a committed
    file. Milestone 7's post came in 180 to 260 words over its budget twice (`m7/VARKA-270.md`
    10.2, 10.3), so the range's top is the expected landing.
-2. `DECIMAL` has the lowest per-type share of fused pairs in Figure 1, for the crediting rule in
-   3.1's third candidate.
+2. At the freeze, Figure 1's pair share across all thirteen types is between 70 and 80 per cent
+   (61 per cent today, 533 of 878), and no type other than `DECIMAL` is below half. `DECIMAL`'s
+   being lowest is already known (2 of 66 today) and is not a prediction.
 3. The quote check finds no orphan in the post.
 
 Risks: the share moves after the freeze if a row lands late (step 1 is rerun and the figures with

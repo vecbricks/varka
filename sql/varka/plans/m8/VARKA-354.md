@@ -38,8 +38,10 @@ The standing decisions this plan follows, each the owner's:
 Read on master `342ed6851f8`, 20 November 2026. The close cannot run yet, and what it will find is
 already partly visible:
 
-1. **The rows.** Section 3 of `m8/PLAN.md` holds 240 rows: 103 **Done**, 62 **Started**, 69
-   **Planned** and six with no status word (353, 354, 355, 180, 552, 553). The close waits on every
+1. **The rows.** Section 3 of `m8/PLAN.md` holds 240 rows. By each row's first bold marker, the
+   rule `dev/varka_issues.py` reads, 103 are **Done**, 62 **Started** and 71 **Planned** (552 and
+   553 among them, their marker after a sentence); 180 is marked **From milestone 7**, and 353, 354
+   and 355 had no marker before this plan. The close waits on every
    row that 1.1 reads (section 8 below names them), and the owner decides what happens to the rest
    (question 1).
 2. **1.1 against today.** Item 2 asks for two thirds of the in-scope entries fused for every type
@@ -63,23 +65,32 @@ take parts of 1.1 item 8 off it.
 
 ## 3. The design: the close's steps
 
-Nothing in the engine moves. The order matters because the tag must sit on the commit where every
-row is closed and the changelog quotes the tag. Each step ends in the command that says it is done.
+Nothing in the engine moves. The order is milestone 7's: the rows are closed or moved before the
+tag, so the tagged plan has row 354 alone open; the tag marks the milestone's last code and its
+post; and the close's documents, which quote the tag, merge after it. Each step ends in the
+command that says it is done.
 
 1. **The rows.** Every row of section 3 reads **Done**, **Withdrawn** or **Moved** (to
    `m9/SCOPE.md` with its plan, as rows 180 and 386 moved at milestone 7's close), on the owner's
-   word for each move. Row 180, promotion, is a cadence and moves again. Row 354 reads **Started**
-   while the close runs. Done when `python3 dev/varka_issues.py --plan sql/varka/plans/m8/PLAN.md`
+   word for each move. Row 180, promotion, is a cadence and moves again. The mirror reads only a
+   row's first bold marker, so a move is written at the head of the cell, before **From milestone
+   7** in 180 and before the sentence that precedes **Planned** in 552 and 553. These status edits
+   are a small pull request of their own, merged before the tag. Row 354 reads **Started** while
+   the close runs. Done when `python3 dev/varka_issues.py --plan sql/varka/plans/m8/PLAN.md`
    (dry run) lists row 354 alone as open.
 2. **The record.** This file's section 9 scores 1.1 item by item with its evidence, and the
-   predictions the plan registered in its own text. The commands per item: (1) `--summary`'s
-   thirteen types and `sql/varka/fuzz/types.tsv` with no `Owed` cell (row 352); (2) the census
-   counts against 120 and 659, every unfused pair with its reason; (3) `casts.tsv` and
-   `casts_fused.tsv`, each of the 106 pairs fused or declined with its reason and proof column, and
-   row 368's record; (4) the edge rows' tests, by plan; (5) the 27 math entries exact, by
-   `VARKA-345.md` 2.3's three tests; (6) rows 104, 30, 95, 103, 39 and 89 and items 32, 34, 55,
-   93 and 94; (7) the post's address; (8) rows 353, 552, 553 and this close. Done when every item
-   reads met, or met with a named gap that points at a row of `m9/SCOPE.md`.
+   predictions the plan registered in its own text. The commands per item: (1) for each of the
+   thirteen types and both decimal representations: a coverage row for a load, a comparison, a
+   choice and an output (`coverage.json`), its Arrow vector in `isArrowBacked` and `allocateVector`,
+   `sql/varka/fuzz/types.tsv` with no `Owed` cell (row 352), the emitted-bytes oracle unchanged at
+   each lane's landing (the lane rows' records), and the three both-ways measurements with their
+   losing arms kept (329, 347, 359); (2) the census counts against 120 and 659, every unfused pair
+   with its reason; (3) `casts.tsv` and `casts_fused.tsv`, each of the 106 pairs fused or declined
+   with its reason and proof column, and row 368's record; (4) the edge rows' tests, by plan; (5)
+   the 27 math entries exact, by `VARKA-345.md` 2.3's three tests; (6) rows 104, 30, 95, 103, 39 and
+   89 and catalogue items 32, 33, 34, 55, 93 and 94; (7) the post's address; (8) rows 353, 552, 553
+   and this close. Done when every item reads met, or met with a named gap that points at a row of
+   `m9/SCOPE.md`.
 3. **The numbers.** 183 and 881 become 180 and 878 wherever they are the milestone's current
    count, with the dated originals kept where a sentence records the past; the census and the cast
    matrix are rewritten on the closing commit. Done when `python3 dev/varka_census.py --check` exits
@@ -156,10 +167,11 @@ None; the close quotes committed files.
 
 ### 6.1 Predictions, registered before the close
 
-1. Item 2 meets its pair target and misses its entry target. An entry counts only when every type
-   it admits fuses, the census credits `dec` only when every form fuses, and 66 in-scope entries
-   admit `dec`, so the entry count waits on the lane pair's rows (359, 360, 363) far more than the
-   pair count does.
+1. At the close the census reads between 90 and 115 entries fused for every type, short of item
+   2's 120, and at least 659 pairs. Today it is 65 and 533. The pairs gain with every type row;
+   an entry gains only when its last type fuses, and the 66 in-scope entries that admit `dec`
+   wait on the lane pair's rows (359, 360, 363), since the census credits `dec` only when every
+   form fuses. The range is the uncertain part: how many of those 66 the decimal rows finish.
 2. The document check finds fewer than twenty stale places outside `m8/PLAN.md`'s counts, as
    milestone 7's audit listed fourteen.
 3. The close branch's Build is green with no generated file to commit, as milestone 7's oracles
@@ -189,10 +201,11 @@ harness, CI and test-speed rows of the 400s to 600s that no 1.1 item names are q
 
 Pull requests, each under 1000 counted lines:
 
-1. The debt sweep's fixes, if any, before the tag.
-2. The close: steps 1 to 8, 11 and 12, documents and plans only; estimated 600 to 900 counted
+1. The rows' statuses and moves (step 1), before the tag.
+2. The debt sweep's fixes, if any, before the tag.
+3. The close: steps 2 to 8, 11 and 12, documents and plans only; estimated 600 to 900 counted
    lines, milestone 7's #919 being the model. It merges after the tag.
-3. The review at the close, its findings filed where they go.
+4. The review at the close, its findings filed where they go.
 
 ## 9. Outcome
 

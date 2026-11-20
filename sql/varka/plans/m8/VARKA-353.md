@@ -58,29 +58,46 @@ in a new docs section "What fuses, by type" placed before "Expression coverage".
 three tables, all read from the files the script already reads:
 
 * **By type.** One row per census type in registry order: entries admitted, entries fused for that
-  type, fused in part, pairs left with the reason class (a named `m9/SCOPE.md` row, a declined
-  band, an owner's decision), and the coverage rows reading a column of the type. `dec` splits into
-  two rows, *up to precision 18* and *19 to 38*, by the precision of the columns each coverage row
-  reads.
+  type, fused in part, pairs left with their reason class, and the coverage rows reading a column
+  of the type. The census has one `dec` type, so the entry and pair columns stay one `dec` row; only
+  the coverage-rows column splits, into *up to precision 18* and *19 to 38*, by the declared
+  precision in `coverage.json`'s `columns` of the decimal columns a row reads. A row reading both
+  bands (`d18b < d38`, `IF(d18 > 0.00, d38, d38b) IS NULL` today) counts under 19 to 38, the band
+  whose lane it needs, and a note under the table says so. A per-band census would need a band
+  field in `census_curated.txt`; that is not this row's.
+* **The reason classes.** The census's `reason` column is filled only for the owner's decision on
+  decimal division (`/`, `div`, `try_divide`); for every other entry the reason an unfused pair is
+  left is its `need` (`plumbing`, `semantics`, `ulp`) with the open rows in its `rows` column and
+  the band in its `note`. So the class is derived: *owner's decision* from `reason`, *declined band*
+  where `note` names one (row 346's bands), and otherwise *owed to row N* from `rows`, with `need`
+  beside it.
 * **By family.** One row per census section (conditional, predicate, arithmetic, math, datetime and
   the rest): entries in scope, fused for every type, fused for some, and the types still owed.
 * **Casts by mode.** The 13 by 13 matrix once per mode, LEGACY, ANSI and TRY, each cell from that
   mode's own legality in `casts.tsv` (an illegal pair is blank, not "declined") and its fused
-  state in `casts_fused.tsv`. This is the cautionary case the row names from the Comet reading: a
-  table that showed LEGACY's legality under ANSI would claim pairs ANSI rejects.
+  state from `casts_fused.tsv`. That file has one line per concrete form (unit pairs of an
+  interval, decimal precisions and scales), and forms of one pair can disagree (`dt` to `dt` fuses
+  `DAY` to `DAY TO SECOND` and declines `DAY` to `HOUR`), so a cell reads *fused*, *in part, k of
+  n forms* or *declined*, and its footnote lists the declined forms, the decimal ones by band.
+  This is the cautionary case the row names from the Comet reading: a table that showed LEGACY's
+  legality under ANSI would claim pairs ANSI rejects.
 
 Notes are generated too: each cell's footnote is the census note or the cast's kind, and an
-entry's reason comes from the census's `reason` column, so nothing in the block is typed by hand.
+entry's reason class is derived as above, so nothing in the block is typed by hand.
 
 ### 3.2 The check
 
-`dev/varka_census.py --check` already runs in the pre-commit hook and in the `varka-docs` job of
-`build_and_test.yml`, and fails when `census.tsv` or `casts.tsv` is stale. It now also fails when
-the docs block differs from what it renders. The chain from a lowering to the table is then
-closed: a new lowering changes `coverage.json` (which `VarkaCoverageSuite` fails until it is
-regenerated), the census check then fails until the census and the block are rewritten. The merge
-driver learns the block's name, as it knows the other docs blocks (`varka_generated_merge.py`), and
-`varka_regen_generated.sh` already reruns the census after a merge.
+`dev/varka_census.py --check` already runs in the `varka-docs` job of `build_and_test.yml`, and in
+the pre-commit hook when a staged file matches its `census_inputs` pattern, which does not include
+`docs/sql-varka.md`; the pattern gains it, so a hand edit of the block fails at commit. The check
+fails when `census.tsv` or `casts.tsv` is stale, and now also when the docs block differs from
+what it renders. The chain from a lowering to the table is then closed: a new lowering changes
+`coverage.json` (which `VarkaCoverageSuite` fails until it is regenerated), and the census check
+then fails until the census and the block are rewritten. The merge driver learns the block's
+name, as it knows the other docs blocks (`varka_generated_merge.py`). `varka_regen_generated.sh`
+reruns the census after a merge, but it treats any owed
+`docs/sql-varka.md` as owing a `VarkaCoverageSuite` run; it learns to skip that JVM run when the
+support block alone is owed.
 
 ### 3.3 The alternative, and why not
 
@@ -115,14 +132,19 @@ census's crediting rule (whole or `^`) is the census's, not this row's.
 |---|---|
 | `dev/varka_census.py` | the three tables, the block and `--check` over it, with doctests |
 | `dev/varka_generated_merge.py` | the block in `BLOCKS`: merges own it, the size check skips it |
+| `dev/varka_precommit.sh` | `docs/sql-varka.md` in `census_inputs` |
+| `dev/varka_regen_generated.sh` | no coverage run when only the support block is owed |
 | `docs/sql-varka.md` | the new section and block; the Overview, Limitations, Configuration prose |
 
 ## 5. Tests, and what each is for
 
 * Doctests in `varka_census.py` (`--self-test`): a two-type census renders the by-type table; a
   `^` entry lands in the in-part column; a `d38` coverage row counts under 19 to 38 and not under
-  18; a pair legal under LEGACY only is blank in the ANSI and TRY tables; a stale block fails
-  `--check` with the command that rewrites it.
+  18, and a row reading `d18b` and `d38` once, under 19 to 38; a pair legal under LEGACY only is
+  blank in the ANSI and TRY tables; a pair with one fused and one declined form reads *in part, 1
+  of 2*; an entry with an empty `reason` and `rows` 359 is classed *owed to row 359*; a stale block
+  fails `--check` with the command that rewrites it.
+* `dev/varka_regen_generated.sh` with only the support block owed runs the census and no sbt.
 * `varka_generated_merge.py`'s own tests: two sides changing the block take one side and list it
   as owed.
 * `python3 dev/varka_census.py --check` on the branch: exit 0 after the rewrite, non-zero after a
@@ -137,8 +159,11 @@ None: a document and its generator.
 1. `--check` adds under a second to the `varka-docs` job. The census check takes under half a
    second today, and the calibration table's checks that start no JVM came in far under their
    estimates (VARKA-335 6.1 #4 under 0.01, VARKA-328 6.1 #2 about 0.03), so no ratio is applied.
-2. The by-type table's counted column equals `--summary`'s "pairs by type" line for every type on
-   the commit it is built on.
+2. The by-type table's pair columns equal `--summary`'s "pairs by type" line for every type on the
+   commit it is built on, `dec` as one row.
+3. Of the cast cells legal under ANSI, at least one in five reads *in part* rather than fused or
+   declined: 42 pairs fuse at least in part today and the interval and decimal pairs carry many
+   forms each. A guess; it decides whether the in-part state earns its own colour.
 
 ## 7. Risks
 
@@ -152,10 +177,11 @@ None: a document and its generator.
 
 ## 8. Sequencing
 
-One pull request, about 400 counted lines (the renderer and doctests about 250, the prose about
-100, the merge driver 20; the generated block is not counted). It depends on no open row and is
-best built early, so that each type row's pull request regenerates the table; its contents at the
-close are what row 354 reads, and row 355's shares are quoted from it.
+One pull request, about 450 counted lines (the renderer and doctests about 280, the prose about 100,
+the merge driver, the hook and the regeneration script about 50; the generated block is not
+counted). It depends on no open row and is best built early, so that each type row's pull request
+regenerates the table; its contents at the close are what row 354 reads, and row 355's shares are
+quoted from it.
 
 1. The renderer with doctests; done when `python3 dev/varka_census.py --self-test` passes.
 2. The block written and the check wired; done when `python3 dev/varka_census.py --check` exits 0
