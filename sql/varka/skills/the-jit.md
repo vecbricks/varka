@@ -1003,6 +1003,33 @@ the IR fuzz grammar through production's warm-up in one JVM and reads each one's
   (`dev/varka_kernel_history.sh --after 1 --forks 1 --jvm -Dvarka.history.from=<k>`): a release
   that disappears alone is the history's.
 
+## A back-edge `profile_predicate` cycle is C2's loop nest over `long` range checks
+
+From VARKA-383 9.5 (20 November 2026), read in HotSpot's source (`jdk-25-ga`, `opto/`) after the
+history releases and row 605's unsettled rows all trapped at the main loop's back-edge `goto`.
+
+- **Where the trap's bci points says who built the predicate.** Parse-time predicates sit at the
+  loop head's bci (`parse1.cpp`) and C2 stops building one there once that bytecode has trapped
+  (`too_many_traps` reads the per-bytecode history): a head trap happens once or twice and ends.
+  A trap at the back edge comes from `PhaseIdealLoop::create_loop_nest` (`loopnode.cpp`), which
+  adds the inner loop's predicates under the peeled iteration's safepoint and checks only the
+  method-wide count (`PerMethodTrapLimit`, 100); the source says so beside the
+  auto-vectorization check. So a failing profiled predicate there is rebuilt by every recompile
+  until a hundred traps, about one a second, past any warm-up deadline, and raising the limits
+  makes it endless.
+- **Every emitted main loop is a nest candidate.** C2 nests a counted `int` loop only to
+  eliminate `long` range checks in it, and each `MemorySegment` access of an Arrow buffer is one.
+  A loop whose step is not a constant is not counted and is never nested: `uncountedMainLoop`
+  steps by `lanes * VarkaLoopStride.one`. The cost is the range checks left in the loop and no
+  unrolling; price it before shipping it.
+- **See the nest in a fastdebug JVM's `-XX:+TraceLoopOpts`**: `Counted Loop`, then `Peel`, then a
+  counted loop one stride later inside a new `Loop ... profile_predicated predicated`. The
+  fastdebug JVM did not reproduce a release that the product JVM did, so use it for the shape,
+  not the rate. `TraceLoopPredicate`, which would name the failing check, is develop-only.
+- **A replay under load is not a test.** The same history that released two kernels once
+  released none in three later replays on a machine at load 30 to 50; read releases on an idle
+  machine or a runner, and read loaded replays for trap kinds only.
+
 ## Which tier served a call: the code list at the call's edges, JFR's events inside it
 
 From VARKA-274 (13 to 16 October 2026, `VARKA-274.md` 2 and 9), which runs drawn kernels over
