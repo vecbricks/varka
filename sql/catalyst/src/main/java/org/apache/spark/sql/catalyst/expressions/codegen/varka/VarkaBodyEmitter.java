@@ -893,6 +893,12 @@ final class VarkaBodyEmitter {
 
       cb.iload(s.iVar);
       cb.iload(s.lanes);
+      if (analysis.options.uncountedMainLoop()) {
+        // i += lanes * VarkaLoopStride.one: a step C2 cannot fold, so it does not count the
+        // loop and never nests it over the long range checks (VarkaLoopStride says why).
+        cb.getstatic(LOOP_STRIDE, "one", ConstantDescs.CD_int);
+        cb.imul();
+      }
       cb.iadd();
       cb.istore(s.iVar);
     }

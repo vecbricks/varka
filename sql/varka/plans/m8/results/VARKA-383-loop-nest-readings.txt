@@ -1,0 +1,113 @@
+VARKA-383 9.5 readings: the back-edge profile_predicate trap is the loop nest's, and the arm
+============================================================================================
+
+Machine: the laptop, AMD Ryzen AI 9 HX PRO 370 (AVX-512, 24 threads), openjdk 25.0.5.1 (product)
+and a JDK 25 fastdebug build of the local OpenJDK tree (jdk-25-ga sources). Shared with other
+agents' JVMs throughout: one-minute load 24 to 68 on 24 threads, recorded per run. Memory
+sanitizer off in every run. Times are UTC, 20 November 2026.
+
+Code: master 0b8be5a33e4. "605 classes" are the catalyst classes of branch
+varka-605-nullif-ntz-sanitizer at 80dae7d38bb (master plus test-only changes in another suite),
+copied; "383 classes" are this branch's working tree (uncountedMainLoop, default off) at the same
+base. Every run is one fork of the history probe, plain java on the catalyst test classpath, as
+dev/varka_kernel_history.sh runs a fork, pinned to three cores (taskset 12-14 or 15-17):
+
+  SPARK_TESTING=1 SPARK_SCALA_VERSION=2.13 SPARK_LOCAL_IP=127.0.0.1 taskset -c <cores> \
+    <java> $(cat jvm.opts) -Dvarka.warmup.deadlineSeconds=30 <ARGS> -cp <classes>:<classpath> \
+    org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelHistoryProbe \
+    <after> <seed> 12 24
+
+"arm" adds -Dvarka.matrix.config=uncountedMainLoop=true (the probe emits under
+VarkaMatrixRuns.BASE on this branch). Traps are read from -Xlog:deoptimization=debug; where a
+class dump exists (a ClassFileTransformer agent writing every VarkaFused class, read with
+javap -c -p), each profile_predicate trap on a loop method is classified by its instruction:
+"back-edge" a goto to a lower bci, "branch" an if (the loop head's if_icmpge in every case here).
+
+A. The product replay of 9.3 (fork 0, after 20, seed 20260903), 605 classes
+---------------------------------------------------------------------------
+ARGS: -XX:+UnlockDiagnosticVMOptions -Xlog:deoptimization=debug:file=deopt.log
+load 23.79 at 08:50:37, 42.35 at 08:52:23.
+
+  draw 15 long RELEASED millis=30112 first=1064224 last=1062784 tiers=loopMasked0:L4
+  draw 19 long RELEASED millis=30061 first=341824 last=193104 tiers=loopDense0:L4,loopMasked0:L4
+  the other 18 draws and the kernel under test COMPILED; answers ok
+
+  profile_predicate traps on VarkaFusedProjection_w0802ae9d91dcf79d.loopMasked0 at bci 582:
+  45 in 42 compile ids; on VarkaFusedProjection_w9b2f7a8bfaaa4059.loopMasked0 at bci 533: 32 in
+  29 compile ids. One trap per compile, then a recompile: the cycle of 9.2, the same two classes.
+
+B. The same replay on the fastdebug JVM, 605 classes
+----------------------------------------------------
+ARGS: -XX:+UnlockDiagnosticVMOptions -XX:+TraceLoopPredicate -XX:+TraceLoopOpts
+      -XX:+PrintCompilation -Xlog:deoptimization=debug:file=deopt.log
+Every draw COMPILED, draws 15 and 19 included; 64 profile_predicate traps in all, at most 4 on
+any VarkaFused loop bytecode. The fastdebug JVM does not reproduce the release (its compiles are
+several times slower, so the profiles it compiles against differ). Its trace of draw 15's
+loopMasked0 compile (compile id 10854, 598 bytes) shows the shape the product trap needs:
+
+  Counted          Loop: N2044/N1296  counted [0,int),+8 (-1 iters)
+  ...  Predicate invariant if negated: 4016 / 4022 / 4026  (21 iters)  rc  has_sfpt strip_mined
+  Unswitch   1 / Unswitch   2
+  Peel               Loop: N4566/N4436  has_sfpt rce
+  Counted            Loop: N5383/N4436  counted [8,int),+8 (-1 iters)
+    Loop: N5382/N5381  limit_check profile_predicated predicated        <- the nest's outer loop
+      Loop: N5383/N4436  limit_check profile_predicated predicated counted [8,int),+8
+
+  that is, PhaseIdealLoop::create_loop_nest: one iteration peeled, an outer loop built around the
+  counted loop, and Parse Predicates (Loop, Profiled_Loop, Auto_Vectorization_Check,
+  Loop_Limit_Check) added for the inner loop under the peeled iteration's safepoint.
+
+C. The kernel under test alone (after 0), fastdebug, 383 classes, arm and control at once
+-----------------------------------------------------------------------------------------
+ARGS: -XX:+UnlockDiagnosticVMOptions -XX:+TraceLoopOpts -XX:+PrintCompilation [arm]
+load 68.03 at 09:14:50 for both, 44.66 and 42.68 at 09:22:46 and 09:22:49. Both COMPILED.
+
+  control, VarkaFusedProjection_w6d0f40ff48055a08::loopMasked0 (889 bytes):
+    Counted          Loop: N2856/N1979  counted [0,int),+16 (-1 iters)
+    Predicate IC (twice)
+    Peel               Loop: N4334/N1979  has_sfpt
+    Counted            Loop: N4737/N1979  counted [16,int),+16 (-1 iters)
+      Loop: N4736/N4735  limit_check profile_predicated predicated      <- the nest
+        Loop: N4737/N1979  limit_check profile_predicated predicated counted [16,int),+16
+    Predicate RC       Loop: N4737/N1979 ... rce
+  arm, VarkaFusedProjection_wf7cb88244c0113ac::loopMasked0 (893 bytes, four bytes of step):
+    Loop: N2844/N1981  limit_check profile_predicated predicated sfpts={ 143 }
+    Predicate IC (twice)
+    no Counted line, no Peel, no nest; the loop keeps its head's predicates only.
+
+  The trace prints no method name per line; these lines are the ones between each method's
+  PrintCompilation line and the next compile's, read by hand for the masked loop of the kernel
+  under test in each JVM.
+
+D. Product replays under load, 383 classes, arm and control at once
+-------------------------------------------------------------------
+D1. fork 0, after 20, seed 20260903; arm on 12-14, control on 15-17; load 46.08 at 09:06:21,
+    41.80 at 09:07:33. Both: 21 of 21 COMPILED, answers ok. No release in either.
+D2. after 32, seeds 20260903 and 20260904, arm and control of each, four JVMs at once on cores
+    12 to 23, class dump agent on; load 41.36 at 09:08:56, 41.02 to 41.65 at the ends.
+    All four: 33 of 33 COMPILED, answers ok. profile_predicate traps on loop methods, by kind:
+
+      run                 traps  kind
+      arm  seed 20260903  32     branch (loop head if_icmpge), at most 4 per bytecode
+      ctl  seed 20260903  32     branch, at most 4 per bytecode
+      arm  seed 20260904  28     branch, at most 4 per bytecode
+      ctl  seed 20260904  24     branch, at most 4 per bytecode
+
+    No back-edge trap in any of the four.
+D3. control alone, fork 0, after 20, seed 20260903: 605 classes (load 29.62 at 09:11:41) and
+    383 classes (load 49.60 at 09:12:52), one after the other. Both 21 of 21 COMPILED; no trap
+    at bci 5xx in either. So run A's release did not repeat in three later replays of the same
+    history under the same load: under this load the replay is not a discriminating test.
+
+E. The kernel under test's rate in D, not a measurement
+-------------------------------------------------------
+Lowest three of the probe's twelve one-second rates (ns a row, int lane, 24 outputs, 512 bits):
+
+  D1 arm 3.06 3.20 3.23            D1 control 3.00 3.07 3.10
+  D2 arm 20260903 3.06 3.18 3.33   D2 control 20260903 2.61 2.71 2.78
+  D2 arm 20260904 4.34 4.46 4.84   D2 control 20260904 2.48 2.64 2.73
+
+The arm was slower in all three pairs (2 %, 17 % and 75 % at the minimum), at a load of 41 to
+46 on shared cores. That is a direction to price, not a number: the benchmark pairs
+(dev/varka_bench_pair.sh) on an idle machine or a runner are owed before the arm can become a
+default.

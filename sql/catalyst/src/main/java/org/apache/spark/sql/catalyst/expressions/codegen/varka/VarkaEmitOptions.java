@@ -556,6 +556,15 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        16 for any other); any other value is the cap on every lane, so one below 64 lowers the
  *        int lane's cap too. A measurement knob (VARKA-620): a benchmark sets it to price depths
  *        past a cap, and no session conf sets it.
+ * @param uncountedMainLoop whether the main lane-group loop steps by a value C2 cannot fold
+ *        ({@link VarkaLoopStride#one} times the lane count) rather than by the bytecode constant,
+ *        so that C2 does not compile it as a counted loop ({@code VARKA-383.md} 9.5). False,
+ *        the default, steps by the constant: C2 then counts the loop and, because its Arrow
+ *        accesses carry {@code long} range checks, nests it to eliminate them, adding the nest's
+ *        loop predicates under the back edge's state with no per-bytecode trap limit; a profiled
+ *        one of them that fails is recompiled and fails again until the method's trap limit, and
+ *        the warm-up releases the kernel still allocating. True keeps every range check in the
+ *        loop and every answer the same. No epilogue reads it.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -616,7 +625,8 @@ public record VarkaEmitOptions(
     NarrowGroupStore narrowGroupStore,
     FloatingFault floatingFault,
     IntervalFault intervalFault,
-    int maxChainDepth) {
+    int maxChainDepth,
+    boolean uncountedMainLoop) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -845,7 +855,7 @@ public record VarkaEmitOptions(
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
           false, false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
           false, NarrowGroupStore.MASKED, FloatingFault.NONE, IntervalFault.NONE,
-          VarkaEmitBudget.AUTO_CHAIN_DEPTH);
+          VarkaEmitBudget.AUTO_CHAIN_DEPTH, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -977,6 +987,7 @@ public record VarkaEmitOptions(
       b.floatingFault = floatingFault;
       b.intervalFault = intervalFault;
       b.maxChainDepth = maxChainDepth;
+      b.uncountedMainLoop = uncountedMainLoop;
     return b;
   }
 
@@ -1041,6 +1052,7 @@ public record VarkaEmitOptions(
     private FloatingFault floatingFault;
     private IntervalFault intervalFault;
     private int maxChainDepth;
+    private boolean uncountedMainLoop;
 
     private Builder() {
     }
@@ -1340,6 +1352,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder uncountedMainLoop(boolean uncounted) {
+      this.uncountedMainLoop = uncounted;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1356,7 +1373,7 @@ public record VarkaEmitOptions(
           misdescribeDataBytes, fromLongMasks, maskFromWord, decimalAbsLanewise, dropDecimalBound,
           decimalStore, wideConversionForm, roundToOddByShifts, mathUlpContract,
           narrowGroupStore,
-          floatingFault, intervalFault, maxChainDepth);
+          floatingFault, intervalFault, maxChainDepth, uncountedMainLoop);
     }
   }
 
@@ -1610,6 +1627,10 @@ public record VarkaEmitOptions(
    */
   public VarkaEmitOptions withIntervalFault(IntervalFault fault) {
     return toBuilder().intervalFault(fault).build();
+  }
+
+  public VarkaEmitOptions withUncountedMainLoop(boolean uncounted) {
+    return toBuilder().uncountedMainLoop(uncounted).build();
   }
 
   public boolean isDefault() {

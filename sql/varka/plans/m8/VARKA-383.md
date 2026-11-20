@@ -804,3 +804,124 @@ candidates of 9.3: a counted `for` over a constant lane count, or `loopBound` ta
 final); (2) the flag's cost on the pairs, read beside it only if a shape is not found; (3) R1 and R2
 on runners stay gated on the owner's go-ahead, and now also need only the unflagged long lane and
 the shape's effect. Arm A (conversions `L2D`, `D2L`) stays unbuilt. The row is not Done.
+
+### 9.5 The mechanism in HotSpot's source, and the arm built (20 November 2026)
+
+Built on master `0b8be5a33e4` while the owner was away, with the laptop shared by other agents'
+JVMs (one-minute load 24 to 68 on 24 threads), so nothing here is an idle-machine reading. Raw
+readings, commands and loads: `results/VARKA-383-loop-nest-readings.txt`. Row 605's readings
+(branch `varka-605-nullif-ntz-sanitizer`, `80dae7d38bb`, its `results/VARKA-605-readings.txt`)
+came first: the compiled-test suite's unsettled long-lane rows trap at the back-edge `goto` of
+`loopMasked0` in the same cycle, sanitized or not, a row alone traps once or twice at the loop
+head and settles, and `-XX:-UseProfiledLoopPredicate` settles all of them.
+
+**Where 9.3's two candidates stand: both are what the emitter already writes.** The bound is
+computed once into a local before the loop (`VarkaBodyEmitter.emitSpecies`, `istore
+s.loopBound`) and the step is the bytecode constant in a local (`lanes`); nothing in the loop
+stores either (checked: every `istore` of `s.loopBound` and `s.lanes` is before the loop or in an
+epilogue), and C2 has no notion of a Java `final`. So neither shape is a change, and 9.3 was
+wrong to propose them.
+
+**Why the trap lands on the back edge, read in HotSpot's source** (`jdk-25-ga`,
+`src/hotspot/share/opto`). C2 adds a loop's Parse Predicates at parse time under the loop head's
+state (`parse1.cpp`, `add_parse_predicates` at `block->start()`, or after a dominating `if`), and
+`GraphKit::add_parse_predicate` skips one whose reason has trapped at that bytecode
+(`too_many_traps(reason)` reads the per-bytecode trap history first). That is the head trap row
+605 sees once or twice: recorded at the head's bci, then no more. The one path that builds
+predicates under a back edge's state is `PhaseIdealLoop::create_loop_nest` (`loopnode.cpp`
+1080 to 1135): for an `int` counted loop it runs only when the body holds `long` range checks
+in terms of the induction variable ("The only purpose of creating a loop nest is to handle long
+range checks"), which every `MemorySegment` access of an Arrow buffer is; it peels one iteration,
+wraps the loop in an outer one, and adds the inner loop's Parse Predicates, `Profiled_Loop` among
+them, under the peeled iteration's safepoint, the back-edge `goto`. Its
+`PhaseIdealLoop::add_parse_predicate` checks only `C->too_many_traps(reason)`, the method-wide
+count against `PerMethodTrapLimit` (100), and the comment beside the auto-vectorization check in
+the same function says so ("PhaseIdealLoop::add_parse_predicate only checks trap limits per
+method"). So a profiled predicate of the nest that fails is rebuilt by every recompile until the
+method has trapped a hundred times for that reason: at one trap a compile, about one a second
+(row 605's R3: 52 in 60 s), that is longer than the warm-up's 30 s and 60 s deadlines, and
+raising the limits, as R3 of 9.2 did, makes it endless rather than shorter. This fits every
+reading so far: the back-edge bci, the cycle untouched by raised limits (9.2), one trap per
+compile id (45 traps in 42 compiles in the product replay A), the flag clearing it (9.3, 9.4,
+605's R4), and a row alone settling (no profile in the shared templates for a predicate to fail
+on). What the source does not say is which hoisted check fails: `TraceLoopPredicate` exists only
+in a debug JVM, and the fastdebug replay (B) compiled every draw clean, so the failing check is
+not read; the fix below does not need it, since it removes the nest rather than one predicate.
+
+**The nest, seen.** The fastdebug JVM's `-XX:+TraceLoopOpts` on the kernel under test (C, its
+masked loop): at the defaults `Counted Loop ... [0,int),+16`, a `Peel`, then a counted loop
+`[16,int)` inside a new outer loop with `limit_check profile_predicated predicated` - the nest;
+under the arm below, one non-counted loop with its head's predicates and no peel and no nest.
+Draw 15's own compile in the fastdebug run (B) shows the same nest.
+
+**The arm built: `uncountedMainLoop`** (an emit option, default off). The main lane-group loop
+steps by `lanes * VarkaLoopStride.one`, a public non-final static C2 does not fold (the pattern of
+`VarkaMaskGuard.ones`), instead of the constant; C2 counts a loop only when its step is a constant
+(`is_counted_loop`), so the loop is not counted, `create_loop_nest` never applies (it starts with
+`is_BaseCountedLoop`), and no predicate is built under the back edge. The epilogues, including
+the mixed and narrow-group epilogue loops of at most a few passes, are untouched. Every answer is
+the same, so it is a `REFERENCE` option the fuzzer and the matrix draw, and it is in
+`VarkaMatrixRuns.C2_OPTIONS`, so the `C2Code` tests run under it. What it costs: the `long` range
+checks stay in the loop, one compare and branch per access per iteration, and the loop is neither
+unrolled nor strip-mined. The probe emits under `VarkaMatrixRuns.BASE` now, so a history reading
+selects the arm with `--jvm -Dvarka.matrix.config=uncountedMainLoop=true`.
+
+**What could not be read in this window.** The product replay A released draws 15 and 19 again
+(the same two classes, 45 and 32 back-edge traps), but three later replays of the same history
+under the same load, two with this branch's classes, released nothing at all, and the four-JVM
+pairs D2 (arm and control at two seeds, 33 kernels each) released nothing and trapped at no back
+edge in either arm. Under this load the replay does not discriminate, so the arm's effect on the
+releases is not shown; the arm's effect on the loop's shape is (C). The kernel under test's rate
+read slower under the arm in all three pairs (E: 2, 17 and 75 % at the minimum, on loaded shared
+cores), a direction that makes the pairs a condition of any default flip.
+
+**Predictions, registered before the readings they name.**
+
+1. The 144-draw reading of 9.1 (`--after 64 --forks 6 --widths 64,32 --prewarm on`) with the arm,
+   on an idle laptop or a runner, releases under 3 of 144 long kernels past position 15 at each
+   width, as the flag did (9.4: 0 and 0), because both remove the nest's profiled predicate; the
+   int lane at 256 bits under 3 of 144 too (9.4's flag took its 43 to 0).
+2. The arm costs the pairs something: its median pair rate is between 0 and 10 % slower than the
+   defaults on cache-resident shapes and within the band on memory-bound ones, and at least one
+   pair family of many outputs (the cheap tails) is more than 5 % slower. If the median is over
+   10 %, the arm stays a reference, and the next shape is a counted loop whose Arrow offsets are
+   not an affine function of the induction variable (no nest, the loop still unrolled), measured
+   against it.
+3. `VarkaUncountedMainLoopSuite` passes: only the main loops read the stride and every answer is
+   the reference's. **Scored the same day: holds** (2 of 2 on the laptop, 12 s, after two fixes
+   of the suite's own shapes: a checked long multiply has no lowering, and a null-on-overflow
+   kernel has a masked loop only, so the suite asks for one loop method, not two).
+
+**What the row asks next.** (1) The 144-draw reading of prediction 1 on an idle machine, arm and
+defaults side by side (about 55 minutes for the defaults at both widths and 4 for the arm,
+judged by 9.1 and 9.4); (2) the pairs of prediction 2, on a runner or the idle laptop; (3) the
+runner tooling of 3.1 for R1 and R2, which now read the arm against the defaults rather than the
+prewarm; (4) the flip of the default by those readings, then `emitted_bytes.json` and the
+`option_arms` regenerated; (5) step 1 of section 0, the CI count (below). Arm A (conversions
+`L2D`, `D2L`) stays unbuilt: its premise was refuted in 9.2, and this mechanism is not the
+prewarm's. The row is not Done.
+
+### 9.6 Decisions taken while the owner was away (20 November 2026)
+
+* **The fix is an emit option, default off, and the emitted bytes at the defaults do not move.**
+  Section 3.3 keeps the shipped behaviour as the reference until a runner re-reading flips the
+  default, and 3.4 and 3.5 say no emitted byte changes; the arm keeps that at the defaults and
+  overrides 3.4's "the emitter" bullet for the option's own bytes. Reason: the arm's speed cost is
+  unread and its effect on releases is unread on an idle machine (above), so flipping it now would
+  be a default chosen without either reading.
+* **The option is `REFERENCE` and drawn, not `MACHINE`.** It changes no answer, so the fuzzer and
+  the matrix should exercise it; whether it wins is not known to depend on the host. If the pairs
+  show it does, the reason moves with the reading.
+* **The option is in `C2_OPTIONS`.** It changes what C2 compiles, not only the bytes, and the
+  `C2Code` tests are the ones that read tiers and traps; leaving it out would cancel exactly the
+  tests that can see its effect.
+* **The probe emits under `VarkaMatrixRuns.BASE` instead of `VarkaEmitOptions.DEFAULTS`.** With no
+  configuration they are the same value (`parse("")` returns the defaults), so the nightly's
+  `history` step and every earlier reading are unchanged; with one, a history reading can compare
+  an arm with no new launcher option.
+* **`VarkaLongLaneHistorySuite` of section 5 is not written yet.** Section 5 admits it only once a
+  runner has shown that the replay releases under the shipped code and the fix clears it; this
+  window showed the opposite risk, a replay that does not reproduce under load (D3), so a JIT test
+  on it would flake. It stays owed with that condition.
+* **The fastdebug build was used for a diagnosis only**, as `skills/the-jit.md` describes the
+  tree; no reading of a release rests on it, since it does not reproduce one.
