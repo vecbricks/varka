@@ -1047,12 +1047,14 @@ final class VarkaVectorTemplateWarmup {
     /**
      * The mask and species calls of one lane: every method the kernels call on a mask, of each
      * lane, and on a species, whose implementations are per mask class and shared by the species.
+     * The word's mask is made both ways, by {@code fromLong} and by the construction
+     * {@code maskFromWord} emits in its place (VARKA-375).
      */
     private static <E> long masks(VectorSpecies<E> s, VectorMask<E> m, VectorMask<E> tail,
         long bits) {
       return m.toLong() + (m.anyTrue() ? 1 : 0) + m.and(tail).or(tail.not()).xor(tail).trueCount()
-          + VectorMask.fromLong(s, bits).toLong() + s.indexInRange(0, s.length() / 2 + 1).toLong()
-          + s.loopBound(BYTES);
+          + VectorMask.fromLong(s, bits).toLong() + VarkaMaskFromWord.of(s, bits).toLong()
+          + s.indexInRange(0, s.length() / 2 + 1).toLong() + s.loopBound(BYTES);
     }
   }
 }

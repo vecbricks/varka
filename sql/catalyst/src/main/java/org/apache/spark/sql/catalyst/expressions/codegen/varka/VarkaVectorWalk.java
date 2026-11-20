@@ -485,7 +485,7 @@ final class VarkaVectorWalk {
         } else {
           cb.aload(s.species(lane));
           cb.lload(s.kt.get(n.cond()));
-          emitMaskOfWord(cb, analysis);
+          emitMaskOfWord(cb, lane, analysis);
         }
         cb.invokevirtual(lane.vector, "blend", lane.blend);
         // A narrow pick passes its arms' unreduced int values through - a blend commutes with
@@ -521,7 +521,7 @@ final class VarkaVectorWalk {
         } else {
           cb.aload(s.species(lane));
           cb.lload(s.kt.get(n.cond()));
-          emitMaskOfWord(cb, analysis);
+          emitMaskOfWord(cb, lane, analysis);
         }
         cb.invokevirtual(lane.vector, "add", lane.lanewiseVIMasked);
         if (!dense && s.ownWord.contains(node)) {
@@ -1609,7 +1609,7 @@ final class VarkaVectorWalk {
     if (!dense && word != null && word != WORD_ALL_TRUE) {
       cb.aload(s.species);
       loadWord(cb, s, word);
-      emitMaskOfWord(cb, analysis);
+      emitMaskOfWord(cb, analysis.lane, analysis);
       cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
     }
     emitArmContext(cb, node, dense, analysis, s);
@@ -1724,7 +1724,7 @@ final class VarkaVectorWalk {
         cb.loadConstant(-1L);
         cb.lxor();
       }
-      emitMaskOfWord(cb, analysis);
+      emitMaskOfWord(cb, analysis.lane, analysis);
     }
   }
 
@@ -1751,7 +1751,7 @@ final class VarkaVectorWalk {
     cb.aload(s.species);                                // [word, species]
     cb.dup_x2();                                        // [species, word, species]
     cb.pop();                                           // [species, word]
-    cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+    emitFromLong(cb, analysis.lane, analysis);
   }
 
   /**
@@ -1776,7 +1776,7 @@ final class VarkaVectorWalk {
     cb.aload(s.species(to));                            // [word, species]
     cb.dup_x2();                                        // [species, word, species]
     cb.pop();                                           // [species, word]
-    cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+    emitFromLong(cb, to, analysis);
   }
 
   /**
@@ -1790,16 +1790,40 @@ final class VarkaVectorWalk {
    * (VARKA-491). Every word-to-mask conversion of the masked body goes through here, whether or not
    * its word can carry a {@code toLong}, so each has the same bytes; words made with {@code toLong}
    * that never become a mask, such as a filter's, pay nothing. Under {@code fromLongMasks} the
-   * word goes to {@code fromLong} as it is.
+   * word goes to {@code fromLong} as it is, and under {@code maskFromWord}, which emits no
+   * {@code fromLong}, to {@link VarkaMaskFromWord} as it is.
    */
-  static void emitMaskOfWord(CodeBuilder cb, Analysis analysis) {
-    if (!analysis.options.fromLongMasks()) {
+  static void emitMaskOfWord(CodeBuilder cb, Lane lane, Analysis analysis) {
+    if (!analysis.options.fromLongMasks() && !analysis.options.maskFromWord()) {
       cb.getstatic(MASK_GUARD, "ones", ConstantDescs.CD_long);
       cb.getstatic(MASK_GUARD, "OPEN", ConstantDescs.CD_long);
       cb.lor();
       cb.land();
     }
-    cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+    emitFromLong(cb, lane, analysis);
+  }
+
+  /**
+   * {@code [species, word] -> [mask]} at {@code lane}'s species: {@code VectorMask.fromLong}, or
+   * under {@code maskFromWord} the {@link VarkaMaskFromWord} method of the lane, which takes the
+   * same arguments and answers the same mask without the mask-from-bits instruction an aarch64
+   * core has only with SVE2's bit permute (VARKA-375). Every word-to-mask conversion an emitted
+   * kernel makes comes here.
+   */
+  static void emitFromLong(CodeBuilder cb, Lane lane, Analysis analysis) {
+    if (!analysis.options.maskFromWord()) {
+      cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+      return;
+    }
+    String method = switch (lane) {
+      case BYTE -> "ofByte";
+      case SHORT -> "ofShort";
+      case INT -> "ofInt";
+      case LONG -> "ofLong";
+      case FLOAT -> "ofFloat";
+      case DOUBLE -> "ofDouble";
+    };
+    cb.invokestatic(MASK_FROM_WORD, method, FROM_LONG);
   }
 
   /**
@@ -1831,7 +1855,7 @@ final class VarkaVectorWalk {
     loadWord(cb, s, s.wordRef.get(left));
     cb.loadConstant(-1L);
     cb.lxor();
-    emitMaskOfWord(cb, analysis);
+    emitMaskOfWord(cb, lane, analysis);
     cb.invokevirtual(lane.vector, "blend", lane.blend);
     cb.aload(tmp[1]);
     cb.aload(tmp[0]);
@@ -1839,7 +1863,7 @@ final class VarkaVectorWalk {
     loadWord(cb, s, s.wordRef.get(right));
     cb.loadConstant(-1L);
     cb.lxor();
-    emitMaskOfWord(cb, analysis);
+    emitMaskOfWord(cb, lane, analysis);
     cb.invokevirtual(lane.vector, "blend", lane.blend);
     emitPickOp(cb, lane, op, tmp);
     if (s.ownWord.contains(node)) {
@@ -2284,7 +2308,7 @@ final class VarkaVectorWalk {
         if (dense) {
           cb.aload(s.species(analysis.laneOf(node)));
           loadDataBits(cb, n, analysis, s);
-          cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+          emitFromLong(cb, analysis.laneOf(node), analysis);
           cb.astore(s.condMask.get(node));
         } else {
           // kT = d & v; kF = ~d & v. The data bit under a null slot is arbitrary and v clears it.
@@ -2306,7 +2330,7 @@ final class VarkaVectorWalk {
         if (dense) {
           cb.aload(s.species(analysis.laneOf(node)));
           cb.loadConstant(isTrue ? -1L : 0L);
-          cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+          emitFromLong(cb, analysis.laneOf(node), analysis);
           cb.astore(s.condMask.get(node));
         } else {
           cb.loadConstant(isTrue ? -1L : 0L);
@@ -2473,7 +2497,7 @@ final class VarkaVectorWalk {
           // condition alike.
           cb.aload(s.species(analysis.laneOf(node)));
           cb.loadConstant(-1L);
-          cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+          emitFromLong(cb, analysis.laneOf(node), analysis);
           cb.astore(s.condMask.get(node));
         } else {
           // kT = word(child); kF = ~word(child) - total: both masks cover every lane. The

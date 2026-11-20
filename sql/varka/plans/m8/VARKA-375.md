@@ -296,7 +296,93 @@ switch selection at run time, `m7` row 374's two-lane x86 fallback, and 331's bo
 
 ## 9. Outcome
 
-*To be written when the work lands.*
+*20 November 2026, built in the owner's absence on branch `varka-375-mask-from-long-arm` off
+`342ed6851f8`; local only, nothing pushed or dispatched.*
+
+### 9.0 Decisions taken while the owner was away (20 November 2026)
+
+1. **The build half is built before the admission run, behind its option, default off.** Section 0
+   item 2 says not to build it until the `UseSVE=1` run admits it; the brief for this window asked
+   for the alternative so that x86 tests can force it, and the run cannot be made in the window
+   (no dispatches). Building it changes nothing at the defaults (section 3.2 holds: the bytes
+   oracle is unchanged, 9.2), so the order costs nothing if the run closes the row on the record:
+   the option then stays an arm, as `fromLongMasks` does. The run still decides whether any host
+   gets it; this section does not admit it.
+2. **The `UseSVE=1` run goes through the canary, as one more fixed `probe` line on aarch64**, the
+   smaller of section 0 item 1's two forms, not an input for JVM flags and not a census cell. The
+   allocation half the owner's decision asks for is read by the probe itself (`maskcost` lines:
+   bytes and nanoseconds a word, for `fromLong` and for the construction, each feeding a blend),
+   so no census regeneration is needed. The reading is the probe loop's, not a Varka kernel's
+   (`year(d)` through `VarkaAssemblyProbe`, which a single-file canary cannot run); if the probe
+   shows the fallback allocating, the kernel reading is the next step, under the option matrix's
+   `maskFromWord=true` configuration on the Arm runner.
+3. **The construction ANDs with a constant of each lane's bit instead of shifting by the lane
+   index** (section 3.1 had broadcast, shift by index, AND one, compare): one operator fewer, and
+   no variable shift, whose int and long census cells do not exist (section 0 item 3). It is the
+   form `VARKA-491.md` 6 measured as its first candidate, there as a default.
+4. **No split per long half for ints.** An int lane holds 32 bits and an int species has at most
+   16 lanes at 512 bits, so the low half of the word broadcast as ints holds every lane's bit.
+   Bytes and shorts are where a lane cannot hold the lane count's bits: there the word is
+   broadcast as longs, viewed at the lane's width, and each lane picks the element holding its
+   bit with `selectFrom` by a constant index vector (a broadcast where the lane count fits one
+   element: shorts up to 16 lanes, bytes up to 8). Floating lanes cast the mask of the integral
+   species of their width.
+5. **One call per site, to a hand-written helper**, `VarkaMaskFromWord.of<Lane>`, with
+   `fromLong`'s descriptor, not the operators inlined into the kernel: `VARKA-491.md` 6 found that
+   about seven calls a site moved the emit cost model's call-site fit and split kernels; one
+   `invokestatic` keeps each site's call count and the kernel's method structure.
+6. **Under the option the masked body's words skip the `VarkaMaskGuard` AND**: the guard exists
+   only to keep `VectorLongToMask` from folding a `toLong` (VARKA-396), and the construction emits
+   none.
+7. **Every word-to-mask site goes through the option, the constant ones included** (the guard
+   accumulators' empty mask, a constant condition, the dense body's all-true predicate), so a
+   kernel under it calls no `fromLong` at all, which a test asserts; section 2 item 2's sites
+   are now one emitter method, `VarkaVectorWalk.emitFromLong`.
+8. **The x86 long-at-128-bits cell is settled by the probe, not by a census cell.** Section 0
+   predicted the construction would not rescue it; the laptop's probe at `MaxVectorSize=16`
+   shows both forms allocating there (9.1), so no census cell is added.
+9. **The template warm-up makes each lane's mask both ways** (`VarkaVectorTemplateWarmup.masks`),
+   by section 0's warm-up rule, though `VarkaWarmupReachSuite` would not catch the omission: it
+   reads the Vector API calls a kernel's bytes make, and the kernel calls the helper.
+
+### 9.1 What was built and measured
+
+* `VarkaMaskFromWord` (catalyst main): `ofByte`, `ofShort`, `ofInt`, `ofLong`, `ofFloat`,
+  `ofDouble`, and `of` by element type for the warm-up and the tests.
+* `VarkaEmitOptions.maskFromWord` with its `VarkaEmitOption.TABLE` entry (reason `MACHINE`,
+  default false), so the fuzzer draws it and the option matrix runs `maskFromWord=true`.
+* `VarkaVectorWalk.emitFromLong`, the one place a word becomes a mask; `emitMaskOfWord` takes the
+  lane whose species is on the stack.
+* `varka-canary.yml`: the `fromlong` pass shows the `maskcost` lines, and on aarch64 a second pass
+  runs under `-XX:UseSVE=1`. `MathLaneProbe`'s `fromlong` mode prints the two `maskcost` lines.
+* **Laptop reading** (`results/VARKA-375-maskcost-laptop.txt`, a loaded machine, so the bytes
+  only): at 512 bits neither form allocates (0.00 bytes a word each); at 128 bits, where the
+  double species has two lanes, `fromLong` allocates 162.18 bytes a word and the construction
+  296.01. Prediction (b) of section 0 is about the N2 and stays unscored; the inference of
+  section 0's second bullet, that the construction ends in the same refusal at two long lanes on
+  x86, is **confirmed**, and worse than the inference: the construction allocates more, since its
+  compare and its cast both make two-lane masks.
+
+### 9.2 Tests
+
+`VarkaMaskFromWordSuite` (own JVM): the construction equals `fromLong` for all six lane types at
+64, 128, 256 and 512 bits over 4,196 words; under `maskFromWord` no coverage row's kernel calls
+`fromLong` and most call the construction; at the defaults none calls it. The answers under the
+option are the coverage differential's and the fuzzer's, run under
+`-Dvarka.matrix.config=maskFromWord=true` and at `lanesOverride=4` as well (section 9.3).
+
+### 9.3 What is owed
+
+* **The canary run on the Arm runner** (`varka-canary.yml`, `canary=MathLaneProbe`): its
+  `fromlong-usesve1` pass scores predictions 1 and 2 of 6.1 and (a) and (b) of section 0, and its
+  record is committed as `dev/varka_canary/mathlane-aarch64-neoverse-n2-usesve1.txt` with the skill
+  entry extended. If the fallback allocates and the construction does not, the next step is the
+  option matrix's `maskFromWord=true` configuration on the Arm runner and a validity kernel's
+  allocation there; if the fallback does not allocate, the row closes on the record with the
+  option kept as an arm.
+* **The option matrix's `maskFromWord=true` configuration on CI**, which runs every suite under it.
+* Prediction 3 of 6.1 (ties on x86) is not scored: the laptop was loaded, and 491's runner pairs
+  are the measurement that would score it.
 
 ### 9.1 The owner's decision on the simulation, 16 October 2026
 
