@@ -923,6 +923,16 @@ an option no node reads can go: the tag in `canonical()` (`VarkaEmitOptionSuite`
 `emitted_bytes.json`'s `option_arms`, with the defaults' digest, and the session binding
 (`VarkaEvaluatorComponentsSuite`). No existing shape's bytes move (prediction 1, scored: held).
 
+**345a2, as built.** `VarkaMathBinding` (2.5's resolver over an explicit host: architecture,
+library property, AVX level, widest species) and `VarkaMathBindingSuite` with its child JVM
+`VarkaMathBindingProbe` (3.6), the suite run on the Arm runner by `varka-width-audit.yml`;
+`dev/varka_emit.sh --jvm-arg`; `VarkaMathContract` (the record table, empty, and
+`MeasuredLine`, the TSV format of 2.5 with its header) and `VarkaMathContractSuite` (3.4, on the
+committed files, none yet, and on a planted table); and the coverage table's form column
+(`VarkaCoverageSuite`'s `MathCell`, rendered only in a family holding a math row and checked by
+`mathFindings`; written when no row held one, and corrected on 21 November 2026: the trigonometric
+rows #1567 landed hold one, each naming its exact form, so both generated files carry the column).
+
 **Questions met, and the reading taken** (the most conservative, as the brief asked):
 
 1. *The configuration's default.* 2.6 writes `.createWithDefault(false)`; `VarkaSessionEmit`'s
