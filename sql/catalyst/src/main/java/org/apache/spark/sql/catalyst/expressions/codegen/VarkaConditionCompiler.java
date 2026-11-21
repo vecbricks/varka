@@ -23,7 +23,6 @@ import java.util.EnumSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -401,7 +400,7 @@ final class VarkaConditionCompiler {
    * identity: a condition reached by several paths is lifted once and the copies share it, where
    * a lift without it rebuilt a shared condition once per path (VARKA-630).
    */
-  private static Cond onIntLane(Cond cond, Map<Cond, Cond> memo) {
+  private static Cond onIntLane(Cond cond, IdentityHashMap<Cond, Cond> memo) {
     if (!cond.laneType().isNarrow()) {
       return cond;
     }
@@ -443,7 +442,7 @@ final class VarkaConditionCompiler {
   /** {@code conds} on the int lane, each through {@link #onIntLane}. */
   static List<Cond> onIntLaneAll(List<Cond> conds) {
     // One memo for the list: a condition two conjuncts share is lifted once, into one object.
-    Map<Cond, Cond> memo = new IdentityHashMap<>();
+    IdentityHashMap<Cond, Cond> memo = new IdentityHashMap<>();
     return conds.stream().map(c -> onIntLane(c, memo)).toList();
   }
 
@@ -651,8 +650,9 @@ final class VarkaConditionCompiler {
     return onLongLane(cond, new IdentityHashMap<>());
   }
 
-  /** {@link #onLongLane(Cond)} with the memo of {@link #onIntLane(Cond, Map)}. */
-  private static Optional<Cond> onLongLane(Cond cond, Map<Cond, Optional<Cond>> memo) {
+  /** {@link #onLongLane(Cond)} with the memo of {@link #onIntLane(Cond, IdentityHashMap)}. */
+  private static Optional<Cond> onLongLane(Cond cond,
+      IdentityHashMap<Cond, Optional<Cond>> memo) {
     if (cond.laneType() == VarkaVectorIR.LaneType.LONG) {
       return Optional.of(cond);
     }

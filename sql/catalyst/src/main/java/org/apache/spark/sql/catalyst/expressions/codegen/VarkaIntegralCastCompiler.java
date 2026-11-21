@@ -18,7 +18,6 @@
 package org.apache.spark.sql.catalyst.expressions.codegen;
 
 import java.util.IdentityHashMap;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -271,7 +270,7 @@ final class VarkaIntegralCastCompiler {
    * several paths is lifted once instead of once per path (VARKA-630).
    */
   private static Optional<Cond> onLane(Cond cond, LaneType lane,
-      Map<Cond, Optional<Cond>> memo) {
+      IdentityHashMap<Cond, Optional<Cond>> memo) {
     Optional<Cond> known = memo.get(cond);
     if (known != null) {
       return known;
