@@ -646,7 +646,8 @@ public final class VarkaKernelPlan {
    * AVX512DQ; at the unknown level ({@link VarkaEmitOptions#levelUnknown()}), the defaults' and an
    * unset session's, which may be such a host, {@code convertShape} would run as the Vector API's
    * Java loop and the entry declines. A floating source converted to an
-   * integral lane waits for part 343b2, at every level. A boolean whose condition compares longs
+   * integral lane waits for part 343b2, at every level, but {@code D2I}, which an fdlibm port
+   * takes for its int {@code k}. A boolean whose condition compares longs
    * is not a conversion from a long: the compiler narrows its one or zero to the int lane first.
    *
    * <p>The test reads the options' {@code UseAVX} level and not the CPU: the level is part of

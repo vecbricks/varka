@@ -279,19 +279,20 @@ public final class VarkaMathPort {
   // exp, from e_exp.c
   // -------------------------------------------------------------------------------------------
 
-  // The constants of e_exp.c as its source writes them; VarkaMathPortSuite checks their bits.
+  // The constants of e_exp.c, each in its shortest decimal form (errorprone wants no digit the
+  // double does not hold) with the C's two words beside it; VarkaMathPortSuite checks the bits.
   static final double ONE = 1.0;
-  static final double TWOM1000 = 9.33263618503218878990e-302; // 2**-1000=0x01700000,0
-  static final double O_THRESHOLD = 7.09782712893383973096e+02; // 0x40862E42, 0xFEFA39EF
-  static final double U_THRESHOLD = -7.45133219101941108420e+02; // 0xc0874910, 0xD52D3051
-  static final double LN2HI_0 = 6.93147180369123816490e-01; // 0x3fe62e42, 0xfee00000
-  static final double LN2LO_0 = 1.90821492927058770002e-10; // 0x3dea39ef, 0x35793c76
-  static final double INVLN2 = 1.44269504088896338700e+00; // 0x3ff71547, 0x652b82fe
-  static final double P1 = 1.66666666666666019037e-01; // 0x3FC55555, 0x5555553E
-  static final double P2 = -2.77777777770155933842e-03; // 0xBF66C16C, 0x16BEBD93
-  static final double P3 = 6.61375632143793436117e-05; // 0x3F11566A, 0xAF25DE2C
-  static final double P4 = -1.65339022054652515390e-06; // 0xBEBBBD41, 0xC5D26BF1
-  static final double P5 = 4.13813679705723846039e-08; // 0x3E663769, 0x72BEA4D0
+  static final double TWOM1000 = 9.332636185032189e-302; // 2**-1000=0x01700000,0
+  static final double O_THRESHOLD = 709.782712893384; // 0x40862E42, 0xFEFA39EF
+  static final double U_THRESHOLD = -745.1332191019411; // 0xc0874910, 0xD52D3051
+  static final double LN2HI_0 = 0.6931471803691238; // 0x3fe62e42, 0xfee00000
+  static final double LN2LO_0 = 1.9082149292705877e-10; // 0x3dea39ef, 0x35793c76
+  static final double INVLN2 = 1.4426950408889634; // 0x3ff71547, 0x652b82fe
+  static final double P1 = 0.16666666666666602; // 0x3FC55555, 0x5555553E
+  static final double P2 = -0.0027777777777015593; // 0xBF66C16C, 0x16BEBD93
+  static final double P3 = 6.613756321437934e-05; // 0x3F11566A, 0xAF25DE2C
+  static final double P4 = -1.6533902205465252e-06; // 0xBEBBBD41, 0xC5D26BF1
+  static final double P5 = 4.1381367970572385e-08; // 0x3E663769, 0x72BEA4D0
 
   /** {@code |x| >= 709.78...}: the filter on non-finite, overflowing and underflowing lanes. */
   static final int HX_FILTER = 0x40862E42;

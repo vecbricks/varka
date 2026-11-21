@@ -1037,7 +1037,8 @@ public sealed interface VarkaVectorIR
    * half of the 32-bit target, as {@code L2I} does. {@code L2F} and {@code L2D}, which a host
    * without AVX512DQ runs as the Vector API's Java loop, take their AVX2 forms below emit level 3
    * ({@code VarkaConversionLowering}), and the kernel plan refuses them at the unknown level and
-   * the conversions from a floating lane to an integral one until row 343's later parts.
+   * the conversions from a floating lane to an integral one but {@code D2I} until row 343's
+   * later parts.
    */
   record ConvertLane(VarkaVectorIR child, LaneType target, int hash) implements VarkaVectorIR {
     public ConvertLane {

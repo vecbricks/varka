@@ -251,8 +251,8 @@ final class VarkaEmitBudget {
    * method size and register pressure by policy, well past any depth a real projection
    * produces, rather than marking a measured performance edge. Condition nodes count. It is what
    * {@link VarkaEmitOptions#maxChainDepth}'s auto value resolves to on every lane but the int one
-   * ({@link #chainDepthCap}); a benchmark raises the option to price the depths past it
-   * (VARKA-620).
+   * and a port's ({@link #chainDepthCap}); a benchmark raises the option to price the depths
+   * past it (VARKA-620).
    */
   public static final int MAX_CHAIN_DEPTH = 16;
 

@@ -80,6 +80,16 @@ public final class VarkaMathPortSuite {
     return new Built(root, table.values());
   }
 
+  /**
+   * The matrix's configuration under test with the two budgets a port's size needs put back: an
+   * option arm of {@code maxChainDepth} 16 or 32, or of a small or zero {@code methodByteBudget},
+   * declines {@code exp} by design (36 levels, 68 ops), which its own tests below state.
+   */
+  private static VarkaEmitOptions portBase() {
+    return VarkaMatrixRuns.BASE.withMaxChainDepth(VarkaEmitBudget.AUTO_CHAIN_DEPTH)
+        .withMethodByteBudget(VarkaEmitOptions.DEFAULTS.methodByteBudget());
+  }
+
   private static String hex(double v) {
     return String.format(Locale.ROOT, "%s (0x%016x)", v, Double.doubleToRawLongBits(v));
   }
@@ -94,8 +104,7 @@ public final class VarkaMathPortSuite {
     private final long[] lits;
 
     Kernel(Built built, int lanes) {
-      this(built, lanes == 0 ? VarkaMatrixRuns.BASE
-          : VarkaMatrixRuns.BASE.withLanesOverride(lanes));
+      this(built, lanes == 0 ? portBase() : portBase().withLanesOverride(lanes));
     }
 
     Kernel(Built built, VarkaEmitOptions options) {
@@ -417,8 +426,8 @@ public final class VarkaMathPortSuite {
     long[] vectors = fixedVectors();
     long[][] refs = references(vectors, vectors.length);
     var failures = new ArrayList<String>();
-    var variants = List.of(VarkaMatrixRuns.BASE.withLanesOverride(2),
-        VarkaMatrixRuns.BASE.withLanesOverride(4), VarkaMatrixRuns.BASE.withLanesOverride(8));
+    var variants = List.of(portBase().withLanesOverride(2), portBase().withLanesOverride(4),
+        portBase().withLanesOverride(8));
     for (VarkaEmitOptions options : variants) {
       String lanes = options.canonical();
       try (Kernel k = new Kernel(exp(VarkaMathPort.Fault.NONE), options)) {
@@ -480,7 +489,6 @@ public final class VarkaMathPortSuite {
     // exp's own tree passes the compiler's mirror at the default and fails it at 16.
     assertTrue(VarkaLoopEmitter.fitsBudgets(List.of(root), 1, defaults));
     assertFalse(VarkaLoopEmitter.fitsBudgets(List.of(root), 1, defaults.withMaxChainDepth(16)));
-    System.out.println("VARKA-345b exp port depth " + d);
   }
 
   @Test
@@ -512,17 +520,18 @@ public final class VarkaMathPortSuite {
     var e = assertThrows(IllegalArgumentException.class,
         () -> VarkaEmitterFixtures.emit(List.of(over), 2, table.values().length, defaults));
     assertTrue(e.getMessage().contains("MAX_CHAIN_DEPTH=64"), e.getMessage());
-    System.out.println("VARKA-345b exp port: depth " + d + ", stop " + (d + added)
-        + ", largest method " + largest + " of " + defaults.methodByteBudget() + " bytes");
   }
 
   @Test
   @DisplayName("the exp port is declined, with the op cap's name, in the form without a byte "
       + "budget")
   void expDeclinedWithoutAByteBudget() {
-    var options = VarkaMatrixRuns.BASE.withMethodByteBudget(0);
-    var root = exp(VarkaMathPort.Fault.NONE).root();
-    assertFalse(VarkaLoopEmitter.fitsBudgets(List.of(root), 1, options));
+    var options = portBase().withMethodByteBudget(0);
+    var built = exp(VarkaMathPort.Fault.NONE);
+    assertFalse(VarkaLoopEmitter.fitsBudgets(List.of(built.root()), 1, options));
+    var e = assertThrows(IllegalArgumentException.class,
+        () -> VarkaEmitterFixtures.emit(List.of(built.root()), 2, built.lits().length, options));
+    assertTrue(e.getMessage().contains("MAX_FUSED_NODES=64"), e.getMessage());
   }
 
   @Test
