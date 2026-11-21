@@ -285,6 +285,26 @@ public sealed interface VarkaVectorIR
     }
   }
 
+  /** Whether {@code root}'s tree holds a {@link ReinterpretLane}, built by the math ports only. */
+  static boolean holdsReinterpret(VarkaVectorIR root) {
+    return holdsReinterpret(root, new HashSet<>());
+  }
+
+  private static boolean holdsReinterpret(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
+    if (!seen.add(node)) {
+      return false;
+    }
+    if (node instanceof ReinterpretLane) {
+      return true;
+    }
+    for (VarkaVectorIR child : childrenOf(node)) {
+      if (holdsReinterpret(child, seen)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * The narrow lanes {@code root}'s tree reads as values: a narrow column leaf, which a widening
    * load spans parts of. A narrow column read only for its validity word - the {@code y1 IS NOT

@@ -670,7 +670,11 @@ public final class VarkaKernelPlan {
         continue;
       }
       if (node instanceof ConvertLane c) {
-        if (!c.target().isFloating()) {
+        // D2I alone of the conversions to an integral lane: Java's (int) of a double, which the
+        // JDK's convertShape answers on every host and an fdlibm port takes for its int k
+        // (`VARKA-345.md` 10.2); no compiler arm builds it for a SQL cast yet.
+        boolean d2i = c.child().laneType() == LaneType.DOUBLE && c.target() == LaneType.INT;
+        if (!c.target().isFloating() && !d2i) {
           return Optional.of(new Refusal(Kind.CONVERSION, "a conversion from "
               + c.child().laneType() + " to " + c.target() + " is not built yet (row 343)"));
         }

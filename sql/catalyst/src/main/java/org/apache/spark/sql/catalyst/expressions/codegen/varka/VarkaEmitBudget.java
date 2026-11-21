@@ -269,22 +269,39 @@ final class VarkaEmitBudget {
    * only shape measured: the BIGINT lane is not in the reading, 128 bits being slower than the
    * row path (row 628), nor are the narrow and floating lanes, nor the calendar and bounded
    * division chains, which are int-lane trees too and are admitted to 64 without a measurement.
-   * Any other tree keeps {@link #MAX_CHAIN_DEPTH}.
+   * Any other tree keeps {@link #MAX_CHAIN_DEPTH}, but a port's, which has its own cap
+   * ({@link #PORT_MAX_CHAIN_DEPTH}).
    */
   public static final int INT_LANE_MAX_CHAIN_DEPTH = 64;
+
+  /**
+   * The auto cap of an output whose tree holds an fdlibm port ({@code VarkaMathPort},
+   * `VARKA-345.md` 10.2). A port's depth is its C function's operation sequence, which no
+   * rebalancing shortens: {@code exp}'s is 36 levels, its polynomial alone ten, over the double,
+   * long and int lanes, so it hit {@link #MAX_CHAIN_DEPTH}. The cap only keeps a runaway
+   * expansion from being emitted at all; the method byte budget is what bounds a port's size, as
+   * it does every method's. The ports alone build {@link VarkaVectorIR.ReinterpretLane}, a
+   * value's raw bits at the other lane, so a tree holds a port exactly when it holds that node,
+   * and no SQL shape or fuzz draw reaches this cap.
+   */
+  public static final int PORT_MAX_CHAIN_DEPTH = 64;
 
   /**
    * The deepest op path {@code root} may have under {@code options}: its {@code maxChainDepth}
    * where one is set, on every lane, which lowers the int lane's 64 as well as raising the others'
    * 16, and where it is auto 64 for a tree that holds the int lane alone and 16 for any other.
    * The tree, not the root's lane, decides: a BIGINT chain narrowed to an int root is a long-lane
-   * chain, which row 628 measured slower than the row path at 128 bits. An explicit 16 is 16 on the
+   * chain, which row 628 measured slower than the row path at 128 bits. A tree that holds a port
+   * takes {@link #PORT_MAX_CHAIN_DEPTH} by auto, whatever its lanes. An explicit 16 is 16 on the
    * int lane too, which a default that read 16 as unset could not say.
    */
   public static int chainDepthCap(VarkaEmitOptions options, VarkaVectorIR root) {
     int set = options.maxChainDepth();
     if (set != AUTO_CHAIN_DEPTH) {
       return set;
+    }
+    if (VarkaVectorIR.holdsReinterpret(root)) {
+      return PORT_MAX_CHAIN_DEPTH;
     }
     return VarkaVectorIR.lanesIn(root).equals(java.util.Set.of(VarkaVectorIR.LaneType.INT))
         ? INT_LANE_MAX_CHAIN_DEPTH : MAX_CHAIN_DEPTH;
