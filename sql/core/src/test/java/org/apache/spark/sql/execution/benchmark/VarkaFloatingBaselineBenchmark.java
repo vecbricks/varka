@@ -33,7 +33,12 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * {@code BIGINT}, {@code FLOAT} to {@code DOUBLE}), a choice
  * ({@code CASE WHEN x < y THEN x ELSE y END}) and a comparison with a literal of the type
  * ({@code x < 1.5D}, {@code f < 1.5F}, as a filter), each with no nulls and with one row in ten
- * null.
+ * null. After them come the floating remainder and the cast to a decimal of row 346: {@code x % w},
+ * {@code x % 2.5D}, {@code pmod(x, w)} and {@code CAST(x AS DECIMAL(10, 2))} over doubles and
+ * {@code f % wf} over floats, at both densities. Their divisor {@code w} is never zero, so no
+ * section raises under ANSI or answers a null for a zero divisor under LEGACY, and every quotient
+ * {@code |x / w|} is below {@code 2^18}, far inside the {@code 2^53} window the fused remainder
+ * keeps; every {@code x} is below {@code 2^13} and so inside the cast's exact region at scale 2.
  * Each has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
  * session with it. Today both are the
@@ -51,7 +56,8 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * ({@code declinesLongConditions}, VARKA-503), the 128-bit companion's host by default, leaves the
  * four DOUBLE filter sections to the row path, so they are {@code NONE} there; the FLOAT ones, at
  * 32 bits, stay {@code WHOLE}. A row that fuses more of a section sets its new class, so that its
- * fusion cannot turn a baseline section into a fused one unnoticed.
+ * fusion cannot turn a baseline section into a fused one unnoticed. The sections of row 346 are
+ * {@code NONE} until its parts land.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -84,7 +90,11 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * The table: {@code x}, {@code y}, {@code z} as doubles and {@code f}, {@code g}, {@code h} as
    * floats with no null, and {@code xn} to {@code hn} the same values with one row in ten null, at
    * a different row in each column. The values are spread over a few thousand either side of zero,
-   * so the comparisons select about half the rows and no product or cast leaves its range.
+   * so the comparisons select about half the rows and no product or cast leaves its range. Beside
+   * them, {@code w} is a double divisor and {@code wf} its float, with {@code wn} and {@code wfn}
+   * their columns with one row in ten null: {@code k / 13 - 3846.5} for an integer {@code k}, which
+   * is never zero, since {@code 13 * 3846.5} is not an integer, and is at least {@code 1 / 26} in
+   * magnitude. {@code y} and {@code g} are zero on some rows, so they divide nothing here.
    */
   static String tableSql(int rows) {
     return """
@@ -94,18 +104,22 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
                case when id %% 10 = 7 then null else z end as zn,
                case when id %% 10 = 2 then null else cast(x as float) end as fn,
                case when id %% 10 = 5 then null else cast(y as float) end as gn,
-               case when id %% 10 = 8 then null else cast(z as float) end as hn
+               case when id %% 10 = 8 then null else cast(z as float) end as hn,
+               w, cast(w as float) as wf,
+               case when id %% 10 = 3 then null else w end as wn,
+               case when id %% 10 = 6 then null else cast(w as float) end as wfn
         from (select id,
                      (id %% 100003) / 7.0d - 7000.0d as x,
                      ((id * 7) %% 100019) / 11.0d - 4500.0d as y,
-                     ((id * 13) %% 1009) / 3.0d as z
+                     ((id * 13) %% 1009) / 3.0d as z,
+                     ((id * 11) %% 100003) / 13.0d - 3846.5d as w
               from range(0, %d))""".formatted(rows);
   }
 
   /**
-   * Every section, in the order they run: each type, then each null density, then each shape. The
-   * DOUBLE filters are {@code NONE} when the session refuses their condition
-   * ({@code declinesLongConditions}).
+   * Every section, in the order they run: each type, then each null density, then each shape, and
+   * then row 346's sections at each density. The DOUBLE filters are {@code NONE} when the session
+   * refuses their condition ({@code declinesLongConditions}).
    */
   static List<Section> sections(boolean declinesLongConditions) {
     List<Section> out = new ArrayList<>();
@@ -137,6 +151,26 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
         out.add(new Section(type + " comparison with a literal, " + density,
             "SELECT " + x + " FROM varka_floating WHERE " + x + " < " + t[5], filter));
       }
+    }
+    // Row 346's remainder and cast to a decimal, after every section above so that the order of
+    // the sections the committed results already hold is unchanged.
+    for (String nulls : new String[] {"", "n"}) {
+      String x = "x" + nulls;
+      String w = "w" + nulls;
+      String f = "f" + nulls;
+      String wf = "wf" + nulls;
+      String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
+      String from = " AS a FROM varka_floating";
+      out.add(new Section("DOUBLE x % w, " + density,
+          "SELECT " + x + " % " + w + from, Fusion.NONE));
+      out.add(new Section("DOUBLE x % 2.5, " + density,
+          "SELECT " + x + " % 2.5D" + from, Fusion.NONE));
+      out.add(new Section("DOUBLE pmod(x, w), " + density,
+          "SELECT pmod(" + x + ", " + w + ")" + from, Fusion.NONE));
+      out.add(new Section("DOUBLE cast to DECIMAL(10, 2), " + density,
+          "SELECT CAST(" + x + " AS DECIMAL(10, 2))" + from, Fusion.NONE));
+      out.add(new Section("FLOAT f % wf, " + density,
+          "SELECT " + f + " % " + wf + from, Fusion.NONE));
     }
     return out;
   }
