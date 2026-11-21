@@ -150,6 +150,57 @@ public final class VarkaVectorIRSharingSuite {
     }
   }
 
+  /**
+   * The one conjunct of {@code (chain nested depth deep) > c}, explained under a chain-depth cap
+   * of {@code cap}, within a bound a per-path walk would miss by orders of magnitude.
+   */
+  private static VarkaConjunctSpec explain(DataType type, String chain, int depth, int cap) {
+    var columns = CollectionConverters.asScala(List.<Attribute>of(
+        VarkaSqlResolve.column("a", type), VarkaSqlResolve.column("c", type))).toSeq();
+    String x = "a";
+    for (int i = 0; i < depth; i++) {
+      x = chain.replace("X", x);
+    }
+    Expression e = VarkaSqlResolve.parse("(" + x + ") > c", columns);
+    // The default options, not the matrix's: the stops below are the default budgets', and a
+    // configuration that moves a budget moves them (the byte budget, the ceiling).
+    List<VarkaConjunctSpec> specs = assertTimeoutPreemptively(Duration.ofSeconds(20),
+        () -> VarkaExpressionCompiler.explainPredicate(e, columns,
+            VarkaEmitOptions.DEFAULTS.withMaxChainDepth(cap), VarkaAdmission.NO_HOST_REFUSAL),
+        () -> "explaining " + chain + " " + depth + " deep");
+    assertEquals(1, specs.size());
+    return specs.get(0);
+  }
+
+  @Test
+  @DisplayName("the fan-out chains fuse to the depth the cap allows, and decline in milliseconds "
+      + "past it (VARKA-630)")
+  void fanOutChainsStopAtTheCap() {
+    DataType ym = new YearMonthIntervalType((byte) 0, (byte) 1);
+    // The deepest depth each chain fuses at and the first it does not, at cap 64 and at cap 128
+    // (results/VARKA-630-chain-depths.txt): an interval's abs reaches its operand by three paths,
+    // a signum by four. Raising the cap moves each stop, so the cap is what stopped it.
+    Object[][] chains = {{DataTypes.DoubleType, "signum(X)", 12, 16, 16, 24},
+        {ym, "abs(X)", 28, 32, 40, 64}};
+    for (Object[] c : chains) {
+      DataType type = (DataType) c[0];
+      String chain = (String) c[1];
+      assertTrue(explain(type, chain, (int) c[2], 64).fused(), () -> chain + " " + c[2]);
+      assertFalse(explain(type, chain, (int) c[3], 64).fused(), () -> chain + " " + c[3]);
+      assertTrue(explain(type, chain, (int) c[4], 128).fused(), () -> chain + " " + c[4]);
+      assertFalse(explain(type, chain, (int) c[5], 128).fused(), () -> chain + " " + c[5]);
+    }
+  }
+
+  @Test
+  @DisplayName("a chain of adds fuses to 63 deep under a cap of 64 and to 64 under 128 "
+      + "(VARKA-630)")
+  void addChainFusesToTheCapLessTheCompare() {
+    assertTrue(explain(DataTypes.IntegerType, "(X + 1)", 63, 64).fused());
+    assertFalse(explain(DataTypes.IntegerType, "(X + 1)", 64, 64).fused());
+    assertTrue(explain(DataTypes.IntegerType, "(X + 1)", 64, 128).fused());
+  }
+
   @Test
   @DisplayName("structurally equal nodes still collapse: the chain's distinct nodes grow by a "
       + "constant a level")

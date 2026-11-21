@@ -1,0 +1,36 @@
+VARKA-630 part 4: the bytes of loop-method code a level of a chain costs, by operation, against the
+method byte budget (VarkaEmitOptions.methodByteBudget, default 8000) that stops a chain.
+
+Date: 21 November 2026, one laptop, one JVM, a scratch test run once per cell (single readings of a
+deterministic emitter, not a benchmark); its source is VARKA-630-bytes-per-level.scratch.txt beside
+this file. Each chain is one operation repeated over the previous level and a literal slot, built
+as IR and emitted with `maxChainDepth=256,methodByteBudget=60000` (so neither stops it) by
+`VarkaLoopEmitter.emit`; the figure is the largest `Code` attribute length of the emitted class
+(`VarkaEmittedClass.measure`).
+
+  operation (one per level)          bytes at depth 8 / 16 / 32 / 48        bytes a level
+  INT or LONG add, sub, mul, WRAP    225 / 305 / 465 / 625                  10
+  LONG xor                           257 / 369 / 593 / 817                  14
+  LONG divide by 10 (exact bound)    395 / 651 / 1163 / 1675                32
+  LONG add, overflow FAIL (checked)  906 / 1562 / 2874 / 4186               82
+  LONG select if(x < lit, x, lit)    990 / 1726 / 3202 / 5026               92 (114 from 32 to 48)
+
+Against the default budget of 8000 bytes, the depth at which a chain of one such operation a level
+reaches it is about 8000 / bytes-a-level: roughly 800 levels of wrapping adds, 250 of divisions
+by a constant, 97 of checked adds and 70 to 87 of selects. The SQL path's INT add chain stopped at
+89 levels (VARKA-630-chain-depths.txt), about 90 bytes a level (8000 / 89): `a + 1` is a checked add
+under ANSI, which the table prices at 82 bytes a level for a LONG chain, so the two agree only
+roughly. The INT checked add and the predicate's compare were not priced separately; the INT chain
+was not emitted here.
+
+What this says about a cap of 64: a chain of one checked add or one select a level fits the byte
+budget at 64 levels (about 5300 and 7300 bytes), so there the depth cap, not the byte budget, is
+what stops it. A level of two such operations may not: a select and a checked add together would be about
+175 bytes a level, the sum of the two figures above (not emitted together), which reaches 8000
+at 46 levels.
+
+Not measured, and what decides the plan's decimal rows (362b, 363, 363b, 364 and 366, 26 to 60
+levels deep): the operation mix of each row's own shape. Their code is on unmerged branches and
+was not emitted here. This table prices one operation a level; a row with several costs the sum.
+The growth of the select from 92 to 114 bytes a level between depths 32 and 48 was not
+explained. Class size and the JIT's behaviour at a method near the limit were not measured.
