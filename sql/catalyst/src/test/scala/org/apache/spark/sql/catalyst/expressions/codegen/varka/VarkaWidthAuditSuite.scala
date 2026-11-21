@@ -212,7 +212,12 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
       val n = scala.util.Try(v.toInt).getOrElse(0)
       require(n >= 1, s"$key must be a positive integer, got '$v'")
       n
-    }.getOrElse(math.max(1, math.min(5, Runtime.getRuntime.availableProcessors() / 4)))
+    }.getOrElse {
+      // A CI shard runs other test JVMs beside the audit, which the readings below do not cover,
+      // so the default there is one at a time, as before.
+      if (sys.env.contains("CI") || sys.env.contains("GITHUB_ACTIONS")) 1
+      else math.max(1, math.min(5, Runtime.getRuntime.availableProcessors() / 4))
+    }
   }
 
   /**
@@ -228,7 +233,7 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     val pool = java.util.concurrent.Executors.newFixedThreadPool(parallelProbes)
     try {
       val running = probes.map { probe =>
-        pool.submit(new java.util.concurrent.Callable[(Probe, Try[Census])] {
+        probe -> pool.submit(new java.util.concurrent.Callable[(Probe, Try[Census])] {
           override def call(): (Probe, Try[Census]) = {
             val begun = System.nanoTime()
             val result = Try(audit(probe))
@@ -237,9 +242,17 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
           }
         })
       }
-      results = running.map(_.get()).toMap
+      // Every probe is waited for, and a probe whose task died of a fatal error is kept as its
+      // failure like any other, so that no sibling's child JVM is left running behind a throw.
+      results = running.map { case (probe, task) =>
+        try task.get()
+        catch {
+          case e: java.util.concurrent.ExecutionException => probe -> Failure(e.getCause)
+        }
+      }.toMap
     } finally {
-      pool.shutdown()
+      pool.shutdownNow()
+      pool.awaitTermination(1, java.util.concurrent.TimeUnit.MINUTES)
     }
   }
 

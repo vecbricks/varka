@@ -39,9 +39,9 @@
 # self-test. The owed list is cleared only after every step passed.
 #
 # With --all the JVM steps are skipped when nothing they read changed (VARKA-626): a branch whose
-# changes against its merge base with origin/master touch no main source, no catalyst test source
-# but a benchmark, no data file of sql/varka and no generated file, on the JDK the committed width
-# audit was written on, would regenerate what it holds. dev/varka_regen_inputs.py decides, and
+# changes against its merge base with origin/master are all to documents, plans, results,
+# benchmarks and the like and to no generated file, on the JDK the committed width audit was
+# written on, would regenerate what it holds. dev/varka_regen_inputs.py decides, and
 # names the reason either way (VARKA_REGEN_BASE names another base than origin/master, for a
 # test); --full runs the steps whatever it says. A skipped run still checks
 # the census and writes the push check's marker below.
@@ -71,8 +71,8 @@ want() { case " $files " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 # Nothing the JVM steps read changed: they would write what the files already hold (VARKA-626).
 skip=0
 if [ $all = 1 ] && [ $full = 0 ]; then
-  if why="$(python3 dev/varka_regen_inputs.py ${VARKA_REGEN_BASE:+--base "$VARKA_REGEN_BASE"} $files)"
-  then
+  inputs_args=(${VARKA_REGEN_BASE:+--base "$VARKA_REGEN_BASE"})
+  if why="$(python3 dev/varka_regen_inputs.py "${inputs_args[@]}" $files)"; then
     skip=1; echo "varka regen: skipping the JVM steps: $why (--full runs them)"
   else
     echo "varka regen: running the JVM steps: $why"
