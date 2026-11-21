@@ -20,14 +20,17 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -242,6 +245,45 @@ public final class VarkaReproductionSuite {
       assertTrue(dag.startsWith("dag\n") && dag.endsWith("\n"), dag);
       assertEquals(dag, VarkaVectorIR.canonicalDag(List.of(VarkaCanonicalIr.parse(
           VarkaVectorIR.canonical(tree)))));
+    }
+  }
+
+  @Test
+  @DisplayName("two equal shape keys over a deep shared chain compare in linear time (VARKA-630)")
+  void deepSharedKeysCompareInLinearTime() {
+    // Built twice, so the two share no object: a record's equals would compare the shared node
+    // once per path, 2^64 here.
+    var one = new VarkaShapeKey(List.of(sharedChain(64)), 1, 0);
+    var two = new VarkaShapeKey(List.of(sharedChain(64)), 1, 0);
+    assertTimeoutPreemptively(Duration.ofSeconds(5), () -> assertEquals(one, two));
+    assertEquals(one.hashCode(), two.hashCode());
+    // A chain over another column differs at its foot, found without walking the paths.
+    VarkaVectorIR other = new ColumnRef(1);
+    for (int i = 0; i < 64; i++) {
+      other = new IntArith(IntOp.ADD, Overflow.WRAP, other, other);
+    }
+    var different = new VarkaShapeKey(List.of(other), 1, 0);
+    assertTimeoutPreemptively(Duration.ofSeconds(5), () -> assertNotEquals(one, different));
+  }
+
+  @Test
+  @DisplayName("sameStructure agrees with equals on every node type and between them")
+  void sameStructureAgreesWithEquals() {
+    List<VarkaVectorIR> first = new ArrayList<>(theRest());
+    first.add(everyNodeType());
+    first.add(sharedChain(12));
+    List<VarkaVectorIR> second = new ArrayList<>(theRest());
+    second.add(everyNodeType());
+    second.add(sharedChain(12));
+    for (int i = 0; i < first.size(); i++) {
+      for (int j = 0; j < second.size(); j++) {
+        int a = i;
+        int b = j;
+        assertEquals(first.get(i).equals(second.get(j)),
+            VarkaVectorIR.sameStructure(first.get(i), second.get(j)),
+            () -> "trees " + a + " and " + b);
+      }
+      assertTrue(VarkaVectorIR.sameStructure(first.get(i), second.get(i)), "tree " + i);
     }
   }
 

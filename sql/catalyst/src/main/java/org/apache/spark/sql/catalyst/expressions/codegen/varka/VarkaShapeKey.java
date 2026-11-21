@@ -70,6 +70,24 @@ public record VarkaShapeKey(
     }
   }
 
+  /**
+   * Equal when every field is, the outputs by {@link VarkaVectorIR#sameStructure}: a record's own
+   * {@code equals} compares two equal DAGs that share no object once per path, which a cache hit
+   * does with a freshly compiled key and the cached one (VARKA-630). The hash is the record's, so
+   * equal keys still hash alike.
+   */
+  @Override
+  public boolean equals(Object other) {
+    return this == other || other instanceof VarkaShapeKey k
+        && numInputs == k.numInputs && numLiterals == k.numLiterals && warmed == k.warmed
+        && options.equals(k.options) && VarkaVectorIR.sameStructure(outputs, k.outputs);
+  }
+
+  @Override
+  public int hashCode() {
+    return java.util.Objects.hash(outputs, numInputs, numLiterals, options, warmed);
+  }
+
   /** A kernel that is not warmed, emitted with {@code options}. */
   public VarkaShapeKey(List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
       VarkaEmitOptions options) {

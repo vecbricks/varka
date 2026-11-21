@@ -2677,6 +2677,72 @@ public sealed interface VarkaVectorIR
     return false;
   }
 
+  /**
+   * Whether {@code a} and {@code b} are equal as {@code equals} says, in time linear in the
+   * pairs of distinct nodes instead of the paths between them.
+   *
+   * <p>A record's {@code equals} tries identity first, so a node shared inside one compile is
+   * one step; but two equal DAGs that share no object compare a shared node once per path, which
+   * at a fan-out of two a level doubles with every level (VARKA-630, measured in
+   * {@code results/VARKA-630-shape-key-equals.txt}). This walks the pairs once: a differing class
+   * or cached hash ends it at once, the children are compared first, each pair once, and a node is
+   * then compared with {@code b} rebuilt over {@code a}'s children, which differs from {@code a}
+   * only in what a record holds besides its children. Where a rebuilt node would be refused the
+   * answer is "not equal", which costs a cache miss and never a wrong hit.
+   */
+  static boolean sameStructure(VarkaVectorIR a, VarkaVectorIR b) {
+    return sameStructure(a, b, new java.util.IdentityHashMap<>());
+  }
+
+  private static boolean sameStructure(VarkaVectorIR a, VarkaVectorIR b,
+      java.util.IdentityHashMap<VarkaVectorIR, Set<VarkaVectorIR>> equalPairs) {
+    if (a == b) {
+      return true;
+    }
+    if (a.getClass() != b.getClass() || a.hashCode() != b.hashCode()) {
+      return false;
+    }
+    Set<VarkaVectorIR> known = equalPairs.get(a);
+    if (known != null && known.contains(b)) {
+      return true;
+    }
+    VarkaVectorIR[] kidsA = childrenOf(a);
+    VarkaVectorIR[] kidsB = childrenOf(b);
+    if (kidsA.length != kidsB.length) {
+      return false;
+    }
+    for (int i = 0; i < kidsA.length; i++) {
+      if (!sameStructure(kidsA[i], kidsB[i], equalPairs)) {
+        return false;
+      }
+    }
+    boolean same;
+    try {
+      same = kidsA.length == 0 ? a.equals(b) : a.equals(withChildren(b, kidsA));
+    } catch (IllegalArgumentException refused) {
+      return false;
+    }
+    if (same) {
+      equalPairs.computeIfAbsent(a,
+          k -> java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())).add(b);
+    }
+    return same;
+  }
+
+  /** {@link #sameStructure} over two lists of the same length, in order. */
+  static boolean sameStructure(List<VarkaVectorIR> a, List<VarkaVectorIR> b) {
+    if (a.size() != b.size()) {
+      return false;
+    }
+    var equalPairs = new java.util.IdentityHashMap<VarkaVectorIR, Set<VarkaVectorIR>>();
+    for (int i = 0; i < a.size(); i++) {
+      if (!sameStructure(a.get(i), b.get(i), equalPairs)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /** {@code node}'s children, in the order its record declares them; a leaf has none. */
 
   static VarkaVectorIR[] childrenOf(VarkaVectorIR node) {
