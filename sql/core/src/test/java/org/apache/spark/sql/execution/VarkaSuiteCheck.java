@@ -293,7 +293,10 @@ public final class VarkaSuiteCheck {
    * {@code ExpressionEvalHelper} prepares it, {@code input} the row it is evaluated on. A check
    * this test already ran (the same expression, row, kind and expectation) is not run again.
    * {@code record} says whether the check is a fixed-value one, whose bare cast joins the record;
-   * the random properties' are not. A check outside any test fails at once on what it finds.
+   * the random properties' are not. Nothing reads it yet, since the record is a later pull
+   * request's: today it only belongs to the dedup key, and a check whose form does not fuse is
+   * counted and skipped, its verdict not kept. A check outside any test fails at once on what it
+   * finds.
    */
   public static synchronized void check(String suite, Expression prepared, InternalRow input,
       boolean record, Expect expect) {
