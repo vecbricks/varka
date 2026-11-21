@@ -73,7 +73,7 @@ interpreter, C1 and C2, precisely so that a function stays consistent while its 
 compiled. Whole-stage codegen, Spark's generated projections and its interpreted expressions gave
 the same bits on every row we ran. And the x86 chip does not matter: the Ryzen laptop (Zen 5,
 AVX-512) and an EPYC 7763 GitHub runner (AVX2) differ from fdlibm on the same inputs, function
-by function. **[owed: EPYC 7763 runner, the answers compared input by input]** An Intel Xeon
+by function. An Intel Xeon
 Platinum 8573C GitHub runner, on another vendor's JDK 25 build, gave the laptop's bits for all
 five functions on every one of a million inputs.
 
