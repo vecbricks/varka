@@ -40,7 +40,8 @@
 #
 # --jvm-arg=FLAG (repeatable) adds FLAG to the forked JVM's options, on both paths; with
 # --jvm-arg=-Djdk.incubator.vector.DEBUG=true the JDK's lines naming the math library symbol it
-# bound each operator to are printed after the report, so an --asm run can be read against them:
+# bound each operator to are printed once a kernel runs that operator, which only an --asm run
+# does, so they are absent from a run without it and prove nothing; read an --asm run against them:
 # the call in loopDense0's assembly targets the address the line printed (VARKA-345.md 2.5).
 #
 # Everything but --asm is passed through to VarkaEmitDump (catalyst test scope);

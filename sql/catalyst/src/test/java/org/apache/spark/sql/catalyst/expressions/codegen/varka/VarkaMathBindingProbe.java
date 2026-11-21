@@ -43,6 +43,11 @@ public final class VarkaMathBindingProbe {
     // narrower than the double's at UseAVX=1 or without AVX-512BW.
     int max = VectorShape.largestShapeFor(double.class).vectorBitSize();
     String property = System.getProperty(VarkaMathBinding.LIBRARY_PROPERTY);
+    boolean x86 = System.getProperty("os.arch").matches("amd64|x86_64");
+    if (x86 && VarkaEmitOptions.HOST_USE_AVX < 0) {
+      throw new IllegalStateException("UseAVX is unreadable on this x86 host, so the library the "
+          + "JDK binds cannot be named; the probe will not guess a level");
+    }
     System.out.println("HOST arch=" + System.getProperty("os.arch") + " os="
         + System.getProperty("os.name").replace(' ', '_') + " avx="
         + Math.max(0, VarkaEmitOptions.HOST_USE_AVX) + " max=" + max

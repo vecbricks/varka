@@ -930,7 +930,8 @@ library property, AVX level, widest species) and `VarkaMathBindingSuite` with it
 `MeasuredLine`, the TSV format of 2.5 with its header) and `VarkaMathContractSuite` (3.4, on the
 committed files, none yet, and on a planted table); and the coverage table's form column
 (`VarkaCoverageSuite`'s `MathCell`, rendered only in a family holding a math row and checked by
-`mathFindings`; no row holds one yet, so neither generated file shows it).
+`mathFindings`; written when no row held one, and corrected on 21 November 2026: the trigonometric
+rows #1567 landed hold one, each naming its exact form, so both generated files carry the column).
 
 **Questions met, and the reading taken** (the most conservative, as the brief asked):
 
