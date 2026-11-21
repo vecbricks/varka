@@ -214,7 +214,7 @@ jobs:
   # Any TPC-DS related updates on this job need to be applied to tpcds-1g job of build_and_test.yml as well
   tpcds-1g-gen:
     name: "Generate an TPC-DS dataset with SF=1"
-    if: !inputs.pair && needs.matrix-gen.outputs.tpcds == 'true'
+    if: needs.matrix-gen.outputs.tpcds == 'true' && !inputs.pair
     needs: matrix-gen
     runs-on: ubuntu-latest
     env:
