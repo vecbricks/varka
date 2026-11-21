@@ -2617,8 +2617,8 @@ public sealed interface VarkaVectorIR
   }
 
   private static int dagId(VarkaVectorIR node,
-      java.util.IdentityHashMap<VarkaVectorIR, Integer> idOfObject,
-      java.util.HashMap<String, Integer> idOfLine, StringBuilder text) {
+      java.util.Map<VarkaVectorIR, Integer> idOfObject,
+      java.util.Map<String, Integer> idOfLine, StringBuilder text) {
     Integer known = idOfObject.get(node);
     if (known != null) {
       return known;
