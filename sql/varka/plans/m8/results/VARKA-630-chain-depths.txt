@@ -26,9 +26,24 @@ one note the compiler gives whatever budget failed, depth included, so it does n
 Neither is `VarkaEmitBudget.MAX_FUSED_NODES` the limit: it is checked only where
 `methodByteBudget` is 0 (`Analysis` line 1953) and the default is 8000.
 
-A second limit appears past the cap: at cap 128 the INT add chain declines at 100 levels, well
-under the cap, and the BIGINT one too. What it is was not found (the byte budget of a method,
-`FUSED_CEILING` and the node budget are candidates; none was tried).
+A second limit appears past the cap, and it is the method byte budget. At cap 128 the INT add
+chain declined at 100 levels, well under the cap; a bisection (cap 256, the same predicate) puts
+the stop at 89 levels fused and 90 declined, and it does not move with the cap (128 and 256 give
+the same) or with `fusedCeiling` (2000 gives the same). It moves with `methodByteBudget`:
+
+  methodByteBudget   INT add chain fuses to / declines at   (cap 256)
+  4000               63 / 64    (the search's floor: the real stop is at or below it)
+  8000 (default)     89 / 90
+  16000              170 / 171
+  32000              199 / 200  (the search's ceiling: the real stop is at or above it)
+  60000              199 / 200  (the same ceiling)
+  0 (no byte budget) 63 / 64    (the node budget, MAX_FUSED_NODES = 64, applies instead)
+
+So the chain stops where the loop method's bytecode reaches the budget, about 90 bytes of
+code a level for this chain at the default 8000 (8000 / 89). `VarkaEmitBudget.HUGE_METHOD_LIMIT`
+is also 8000, HotSpot's limit above which a method is not compiled by the JIT; that this budget
+exists for that reason is read from the constant's name, not tested here. With no byte budget the
+node budget binds instead, at 63 levels, as it does only in that form.
 
 Every explanation of the first run came back in under 800 ms (the first, 721 ms, is class loading),
 the rest under 200 ms, and a declined one under 40 ms, at every depth up to 64, which is 2^64
@@ -39,5 +54,5 @@ the plan's rows need; a cap of 64 fuses an INT add chain to 63 levels under a pr
 depth to which a chain fuses is a count of IR height, not of SQL nesting: an interval `abs`
 level is about two to three levels of height (inferred from the stop depths, not counted).
 
-Not measured: the second limit above, the emitted class size and the cache hit of a chain that
+Not measured: the decline site of the byte budget (the explain path gives one note), the emitted class size and the cache hit of a chain that
 fuses at these depths, and the plan's decimal chains.
