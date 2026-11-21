@@ -50,6 +50,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Boo
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalBits;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
@@ -69,6 +71,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Dec
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.HashStep;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
@@ -78,6 +81,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -211,6 +215,9 @@ final class Slots {
    * construction and twice more by the NaN's compare where it is emitted.
    */
   final Map<VarkaVectorIR, int[]> roundTmp = new HashMap<>();
+
+  /** The scratch local of a {@link CanonicalFloat}: its operand, read by the add and the test. */
+  final Map<VarkaVectorIR, int[]> canonTmp = new HashMap<>();
   /** Per DayOfWeek/WeekDay/NextDay: {@code emitFloorMod7}'s own original-value and fold
    * temporaries. NextDay needs no third slot for the date it reuses after the mod - its
    * emitValue arm keeps that copy on the operand stack instead (dup/swap). */
@@ -786,10 +793,10 @@ final class Slots {
     }
     // Broadcasts are hoisted into vector locals only where they are used - the loop methods - and
     // only in the regime where the hoist measures as a win (see `VARKA-9.md`): one output, at
-    // most a chain's worth of literals. Any wider body inlines them at each use and lets C2
+    // most HOIST_LITERALS (16) literals. Any wider body inlines them at each use and lets C2
     // rematerialize under register pressure (VARKA-10.md).
     boolean hoist = mode == BodyMode.LOOP && outputs.size() == 1
-        && numLiterals <= MAX_CHAIN_DEPTH;
+        && numLiterals <= HOIST_LITERALS;
     s.broadcastSlot = hoist ? new int[driveLiterals] : null;
     if (s.broadcastSlot != null) {
       for (int j = 0; j < driveLiterals; j++) {
@@ -1032,6 +1039,9 @@ final class Slots {
           if (node instanceof RoundToIntegral) {
             s.roundTmp.put(node, new int[] {slot++});
           }
+          if (node instanceof CanonicalFloat) {
+            s.canonTmp.put(node, new int[] {slot++});
+          }
           // The multiply-high form reads its dividend three times - two halves and the sign
           // bit - so it parks the vector in one slot rather than juggling the stack.
           if (node instanceof ConstDivide n
@@ -1190,6 +1200,7 @@ final class Slots {
           : s.wordRef.get(n.child());
       case WidenLane n -> s.wordRef.get(n.child());
       case ConvertLane n -> s.wordRef.get(n.child());
+      case ReinterpretLane n -> s.wordRef.get(n.child());
       case NarrowLane n -> s.wordRef.get(n.child());
       case WidenDecimal n -> s.wordRef.get(n.child());
       case Year n -> s.wordRef.get(n.days());
@@ -1215,6 +1226,10 @@ final class Slots {
       case BitCount n -> s.wordRef.get(n.child());
       case MathUnary n -> s.wordRef.get(n.child());
       case RoundToIntegral n -> s.wordRef.get(n.child());
+      case CanonicalFloat n -> s.wordRef.get(n.child());
+      case CanonicalBits n -> s.wordRef.get(n.child());
+      // The seed's word: a step skips a null word rather than nulling its lane.
+      case HashStep n -> s.wordRef.get(n.seed());
       // Greatest/Least (OR) and IfElse (blend) always compute their own word.
       default -> Integer.MIN_VALUE;
     };
@@ -1260,14 +1275,14 @@ final class Slots {
         VarkaVectorIR n = o.node();
         Integer ownRef = s.wordRef.get(n);
         yield !s.ownWord.contains(n) || ownRef == null || ownRef != ref
-            ? "the owner is " + VarkaVectorIR.canonical(n) + "'s own word but the slot is "
+            ? "the owner is " + VarkaVectorIR.canonicalBrief(n) + "'s own word but the slot is "
                 + ref + " and that node's is " + ownRef
             : null;
       }
     };
     if (problem != null) {
       throw VarkaErrors.illegalState("validity-word algebra disagrees with planWordRef on "
-          + VarkaVectorIR.canonical(node) + ": " + problem + " (pure=" + pure + ", owner="
+          + VarkaVectorIR.canonicalBrief(node) + ": " + problem + " (pure=" + pure + ", owner="
           + owner + ")");
     }
   }
@@ -1330,7 +1345,8 @@ final class Slots {
    * {@code emitGuardCollect} ANDs with the condemning mask;</li> <li>{@code MakeDate}: its own
    * word, always - it stores it unconditionally and its guard reads it - and so, by propagation,
    * its three inputs';</li> <li>{@code Greatest}/{@code Least}, emitted at all: both operands'
-   * words, for the value;</li> <li>every {@code Compare} and {@code NullSafeEqual}, and every
+   * words, for the value;</li> <li>{@code HashStep}, emitted at all: its word's, for the null
+   * skip's blend;</li> <li>every {@code Compare} and {@code NullSafeEqual}, and every
    * {@code IsNotNull} over a column, reached, whether under an {@code IfElse} or a {@code Cond}
    * root: its operands' words,
    * for the known-true/false pair (an {@code IsNotNull} over a condition reads the condition's
@@ -1686,6 +1702,7 @@ final class Slots {
         // it - a root write, a guard, or a consumer above.
         case WidenLane g -> { }
         case ConvertLane g -> { }
+        case ReinterpretLane g -> { }
         case NarrowLane g -> { }
         case WidenDecimal g -> { }
         // The rest read no word here. A value node's own word, where it needs one, is
@@ -1732,6 +1749,10 @@ final class Slots {
         case BitCount x -> { }
         case MathUnary x -> { }
         case RoundToIntegral x -> { }
+        case CanonicalFloat x -> { }
+        case CanonicalBits x -> { }
+        // The null skip blends by the word's validity, so that word has to survive.
+        case HashStep x -> demand(analysis.wordOwner.get(x.word()));
         case IfElse x -> { }
         // Its word is the condition's two known words ORed, and the condition demands its
         // operands' words in its own arms; its own word is demanded like any value node's.
@@ -1761,6 +1782,7 @@ final class Slots {
         case GuardedRange x -> demand(analysis.wordOwner.get(x.child()));
         case WidenLane x -> demand(analysis.wordOwner.get(x.child()));
         case ConvertLane x -> demand(analysis.wordOwner.get(x.child()));
+        case ReinterpretLane x -> demand(analysis.wordOwner.get(x.child()));
         case NarrowLane x -> demand(analysis.wordOwner.get(x.child()));
         case WidenDecimal x -> demand(analysis.wordOwner.get(x.child()));
         case SubDays x -> { demand(analysis.wordOwner.get(x.days()));
@@ -1817,6 +1839,10 @@ final class Slots {
         case BitCount x -> { }
         case MathUnary x -> { }
         case RoundToIntegral x -> { }
+        case CanonicalFloat x -> { }
+        case CanonicalBits x -> { }
+        // Its word aliases the seed's (ownerOf), so it never reaches this queue.
+        case HashStep x -> { }
         case Compare x -> { }
         case NullSafeEqual x -> { }
         case BoolColumn x -> { }

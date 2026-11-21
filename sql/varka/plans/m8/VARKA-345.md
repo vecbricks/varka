@@ -923,6 +923,16 @@ an option no node reads can go: the tag in `canonical()` (`VarkaEmitOptionSuite`
 `emitted_bytes.json`'s `option_arms`, with the defaults' digest, and the session binding
 (`VarkaEvaluatorComponentsSuite`). No existing shape's bytes move (prediction 1, scored: held).
 
+**345a2, as built.** `VarkaMathBinding` (2.5's resolver over an explicit host: architecture,
+library property, AVX level, widest species) and `VarkaMathBindingSuite` with its child JVM
+`VarkaMathBindingProbe` (3.6), the suite run on the Arm runner by `varka-width-audit.yml`;
+`dev/varka_emit.sh --jvm-arg`; `VarkaMathContract` (the record table, empty, and
+`MeasuredLine`, the TSV format of 2.5 with its header) and `VarkaMathContractSuite` (3.4, on the
+committed files, none yet, and on a planted table); and the coverage table's form column
+(`VarkaCoverageSuite`'s `MathCell`, rendered only in a family holding a math row and checked by
+`mathFindings`; written when no row held one, and corrected on 21 November 2026: the trigonometric
+rows #1567 landed hold one, each naming its exact form, so both generated files carry the column).
+
 **Questions met, and the reading taken** (the most conservative, as the brief asked):
 
 1. *The configuration's default.* 2.6 writes `.createWithDefault(false)`; `VarkaSessionEmit`'s
@@ -949,3 +959,42 @@ an option no node reads can go: the tag in `canonical()` (`VarkaEmitOptionSuite`
 5. *What of 3.1 and 3.5 is 345a's.* The `LIBRARY` form, the hook and `--asm` are 345b's, so 3.1's
    "the IR has no `LIBRARY` node" holds trivially and is not claimed; 3.5's planted kernel lane
    through the coverage differential needs a math row and moves to 345b with 3.3.
+
+### 10.2 345b: the `PORT` frame, and `exp` as its template in a second part (20 November 2026)
+
+Built in the owner's absence, as the part the brief named: the expansion frame that writes a
+ported function's operation sequence as IR nodes inside the kernel (open point 10, option (b)),
+and `exp` on it, exact to `StrictMath.exp`. It did not fit one pull request under the cap (1368
+counted lines), so it is two, stacked on 345a2: **345b1**, the frame, which is this record, and
+**345b2**, `exp` on it, whose record (what it built, what was measured, the decisions taken)
+comes with its own pull request, since the code it describes is not in this one. Section 5
+item 3's other pieces are in neither.
+
+**345b1, as built.**
+
+- `ReinterpretLane(child, target)`, a new IR node: a value's raw bits read at the other lane of
+  its width and kind, `DOUBLE` to `LONG` and back, `FLOAT` to `INT` and back, lowered as one
+  `reinterpretAs*` of the child's vector, its validity the child's. These are the
+  reinterpretations section 5 item 3 expected from row 343, which had not built them. The
+  reference evaluator reads a view as its child's row, since a floating row already holds bits;
+  the registry suites (`VarkaWithChildrenSuite`, `VarkaLaneTypeSuite`, `VarkaIrFuzzSuite`,
+  `VarkaEmitCostSuite`, `VarkaCanonicalIr`) name it, undrawn and awaiting the cost refit as the
+  other floating nodes are.
+- `VarkaMathPort`, the frame: the word helpers `bits`, `fromBits`, `hi`, `lo`, `withHi`, `withLo`,
+  `fromHiLo`, `absBits`, the high-word compares `hiBelow`, `hiAtLeast`, `hiAbove` and the
+  exponent add `addExponent`, each `vfdlibm`'s `Lanes` method as a few IR nodes, and the
+  constants interned through `Constants` (the compiler's `DeclineSink.longSlot`, or a `Table` of
+  its own for a test), a double by its bits on the `DOUBLE` lane.
+- `VarkaMathPortSuite`, test 3.2: each helper emitted as a kernel against its definition on the
+  raw bits, 2^24 lanes a word helper and 2^21 a compare (23 compares at eight high words from 0
+  to `0x7fffffff`, NaN lanes included, as `vfdlibm`'s lemma L3 covers them).
+
+**Left of section 5 items 3 and 4.** `exp` on the frame (345b2), the `LANE_CALL` and `LIBRARY`
+lowerings and the dead-lane blend (356 builds `LANE_CALL` on its branch), `MathBinary`, the test
+hook, the vector files' format under `sql/varka/math/`, question 2's classification (3.8), the
+`--asm` half of 3.1, 3.3, 3.7, the `mathPort` option, the branch measurement of 2.4, and the
+port's speed on the runners.
+
+*Corrected 21 November 2026 (review of this part): the frame's tests run each helper over the
+double and long views at the base lane count and over null lanes at two and four lanes; the
+`FLOAT` and `INT` views are lowered and registered, and no kernel runs them yet.*

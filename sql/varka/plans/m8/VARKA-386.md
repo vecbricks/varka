@@ -290,3 +290,107 @@ Size: medium.
    look, not this row's.
 
 ## 10. Outcome
+
+### 10.1 What was built (20 November 2026, branch `varka-386-filter-null-then-raise`)
+
+Built while the owner was away, from master at `e5d70012bdc`, in one local branch, not pushed.
+
+- **The sync (2.1) was already done.** `930c571628d` is an ancestor of master, the 386
+  reproducer reads `status: regression`, and the README line names it. Step 1 of 5 needed no work.
+- **2.2.** `codegenOrder(conjuncts, childOutput, legacy)` ports the merged
+  `generatePredicateCode`: the count of null tests written before each other conjunct, the flag
+  (`nullConjunctFlag`: off under `legacy`, otherwise on when a conjunct bound over `childOutput`
+  with the tested columns non-nullable can be NULL and a later conjunct or a null test
+  `mayRaise`), `precedingNotNullChecks` once a nullable conjunct has run, the column check only
+  where `idx == -1 || !afterNullable`, the nested checks suppressed after a nullable conjunct, and
+  the leftovers last. `mayRaise` is `!ExprUtils.canEvaluateUnconditionally`, Spark's own.
+- **2.3.** `inCodegenOrder(condition, childOutput, legacy)` folds in that order and, under
+  `legacy`, wraps every step but a null test in `coalesce(step, false)`; `fallbackCondition`
+  passes `child.output` and `conf.legacyFilterShortCircuitOnNullConjunct` when Spark compiles the
+  filter. `behindRaising(conjuncts, fused, childOutput)` runs `demoteBehind` against the written,
+  codegen and legacy codegen orders, `varka-388`'s `demoteNullableAhead` against the written and
+  codegen orders (the legacy order drops a row at its first NULL conjunct, as a fused conjunct
+  does), and `demoteNullCheckMovers` under both settings, with the residual filter's order taken
+  over the Varka node's output, on which the fused null tests' columns are non-nullable.
+- **2.4.** `-Dvarka.sparkfuzz.nested=false` and its comment are gone from `dev/varka_nightly.sh`.
+- **2.5.** `dc631b7896f` and `feb69a34d30` were not cherry-picked as commits: master's
+  `VarkaConjunctOrder` and both suites have moved since (rows 541, 542, 598), so their
+  `demoteNullableAhead`, the legacy fold and the differential test were ported by hand onto the
+  merged placement. `VARKA-388.md` was not committed to `m7/` (question 3 is the owner's).
+- `basicPhysicalOperators.scala`'s Varka comment names `nullConjunctFlag` and
+  `precedingNotNullChecks` as ported too.
+
+### 10.2 Tests
+
+- `VarkaConjunctOrderSuite` (3.1, 3.2): the merged placement on the upstream suite's conditions,
+  transcribed onto the suite's columns (a null test written before the raising conjunct, the
+  inferred `isnotnull(x)` before `x > 0`, a raising null test written first, the flag off when
+  nothing after the NULL conjunct may raise, and the nested check after a NULL conjunct), each in
+  the default and the legacy order; `demoteNullableAhead` with its reason; one case each order
+  demotes alone; the legacy fold. Existing cases whose fused conjunct can be NULL ahead of a raising
+  residual one now expect the demotion (`raisingBetween`, `castInBeforeDateAdd`), and keep the
+  fusion behind the null tests the optimizer infers.
+- `VarkaDifferentialSuite` (3.3): `varka-388`'s four-session test, the raising residual moved
+  from `(l + 1) > 0` to `(l * 3) > 0` (the product stays residual under ANSI, VARKA-104), and the
+  item-4 case (f): a null test of `x` written between the NULL conjunct and a fused raising one.
+
+**P2's question, scored for 3.2 (the [I]).** No case demotes by the default codegen order alone:
+that order places a null test no later than the legacy order, and the other conjuncts as written,
+so a fused conjunct it places after a raising residual one the legacy order places there too, and a
+fused conjunct it finds NULL ahead of one the written order finds NULL as well (the column checks
+come before the conjunct that reads them in every codegen order). The union still costs nothing
+over the written and legacy orders, and the default order stays in the loop because
+`demoteNullCheckMovers` compares within it. The test names the three cases the other orders
+demote alone.
+
+Run on the laptop (20 November 2026): `VarkaConjunctOrderSuite` 21 of 21;
+`VarkaExpressionCompilerSuite`, `VarkaCoverageSuite` and `VarkaEmittedBytesSuite` pass, with
+`coverage.json` and `emitted_bytes.json` unchanged (P5 holds there); `VarkaDifferentialSuite`,
+`VarkaFilterRaiseOrderSuite`, `VarkaSplitConditionFusionSuite`, `VarkaRangeFilterFusionSuite`,
+`VarkaSparkReproducerSuite` and `VarkaCodegenGiveUpSuite` pass. Three existing tests built a
+nullable fused conjunct ahead of a residual one off `canRaise`'s list (`add_months` in
+`VarkaExpressionCompilerSuite`'s size-budget test, `pow` in two `VarkaFilterExecSuite` rule
+tests), which the new rule demotes; their subjects are the size demotion and the split, so they
+now run over non-nullable columns.
+
+**Where the plan was wrong.** The plan named no consumer of the legacy conf but the fallback.
+`VarkaColumnarRule` also asks `fallbackHoistsIntoAnAnd` (row 541) at planning, over the fallback
+condition, whose fold the setting changes; the review found that a plan run again after the
+setting changes could pass that check under one fold and run the other. The check now asks both
+folds.
+
+### 10.3 Review
+
+`/code-review high` on the branch found one issue, the planning-time hoist check above, fixed by
+asking it under both settings rather than binding the setting into the node: the fallback keeps
+reading the conf when the plan runs, as `FilterExec` does. The review read the `codegenOrder` port
+step by step against the merged `generatePredicateCode` and found it to match.
+
+### 10.4 Owed
+
+- The PR Build and an option-matrix dispatch (CI, not in this window).
+- P3, the nightly census with nested trees after the merge: a laptop nightly, the done-when's
+  third item.
+- P4 (added test time) is unmeasured: one sql/core test of five queries over four sessions.
+
+## 11. Decisions taken while the owner was away (20 November 2026)
+
+1. **The sync came first and was already merged**, so the row's pull request branches from
+   master rather than from a sync branch (question 1 (a) held).
+2. **Ported by hand, not cherry-picked** (2.5): the two commits conflict with master's rows 541,
+   542 and 598 in every file they touch, and their `codegenOrder` is the one the merged revision
+   replaced. The plan's intent, `varka-388`'s rule on the merged placement, is what was built.
+3. **The residual filter's order is taken over the Varka node's output.** The plan did not say
+   which output `demoteNullCheckMovers` binds the residual conjuncts over once nullability decides
+   the order. A residual `FilterExec` sits on the Varka node, whose output makes the fused null
+   tests' columns non-nullable (`VarkaFilterExecBase.output`), so that is what Spark's flag reads
+   there.
+4. **`VARKA-388.md` is not committed to `m7/`** (question 3): the record of what that branch
+   learned is 10.1 here; whether the old plan is kept as a file is the owner's call.
+5. **Three existing tests moved to non-nullable columns** rather than to the inferred null tests:
+   their subjects are not the order rule, and the new rule's demotion is tested in
+   `VarkaConjunctOrderSuite`. The demotion stays on `canRaise`, not Spark's `mayRaise`, as 2.2 says
+   (open point 9 item 3 stays open): `pow` is off both lists.
+6. **The m7 row 380 pointer (9 item 2) waits for the merge**, since the switch leaves the
+   nightly only when this branch lands.
+

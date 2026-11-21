@@ -40,6 +40,7 @@ final class VarkaDescriptors {
       ClassDesc.of("java.lang.foreign.MemorySegment");
   static final ClassDesc BYTE_ORDER = ClassDesc.of("java.nio.ByteOrder");
   static final ClassDesc INT_VECTOR = ClassDesc.of("jdk.incubator.vector.IntVector");
+  static final ClassDesc FLOAT_VECTOR = ClassDesc.of("jdk.incubator.vector.FloatVector");
   static final ClassDesc LONG_VECTOR = ClassDesc.of("jdk.incubator.vector.LongVector");
   static final ClassDesc VECTOR = ClassDesc.of("jdk.incubator.vector.Vector");
   static final ClassDesc VECTOR_MASK = ClassDesc.of("jdk.incubator.vector.VectorMask");
@@ -77,6 +78,7 @@ final class VarkaDescriptors {
       ClassDesc.of("org.apache.spark.sql.varka.vector.VarkaVectorSupport");
   static final ClassDesc FUSED_KERNEL = ClassDesc.of(VarkaFusedKernel.class.getName());
   static final ClassDesc MASK_GUARD = ClassDesc.of(VarkaMaskGuard.class.getName());
+  static final ClassDesc MASK_FROM_WORD = ClassDesc.of(VarkaMaskFromWord.class.getName());
 
   static final ClassDesc LONG_ARRAY = ConstantDescs.CD_long.arrayType();
   static final ClassDesc INT_ARRAY = ConstantDescs.CD_int.arrayType();
@@ -106,6 +108,15 @@ final class VarkaDescriptors {
   /** {@code int IntVector.lane(int)}: one lane read, at a constant index. */
   static final MethodTypeDesc INT_LANE =
       MethodTypeDesc.of(ConstantDescs.CD_int, ConstantDescs.CD_int);
+  /** {@code DoubleVector DoubleVector.withLane(int, double)}: one lane replaced. */
+  static final MethodTypeDesc DOUBLE_WITH_LANE =
+      MethodTypeDesc.of(DOUBLE_VECTOR, ConstantDescs.CD_int, ConstantDescs.CD_double);
+  /** {@code double DoubleVector.lane(int)}: one lane read. */
+  static final MethodTypeDesc DOUBLE_LANE =
+      MethodTypeDesc.of(ConstantDescs.CD_double, ConstantDescs.CD_int);
+  /** {@code double fn(double)}: a static scalar math method, a per-lane call's target. */
+  static final MethodTypeDesc DOUBLE_FN =
+      MethodTypeDesc.of(ConstantDescs.CD_double, ConstantDescs.CD_double);
   /**
    * The whole-batch bitmap pass, one call per node of a served root's word expression:
    * {@code copyColumnValidity(MemorySegment dst, long addr, int nulls, int rows)} for a single
@@ -217,6 +228,12 @@ final class VarkaDescriptors {
 
   /** {@code LongVector Vector.reinterpretAsLongs()}. */
   static final MethodTypeDesc REINTERPRET_L = MethodTypeDesc.of(LONG_VECTOR);
+
+  /** {@code IntVector Vector.reinterpretAsInts()}. */
+  static final MethodTypeDesc REINTERPRET_I = MethodTypeDesc.of(INT_VECTOR);
+
+  /** {@code FloatVector Vector.reinterpretAsFloats()}. */
+  static final MethodTypeDesc REINTERPRET_F = MethodTypeDesc.of(FLOAT_VECTOR);
 
   /** {@code VectorMask DoubleVector.compare(VectorOperators.Comparison, Vector)}. */
   static final MethodTypeDesc COMPARE_DD =

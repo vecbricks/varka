@@ -42,9 +42,24 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     def fits(roots: Seq[VarkaVectorIR], inputs: Int,
         options: VarkaEmitOptions = reference): Boolean =
       VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](roots: _*), inputs, options)
-    assert(fits(Seq(chain(0, 16)), 1))
-    assert(!fits(Seq(chain(0, 17)), 1))
-    assert(!fits(Seq(chain(0, 17)), 1, VarkaMatrix.base))
+    // The chain is on the int lane, whose auto cap is 64 (VARKA-629); an explicit cap is the cap
+    // on every lane, so 16 refuses the 17th level there too.
+    val sixteen = reference.withMaxChainDepth(VarkaEmitBudget.MAX_CHAIN_DEPTH)
+    assert(fits(Seq(chain(0, 16)), 1, sixteen))
+    assert(!fits(Seq(chain(0, 17)), 1, sixteen))
+    assert(!fits(Seq(chain(0, 17)), 1, VarkaMatrix.base.withMaxChainDepth(16)))
+    val intCap = VarkaEmitBudget.INT_LANE_MAX_CHAIN_DEPTH
+    assert(fits(Seq(chain(0, intCap)), 1, VarkaMatrix.base))
+    assert(!fits(Seq(chain(0, intCap + 1)), 1, VarkaMatrix.base))
+    // The tree, not the root, decides: the same count of long-lane XORs narrowed to an int root
+    // holds the long lane, whose cap stays 16, where 17 int levels fit under 64.
+    val lit = new LiteralSlot(0, LaneType.LONG)
+    val narrowed = new NarrowLane(
+      (0 until 20).foldLeft[VarkaVectorIR](new DecimalColumn(0, LaneType.LONG, 9))(
+        (n, _) => new BitOp(BitOpKind.XOR, n, lit)), LaneType.INT)
+    assert(narrowed.laneType() == LaneType.INT)
+    assert(!fits(Seq(narrowed), 1, VarkaMatrix.base))
+    assert(fits(Seq(chain(0, 17)), 1, VarkaMatrix.base))
     // Five disjoint depth-13 chains are 65 distinct ops - the same shape the emitter's own
     // rejection test uses against MAX_FUSED_NODES - and under the byte budget they fit.
     val five: Seq[VarkaVectorIR] = (0 until 5).map(k => chain(k, 13))
@@ -57,6 +72,30 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // emit() rejects numInputs > 64, so the compiler must never accept such a projection.
     assert(fits(Seq(chain(0, 1)), 64, VarkaMatrix.base))
     assert(!fits(Seq(chain(0, 1)), 65, VarkaMatrix.base))
+    // The depth cap is the option's value (VARKA-620), read here as Analysis reads it.
+    assert(fits(Seq(chain(0, 24)), 1, VarkaMatrix.base.withMaxChainDepth(24)))
+    assert(!fits(Seq(chain(0, 25)), 1, VarkaMatrix.base.withMaxChainDepth(24)))
+  }
+
+  test("fitsBudgets counts a decimal leaf as Analysis does: height 0, no op") {
+    // A chain of 64-bit XORs over a decimal column or one word of a decimal pair. Analysis
+    // registers both leaves as inputs of height 0, so the chain's height is its XOR count and
+    // the emitter accepts exactly MAX_CHAIN_DEPTH of them; fitsBudgets must agree at the cap and
+    // one past it, or the compiler declines a shape the emitter would serve.
+    val lit = new LiteralSlot(0, LaneType.LONG)
+    def xors(leaf: VarkaVectorIR, depth: Int): VarkaVectorIR =
+      (0 until depth).foldLeft(leaf)((n, _) => new BitOp(BitOpKind.XOR, n, lit))
+    val cap = VarkaEmitBudget.MAX_CHAIN_DEPTH
+    for (leaf <- Seq[VarkaVectorIR](new DecimalColumn(0, LaneType.LONG, 9),
+        new DecimalWord(0, Word.LOW, 38))) {
+      val atCap = java.util.List.of[VarkaVectorIR](xors(leaf, cap))
+      val past = java.util.List.of[VarkaVectorIR](xors(leaf, cap + 1))
+      assert(VarkaLoopEmitter.fitsBudgets(atCap, 1, VarkaMatrix.base), leaf)
+      assert(emitMulti(atCap.asScala.toSeq, 1, 1)._2.nonEmpty, leaf)
+      assert(!VarkaLoopEmitter.fitsBudgets(past, 1, VarkaMatrix.base), leaf)
+      val e = intercept[IllegalArgumentException](emitMulti(past.asScala.toSeq, 1, 1))
+      assert(e.getMessage.contains("MAX_CHAIN_DEPTH="), e.getMessage)
+    }
   }
 
   test("calendar siblings over one date share a loop method; plain chains, other " +
@@ -337,12 +376,22 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new BitCount(c), 1, 0, VarkaMatrix.base),
       (new BitCount(lc), 1, 0, VarkaMatrix.base),
       (new MathUnary(MathFn.SQRT, dc), 1, 0, VarkaMatrix.base),
+      // A per-lane call weighs its larger form, an extract and an insert of each of eight lanes.
+      (new MathUnary(MathFn.SIN, dc), 1, 0, VarkaMatrix.base.withLanesOverride(8)),
       (new RoundToIntegral(RoundMode.RINT, dc), 1, 0, VarkaMatrix.base),
       // An operand that is never a NaN, or already the canonical one, takes no NaN blend.
       (new RoundToIntegral(RoundMode.RINT, new ConvertLane(c, LaneType.DOUBLE)), 1, 0,
         VarkaMatrix.base),
       (new RoundToIntegral(RoundMode.RINT, new RoundToIntegral(RoundMode.RINT, dc)), 1, 0,
         VarkaMatrix.base),
+      (CanonicalFloat.of(dc), 1, 0, VarkaMatrix.base),
+      (CanonicalFloat.of(new ColumnRef(0, LaneType.FLOAT)), 1, 0, VarkaMatrix.base),
+      (new CanonicalBits(CanonicalFloat.of(dc)), 1, 0, VarkaMatrix.base),
+      (new HashStep(HashMix.MURMUR3_INT, l, c), 1, 1, VarkaMatrix.base),
+      (new HashStep(HashMix.MURMUR3_LOW, l, c), 1, 1, VarkaMatrix.base),
+      (new HashStep(HashMix.MURMUR3_HIGH, l, c), 1, 1, VarkaMatrix.base),
+      (new HashStep(HashMix.XXH64_INT, lc1, lc), 2, 0, VarkaMatrix.base),
+      (new HashStep(HashMix.XXH64_LONG, lc1, lc), 2, 0, VarkaMatrix.base),
       (new IntArith(IntOp.DIV, Overflow.WRAP, dc, dc1), 2, 0, VarkaMatrix.base),
       (new IntArith(IntOp.DIV, Overflow.NULL, dc, dc1), 2, 0, VarkaMatrix.base),
       (new IntArith(IntOp.DIV, Overflow.FAIL, dc, dc1), 2, 0, VarkaMatrix.base),
@@ -391,6 +440,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new NarrowLane(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base),
       (new WidenLane(new IntNeg(Overflow.WRAP, c)), 1, 0, VarkaMatrix.base),
       (new ConvertLane(new IntNeg(Overflow.WRAP, c), LaneType.FLOAT), 1, 0, VarkaMatrix.base),
+      (new ReinterpretLane(new IntNeg(Overflow.WRAP, lc), LaneType.DOUBLE), 1, 0,
+        VarkaMatrix.base),
       (new CrossLane(new Compare(CompareOp.LT, c, c1), LaneType.LONG), 2, 0, VarkaMatrix.base),
       (new DecimalColumn(0, LaneType.LONG, 9), 1, 0, VarkaMatrix.base),
       // A 128-bit column's two words, which share one load and check a body (VARKA-359).

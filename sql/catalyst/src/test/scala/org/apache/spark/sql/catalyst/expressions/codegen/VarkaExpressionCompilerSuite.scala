@@ -26,16 +26,16 @@ import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, BRound, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideDTInterval, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, GreaterThanOrEqual, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeTimestampNTZ, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyDTInterval, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, Round, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, SubtractTimestamps, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, Truncate, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, BRound, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideDTInterval, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, GreaterThanOrEqual, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, KnownFloatingPointNormalized, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeTimestampNTZ, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyDTInterval, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, Round, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, SubtractTimestamps, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, Truncate, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaKernelPlan, VarkaKernelWarmup, VarkaShapeKey}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaFamily, VarkaKernelPlan, VarkaKernelWarmup, VarkaShapeKey}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isStage
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, BoolCompare, BoolOutput, ColumnRef, Compare, CompareOp, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NarrowLane, NextDay => IRNextDay, Not => IRNot, NullSafeEqual => IRNullSafeEqual, Or => IROr, Overflow, Quarter => IRQuarter, RoundMode, RoundToIntegral, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, WidenLane, Year => IRYear}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, BoolCompare, BoolOutput, CanonicalFloat, ColumnRef, Compare, CompareOp, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NarrowLane, NextDay => IRNextDay, Not => IRNot, NullSafeEqual => IRNullSafeEqual, Or => IROr, Overflow, Quarter => IRQuarter, RoundMode, RoundToIntegral, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, WidenLane, Year => IRYear}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
-import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, ReplaceExpressions, UnwrapCastInBinaryComparison}
+import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NormalizeNaNAndZero, ReplaceExpressions, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, OneRowRelation, Project}
 import org.apache.spark.sql.catalyst.util.IntervalUtils
 import org.apache.spark.sql.internal.SQLConf
@@ -1277,6 +1277,36 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       new ColumnRef(0, LaneType.DOUBLE))))
   }
 
+  test("NormalizeNaNAndZero is one canonicalisation, and the tag over it compiles as its child") {
+    val dbl = AttributeReference("dbl", DoubleType)()
+    val flt = AttributeReference("flt", FloatType)()
+    val cols = Seq(dbl, flt)
+    def outputs(e: Expression): Seq[VarkaVectorIR] =
+      VarkaExpressionCompiler.compile(Seq(out(e)), cols).get.outputs.asScala.toSeq
+    // The inputs are mapped densely, so the one column an entry reads is ordinal 0.
+    val canonD = CanonicalFloat.of(new ColumnRef(0, LaneType.DOUBLE))
+    val canonF = CanonicalFloat.of(new ColumnRef(0, LaneType.FLOAT))
+    assert(outputs(NormalizeNaNAndZero(dbl)) === Seq(canonD))
+    assert(outputs(NormalizeNaNAndZero(flt)) === Seq(canonF))
+    // The form the optimizer writes over a key, and that form normalised once more: one node.
+    assert(outputs(KnownFloatingPointNormalized(NormalizeNaNAndZero(dbl))) === Seq(canonD))
+    assert(outputs(NormalizeNaNAndZero(KnownFloatingPointNormalized(NormalizeNaNAndZero(flt))))
+      === Seq(canonF))
+    // The tag alone canonicalises nothing: over a value that is not the node it is that value.
+    val tagged = outputs(Add(KnownFloatingPointNormalized(dbl), Literal(1.0)))
+    assert(tagged.size === 1 && tagged.head.isInstanceOf[IntArith] &&
+      !VarkaVectorIR.canonical(tagged.head).contains("canon"), tagged)
+    // The tag over a bare column is that column: forwarded, not copied by a kernel.
+    val forwarded = VarkaExpressionCompiler.compilePartial(
+      Seq(out(KnownFloatingPointNormalized(dbl)), out(Add(dbl, Literal(1.0)))), cols).get
+    assert(forwarded.specs.get(0).isInstanceOf[ForwardedOutput], forwarded.specs)
+    // The family's switch off declines the canonicalisation by its name.
+    val off = VarkaExpressionCompiler.declines(Seq(out(NormalizeNaNAndZero(dbl))), cols,
+      VarkaEmitOptions.DEFAULTS,
+      new VarkaAdmission(java.util.Set.of(VarkaFamily.FLOATING_ARITHMETIC), false))
+    assert(off.get(0).reason === VarkaFamily.FLOATING_ARITHMETIC.offReason())
+  }
+
   private def declineReason(e: Expression, output: Seq[Attribute] = childOutput): String = {
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(e), out(DateAdd(d, Literal(1)))), output).get
@@ -2386,12 +2416,21 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         childOutput).get.specs.asScala.toSeq ===
       Seq(new FusedOutput(0), new FusedOutput(1), new FusedOutput(2)))
     // The depth budget is mirrored the same way: a 17-deep chain compiled fine before task
-    // 20 and then failed at emission.
-    val deep = out((0 until 17).foldLeft[Expression](d)((e, k) => DateAdd(e, Literal(k + 1))))
-    val deepPartial = VarkaExpressionCompiler.compilePartial(
-      Seq(deep, out(DateAdd(d, Literal(1)))), childOutput).get
+    // 20 and then failed at emission. A date chain is a tree of the int lane alone, whose
+    // default cap is 64 (VARKA-629), so the chain is refused under a cap of 16, and under the
+    // default at 65 and not at 64.
+    def chainOf(depth: Int): NamedExpression =
+      out((0 until depth).foldLeft[Expression](d)((e, k) => DateAdd(e, Literal(k + 1))))
+    def partialOf(depth: Int, options: VarkaEmitOptions): PartialVarkaProjection =
+      VarkaExpressionCompiler.compilePartial(
+        Seq(chainOf(depth), out(DateAdd(d, Literal(1)))), childOutput, options).get
+    val sixteen = VarkaEmitOptions.DEFAULTS.withMaxChainDepth(16)
+    val deepPartial = partialOf(17, sixteen)
     assert(deepPartial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)))
     assert(deepPartial.declines.asScala(0).reason === "exceeds the emitter's fused budget")
+    assert(partialOf(64, VarkaEmitOptions.DEFAULTS).specs.asScala.head.isInstanceOf[FusedOutput])
+    assert(partialOf(65, VarkaEmitOptions.DEFAULTS).specs.asScala.head ===
+      VarkaOutputSpec.RESIDUAL)
     // The input-column budget is mirrored too: 33 shallow datediff entries over 66 distinct
     // columns are only 33 ops at height 1, but 66 kernel inputs - the 33rd entry (the one
     // that pushes past 64 columns) demotes instead of blowing up at emission.
@@ -2648,13 +2687,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("the balanced AND fold keeps many conjuncts inside the depth budget") {
-    // 20 distinct comparisons: a left fold would be 21 deep and trip MAX_CHAIN_DEPTH = 16;
-    // the balanced fold is ceil(log2 20) + 2 deep and every conjunct fuses.
+    // 20 distinct comparisons: a left fold would be 21 deep and trip a cap of 16, which the int
+    // lane's own 64 would not (VARKA-629), so the cap is set to 16; the balanced fold is
+    // ceil(log2 20) + 2 deep and every conjunct fuses.
     val condition = (1 to 20)
       .map(k => GreaterThan(d, Literal(k, DateType)): Expression)
       .reduceLeft(org.apache.spark.sql.catalyst.expressions.And(_, _))
     val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput,
-      VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).get
+      VarkaEmitOptions.DEFAULTS.withMaxChainDepth(16),
+      VarkaAdmission.NO_HOST_REFUSAL).get
     assert(predicate.specs.size === 20)
     assert(predicate.specs.asScala.forall(_.fused))
   }
@@ -3514,6 +3555,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // Without `splitConditions` the compiler drops the last conjunct it admitted and asks again;
     // with it, the default (VARKA-172), it splits the conjunction instead. The budget is set
     // between what two of these conjuncts and all three emit, measured rather than assumed.
+    // The columns are not null: `add_months` is off the order rule's error-free list, so a
+    // demoted conjunct is a residual one that can raise, and a fused conjunct that could be NULL
+    // ahead of it would be demoted too (VARKA-386), which is not this test's subject.
+    val childOutput = this.childOutput.map(_.withNullability(false))
     val conjuncts = (1 to 3).map(k => GreaterThan(heavy(k * 10, k * 10 + 3), d2))
     val condition = conjuncts.reduceLeft[Expression](And(_, _))
     val two = VarkaExpressionCompiler.compilePredicate(

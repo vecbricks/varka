@@ -69,7 +69,7 @@ public record PartialVarkaProjection(
       for (VarkaVectorIR root : kernel.outputs()) {
         if (root instanceof VarkaVectorIR.Cond) {
           throw VarkaErrors.illegalArgument("a projection's boolean output is a BoolOutput root, "
-              + "not a filter's condition root: " + VarkaVectorIR.canonical(root));
+              + "not a filter's condition root: " + VarkaVectorIR.canonicalBrief(root));
         }
       }
     }

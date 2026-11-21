@@ -1,0 +1,64 @@
+VARKA-630 part 4: how deep a nested chain fuses through the SQL compile path, with the chain-depth
+cap at 64 and at 128, and what stops it.
+
+Date: 21 November 2026, one laptop, one JVM, a scratch test run once per cell (single readings,
+not a benchmark; the loops are in VARKA-630-chain-depths.scratch.txt, rewritten from the
+scratch tests that were run and not run again, and the two new tests in VarkaVectorIRSharingSuite pin
+some of the cells): `VarkaExpressionCompiler.explainPredicate` over
+`(CHAIN) > c` on master d49480da0fe, options `VarkaMatrixRuns.BASE.withMaxChainDepth(cap)`.
+
+Each chain nests by substituting the previous level for X. "fuses" is the deepest depth read
+that fuses, "declines" the first read that does not (the depths read are listed, not every one).
+
+  chain             paths  cap 64: fuses / declines    cap 128: fuses / declines
+  signum(X) double  4      12 / 16                     16 / 24
+  abs(X) ym         3      28 / 32                     40 / 64
+  (X + 1) INT       1      63 / 64                     64 / 100
+  (X + 1) BIGINT    1      62 / 63                     63 / 100
+  (X) / 3 ym        7      4 / 8                       not read at cap 128
+
+Depths read at cap 64: signum 4 to 64, abs 4 to 64, / 3 4 to 64, the adds 16 to 72 (INT and
+BIGINT). At cap 128: signum 12, 16, 24, 40; abs 28, 32, 40, 64; the adds 63, 64, 100, 126, 127
+and 130 (INT) and 62, 63, 100, 126 and 127 (BIGINT).
+
+What stops a chain at cap 64 is the chain-depth cap: at cap 128 every chain read stops somewhere
+else, further on, and the add chains reach the cap's edge at 64 (one level short of it for the INT
+chain, which fits the predicate's compare being a level of the chain; not checked). At cap 128
+the stops are not all the cap's: the INT add chain stops at 89 by the method byte budget (below),
+and the signum and abs stops at cap 128 (16 / 24 and 40 / 64) were not attributed to either limit,
+nor was the `/ 3` chain read there. In the table, "declines" is the first depth read that did not
+fuse, not the stop itself. The decline's text, "exceeds the emitter's fused budget", is the one
+note the compiler gives whatever budget failed, depth included, so it does not say which.
+Neither is `VarkaEmitBudget.MAX_FUSED_NODES` the limit: it is checked only where
+`methodByteBudget` is 0 (`Analysis` line 1953) and the default is 8000.
+
+A second limit appears past the cap, and it is the method byte budget. At cap 128 the INT add
+chain declined at 100 levels, well under the cap; a bisection (cap 256, the same predicate) puts
+the stop at 89 levels fused and 90 declined, and it does not move with the cap (128 and 256 give
+the same) or with `fusedCeiling` (2000 gives the same). It moves with `methodByteBudget`:
+
+  methodByteBudget   INT add chain fuses to / declines at   (cap 256)
+  4000               63 / 64    (the search's floor: the real stop is at or below it)
+  8000 (default)     89 / 90
+  16000              170 / 171
+  32000              199 / 200  (the search's ceiling: the real stop is at or above it)
+  60000              199 / 200  (the same ceiling)
+  0 (no byte budget) 63 / 64    (the node budget, MAX_FUSED_NODES = 64, applies instead)
+
+So the chain stops where the loop method's bytecode reaches the budget, about 90 bytes of
+code a level for this chain at the default 8000 (8000 / 89). `VarkaEmitBudget.HUGE_METHOD_LIMIT`
+is also 8000, HotSpot's limit above which a method is not compiled by the JIT; that this budget
+exists for that reason is read from the constant's name, not tested here. With no byte budget the
+node budget binds instead, at 63 levels, as it does only in that form.
+
+Every explanation of the first run came back in under 800 ms (the first, 721 ms, is class loading),
+the rest under 200 ms, and a declined one under 40 ms, at every depth up to 64, which is 2^64
+paths for a chain of fan-out two.
+
+What this means for row 629: the cap, not a second budget, is what a query meets at the depths
+the plan's rows need; a cap of 64 fuses an INT add chain to 63 levels under a predicate. The
+depth to which a chain fuses is a count of IR height, not of SQL nesting: an interval `abs`
+level is about two to three levels of height (inferred from the stop depths, not counted).
+
+Not measured: the decline site of the byte budget (the explain path gives one note), the emitted class size and the cache hit of a chain that
+fuses at these depths, and the plan's decimal chains.

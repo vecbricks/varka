@@ -37,7 +37,13 @@ import org.apache.spark.sql.internal.SQLConf;
  * {@code [-2, 22]}, null outside {@code [0, 20]}; and {@code width_bucket(x, -2.0E8, 2.0E8, 10)}
  * with literal bounds; {@code floor(xw)} and {@code ceil(xw)} under LEGACY over a wide double
  * column; and {@code floor(xwf)} and {@code ceil(xwf)} under ANSI over a finite wide one; each
- * with no nulls and with one row in ten null.
+ * with no nulls and with one row in ten null. After them come row 346's: {@code round(x, 2)},
+ * {@code bround(x, 2)}, {@code truncate(x, 2)} and {@code round(x, 0)} over a double and
+ * {@code round(f, 1)} over a float, at both densities, which compile the same code in both modes
+ * and run in the session's default one. Every {@code x} is inside {@code 2^31 / 7}, below
+ * {@code 2^43}, under which row 346 computes {@code round} at scale 2 in lanes, and every
+ * {@code f} inside {@code 2^31 / 7000}, so each of these sections measures the fused path once
+ * it lands, rather than a declined band.
  *
  * <p>A section whose generated code depends on {@code spark.sql.ansi.enabled} pins the mode and
  * names it in its title, since Spark compiles a different expression per mode even where both
@@ -75,7 +81,8 @@ import org.apache.spark.sql.internal.SQLConf;
  * each section's plan on the Varka session against the section's {@code fuses} flag, the list of
  * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not;
  * the results file notes each section that fuses. Listed: {@code rint(x)} and {@code floor(i)}
- * (344a1), and {@code round(i, -2)} and {@code bround(i, -2)} (344a2), in every mode and density.
+ * (344a1), and {@code round(i, -2)} and {@code bround(i, -2)} (344a2), in every mode and density;
+ * row 346's sections are unlisted until its parts land.
  * A row that fuses a section lists it, so that its fusion cannot turn a baseline section into a
  * fused one unnoticed.
  *
@@ -130,9 +137,9 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
 
   /**
    * The table: {@code x} a {@code DOUBLE}, {@code i} and {@code k} {@code INT}s, {@code l} a
-   * {@code BIGINT}, and {@code xw} and {@code xwf} {@code DOUBLE}s with wide values, with no null,
-   * and {@code x_n} to {@code xwf_n} the same values with one row in ten null, at a different row
-   * in each column. Each column is a hash of the row's id, so any
+   * {@code BIGINT}, {@code xw} and {@code xwf} {@code DOUBLE}s with wide values and {@code f} a
+   * {@code FLOAT}, with no null, and {@code x_n} to {@code f_n} the same values with one row in
+   * ten null, at a different row in each column. Each column is a hash of the row's id, so any
    * few thousand rows reach every region below, as the queries suite checks.
    *
    * <ul>
@@ -185,6 +192,9 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
    *       holds no infinity and nothing past the long range. Its wide share is {@code xw}'s, at
    *       the same ids, so every 4096-row batch holds about a thousand wide rows and declines under
    *       344b's bounded arm, for the reason {@code xw}'s does, without the saturating values.</li>
+   *   <li>{@code f} is {@code x / 1000} narrowed to a float: its zeros, signs and NaN rows are
+   *       {@code x}'s, and its values, inside {@code 2^31 / 7000}, keep a fraction at scale 1 on
+   *       most rows.</li>
    * </ul>
    */
   static String tableSql(int rows) {
@@ -197,14 +207,15 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
    */
   static String tableSql(String ids) {
     return """
-        select x, i, l, k, xw, xwf,
+        select x, i, l, k, xw, xwf, f,
                case when id %% 10 = 5 then null else x end as x_n,
                case when id %% 10 = 3 then null else i end as i_n,
                case when id %% 10 = 1 then null else l end as l_n,
                case when id %% 10 = 7 then null else k end as k_n,
                case when id %% 10 = 9 then null else xw end as xw_n,
-               case when id %% 10 = 6 then null else xwf end as xwf_n
-        from (select id,
+               case when id %% 10 = 6 then null else xwf end as xwf_n,
+               case when id %% 10 = 8 then null else f end as f_n
+        from (select *, cast(x / 1000.0d as float) as f from (select id,
                      case when id %% 1000 = 11 then double('NaN')
                           when id %% 8 = 0 then 0.0d
                           when id %% 8 = 4 then -0.0d
@@ -228,7 +239,7 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
                           when id %% 8 in (3, 7) then hash(id, 5) / 7.0d
                                * power(2.0d, 24 + id %% 11)
                           else hash(id, 5) / 7.0d end as xwf
-              from %s)""".formatted(ids);
+              from %s))""".formatted(ids);
   }
 
   /**
@@ -244,7 +255,8 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
   /**
    * Every section, in the order they run: each null density, then each function, a function
    * timed in both modes LEGACY first, then the wide columns, {@code xw} under LEGACY and
-   * {@code xwf} under ANSI.
+   * {@code xwf} under ANSI; and after them row 346's sections at each density, so that the order
+   * of the sections the committed results already hold is unchanged.
    */
   static List<Section> sections() {
     List<Section> out = new ArrayList<>();
@@ -294,6 +306,22 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
           new Form("DOUBLE ceil(xwf)", "ceil(" + xwf + ")", "BIGINT"))) {
         out.add(new Section(f.title() + ", ANSI" + density, "SELECT " + f.expr() + from,
             ansi, false, f.resultType(), nullInputs, NullRule.INPUT));
+      }
+    }
+    for (boolean nullInputs : new boolean[] {false, true}) {
+      String nulls = nullInputs ? "_n" : "";
+      String x = "x" + nulls;
+      String f = "f" + nulls;
+      String density = ", " + (nullInputs ? "one row in ten null" : "no nulls");
+      for (Form form : List.of(
+          new Form("DOUBLE round(x, 2)", "round(" + x + ", 2)", "DOUBLE"),
+          new Form("DOUBLE bround(x, 2)", "bround(" + x + ", 2)", "DOUBLE"),
+          new Form("DOUBLE truncate(x, 2)", "truncate(" + x + ", 2)", "DOUBLE"),
+          new Form("DOUBLE round(x, 0)", "round(" + x + ", 0)", "DOUBLE"),
+          new Form("FLOAT round(f, 1)", "round(" + f + ", 1)", "FLOAT"))) {
+        out.add(new Section(form.title() + density,
+            "SELECT " + form.expr() + " AS a FROM " + VIEW, Map.of(), form.fuses(),
+            form.resultType(), nullInputs, NullRule.INPUT));
       }
     }
     return out;

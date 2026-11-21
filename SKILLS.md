@@ -49,6 +49,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Spark's codegen cache: what a compile count and a cache hit measure](sql/varka/skills/benchmarking.md#sparks-codegen-cache-what-a-compile-count-and-a-cache-hit-measure)
 * [An Arm benchmark is a dispatch of `benchmark.yml` with `runner=ubuntu-24.04-arm`](sql/varka/skills/benchmarking.md#an-arm-benchmark-is-a-dispatch-of-benchmarkyml-with-runnerubuntu-2404-arm)
 * [A probe pass whose fused control loses is not read](sql/varka/skills/benchmarking.md#a-probe-pass-whose-fused-control-loses-is-not-read)
+* [A dispatch of Varka classes only skips the TPC-DS data job](sql/varka/skills/benchmarking.md#a-dispatch-of-varka-classes-only-skips-the-tpc-ds-data-job)
 
 #### [Build and environment](sql/varka/skills/build-and-environment.md)
 * [Classpath Shadowing (the stub trap)](sql/varka/skills/build-and-environment.md#classpath-shadowing-the-stub-trap)
