@@ -17,7 +17,10 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen;
 
+import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import javax.annotation.Nullable;
@@ -260,28 +263,44 @@ final class VarkaIntegralCastCompiler {
    * and constants, which name a lane but read only bits - or empty.
    */
   static Optional<Cond> onLane(Cond cond, LaneType lane) {
-    return switch (cond) {
+    return onLane(cond, lane, new IdentityHashMap<>());
+  }
+
+  /**
+   * {@link #onLane(Cond, LaneType)} with {@code memo}, by identity, so that a condition reached by
+   * several paths is lifted once instead of once per path (VARKA-630).
+   */
+  private static Optional<Cond> onLane(Cond cond, LaneType lane,
+      Map<Cond, Optional<Cond>> memo) {
+    Optional<Cond> known = memo.get(cond);
+    if (known != null) {
+      return known;
+    }
+    Function<Cond, Optional<Cond>> up = c -> onLane(c, lane, memo);
+    Optional<Cond> lifted = switch (cond) {
       case BoolColumn b -> Optional.of(new BoolColumn(b.ordinal(), lane));
       case CondConst k -> Optional.of(new CondConst(k.value(), lane));
-      case Not n -> onLane(n.child(), lane).map(Not::new);
+      case Not n -> up.apply(n.child()).map(Not::new);
       // A crossing of a lane-free condition is that condition, read at the lane asked for.
-      case VarkaVectorIR.CrossLane c -> onLane(c.child(), lane);
-      case VarkaVectorIR.And a -> onLane(a.left(), lane).flatMap(l -> onLane(a.right(), lane)
+      case VarkaVectorIR.CrossLane c -> up.apply(c.child());
+      case VarkaVectorIR.And a -> up.apply(a.left()).flatMap(l -> up.apply(a.right())
           .map(r -> new VarkaVectorIR.And(l, r)));
-      case VarkaVectorIR.Or o -> onLane(o.left(), lane).flatMap(l -> onLane(o.right(), lane)
+      case VarkaVectorIR.Or o -> up.apply(o.left()).flatMap(l -> up.apply(o.right())
           .map(r -> new VarkaVectorIR.Or(l, r)));
-      case BoolCompare b -> onLane(b.left(), lane).flatMap(l -> onLane(b.right(), lane)
+      case BoolCompare b -> up.apply(b.left()).flatMap(l -> up.apply(b.right())
           .map(r -> new BoolCompare(b.op(), l, r)));
-      case BoolNullSafeEq b -> onLane(b.left(), lane).flatMap(l -> onLane(b.right(), lane)
+      case BoolNullSafeEq b -> up.apply(b.left()).flatMap(l -> up.apply(b.right())
           .map(r -> new BoolNullSafeEq(l, r)));
-      case CondIf i -> onLane(i.cond(), lane).flatMap(k -> onLane(i.thenCond(), lane)
-          .flatMap(t -> onLane(i.elseCond(), lane).map(f -> new CondIf(k, t, f))));
+      case CondIf i -> up.apply(i.cond()).flatMap(k -> up.apply(i.thenCond())
+          .flatMap(t -> up.apply(i.elseCond()).map(f -> new CondIf(k, t, f))));
       case IsNotNull n when n.child() instanceof Cond inner ->
-          onLane(inner, lane).map(IsNotNull::new);
+          up.apply(inner).map(IsNotNull::new);
       case IsNotNull n -> Optional.empty();
       case Compare x -> Optional.empty();
       case VarkaVectorIR.NullSafeEqual x -> Optional.empty();
       case VarkaVectorIR.InRanges x -> Optional.empty();
     };
+    memo.put(cond, lifted);
+    return lifted;
   }
 }
