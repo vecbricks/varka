@@ -502,6 +502,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "a multiply is checked, and only bounded operands take the check off: `i * 2` over "
           + "a bare int column declines", domain = Some(dayBound)),
       Row("-i", "checked under ANSI", domain = Some(s"i > ${Int.MinValue}")),
+      Row("abs(i)", "`abs(Int.MinValue)` is out of range, and wraps back to itself in the legacy "
+        + "mode", domain = Some(s"i > ${Int.MinValue}")),
       Row("try_add(i, 1)", "an overflowing lane is null, so the kernel declines nothing"),
       Row("try_subtract(i, 1)", "an overflowing lane is null"),
       Row("year(d) + i", "checked under ANSI; the lower bound is out of reach, since a year is "

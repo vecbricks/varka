@@ -1351,7 +1351,8 @@ final class VarkaVectorWalk {
    * same check on the same operand, and at the int lane a reduction of its own result wherever
    * it is read ({@link Analysis#wrapAt}). A long-lane {@code abs} is a decimal's, which wraps, or
    * a bigint's, checked under ANSI by the negation's compare: by default a compare with zero, a
-   * negation and a blend, and the lanewise {@code ABS} under {@code decimalAbsLanewise}.
+   * negation and a blend, and the lanewise {@code ABS} under {@code decimalAbsLanewise}. An int
+   * {@code abs} is the lanewise {@code ABS}, checked the same way.
    */
   private static void emitIntNeg(CodeBuilder cb, IntNeg n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
@@ -1367,12 +1368,16 @@ final class VarkaVectorWalk {
       cb.invokevirtual(lane.vector, "compare", lane.compareVI);
       emitOverflowMask(cb, n.mode(), n, dense, analysis, s);
     }
-    if (n.abs() && !n.laneType().isNarrow() && !n.laneType().isFloating()) {
+    // An int abs is the lanewise ABS, intrinsic on an AVX2 host (vpabsd): its wrap of the
+    // minimum is Math.abs's, so it falls through to the lanewise form below, after the check.
+    if (n.abs() && n.laneType() == VarkaVectorIR.LaneType.INT && n.mode() == Overflow.NULL) {
+      throw VarkaErrors.illegalArgument("an int abs is wrapping or checked: " + n);
+    }
+    if (n.abs() && n.laneType() == VarkaVectorIR.LaneType.LONG) {
       // A long abs is a decimal's, which wraps, or a bigint's (VARKA-104), checked under ANSI
       // by the negation's compare above. Spark has no try_abs, so NULL never reaches here.
-      if (n.laneType() != VarkaVectorIR.LaneType.LONG || n.mode() == Overflow.NULL) {
-        throw VarkaErrors.illegalArgument("abs off the narrow and floating lanes is a long one, "
-            + "wrapping or checked: " + n);
+      if (n.mode() == Overflow.NULL) {
+        throw VarkaErrors.illegalArgument("a long abs is wrapping or checked: " + n);
       }
       if (!analysis.options.decimalAbsLanewise()) {
         // x < 0 ? -x : x as x.blend(x.neg(), x.compare(LT, 0)): the compare and the blend are

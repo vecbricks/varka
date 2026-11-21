@@ -1188,10 +1188,11 @@ public sealed interface VarkaVectorIR
    * either mode (VARKA-104): Spark's
    * {@code x < 0 ? -x : x}, the negation taken where the operand is negative. It shares the
    * negation's one overflowing input and its check, and its validity is the child's, so the two
-   * are one node with one flag, emitted on a narrow or floating lane as one lanewise {@code ABS}
-   * rather than a compare, a negation and a blend; on the long lane the blend is the default and
-   * the lanewise form an option ({@code VarkaEmitOptions.decimalAbsLanewise}). Where the negation
-   * commutes with reduction modulo the narrow width, {@code abs} does not - {@code abs(-128)}
+   * are one node with one flag, emitted on a narrow, int or floating lane as one lanewise
+   * {@code ABS} rather than a compare, a negation and a blend; on the long lane the blend is the
+   * default and the lanewise form an option ({@code VarkaEmitOptions.decimalAbsLanewise}). Where
+   * the negation commutes with reduction modulo the narrow width, {@code abs} does not -
+   * {@code abs(-128)}
    * and {@code abs(128)} differ - so a wrapping {@code abs} at the int lane is never a ring node
    * and reduces its own result.
    *

@@ -642,6 +642,16 @@ final class VarkaNodeCompiler {
             boolean checked = n.failOnError() && !boundedByIntMax(x, literals, sink);
             return (VarkaVectorIR) new IntNeg(checked ? Overflow.FAIL : Overflow.WRAP, x);
           });
+      // `abs` over an int is the negation's node with its `abs` flag, on the same terms: Spark's
+      // `x < 0 ? negateExact(x) : x` under ANSI and `Math.abs` otherwise, whose
+      // `abs(Int.MinValue)` is `Int.MinValue`. The one overflowing input is the minimum, so any
+      // bound on the operand takes the ANSI check off. Spark has no try_abs (FunctionRegistry
+      // holds no such name; SPARK-62149 proposes try_abs and try_negative), so the mode is
+      // WRAP or FAIL.
+      case Abs a when isInt(a) -> () -> intOperand(a.child(), inputs, literals, sink).map(x -> {
+        boolean checked = a.failOnError() && !boundedByIntMax(x, literals, sink);
+        return (VarkaVectorIR) new IntNeg(checked ? Overflow.FAIL : Overflow.WRAP, x, true);
+      });
       // The long negation and `abs` (VARKA-104): the one overflowing input is `Long.MinValue`,
       // checked under ANSI unless the long lattice rules it out. Spark has no try_negative or
       // try_abs, so the mode is WRAP or FAIL; `abs` is `x < 0 ? negateExact(x) : x` under ANSI

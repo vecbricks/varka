@@ -723,6 +723,18 @@
     "note" : "checked under ANSI",
     "verified" : "refinement: -a"
   }, {
+    "sql" : "abs(i)",
+    "executable" : "abs(i)",
+    "family" : "Integer arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Abs" ],
+    "casts" : [ ],
+    "operands" : [ "Abs:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "i > -2147483648",
+    "note" : "`abs(Int.MinValue)` is out of range, and wraps back to itself in the legacy mode",
+    "verified" : "differential"
+  }, {
     "sql" : "try_add(i, 1)",
     "executable" : "try_add(i, 1)",
     "family" : "Integer arithmetic",
