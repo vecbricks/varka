@@ -1,0 +1,176 @@
+diff --git a/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/Analysis.java b/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/Analysis.java
+index 6383e6127b6..dee754015c7 100644
+--- a/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/Analysis.java
++++ b/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/Analysis.java
+@@ -583,9 +583,10 @@ final class Analysis {
+     analyze(root);
+     // The message keeps the constant's name whatever the option's value, since the fuzzer's
+     // steering and its budget skip match on "MAX_CHAIN_DEPTH=", and names the option beside it.
+-    if (height.get(root) > options.maxChainDepth()) {
++    int cap = VarkaEmitBudget.chainDepthCap(options, lane);
++    if (height.get(root) > cap) {
+       throw VarkaErrors.illegalArgument("chain deeper than MAX_CHAIN_DEPTH="
+-          + options.maxChainDepth() + " (the maxChainDepth emit option)");
++          + cap + " (the maxChainDepth emit option)");
+     }
+   }
+ 
+diff --git a/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitBudget.java b/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitBudget.java
+index d21ead0c833..7e6d511c4ae 100644
+--- a/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitBudget.java
++++ b/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitBudget.java
+@@ -255,6 +255,30 @@ final class VarkaEmitBudget {
+    */
+   public static final int MAX_CHAIN_DEPTH = 16;
+ 
++  /**
++   * The deepest op path one output may have in a kernel on the int lane, when
++   * {@link VarkaEmitOptions#maxChainDepth} is at its default. The int lane's fused chain measured
++   * about fifteen times faster than Spark's row path at every depth to 64 and 3 to 4 times faster
++   * than the scalar loop at depth 16, with the largest method 3358 bytes of the 8000 limit
++   * (VARKA-620 and `VarkaChainDepthBenchmark`, on the EPYC 7763 at 256 and 128 bits), so the cap
++   * is the deepest depth measured. The long lane keeps {@link #MAX_CHAIN_DEPTH} for now: its
++   * chain is faster fused at 256 bits but slower than the row path at 128 bits (VARKA-628), and
++   * the cap does not yet depend on the width.
++   */
++  public static final int INT_LANE_MAX_CHAIN_DEPTH = 64;
++
++  /**
++   * The deepest op path one output may have in a kernel on {@code lane} under {@code options}:
++   * the {@link VarkaEmitOptions#maxChainDepth} option where it was set off its default, else
++   * {@link #INT_LANE_MAX_CHAIN_DEPTH} on the int lane and {@link #MAX_CHAIN_DEPTH} elsewhere.
++   * {@link Analysis} and {@link VarkaLoopEmitter#fitsBudgets} both ask it, so the emitter and the
++   * compiler's mirror of its budgets agree.
++   */
++  static int chainDepthCap(VarkaEmitOptions options, Lane lane) {
++    int set = options.maxChainDepth();
++    return set == MAX_CHAIN_DEPTH && lane == Lane.INT ? INT_LANE_MAX_CHAIN_DEPTH : set;
++  }
++
+   /**
+    * The most literals a one-output loop body hoists into vector locals; past it every broadcast
+    * is inlined at its use. The hoist measured as a win up to a chain's worth of literals, one
+diff --git a/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaLoopEmitter.java b/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaLoopEmitter.java
+index 0dfb26943b4..91aa3c0f25d 100644
+--- a/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaLoopEmitter.java
++++ b/sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaLoopEmitter.java
+@@ -1884,14 +1884,18 @@ public final class VarkaLoopEmitter {
+   public static boolean fitsBudgets(java.util.List<VarkaVectorIR> outputs, int numInputs,
+       VarkaEmitOptions options) {
+     boolean capOps = options.methodByteBudget() == 0;
+-    if (numInputs > MAX_INPUTS || outputs.isEmpty()
+-        || VarkaKernelPlan.of(outputs, options).refusal().isPresent()) {
++    if (numInputs > MAX_INPUTS || outputs.isEmpty()) {
+       return false;
+     }
++    VarkaKernelPlan plan = VarkaKernelPlan.of(outputs, options);
++    if (plan.refusal().isPresent()) {
++      return false;
++    }
++    int cap = VarkaEmitBudget.chainDepthCap(options, plan.lane());
+     java.util.HashMap<VarkaVectorIR, Integer> heights = new java.util.HashMap<>();
+     int[] opNodes = {0};
+     for (VarkaVectorIR root : outputs) {
+-      if (budgetWalk(root, heights, opNodes) > options.maxChainDepth()
++      if (budgetWalk(root, heights, opNodes) > cap
+           || (capOps && opNodes[0] > MAX_FUSED_NODES)) {
+         return false;
+       }
+diff --git a/sql/catalyst/src/test/java/org/apache/spark/sql/VarkaChainDepthBenchmark.java b/sql/catalyst/src/test/java/org/apache/spark/sql/VarkaChainDepthBenchmark.java
+index 23de700d5a4..7a150d5fdbc 100644
+--- a/sql/catalyst/src/test/java/org/apache/spark/sql/VarkaChainDepthBenchmark.java
++++ b/sql/catalyst/src/test/java/org/apache/spark/sql/VarkaChainDepthBenchmark.java
+@@ -118,6 +118,18 @@ public class VarkaChainDepthBenchmark extends VarkaBenchmarkBase {
+   /** The default cap, {@code VarkaEmitBudget.MAX_CHAIN_DEPTH}, which is package-private. */
+   private static final int DEFAULT_CAP = VarkaEmitOptions.DEFAULTS.maxChainDepth();
+ 
++  /**
++   * The int lane's default cap, {@code VarkaEmitBudget.INT_LANE_MAX_CHAIN_DEPTH}, which is
++   * package-private like {@code MAX_CHAIN_DEPTH} (VARKA-629).
++   */
++  private static final int INT_LANE_CAP = 64;
++
++  /** The default cap of a lane's kernels: the int lane's is raised, the long lane's is not. */
++  private static int defaultCap(Lane lane) {
++    return lane.type() == DataTypes.IntegerType
++        ? INT_LANE_CAP : DEFAULT_CAP;
++  }
++
+   /** The cap the fused arm is emitted under: the deepest rung, so every rung is admitted. */
+   private static final int RAISED_CAP = 64;
+ 
+@@ -261,7 +273,7 @@ public class VarkaChainDepthBenchmark extends VarkaBenchmarkBase {
+     require(h == depth, label + " compiled to height " + h);
+     boolean defaultFuses = VarkaExpressionCompiler.compile(project, columns,
+         VarkaEmitOptions.DEFAULTS).isPresent();
+-    require(defaultFuses == depth <= DEFAULT_CAP,
++    require(defaultFuses == depth <= defaultCap(lane),
+         label + (defaultFuses ? " fused" : " did not fuse") + " under the default cap");
+     int id = nextId++;
+     claimCaseId(id);
+@@ -270,7 +282,7 @@ public class VarkaChainDepthBenchmark extends VarkaBenchmarkBase {
+     int inputs = fused.inputOrdinals().size();
+     byte[] bytes = VarkaLoopEmitter.emit(name, outputs, inputs, fused.numLiterals(), null, null,
+         raised);
+-    if (depth <= DEFAULT_CAP) {
++    if (depth <= defaultCap(lane)) {
+       byte[] atDefault = VarkaLoopEmitter.emit(name, outputs, inputs, fused.numLiterals(), null,
+           null, VarkaEmitOptions.DEFAULTS);
+       require(Arrays.equals(bytes, atDefault),
+diff --git a/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/VarkaExpressionCompilerSuite.scala b/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/VarkaExpressionCompilerSuite.scala
+index dbb7303806d..092d81137e4 100644
+--- a/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/VarkaExpressionCompilerSuite.scala
++++ b/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/VarkaExpressionCompilerSuite.scala
+@@ -2415,9 +2415,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog
+     assert(VarkaExpressionCompiler.compilePartial(threeEntries,
+         childOutput).get.specs.asScala.toSeq ===
+       Seq(new FusedOutput(0), new FusedOutput(1), new FusedOutput(2)))
+-    // The depth budget is mirrored the same way: a 17-deep chain compiled fine before task
+-    // 20 and then failed at emission.
+-    val deep = out((0 until 17).foldLeft[Expression](d)((e, k) => DateAdd(e, Literal(k + 1))))
++    // The depth budget is mirrored the same way: a chain one past the int lane's cap (64,
++    // VARKA-629) compiled fine before task 20 and then failed at emission. A 17-deep one fuses.
++    val deep = out((0 until 65).foldLeft[Expression](d)((e, k) => DateAdd(e, Literal(k + 1))))
+     val deepPartial = VarkaExpressionCompiler.compilePartial(
+       Seq(deep, out(DateAdd(d, Literal(1)))), childOutput).get
+     assert(deepPartial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)))
+diff --git a/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitterBudgetSuite.scala b/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitterBudgetSuite.scala
+index f2bd3c690a7..0fadf42e295 100644
+--- a/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitterBudgetSuite.scala
++++ b/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitterBudgetSuite.scala
+@@ -42,9 +42,13 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
+     def fits(roots: Seq[VarkaVectorIR], inputs: Int,
+         options: VarkaEmitOptions = reference): Boolean =
+       VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](roots: _*), inputs, options)
++    // The chain's kernel is on the int lane, whose default cap is 64 (VARKA-629).
++    val intCap = VarkaEmitBudget.INT_LANE_MAX_CHAIN_DEPTH
+     assert(fits(Seq(chain(0, 16)), 1))
+-    assert(!fits(Seq(chain(0, 17)), 1))
+-    assert(!fits(Seq(chain(0, 17)), 1, VarkaMatrix.base))
++    assert(fits(Seq(chain(0, 17)), 1))
++    assert(fits(Seq(chain(0, intCap)), 1))
++    assert(!fits(Seq(chain(0, intCap + 1)), 1))
++    assert(!fits(Seq(chain(0, intCap + 1)), 1, VarkaMatrix.base))
+     // Five disjoint depth-13 chains are 65 distinct ops - the same shape the emitter's own
+     // rejection test uses against MAX_FUSED_NODES - and under the byte budget they fit.
+     val five: Seq[VarkaVectorIR] = (0 until 5).map(k => chain(k, 13))
+diff --git a/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitterContractSuite.scala b/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitterContractSuite.scala
+index d443165f448..1f8efe970a5 100644
+--- a/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitterContractSuite.scala
++++ b/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitterContractSuite.scala
+@@ -43,8 +43,13 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
+       val e = intercept[IllegalArgumentException](body)
+       assert(e.getMessage.contains(fragment), s"message was: ${e.getMessage}")
+     }
+-    rejects(emit(chain(VarkaEmitBudget.MAX_CHAIN_DEPTH + 1),
+-      VarkaEmitBudget.MAX_CHAIN_DEPTH + 1), "MAX_CHAIN_DEPTH")
++    // The chain's kernel is on the int lane, whose default cap is the deepest depth measured
++    // (VARKA-629): the long lane's 16 is admitted here, one past the int lane's cap is refused.
++    assert(emit(chain(VarkaEmitBudget.MAX_CHAIN_DEPTH + 1),
++      VarkaEmitBudget.MAX_CHAIN_DEPTH + 1)._2.nonEmpty)
++    rejects(emit(chain(VarkaEmitBudget.INT_LANE_MAX_CHAIN_DEPTH + 1),
++      VarkaEmitBudget.INT_LANE_MAX_CHAIN_DEPTH + 1),
++      s"MAX_CHAIN_DEPTH=${VarkaEmitBudget.INT_LANE_MAX_CHAIN_DEPTH}")
+     // The cap is the option's value (VARKA-620): a raised one admits the chain the default
+     // refuses, refuses one level past itself, and its message keeps the constant's name, which
+     // the fuzzer's skips match on.
