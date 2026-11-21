@@ -9,3 +9,7 @@ kernel:      6.17.0-1022-azure
 cpu:         AMD EPYC 7763 64-Core Processor
 datapath:    44.9 / 90.1 / 90.0 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.01 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
 pinned to:   none (the runner is not pinned)
+spliced:     2026-11-21, 14 sections new to this file: row 346's floating remainder, pmod, comparison with a literal and the DOUBLE to DECIMAL(10, 2) cast, at both null densities, from
+             https://github.com/vecbricks/varka/actions/runs/44827039786, commit 5b443904bfc
+             (refs/pull/1586/head, merged), AMD EPYC 7763, extra-java-options=<none>, run at 2026-11-20T23:34:04Z, by
+             dev/varka_bench_sections.py splice; every other section is the runs above
