@@ -986,7 +986,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `ntz BETWEEN ntz2 AND TIMESTAMP_NTZ '2000-01-01 00:00:00'` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `ntz BETWEEN ntz2 AND TIMESTAMP_NTZ '2100-01-01 00:00:00'` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `equal_null(ntz, ntz2)` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### equal_null on every other type
