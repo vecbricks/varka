@@ -653,7 +653,7 @@ public sealed interface VarkaEmitOption
       // rather than skipped. A raise changes no byte of a shape the default cap admits, but the
       // matrix runs the suites under it (VARKA-620), so the tests that assert the default cap
       // are listed in the skip list.
-      new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.MAX_CHAIN_DEPTH,
+      new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.AUTO_CHAIN_DEPTH,
           VarkaEmitOptions::maxChainDepth, Builder::maxChainDepth, new CountTag("chainDepth="),
           List.of(VarkaEmitBudget.MAX_CHAIN_DEPTH, 32), List.of(32)));
 

@@ -401,6 +401,19 @@ public final class VarkaReproductionSuite {
   }
 
   @Test
+  @DisplayName("the auto chain cap renders as no option, and an explicit 16 renders and reads back "
+      + "(VARKA-629)")
+  void autoChainCapRendersAsNothing() {
+    assertFalse(
+        VarkaErrorContext.renderOptions(VarkaEmitOptions.DEFAULTS).contains("axChainDepth"));
+    var sixteen = VarkaEmitOptions.DEFAULTS.withMaxChainDepth(16);
+    String text = VarkaErrorContext.renderOptions(sixteen);
+    assertTrue(text.contains("maxChainDepth=16"), text);
+    assertEquals(sixteen, VarkaMatrixRuns.parse(text));
+    assertNotEquals(VarkaEmitOptions.DEFAULTS, sixteen);
+  }
+
+  @Test
   @DisplayName("a DAG rendering is read back, on one line or several, and hashes as it did "
       + "(VARKA-630)")
   void dagFormReadsBack() {

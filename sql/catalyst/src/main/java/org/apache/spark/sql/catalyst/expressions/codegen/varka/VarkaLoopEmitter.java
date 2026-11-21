@@ -1891,7 +1891,8 @@ public final class VarkaLoopEmitter {
     java.util.HashMap<VarkaVectorIR, Integer> heights = new java.util.HashMap<>();
     int[] opNodes = {0};
     for (VarkaVectorIR root : outputs) {
-      if (budgetWalk(root, heights, opNodes) > options.maxChainDepth()
+      if (budgetWalk(root, heights, opNodes)
+              > VarkaEmitBudget.chainDepthCap(options, root.laneType())
           || (capOps && opNodes[0] > MAX_FUSED_NODES)) {
         return false;
       }

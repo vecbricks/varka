@@ -249,11 +249,39 @@ final class VarkaEmitBudget {
    * (VarkaEmitterParityBenchmark; details in VARKA-9.md): fused throughput declines only
    * gently with depth while sequential passes collapse linearly, so the cap bounds emitted
    * method size and register pressure by policy, well past any depth a real projection
-   * produces, rather than marking a measured performance edge. Condition nodes count. It is the
-   * default of {@link VarkaEmitOptions#maxChainDepth}, which a benchmark raises to price the
-   * depths past it (VARKA-620).
+   * produces, rather than marking a measured performance edge. Condition nodes count. It is what
+   * {@link VarkaEmitOptions#maxChainDepth}'s auto value resolves to on every lane but the int one
+   * ({@link #chainDepthCap}); a benchmark raises the option to price the depths past it
+   * (VARKA-620).
    */
   public static final int MAX_CHAIN_DEPTH = 16;
+
+  /**
+   * The value of {@link VarkaEmitOptions#maxChainDepth} that leaves the cap to the output's lane,
+   * which is its default.
+   */
+  public static final int AUTO_CHAIN_DEPTH = 0;
+
+  /**
+   * The auto cap on the int lane: a fused int chain is 8 to 34 times faster than the row path to
+   * depth 64 at both vector widths (VARKA-620, {@code VarkaChainDepthBenchmark}). The BIGINT lane
+   * is not in that reading, 128 bits being slower than the row path (row 628), nor are the
+   * narrow and floating lanes, which were not measured, so they keep {@link #MAX_CHAIN_DEPTH}.
+   */
+  public static final int INT_LANE_MAX_CHAIN_DEPTH = 64;
+
+  /**
+   * The deepest op path an output on {@code lane} may have under {@code options}: its
+   * {@code maxChainDepth} where one is set, and where it is auto the lane's own cap. An explicit
+   * 16 is therefore 16 on the int lane too, which a default that read 16 as unset could not say.
+   */
+  public static int chainDepthCap(VarkaEmitOptions options, VarkaVectorIR.LaneType lane) {
+    int set = options.maxChainDepth();
+    if (set != AUTO_CHAIN_DEPTH) {
+      return set;
+    }
+    return lane == VarkaVectorIR.LaneType.INT ? INT_LANE_MAX_CHAIN_DEPTH : MAX_CHAIN_DEPTH;
+  }
 
   /**
    * The most literals a one-output loop body hoists into vector locals; past it every broadcast

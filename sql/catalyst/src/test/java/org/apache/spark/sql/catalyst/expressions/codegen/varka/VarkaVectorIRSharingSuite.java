@@ -123,30 +123,34 @@ public final class VarkaVectorIRSharingSuite {
   }
 
   @Test
-  @DisplayName("nested signum, interval abs and interval division explain at depth 20, not fused")
+  @DisplayName("nested signum, interval abs and interval division explain at depth 20, each "
+      + "fused or declined by its lane's cap (VARKA-559, VARKA-629)")
   void sharingExpressionsExplainAtDepth() {
     // Per level an interval's abs reaches its operand by three paths, its division by seven and
     // a signum by four: before the cached hash these took 25 s at depth 16, 10 s at 8 and 18 s
-    // at 12 (results/VARKA-559-planning-cost.txt), so the bound decides it at 20.
+    // at 12 (results/VARKA-559-planning-cost.txt), so the bound decides it at 20. The predicate's
+    // lane is the lane of the cap: the signum's is the double lane, 16, and the intervals' the
+    // int lane, 64 (VARKA-629). So the signum declines at 20, the abs fuses (it fuses to 28) and
+    // declines past the int cap at 32, and the division, whose levels are several high, declines.
+    // The default options, not the matrix's, since the matrix moves the budgets that decide it.
     DataType ym = new YearMonthIntervalType((byte) 0, (byte) 1);
-    List<Object[]> chains = List.of(new Object[] {DataTypes.DoubleType, "signum(X)"},
-        new Object[] {ym, "abs(X)"}, new Object[] {ym, "(X) / 3"});
+    Object[][] chains = {{DataTypes.DoubleType, "signum(X)", 20, false},
+        {ym, "abs(X)", 20, true}, {ym, "abs(X)", 32, false}, {ym, "(X) / 3", 20, false}};
     for (Object[] chain : chains) {
       DataType type = (DataType) chain[0];
       var columns = CollectionConverters.asScala(List.<Attribute>of(
           VarkaSqlResolve.column("a", type), VarkaSqlResolve.column("c", type))).toSeq();
       String x = "a";
-      for (int i = 0; i < 20; i++) {
+      for (int i = 0; i < (int) chain[2]; i++) {
         x = ((String) chain[1]).replace("X", x);
       }
       Expression e = VarkaSqlResolve.parse("(" + x + ") > c", columns);
       List<VarkaConjunctSpec> specs = assertTimeoutPreemptively(Duration.ofSeconds(20),
-          () -> VarkaExpressionCompiler.explainPredicate(e, columns, VarkaMatrixRuns.BASE,
-              VarkaAdmission.NO_HOST_REFUSAL), () -> "explaining " + chain[1] + " 20 deep");
-      // Over the budget's height, a constant, so not fused under any configuration; the reason
-      // is not asserted, since a configuration may decline the chain earlier for another.
+          () -> VarkaExpressionCompiler.explainPredicate(e, columns, VarkaEmitOptions.DEFAULTS,
+              VarkaAdmission.NO_HOST_REFUSAL),
+          () -> "explaining " + chain[1] + " " + chain[2] + " deep");
       assertEquals(1, specs.size());
-      assertFalse(specs.get(0).fused(), () -> chain[1] + " fused 20 deep");
+      assertEquals(chain[3], specs.get(0).fused(), () -> chain[1] + " " + chain[2] + " deep");
     }
   }
 

@@ -72,6 +72,15 @@ public final class VarkaEmitterTestSupport {
    * a kernel that asks for none, otherwise the thread's fallback buffer, the one the kernel's
    * own seven-argument form takes ({@link VarkaScratch}).
    */
+  /**
+   * The chain-depth cap {@code options} give an output on {@code lane}
+   * ({@code VarkaEmitBudget.chainDepthCap}, which is package-private), for a test outside the
+   * package that reads where a chain stops.
+   */
+  public static int chainDepthCap(VarkaEmitOptions options, VarkaVectorIR.LaneType lane) {
+    return VarkaEmitBudget.chainDepthCap(options, lane);
+  }
+
   public static long scratch(VarkaFusedKernel kernel, int rows) {
     int perRow = kernel.scratchBytesPerRow();
     return perRow == 0 ? 0L : VarkaScratch.forRows(perRow, rows);

@@ -551,9 +551,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  * @param intervalFault the same for the day-time interval lowerings (milestone 8 row 504,
  *        {@code VARKA-103.md} 3.7). {@link IntervalFault#NONE} in production.
  * @param maxChainDepth the deepest op path one output may have, which the emitter's analysis and
- *        the compiler's budget check both refuse past, by default {@code
- *        VarkaEmitBudget.MAX_CHAIN_DEPTH}. A measurement knob (VARKA-620): a benchmark raises it
- *        to price depths past the cap, and no session conf sets it.
+ *        the compiler's budget check both refuse past. Zero, the default, is auto: the cap of the
+ *        output's lane, {@link VarkaEmitBudget#chainDepthCap} (64 on the int lane, 16 on the
+ *        others); any other value is the cap on every lane. A measurement knob (VARKA-620): a
+ *        benchmark raises it to price depths past the cap, and no session conf sets it.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -843,7 +844,7 @@ public record VarkaEmitOptions(
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
           false, false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
           false, NarrowGroupStore.MASKED, FloatingFault.NONE, IntervalFault.NONE,
-          VarkaEmitBudget.MAX_CHAIN_DEPTH);
+          VarkaEmitBudget.AUTO_CHAIN_DEPTH);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -892,8 +893,8 @@ public record VarkaEmitOptions(
     if (intervalFault == null) {
       throw VarkaErrors.illegalArgument("intervalFault must not be null");
     }
-    if (maxChainDepth < 1) {
-      throw VarkaErrors.illegalArgument("maxChainDepth must be positive: " + maxChainDepth);
+    if (maxChainDepth < 0) {
+      throw VarkaErrors.illegalArgument("maxChainDepth must not be negative: " + maxChainDepth);
     }
     if (lanesOverride != 0 && (lanesOverride < 1 || Integer.bitCount(lanesOverride) != 1)) {
       throw VarkaErrors.illegalArgument(
