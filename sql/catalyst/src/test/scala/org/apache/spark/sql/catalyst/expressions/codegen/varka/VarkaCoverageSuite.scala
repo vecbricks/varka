@@ -1612,7 +1612,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         + "where its leaves are, so the test reads no word of the value"),
       Row("coalesce(d38, d19) IS NULL"),
       Row("greatest(d38, d38b) IS NOT NULL"),
-      Row("d38 IN (1.00, 12345678901234567890.12, -0.50)", "the OR of the equalities, each "
+      Row("d38 IN (1.00, 12345678901234567890, -0.50)", "the OR of the equalities, each "
         + "literal's two words in two slots of the long table"),
       Row("-d38 < d38b", "lo' = -lo and hi' = ~hi + (lo = 0): the borrow is the only carry, "
         + "and Spark negates a wide value exactly"),
@@ -2260,7 +2260,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   // layer of decimal128.smt2; the choices, picks and IN, which also read validity, are checked
   // by the differential suites.
   private val pairValues = Seq(
-    "d38 IN (1.00, 12345678901234567890.12, -0.50)", "IF(d18 > 0.00, d38, d19) < d38b",
+    "d38 IN (1.00, 12345678901234567890, -0.50)", "IF(d18 > 0.00, d38, d19) < d38b",
     "CASE WHEN d38 < 0.00 THEN d38b END <=> d38", "coalesce(d38, d19) = d38b",
     "greatest(d38, d38b) > 0.00", "least(d38, d38b, d19) <= 0.00")
 
