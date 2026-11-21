@@ -1,0 +1,41 @@
+VARKA-626: the regeneration's wall time, before and after running the width audit's probes in
+parallel, and what the skip of unchanged inputs costs.
+
+Date: 21 November 2026, the laptop (24 threads), `dev/varka_regen_generated.sh --all`, one run each,
+single readings from the sbt "Total time" lines of each run's log, not benchmarks. The first run is
+row 629's regeneration (worktree varka-629a, a warm build); the others ran in a worktree that had
+never been built (varka-626w), so their first step includes compiling the test tree.
+
+step (sbt seconds)                probes one after another   probes four at once
+types                             15                         141 (includes compiling the tree)
+fuzz types                        6                          6
+cast matrix                       10                         9
+coverage                          63                         17
+width audit                       762                        326
+emitted bytes                     173                        154
+coverage again                    18                         16
+sum                               1047                       669
+whole run, wall clock             18 min (14:42 to 15:00)    11 min 26 s (15:06:31 to 15:17:57)
+
+The types step of the second run, 141 s, includes compiling a fresh worktree's test tree, which
+the first run's warm one did not pay (15 s); it is not a regeneration cost.
+No generated file changed in either run: they wrote what master holds.
+
+The width audit alone, `VarkaWidthAuditSuite` run by itself under `JDK_JAVA_OPTIONS=-Dvarka.widthAudit.
+parallelProbes=N` (N = 5; the first two rows are from the runs above):
+
+  probes at once   suite total time
+  1                762 s (12 min 42 s)
+  4                326 s (5 min 26 s)
+  5                262 s (4 min 22 s), all seven tests passed, none canceled
+
+With five probes and four slots the fifth ran alone in a second wave. Five at once on the 24 cores
+caused no timeout of the 600 s a child may take; the default is now one probe at once for every
+four cores up to five. Not measured: any machine with fewer cores than 24 (a four-core runner runs
+one at a time, as before), and five at once on a loaded machine.
+
+The skip: `VARKA_REGEN_BASE=HEAD dev/varka_regen_generated.sh --all` on a tree whose changes against
+that base touch nothing the JVM steps read took 0.6 s of wall clock, wrote the push check's marker
+and changed no file. The same script on this branch, whose own changes are inputs, printed "running
+the JVM steps: the input dev/varka_regen_generated.sh changed". The skip assumes master's generated
+files are current; `--full` runs the steps whatever the decision says.

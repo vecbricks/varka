@@ -200,10 +200,11 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
   @volatile private var results: Map[Probe, Try[Census]] = Map.empty
 
   /**
-   * How many probes run at once: `-Dvarka.widthAudit.parallelProbes`, or one for every six cores
-   * up to four, which is one on a four-core runner and four on the laptop. Four probes at once
-   * took 165 s where one after another took 572 s on 24 cores (`plans/m8/results/VARKA-581-probe-
-   * times.txt`), the slowest alone taking 252 s, so `childTimeoutSeconds` still holds for each.
+   * How many probes run at once: `-Dvarka.widthAudit.parallelProbes`, or one for every four cores
+   * up to the five probes, which is one on a four-core runner and five on the laptop's 24 cores.
+   * On those 24 cores four at once took 326 s and five at once 262 s where one after another took
+   * 762 s (`plans/m8/results/VARKA-626-regen-speedup.txt`), the slowest probe alone 252 s
+   * (`VARKA-581-probe-times.txt`), so `childTimeoutSeconds` still holds for each.
    */
   private val parallelProbes: Int = {
     val key = "varka.widthAudit.parallelProbes"
@@ -211,7 +212,7 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
       val n = scala.util.Try(v.toInt).getOrElse(0)
       require(n >= 1, s"$key must be a positive integer, got '$v'")
       n
-    }.getOrElse(math.max(1, math.min(4, Runtime.getRuntime.availableProcessors() / 6)))
+    }.getOrElse(math.max(1, math.min(5, Runtime.getRuntime.availableProcessors() / 4)))
   }
 
   /**
