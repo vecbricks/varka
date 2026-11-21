@@ -403,11 +403,15 @@ public final class VarkaReproductionSuite {
     trees.addAll(theRest());
     var nodes = new ArrayList<VarkaVectorIR>();
     trees.forEach(t -> subtrees(t, nodes));
+    int built = 0;
     for (VarkaVectorIR node : nodes) {
       for (VarkaVectorIR variant : variants(node)) {
         assertRoundTrips(variant);
+        built++;
       }
     }
+    // A sweep whose reflection found nothing to rebuild would pass without checking a form.
+    assertTrue(built > 0, "the sweep built no variant of any node");
   }
 
   @Test
