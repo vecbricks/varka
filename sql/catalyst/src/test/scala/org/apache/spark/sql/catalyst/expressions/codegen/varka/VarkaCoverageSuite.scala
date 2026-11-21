@@ -1436,20 +1436,30 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // Math's for sin, cos and tan, StrictMath's for asin, acos and atan, which Math delegates
     // to - and the work around the call stays in the kernel.
     Family("Math functions", predicates = false, Seq(
-      Row("sin(x)", "exact: a per-lane Math.sin call, the host's answer as Spark's"),
-      Row("cos(x)", "exact: a per-lane Math.cos call"),
-      Row("tan(x)", "exact: a per-lane Math.tan call"),
-      Row("asin(x)", "exact: a per-lane StrictMath.asin call, which Math.asin delegates to"),
-      Row("acos(x)", "exact: a per-lane StrictMath.acos call"),
-      Row("atan(x)", "exact: a per-lane StrictMath.atan call"),
+      Row("sin(x)", "exact: a per-lane Math.sin call, the host's answer as Spark's",
+        math = Some(MathCell(exactForms(2), operator = Some(VarkaMathBinding.Operator.SIN)))),
+      Row("cos(x)", "exact: a per-lane Math.cos call",
+        math = Some(MathCell(exactForms(2), operator = Some(VarkaMathBinding.Operator.COS)))),
+      Row("tan(x)", "exact: a per-lane Math.tan call",
+        math = Some(MathCell(exactForms(2), operator = Some(VarkaMathBinding.Operator.TAN)))),
+      Row("asin(x)", "exact: a per-lane StrictMath.asin call, which Math.asin delegates to",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.ASIN)))),
+      Row("acos(x)", "exact: a per-lane StrictMath.acos call",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.ACOS)))),
+      Row("atan(x)", "exact: a per-lane StrictMath.atan call",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.ATAN)))),
       Row("sec(x)", "1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine "
-        + "is an infinity and no null"),
-      Row("csc(x)", "1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf"),
-      Row("cot(x)", "1 / Math.tan(x)"),
-      Row("sin(x) * 2.0D + cos(x2)", "the arithmetic around the calls in the kernel"),
-      Row("sin(i)", "the int converted exactly, then the call"))),
+        + "is an infinity and no null", math = Some(MathCell(exactForms(2)))),
+      Row("csc(x)", "1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf",
+        math = Some(MathCell(exactForms(2)))),
+      Row("cot(x)", "1 / Math.tan(x)", math = Some(MathCell(exactForms(2)))),
+      Row("sin(x) * 2.0D + cos(x2)", "the arithmetic around the calls in the kernel",
+        math = Some(MathCell(exactForms(2)))),
+      Row("sin(i)", "the int converted exactly, then the call",
+        math = Some(MathCell(exactForms(2)))))),
     Family("Math functions as conditions", predicates = true, Seq(
-      Row("sin(x) < 0.5D", "the call, then the floating compare in Spark's order"))),
+      Row("sin(x) < 0.5D", "the call, then the floating compare in Spark's order",
+        math = Some(MathCell(exactForms(2)))))),
     // A floating value as a boolean (VARKA-343 2.5): Spark's x != 0 in every mode, the negation
     // of the lane's EQ against zero, so a NaN is true and both zeros false; never an error.
     Family("Floating casts to BOOLEAN", predicates = false, Seq(
