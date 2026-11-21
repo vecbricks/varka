@@ -1,0 +1,45 @@
+VARKA-630 part 4: the height, distinct nodes and emitted loop-method size of row 362b's 128-bit
+multiplication words, the first of the five decimal rows (362b, 363, 363b, 364, 366) that wait on a
+deeper chain-depth cap.
+
+Date: 21 November 2026, one laptop, one JVM, a scratch test run once (single readings of a
+deterministic emitter, not a benchmark); its source is VARKA-630-decimal-shapes.scratch.txt beside
+this file. It ran on the branch `varka-362b-column-sum` (head 83be1cd1fd8), which predates the
+`maxChainDepth` option: the test raised `VarkaEmitBudget.MAX_CHAIN_DEPTH` to 256 in the working
+tree for the run and the change was reverted, and the options were `methodByteBudget=60000` so
+that the byte budget does not stop it either. Master was not merged into that branch (six files
+conflict), so the shapes are the branch's, not master's.
+
+The shape is `VarkaDecimalLowering.lower(PairMul(words, word, rightLong))`, the lowering of the
+branch's `VarkaPairMulSuite` form N (words = 2) and form C (words = 4). Height counts a leaf as 1,
+as that suite does. "Largest method" is the largest `Code` attribute of the emitted class.
+
+  words word rightLong  height  distinct nodes  largest method (B)   class (B)
+  2     0    false        9       18             282                  5245
+  2     1    false       11       37             432                  7209
+  2     all  false       11       53             490                  8147
+  4     0    false        9       22             317                  5769
+  4     1    false       13       61             651                  11571
+  4     2    false       19      110             1021                 19630
+  4     3    false       23      133             1207                 24026
+  4     all  false       23      318             1381                 38128
+  2     1    true        10       32             386                  6701
+  4     3    true        22       91             875                  17133
+  4     all  true        22      242             1049                 28595
+
+(The words = 2, word = 0 and the rightLong rows at word 0 repeat the shape of the false rows.)
+The node kinds are BitOp and IntArith, about half each (the four-word set holds 164 BitOp, 136
+IntArith, 14 ColumnRef and 4 WordConst), all wrapping long operations.
+
+What it says for the cap: the multiplication alone is 23 levels high at its top word, so a cap of
+16 refuses it and a cap of 24 or more admits it; the row's own shape wraps it in a magnitude, a
+sign and a comparison (`VARKA-363.md`), which is what takes the five rows to the 26 to 60 the plan
+quotes. What it says for the byte budget: the largest method is 1381 bytes for all four words
+together, under a fifth of the default 8000, so the byte budget does not bind this row.
+
+Not measured: rows 363, 363b, 364 and 366. `VARKA-363.md` states its callers' lowered words as
+about 19 and 22 nodes deep before the magnitude, sign and comparison (from a Python model, not an
+emission). Their code is on branches that were not run here, and 364's and 366's shapes were not
+read at all. The wrapping and comparison nodes around the multiplication were not added, so the
+26 to 60 figure is not reproduced here. Class size (38 KB for the four words) was measured and
+not interpreted.
