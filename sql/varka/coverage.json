@@ -7837,7 +7837,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane Math.sin call, the host's answer as Spark's",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "cos(x)",
     "executable" : "cos(x)",
@@ -7849,7 +7850,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane Math.cos call",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "tan(x)",
     "executable" : "tan(x)",
@@ -7861,7 +7863,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane Math.tan call",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "asin(x)",
     "executable" : "asin(x)",
@@ -7873,7 +7876,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane StrictMath.asin call, which Math.asin delegates to",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane StrictMath call"
   }, {
     "sql" : "acos(x)",
     "executable" : "acos(x)",
@@ -7885,7 +7889,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane StrictMath.acos call",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane StrictMath call"
   }, {
     "sql" : "atan(x)",
     "executable" : "atan(x)",
@@ -7897,7 +7902,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane StrictMath.atan call",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane StrictMath call"
   }, {
     "sql" : "sec(x)",
     "executable" : "sec(x)",
@@ -7909,7 +7915,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "csc(x)",
     "executable" : "csc(x)",
@@ -7921,7 +7928,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "cot(x)",
     "executable" : "cot(x)",
@@ -7933,7 +7941,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "1 / Math.tan(x)",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "sin(x) * 2.0D + cos(x2)",
     "executable" : "sin(x) * 2.0D + cos(x2)",
@@ -7945,7 +7954,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.floatingArithmetic.enabled", "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "the arithmetic around the calls in the kernel",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "sin(i)",
     "executable" : "sin(i)",
@@ -7957,7 +7967,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.floatingCast.enabled", "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "the int converted exactly, then the call",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "sin(x) < 0.5D",
     "executable" : "sin(x) < 0.5D",
@@ -7969,7 +7980,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "the call, then the floating compare in Spark's order",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "CAST(x AS BOOLEAN)",
     "executable" : "CAST(x AS BOOLEAN)",
