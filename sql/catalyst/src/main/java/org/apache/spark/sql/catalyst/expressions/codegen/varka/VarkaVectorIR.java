@@ -2696,6 +2696,8 @@ public sealed interface VarkaVectorIR
     return sameStructure(a, b, new IdentityHashMap<>());
   }
 
+  // The identity test is the point: a node both keys share is one step, as is the memo's.
+  @SuppressWarnings("ReferenceEquality")
   private static boolean sameStructure(VarkaVectorIR a, VarkaVectorIR b,
       IdentityHashMap<VarkaVectorIR, Set<VarkaVectorIR>> equalPairs) {
     if (a == b) {

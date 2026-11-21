@@ -91,8 +91,8 @@ public record VarkaShapeKey(
    */
   @Override
   public boolean equals(Object other) {
-    return this == other || other instanceof VarkaShapeKey k
+    return this == other || (other instanceof VarkaShapeKey k
         && numInputs == k.numInputs && numLiterals == k.numLiterals && warmed == k.warmed
-        && options.equals(k.options) && VarkaVectorIR.sameStructure(outputs, k.outputs);
+        && options.equals(k.options) && VarkaVectorIR.sameStructure(outputs, k.outputs));
   }
 }
