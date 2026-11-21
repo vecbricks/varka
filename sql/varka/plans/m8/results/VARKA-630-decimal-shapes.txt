@@ -54,9 +54,9 @@ it needs):
   5 (4)         1   27      607             1145
   5 (4)         6   28      649             1661
 
-k = 18 gives the same as k = 6 at every rung. Of the four words of rung 5 only the lower three do
-the work: the top word is 3 nodes. So the scale-down alone needs a cap of 24 to 27 (the
-analysis's count), and the largest method is 1661 bytes, a fifth of the default byte budget.
+k = 18 gives the same as k = 6 at every rung. The top word of rung 5 alone is 3 nodes (the other three were not measured one by one). So the
+scale-down alone needs a cap of 14 (rung 0, k = 1) to 27 (rung 5, k = 6) by the analysis's count,
+and the largest method is 1661 bytes, a fifth of the default byte budget.
 
 Where the SQL path stands on these branches: with the cap constant raised, the 363 branch's
 compiler fuses a comparison of two decimal(38, 10) columns (height 5, 10 nodes, 961 bytes) and
