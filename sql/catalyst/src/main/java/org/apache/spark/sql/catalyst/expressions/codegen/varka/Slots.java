@@ -1273,14 +1273,14 @@ final class Slots {
         VarkaVectorIR n = o.node();
         Integer ownRef = s.wordRef.get(n);
         yield !s.ownWord.contains(n) || ownRef == null || ownRef != ref
-            ? "the owner is " + VarkaVectorIR.canonical(n) + "'s own word but the slot is "
+            ? "the owner is " + VarkaVectorIR.canonicalBrief(n) + "'s own word but the slot is "
                 + ref + " and that node's is " + ownRef
             : null;
       }
     };
     if (problem != null) {
       throw VarkaErrors.illegalState("validity-word algebra disagrees with planWordRef on "
-          + VarkaVectorIR.canonical(node) + ": " + problem + " (pure=" + pure + ", owner="
+          + VarkaVectorIR.canonicalBrief(node) + ": " + problem + " (pure=" + pure + ", owner="
           + owner + ")");
     }
   }

@@ -2329,83 +2329,93 @@ public sealed interface VarkaVectorIR
    * neither rides {@link Record#toString}.
    */
   static String canonical(VarkaVectorIR node) {
+    return canonicalWith(node, VarkaVectorIR::canonical);
+  }
+
+  /**
+   * {@link #canonical}'s one rendering of a node, with {@code kid} giving each child's text: the
+   * child's own {@code canonical} for the tree text, a one-character stand-in to measure the
+   * node's own part of it ({@link #canonicalLength}). One switch, so the two cannot differ.
+   */
+  static String canonicalWith(VarkaVectorIR node,
+      java.util.function.Function<VarkaVectorIR, String> kid) {
     return switch (node) {
       case ColumnRef n -> "col:" + n.ordinal() + laneTag(n.lane());
       case DecimalColumn n -> "dec:" + n.ordinal() + laneTag(n.lane()) + ":p" + n.precision();
       case DecimalWord n -> wordTag(n);
       case LiteralSlot n -> "lit:" + n.index() + laneTag(n.lane());
-      case AddDays n -> "(addDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
-      case SubDays n -> "(subDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
-      case GuardedDay n -> "(guardedDay " + canonical(n.days()) + ")";
-      case GuardedRange n -> "(guardedRange" + guardTag(n) + " " + canonical(n.child()) + " "
+      case AddDays n -> "(addDays " + kid.apply(n.days()) + " " + kid.apply(n.offset()) + ")";
+      case SubDays n -> "(subDays " + kid.apply(n.days()) + " " + kid.apply(n.offset()) + ")";
+      case GuardedDay n -> "(guardedDay " + kid.apply(n.days()) + ")";
+      case GuardedRange n -> "(guardedRange" + guardTag(n) + " " + kid.apply(n.child()) + " "
           + n.lo() + " " + n.hi() + ")";
-      case WidenLane n -> "(widen:" + n.target().name() + " " + canonical(n.child()) + ")";
-      case ConvertLane n -> "(convert:" + n.target().name() + " " + canonical(n.child())
+      case WidenLane n -> "(widen:" + n.target().name() + " " + kid.apply(n.child()) + ")";
+      case ConvertLane n -> "(convert:" + n.target().name() + " " + kid.apply(n.child())
           + ")";
-      case NarrowLane n -> "(narrow:" + n.target().name() + " " + canonical(n.child()) + ")";
-      case WidenDecimal n -> "(wdec " + canonical(n.child()) + ")";
-      case DateDiff n -> "(dateDiff " + canonical(n.end()) + " " + canonical(n.start()) + ")";
+      case NarrowLane n -> "(narrow:" + n.target().name() + " " + kid.apply(n.child()) + ")";
+      case WidenDecimal n -> "(wdec " + kid.apply(n.child()) + ")";
+      case DateDiff n -> "(dateDiff " + kid.apply(n.end()) + " " + kid.apply(n.start()) + ")";
       case Compare n ->
-          "(cmp:" + n.op().name() + " " + canonical(n.left()) + " " + canonical(n.right()) + ")";
+          "(cmp:" + n.op().name() + " " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
       case NullSafeEqual n ->
-          "(nullSafeEq " + canonical(n.left()) + " " + canonical(n.right()) + ")";
+          "(nullSafeEq " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
       case BoolColumn n -> "bool:" + n.ordinal() + laneTag(n.lane());
       case CondConst n -> "(condConst:" + n.value().name() + laneTag(n.lane()) + ")";
       case NullValue n -> "(null:" + n.lane().name() + ")";
       case BoolCompare n ->
-          "(boolCmp:" + n.op().name() + " " + canonical(n.left()) + " "
-              + canonical(n.right()) + ")";
-      case CondIf n -> "(condIf " + canonical(n.cond()) + " " + canonical(n.thenCond()) + " "
-          + canonical(n.elseCond()) + ")";
+          "(boolCmp:" + n.op().name() + " " + kid.apply(n.left()) + " "
+              + kid.apply(n.right()) + ")";
+      case CondIf n -> "(condIf " + kid.apply(n.cond()) + " " + kid.apply(n.thenCond()) + " "
+          + kid.apply(n.elseCond()) + ")";
       case BoolNullSafeEq n ->
-          "(boolNullSafeEq " + canonical(n.left()) + " " + canonical(n.right()) + ")";
-      case And n -> "(and " + canonical(n.left()) + " " + canonical(n.right()) + ")";
-      case Or n -> "(or " + canonical(n.left()) + " " + canonical(n.right()) + ")";
-      case Not n -> "(not " + canonical(n.child()) + ")";
-      case CrossLane n -> "(cross:" + n.lane().name() + " " + canonical(n.child()) + ")";
-      case IsNotNull n -> "(isNotNull " + canonical(n.child()) + ")";
-      case InRanges n -> "(inRanges " + canonical(n.child()) + " " + n.renderBounds() + ")";
-      case IfElse n -> "(if " + canonical(n.cond()) + " " + canonical(n.thenNode()) + " "
-          + canonical(n.elseNode()) + ")";
-      case CondValue n -> "(condValue " + canonical(n.cond()) + ")";
-      case BoolOutput n -> "(bool-out " + canonical(n.cond()) + ")";
-      case Greatest n -> "(greatest " + canonical(n.left()) + " " + canonical(n.right()) + ")";
-      case Least n -> "(least " + canonical(n.left()) + " " + canonical(n.right()) + ")";
-      case DayOfWeek n -> "(dayOfWeek " + canonical(n.days()) + ")";
-      case WeekDay n -> "(weekDay " + canonical(n.days()) + ")";
-      case DayOfWeekIso n -> "(dayOfWeekIso " + canonical(n.days()) + ")";
-      case NextDay n -> "(nextDay " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
-      case ThursdayOf n -> "(thursdayOf " + canonical(n.days()) + ")";
-      case Year n -> "(year " + canonical(n.days()) + ")";
-      case Month n -> "(month " + canonical(n.days()) + ")";
-      case DayOfMonth n -> "(dayOfMonth " + canonical(n.days()) + ")";
-      case Quarter n -> "(quarter " + canonical(n.days()) + ")";
-      case DayOfYear n -> "(dayOfYear " + canonical(n.days()) + ")";
-      case LastDay n -> "(lastDay " + canonical(n.days()) + ")";
-      case TruncDate n -> "(truncDate:" + n.level().name() + " " + canonical(n.days()) + ")";
+          "(boolNullSafeEq " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
+      case And n -> "(and " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
+      case Or n -> "(or " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
+      case Not n -> "(not " + kid.apply(n.child()) + ")";
+      case CrossLane n -> "(cross:" + n.lane().name() + " " + kid.apply(n.child()) + ")";
+      case IsNotNull n -> "(isNotNull " + kid.apply(n.child()) + ")";
+      case InRanges n -> "(inRanges " + kid.apply(n.child()) + " " + n.renderBounds() + ")";
+      case IfElse n -> "(if " + kid.apply(n.cond()) + " " + kid.apply(n.thenNode()) + " "
+          + kid.apply(n.elseNode()) + ")";
+      case CondValue n -> "(condValue " + kid.apply(n.cond()) + ")";
+      case BoolOutput n -> "(bool-out " + kid.apply(n.cond()) + ")";
+      case Greatest n -> "(greatest " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
+      case Least n -> "(least " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
+      case DayOfWeek n -> "(dayOfWeek " + kid.apply(n.days()) + ")";
+      case WeekDay n -> "(weekDay " + kid.apply(n.days()) + ")";
+      case DayOfWeekIso n -> "(dayOfWeekIso " + kid.apply(n.days()) + ")";
+      case NextDay n -> "(nextDay " + kid.apply(n.days()) + " " + kid.apply(n.offset()) + ")";
+      case ThursdayOf n -> "(thursdayOf " + kid.apply(n.days()) + ")";
+      case Year n -> "(year " + kid.apply(n.days()) + ")";
+      case Month n -> "(month " + kid.apply(n.days()) + ")";
+      case DayOfMonth n -> "(dayOfMonth " + kid.apply(n.days()) + ")";
+      case Quarter n -> "(quarter " + kid.apply(n.days()) + ")";
+      case DayOfYear n -> "(dayOfYear " + kid.apply(n.days()) + ")";
+      case LastDay n -> "(lastDay " + kid.apply(n.days()) + ")";
+      case TruncDate n -> "(truncDate:" + n.level().name() + " " + kid.apply(n.days()) + ")";
       case TruncDateDynamic n ->
-          "(truncDateDynamic " + canonical(n.days()) + " " + canonical(n.level()) + ")";
-      case WeekOfYear n -> "(weekOfYear " + canonical(n.days()) + ")";
+          "(truncDateDynamic " + kid.apply(n.days()) + " " + kid.apply(n.level()) + ")";
+      case WeekOfYear n -> "(weekOfYear " + kid.apply(n.days()) + ")";
       case AddMonths n ->
-          "(addMonths " + canonical(n.days()) + " " + canonical(n.months()) + ")";
+          "(addMonths " + kid.apply(n.days()) + " " + kid.apply(n.months()) + ")";
       case MakeDate n -> "(makeDate:" + (n.failOnError() ? "ANSI" : "NULL") + " "
-          + canonical(n.year()) + " " + canonical(n.month()) + " " + canonical(n.day()) + ")";
+          + kid.apply(n.year()) + " " + kid.apply(n.month()) + " " + kid.apply(n.day()) + ")";
       case IntArith n -> "(int:" + n.op().name() + ":" + n.mode().name() + " "
-          + canonical(n.left()) + " " + canonical(n.right()) + ")";
+          + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
       case IntNeg n -> "(" + (n.abs() ? "abs:" : "neg:") + n.mode().name() + " "
-          + canonical(n.child()) + ")";
-      case ConstDivide n -> "(divc:" + n.divisor() + " " + canonical(n.child()) + ")";
+          + kid.apply(n.child()) + ")";
+      case ConstDivide n -> "(divc:" + n.divisor() + " " + kid.apply(n.child()) + ")";
       case BoundedDivide n ->
-          "(divb:" + n.divisor() + "/" + n.bound() + " " + canonical(n.child()) + ")";
-      case BitOp n -> "(bit:" + n.op().name() + " " + canonical(n.left()) + " "
-          + canonical(n.right()) + ")";
-      case BitCount n -> "(bitCount " + canonical(n.child()) + ")";
-      case MathUnary n -> "(math:" + n.fn().name() + " " + canonical(n.child()) + ")";
-      case RoundToIntegral n -> "(round:" + n.mode().name() + " " + canonical(n.child()) + ")";
-      case CanonicalFloat n -> "(canon " + canonical(n.child()) + ")";
-      case CanonicalBits n -> "(canonBits " + canonical(n.child()) + ")";
-      case HashStep n -> "(hash:" + n.mix().name() + " " + canonical(n.seed()) + " "
-          + canonical(n.word()) + ")";
+          "(divb:" + n.divisor() + "/" + n.bound() + " " + kid.apply(n.child()) + ")";
+      case BitOp n -> "(bit:" + n.op().name() + " " + kid.apply(n.left()) + " "
+          + kid.apply(n.right()) + ")";
+      case BitCount n -> "(bitCount " + kid.apply(n.child()) + ")";
+      case MathUnary n -> "(math:" + n.fn().name() + " " + kid.apply(n.child()) + ")";
+      case RoundToIntegral n -> "(round:" + n.mode().name() + " " + kid.apply(n.child()) + ")";
+      case CanonicalFloat n -> "(canon " + kid.apply(n.child()) + ")";
+      case CanonicalBits n -> "(canonBits " + kid.apply(n.child()) + ")";
+      case HashStep n -> "(hash:" + n.mix().name() + " " + kid.apply(n.seed()) + " "
+          + kid.apply(n.word()) + ")";
     };
   }
 
@@ -2524,6 +2534,134 @@ public sealed interface VarkaVectorIR
       case HashStep n -> "(hash:" + n.mix().name() + " " + lineOf.applyAsInt(n.seed()) + " "
           + lineOf.applyAsInt(n.word()) + ")";
     };
+  }
+
+  /**
+   * The longest tree text {@link #shapeText} keeps: 2^26 characters. Every shape whose tree
+   * rendering is shorter keeps it, so the committed shape hashes stay; a longer one, which the
+   * old cap of 16 levels could not admit above a fan-out of three and which a deeper cap admits
+   * at any fan-out, renders as a DAG ({@link #canonicalDag}). A tree text of 3 to the 16th, the
+   * longest an admitted chain of the fan-out-three nodes reached, is 43 million characters.
+   */
+  long TREE_TEXT_LIMIT = 1L << 26;
+
+  /** The most characters of a rendering a message carries. */
+  int BRIEF_LIMIT = 4096;
+
+  /**
+   * The length of {@code canonical(node)}, counted once per node and saturating at
+   * {@link Long#MAX_VALUE} / 4, so a shared chain a hundred levels deep answers at once where
+   * rendering it would not finish. {@link #canonicalWith} renders the node with each child as one
+   * character, so its tree length is that rendering's length plus, for each child reference, the
+   * child's tree length less the one character.
+   */
+  static long canonicalLength(VarkaVectorIR node) {
+    return canonicalLength(node, new java.util.IdentityHashMap<>());
+  }
+
+  private static long canonicalLength(VarkaVectorIR node,
+      java.util.IdentityHashMap<VarkaVectorIR, Long> memo) {
+    Long known = memo.get(node);
+    if (known != null) {
+      return known;
+    }
+    final long saturated = Long.MAX_VALUE / 4;
+    long[] extra = {0L};
+    String line = canonicalWith(node, child -> {
+      extra[0] = Math.min(saturated, extra[0] + canonicalLength(child, memo) - 1);
+      return "0";
+    });
+    long length = Math.min(saturated, line.length() + extra[0]);
+    memo.put(node, length);
+    return length;
+  }
+
+  /**
+   * The text the shape hash is taken over for {@code outputs}: each output's {@link #canonical}
+   * tree rendering and a newline where the whole is under {@link #TREE_TEXT_LIMIT}, as it always
+   * was, and otherwise the {@link #canonicalDag} of the outputs. A tree text never starts with
+   * the DAG's marker, so no two shapes can share a text.
+   */
+  static String shapeText(List<VarkaVectorIR> outputs) {
+    long total = 0;
+    for (VarkaVectorIR output : outputs) {
+      total = Math.min(Long.MAX_VALUE / 4, total + canonicalLength(output) + 1);
+    }
+    if (total > TREE_TEXT_LIMIT) {
+      return canonicalDag(outputs);
+    }
+    StringBuilder text = new StringBuilder();
+    for (VarkaVectorIR output : outputs) {
+      text.append(canonical(output)).append('\n');
+    }
+    return text.toString();
+  }
+
+  /**
+   * The DAG rendering of {@code outputs}: one {@code id=line} per distinct node, in the order
+   * a node's children precede it, each line its {@link #canonicalWith} rendering with the children
+   * as ids, then {@code roots} and the output ids. A node is named once, however many parents and
+   * however many equal copies reach it: nodes are numbered by their line, so two equal nodes
+   * built as distinct objects, which the lane lifts do, get one id, and two equal shapes always
+   * give one text. It starts with {@code dag}, which no tree rendering does. Linear in the
+   * distinct nodes, and recursive in the depth, which admission bounds.
+   */
+  static String canonicalDag(List<VarkaVectorIR> outputs) {
+    var idOfObject = new java.util.IdentityHashMap<VarkaVectorIR, Integer>();
+    var idOfLine = new java.util.HashMap<String, Integer>();
+    StringBuilder text = new StringBuilder("dag\n");
+    StringBuilder roots = new StringBuilder("roots");
+    for (VarkaVectorIR output : outputs) {
+      roots.append(' ').append(dagId(output, idOfObject, idOfLine, text));
+    }
+    return text.append(roots).append('\n').toString();
+  }
+
+  private static int dagId(VarkaVectorIR node,
+      java.util.Map<VarkaVectorIR, Integer> idOfObject,
+      java.util.Map<String, Integer> idOfLine, StringBuilder text) {
+    Integer known = idOfObject.get(node);
+    if (known != null) {
+      return known;
+    }
+    // canonicalWith, not canonicalShallow: the line carries every field the tree text does, an
+    // InRanges node's bounds among them, which the shallow line abbreviates to a count.
+    String line = canonicalWith(node,
+        child -> String.valueOf(dagId(child, idOfObject, idOfLine, text)));
+    Integer id = idOfLine.get(line);
+    if (id == null) {
+      id = idOfLine.size();
+      idOfLine.put(line, id);
+      text.append(id).append('=').append(line).append('\n');
+    }
+    idOfObject.put(node, id);
+    return id;
+  }
+
+  /**
+   * {@link #canonical}'s text where it fits {@link #TREE_TEXT_LIMIT}, which is every shape that
+   * ever had a committed hash, and the node's {@link #canonicalDag} where it does not: every
+   * field of the node either way, for a reproduction or a debug summary. Only the tree form has a
+   * reader so far ({@code VarkaCanonicalIr}); the DAG form's is row 630's second part.
+   */
+  static String canonicalExact(VarkaVectorIR node) {
+    return canonicalLength(node) <= TREE_TEXT_LIMIT
+        ? canonical(node) : canonicalDag(List.of(node));
+  }
+
+  /**
+   * A rendering for a message: {@link #canonical} where it is under {@link #BRIEF_LIMIT}
+   * characters, and else the start of the node's DAG with its size, so that an error about a deep
+   * shared chain does not build the text the chain's tree would be.
+   */
+  static String canonicalBrief(VarkaVectorIR node) {
+    long length = canonicalLength(node);
+    if (length <= BRIEF_LIMIT) {
+      return canonical(node);
+    }
+    String dag = canonicalDag(List.of(node));
+    return dag.substring(0, Math.min(dag.length(), 240)) + "... (a tree rendering of "
+        + (length >= Long.MAX_VALUE / 4 ? "over 10^18" : String.valueOf(length)) + " characters)";
   }
 
   /** Whether {@code root}'s subtree contains a member of {@code nodes} (structural equality). */

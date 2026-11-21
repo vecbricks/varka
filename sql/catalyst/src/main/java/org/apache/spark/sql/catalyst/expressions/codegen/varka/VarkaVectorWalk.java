@@ -179,7 +179,7 @@ final class VarkaVectorWalk {
     if (shared == null && analysis.options.cse() && !(node instanceof LiteralSlot)
         && !(node instanceof VarkaVectorIR.NullValue) && !(node instanceof DecimalWord)
         && !s.emittedUnshared.add(node)) {
-      throw VarkaErrors.illegalState("the body visits " + VarkaVectorIR.canonical(node)
+      throw VarkaErrors.illegalState("the body visits " + VarkaVectorIR.canonicalBrief(node)
           + " twice without a shared slot: its use count (Slots.bodyUses) is too low");
     }
     // The lane this node's instructions name: the emission's own in a single-lane kernel, the
@@ -636,12 +636,12 @@ final class VarkaVectorWalk {
     Integer low = s.guardTmp.get(c);
     if (analysis.laneOf(c) != lane || analysis.lane != lane) {
       throw VarkaErrors.illegalState("a decimal column read in a " + analysis.lane
-          + " emission: " + VarkaVectorIR.canonical(c));
+          + " emission: " + VarkaVectorIR.canonicalBrief(c));
     }
     if (halves == null || low == null || s.decimalShuffle == null) {
       // Refused by name: without its locals the check would be dropped silently.
       throw VarkaErrors.illegalState("a decimal column with no locals planned: "
-          + VarkaVectorIR.canonical(c));
+          + VarkaVectorIR.canonicalBrief(c));
     }
     line(cb, analysis, c);
     emitDecimalSlotLoads(cb, s, c.ordinal(), halves);
@@ -706,12 +706,12 @@ final class VarkaVectorWalk {
     int[] tmp = s.decimalTmp.get(key);
     if (analysis.laneOf(w) != lane || analysis.lane != lane) {
       throw VarkaErrors.illegalState("a decimal word read in a " + analysis.lane
-          + " emission: " + VarkaVectorIR.canonical(w));
+          + " emission: " + VarkaVectorIR.canonicalBrief(w));
     }
     if (tmp == null || tmp.length != 4 || s.decimalShuffle == null) {
       // Refused by name: without its locals the check would be dropped silently.
       throw VarkaErrors.illegalState("a decimal word with no locals planned: "
-          + VarkaVectorIR.canonical(w));
+          + VarkaVectorIR.canonicalBrief(w));
     }
     line(cb, analysis, w);
     int lo = tmp[2];

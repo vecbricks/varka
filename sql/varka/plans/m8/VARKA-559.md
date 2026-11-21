@@ -78,7 +78,11 @@ the trees" (the IR's own doc).
 - **`VarkaVectorIR.canonical`**, the pinned rendering behind the shape hash, renders a shared
   subtree once per parent: its output is tree-sized by definition. It runs on admitted shapes
   (the shape key, the reproduction file, error messages), whose height the budget caps. Left as
-  is: its text is the committed shape hashes.
+  is: its text is the committed shape hashes. *Corrected 21 November 2026 (row 630): the cap bounds
+  the height, not the text; at a fan-out of three or more a deeper cap makes the text longer than a
+  string can be. `VarkaVectorIR.shapeText` keeps this text where it is under 2^26 characters and
+  renders a longer shape as a DAG, and the messages and the debug summary render through
+  `canonicalBrief` and `canonicalExact`.*
 - **The records' generated `toString`**, in a few `illegalArgument` / `illegalState` messages
   (`Analysis.java:1142`, `1690`, `1740`): error paths only.
 - **The lane lifts** `VarkaConditionCompiler.onIntLane`, `onLongLane`,

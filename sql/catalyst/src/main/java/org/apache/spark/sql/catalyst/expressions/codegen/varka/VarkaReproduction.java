@@ -314,7 +314,7 @@ public record VarkaReproduction(
       VarkaErrorContext ctx = context.get();
       var outputs = new ArrayList<String>();
       for (VarkaVectorIR output : key.outputs()) {
-        outputs.add(VarkaVectorIR.canonical(output));
+        outputs.add(VarkaVectorIR.canonicalExact(output));
       }
       var reproduction = new VarkaReproduction(signature, ctx.kind(), ctx.render(),
           Instant.now().toString(), System.getProperty("java.version"),
