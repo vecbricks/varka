@@ -29,7 +29,7 @@ as that suite does. "Largest method" is the largest `Code` attribute of the emit
 
 (The words = 2, word = 0 and the rightLong rows at word 0 repeat the shape of the false rows.)
 The node kinds are BitOp and IntArith, about half each (the four-word set holds 164 BitOp, 136
-IntArith, 14 ColumnRef and 4 WordConst), all wrapping long operations.
+IntArith, 14 ColumnRef and 4 WordConst); the overflow modes of the IntArith nodes were not read.
 
 What it says for the cap: the multiplication alone is 23 levels high at its top word, so a cap of
 16 refuses it and a cap of 24 or more admits it; the row's own shape wraps it in a magnitude, a
