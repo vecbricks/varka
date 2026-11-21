@@ -95,7 +95,7 @@ the trees" (the IR's own doc).
   a shared node once per path. The shape cache meets them on every hit, since `VarkaShapeKey` is a
   record over the outputs, but only for admitted shapes, which the budget caps; the lifts above
   produce them too. Within one compile every shared node is one object (row 348's part reuses each
-  compiled condition), and the cached hash makes unequal nodes differ in one comparison.
+  compiled condition), and the cached hash makes unequal nodes differ in one comparison. *Corrected 21 November 2026 (row 630 part 2a): this is exponential in the height of a shared chain, 1.0 s at 28 levels and 16 s at 32 (`results/VARKA-630-shape-key-equals.txt`), and the cache hit meets it, since the cached key and the compiled one share no object. `VarkaShapeKey.equals` now compares by `VarkaVectorIR.sameStructure`, each pair of nodes once.*
 - **`VarkaVectorIR.reaches`** recurses per path; nothing in the main sources calls it.
 - **`laneType()`** follows one child per level: linear in the depth, not exponential.
 

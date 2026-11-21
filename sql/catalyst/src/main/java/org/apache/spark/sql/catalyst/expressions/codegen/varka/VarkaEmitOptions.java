@@ -721,7 +721,14 @@ public record VarkaEmitOptions(
      * {@code -0.0} keeps its sign bit where Spark's {@code NormalizeNaNAndZero} answers
      * {@code 0.0}.
      */
-    CANONICAL_ZERO_DROPPED;
+    CANONICAL_ZERO_DROPPED,
+    /**
+     * A math function's per-lane call of the other class's method, {@code StrictMath.sin} for
+     * Spark's {@code Math.sin} and {@code Math.asin} for {@code StrictMath.asin}: on x86 the
+     * first differs from Spark's answer for {@code sin}, {@code cos} and {@code tan} on thousands
+     * of inputs in a million, and the second never does, since {@code Math} delegates there.
+     */
+    MATH_OTHER_CLASS;
   }
 
   /**
