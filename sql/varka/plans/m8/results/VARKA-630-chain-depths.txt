@@ -2,7 +2,9 @@ VARKA-630 part 4: how deep a nested chain fuses through the SQL compile path, wi
 cap at 64 and at 128, and what stops it.
 
 Date: 21 November 2026, one laptop, one JVM, a scratch test run once per cell (single readings,
-not a benchmark; the scratch test is not kept): `VarkaExpressionCompiler.explainPredicate` over
+not a benchmark; the loops are in VARKA-630-chain-depths.scratch.txt, rewritten from the
+scratch tests that were run and not run again, and the two new tests in VarkaVectorIRSharingSuite pin
+some of the cells): `VarkaExpressionCompiler.explainPredicate` over
 `(CHAIN) > c` on master d49480da0fe, options `VarkaMatrixRuns.BASE.withMaxChainDepth(cap)`.
 
 Each chain nests by substituting the previous level for X. "fuses" is the deepest depth read
@@ -19,10 +21,14 @@ Depths read at cap 64: signum 4 to 64, abs 4 to 64, / 3 4 to 64, the adds 16 to 
 BIGINT). At cap 128: signum 12, 16, 24, 40; abs 28, 32, 40, 64; the adds 63, 64, 100, 126, 127
 and 130 (INT) and 62, 63, 100, 126 and 127 (BIGINT).
 
-What stops a chain at cap 64 is the chain-depth cap: raising it to 128 moves every stop, and the
-add chains stop where the cap is, one level short of it for the INT chain, which fits the predicate's
-compare being a level of the chain (not checked). The decline's text, "exceeds the emitter's fused budget", is the
-one note the compiler gives whatever budget failed, depth included, so it does not say which.
+What stops a chain at cap 64 is the chain-depth cap: at cap 128 every chain read stops somewhere
+else, further on, and the add chains reach the cap's edge at 64 (one level short of it for the INT
+chain, which fits the predicate's compare being a level of the chain; not checked). At cap 128
+the stops are not all the cap's: the INT add chain stops at 89 by the method byte budget (below),
+and the signum and abs stops at cap 128 (16 / 24 and 40 / 64) were not attributed to either limit,
+nor was the `/ 3` chain read there. In the table, "declines" is the first depth read that did not
+fuse, not the stop itself. The decline's text, "exceeds the emitter's fused budget", is the one
+note the compiler gives whatever budget failed, depth included, so it does not say which.
 Neither is `VarkaEmitBudget.MAX_FUSED_NODES` the limit: it is checked only where
 `methodByteBudget` is 0 (`Analysis` line 1953) and the default is 8000.
 

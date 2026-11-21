@@ -162,10 +162,14 @@ public final class VarkaVectorIRSharingSuite {
       x = chain.replace("X", x);
     }
     Expression e = VarkaSqlResolve.parse("(" + x + ") > c", columns);
-    return assertTimeoutPreemptively(Duration.ofSeconds(20),
+    // The default options, not the matrix's: the stops below are the default budgets', and a
+    // configuration that moves a budget moves them (the byte budget, the ceiling).
+    List<VarkaConjunctSpec> specs = assertTimeoutPreemptively(Duration.ofSeconds(20),
         () -> VarkaExpressionCompiler.explainPredicate(e, columns,
-            VarkaMatrixRuns.BASE.withMaxChainDepth(cap), VarkaAdmission.NO_HOST_REFUSAL),
-        () -> "explaining " + chain + " " + depth + " deep").get(0);
+            VarkaEmitOptions.DEFAULTS.withMaxChainDepth(cap), VarkaAdmission.NO_HOST_REFUSAL),
+        () -> "explaining " + chain + " " + depth + " deep");
+    assertEquals(1, specs.size());
+    return specs.get(0);
   }
 
   @Test

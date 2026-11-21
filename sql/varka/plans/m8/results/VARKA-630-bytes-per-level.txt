@@ -18,8 +18,10 @@ as IR and emitted with `maxChainDepth=256,methodByteBudget=60000` (so neither st
 Against the default budget of 8000 bytes, the depth at which a chain of one such operation a level
 reaches it is about 8000 / bytes-a-level: roughly 800 levels of wrapping adds, 250 of divisions
 by a constant, 97 of checked adds and 70 to 87 of selects. The SQL path's INT add chain stopped at
-89 levels (VARKA-630-chain-depths.txt): `a + 1` is a checked add under ANSI, 82 bytes a level
-here, which fits that stop.
+89 levels (VARKA-630-chain-depths.txt), about 90 bytes a level (8000 / 89): `a + 1` is a checked add
+under ANSI, which the table prices at 82 bytes a level for a LONG chain, so the two agree only
+roughly. The INT checked add and the predicate's compare were not priced separately; the INT chain
+was not emitted here.
 
 What this says about a cap of 64: a chain of one checked add or one select a level fits the byte
 budget at 64 levels (about 5300 and 7300 bytes), so there the depth cap, not the byte budget, is
