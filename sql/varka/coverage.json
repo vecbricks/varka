@@ -7827,6 +7827,150 @@
     "note" : "",
     "verified" : "differential"
   }, {
+    "sql" : "sin(x)",
+    "executable" : "sin(x)",
+    "family" : "Math functions",
+    "form" : "projection",
+    "catalyst" : [ "Sin" ],
+    "casts" : [ ],
+    "operands" : [ "Sin:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "exact: a per-lane Math.sin call, the host's answer as Spark's",
+    "verified" : "differential"
+  }, {
+    "sql" : "cos(x)",
+    "executable" : "cos(x)",
+    "family" : "Math functions",
+    "form" : "projection",
+    "catalyst" : [ "Cos" ],
+    "casts" : [ ],
+    "operands" : [ "Cos:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "exact: a per-lane Math.cos call",
+    "verified" : "differential"
+  }, {
+    "sql" : "tan(x)",
+    "executable" : "tan(x)",
+    "family" : "Math functions",
+    "form" : "projection",
+    "catalyst" : [ "Tan" ],
+    "casts" : [ ],
+    "operands" : [ "Tan:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "exact: a per-lane Math.tan call",
+    "verified" : "differential"
+  }, {
+    "sql" : "asin(x)",
+    "executable" : "asin(x)",
+    "family" : "Math functions",
+    "form" : "projection",
+    "catalyst" : [ "Asin" ],
+    "casts" : [ ],
+    "operands" : [ "Asin:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "exact: a per-lane StrictMath.asin call, which Math.asin delegates to",
+    "verified" : "differential"
+  }, {
+    "sql" : "acos(x)",
+    "executable" : "acos(x)",
+    "family" : "Math functions",
+    "form" : "projection",
+    "catalyst" : [ "Acos" ],
+    "casts" : [ ],
+    "operands" : [ "Acos:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "exact: a per-lane StrictMath.acos call",
+    "verified" : "differential"
+  }, {
+    "sql" : "atan(x)",
+    "executable" : "atan(x)",
+    "family" : "Math functions",
+    "form" : "projection",
+    "catalyst" : [ "Atan" ],
+    "casts" : [ ],
+    "operands" : [ "Atan:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "exact: a per-lane StrictMath.atan call",
+    "verified" : "differential"
+  }, {
+    "sql" : "sec(x)",
+    "executable" : "sec(x)",
+    "family" : "Math functions",
+    "form" : "projection",
+    "catalyst" : [ "Sec" ],
+    "casts" : [ ],
+    "operands" : [ "Sec:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null",
+    "verified" : "differential"
+  }, {
+    "sql" : "csc(x)",
+    "executable" : "csc(x)",
+    "family" : "Math functions",
+    "form" : "projection",
+    "catalyst" : [ "Csc" ],
+    "casts" : [ ],
+    "operands" : [ "Csc:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf",
+    "verified" : "differential"
+  }, {
+    "sql" : "cot(x)",
+    "executable" : "cot(x)",
+    "family" : "Math functions",
+    "form" : "projection",
+    "catalyst" : [ "Cot" ],
+    "casts" : [ ],
+    "operands" : [ "Cot:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "1 / Math.tan(x)",
+    "verified" : "differential"
+  }, {
+    "sql" : "sin(x) * 2.0D + cos(x2)",
+    "executable" : "sin(x) * 2.0D + cos(x2)",
+    "family" : "Math functions",
+    "form" : "projection",
+    "catalyst" : [ "Add", "Cos", "Multiply", "Sin" ],
+    "casts" : [ ],
+    "operands" : [ "Add:double", "Cos:double", "Multiply:double", "Sin:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.floatingArithmetic.enabled", "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "the arithmetic around the calls in the kernel",
+    "verified" : "differential"
+  }, {
+    "sql" : "sin(i)",
+    "executable" : "sin(i)",
+    "family" : "Math functions",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "Sin" ],
+    "casts" : [ "int>double:ansi" ],
+    "operands" : [ "Cast:int", "Sin:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.floatingCast.enabled", "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "the int converted exactly, then the call",
+    "verified" : "differential"
+  }, {
+    "sql" : "sin(x) < 0.5D",
+    "executable" : "sin(x) < 0.5D",
+    "family" : "Math functions as conditions",
+    "form" : "predicate",
+    "catalyst" : [ "LessThan", "Sin" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:double", "Sin:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.math.enabled" ],
+    "domain" : "",
+    "note" : "the call, then the floating compare in Spark's order",
+    "verified" : "differential"
+  }, {
     "sql" : "CAST(x AS BOOLEAN)",
     "executable" : "CAST(x AS BOOLEAN)",
     "family" : "Floating casts to BOOLEAN",
@@ -9231,5 +9375,5 @@
     "note" : "a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g)",
     "verified" : "exhaustive: VarkaTimeFractionSuite, the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "
   } ],
-  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyDTInterval", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "TimestampAdd", "TimestampAddInterval", "TimestampAddYMInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
+  "catalyst_classes_admitted" : [ "Abs", "Acos", "Add", "AddMonths", "And", "Asin", "Atan", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "Cos", "Cot", "Csc", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyDTInterval", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Sec", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sin", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "Tan", "TimestampAdd", "TimestampAddInterval", "TimestampAddYMInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }
