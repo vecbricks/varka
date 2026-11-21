@@ -1,6 +1,6 @@
 VARKA-630 part 4: the height, distinct nodes and emitted loop-method size of row 362b's 128-bit
-multiplication words, the first of the five decimal rows (362b, 363, 363b, 364, 366) that wait on a
-deeper chain-depth cap.
+multiplication words, and of row 363's scale-down networks: two of the five decimal rows (362b, 363, 363b, 364,
+366) that wait on a deeper chain-depth cap.
 
 Date: 21 November 2026, one laptop, one JVM, a scratch test run once (single readings of a
 deterministic emitter, not a benchmark); its source is VARKA-630-decimal-shapes.scratch.txt beside
@@ -37,9 +37,40 @@ sign and a comparison (`VARKA-363.md`), which is what takes the five rows to the
 quotes. What it says for the byte budget: the largest method is 1381 bytes for all four words
 together, under a fifth of the default 8000, so the byte budget does not bind this row.
 
-Not measured: rows 363, 363b, 364 and 366. `VARKA-363.md` states its callers' lowered words as
-about 19 and 22 nodes deep before the magnitude, sign and comparison (from a Python model, not an
-emission). Their code is on branches that were not run here, and 364's and 366's shapes were not
-read at all. The wrapping and comparison nodes around the multiplication were not added, so the
-26 to 60 figure is not reproduced here. Class size (38 KB for the four words) was measured and
-not interpreted.
+Row 363, the scale-down (`ScaleDown` lowered by `VarkaDecimalLowering.lower`, as the branch's
+`VarkaScaleDownSuite` builds it), on the branch `varka-363a3-spike` (head ed152a92100) with the same
+temporary change and `methodByteBudget=60000`; the scratch test is
+VARKA-630-scaledown-shapes.scratch.txt. A rung is a row of `VarkaDecimalScale.BOUNDS`, k the digits
+dropped; heights count a leaf as 1 (the analysis counts it as 0, so each is one more than the cap
+it needs):
+
+  rung (words)  k   height  distinct nodes  largest method (B)   (all words together)
+  0 (2)         1   15      90              503
+  0 (2)         6   16      104             561
+  1 (2)         1   19      171             705
+  1 (2)         6   20      187             831
+  2, 3, 4 (2)   1   23      278             894
+  2, 3, 4 (2)   6   24      294             1161
+  5 (4)         1   27      607             1145
+  5 (4)         6   28      649             1661
+
+k = 18 gives the same as k = 6 at every rung. Of the four words of rung 5 only the lower three do
+the work: the top word is 3 nodes. So the scale-down alone needs a cap of 24 to 27 (the
+analysis's count), and the largest method is 1661 bytes, a fifth of the default byte budget.
+
+Where the SQL path stands on these branches: with the cap constant raised, the 363 branch's
+compiler fuses a comparison of two decimal(38, 10) columns (height 5, 10 nodes, 961 bytes) and
+none of: `d1 + d2`, `d1 - d2`, `d1 * d2`, `d1 / d2`, `d1 % d2`, any cast to or from decimal(38, 10),
+`round`, `abs` or unary minus over one, all declined for "precision above 18 does not fit the long
+a slot's low word holds, and its two-word store is row 359's" or, for the casts, for a decimal cast
+with a floating side or an unsupported cast (scratch: VARKA-630-decimal-sql.scratch.txt). So the
+compiler arms of 362b, 363, 364 and 366 are not built on these branches, and no SQL expression
+reaches the networks above; they were emitted from the IR directly.
+
+Not measured: rows 363b, 364 and 366. 363b is not a row of its own in the plan. 364's branch adds
+no IR node (its tables and proofs only) and 366's adds two small ones (`LeadingZeros`,
+`ReinterpretLane`), with the networks the rows would build from them not yet written, and neither
+plan states a depth for them; the "26 to 60" of row 620 is from a read-only investigation whose
+numbers are not recorded in the repository. The wrapping the rows add around these networks (the
+magnitude, the sign, the comparison) was not added, so that figure is not reproduced. Class size
+(38 KB for the four-word multiplication) was measured and not interpreted.

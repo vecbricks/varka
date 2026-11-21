@@ -1,0 +1,74 @@
+package org.apache.spark.sql.catalyst.expressions.codegen.varka;
+
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import org.junit.jupiter.api.Test;
+import scala.jdk.javaapi.CollectionConverters;
+import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.NamedExpression;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
+import org.apache.spark.sql.types.*;
+
+class VarkaScratchDecimalSqlSuite {
+  static int height(VarkaVectorIR n) {
+    int h = 0;
+    for (VarkaVectorIR c : VarkaVectorIR.childrenOf(n)) h = Math.max(h, height(c));
+    return h + 1;
+  }
+
+  static void distinct(VarkaVectorIR n, IdentityHashMap<VarkaVectorIR, Boolean> seen) {
+    if (seen.put(n, true) != null) return;
+    for (VarkaVectorIR c : VarkaVectorIR.childrenOf(n)) distinct(c, seen);
+  }
+
+  @Test
+  void sql() {
+    var columns = CollectionConverters.asScala(List.<Attribute>of(
+        VarkaSqlResolve.column("d1", new DecimalType(38, 10)),
+        VarkaSqlResolve.column("d2", new DecimalType(38, 10)),
+        VarkaSqlResolve.column("e", new DecimalType(18, 2)),
+        VarkaSqlResolve.column("l", DataTypes.LongType),
+        VarkaSqlResolve.column("x", DataTypes.DoubleType))).toSeq();
+    var opts = VarkaMatrixRuns.parse("methodByteBudget=60000");
+    String[] sqls = {"d1 + d2", "d1 - d2", "d1 * d2", "d1 / d2", "d1 % d2", "d1 * e", "e * e",
+        "d1 < d2", "d1 = d2", "CAST(d1 AS BIGINT)", "CAST(d1 AS DOUBLE)", "CAST(d1 AS FLOAT)",
+        "CAST(l AS DECIMAL(38, 10))", "CAST(x AS DECIMAL(38, 10))", "CAST(d1 AS DECIMAL(30, 5))",
+        "CAST(d1 AS DECIMAL(38, 2))", "CAST(e AS DECIMAL(38, 10))", "d1 * d2 + d1 * d2",
+        "(d1 + d2) * (d1 - d2)", "CAST(d1 * d2 AS DOUBLE)", "round(d1, 2)", "abs(d1)", "-d1"};
+    for (String sql : sqls) {
+      Expression e = VarkaSqlResolve.parse(sql, columns);
+      NamedExpression ne = VarkaSqlResolve.named(e, "c0");
+      String out;
+      try {
+        var c = VarkaExpressionCompiler.compile(
+            CollectionConverters.asScala(List.of(ne)).toSeq(), columns, opts);
+        if (c.isEmpty()) {
+          var why = VarkaExpressionCompiler.declines(
+              CollectionConverters.asScala(List.of(ne)).toSeq(), columns, opts);
+          out = "not fused: " + why.toString().replaceAll("\\s+", " ");
+          out = out.substring(0, Math.min(150, out.length()));
+        } else {
+          var roots = c.get().outputs();
+          var seen = new IdentityHashMap<VarkaVectorIR, Boolean>();
+          int h = 0;
+          for (VarkaVectorIR r : roots) { h = Math.max(h, height(r)); distinct(r, seen); }
+          Map<String, Integer> kinds = new TreeMap<>();
+          for (VarkaVectorIR n : seen.keySet()) kinds.merge(n.getClass().getSimpleName(), 1, Integer::sum);
+          byte[] b = VarkaLoopEmitter.emit("org.apache.spark.sql.varka.execution.VarkaScratchDecSql",
+              roots, c.get().inputOrdinals().size(),
+              Math.max(c.get().literals().size(), c.get().longLiterals().size()),
+              "Scratch.java", "scratch", opts);
+          int max = VarkaEmittedClass.measure(b).codeLength().values().stream().mapToInt(i -> i).max().orElse(-1);
+          out = "height " + h + ", " + seen.size() + " nodes, " + max + " B largest method";
+        }
+      } catch (Throwable t) {
+        out = "threw " + t.getClass().getSimpleName() + ": "
+            + String.valueOf(t.getMessage()).substring(0, Math.min(100, String.valueOf(t.getMessage()).length()));
+      }
+      System.out.println("SCRATCH " + sql + " -> " + out);
+    }
+  }
+}
