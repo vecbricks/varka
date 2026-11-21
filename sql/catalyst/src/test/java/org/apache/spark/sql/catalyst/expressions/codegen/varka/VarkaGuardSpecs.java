@@ -551,7 +551,7 @@ public final class VarkaGuardSpecs {
       case GuardedProduct n -> {
         BigInteger l = values.value(n.left());
         BigInteger r = l == null ? null : values.value(n.right());
-        yield r != null && GuardedProduct.trips(l.longValueExact(), r.longValueExact());
+        yield r != null && GuardedProduct.trips(l.longValue(), r.longValue());
       }
       // No guard is placed on any other node; reaching one means the emitter placed a guard this
       // class does not know, which is the case to add.

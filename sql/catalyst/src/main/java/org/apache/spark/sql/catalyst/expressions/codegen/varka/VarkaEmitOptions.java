@@ -944,6 +944,7 @@ public record VarkaEmitOptions(
     }
     if (maxChainDepth < 0) {
       throw VarkaErrors.illegalArgument("maxChainDepth must not be negative: " + maxChainDepth);
+    }
     if (checkedLongMultiply == null) {
       throw VarkaErrors.illegalArgument("checkedLongMultiply must not be null");
     }
