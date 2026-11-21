@@ -28,6 +28,7 @@ import java.util.function.IntUnaryOperator;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange.Range;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
@@ -397,6 +398,10 @@ public final class VarkaRangeAnalysis {
       // A floating value has no integer range.
       case MathUnary n -> VarkaValueRange.UNKNOWN;
       case RoundToIntegral n -> VarkaValueRange.UNKNOWN;
+      case CanonicalFloat n -> VarkaValueRange.UNKNOWN;
+      // The bits of a float and a hash step span their whole lanes.
+      case VarkaVectorIR.CanonicalBits n -> VarkaValueRange.UNKNOWN;
+      case VarkaVectorIR.HashStep n -> VarkaValueRange.UNKNOWN;
       // A condition as a value is 0 or 1 where it is known; an unknown row is null, whose value
       // no consumer reads.
       case CondValue n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, 1);

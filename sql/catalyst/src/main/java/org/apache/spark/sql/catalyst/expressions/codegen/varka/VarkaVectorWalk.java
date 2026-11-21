@@ -22,9 +22,11 @@ import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescr
 
 import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.Label;
+import java.lang.constant.ClassDesc;
 import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
@@ -37,6 +39,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Boo
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
@@ -66,6 +69,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsN
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathFn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
@@ -177,7 +181,7 @@ final class VarkaVectorWalk {
     if (shared == null && analysis.options.cse() && !(node instanceof LiteralSlot)
         && !(node instanceof VarkaVectorIR.NullValue) && !(node instanceof DecimalWord)
         && !s.emittedUnshared.add(node)) {
-      throw VarkaErrors.illegalState("the body visits " + VarkaVectorIR.canonical(node)
+      throw VarkaErrors.illegalState("the body visits " + VarkaVectorIR.canonicalBrief(node)
           + " twice without a shared slot: its use count (Slots.bodyUses) is too low");
     }
     // The lane this node's instructions name: the emission's own in a single-lane kernel, the
@@ -271,6 +275,11 @@ final class VarkaVectorWalk {
       case MathUnary n -> emitMathUnary(cb, n, dense, analysis, s, computed);
       case RoundToIntegral n ->
           VarkaRoundingLowering.emitRint(cb, n, dense, analysis, s, computed);
+      case CanonicalFloat n -> emitCanonicalFloat(cb, n, dense, analysis, s, computed);
+      case VarkaVectorIR.CanonicalBits n ->
+          VarkaHashLowering.emitCanonicalBits(cb, n, dense, analysis, s, computed);
+      case VarkaVectorIR.HashStep n ->
+          VarkaHashLowering.emitHashStep(cb, n, dense, analysis, s, computed);
       case DateDiff n -> {
         lane.requireInt(n);
         emitAndValidatedOp(cb, node, n.end(), n.start(), "sub", LANEWISE_VV,
@@ -485,7 +494,7 @@ final class VarkaVectorWalk {
         } else {
           cb.aload(s.species(lane));
           cb.lload(s.kt.get(n.cond()));
-          emitMaskOfWord(cb, analysis);
+          emitMaskOfWord(cb, lane, analysis);
         }
         cb.invokevirtual(lane.vector, "blend", lane.blend);
         // A narrow pick passes its arms' unreduced int values through - a blend commutes with
@@ -521,7 +530,7 @@ final class VarkaVectorWalk {
         } else {
           cb.aload(s.species(lane));
           cb.lload(s.kt.get(n.cond()));
-          emitMaskOfWord(cb, analysis);
+          emitMaskOfWord(cb, lane, analysis);
         }
         cb.invokevirtual(lane.vector, "add", lane.lanewiseVIMasked);
         if (!dense && s.ownWord.contains(node)) {
@@ -629,12 +638,12 @@ final class VarkaVectorWalk {
     Integer low = s.guardTmp.get(c);
     if (analysis.laneOf(c) != lane || analysis.lane != lane) {
       throw VarkaErrors.illegalState("a decimal column read in a " + analysis.lane
-          + " emission: " + VarkaVectorIR.canonical(c));
+          + " emission: " + VarkaVectorIR.canonicalBrief(c));
     }
     if (halves == null || low == null || s.decimalShuffle == null) {
       // Refused by name: without its locals the check would be dropped silently.
       throw VarkaErrors.illegalState("a decimal column with no locals planned: "
-          + VarkaVectorIR.canonical(c));
+          + VarkaVectorIR.canonicalBrief(c));
     }
     line(cb, analysis, c);
     emitDecimalSlotLoads(cb, s, c.ordinal(), halves);
@@ -699,12 +708,12 @@ final class VarkaVectorWalk {
     int[] tmp = s.decimalTmp.get(key);
     if (analysis.laneOf(w) != lane || analysis.lane != lane) {
       throw VarkaErrors.illegalState("a decimal word read in a " + analysis.lane
-          + " emission: " + VarkaVectorIR.canonical(w));
+          + " emission: " + VarkaVectorIR.canonicalBrief(w));
     }
     if (tmp == null || tmp.length != 4 || s.decimalShuffle == null) {
       // Refused by name: without its locals the check would be dropped silently.
       throw VarkaErrors.illegalState("a decimal word with no locals planned: "
-          + VarkaVectorIR.canonical(w));
+          + VarkaVectorIR.canonicalBrief(w));
     }
     line(cb, analysis, w);
     int lo = tmp[2];
@@ -1165,18 +1174,96 @@ final class VarkaVectorWalk {
 
   /**
    * {@code MathUnary}: the function's lanewise operator, whose bits are {@code Math}'s on every
-   * input. The word is the operand's, since nothing here nulls a lane.
+   * input, or for a per-lane call ({@link MathFn#laneCall}) {@link #emitMathLaneCall}. The word
+   * is the operand's, since nothing here nulls a lane.
    */
   private static void emitMathUnary(CodeBuilder cb, MathUnary n, boolean dense,
       Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
     emitValue(cb, n.child(), dense, analysis, s, computed);
     line(cb, analysis, n);
     Lane lane = analysis.laneOf(n);
+    if (n.fn().laneCall()) {
+      emitMathLaneCall(cb, n.fn(), lane, analysis);
+      return;
+    }
     String operator = switch (n.fn()) {
       case SQRT -> "SQRT";
+      case SIN, COS, TAN, ASIN, ACOS, ATAN -> throw VarkaErrors.illegalState(
+          n.fn() + " is a per-lane call");
     };
     cb.getstatic(VECTOR_OPERATORS, operator, VO_UNARY);
     cb.invokevirtual(lane.vector, "lanewise", MethodTypeDesc.of(lane.vector, VO_UNARY));
+  }
+
+  /**
+   * A per-lane call: {@code [v] -> [v']}, each lane {@code k} of the double vector replaced by
+   * {@code fn(v.lane(k))}, the scalar method Spark's code calls, so the bits are that method's on
+   * every input. The loop is unrolled over the baked lane count, which the kernel plan requires
+   * of a kernel holding a call ({@code VarkaKernelPlan.NO_BAKED_LANES_FOR_A_CALL}): {@code lane}
+   * and {@code withLane} at a constant index are an extract and an insert, and each lane read
+   * comes from the vector before its own lane is replaced, since a later index has not been
+   * written yet. No local is taken: the double result is moved under its index with
+   * {@code dup_x2} and {@code pop}.
+   *
+   * <p>Every lane is called, a null lane's or a padding lane's too; the call is pure and the
+   * validity word discards what such a lane answers, so the answer is unchanged, and a lane's
+   * time is the call's whatever it holds.
+   */
+  private static void emitMathLaneCall(CodeBuilder cb, MathFn fn, Lane lane, Analysis analysis) {
+    if (lane != Lane.DOUBLE || analysis.lanes == 0 || analysis.lane.bits != Long.SIZE) {
+      throw VarkaErrors.illegalState("a per-lane " + fn + " needs a double vector at a baked "
+          + "lane count of a 64-bit drive lane, not " + lane + " at " + analysis.lanes);
+    }
+    String called =
+        analysis.options.floatingFault() == VarkaEmitOptions.FloatingFault.MATH_OTHER_CLASS
+            ? otherClass(fn.owner()) : fn.owner();
+    ClassDesc owner = ClassDesc.ofInternalName(called);
+    for (int k = 0; k < analysis.lanes; k++) {
+      cb.dup();                                                 // [v, v]
+      cb.loadConstant(k);
+      cb.invokevirtual(lane.vector, "lane", DOUBLE_LANE);       // [v, v[k]]
+      cb.invokestatic(owner, fn.method(), DOUBLE_FN);           // [v, fn(v[k])]
+      cb.loadConstant(k);                                       // [v, r, k]
+      cb.dup_x2();                                              // [v, k, r, k]
+      cb.pop();                                                 // [v, k, r]
+      cb.invokevirtual(lane.vector, "withLane", DOUBLE_WITH_LANE);
+    }
+  }
+
+  /** The other of {@code java.lang.Math} and {@code StrictMath}, for the planted fault. */
+  private static String otherClass(String owner) {
+    return owner.equals("java/lang/Math") ? "java/lang/StrictMath" : "java/lang/Math";
+  }
+
+  /**
+   * {@code CanonicalFloat}: {@code blend(x + 0.0, NaN, isNaN(x))}, the lane's canonical NaN a
+   * scalar the blend broadcasts. The class file writes a float or double constant through
+   * {@code floatToIntBits} or {@code doubleToLongBits}, so the pushed NaN is the canonical one.
+   * The word is the operand's, since nothing here nulls a lane. Under the planted fault
+   * {@link VarkaEmitOptions.FloatingFault#CANONICAL_ZERO_DROPPED} the add is left out, so
+   * {@code -0.0} keeps its sign.
+   */
+  private static void emitCanonicalFloat(CodeBuilder cb, CanonicalFloat n, boolean dense,
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
+    int x = Objects.requireNonNull(s.canonTmp.get(n), "the node's scratch local")[0];
+    emitValue(cb, n.child(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    Lane lane = analysis.laneOf(n);
+    cb.astore(x);                                               // []
+    cb.aload(x);
+    if (analysis.options.floatingFault()
+        != VarkaEmitOptions.FloatingFault.CANONICAL_ZERO_DROPPED) {
+      lane.pushZero(cb);
+      cb.invokevirtual(lane.vector, "add", lane.lanewiseVI);   // [x + 0.0]
+    }
+    switch (lane.laneType) {
+      case FLOAT -> cb.loadConstant(Float.NaN);
+      case DOUBLE -> cb.loadConstant(Double.NaN);
+      case BYTE, SHORT, INT, LONG -> throw VarkaErrors.illegalArgument(
+          "a canonicalisation at the integral lane " + lane.laneType + ": " + n);
+    }
+    emitIsNaN(cb, lane, x);                                     // [x + 0.0, NaN, isNaN(x)]
+    cb.invokevirtual(lane.vector, "blend", lane.lanewiseVIMasked);
   }
 
   /**
@@ -1264,7 +1351,8 @@ final class VarkaVectorWalk {
    * same check on the same operand, and at the int lane a reduction of its own result wherever
    * it is read ({@link Analysis#wrapAt}). A long-lane {@code abs} is a decimal's, which wraps, or
    * a bigint's, checked under ANSI by the negation's compare: by default a compare with zero, a
-   * negation and a blend, and the lanewise {@code ABS} under {@code decimalAbsLanewise}.
+   * negation and a blend, and the lanewise {@code ABS} under {@code decimalAbsLanewise}. An int
+   * {@code abs} is the lanewise {@code ABS}, checked the same way.
    */
   private static void emitIntNeg(CodeBuilder cb, IntNeg n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
@@ -1280,12 +1368,16 @@ final class VarkaVectorWalk {
       cb.invokevirtual(lane.vector, "compare", lane.compareVI);
       emitOverflowMask(cb, n.mode(), n, dense, analysis, s);
     }
-    if (n.abs() && !n.laneType().isNarrow() && !n.laneType().isFloating()) {
+    // An int abs is the lanewise ABS, intrinsic on an AVX2 host (vpabsd): its wrap of the
+    // minimum is Math.abs's, so it falls through to the lanewise form below, after the check.
+    if (n.abs() && n.laneType() == VarkaVectorIR.LaneType.INT && n.mode() == Overflow.NULL) {
+      throw VarkaErrors.illegalArgument("an int abs is wrapping or checked: " + n);
+    }
+    if (n.abs() && n.laneType() == VarkaVectorIR.LaneType.LONG) {
       // A long abs is a decimal's, which wraps, or a bigint's (VARKA-104), checked under ANSI
       // by the negation's compare above. Spark has no try_abs, so NULL never reaches here.
-      if (n.laneType() != VarkaVectorIR.LaneType.LONG || n.mode() == Overflow.NULL) {
-        throw VarkaErrors.illegalArgument("abs off the narrow and floating lanes is a long one, "
-            + "wrapping or checked: " + n);
+      if (n.mode() == Overflow.NULL) {
+        throw VarkaErrors.illegalArgument("a long abs is wrapping or checked: " + n);
       }
       if (!analysis.options.decimalAbsLanewise()) {
         // x < 0 ? -x : x as x.blend(x.neg(), x.compare(LT, 0)): the compare and the blend are
@@ -1610,7 +1702,7 @@ final class VarkaVectorWalk {
     if (!dense && word != null && word != WORD_ALL_TRUE) {
       cb.aload(s.species);
       loadWord(cb, s, word);
-      emitMaskOfWord(cb, analysis);
+      emitMaskOfWord(cb, analysis.lane, analysis);
       cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
     }
     emitArmContext(cb, node, dense, analysis, s);
@@ -1725,7 +1817,7 @@ final class VarkaVectorWalk {
         cb.loadConstant(-1L);
         cb.lxor();
       }
-      emitMaskOfWord(cb, analysis);
+      emitMaskOfWord(cb, analysis.lane, analysis);
     }
   }
 
@@ -1752,7 +1844,7 @@ final class VarkaVectorWalk {
     cb.aload(s.species);                                // [word, species]
     cb.dup_x2();                                        // [species, word, species]
     cb.pop();                                           // [species, word]
-    cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+    emitFromLong(cb, analysis.lane, analysis);
   }
 
   /**
@@ -1777,7 +1869,7 @@ final class VarkaVectorWalk {
     cb.aload(s.species(to));                            // [word, species]
     cb.dup_x2();                                        // [species, word, species]
     cb.pop();                                           // [species, word]
-    cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+    emitFromLong(cb, to, analysis);
   }
 
   /**
@@ -1791,16 +1883,134 @@ final class VarkaVectorWalk {
    * (VARKA-491). Every word-to-mask conversion of the masked body goes through here, whether or not
    * its word can carry a {@code toLong}, so each has the same bytes; words made with {@code toLong}
    * that never become a mask, such as a filter's, pay nothing. Under {@code fromLongMasks} the
-   * word goes to {@code fromLong} as it is.
+   * word goes to {@code fromLong} as it is, and under {@code maskFromWord}, which emits no
+   * {@code fromLong}, to {@link VarkaMaskFromWord} as it is.
    */
-  static void emitMaskOfWord(CodeBuilder cb, Analysis analysis) {
-    if (!analysis.options.fromLongMasks()) {
+  static void emitMaskOfWord(CodeBuilder cb, Lane lane, Analysis analysis) {
+    if (!analysis.options.fromLongMasks() && !analysis.options.maskFromWord()) {
       cb.getstatic(MASK_GUARD, "ones", ConstantDescs.CD_long);
       cb.getstatic(MASK_GUARD, "OPEN", ConstantDescs.CD_long);
       cb.lor();
       cb.land();
     }
-    cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+    emitFromLong(cb, lane, analysis);
+  }
+
+  /**
+   * {@code [species, word] -> [mask]} at {@code lane}'s species: {@code VectorMask.fromLong}, or
+   * under {@code maskFromWord} the same mask built without the mask-from-bits instruction an
+   * aarch64 core has only with SVE2's bit permute (VARKA-375). Every word-to-mask conversion an
+   * emitted kernel makes comes here.
+   *
+   * <p>The construction is emitted in the kernel, operator by operator: the word broadcast at the
+   * integral lane of the lane's width, an {@code AND} with {@link VarkaMaskFromWord}'s table of
+   * each lane's bit, a compare with zero, and for a floating lane a cast to its species. Each of
+   * those is a Vector API method C2 force-inlines, where a call to a helper of Varka's is an
+   * ordinary call that C2 stops inlining once a wide kernel's method reaches
+   * {@code DesiredMethodLimit} or {@code NodeCountInliningCutoff}, which a warm-up probe under
+   * {@code -XX:+PrintInlining} showed, the kernel then allocating a mask a call. A byte species
+   * past 8 lanes or a short one past 16 has lanes whose bits are in another element of the word;
+   * there each lane first picks its element with {@code selectFrom}, as
+   * {@link VarkaMaskFromWord} does.
+   */
+  static void emitFromLong(CodeBuilder cb, Lane lane, Analysis analysis) {
+    if (!analysis.options.maskFromWord()) {
+      cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+      return;
+    }
+    Lane integral = switch (lane) {
+      case BYTE, SHORT, INT, LONG -> lane;
+      case FLOAT -> Lane.INT;
+      case DOUBLE -> Lane.LONG;
+    };
+    var species = integral.speciesField(analysis.lanesOf(lane));
+    int lanes = analysis.lanesOf(lane) == 0 ? lane.preferredLanes : analysis.lanesOf(lane);
+    boolean narrow = integral == Lane.BYTE || integral == Lane.SHORT;
+    // At SPECIES_PREFERRED the lane count is the running JVM's, which may be wider than this
+    // one's (a reproduction file replayed on another host), so a narrow lane takes the element
+    // select, which is right at any count.
+    if (narrow && (lanes > integral.bits || analysis.lanesOf(lane) == 0)) {
+      // A byte or short lane past one element's bits: the word broadcast as longs at the same
+      // width, viewed at the lane, and each lane's element picked by selectFrom by the table of
+      // lane i's element, i / bits. [species, word] -> [vector]; the species is the constant's.
+      cb.getstatic(Lane.LONG.vector, Lane.LONG.speciesField(analysis.lanesOf(lane) == 0 ? 0
+          : lanes * integral.bits / Long.SIZE), VECTOR_SPECIES);
+      cb.dup_x2();
+      cb.pop();
+      cb.invokestatic(Lane.LONG.vector, "broadcast", Lane.LONG.broadcast);
+      cb.invokevirtual(Lane.LONG.vector, integral == Lane.BYTE ? "reinterpretAsBytes"
+          : "reinterpretAsShorts", MethodTypeDesc.of(integral.vector));
+      cb.swap();
+      var elements = integral.scalar.arrayType();
+      cb.getstatic(MASK_FROM_WORD, integral == Lane.BYTE ? "BYTE_ELEMENT" : "SHORT_ELEMENT",
+          elements);
+      cb.iconst_0();
+      cb.invokestatic(integral.vector, "fromArray",
+          MethodTypeDesc.of(integral.vector, VECTOR_SPECIES, elements, ConstantDescs.CD_int));
+      cb.swap();
+      cb.invokevirtual(integral.vector, "selectFrom", integral.lanewiseVV);
+      emitLaneBitsTest(cb, integral, species);
+      return;
+    }
+    if (lanes > integral.bits) {
+      // An int species past 32 lanes, wider than 1024 bits, which no host the milestone measures
+      // has: the helper's element select.
+      cb.invokestatic(MASK_FROM_WORD, lane == Lane.INT ? "ofInt" : "ofFloat", FROM_LONG);
+      return;
+    }
+    if (integral != lane) {
+      // [species, word] -> [species, intSpecies, word]: the floating species stays for the cast.
+      cb.getstatic(integral.vector, species, VECTOR_SPECIES);
+      cb.dup_x2();
+      cb.pop();
+    }
+    if (integral != Lane.LONG) {
+      cb.l2i();
+      if (integral == Lane.SHORT) {
+        cb.i2s();
+      } else if (integral == Lane.BYTE) {
+        cb.i2b();
+      }
+    }
+    cb.invokestatic(integral.vector, "broadcast", integral.broadcast);
+    emitLaneBitsTest(cb, integral, species);
+    if (integral != lane) {
+      cb.swap();
+      cb.invokevirtual(VECTOR_MASK, "cast", MASK_CAST);
+    }
+  }
+
+  /**
+   * {@code [vector] -> [mask]} at an integral lane: lane {@code i} set where the vector's lane
+   * holds lane {@code i}'s bit, by an {@code AND} with {@link VarkaMaskFromWord}'s table of each
+   * lane's bit at the lane's constant {@code species} and a compare with zero.
+   */
+  private static void emitLaneBitsTest(CodeBuilder cb, Lane integral, String species) {
+    cb.getstatic(integral.vector, species, VECTOR_SPECIES);
+    var table = integral.scalar.arrayType();
+    cb.getstatic(MASK_FROM_WORD, laneBitsTable(integral), table);
+    cb.iconst_0();
+    cb.invokestatic(integral.vector, "fromArray",
+        MethodTypeDesc.of(integral.vector, VECTOR_SPECIES, table, ConstantDescs.CD_int));
+    cb.invokevirtual(integral.vector, "and", integral.lanewiseVV);
+    cb.getstatic(VECTOR_OPERATORS, "NE", VO_COMPARISON);
+    if (integral == Lane.LONG) {
+      cb.loadConstant(0L);
+    } else {
+      cb.iconst_0();
+    }
+    cb.invokevirtual(integral.vector, "compare", integral.compareVI);
+  }
+
+  /** The {@link VarkaMaskFromWord} table of each lane's bit at an integral lane. */
+  private static String laneBitsTable(Lane integral) {
+    return switch (integral) {
+      case BYTE -> "BYTE_BITS";
+      case SHORT -> "SHORT_BITS";
+      case INT -> "INT_BITS";
+      case LONG -> "LONG_BITS";
+      case FLOAT, DOUBLE -> throw VarkaErrors.illegalArgument("no bit table at " + integral);
+    };
   }
 
   /**
@@ -1832,7 +2042,7 @@ final class VarkaVectorWalk {
     loadWord(cb, s, s.wordRef.get(left));
     cb.loadConstant(-1L);
     cb.lxor();
-    emitMaskOfWord(cb, analysis);
+    emitMaskOfWord(cb, lane, analysis);
     cb.invokevirtual(lane.vector, "blend", lane.blend);
     cb.aload(tmp[1]);
     cb.aload(tmp[0]);
@@ -1840,7 +2050,7 @@ final class VarkaVectorWalk {
     loadWord(cb, s, s.wordRef.get(right));
     cb.loadConstant(-1L);
     cb.lxor();
-    emitMaskOfWord(cb, analysis);
+    emitMaskOfWord(cb, lane, analysis);
     cb.invokevirtual(lane.vector, "blend", lane.blend);
     emitPickOp(cb, lane, op, tmp);
     if (s.ownWord.contains(node)) {
@@ -2285,7 +2495,7 @@ final class VarkaVectorWalk {
         if (dense) {
           cb.aload(s.species(analysis.laneOf(node)));
           loadDataBits(cb, n, analysis, s);
-          cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+          emitFromLong(cb, analysis.laneOf(node), analysis);
           cb.astore(s.condMask.get(node));
         } else {
           // kT = d & v; kF = ~d & v. The data bit under a null slot is arbitrary and v clears it.
@@ -2307,7 +2517,7 @@ final class VarkaVectorWalk {
         if (dense) {
           cb.aload(s.species(analysis.laneOf(node)));
           cb.loadConstant(isTrue ? -1L : 0L);
-          cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+          emitFromLong(cb, analysis.laneOf(node), analysis);
           cb.astore(s.condMask.get(node));
         } else {
           cb.loadConstant(isTrue ? -1L : 0L);
@@ -2474,7 +2684,7 @@ final class VarkaVectorWalk {
           // condition alike.
           cb.aload(s.species(analysis.laneOf(node)));
           cb.loadConstant(-1L);
-          cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+          emitFromLong(cb, analysis.laneOf(node), analysis);
           cb.astore(s.condMask.get(node));
         } else {
           // kT = word(child); kF = ~word(child) - total: both masks cover every lane. The

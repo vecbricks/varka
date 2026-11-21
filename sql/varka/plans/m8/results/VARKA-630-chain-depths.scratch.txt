@@ -1,0 +1,45 @@
+// Rewritten on 21 November 2026 from the scratch tests that produced VARKA-630-chain-depths.txt;
+// it was not run again as one file. Place it as VarkaScratchDepthSuite.java in
+// sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/ to run it.
+package org.apache.spark.sql.catalyst.expressions.codegen;
+
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import scala.jdk.javaapi.CollectionConverters;
+import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.*;
+import org.apache.spark.sql.types.*;
+
+class VarkaScratchDepthSuite {
+  static boolean fuses(DataType type, String chain, int depth, VarkaEmitOptions opts) {
+    var columns = CollectionConverters.asScala(List.<Attribute>of(
+        VarkaSqlResolve.column("a", type), VarkaSqlResolve.column("c", type))).toSeq();
+    String x = "a";
+    for (int i = 0; i < depth; i++) x = chain.replace("X", x);
+    Expression e = VarkaSqlResolve.parse("(" + x + ") > c", columns);
+    return VarkaExpressionCompiler.explainPredicate(e, columns, opts,
+        VarkaAdmission.NO_HOST_REFUSAL).get(0).fused();
+  }
+
+  @Test
+  void table() {
+    DataType ym = new YearMonthIntervalType((byte) 0, (byte) 1);
+    Object[][] chains = {{DataTypes.IntegerType, "(X + 1)"}, {DataTypes.LongType, "(X + 1)"},
+        {ym, "abs(X)"}, {DataTypes.DoubleType, "signum(X)"}, {ym, "(X) / 3"}};
+    for (int cap : new int[] {64, 128}) {
+      var opts = VarkaMatrixRuns.BASE.withMaxChainDepth(cap);
+      for (Object[] c : chains) {
+        for (int d : new int[] {4, 8, 12, 16, 24, 28, 32, 40, 56, 62, 63, 64, 100, 127}) {
+          System.out.println("SCRATCH cap=" + cap + " " + c[1] + " " + ((DataType) c[0]).simpleString()
+              + " depth=" + d + " fused=" + fuses((DataType) c[0], (String) c[1], d, opts));
+        }
+      }
+    }
+  }
+
+  // The bisection of the INT add stop and the byte-budget sweep: for each of
+  // "maxChainDepth=256,methodByteBudget=N" (N = 4000, 8000, 16000, 32000, 60000) and
+  // "maxChainDepth=256,methodByteBudget=0", bisect the deepest depth in [63, 200) at which
+  // fuses(IntegerType, "(X + 1)", depth, VarkaMatrixRuns.parse(options)) holds.
+}

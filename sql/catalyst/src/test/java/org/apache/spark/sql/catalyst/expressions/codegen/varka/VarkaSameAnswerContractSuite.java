@@ -216,6 +216,14 @@ public final class VarkaSameAnswerContractSuite {
         new IntNeg(Overflow.WRAP, rintIr, false), false));
     t.add(otherNaN("rint(x + x2), rint fixing an open sum's NaN", new Rint(add(x, x2)),
         new RoundToIntegral(RoundMode.RINT, sum), false));
+    // Fixed: the canonicalisation answers the canonical NaN for every NaN (VARKA-337), an open
+    // sum's among them.
+    t.add(otherNaN("NormalizeNaNAndZero(x)",
+        new org.apache.spark.sql.catalyst.optimizer.NormalizeNaNAndZero(x),
+        VarkaVectorIR.CanonicalFloat.of(X_IR), false));
+    t.add(otherNaN("NormalizeNaNAndZero(x + x2), fixing an open sum's NaN",
+        new org.apache.spark.sql.catalyst.optimizer.NormalizeNaNAndZero(add(x, x2)),
+        VarkaVectorIR.CanonicalFloat.of(sum), false));
     // Fixed: a subtraction or a division returns its left operand's payload on every tier.
     t.add(otherNaN("x - x2", new Subtract(x, x2, ctx()), arith(IntOp.SUB, X_IR, X2_IR), false));
     // Fixed: a pick or a one-operand operation returns a NaN whose bits follow from its input.

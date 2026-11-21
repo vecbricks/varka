@@ -1,0 +1,71 @@
+package org.apache.spark.sql.catalyst.expressions.codegen.varka;
+
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import org.junit.jupiter.api.Test;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
+
+class VarkaScratchScaleDownSuite {
+  static int height(VarkaVectorIR n) {
+    int h = 0;
+    for (VarkaVectorIR c : VarkaVectorIR.childrenOf(n)) h = Math.max(h, height(c));
+    return h + 1;
+  }
+
+  static void distinct(VarkaVectorIR n, IdentityHashMap<VarkaVectorIR, Boolean> seen) {
+    if (seen.put(n, true) != null) return;
+    for (VarkaVectorIR c : VarkaVectorIR.childrenOf(n)) distinct(c, seen);
+  }
+
+  static List<VarkaVectorIR> magnitude(int words) {
+    var out = new ArrayList<VarkaVectorIR>(words);
+    for (int i = 0; i < words; i++) out.add(new ColumnRef(i, LaneType.LONG));
+    return out;
+  }
+
+  static String report(String what, List<VarkaVectorIR> roots, int inputs) {
+    var seen = new IdentityHashMap<VarkaVectorIR, Boolean>();
+    int h = 0;
+    for (VarkaVectorIR r : roots) { h = Math.max(h, height(r)); distinct(r, seen); }
+    String bytes;
+    try {
+      var opts = VarkaMatrixRuns.parse("methodByteBudget=60000");
+      byte[] b = VarkaLoopEmitter.emit("org.apache.spark.sql.varka.execution.VarkaScratchSd",
+          roots, inputs, 0, "Scratch.java", "scratch", opts);
+      int max = VarkaEmittedClass.measure(b).codeLength().values().stream().mapToInt(i -> i).max().orElse(-1);
+      bytes = max + " B largest method";
+    } catch (Throwable t) {
+      String m = String.valueOf(t.getMessage());
+      bytes = "emit threw " + t.getClass().getSimpleName() + ": " + m.substring(0, Math.min(90, m.length()));
+    }
+    return "SCRATCH " + what + ": height " + h + ", " + seen.size() + " distinct nodes, " + bytes;
+  }
+
+  @Test
+  void scaleDown() {
+    for (int rung : new int[] {0, 1, 2, 3, 4, 5}) {
+      if (rung >= VarkaDecimalScale.BOUNDS.size()) break;
+      BigInteger bound = VarkaDecimalScale.BOUNDS.get(rung);
+      int words = bound.compareTo(BigInteger.ONE.shiftLeft(128)) < 0 ? 2 : 4;
+      for (int k : new int[] {1, 6, 18}) {
+        var roots = new ArrayList<VarkaVectorIR>();
+        for (int w = 0; w < words; w++) {
+          try {
+            roots.add(VarkaDecimalLowering.lower(new ScaleDown(magnitude(words), k, bound, ScaleRound.HALF_UP, w), Set.of()));
+          } catch (Throwable t) {
+            System.out.println("SCRATCH rung=" + rung + " k=" + k + " word=" + w + " threw " + t.getClass().getSimpleName());
+          }
+        }
+        if (roots.size() == words) {
+          System.out.println(report("ScaleDown rung=" + rung + " (" + words + " words) k=" + k + " ALL words", roots, words));
+          System.out.println(report("ScaleDown rung=" + rung + " (" + words + " words) k=" + k + " top word", List.of(roots.get(words - 1)), words));
+        }
+      }
+    }
+  }
+}

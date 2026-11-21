@@ -25,13 +25,14 @@ import java.util.List;
  * byte-identical loops (modulo the name and debug strings the cache derives itself), so they may -
  * and with the cache, do - share one loaded class.
  *
- * <p>Equality is structural for free: the IR nodes are records, and the compiler assigns literal
- * slots and column refs dense first-occurrence indices carrying no values ({@code VARKA-10.md}
- * built that property for this key; {@code VarkaExpressionCompilerSuite} pins it). Literal values
- * travel as runtime {@code scalarArgs} and never enter the key - two queries with the same shape
- * and different constants must hit. {@code numLiterals} is a component in its own right because it
- * changes the emitted bytecode independently of the IR (per-slot locals are allocated whether
- * referenced or not, and it gates the broadcast-hoist regime).
+ * <p>Equality is structural, the outputs by {@link VarkaVectorIR#sameStructure}, which walks a
+ * shared node once: the IR nodes are records, and the compiler assigns literal slots and column
+ * refs dense first-occurrence indices carrying no values ({@code VARKA-10.md} built that property
+ * for this key; {@code VarkaExpressionCompilerSuite} pins it). Literal values travel as runtime
+ * {@code scalarArgs} and never enter the key - two queries with the same shape and different
+ * constants must hit. {@code numLiterals} is a component in its own right because it changes the
+ * emitted bytecode independently of the IR (per-slot locals are allocated whether referenced or
+ * not, and it gates the broadcast-hoist regime).
  *
  * <p>Deliberately absent, recorded in {@code VARKA-18.md}: the child plan ordinals
  * ({@code ColumnRef} carries the dense kernel input index; the evaluator binds actual columns per
@@ -79,5 +80,19 @@ public record VarkaShapeKey(
   /** The production shape: {@link VarkaEmitOptions#DEFAULTS}, not warmed. */
   public VarkaShapeKey(List<VarkaVectorIR> outputs, int numInputs, int numLiterals) {
     this(outputs, numInputs, numLiterals, VarkaEmitOptions.DEFAULTS);
+  }
+
+  /**
+   * Equal when every field is, the outputs by {@link VarkaVectorIR#sameStructure}: a record's own
+   * {@code equals} compares two equal DAGs that share no object once per path, which a cache hit
+   * does with a freshly compiled key and the cached one (VARKA-630). The record's {@code hashCode}
+   * stays, and equal keys under this {@code equals} are equal under the record's, so they hash
+   * alike.
+   */
+  @Override
+  public boolean equals(Object other) {
+    return this == other || (other instanceof VarkaShapeKey k
+        && numInputs == k.numInputs && numLiterals == k.numLiterals && warmed == k.warmed
+        && options.equals(k.options) && VarkaVectorIR.sameStructure(outputs, k.outputs));
   }
 }

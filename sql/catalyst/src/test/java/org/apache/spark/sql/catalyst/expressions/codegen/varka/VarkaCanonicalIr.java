@@ -27,8 +27,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
- * Reads {@code VarkaVectorIR.canonical} back into a tree: what a reproduction file's replay
- * (VARKA-315) rebuilds the failing kernel's shape key from.
+ * Reads {@code VarkaVectorIR.canonical} back into a tree, or the one-root DAG form
+ * ({@code canonicalOneLine}, which a reproduction file holds for a deep shared shape): what a
+ * reproduction file's replay (VARKA-315) rebuilds the failing kernel's shape key from.
  *
  * <p><b>Why the canonical form is enough.</b> The shape hash is SHA-256 over the outputs'
  * canonical renderings, the input and literal counts and the options, and the class cache serves
@@ -57,14 +58,23 @@ public final class VarkaCanonicalIr {
 
   private final List<String> tokens;
   private int at;
+  /** The nodes of a DAG rendering read so far, by id; null when reading a tree. */
+  private final List<VarkaVectorIR> table;
 
-  private VarkaCanonicalIr(String text) {
+  private VarkaCanonicalIr(String text, List<VarkaVectorIR> table) {
     this.tokens = tokenize(text);
+    this.table = table;
   }
 
-  /** The tree {@code canonical} rendered as {@code text}; refuses anything else. */
+  /**
+   * The tree {@code canonical} rendered as {@code text}, or the node a one-root DAG rendering
+   * names; refuses anything else. A multi-root DAG is not read: a file holds one output a line.
+   */
   public static VarkaVectorIR parse(String text) {
-    var parser = new VarkaCanonicalIr(text);
+    if (text.startsWith("dag;") || text.startsWith("dag\n")) {
+      return parseDag(text);
+    }
+    var parser = new VarkaCanonicalIr(text, null);
     VarkaVectorIR node = parser.node();
     if (parser.at != parser.tokens.size()) {
       throw new IllegalArgumentException("trailing text after the IR at token " + parser.at
@@ -74,6 +84,47 @@ public final class VarkaCanonicalIr {
     if (!again.equals(text)) {
       throw new IllegalArgumentException("the IR does not render back as it was written: read "
           + text + ", rendered " + again);
+    }
+    return node;
+  }
+
+  /**
+   * The one root of a DAG rendering ({@code VarkaVectorIR.canonicalDag}, its lines joined by
+   * {@code ;} or newlines): each {@code id=line} is read with its child ids looked up in the nodes
+   * before it, so a node shared by many parents is one object here too. Checked as the tree form
+   * is: the root must render back as the same DAG.
+   */
+  private static VarkaVectorIR parseDag(String text) {
+    String body = text.stripTrailing();
+    if (body.contains(";") && body.contains("\n")) {
+      throw new IllegalArgumentException("a DAG is written with ';' or with newlines, not both");
+    }
+    String[] lines = body.split("[;\n]");
+    var table = new ArrayList<VarkaVectorIR>();
+    String roots = lines[lines.length - 1];
+    for (int i = 1; i < lines.length - 1; i++) {
+      int eq = lines[i].indexOf('=');
+      if (eq < 0 || !lines[i].substring(0, eq).equals(Integer.toString(table.size()))) {
+        throw new IllegalArgumentException("not the next id of a DAG line: '" + lines[i] + "'");
+      }
+      var parser = new VarkaCanonicalIr(lines[i].substring(eq + 1), table);
+      VarkaVectorIR node = parser.node();
+      if (parser.at != parser.tokens.size()) {
+        throw new IllegalArgumentException("trailing text in the DAG line '" + lines[i] + "'");
+      }
+      table.add(node);
+    }
+    if (!roots.startsWith("roots ") || roots.indexOf(' ', 6) >= 0) {
+      throw new IllegalArgumentException("a DAG with one root was expected, got '" + roots + "'");
+    }
+    int root = Integer.parseInt(roots.substring(6));
+    if (root < 0 || root >= table.size()) {
+      throw new IllegalArgumentException("the DAG's root " + root + " is not a node");
+    }
+    VarkaVectorIR node = table.get(root);
+    String again = VarkaVectorIR.canonicalDag(List.of(node)).stripTrailing().replace('\n', ';');
+    if (!again.equals(text.stripTrailing().replace('\n', ';'))) {
+      throw new IllegalArgumentException("the DAG does not render back as it was written");
     }
     return node;
   }
@@ -129,6 +180,13 @@ public final class VarkaCanonicalIr {
   private VarkaVectorIR node() {
     String token = next();
     if (!token.equals("(")) {
+      if (table != null && token.chars().allMatch(Character::isDigit)) {
+        int id = Integer.parseInt(token);
+        if (id >= table.size()) {
+          throw new IllegalArgumentException("a DAG line names node " + id + " before it is read");
+        }
+        return table.get(id);
+      }
       return leaf(token);
     }
     String head = next();
@@ -205,6 +263,9 @@ public final class VarkaCanonicalIr {
       case "bitCount" -> new BitCount(node());
       case "math" -> new MathUnary(MathFn.valueOf(parts[1]), node());
       case "round" -> new RoundToIntegral(RoundMode.valueOf(parts[1]), node());
+      case "canon" -> CanonicalFloat.of(node());
+      case "canonBits" -> new CanonicalBits(node());
+      case "hash" -> new HashStep(HashMix.valueOf(parts[1]), node(), node());
       default -> throw new IllegalArgumentException("no IR node is rendered as '" + head + "'");
     };
     expect(")");

@@ -502,6 +502,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "a multiply is checked, and only bounded operands take the check off: `i * 2` over "
           + "a bare int column declines", domain = Some(dayBound)),
       Row("-i", "checked under ANSI", domain = Some(s"i > ${Int.MinValue}")),
+      Row("abs(i)", "`abs(Int.MinValue)` is out of range, and wraps back to itself in the legacy "
+        + "mode", domain = Some(s"i > ${Int.MinValue}")),
       Row("try_add(i, 1)", "an overflowing lane is null, so the kernel declines nothing"),
       Row("try_subtract(i, 1)", "an overflowing lane is null"),
       Row("year(d) + i", "checked under ANSI; the lower bound is out of reach, since a year is "
@@ -1399,6 +1401,25 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         domain = Some("s1 BETWEEN -32764 AND 32764")),
       Row("bround(s1, -2)", "", domain = Some("s1 BETWEEN -32749 AND 32749")),
       Row("truncate(s1, -2)"))),
+    // The math functions (VARKA-345, VARKA-356), exact by default: each lane is passed to the
+    // scalar method Spark's generated code calls, so the bits are that method's on this host -
+    // Math's for sin, cos and tan, StrictMath's for asin, acos and atan, which Math delegates
+    // to - and the work around the call stays in the kernel.
+    Family("Math functions", predicates = false, Seq(
+      Row("sin(x)", "exact: a per-lane Math.sin call, the host's answer as Spark's"),
+      Row("cos(x)", "exact: a per-lane Math.cos call"),
+      Row("tan(x)", "exact: a per-lane Math.tan call"),
+      Row("asin(x)", "exact: a per-lane StrictMath.asin call, which Math.asin delegates to"),
+      Row("acos(x)", "exact: a per-lane StrictMath.acos call"),
+      Row("atan(x)", "exact: a per-lane StrictMath.atan call"),
+      Row("sec(x)", "1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine "
+        + "is an infinity and no null"),
+      Row("csc(x)", "1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf"),
+      Row("cot(x)", "1 / Math.tan(x)"),
+      Row("sin(x) * 2.0D + cos(x2)", "the arithmetic around the calls in the kernel"),
+      Row("sin(i)", "the int converted exactly, then the call"))),
+    Family("Math functions as conditions", predicates = true, Seq(
+      Row("sin(x) < 0.5D", "the call, then the floating compare in Spark's order"))),
     // A floating value as a boolean (VARKA-343 2.5): Spark's x != 0 in every mode, the negation
     // of the lane's EQ against zero, so a NaN is true and both zeros false; never an error.
     Family("Floating casts to BOOLEAN", predicates = false, Seq(
@@ -1998,7 +2019,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * The Catalyst expression classes the compiler matches on, read from its source because there
    * is no runtime list to ask: the arms are a `match`, not a registry. The arms live in
    * `VarkaExpressionCompiler`, in `VarkaNodeCompiler` (the date leaves and the int arithmetic)
-   * and in the four families it chains, so all six files are read. All six are Java: each
+   * and in the five families it chains, so all seven files are read. All seven are Java: each
    * matches in a `switch`, whose type patterns (`case Add a`) and `instanceof` tests are what
    * name its classes.
    *
@@ -2013,7 +2034,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    */
   private lazy val admittedByCompiler: Set[String] = {
     val javaFiles = Seq("VarkaExpressionCompiler", "VarkaNodeCompiler", "VarkaIntervalCompiler",
-      "VarkaTimeCompiler", "VarkaConditionCompiler", "VarkaChronoCompiler")
+      "VarkaTimeCompiler", "VarkaConditionCompiler", "VarkaChronoCompiler", "VarkaMathCompiler")
     def read(name: String): String =
       withoutComments(Files.readString(
         getWorkspaceFilePath("sql", "catalyst", "src", "main", "java",
@@ -2035,9 +2056,12 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     val names = javaNames.flatten.toSet
     assert(names.size > 40, s"the pattern scan found only ${names.size} names; has the " +
       "compiler been restructured? This check is worthless if it silently matches nothing.")
+    // The optimizer's package too: NormalizeNaNAndZero is an expression declared there.
     names.filter { n =>
-      Try(Utils.classForName(s"org.apache.spark.sql.catalyst.expressions.$n"))
-        .map(classOf[Expression].isAssignableFrom).getOrElse(false)
+      Seq("expressions", "optimizer").exists { pkg =>
+        Try(Utils.classForName(s"org.apache.spark.sql.catalyst.$pkg.$n"))
+          .map(classOf[Expression].isAssignableFrom).getOrElse(false)
+      }
     }
   }
 
@@ -2056,11 +2080,15 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * projection entry, `Attribute` is a column before binding, which the predicate compiler asks
    * of a null test's operand (VARKA-598), `BinaryArithmetic` is an abstract class, matched only
    * to name a floating operand's decline, `BoundReference` is what a column becomes once bound,
-   * `Literal` is a constant inside another row, and `RuntimeReplaceable` is a trait the compiler
-   * unwraps.
+   * `Literal` is a constant inside another row, `RuntimeReplaceable` is a trait the compiler
+   * unwraps, and `KnownFloatingPointNormalized` and `NormalizeNaNAndZero` are the tag and the
+   * normaliser the optimizer puts over a join, window or aggregate key, which no projection or
+   * filter holds, so no coverage row can (`VARKA-337.md` 0 item 4; the census keeps them
+   * uncounted, by the owner's option (a) of 8 point 5).
    */
   private val infrastructure = Set(
-    "Alias", "Attribute", "BinaryArithmetic", "BoundReference", "Literal", "RuntimeReplaceable")
+    "Alias", "Attribute", "BinaryArithmetic", "BoundReference", "Literal", "RuntimeReplaceable",
+    "KnownFloatingPointNormalized", "NormalizeNaNAndZero")
 
   /**
    * Expressions the compiler matches only in order to decline them with a specific reason.

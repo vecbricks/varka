@@ -39,9 +39,9 @@ import org.apache.spark.sql.util.ArrowUtils;
  * is checked. In order:
  *
  * <ol>
- *   <li>each output's canonical IR is parsed ({@link VarkaCanonicalIr}) and the shape key rebuilt
- *       with the options the file names; a key whose hash is not the file's is refused, since the
- *       replay would then be of another kernel;</li>
+ *   <li>each output's canonical IR, in its tree or its one-line DAG form, is parsed ({@link
+ *       VarkaCanonicalIr}) and the shape key rebuilt with the options the file names; a key whose
+ *       hash is not the file's is refused, since the replay would then be of another kernel;</li>
  *   <li>the class is emitted as the shape cache builds it, under the same name, and compared with
  *       the class the file carries, where it carries one;</li>
  *   <li>the failing path is walked as far as the file's stage says: the admission's verification

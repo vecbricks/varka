@@ -1,0 +1,51 @@
+VARKA-630 part 2a: the time of VarkaShapeKey.equals, and of a shape-cache hit, on two
+disjoint copies of a shared chain, before and after sameStructure.
+
+Date: 21 November 2026, one laptop, one JVM, a scratch test (its source is kept beside this file,
+not built), run once per cell. These are single readings, not a benchmark.
+
+The shape: level k adds level k-1 to itself (IntArith ADD, WRAP, over ColumnRef 0), so it has
+2^k paths and k+1 distinct nodes. The two keys are built by two separate calls and share no
+object. "cache hit" is the second VarkaShapeCacheImpl.getOrEmit of a key equal to the first, with
+maxChainDepth raised to 64 so that the shape is admitted.
+
+Before (record equals), from the scratch test run on the #1591 branch head dc9fd060c32, whose equals is the record's:
+
+  depth  equals          cache hit
+  8      5 ms            4 ms
+  12     2 ms            1 ms
+  16     3 ms            3 ms
+  20     4 ms            4 ms
+  22     18 ms           25 ms
+  24     69 ms           74 ms
+  26     259 ms          289 ms
+  28     1038 ms         1152 ms
+  32     16407 ms        not run
+  64     over 20000 ms   not run
+
+Each two levels multiply the time by four. The cache-hit column for depth 22 and over is from
+misses that took 4 to 6 ms, so those kernels may have been declined, not emitted; the hit
+compared a key against the cached decline, which is the same lookup.
+
+After (VarkaVectorIR.sameStructure, called from VarkaShapeKey.equals):
+
+  depth  equals (us)     cache hit (ms)
+  8      4700            2
+  16     189             0
+  20     126             0
+  24     292             0
+  28     99              0
+  32     192             0
+  48     106             0
+  64     95              0
+
+At depth 64 the comparison takes about a tenth of a millisecond, against a time that no
+reading reached before. The first row's 4.7 ms is class loading and JIT warm-up.
+
+Not measured: a shape that is not a chain (a wide DAG), the cost of sameStructure on a small
+shape where record equals is already one step, and the lane lifts (part 2b).
+
+The scratch test is VARKA-630-shape-key-equals.scratch.txt in this directory: a JUnit class that
+was run from the test source tree and deleted, so the readings can be repeated by copying it back
+as VarkaScratchEqualsSuite.java; the before column ran the same loops with record equals, from
+the two-key equals loop of an earlier scratch of the same shape.

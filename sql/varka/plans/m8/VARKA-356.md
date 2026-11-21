@@ -435,6 +435,20 @@ non-positive, and `pow(x, 3.0)`; each with and without nulls, as the floating cl
 the EPYC 7763 at 256 and 128 bits through `benchmark.yml`, `expected-cpu="AMD EPYC 7763"`; a
 laptop run at 512 bits is labelled laptop.
 
+*Built 20 November 2026, while the owner was away, on branch `varka-357-math-baseline` off
+master, as its own pull request (open point 2's (b), 345's baseline having merged with its twelve):
+the nineteen sections join `VarkaMathBaselineBenchmark` after the twelve, every one `NONE` on
+master. The table gains `u` in `(-1, 1)` for `asin`, `acos` and `atanh`, `c` in `(1, 3)` for
+`acosh` and as `log(x2, x)`'s base (`log(c, p)`), and `q`, `p` negated at one row in ten, for
+`ln(q)`, each with a null column at rows of its own; `log(2.0, x)`, `ln` and `log1p` read `p`, the
+positive column, as 345's logarithms do, and `pow(x, 3.0)` reads `p` as `pow(p, 3.0)`. A section
+records the rows in ten its function nulls by its domain, which the queries suite adds to the
+expected nulls, one for `ln(q)`. `u` and `c` are offset by half a step so that neither can reach an
+endpoint that answers infinity. `sql/Test/compile` is clean (749 s), and the queries suite passes
+after the master merge of 20 November. Owed: the EPYC 7763 runs at 256 and 128 bits, whose results
+replace the committed baseline files at both widths; until those land, rows 356 to 358 cannot
+score their predictions against the nineteen.*
+
 **Each fusing pull request** reruns the class with the fuse check lifted and diffs against the
 committed baseline at both widths (`dev/varka_bench_diff.py`, a family band once a move must be
 read). **Each port** adds its arm as an A/B pair in the same class (`--within --ab`, `mathPort`
@@ -594,4 +608,34 @@ matrix with `mathPort` drawn pass.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 10.1 356a1: the one-argument functions in `LANE_CALL` (20 November 2026)
+
+Built on branch `varka-356-trig` ahead of 345b and 358a. `MathFn` gains `SIN`, `COS`, `TAN`
+(`java.lang.Math`) and `ASIN`, `ACOS`, `ATAN` (`java.lang.StrictMath`), each naming the static
+`(D)D` method its call invokes. The emitter unrolls a call as `v.lane(k)`, the method and
+`v.withLane(k, r)` over the baked lane count (`emitMathLaneCall`); `VarkaKernelPlan` refuses a call
+at a width with no baked lane count (`Kind.MATH_CALL`), and `VarkaEmitBudget` weighs it as 16 lane
+ops. `VarkaMathCompiler` lowers the six to the call and `sec`, `csc`, `cot` to `1.0 / call`;
+`atan2` and rows 357 and 358 decline as "... is row 35x's: not fused yet". A test-only emit option,
+`VarkaEmitOptions.FloatingFault.MATH_OTHER_CLASS`, plants the other class's method.
+
+**Tests.** `VarkaMathExactSuite` (own JVM) compares 2^24 sampled inputs a function over five draws
+and fixed vectors (21 edges, the infinities, nine NaN payloads) with Spark's code as scalar Java,
+by raw bits; the planted other-class call fails it for `sin`, `cos`, `tan` and their reciprocals on
+x86; and a warmed kernel allocates nothing a batch. `VarkaMathCompilerSuite` holds the fused and
+the declined tables. Coverage gains "Math functions" (11 rows) and one condition row. The regen
+wrote coverage, docs, emitted bytes, width audit and census; no existing shape's bytes moved
+(prediction 1 held). The audit's `-XX:UseAVX=2` rerun timed out under load and is owed.
+
+**Review** (`/code-review high`): `skips.tsv` lists the math rows of the arms with no baked lane count.
+**Left of 356a:** `atan2` (356a2), the IR fuzz productions and the runner measurement.
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **356a before 345b and 358a**: of 345b only the `LANE_CALL` lowering.
+2. **The call is unrolled over `lane` and `withLane`, not 2.2's scratch loop**: the price is a
+   baked lane count; the scratch loop is the one to measure.
+3. **The `PORT` arms are the next part.** Each fdlibm port (`asin`, `acos`, `atan`, `atan2`) is
+   ported to `vfdlibm` from its committed C, never the JDK, any departure proven in `PROOFS.md`,
+   and Varka's kernel is cross-checked lane for lane against `VFdlibm.<fn>`. Varka's side needs
+   345b's `PORT` frame and the `exp` template first.
