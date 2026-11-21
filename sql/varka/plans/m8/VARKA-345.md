@@ -1050,11 +1050,16 @@ holds the emitted kernel to `StrictMath.exp` and to `VFdlibm.exp` by raw bits on
 inputs and every threshold of `e_exp.c` with its neighbours, and each planted fault of the three
 the C admits is seen.
 
-**Measured (laptop, 20 November 2026).** The suite passes, every `exp` lane bit-identical to all
-three oracles, NaN payloads included; it runs in 20.5 s in its own JVM. The emitted port's speed
+**Measured (laptop, 21 November 2026).** The suite passes, every `exp` lane bit-identical to
+`StrictMath.exp` and `VFdlibm.exp`, NaN payloads included. The cap's real stop: `exp` is 36
+levels deep; layering adds over it, the compiler's mirror admits 28 more, a stop at 64, and the
+65th is declined by the emitter; at that depth the largest emitted method is 2070 bytes of the
+8000-byte budget, so the depth cap and not the byte budget is what stops a port. At
+`methodByteBudget` 0 the 68 ops decline it by `MAX_FUSED_NODES=64`. The emitted port's speed
 against `LANE_CALL` of `StrictMath.exp` (section 5 item 4, done-when) is not measured: the
-`LANE_CALL` lowering is row 356's, unmerged, and the runners are the coordinator's to dispatch.
-Owed: that pair on the EPYC runners at 256 and 128 bits once 356 merges.
+`LANE_CALL` lowering is row 356's, and the runners are the coordinator's to dispatch. Owed: that
+pair on the EPYC runners at 256 and 128 bits once 356 merges. No `vfdlibm` issue was found to
+file; the blended arm choice (decision 1) depends on none.
 
 **Decisions taken while the owner was away (20 November 2026).**
 
