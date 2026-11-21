@@ -23,8 +23,9 @@ here, which fits that stop.
 
 What this says about a cap of 64: a chain of one checked add or one select a level fits the byte
 budget at 64 levels (about 5300 and 7300 bytes), so there the depth cap, not the byte budget, is
-what stops it. A level of two such operations does not: a select over a checked add is about 175
-bytes a level, which reaches 8000 at 46 levels.
+what stops it. A level of two such operations may not: a select and a checked add together would be about
+175 bytes a level, the sum of the two figures above (not emitted together), which reaches 8000
+at 46 levels.
 
 Not measured, and what decides the plan's decimal rows (362b, 363, 363b, 364 and 366, 26 to 60
 levels deep): the operation mix of each row's own shape. Their code is on unmerged branches and
