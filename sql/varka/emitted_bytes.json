@@ -632,6 +632,17 @@
           "loopMasked0([J[J[I[J[J[II)I" : "5bf59bd98d76bc56",
           "epilogueMasked0([J[J[I[J[J[II)I" : "2f786eb6397b24d8"
         },
+        "abs(i)" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "45473ea9223d1e6a",
+          "epilogueDense0([J[J[I[J[J[II)I" : "9a934d36a0a1643e",
+          "runMasked([J[J[I[J[J[II)I" : "93d2163235838083",
+          "loopMasked0([J[J[I[J[J[II)I" : "61b28e33aa97390e",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "5f1539cd611dcdb8"
+        },
         "try_add(i, 1)" : {
           "<class>" : "aa18f95bcca178a6",
           "<init>()V" : "e2c903051ec05d17",
@@ -8875,6 +8886,17 @@
           "loopMasked0([J[J[I[J[J[II)I" : "f98fd18d66106939",
           "epilogueMasked0([J[J[I[J[J[II)I" : "04146fae0af4ed66"
         },
+        "abs(i)" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "11fe07e7caa57afc",
+          "epilogueDense0([J[J[I[J[J[II)I" : "ca337c5fe6ec8754",
+          "runMasked([J[J[I[J[J[II)I" : "93d2163235838083",
+          "loopMasked0([J[J[I[J[J[II)I" : "03da9e18c6c56efc",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "ce6c1e626029ce0c"
+        },
         "try_add(i, 1)" : {
           "<class>" : "aa18f95bcca178a6",
           "<init>()V" : "e2c903051ec05d17",
@@ -16492,87 +16514,87 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "376d8a32a4ca4e84",
-      "16" : "f215c70ea32b1ef1"
+      "4" : "3012859e02bfe05e",
+      "16" : "f4618e002d101b69"
     },
     "useAVX=0" : {
-      "4" : "f618124264e0ab02",
-      "16" : "76fa0691c53da0fa"
+      "4" : "784eb48a435a0b99",
+      "16" : "1c434eec1d5b65ce"
     },
     "useAVX=1" : {
-      "4" : "f618124264e0ab02",
-      "16" : "76fa0691c53da0fa"
+      "4" : "784eb48a435a0b99",
+      "16" : "1c434eec1d5b65ce"
     },
     "useAVX=2" : {
-      "4" : "f618124264e0ab02",
-      "16" : "76fa0691c53da0fa"
+      "4" : "784eb48a435a0b99",
+      "16" : "1c434eec1d5b65ce"
     },
     "useAVX=3" : {
-      "4" : "376d8a32a4ca4e84",
-      "16" : "f215c70ea32b1ef1"
+      "4" : "3012859e02bfe05e",
+      "16" : "f4618e002d101b69"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "499afafd6516e3d8",
-      "16" : "94a57d1e72de1009"
+      "4" : "1b074a64a8ca8def",
+      "16" : "a827b491ec4a26cb"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "979e3feb90930b4b",
-      "16" : "d906176c541386cc"
+      "4" : "6311581eb4352a15",
+      "16" : "805072763f77bbbf"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "f618124264e0ab02",
-      "16" : "76fa0691c53da0fa"
+      "4" : "784eb48a435a0b99",
+      "16" : "1c434eec1d5b65ce"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "f618124264e0ab02",
-      "16" : "76fa0691c53da0fa"
+      "4" : "784eb48a435a0b99",
+      "16" : "1c434eec1d5b65ce"
     },
     "wideConversionForm=XOR_SPLIT over useAVX=2" : {
-      "4" : "f618124264e0ab02",
-      "16" : "76fa0691c53da0fa"
+      "4" : "784eb48a435a0b99",
+      "16" : "1c434eec1d5b65ce"
     },
     "roundToOddByShifts=true over useAVX=2" : {
-      "4" : "f618124264e0ab02",
-      "16" : "76fa0691c53da0fa"
+      "4" : "784eb48a435a0b99",
+      "16" : "1c434eec1d5b65ce"
     },
     "roundToOddByShifts=false over useAVX=2" : {
-      "4" : "f618124264e0ab02",
-      "16" : "76fa0691c53da0fa"
+      "4" : "784eb48a435a0b99",
+      "16" : "1c434eec1d5b65ce"
     },
     "narrowGroupStore=MASKED over lanesOverride=4" : {
-      "4" : "078983b09e8ef0f7"
+      "4" : "efb8d2f39daadbb1"
     },
     "narrowGroupStore=COMBINED over lanesOverride=4" : {
-      "4" : "4d7418f74945c713"
+      "4" : "d4a6c67ba3c5bfb0"
     },
     "narrowLanes=true" : {
-      "4" : "376d8a32a4ca4e84",
-      "16" : "f215c70ea32b1ef1"
+      "4" : "3012859e02bfe05e",
+      "16" : "f4618e002d101b69"
     },
     "narrowLanes=false" : {
-      "4" : "f825dd9d6ea529b5",
-      "16" : "6c21d971c272e52b"
+      "4" : "f3536b85a3fef5ac",
+      "16" : "93887c0a62c6b644"
     },
     "narrowGroupStore=COMBINED" : {
-      "2" : "8cb4699a93555e28",
-      "4" : "2c53d29c9c6903b6",
-      "16" : "f215c70ea32b1ef1"
+      "2" : "084139c58a044298",
+      "4" : "c74ce07cc3e2d9a6",
+      "16" : "f4618e002d101b69"
     },
     "groupLocalSlots=false" : {
-      "4" : "4128840573640179",
-      "16" : "9ac48b4197227456"
+      "4" : "6e5d3c0d637ed7c3",
+      "16" : "a2c002b385c0827c"
     },
     "methodByteBudget=0" : {
-      "4" : "1b51eb832015a58a",
-      "16" : "31e6752f6eaa5caa"
+      "4" : "1c686a4b02b5f5aa",
+      "16" : "ab7cfc2075b7f89e"
     },
     "mathUlpContract=true" : {
-      "4" : "376d8a32a4ca4e84",
-      "16" : "f215c70ea32b1ef1"
+      "4" : "3012859e02bfe05e",
+      "16" : "f4618e002d101b69"
     },
     "maskFromWord=true" : {
-      "4" : "975ac30f7374f2d8",
-      "16" : "3e792063dfaeb37f"
+      "4" : "f035ff1895d511f2",
+      "16" : "3dc7648ec8f20685"
     }
   }
 }
