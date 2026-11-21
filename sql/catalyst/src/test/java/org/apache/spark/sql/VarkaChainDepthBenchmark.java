@@ -65,7 +65,8 @@ import org.apache.spark.sql.types.DataTypes;
 /**
  * The emitter's chain-depth cap priced past 16 ({@code sql/varka/plans/m8/VARKA-620.md}).
  *
- * <p>{@code VarkaEmitBudget.MAX_CHAIN_DEPTH} caps one output's height at 16, a value
+ * <p>{@code VarkaEmitBudget.chainDepthCap} caps one output's height at 16, or 64 for a tree of
+ * the int lane alone, a value
  * {@code VARKA-9.md} 5.2 measured a chain up to and no further. The decimal rows of milestone 8
  * build shapes 26 to 60 deep, so this file measures what a deeper chain costs before anyone
  * raises the cap: the fused kernel under the cap raised to {@link #RAISED_CAP} through the
@@ -258,7 +259,7 @@ public class VarkaChainDepthBenchmark extends VarkaBenchmarkBase {
     require(h == depth, label + " compiled to height " + h);
     // The default cap is the output lane's own: 64 on the int lane, 16 on the BIGINT one.
     int defaultCap = VarkaEmitterTestSupport.chainDepthCap(VarkaEmitOptions.DEFAULTS,
-        fused.outputs().get(0).laneType());
+        fused.outputs().get(0));
     boolean defaultFuses = VarkaExpressionCompiler.compile(project, columns,
         VarkaEmitOptions.DEFAULTS).isPresent();
     require(defaultFuses == depth <= defaultCap,

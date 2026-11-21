@@ -263,24 +263,31 @@ final class VarkaEmitBudget {
   public static final int AUTO_CHAIN_DEPTH = 0;
 
   /**
-   * The auto cap on the int lane: a fused int chain is 8 to 34 times faster than the row path to
-   * depth 64 at both vector widths (VARKA-620, {@code VarkaChainDepthBenchmark}). The BIGINT lane
-   * is not in that reading, 128 bits being slower than the row path (row 628), nor are the
-   * narrow and floating lanes, which were not measured, so they keep {@link #MAX_CHAIN_DEPTH}.
+   * The auto cap of an output whose tree holds only the int lane: a fused chain of int adds,
+   * subtractions, multiplications, compares and selects is 8 to 34 times faster than the row path
+   * to depth 64 at both vector widths (VARKA-620, {@code VarkaChainDepthBenchmark}). That is the
+   * only shape measured: the BIGINT lane is not in the reading, 128 bits being slower than the
+   * row path (row 628), nor are the narrow and floating lanes, nor the calendar and bounded
+   * division chains, which are int-lane trees too and are admitted to 64 without a measurement.
+   * Any other tree keeps {@link #MAX_CHAIN_DEPTH}.
    */
   public static final int INT_LANE_MAX_CHAIN_DEPTH = 64;
 
   /**
-   * The deepest op path an output on {@code lane} may have under {@code options}: its
-   * {@code maxChainDepth} where one is set, and where it is auto the lane's own cap. An explicit
-   * 16 is therefore 16 on the int lane too, which a default that read 16 as unset could not say.
+   * The deepest op path {@code root} may have under {@code options}: its {@code maxChainDepth}
+   * where one is set, on every lane, which lowers the int lane's 64 as well as raising the others'
+   * 16, and where it is auto 64 for a tree that holds the int lane alone and 16 for any other.
+   * The tree, not the root's lane, decides: a BIGINT chain narrowed to an int root is a long-lane
+   * chain, which row 628 measured slower than the row path at 128 bits. An explicit 16 is 16 on the
+   * int lane too, which a default that read 16 as unset could not say.
    */
-  public static int chainDepthCap(VarkaEmitOptions options, VarkaVectorIR.LaneType lane) {
+  public static int chainDepthCap(VarkaEmitOptions options, VarkaVectorIR root) {
     int set = options.maxChainDepth();
     if (set != AUTO_CHAIN_DEPTH) {
       return set;
     }
-    return lane == VarkaVectorIR.LaneType.INT ? INT_LANE_MAX_CHAIN_DEPTH : MAX_CHAIN_DEPTH;
+    return VarkaVectorIR.lanesIn(root).equals(java.util.Set.of(VarkaVectorIR.LaneType.INT))
+        ? INT_LANE_MAX_CHAIN_DEPTH : MAX_CHAIN_DEPTH;
   }
 
   /**

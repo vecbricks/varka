@@ -583,7 +583,7 @@ final class Analysis {
     analyze(root);
     // The message keeps the constant's name whatever the option's value, since the fuzzer's
     // steering and its budget skip match on "MAX_CHAIN_DEPTH=", and names the option beside it.
-    int cap = VarkaEmitBudget.chainDepthCap(options, root.laneType());
+    int cap = VarkaEmitBudget.chainDepthCap(options, root);
     if (height.get(root) > cap) {
       throw VarkaErrors.illegalArgument("chain deeper than MAX_CHAIN_DEPTH="
           + cap + " (the maxChainDepth emit option)");
