@@ -2696,11 +2696,20 @@ public sealed interface VarkaVectorIR
    * {@link #canonical}'s text where it fits {@link #TREE_TEXT_LIMIT}, which is every shape that
    * ever had a committed hash, and the node's {@link #canonicalDag} where it does not: every
    * field of the node either way, for a reproduction or a debug summary. Only the tree form has a
-   * reader so far ({@code VarkaCanonicalIr}); the DAG form's is row 630's second part.
+   * reader ({@code VarkaCanonicalIr}), which reads the DAG form as well (VARKA-630).
    */
   static String canonicalExact(VarkaVectorIR node) {
     return canonicalLength(node) <= TREE_TEXT_LIMIT
         ? canonical(node) : canonicalDag(List.of(node));
+  }
+
+  /**
+   * {@link #canonicalExact} on one line, for a file that holds one value to a line: a DAG's lines
+   * joined by {@code ;}, which no line of a rendering contains. The tree text is already one line.
+   * {@code VarkaCanonicalIr} reads either form back.
+   */
+  static String canonicalOneLine(VarkaVectorIR node) {
+    return canonicalExact(node).stripTrailing().replace('\n', ';');
   }
 
   /**

@@ -400,6 +400,56 @@ public final class VarkaReproductionSuite {
     assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("decw:0:lo:p18"));
   }
 
+  @Test
+  @DisplayName("a DAG rendering is read back, on one line or several, and hashes as it did "
+      + "(VARKA-630)")
+  void dagFormReadsBack() {
+    // Over the tree limit, so the exact text is the DAG form; and one the tree form still holds.
+    List<VarkaVectorIR> roots = List.of(sharedChain(40), sharedChain(5), new ColumnRef(1));
+    var parsed = new ArrayList<VarkaVectorIR>();
+    for (VarkaVectorIR root : roots) {
+      String line = VarkaVectorIR.canonicalOneLine(root);
+      assertTrue(line.indexOf('\n') < 0, line);
+      VarkaVectorIR read = VarkaCanonicalIr.parse(line);
+      assertTrue(VarkaVectorIR.sameStructure(root, read), line);
+      parsed.add(read);
+    }
+    assertTrue(VarkaVectorIR.canonicalOneLine(roots.get(0)).startsWith("dag;"));
+    // The one-line form joins the lines by ';', so no node's rendering may contain one.
+    assertFalse(VarkaVectorIR.canonical(everyNodeType()).contains(";"));
+    assertEquals(hash(roots, 2, 0), hash(parsed, 2, 0));
+    // The several-line form, as canonicalDag writes it.
+    String lines = VarkaVectorIR.canonicalDag(List.of(roots.get(0)));
+    assertTrue(VarkaVectorIR.sameStructure(roots.get(0), VarkaCanonicalIr.parse(lines)));
+  }
+
+  @Test
+  @DisplayName("a DAG line that names a node not yet read, or breaks the numbering, is refused")
+  void malformedDagIsRefused() {
+    assertThrows(IllegalArgumentException.class,
+        () -> VarkaCanonicalIr.parse("dag;0=col:0;1=(int:ADD:WRAP 0 2);roots 1"));
+    assertThrows(IllegalArgumentException.class,
+        () -> VarkaCanonicalIr.parse("dag;1=col:0;roots 1"));
+    assertThrows(IllegalArgumentException.class,
+        () -> VarkaCanonicalIr.parse("dag;0=col:0;roots 0 0"));
+    assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("dag;0=col:0"));
+  }
+
+  @Test
+  @DisplayName("a reproduction file with a DAG output renders and reads back (VARKA-630)")
+  void fileWithDagOutputRoundTrips() {
+    String output = VarkaVectorIR.canonicalOneLine(sharedChain(40));
+    var written = new VarkaReproduction(new VarkaFailureSignature("IndexOutOfBoundsException",
+        "Index # out of bounds for length #"), VarkaFallbackEvent.KERNEL_FAILURE,
+        "Varka context:\n  kind: kernel-failure", "2026-10-14T12:00:00Z", "25", false,
+        "0123456789abcdef", 1, 0, false, "", List.of(output), List.of(), List.of(), null,
+        new byte[] {(byte) 0xCA, (byte) 0xFE, 0, 1});
+    VarkaReproduction read = VarkaReproduction.parse(written.render());
+    assertEquals(List.of(output), read.outputs());
+    assertTrue(VarkaVectorIR.sameStructure(sharedChain(40),
+        VarkaCanonicalIr.parse(read.outputs().get(0))));
+  }
+
   private static VarkaReproduction sample(VarkaReproduction.KernelCall call) {
     return new VarkaReproduction(new VarkaFailureSignature("IndexOutOfBoundsException",
         "Index # out of bounds for length #"), VarkaFallbackEvent.KERNEL_FAILURE,
