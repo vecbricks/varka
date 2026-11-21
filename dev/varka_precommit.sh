@@ -247,6 +247,12 @@ if [ "${1:-}" = "--selftest" ]; then
     echo "varka_precommit selftest: dev/varka_push_check.py --self-test failed"
     fails=$((fails + 1))
   fi
+  # The regeneration's skip decision (VARKA-626) rides here as well.
+  if ! out="$(python3 dev/varka_regen_inputs.py --selftest 2>&1)"; then
+    echo "$out"
+    echo "varka_precommit selftest: dev/varka_regen_inputs.py --selftest failed"
+    fails=$((fails + 1))
+  fi
   if [ "$fails" -eq 0 ]; then echo "varka_precommit selftest: ok"; fi
   exit "$fails"
 fi
