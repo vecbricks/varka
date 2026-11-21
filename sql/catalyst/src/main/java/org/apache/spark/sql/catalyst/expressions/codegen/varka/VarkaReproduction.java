@@ -92,7 +92,8 @@ import org.apache.spark.sql.internal.SQLConf;
  * @param numLiterals the shape key's literal count
  * @param warmed whether the kernel was emitted under the warm-up's name
  * @param options the options that differ from the defaults, {@code name=value,...}
- * @param outputs each output's canonical IR, in order
+ * @param outputs each output's canonical IR, in order: the tree text, or for a deep shared shape
+ *     its DAG on one line ({@code dag;0=...;roots N}, {@link VarkaVectorIR#canonicalOneLine})
  * @param intLiterals the int literal table the kernel was called with
  * @param longLiterals the long literal table
  * @param call the kernel call, or null where the failure was not in one

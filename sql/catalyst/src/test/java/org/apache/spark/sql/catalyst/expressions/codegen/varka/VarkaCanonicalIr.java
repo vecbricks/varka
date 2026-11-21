@@ -27,8 +27,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
- * Reads {@code VarkaVectorIR.canonical} back into a tree: what a reproduction file's replay
- * (VARKA-315) rebuilds the failing kernel's shape key from.
+ * Reads {@code VarkaVectorIR.canonical} back into a tree, or the one-root DAG form
+ * ({@code canonicalOneLine}, which a reproduction file holds for a deep shared shape): what a
+ * reproduction file's replay (VARKA-315) rebuilds the failing kernel's shape key from.
  *
  * <p><b>Why the canonical form is enough.</b> The shape hash is SHA-256 over the outputs'
  * canonical renderings, the input and literal counts and the options, and the class cache serves
@@ -63,7 +64,10 @@ public final class VarkaCanonicalIr {
     this.table = table;
   }
 
-  /** The tree {@code canonical} rendered as {@code text}; refuses anything else. */
+  /**
+   * The tree {@code canonical} rendered as {@code text}, or the node a one-root DAG rendering
+   * names; refuses anything else. A multi-root DAG is not read: a file holds one output a line.
+   */
   public static VarkaVectorIR parse(String text) {
     if (text.startsWith("dag;") || text.startsWith("dag\n")) {
       return parseDag(text);
@@ -89,7 +93,11 @@ public final class VarkaCanonicalIr {
    * is: the root must render back as the same DAG.
    */
   private static VarkaVectorIR parseDag(String text) {
-    String[] lines = text.stripTrailing().split("[;\n]");
+    String body = text.stripTrailing();
+    if (body.contains(";") && body.contains("\n")) {
+      throw new IllegalArgumentException("a DAG is written with ';' or with newlines, not both");
+    }
+    String[] lines = body.split("[;\n]");
     var table = new ArrayList<VarkaVectorIR>();
     String roots = lines[lines.length - 1];
     for (int i = 1; i < lines.length - 1; i++) {

@@ -426,13 +426,16 @@ public final class VarkaReproductionSuite {
   @Test
   @DisplayName("a DAG line that names a node not yet read, or breaks the numbering, is refused")
   void malformedDagIsRefused() {
-    assertThrows(IllegalArgumentException.class,
-        () -> VarkaCanonicalIr.parse("dag;0=col:0;1=(int:ADD:WRAP 0 2);roots 1"));
-    assertThrows(IllegalArgumentException.class,
-        () -> VarkaCanonicalIr.parse("dag;1=col:0;roots 1"));
-    assertThrows(IllegalArgumentException.class,
-        () -> VarkaCanonicalIr.parse("dag;0=col:0;roots 0 0"));
-    assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("dag;0=col:0"));
+    refuses("before it is read", "dag;0=col:0;1=(int:ADD:WRAP 0 2);roots 1");
+    refuses("not the next id", "dag;1=col:0;roots 1");
+    refuses("one root", "dag;0=col:0;roots 0 0");
+    refuses("one root", "dag;0=col:0");
+    refuses("not both", "dag;0=col:0\nroots 0");
+  }
+
+  private static void refuses(String why, String text) {
+    var e = assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse(text));
+    assertTrue(e.getMessage().contains(why), e.getMessage());
   }
 
   @Test
@@ -446,6 +449,13 @@ public final class VarkaReproductionSuite {
         new byte[] {(byte) 0xCA, (byte) 0xFE, 0, 1});
     VarkaReproduction read = VarkaReproduction.parse(written.render());
     assertEquals(List.of(output), read.outputs());
+    // The replay rebuilds the key from the DAG line and finds the file's shape hash.
+    var key = new VarkaShapeKey(List.of(sharedChain(40)), 1, 0, VarkaEmitOptions.DEFAULTS);
+    var file = new VarkaReproduction(written.signature(), written.stage(), written.context(),
+        written.writtenAt(), written.java(), false, VarkaShapeCacheImpl.shapeHash(key), 1, 0,
+        false, "", List.of(output), List.of(), List.of(), null, written.classBytes());
+    assertTrue(VarkaReplay.of(file).notes().get(0).startsWith("rebuilt shape "),
+        () -> VarkaReplay.of(file).notes().toString());
     assertTrue(VarkaVectorIR.sameStructure(sharedChain(40),
         VarkaCanonicalIr.parse(read.outputs().get(0))));
   }

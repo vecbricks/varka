@@ -2603,6 +2603,13 @@ public sealed interface VarkaVectorIR
   int BRIEF_LIMIT = 4096;
 
   /**
+   * The longest tree text a reproduction file holds as a tree. The shape hash's limit is sized
+   * for a hash; a file is read back by a replay that tokenizes the line, so a longer shape is
+   * written as its DAG.
+   */
+  int FILE_TEXT_LIMIT = 1 << 16;
+
+  /**
    * The length of {@code canonical(node)}, counted once per node and saturating at
    * {@link Long#MAX_VALUE} / 4, so a shared chain a hundred levels deep answers at once where
    * rendering it would not finish. {@link #canonicalWith} renders the node with each child as one
@@ -2704,12 +2711,14 @@ public sealed interface VarkaVectorIR
   }
 
   /**
-   * {@link #canonicalExact} on one line, for a file that holds one value to a line: a DAG's lines
-   * joined by {@code ;}, which no line of a rendering contains. The tree text is already one line.
+   * A node's rendering on one line, for a file that holds one value to a line: the tree text up
+   * to {@link #FILE_TEXT_LIMIT} characters, else its DAG with the lines joined by {@code ;}, which
+   * no line of a rendering contains.
    * {@code VarkaCanonicalIr} reads either form back.
    */
   static String canonicalOneLine(VarkaVectorIR node) {
-    return canonicalExact(node).stripTrailing().replace('\n', ';');
+    return canonicalLength(node) <= FILE_TEXT_LIMIT
+        ? canonical(node) : canonicalDag(List.of(node)).stripTrailing().replace('\n', ';');
   }
 
   /**
