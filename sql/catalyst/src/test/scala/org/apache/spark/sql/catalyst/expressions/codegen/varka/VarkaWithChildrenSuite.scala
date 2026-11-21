@@ -74,11 +74,12 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     // rebuilt directly below. The canonicalisation (VARKA-337) is drawn by a side sequence of its
     // own, which these grammars are not, and is rebuilt directly below.
     // The hash step and a canonical value's bits (VARKA-337) have no production yet
-    // (`VARKA-337.md` 10), and are rebuilt directly below.
+    // (`VARKA-337.md` 10), and are rebuilt directly below. Nor the reinterpretation (VARKA-345),
+    // which the fdlibm ports build.
     val undrawn = permitted -- seen - "NullSafeEqual" - "BoolColumn" - "CondConst" -
       "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" - "DecimalColumn" -
       "DecimalWord" - "MathUnary" - "RoundToIntegral" - "CanonicalFloat" - "ConvertLane" -
-      "HashStep" - "CanonicalBits" -
+      "HashStep" - "CanonicalBits" - "ReinterpretLane" -
       "CrossLane" // the crossing is drawn from 343a5
     assert(undrawn.isEmpty, s"the grammars never drew: ${undrawn.toSeq.sorted.mkString(", ")}")
   }
@@ -89,7 +90,9 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     val byte = new NarrowLane(col, LaneType.BYTE)
     val short = new NarrowLane(col, LaneType.SHORT)
     val nodes = Seq[VarkaVectorIR](byte, short, new WidenLane(byte, LaneType.INT),
-      new NarrowLane(longCol, LaneType.INT), new NarrowLane(longCol, LaneType.BYTE))
+      new NarrowLane(longCol, LaneType.INT), new NarrowLane(longCol, LaneType.BYTE),
+      new ReinterpretLane(longCol, LaneType.DOUBLE),
+      new ReinterpretLane(new ColumnRef(2, LaneType.FLOAT), LaneType.INT))
     for (node <- nodes) {
       val rebuilt = VarkaVectorIR.withChildren(node, VarkaVectorIR.childrenOf(node): _*)
       assert(rebuilt == node, s"${VarkaVectorIR.canonical(node)} rebuilt as " +
@@ -101,6 +104,9 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
       VarkaVectorIR.canonical(new WidenLane(byte, LaneType.LONG)))
     assert(VarkaVectorIR.canonical(new NarrowLane(longCol, LaneType.INT)) !=
       VarkaVectorIR.canonical(new NarrowLane(longCol, LaneType.BYTE)))
+    // A view of a long's bits is not its conversion, L2D.
+    assert(VarkaVectorIR.canonical(new ReinterpretLane(longCol, LaneType.DOUBLE)) !=
+      VarkaVectorIR.canonical(new ConvertLane(longCol, LaneType.DOUBLE)))
   }
 
   test("a null-safe equality is rebuilt over its own children, and refuses a mixed pair") {

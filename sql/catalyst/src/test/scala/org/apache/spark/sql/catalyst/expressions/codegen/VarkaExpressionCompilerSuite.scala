@@ -2416,12 +2416,21 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         childOutput).get.specs.asScala.toSeq ===
       Seq(new FusedOutput(0), new FusedOutput(1), new FusedOutput(2)))
     // The depth budget is mirrored the same way: a 17-deep chain compiled fine before task
-    // 20 and then failed at emission.
-    val deep = out((0 until 17).foldLeft[Expression](d)((e, k) => DateAdd(e, Literal(k + 1))))
-    val deepPartial = VarkaExpressionCompiler.compilePartial(
-      Seq(deep, out(DateAdd(d, Literal(1)))), childOutput).get
+    // 20 and then failed at emission. A date chain is a tree of the int lane alone, whose
+    // default cap is 64 (VARKA-629), so the chain is refused under a cap of 16, and under the
+    // default at 65 and not at 64.
+    def chainOf(depth: Int): NamedExpression =
+      out((0 until depth).foldLeft[Expression](d)((e, k) => DateAdd(e, Literal(k + 1))))
+    def partialOf(depth: Int, options: VarkaEmitOptions): PartialVarkaProjection =
+      VarkaExpressionCompiler.compilePartial(
+        Seq(chainOf(depth), out(DateAdd(d, Literal(1)))), childOutput, options).get
+    val sixteen = VarkaEmitOptions.DEFAULTS.withMaxChainDepth(16)
+    val deepPartial = partialOf(17, sixteen)
     assert(deepPartial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)))
     assert(deepPartial.declines.asScala(0).reason === "exceeds the emitter's fused budget")
+    assert(partialOf(64, VarkaEmitOptions.DEFAULTS).specs.asScala.head.isInstanceOf[FusedOutput])
+    assert(partialOf(65, VarkaEmitOptions.DEFAULTS).specs.asScala.head ===
+      VarkaOutputSpec.RESIDUAL)
     // The input-column budget is mirrored too: 33 shallow datediff entries over 66 distinct
     // columns are only 33 ops at height 1, but 66 kernel inputs - the 33rd entry (the one
     // that pushes past 64 columns) demotes instead of blowing up at emission.
@@ -2678,13 +2687,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("the balanced AND fold keeps many conjuncts inside the depth budget") {
-    // 20 distinct comparisons: a left fold would be 21 deep and trip MAX_CHAIN_DEPTH = 16;
-    // the balanced fold is ceil(log2 20) + 2 deep and every conjunct fuses.
+    // 20 distinct comparisons: a left fold would be 21 deep and trip a cap of 16, which the int
+    // lane's own 64 would not (VARKA-629), so the cap is set to 16; the balanced fold is
+    // ceil(log2 20) + 2 deep and every conjunct fuses.
     val condition = (1 to 20)
       .map(k => GreaterThan(d, Literal(k, DateType)): Expression)
       .reduceLeft(org.apache.spark.sql.catalyst.expressions.And(_, _))
     val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput,
-      VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).get
+      VarkaEmitOptions.DEFAULTS.withMaxChainDepth(16),
+      VarkaAdmission.NO_HOST_REFUSAL).get
     assert(predicate.specs.size === 20)
     assert(predicate.specs.asScala.forall(_.fused))
   }

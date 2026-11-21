@@ -151,8 +151,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
  *
  * <p>Out-of-shape IR - unknown lane types, a condition in a value position, out-of-range
  * ordinals or slots, a day offset that is neither a literal slot nor a column, trees past
- * the depth cap {@link VarkaEmitOptions#maxChainDepth} (by default
- * {@link VarkaEmitBudget#MAX_CHAIN_DEPTH}) or past {@link VarkaEmitBudget#MAX_FUSED_NODES} - is
+ * the depth cap {@link VarkaEmitOptions#maxChainDepth} (by default the tree's own,
+ * {@link VarkaEmitBudget#chainDepthCap}) or past {@link VarkaEmitBudget#MAX_FUSED_NODES} - is
  * rejected with {@link IllegalArgumentException}, which the evaluator wiring treats as "fall
  * back". Refusing to emit is a normal outcome here, not an error path: the query still runs, on
  * stock Spark.
@@ -1867,7 +1867,7 @@ public final class VarkaLoopEmitter {
 
   /**
    * Whether {@code outputs} over {@code numInputs} kernel columns fit this emitter's
-   * structural budgets ({@link VarkaEmitOptions#maxChainDepth} height per output,
+   * structural budgets ({@link VarkaEmitBudget#chainDepthCap} height per output,
    * {@link VarkaEmitBudget#MAX_INPUTS} columns, and {@link VarkaEmitBudget#MAX_FUSED_NODES}
    * distinct ops across all outputs where {@code options} have no byte budget), counted exactly as
    * {@link Analysis} and {@link #emit} count them. The compiler mirrors the budgets with this
@@ -1891,7 +1891,8 @@ public final class VarkaLoopEmitter {
     java.util.HashMap<VarkaVectorIR, Integer> heights = new java.util.HashMap<>();
     int[] opNodes = {0};
     for (VarkaVectorIR root : outputs) {
-      if (budgetWalk(root, heights, opNodes) > options.maxChainDepth()
+      if (budgetWalk(root, heights, opNodes)
+              > VarkaEmitBudget.chainDepthCap(options, root)
           || (capOps && opNodes[0] > MAX_FUSED_NODES)) {
         return false;
       }

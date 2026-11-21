@@ -19,6 +19,7 @@
 #
 #   dev/varka_regen_generated.sh            # the files the current or last merge owes
 #   dev/varka_regen_generated.sh --all      # every generated file
+#   dev/varka_regen_generated.sh --all --full  # ... and the JVM steps even when nothing changed
 #   dev/varka_regen_generated.sh [--all] --dry-run  # print the steps and run nothing
 #
 # dev/varka_generated_merge.py, the merge driver, appends each file whose merge it could not
@@ -36,16 +37,25 @@
 # is skipped and left owed, since its census is that CPU's (VarkaWidthAuditSuite), and the rest
 # runs, still owed if a merge owed it; VARKA_CPUINFO names another cpuinfo file for the
 # self-test. The owed list is cleared only after every step passed.
+#
+# With --all the JVM steps are skipped when nothing they read changed (VARKA-626): a branch whose
+# changes against its merge base with origin/master are all to documents, plans, results,
+# benchmarks and the like and to no generated file, on the JDK the committed width audit was
+# written on, would regenerate what it holds. dev/varka_regen_inputs.py decides, and
+# names the reason either way (VARKA_REGEN_BASE names another base than origin/master, for a
+# test); --full runs the steps whatever it says. A skipped run still checks
+# the census and writes the push check's marker below.
 set -euo pipefail
 
 top="$(git rev-parse --show-toplevel)"
 cd "$top"
-all=0; dry=0
+all=0; dry=0; full=0
 for arg in "$@"; do
   case "$arg" in
     --all) all=1 ;;
+    --full) full=1 ;;
     --dry-run) dry=1 ;;
-    *) echo "usage: dev/varka_regen_generated.sh [--all] [--dry-run]" >&2; exit 2 ;;
+    *) echo "usage: dev/varka_regen_generated.sh [--all [--full]] [--dry-run]" >&2; exit 2 ;;
   esac
 done
 
@@ -57,6 +67,17 @@ else
 fi
 
 want() { case " $files " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# Nothing the JVM steps read changed: they would write what the files already hold (VARKA-626).
+skip=0
+if [ $all = 1 ] && [ $full = 0 ]; then
+  inputs_args=(${VARKA_REGEN_BASE:+--base "$VARKA_REGEN_BASE"})
+  if why="$(python3 dev/varka_regen_inputs.py "${inputs_args[@]}" $files)"; then
+    skip=1; echo "varka regen: skipping the JVM steps: $why (--full runs them)"
+  else
+    echo "varka regen: running the JVM steps: $why"
+  fi
+fi
 
 steps=()
 envs=(SPARK_LOCAL_IP=127.0.0.1)
@@ -100,6 +121,7 @@ if [ $bytes = 1 ]; then
   envs+=(VARKA_BYTES_REGEN=true); steps+=("catalyst/testOnly *VarkaEmittedBytesSuite"); fi
 if [ $audit = 1 ]; then steps+=("catalyst/testOnly *VarkaCoverageSuite"); fi
 
+if [ $skip = 1 ]; then steps=(); fi
 if [ ${#steps[@]} -eq 0 ]; then
   echo "varka regen: no JVM regeneration owed"
 else

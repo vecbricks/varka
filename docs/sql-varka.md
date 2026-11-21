@@ -1185,25 +1185,25 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 #### Math functions
 
-| Expression | Switches | Domain | Notes | 128-bit lanes |
-|---|---|---|---|---|
-| `sin(x)` | `math` |  | exact: a per-lane Math.sin call, the host's answer as Spark's | vector |
-| `cos(x)` | `math` |  | exact: a per-lane Math.cos call | vector |
-| `tan(x)` | `math` |  | exact: a per-lane Math.tan call | vector |
-| `asin(x)` | `math` |  | exact: a per-lane StrictMath.asin call, which Math.asin delegates to | vector |
-| `acos(x)` | `math` |  | exact: a per-lane StrictMath.acos call | vector |
-| `atan(x)` | `math` |  | exact: a per-lane StrictMath.atan call | vector |
-| `sec(x)` | `math` |  | 1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null | vector |
-| `csc(x)` | `math` |  | 1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf | vector |
-| `cot(x)` | `math` |  | 1 / Math.tan(x) | vector |
-| `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | vector |
-| `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | per-lane: mask broadcast, mask test |
+| Expression | Switches | Domain | Notes | Form | 128-bit lanes |
+|---|---|---|---|---|---|
+| `sin(x)` | `math` |  | exact: a per-lane Math.sin call, the host's answer as Spark's | exact: per-lane Math call | vector |
+| `cos(x)` | `math` |  | exact: a per-lane Math.cos call | exact: per-lane Math call | vector |
+| `tan(x)` | `math` |  | exact: a per-lane Math.tan call | exact: per-lane Math call | vector |
+| `asin(x)` | `math` |  | exact: a per-lane StrictMath.asin call, which Math.asin delegates to | exact: per-lane StrictMath call | vector |
+| `acos(x)` | `math` |  | exact: a per-lane StrictMath.acos call | exact: per-lane StrictMath call | vector |
+| `atan(x)` | `math` |  | exact: a per-lane StrictMath.atan call | exact: per-lane StrictMath call | vector |
+| `sec(x)` | `math` |  | 1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null | exact: per-lane Math call | vector |
+| `csc(x)` | `math` |  | 1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf | exact: per-lane Math call | vector |
+| `cot(x)` | `math` |  | 1 / Math.tan(x) | exact: per-lane Math call | vector |
+| `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | exact: per-lane Math call | vector |
+| `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | exact: per-lane Math call | per-lane: mask broadcast, mask test |
 
 #### Math functions as conditions
 
-| Predicate | Switches | Domain | Notes | 128-bit lanes |
-|---|---|---|---|---|
-| `sin(x) < 0.5D` | `predicate`, `math` |  | the call, then the floating compare in Spark's order | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| Predicate | Switches | Domain | Notes | Form | 128-bit lanes |
+|---|---|---|---|---|---|
+| `sin(x) < 0.5D` | `predicate`, `math` |  | the call, then the floating compare in Spark's order | exact: per-lane Math call | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### Floating casts to BOOLEAN
 
