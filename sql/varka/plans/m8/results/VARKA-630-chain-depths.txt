@@ -1,38 +1,43 @@
-VARKA-630 part 4: how deep a nested chain fuses through the SQL compile path with the chain-depth
-cap raised to 64, and what stops it.
+VARKA-630 part 4: how deep a nested chain fuses through the SQL compile path, with the chain-depth
+cap at 64 and at 128, and what stops it.
 
 Date: 21 November 2026, one laptop, one JVM, a scratch test run once per cell (single readings,
-not a benchmark): `VarkaExpressionCompiler.explainPredicate` over `(CHAIN) > c` on the master of
-d49480da0fe, options `VarkaMatrixRuns.BASE.withMaxChainDepth(64)`, a 30 s bound that no cell
-approached. The scratch test is not kept; it is the loop the two new tests in
-VarkaVectorIRSharingSuite run, over the depths listed.
+not a benchmark; the scratch test is not kept): `VarkaExpressionCompiler.explainPredicate` over
+`(CHAIN) > c` on master d49480da0fe, options `VarkaMatrixRuns.BASE.withMaxChainDepth(cap)`.
 
-Each row is a chain over a column a, nested by substituting the previous level for X:
+Each chain nests by substituting the previous level for X. "fuses" is the deepest depth read
+that fuses, "declines" the first read that does not (the depths read are listed, not every one).
 
-  chain            paths per level   fuses at depth   first depth that declines, and why
-  signum(X)        4                 12               16: "exceeds the emitter's fused budget"
-  abs(X) (ym)      3                 28               32: "exceeds the emitter's fused budget"
-  (X) / 3 (ym)     7                 4                8:  "exceeds the emitter's fused budget"
-  (X + 1), INT     1                 63               64: "exceeds the emitter's fused budget"
-  (X + 1), BIGINT  1                 62               63: "exceeds the emitter's fused budget"
+  chain             paths  cap 64: fuses / declines    cap 128: fuses / declines
+  signum(X) double  4      12 / 16                     16 / 24
+  abs(X) ym         3      28 / 32                     40 / 64
+  (X + 1) INT       1      63 / 64                     64 / 100
+  (X + 1) BIGINT    1      62 / 63                     63 / 100
+  (X) / 3 ym        7      4 / 8                       not read at cap 128
 
-Every explanation came back in under 800 ms (the first, 721 ms, is class loading), the rest in
-under 200 ms, and a declined one in under 40 ms, whatever the depth, up to 64 levels, which is
-2^64 paths for a chain of fan-out two.
+Depths read at cap 64: signum 4 to 64, abs 4 to 64, / 3 4 to 64, the adds 16 to 72 (INT and
+BIGINT). At cap 128: signum 12, 16, 24, 40; abs 28, 32, 40, 64; the adds 63, 64, 100, 126, 127
+and 130 (INT) and 62, 63, 100, 126 and 127 (BIGINT).
 
-The decline is the node budget, `VarkaEmitBudget.MAX_FUSED_NODES` = 64 distinct operation
-nodes, not the chain-depth cap: the cap was 64 here. The budget stops every chain above before 64 levels, and the INT add chain, the cheapest, one
-level short of 64; the BIGINT add chain stops a level earlier, and the reason text shows its
-literal is cast, which would be one more node a level. The nodes per level of the other chains
-were not counted.
+What stops a chain at cap 64 is the chain-depth cap: raising it to 128 moves every stop, and the
+add chains stop where the cap is, one level short of it for the INT chain, which fits the predicate's
+compare being a level of the chain (not checked). The decline's text, "exceeds the emitter's fused budget", is the
+one note the compiler gives whatever budget failed, depth included, so it does not say which.
+Neither is `VarkaEmitBudget.MAX_FUSED_NODES` the limit: it is checked only where
+`methodByteBudget` is 0 (`Analysis` line 1953) and the default is 8000.
 
-What this means for the chain-depth cap (row 629): raising the INT lane's cap to 64 cannot let a
-query fuse a 64-deep chain through the compiler, since the node budget stops it at 63 for the
-cheapest chain there is. The depth benchmark (`VarkaChainDepthBenchmark`) reached 64 because it
-builds the IR directly and does not pass the compiler's budget. A row that needs a chain of 26 to
-60 levels of decimal operations, each several nodes, is stopped by the node budget at a depth
-the cap would allow.
+A second limit appears past the cap: at cap 128 the INT add chain declines at 100 levels, well
+under the cap, and the BIGINT one too. What it is was not found (the byte budget of a method,
+`FUSED_CEILING` and the node budget are candidates; none was tried).
 
-Not measured: the emitter's own class size and the cache hit of a chain that fuses at these depths
-(a chain at the budget's edge was not emitted here), and the BIGINT and DOUBLE chains of the
-plan's decimal rows.
+Every explanation of the first run came back in under 800 ms (the first, 721 ms, is class loading),
+the rest under 200 ms, and a declined one under 40 ms, at every depth up to 64, which is 2^64
+paths for a chain of fan-out two.
+
+What this means for row 629: the cap, not a second budget, is what a query meets at the depths
+the plan's rows need; a cap of 64 fuses an INT add chain to 63 levels under a predicate. The
+depth to which a chain fuses is a count of IR height, not of SQL nesting: an interval `abs`
+level is about two to three levels of height (inferred from the stop depths, not counted).
+
+Not measured: the second limit above, the emitted class size and the cache hit of a chain that
+fuses at these depths, and the plan's decimal chains.
