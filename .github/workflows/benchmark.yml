@@ -62,7 +62,7 @@ on:
         default: true
       runner:
         type: string
-        description: 'The runner of the benchmark jobs: ubuntu-latest (default) or ubuntu-24.04-arm, a Neoverse N2 with 128-bit vectors only. For Arm, pin expected-cpu to its model ("Neoverse-N2") and set generate-tpcds to false, whose data job stays on ubuntu-latest.'
+        description: 'The runner of the benchmark jobs: ubuntu-latest (default) or ubuntu-24.04-arm, a Neoverse N2 with 128-bit vectors only. For Arm, pin expected-cpu to its model ("Neoverse-N2") and, for a Spark class, set generate-tpcds to false (a Varka class skips the data by default), whose data job stays on ubuntu-latest.'
         required: false
         default: 'ubuntu-latest'
       expected-cpu:
@@ -133,6 +133,7 @@ jobs:
       PR: ${{ inputs.pr }}
       ROUNDS: ${{ inputs.rounds }}
       THRESHOLD: ${{ inputs.threshold }}
+      GENERATE_TPCDS: ${{ inputs.generate-tpcds }}
     steps:
     - name: Generate matrix
       id: set-matrix
@@ -199,7 +200,9 @@ jobs:
         def varka_only(c):
             return all(a.rsplit(".", 1)[-1].startswith("Varka") for a in alternatives(c))
 
-        tpcds = not all(varka_only(c) for c in classes)
+        # The one answer both jobs read: the data is wanted when the dispatch asks for it and a
+        # Spark class is in the list.
+        tpcds = os.environ["GENERATE_TPCDS"] == "true" and not all(varka_only(c) for c in classes)
         with open(os.environ["GITHUB_OUTPUT"], "a") as out:
             out.write(f"matrix={json.dumps(splits)}\n")
             out.write(f"classes={json.dumps(entries)}\n")
@@ -211,7 +214,7 @@ jobs:
   # Any TPC-DS related updates on this job need to be applied to tpcds-1g job of build_and_test.yml as well
   tpcds-1g-gen:
     name: "Generate an TPC-DS dataset with SF=1"
-    if: inputs.generate-tpcds && !inputs.pair && needs.matrix-gen.outputs.tpcds == 'true'
+    if: !inputs.pair && needs.matrix-gen.outputs.tpcds == 'true'
     needs: matrix-gen
     runs-on: ubuntu-latest
     env:
@@ -328,7 +331,7 @@ jobs:
         EXPECTED_CPU: ${{ inputs.expected-cpu }}
       run: '"$TOOLS/dev/varka_datapath.sh" --require any --expected-cpu "$EXPECTED_CPU" --github'
     - name: Cache TPC-DS generated data
-      if: inputs.generate-tpcds && needs.matrix-gen.outputs.tpcds == 'true'
+      if: needs.matrix-gen.outputs.tpcds == 'true'
       id: cache-tpcds-sf-1
       uses: actions/cache@v6
       with:

@@ -865,13 +865,12 @@ needs first:
 
 The benchmark jobs run on `ubuntu-latest` unless the dispatch names a `runner`. Name
 `ubuntu-24.04-arm` for GitHub's Arm pool, a Neoverse N2 with 128-bit vectors only, and set
-`expected-cpu` to `Neoverse-N2` and `generate-tpcds` to false (the TPC-DS data job stays on
-`ubuntu-latest`). `dev/varka_datapath.sh` reads the model from `lscpu` there, since an aarch64
+`expected-cpu` to `Neoverse-N2` and, for a Spark class, `generate-tpcds` to false (the TPC-DS
+data job stays on `ubuntu-latest`; a Varka class skips it by default). `dev/varka_datapath.sh` reads the model from `lscpu` there, since an aarch64
 `/proc/cpuinfo` has no `model name`, and does not run the width probe, whose 128/256/512 comparison
 has nothing to measure on a 128-bit core; the summary then reads `n/a` for the lanes, the control
 and the ratio. A result from the Arm runner is comparable only with another from it, and an x86
 result only with one from its own pinned CPU (the EPYC 7763 rule is unchanged).
-
 
 ## A dispatch of Varka classes only skips the TPC-DS data job
 
