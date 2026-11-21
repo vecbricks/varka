@@ -288,6 +288,10 @@ final class VarkaConversionLowering {
    * the upper half is zero as {@code convertShape}'s part 0 leaves it.
    */
   private static void emitScalarLanes(CodeBuilder cb, int v, Analysis analysis) {
+    if (analysis.lanesOf(Lane.LONG) == 0) {
+      throw VarkaErrors.illegalState("a per-lane long to float conversion needs a baked lane "
+          + "count, and this emission has none");
+    }
     cb.astore(v);
     cb.getstatic(Lane.FLOAT.vector, Lane.FLOAT.speciesField(analysis.lanesOf(Lane.FLOAT)),
         VECTOR_SPECIES);
