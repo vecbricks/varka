@@ -231,7 +231,7 @@ final class VarkaBodyEmitter {
       for (int acc : guardAccs(s)) {
         cb.aload(s.species);
         cb.loadConstant(0L);
-        cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+        VarkaVectorWalk.emitFromLong(cb, analysis.lane, analysis);
         cb.astore(acc);
       }
       // The min-and-max guards' accumulators start at their own bounds, so that they compare
@@ -1154,7 +1154,7 @@ final class VarkaBodyEmitter {
       // lane needs no check here: Analysis refuses a decimal output in an emission not driven
       // at the long lane before any local is planned.
       throw VarkaErrors.illegalState("a decimal output with no store planned: "
-          + VarkaVectorIR.canonical(root));
+          + VarkaVectorIR.canonicalBrief(root));
     }
     cb.dup();
     cb.astore(tmp[0]);                                          // lo
@@ -2112,7 +2112,7 @@ final class VarkaBodyEmitter {
       if (i > 0) {
         rendered.append(", ");
       }
-      rendered.append(VarkaVectorIR.canonical(outputs.get(i)));
+      rendered.append(VarkaVectorIR.canonicalExact(outputs.get(i)));
     }
     return rendered.append(']').toString();
   }

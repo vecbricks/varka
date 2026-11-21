@@ -57,6 +57,7 @@ import org.apache.spark.sql.catalyst.expressions.InSet;
 import org.apache.spark.sql.catalyst.expressions.IsNaN;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.IsNull;
+import org.apache.spark.sql.catalyst.expressions.KnownFloatingPointNormalized;
 import org.apache.spark.sql.catalyst.expressions.Least;
 import org.apache.spark.sql.catalyst.expressions.LessThan;
 import org.apache.spark.sql.catalyst.expressions.LessThanOrEqual;
@@ -107,6 +108,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
+import org.apache.spark.sql.catalyst.optimizer.NormalizeNaNAndZero;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DecimalType;
 
@@ -275,6 +277,12 @@ final class VarkaNodeCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
+    // A tag the optimizer puts over a normalised floating key: its value, type, nullability and
+    // code are its child's, so it is compiled as its child and is no family's. The tag never
+    // stands for a canonicalisation of its own; only CanonicalFloat.of removes a second one.
+    if (expr instanceof KnownFloatingPointNormalized k) {
+      return compileNode(k.child(), inputs, literals, sink);
+    }
     Optional<String> floating = floatingDecline(expr);
     if (floating.isPresent()) {
       return sink.decline(floating.get(), expr);
@@ -386,12 +394,15 @@ final class VarkaNodeCompiler {
         || e instanceof Add || e instanceof Subtract || e instanceof Multiply
         || e instanceof Divide || e instanceof UnaryMinus || e instanceof Abs
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
+        // Its canonicalisation (VARKA-337), which a later key operator builds.
+        || e instanceof NormalizeNaNAndZero
         || (e instanceof Signum s && (isFloating(s.child().dataType())
             || VarkaFloatingCompiler.intervalLane(s.child().dataType()).isPresent()))
         // The rounding family's forms (VARKA-344): rint, and floor and ceil, whose arm builds
         // the int operand's widening and declines a double or any other cast by name.
         || e instanceof Rint || e instanceof Floor || e instanceof Ceil
-        // The math family's functions (VARKA-345), each declining in its arm by its row.
+        // The math family's functions (VARKA-345), each lowered in its arm or declining there by
+        // its row.
         || VarkaMathCompiler.ownerOf(e).isPresent()
         // The floating casts family's pairs (VARKA-343), by pair for the same reason.
         || (e instanceof Cast c && (VarkaFloatingCastCompiler.admits(c)
@@ -631,6 +642,16 @@ final class VarkaNodeCompiler {
             boolean checked = n.failOnError() && !boundedByIntMax(x, literals, sink);
             return (VarkaVectorIR) new IntNeg(checked ? Overflow.FAIL : Overflow.WRAP, x);
           });
+      // `abs` over an int is the negation's node with its `abs` flag, on the same terms: Spark's
+      // `x < 0 ? negateExact(x) : x` under ANSI and `Math.abs` otherwise, whose
+      // `abs(Int.MinValue)` is `Int.MinValue`. The one overflowing input is the minimum, so any
+      // bound on the operand takes the ANSI check off. Spark has no try_abs (FunctionRegistry
+      // holds no such name; SPARK-62149 proposes try_abs and try_negative), so the mode is
+      // WRAP or FAIL.
+      case Abs a when isInt(a) -> () -> intOperand(a.child(), inputs, literals, sink).map(x -> {
+        boolean checked = a.failOnError() && !boundedByIntMax(x, literals, sink);
+        return (VarkaVectorIR) new IntNeg(checked ? Overflow.FAIL : Overflow.WRAP, x, true);
+      });
       // The long negation and `abs` (VARKA-104): the one overflowing input is `Long.MinValue`,
       // checked under ANSI unless the long lattice rules it out. Spark has no try_negative or
       // try_abs, so the mode is WRAP or FAIL; `abs` is `x < 0 ? negateExact(x) : x` under ANSI

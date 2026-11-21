@@ -614,4 +614,56 @@ widths with its predictions scored; and the PR build and the option matrix pass.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 10.1 Step 1: the census cells, on the laptop
+
+*20 November 2026, at `e5d70012bdc`, before any of the row's code, on branch
+`varka-350-decimal-casts-64`. The laptop column of `sql/varka/operator_census.json` (AMD Ryzen AI 9
+HX PRO 370, JDK 25.0.5, species of 512, 256 and 128 bits); the EPYC 7763 and Neoverse N2 columns
+wait on a `varka-width-audit.yml` dispatch on the branch, owed.*
+
+Two cells in `VarkaOperatorCensusCatalog`, in the long lanewise family. `long.LSHR` is the existing
+long shift loop under the logical shift, the pre-shift of 2.2. `long.MUL_masked_broadcast` is a new
+loop, `mulc32.long`: each long masked to its low 32 bits and multiplied by a vector broadcast once
+from an array element of 32 bits, the partial product a 64-bit magic multiply for `10^k` is made of
+(2.2's `LIMB_MAGIC`), the constant masked to 32 bits as well, so that both inputs have the shape
+C2's `MulVLNode::has_uint_inputs` matches (an AND with a replicated constant of at most `2^32 - 1`).
+Row 360b has no `WideMul` cells to read it through yet, so the cell stands on its own and is named
+apart from `long.MUL_broadcast`, whose inputs are not masked.
+
+| cell | what the loop does | 512 | 256 | 128 | bytes a row |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| `long.LSHR` | `lanewise(LSHR, 3)`, 2.2's pre-shift | I | I | I | 0 |
+| `long.MUL_masked_broadcast` | `lanewise(AND, 2^32 - 1)` then `lanewise(MUL, limb)` | I | I | I | 0 |
+
+Both are intrinsic and allocation-free at every width on the laptop, and no existing cell's verdict
+moved (the file's other change is the JDK's build string). What no verdict can say is whether C2
+emits `vpmuludq` rather than AVX2's seven-instruction `MulVL` emulation: both are intrinsic and
+allocation-free, so both read `I`, on the EPYC 7763 column too. The loop's assembly decides it, and
+it decides 350d's measurement, not 350a.
+
+### 10.2 Step 2: the baseline addition
+
+*20 November 2026, on the unchanged code, the same branch. The runner results at 256 and 128 bits
+come from `benchmark.yml` on the EPYC 7763 after the pull request, owed. Steps 1 and 2 share one
+pull request, against section 5's order of a pull request each: both are test-only on the unchanged
+code, and the baseline still lands ahead of any lowering, which is what section 4 asks of it.*
+
+Forty sections of `VarkaDecimalBaselineBenchmark`, the plan's list of section 4 with `VARKA-366.md`
+4's floating casts, twenty at each null density, all `NONE` on the unchanged code:
+
+- at `(9, 2)`: `CAST(x AS BIGINT)`, `CAST(x AS INT)` under LEGACY and ANSI, `try_cast(x AS
+  SMALLINT)` (past the range on most rows, which the queries suite asserts rather than the no-null
+  rule),
+  `CAST(x AS DOUBLE)`, `CAST(x AS FLOAT)`, `CAST(x AS DECIMAL(9, 0))` and `CAST(x AS BOOLEAN)` as a
+  filter, with constraint propagation off as the integral cast baseline's boolean filter has it;
+- at `(18, 4)`: `CAST(x AS BIGINT)`, `CAST(x AS INT)` under LEGACY, `CAST(x AS DOUBLE)`, `CAST(x AS
+  FLOAT)` and `CAST(x AS DECIMAL(18, 2))`;
+- over two new columns after `l`: `x15s4`, `DECIMAL(15, 4)` with integer parts to `5 * 10^10`, for
+  `CAST(x AS FLOAT)`; `x18s14`, `DECIMAL(18, 14)` below `10^4`, for `CAST(x AS INT)` under ANSI,
+  `try_cast(x AS INT)`, `CAST(x AS DOUBLE)` and `CAST(x AS FLOAT)` (366's);
+- over `l16`, a `BIGINT` spread evenly below `10^16`: `CAST(l AS DECIMAL(18, 2))` under LEGACY and
+  ANSI.
+
+A section now carries the SQL settings both sessions run it under, as the integral cast baseline's
+do, so the modes are explicit rather than the session's default. The new columns come after every
+other, so no earlier section's values move.

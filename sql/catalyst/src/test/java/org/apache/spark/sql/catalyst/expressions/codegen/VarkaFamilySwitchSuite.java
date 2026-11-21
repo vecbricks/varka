@@ -101,11 +101,10 @@ public final class VarkaFamilySwitchSuite {
 
   /**
    * The families whose arm fuses nothing yet, each with an expression of the family that a row of
-   * the plan will fuse: the math family declines every function by its row (VARKA-345), so no
-   * coverage row holds it, and its switch is checked on this expression instead. A family leaves
-   * this map the day a coverage row holds it, which the switch test enforces.
+   * the plan will fuse, on which its switch is checked until a coverage row holds the family and
+   * the switch test makes it leave this map. None is in it now.
    */
-  private static final Map<VarkaFamily, String> UNBUILT = Map.of(VarkaFamily.MATH, "sin(x)");
+  private static final Map<VarkaFamily, String> UNBUILT = Map.of();
 
   /** The prefix the width census gives a shape the compiler declines at that width. */
   private static final String DECLINED = "declined: ";
@@ -257,7 +256,7 @@ public final class VarkaFamilySwitchSuite {
     var claimers = new ArrayList<>(VarkaNodeCompiler.families());
     claimers.add(VarkaNodeCompiler.predicates());
     claimers.add(VarkaNodeCompiler.castConditions());
-    var sink = new DeclineSink(columns, true);
+    var sink = new DeclineSink(columns, OPTIONS);
     var stack = new ArrayList<Expression>(List.of(bound));
     while (!stack.isEmpty()) {
       Expression e = stack.remove(stack.size() - 1);
@@ -291,7 +290,16 @@ public final class VarkaFamilySwitchSuite {
       if (on.kernel().isEmpty()) {
         // A row the width cannot serve declines before any family is consulted; the census
         // records which rows those are, and why.
-        if (!isRecordedDecline(recordedDeclines, row, on) && !isConfigurationDecline(on)) {
+        if (isConfigurationDecline(on)) {
+          // A family whose every row the configuration declines (the math family's per-lane
+          // calls with no baked lane count) is still seen to work: switched off, it declines
+          // with its own reason before the kernel plan refuses the width.
+          for (VarkaFamily family : claims.sure()) {
+            if (compile(row, Set.of(family)).reason().equals(Optional.of(family.offReason()))) {
+              declined.merge(family, 1, Integer::sum);
+            }
+          }
+        } else if (!isRecordedDecline(recordedDeclines, row, on)) {
           failures.add("`" + row.sql() + "` does not fuse with every family on: " + on.reason());
         }
         continue;

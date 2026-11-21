@@ -210,12 +210,21 @@ public record VarkaOperatorCensusCatalog(String name, String family, String loop
       of("long", "GT", LONG_LANEWISE, "cmp.long", "compare", "347"),
       of("long", "LT", LONG_LANEWISE, "cmp.long", "compare", "347"),
       of("long", "ASHR", LONG_LANEWISE, "shift.long", "broadcastInt", "347"),
+      // The logical shift a decimal division by 10^k runs first, so that the quotient by 5^k
+      // that follows divides a magnitude below 2^52 (VARKA-350 2.2).
+      of("long", "LSHR", LONG_LANEWISE, "shift.long", "broadcastInt", "350"),
       of("long", "NEG", LONG_LANEWISE, "un.long", "unaryOp", "348"),
       of("long", "ABS", LONG_LANEWISE, "un.long", "unaryOp", "348"),
       // The multiply by a broadcast constant, a decimal rescale's 10^k: the cell is named apart
       // from long.MUL, two columns multiplied, and applies the same operator.
       new VarkaOperatorCensusCatalog("long.MUL_broadcast", LONG_LANEWISE, "mulc.long", "MUL",
           "binaryOp", "348, 349", 0, Integer.MAX_VALUE),
+      // The multiply of a 32-bit limb by a broadcast constant of 32 bits, the partial product of
+      // a 64-bit magic multiply for 10^k (VARKA-350 2.2): both inputs are masked to 32 bits, the
+      // shape for which C2 may pick vpmuludq; the verdict reads I for that and for AVX2's MulVL
+      // emulation alike, so only this loop's assembly tells which.
+      new VarkaOperatorCensusCatalog("long.MUL_masked_broadcast", LONG_LANEWISE, "mulc32.long",
+          "MUL", "binaryOp", "350, 360", 0, Integer.MAX_VALUE),
       of("byte", "fromLong", MASKS, "mask.fromLong.byte", "fromBitsCoerced", "331, 375, 27"),
       of("byte", "toLong", MASKS, "mask.toLong.byte", "maskReductionCoerced", "331, 375, 27"),
       of("int", "fromLong", MASKS, "mask.fromLong.int", "fromBitsCoerced", "331, 375, 27"),

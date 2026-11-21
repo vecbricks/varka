@@ -452,8 +452,14 @@ public final class VarkaEmitterFloatingArithSuite {
 
   /** One double-lane kernel over two columns, a null element a null: its status and output. */
   private static Ran runDouble(VarkaVectorIR root, Double[] xs, Double[] ys, int lanes) {
+    return runDouble(root, xs, ys, lanes, VarkaMatrixRuns.BASE);
+  }
+
+  /** {@link #runDouble(VarkaVectorIR, Double[], Double[], int)} under {@code options}. */
+  private static Ran runDouble(VarkaVectorIR root, Double[] xs, Double[] ys, int lanes,
+      VarkaEmitOptions options) {
     var loaded = VarkaEmitterFixtures.load(VarkaEmitterFixtures.emit(List.of(root), 2, 0,
-        VarkaMatrixRuns.BASE.withLanesOverride(lanes)));
+        options.withLanesOverride(lanes)));
     VarkaFusedKernel kernel = loaded.kernel();
     int n = xs.length;
     try (Arena arena = Arena.ofConfined()) {
@@ -476,6 +482,11 @@ public final class VarkaEmitterFloatingArithSuite {
 
   private static Ran runDouble(VarkaVectorIR root, Double[] xs, Double[] ys) {
     return runDouble(root, xs, ys, 0);
+  }
+
+  private static Ran runDouble(VarkaVectorIR root, Double[] xs, Double[] ys,
+      VarkaEmitOptions options) {
+    return runDouble(root, xs, ys, 0, options);
   }
 
   private static Col doubleColumn(Arena arena, Double[] vs) {
@@ -505,11 +516,16 @@ public final class VarkaEmitterFloatingArithSuite {
   @Test
   @DisplayName("a zero divisor of either sign nulls a division under NULL, and NaN does not")
   public void zeroDivisorOfEitherSignNullsADivisionUnderNull() {
+    zeroDivisorOfEitherSignNullsADivisionUnderNull(VarkaMatrixRuns.BASE);
+  }
+
+  /** {@link #zeroDivisorOfEitherSignNullsADivisionUnderNull} under {@code options}. */
+  private static void zeroDivisorOfEitherSignNullsADivisionUnderNull(VarkaEmitOptions options) {
     var div = new IntArith(IntOp.DIV, Overflow.NULL, X, Y);
     Double[] xs = {1.0, 0.0, Double.NaN, 1.0, -1.0, null, 6.0, 1.0};
     Double[] ys = {-0.0, 0.0, 0.0, Double.NaN, Double.POSITIVE_INFINITY, 0.0, 3.0, null};
     for (int lanes : new int[] {2, 4, 8}) {
-      Ran ran = runDouble(div, xs, ys, lanes);
+      Ran ran = runDouble(div, xs, ys, lanes, options);
       assertEquals(0, ran.status());
       assertEquals(List.of(OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(),
           bits(Double.NaN), bits(-0.0), OptionalLong.empty(), bits(2.0), OptionalLong.empty()),
@@ -521,16 +537,22 @@ public final class VarkaEmitterFloatingArithSuite {
   @DisplayName("a live zero divisor of either sign declines a FAIL division, and a null dividend "
       + "over it does not")
   public void liveZeroDivisorDeclinesAFailDivision() {
+    liveZeroDivisorDeclinesAFailDivision(VarkaMatrixRuns.BASE);
+  }
+
+  /** {@link #liveZeroDivisorDeclinesAFailDivision} under {@code options}. */
+  private static void liveZeroDivisorDeclinesAFailDivision(VarkaEmitOptions options) {
     var div = new IntArith(IntOp.DIV, Overflow.FAIL, X, Y);
     for (int lanes : new int[] {2, 4, 8}) {
       for (double zero : new double[] {0.0, -0.0}) {
         // A zero divisor on a live row, at the end of a batch longer than a vector.
         Double[] xs = filled(9, 1.0, 5.0);
         Double[] ys = filled(9, 2.0, zero);
-        assertEquals(VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO, runDouble(div, xs, ys, lanes).status(),
+        assertEquals(VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO,
+            runDouble(div, xs, ys, lanes, options).status(),
             "lanes=" + lanes + " zero=" + zero);
         // The same zero under a null dividend: null, as Spark's ANSI division answers.
-        Ran ran = runDouble(div, updated(xs, 9, null), ys, lanes);
+        Ran ran = runDouble(div, updated(xs, 9, null), ys, lanes, options);
         assertEquals(0, ran.status(), "lanes=" + lanes + " zero=" + zero);
         var want = new ArrayList<OptionalLong>();
         for (int i = 0; i < 9; i++) {
@@ -540,7 +562,7 @@ public final class VarkaEmitterFloatingArithSuite {
         assertEquals(want, ran.values());
         // A NaN divisor is no zero, under ANSI as anywhere.
         assertEquals(bits(Double.NaN),
-            runDouble(div, xs, updated(ys, 9, Double.NaN), lanes).values().get(9));
+            runDouble(div, xs, updated(ys, 9, Double.NaN), lanes, options).values().get(9));
       }
     }
   }
@@ -595,11 +617,16 @@ public final class VarkaEmitterFloatingArithSuite {
   }
 
   private static CompiledVarkaProjection compile(Expression e, List<Attribute> cols) {
+    return compile(e, cols, VarkaMatrixRuns.BASE);
+  }
+
+  private static CompiledVarkaProjection compile(Expression e, List<Attribute> cols,
+      VarkaEmitOptions options) {
     Optional<CompiledVarkaProjection> plan =
-        VarkaExpressionCompiler.compile(entry(e), seq(cols), VarkaMatrixRuns.BASE);
+        VarkaExpressionCompiler.compile(entry(e), seq(cols), options);
     if (plan.isEmpty()) {
       fail(e.sql() + " declines: "
-          + VarkaExpressionCompiler.declines(entry(e), seq(cols), VarkaMatrixRuns.BASE));
+          + VarkaExpressionCompiler.declines(entry(e), seq(cols), options));
     }
     return plan.get();
   }
@@ -640,8 +667,13 @@ public final class VarkaEmitterFloatingArithSuite {
    */
   private static int checkAgainstSpark(String sql, List<Attribute> cols, List<Object[]> rows,
       String mode, boolean movesBits, int status) {
+    return checkAgainstSpark(sql, cols, rows, mode, movesBits, status, VarkaMatrixRuns.BASE);
+  }
+
+  private static int checkAgainstSpark(String sql, List<Attribute> cols, List<Object[]> rows,
+      String mode, boolean movesBits, int status, VarkaEmitOptions options) {
     Expression e = resolve(sql, cols, mode);
-    CompiledVarkaProjection plan = compile(e, cols);
+    CompiledVarkaProjection plan = compile(e, cols, options);
     boolean isFloat = e.dataType() instanceof FloatType;
     long mask = isFloat ? 0xffffffffL : -1L;
     // Spark's interpreted eval of the expression over every column, its RuntimeReplaceable
@@ -660,7 +692,7 @@ public final class VarkaEmitterFloatingArithSuite {
     }
     List<Integer> inputs = plan.inputOrdinals();
     var loaded = VarkaEmitterFixtures.load(VarkaEmitterFixtures.emit(plan.outputs(),
-        inputs.size(), plan.numLiterals(), VarkaMatrixRuns.BASE));
+        inputs.size(), plan.numLiterals(), options));
     VarkaFusedKernel kernel = loaded.kernel();
     int[] ints = plan.literals().stream().mapToInt(Integer::intValue).toArray();
     long[] longs = plan.longLiterals().stream().mapToLong(Long::longValue).toArray();
@@ -821,27 +853,43 @@ public final class VarkaEmitterFloatingArithSuite {
 
   /** A form that computes a value: a NaN from two NaNs is compared by NaN-ness. */
   private static void doubleMatchesSpark(String sql) {
+    doubleMatchesSpark(sql, VarkaMatrixRuns.BASE);
+  }
+
+  private static void doubleMatchesSpark(String sql, VarkaEmitOptions options) {
     for (String m : MODES) {
-      checkAgainstSpark(sql, DOUBLE_COLS, DOUBLE_CELLS, m, false);
+      checkAgainstSpark(sql, DOUBLE_COLS, DOUBLE_CELLS, m, false, 0, options);
     }
   }
 
   /** A form that moves its operand's bits, compared bit for bit, NaN payloads included. */
   private static void doubleMatchesSparkBitForBit(String sql) {
+    doubleMatchesSparkBitForBit(sql, VarkaMatrixRuns.BASE);
+  }
+
+  private static void doubleMatchesSparkBitForBit(String sql, VarkaEmitOptions options) {
     for (String m : MODES) {
-      checkAgainstSpark(sql, DOUBLE_COLS, DOUBLE_CELLS, m, true);
+      checkAgainstSpark(sql, DOUBLE_COLS, DOUBLE_CELLS, m, true, 0, options);
     }
   }
 
   private static void floatMatchesSpark(String sql) {
+    floatMatchesSpark(sql, VarkaMatrixRuns.BASE);
+  }
+
+  private static void floatMatchesSpark(String sql, VarkaEmitOptions options) {
     for (String m : MODES) {
-      checkAgainstSpark(sql, FLOAT_COLS, FLOAT_CELLS, m, false);
+      checkAgainstSpark(sql, FLOAT_COLS, FLOAT_CELLS, m, false, 0, options);
     }
   }
 
   private static void floatMatchesSparkBitForBit(String sql) {
+    floatMatchesSparkBitForBit(sql, VarkaMatrixRuns.BASE);
+  }
+
+  private static void floatMatchesSparkBitForBit(String sql, VarkaEmitOptions options) {
     for (String m : MODES) {
-      checkAgainstSpark(sql, FLOAT_COLS, FLOAT_CELLS, m, true);
+      checkAgainstSpark(sql, FLOAT_COLS, FLOAT_CELLS, m, true, 0, options);
     }
   }
 
@@ -1308,35 +1356,89 @@ public final class VarkaEmitterFloatingArithSuite {
   // Planted faults: each check above fails on a plausible wrong lowering (milestone 8 row 504)
   // -------------------------------------------------------------------------------------------
 
-  /** Runs {@code check} with {@code fault} planted, and requires it to fail. */
-  private static void failsUnder(VarkaFloatingFault fault, String what, Runnable check) {
-    VarkaFloatingFault.plantForTesting(fault);
-    try {
-      assertThrows(AssertionError.class, check::run, what + " passes with " + fault + " planted");
-    } finally {
-      VarkaFloatingFault.plantForTesting(VarkaFloatingFault.NONE);
+  /**
+   * Requires {@code check}, which compiles and emits under {@code options}' fault, to fail: the
+   * fault is an option of that emission, so no other compile in the JVM can see it (VARKA-548).
+   */
+  private static void failsUnder(VarkaEmitOptions options, String what, Runnable check) {
+    assertThrows(AssertionError.class, check::run,
+        what + " passes under " + options.canonical());
+  }
+
+  /** A cached clean kernel over one DOUBLE column: its status and output. */
+  private static Ran runCached(VarkaFusedKernel kernel, Double[] xs) {
+    int n = xs.length;
+    try (Arena arena = Arena.ofConfined()) {
+      var col = doubleColumn(arena, xs);
+      Output out = VarkaEmitterFixtures.makeLongOutput(arena, n);
+      int status = kernel.run(new long[] {col.data().address()},
+          new long[] {col.validityAddress(n)}, new int[] {col.nullCount()},
+          new long[] {out.data().address()}, new long[] {out.validity().address()}, new int[0],
+          new long[0], n, VarkaEmitterTestSupport.scratch(kernel, n));
+      var values = new ArrayList<OptionalLong>();
+      for (int i = 0; i < n; i++) {
+        values.add(validBit(out.validity(), i)
+            ? OptionalLong.of(out.data().get(ValueLayout.JAVA_LONG, i * 8L))
+            : OptionalLong.empty());
+      }
+      return new Ran(status, values);
     }
+  }
+
+  @Test
+  @DisplayName("a planted floating fault gets a shape key of its own, and the clean class keeps "
+      + "-0.0")
+  public void floatingFaultGetsAShapeKeyOfItsOwn() {
+    var clean = VarkaMatrixRuns.BASE;
+    var faulty =
+        clean.withFloatingFault(VarkaEmitOptions.FloatingFault.NEGATION_AS_SUBTRACTION);
+    Expression e = resolve("-x", DOUBLE_COLS, "LEGACY");
+    CompiledVarkaProjection cleanPlan = compile(e, DOUBLE_COLS, clean);
+    CompiledVarkaProjection faultyPlan = compile(e, DOUBLE_COLS, faulty);
+    int inputs = cleanPlan.inputOrdinals().size();
+    int literals = cleanPlan.numLiterals();
+    // The option alone reaches the hash, so the clean shape under the fault keys apart too.
+    assertNotEquals(VarkaShapeCache.shapeHash(
+        new VarkaShapeKey(cleanPlan.outputs(), inputs, literals, clean)),
+        VarkaShapeCache.shapeHash(
+            new VarkaShapeKey(cleanPlan.outputs(), inputs, literals, faulty)));
+    var cache = new VarkaShapeCacheImpl(4);
+    VarkaShapeEntry cleanEntry = cache.getOrEmit(getClass().getClassLoader(),
+        new VarkaShapeKey(cleanPlan.outputs(), inputs, literals, clean), "clean").entry();
+    VarkaShapeEntry faultyEntry = cache.getOrEmit(getClass().getClassLoader(),
+        new VarkaShapeKey(faultyPlan.outputs(), faultyPlan.inputOrdinals().size(),
+            faultyPlan.numLiterals(), faulty), "faulty").entry();
+    assertNotEquals(cleanEntry.shapeHash(), faultyEntry.shapeHash(),
+        "the two compiles must not share one class");
+    assertEquals(2, cache.size());
+    // The clean class is the one its key names, and it still answers Spark's -0.0 for 0.0.
+    Ran ran = runCached(cleanEntry.newKernel(), new Double[] {0.0, -0.0, 1.5, null});
+    assertEquals(0, ran.status());
+    assertEquals(List.of(bits(-0.0), bits(0.0), bits(-1.5), OptionalLong.empty()),
+        ran.values());
   }
 
   @Test
   @DisplayName("a checked division that never tests a -0.0 divisor fails the zero-divisor "
       + "checks and the guard verdict")
   public void divisionWithoutNegativeZeroTestFails() {
-    // The kernels are emitted directly, never through the class cache, so no faulty class
-    // outlives the test.
-    failsUnder(VarkaFloatingFault.DIVISOR_POSITIVE_ZERO_ONLY, "the NULL division's cells",
-        this::zeroDivisorOfEitherSignNullsADivisionUnderNull);
-    failsUnder(VarkaFloatingFault.DIVISOR_POSITIVE_ZERO_ONLY, "the FAIL division's cells",
-        this::liveZeroDivisorDeclinesAFailDivision);
+    var faulty = VarkaMatrixRuns.BASE
+        .withFloatingFault(VarkaEmitOptions.FloatingFault.DIVISOR_POSITIVE_ZERO_ONLY);
+    // The kernels are emitted directly, never through the class cache, and under the fault's
+    // own options, so no faulty class outlives the test.
+    failsUnder(faulty, "the NULL division's cells",
+        () -> zeroDivisorOfEitherSignNullsADivisionUnderNull(faulty));
+    failsUnder(faulty, "the FAIL division's cells",
+        () -> liveZeroDivisorDeclinesAFailDivision(faulty));
     // The guard verdict requires a live -0.0 divisor to decline; the faulty kernel answers it.
     var div = new IntArith(IntOp.DIV, Overflow.FAIL, X, Y);
     long[][] values = {{Double.doubleToRawLongBits(1.0), Double.doubleToRawLongBits(-0.0)}};
     boolean[][] isNull = {{false, false}};
     VarkaGuardSpecs.Verdict verdict = VarkaGuardSpecs.verdict(List.of(div), 2, new long[0],
-        VarkaMatrixRuns.BASE, true, values, isNull, List.of());
+        faulty, true, values, isNull, List.of());
     assertEquals(VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO, verdict.must());
-    failsUnder(VarkaFloatingFault.DIVISOR_POSITIVE_ZERO_ONLY, "the guard verdict", () -> {
-      int status = runDouble(div, new Double[] {1.0}, new Double[] {-0.0}).status();
+    failsUnder(faulty, "the guard verdict", () -> {
+      int status = runDouble(div, new Double[] {1.0}, new Double[] {-0.0}, faulty).status();
       assertTrue(verdict.admits(status), "status " + status + " where the verdict is "
           + verdict);
     });
@@ -1345,16 +1447,17 @@ public final class VarkaEmitterFloatingArithSuite {
   @Test
   @DisplayName("negation built as 0.0 - x fails the bit-for-bit check against Spark at 0.0")
   public void negationAsSubtractionFails() {
-    failsUnder(VarkaFloatingFault.NEGATION_AS_SUBTRACTION, "DOUBLE -x",
-        () -> doubleMatchesSparkBitForBit("-x"));
-    failsUnder(VarkaFloatingFault.NEGATION_AS_SUBTRACTION, "FLOAT -f",
-        () -> floatMatchesSparkBitForBit("-f"));
+    var faulty = VarkaMatrixRuns.BASE
+        .withFloatingFault(VarkaEmitOptions.FloatingFault.NEGATION_AS_SUBTRACTION);
+    failsUnder(faulty, "DOUBLE -x", () -> doubleMatchesSparkBitForBit("-x", faulty));
+    failsUnder(faulty, "FLOAT -f", () -> floatMatchesSparkBitForBit("-f", faulty));
   }
 
   @Test
   @DisplayName("degrees multiplying by a rounded constant fails the check against Spark")
   public void degreesByARoundedConstantFails() {
-    failsUnder(VarkaFloatingFault.DEGREES_ROUNDED, "DOUBLE degrees(x)",
-        () -> doubleMatchesSpark("degrees(x)"));
+    var faulty =
+        VarkaMatrixRuns.BASE.withFloatingFault(VarkaEmitOptions.FloatingFault.DEGREES_ROUNDED);
+    failsUnder(faulty, "DOUBLE degrees(x)", () -> doubleMatchesSpark("degrees(x)", faulty));
   }
 }

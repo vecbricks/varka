@@ -78,20 +78,24 @@ the trees" (the IR's own doc).
 - **`VarkaVectorIR.canonical`**, the pinned rendering behind the shape hash, renders a shared
   subtree once per parent: its output is tree-sized by definition. It runs on admitted shapes
   (the shape key, the reproduction file, error messages), whose height the budget caps. Left as
-  is: its text is the committed shape hashes.
+  is: its text is the committed shape hashes. *Corrected 21 November 2026 (row 630): the cap bounds
+  the height, not the text; at a fan-out of three or more a deeper cap makes the text longer than a
+  string can be. `VarkaVectorIR.shapeText` keeps this text where it is under 2^26 characters and
+  renders a longer shape as a DAG, and the messages and the debug summary render through
+  `canonicalBrief` and `canonicalExact`.*
 - **The records' generated `toString`**, in a few `illegalArgument` / `illegalState` messages
   (`Analysis.java:1142`, `1690`, `1740`): error paths only.
 - **The lane lifts** `VarkaConditionCompiler.onIntLane`, `onLongLane`,
   `VarkaIntegralCastCompiler.onLane` and `VarkaChronoCompiler.rearm` rebuild a condition
   without a memo, so a shared node is rebuilt once per path into distinct, equal objects. They
   run only where a predicate's conjuncts sit on two lanes (a narrow or int conjunct beside a
-  long one), not on any chain above.
+  long one), not on any chain above. *Corrected 21 November 2026 (row 630 part 2b): on a shared condition chain these were exponential, 2.5 s at depth 24 for `onIntLane` and 3.2 s for `onLongLane` (`results/VARKA-630-lane-lifts.txt`); `onIntLane`, `onLongLane` and `VarkaIntegralCastCompiler.onLane` now memoise by identity and a shared condition is lifted once. `rearm` lifts a value chain and is still unmeasured.*
 - **`equals` between two disjoint copies.** A record's `equals` tries identity first, so a node
   shared within one compile equals itself in one step; two equal DAGs that share no object compare
   a shared node once per path. The shape cache meets them on every hit, since `VarkaShapeKey` is a
   record over the outputs, but only for admitted shapes, which the budget caps; the lifts above
   produce them too. Within one compile every shared node is one object (row 348's part reuses each
-  compiled condition), and the cached hash makes unequal nodes differ in one comparison.
+  compiled condition), and the cached hash makes unequal nodes differ in one comparison. *Corrected 21 November 2026 (row 630 part 2a): this is exponential in the height of a shared chain, 1.0 s at 28 levels and 16 s at 32 (`results/VARKA-630-shape-key-equals.txt`), and the cache hit meets it, since the cached key and the compiled one share no object. `VarkaShapeKey.equals` now compares by `VarkaVectorIR.sameStructure`, each pair of nodes once.*
 - **`VarkaVectorIR.reaches`** recurses per path; nothing in the main sources calls it.
 - **`laneType()`** follows one child per level: linear in the depth, not exponential.
 

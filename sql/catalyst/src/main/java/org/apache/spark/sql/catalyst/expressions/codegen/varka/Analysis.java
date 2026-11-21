@@ -41,6 +41,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Boo
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalBits;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
@@ -61,6 +63,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Dec
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.HashStep;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
@@ -578,9 +581,11 @@ final class Analysis {
     // dstData slot unused (see the class doc). Value positions below a root still reject
     // conditions via requireValue.
     analyze(root);
-    if (height.get(root) > MAX_CHAIN_DEPTH) {
-      throw VarkaErrors.illegalArgument(
-          "chain deeper than MAX_CHAIN_DEPTH=" + MAX_CHAIN_DEPTH);
+    // The message keeps the constant's name whatever the option's value, since the fuzzer's
+    // steering and its budget skip match on "MAX_CHAIN_DEPTH=", and names the option beside it.
+    if (height.get(root) > options.maxChainDepth()) {
+      throw VarkaErrors.illegalArgument("chain deeper than MAX_CHAIN_DEPTH="
+          + options.maxChainDepth() + " (the maxChainDepth emit option)");
     }
   }
 
@@ -994,6 +999,9 @@ final class Analysis {
         case BitCount n -> { }
         case MathUnary n -> { }
         case RoundToIntegral n -> { }
+        case CanonicalFloat n -> { }
+        case CanonicalBits n -> { }
+        case HashStep n -> { }
         case Compare n -> { }
         case NullSafeEqual n -> { }
         case BoolColumn n -> { }
@@ -1091,7 +1099,7 @@ final class Analysis {
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
           BitOp _, BitCount _, MathUnary _, RoundToIntegral _, Compare _, NullSafeEqual _,
-          BoolColumn _,
+          BoolColumn _, CanonicalFloat _, CanonicalBits _, HashStep _,
           BoolCompare _,
           CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, CondValue _, NullValue _, BoolOutput _ -> false;
@@ -1441,6 +1449,10 @@ final class Analysis {
       case BitCount n -> wordOwner.get(n.child());
       case MathUnary n -> wordOwner.get(n.child());
       case RoundToIntegral n -> wordOwner.get(n.child());
+      case CanonicalFloat n -> wordOwner.get(n.child());
+      case CanonicalBits n -> wordOwner.get(n.child());
+      // A hash step skips a null word, so its validity is its seed's.
+      case HashStep n -> wordOwner.get(n.seed());
       case DayOfWeek n -> wordOwner.get(n.days());
       case WeekDay n -> wordOwner.get(n.days());
       case DayOfWeekIso n -> wordOwner.get(n.days());
@@ -1506,6 +1518,9 @@ final class Analysis {
       case BitCount n -> pureWord.get(n.child());
       case MathUnary n -> pureWord.get(n.child());
       case RoundToIntegral n -> pureWord.get(n.child());
+      case CanonicalFloat n -> pureWord.get(n.child());
+      case CanonicalBits n -> pureWord.get(n.child());
+      case HashStep n -> pureWord.get(n.seed());
       case Greatest n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case Least n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case DayOfWeek n -> pureWord.get(n.days());
@@ -1803,6 +1818,10 @@ final class Analysis {
       // A floating math function computes every lane and nulls none.
       case MathUnary n -> analyzeOp(node, false, n.child());
       case RoundToIntegral n -> analyzeOp(node, false, n.child());
+      case CanonicalFloat n -> analyzeOp(node, false, n.child());
+      case CanonicalBits n -> analyzeOp(node, false, n.child());
+      // Known over a null word, the seed passing through: a null-skipping node.
+      case HashStep n -> analyzeOp(node, true, n.seed(), n.word());
       case ConstDivide n -> {
         // A division by a non-zero constant cannot overflow or null a lane, so it carries no
         // overflow mode and joins no validity: it is its child's word exactly, the way
@@ -1836,7 +1855,7 @@ final class Analysis {
           if (widest >= n.dividendBound()) {
             throw VarkaErrors.illegalArgument("a constant division claims its dividend is "
                 + "under " + n.dividendBound() + " and the guard below it admits " + widest
-                + ": " + VarkaVectorIR.canonical(node));
+                + ": " + VarkaVectorIR.canonicalBrief(node));
           }
         }
         analyzeOp(node, false, n.child());

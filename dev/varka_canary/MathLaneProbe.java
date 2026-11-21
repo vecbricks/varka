@@ -84,6 +84,15 @@ import jdk.incubator.vector.*;
  * reports. Only the fromBitsCoerced call at bci 39 is fromLong's own; the ones at bci 25 are
  * maskAll's broadcasts inside the Java fallback. A "missing constant" refusal at bci 39 means
  * the species was not a constant in that compile, not that the hardware lacks the node.
+ *
+ * The same mode then reads what each form costs at steady state (VARKA-375): the bytes the
+ * thread allocates and the nanoseconds per word, for fromLong and for the construction
+ * Varka's maskFromWord option emits in its place (VarkaMaskFromWord: a broadcast of the word,
+ * an AND with each lane's bit and a compare with zero; for bytes the word's byte of each lane
+ * picked by selectFrom first), each feeding a blend so the mask is used as a kernel uses it.
+ * The fallback builds a boolean[] per call, so a reading of five bytes a word or more means C2
+ * did not remove it. Run under -XX:UseSVE=1 on an SVE2 core it shows a core without the
+ * bit-permute extension, whose fromLong is the fallback.
  */
 public class MathLaneProbe {
   static final VectorSpecies<Double> S = DoubleVector.SPECIES_PREFERRED;
@@ -299,6 +308,89 @@ public class MathLaneProbe {
     return sink;
   }
 
+  static final VectorSpecies<Byte> B = ByteVector.SPECIES_128;
+  static final VectorSpecies<Long> SL = S.withLanes(long.class);
+  static final long[] LANE_BITS = new long[64];
+  static final byte[] BYTE_BITS = new byte[64];
+  static final byte[] BYTE_ELEMENT = new byte[64];
+
+  static {
+    for (int i = 0; i < 64; i++) {
+      LANE_BITS[i] = 1L << i;
+      BYTE_BITS[i] = (byte) (1 << (i % 8));
+      BYTE_ELEMENT[i] = (byte) (i / 8);
+    }
+  }
+
+  /** Varka's VarkaMaskFromWord.ofDouble at S, copied: this file runs on its own. */
+  static VectorMask<Double> fromWord(long w) {
+    return LongVector.broadcast(SL, w).and(LongVector.fromArray(SL, LANE_BITS, 0))
+        .compare(NE, 0L).cast(S);
+  }
+
+  /** Varka's VarkaMaskFromWord.ofByte at B, copied. */
+  static VectorMask<Byte> fromWordBytes(long w) {
+    return ByteVector.fromArray(B, BYTE_ELEMENT, 0)
+        .selectFrom(LongVector.broadcast(LongVector.SPECIES_128, w).reinterpretAsBytes())
+        .and(ByteVector.fromArray(B, BYTE_BITS, 0)).compare(NE, (byte) 0);
+  }
+
+  /**
+   * A blend by each word's mask, at S and at B, the masks made by fromLong. Each form has a loop
+   * of its own, so that each reading comes from a compile holding that form alone.
+   */
+  static long blendLoopFromLong(long[] bits, double[] d, byte[] b) {
+    var dz = DoubleVector.zero(S);
+    var bz = ByteVector.zero(B);
+    var dv = DoubleVector.fromArray(S, d, 0);
+    var bv = ByteVector.fromArray(B, b, 0);
+    for (long x : bits) {
+      dz = dz.add(dv.blend(1.0, VectorMask.fromLong(S, x)));
+      bz = bz.add(bv.blend((byte) 1, VectorMask.fromLong(B, x)));
+    }
+    return (long) dz.reduceLanes(ADD) + bz.reduceLanes(ADD);
+  }
+
+  /** blendLoopFromLong with the masks made by the construction. */
+  static long blendLoopFromWord(long[] bits, double[] d, byte[] b) {
+    var dz = DoubleVector.zero(S);
+    var bz = ByteVector.zero(B);
+    var dv = DoubleVector.fromArray(S, d, 0);
+    var bv = ByteVector.fromArray(B, b, 0);
+    for (long x : bits) {
+      dz = dz.add(dv.blend(1.0, fromWord(x)));
+      bz = bz.add(bv.blend((byte) 1, fromWordBytes(x)));
+    }
+    return (long) dz.reduceLanes(ADD) + bz.reduceLanes(ADD);
+  }
+
+  static long blendLoop(long[] bits, double[] d, byte[] b, boolean construction) {
+    return construction ? blendLoopFromWord(bits, d, b) : blendLoopFromLong(bits, d, b);
+  }
+
+  /** {bytes a word, nanoseconds a word} of blendLoop at steady state. */
+  static double[] cost(long[] bits, boolean construction) {
+    double[] d = new double[S.length()];
+    byte[] b = new byte[B.length()];
+    long sink = 0;
+    for (int w = 0; w < 2000; w++) {
+      sink += blendLoop(bits, d, b, construction);
+    }
+    var threads = (com.sun.management.ThreadMXBean)
+        java.lang.management.ManagementFactory.getThreadMXBean();
+    long tid = Thread.currentThread().threadId();
+    int rounds = 500;
+    long bytes0 = threads.getThreadAllocatedBytes(tid);
+    long t0 = System.nanoTime();
+    for (int w = 0; w < rounds; w++) {
+      sink += blendLoop(bits, d, b, construction);
+    }
+    long ns = System.nanoTime() - t0;
+    long bytes = threads.getThreadAllocatedBytes(tid) - bytes0;
+    double words = (double) rounds * bits.length;
+    return new double[] {bytes / words, ns / words, sink == 42 ? 1 : 0};
+  }
+
   static void fromLong() {
     long[] bits = new long[1 << 12];
     java.util.Random r = new java.util.Random(11);
@@ -311,6 +403,11 @@ public class MathLaneProbe {
     }
     System.out.println(machine() + "; VectorMask.fromLong over " + S + " and "
         + ByteVector.SPECIES_128 + ", sink=" + sink);
+    for (boolean construction : new boolean[] {false, true}) {
+      double[] c = cost(bits, construction);
+      System.out.printf("maskcost %-12s %8.2f bytes/word %8.2f ns/word (a blend at %s and %s)%n",
+          construction ? "maskFromWord" : "fromLong", c[0], c[1], S, B);
+    }
   }
 
   public static void main(String[] a) {
