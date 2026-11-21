@@ -1033,8 +1033,9 @@ final class VarkaConditionCompiler {
    * The arm of an {@code IN} over {@code value}, or {@code null} for one it leaves unclaimed: the
    * registry has to read the value's literals, which {@link VarkaTypes.Info#laneBits} does for
    * every type whose admission is a lane of its own. A decimal's literal is read instead at the
-   * value's scale ({@link #compileDecimalIn}, VARKA-348): every decimal is claimed, so that one
-   * whose common type passes 18 digits declines through the decimal compiler, naming its row.
+   * value's scale ({@link #compileDecimalIn}, VARKA-348): every decimal is claimed: one
+   * whose common type passes 18 digits is read over two words ({@link #compileWideDecimalIn}),
+   * and a rescale into it declines through the decimal compiler, naming rows 359 and 360.
    * The type is looked up once, here, and the arm reads its elements against the entry it found.
    */
   private static @Nullable Supplier<Optional<Cond>> inArm(
@@ -1063,8 +1064,9 @@ final class VarkaConditionCompiler {
   }
 
   /**
-   * A decimal {@code IN}: the value through {@link VarkaDecimalCompiler#value}, first, so that a
-   * type past the long lane declines with that compiler's reason (rows 359 and 360) before an
+   * A decimal {@code IN}: a type past the long lane goes to {@link #compileWideDecimalIn}; the
+   * value of a narrower one through {@link VarkaDecimalCompiler#value}, first, so that a rescale
+   * it cannot take declines with that compiler's reason (rows 359 and 360) before an
    * element is read, and each element as its unscaled long at the value's scale. Type coercion
    * gives the value and every element of an {@code In} one type, a column of the smaller scale
    * sitting under its rescale, so each {@code In} element is held exactly. An {@code InSet}'s
