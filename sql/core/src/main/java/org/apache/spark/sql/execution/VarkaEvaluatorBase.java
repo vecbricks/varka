@@ -552,7 +552,7 @@ public abstract class VarkaEvaluatorBase {
           if (ir.length() > 0) {
             ir.append(", ");
           }
-          ir.append(VarkaVectorIR.canonical(output));
+          ir.append(VarkaVectorIR.canonicalBrief(output));
         }
         String hash = VarkaShapeCache.shapeHash(shapeKey(compiled));
         kernelShapeHash = hash;

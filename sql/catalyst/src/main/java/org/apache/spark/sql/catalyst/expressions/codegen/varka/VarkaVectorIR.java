@@ -2598,12 +2598,12 @@ public sealed interface VarkaVectorIR
 
   /**
    * The DAG rendering of {@code outputs}: one {@code id=line} per distinct node, in the order
-   * a node's children precede it, each line its {@link #canonicalShallow} with the children as
-   * ids, then {@code roots} and the output ids. A node is named once, however many parents and
+   * a node's children precede it, each line its {@link #canonicalWith} rendering with the children
+   * as ids, then {@code roots} and the output ids. A node is named once, however many parents and
    * however many equal copies reach it: nodes are numbered by their line, so two equal nodes
    * built as distinct objects, which the lane lifts do, get one id, and two equal shapes always
    * give one text. It starts with {@code dag}, which no tree rendering does. Linear in the
-   * distinct nodes.
+   * distinct nodes, and recursive in the depth, which admission bounds.
    */
   static String canonicalDag(List<VarkaVectorIR> outputs) {
     var idOfObject = new java.util.IdentityHashMap<VarkaVectorIR, Integer>();
@@ -2623,7 +2623,10 @@ public sealed interface VarkaVectorIR
     if (known != null) {
       return known;
     }
-    String line = canonicalShallow(node, child -> dagId(child, idOfObject, idOfLine, text));
+    // canonicalWith, not canonicalShallow: the line carries every field the tree text does, an
+    // InRanges node's bounds among them, which the shallow line abbreviates to a count.
+    String line = canonicalWith(node,
+        child -> String.valueOf(dagId(child, idOfObject, idOfLine, text)));
     Integer id = idOfLine.get(line);
     if (id == null) {
       id = idOfLine.size();
@@ -2636,8 +2639,9 @@ public sealed interface VarkaVectorIR
 
   /**
    * {@link #canonical}'s text where it fits {@link #TREE_TEXT_LIMIT}, which is every shape that
-   * ever had a committed hash, and the node's {@link #canonicalDag} where it does not: exact
-   * either way, for a reproduction or a debug summary that is read back.
+   * ever had a committed hash, and the node's {@link #canonicalDag} where it does not: every
+   * field of the node either way, for a reproduction or a debug summary. Only the tree form has a
+   * reader so far ({@code VarkaCanonicalIr}); the DAG form's is row 630's second part.
    */
   static String canonicalExact(VarkaVectorIR node) {
     return canonicalLength(node) <= TREE_TEXT_LIMIT

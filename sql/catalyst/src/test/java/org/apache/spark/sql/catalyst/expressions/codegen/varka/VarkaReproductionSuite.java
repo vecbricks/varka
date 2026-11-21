@@ -200,7 +200,7 @@ public final class VarkaReproductionSuite {
   }
 
   @Test
-  @DisplayName("the tree text's length is counted from the shallow lines, node by node (VARKA-630)")
+  @DisplayName("the tree text's length is counted node by node, as the rendering is (VARKA-630)")
   void canonicalLengthIsTheRenderingsLength() {
     List<VarkaVectorIR> trees = new ArrayList<>(theRest());
     trees.add(everyNodeType());
@@ -220,6 +220,29 @@ public final class VarkaReproductionSuite {
     String expected = trees.stream().map(t -> VarkaVectorIR.canonical(t) + "\n")
         .collect(java.util.stream.Collectors.joining());
     assertEquals(expected, VarkaVectorIR.shapeText(trees));
+  }
+
+  @Test
+  @DisplayName("the DAG text keeps every field of a node, an InRanges node's bounds included")
+  void dagTextKeepsWhatTheTreeTextKeeps() {
+    VarkaVectorIR a = new InRanges(new ColumnRef(0), List.of(1, 5));
+    VarkaVectorIR b = new InRanges(new ColumnRef(0), List.of(7, 9));
+    assertFalse(VarkaVectorIR.canonical(a).equals(VarkaVectorIR.canonical(b)));
+    assertFalse(VarkaVectorIR.canonicalDag(List.of(a)).equals(
+        VarkaVectorIR.canonicalDag(List.of(b))));
+    // Two outputs that differ only in the bounds stay two nodes, over one column: the marker, three
+    // nodes and the roots.
+    String both = VarkaVectorIR.canonicalDag(List.of(a, b));
+    assertEquals(5, both.split("\n").length, both);
+    // The corpus's DAG text is stable across a fresh copy, and a different tree differs.
+    List<VarkaVectorIR> trees = new ArrayList<>(theRest());
+    trees.add(everyNodeType());
+    for (VarkaVectorIR tree : trees) {
+      String dag = VarkaVectorIR.canonicalDag(List.of(tree));
+      assertTrue(dag.startsWith("dag\n") && dag.endsWith("\n"), dag);
+      assertEquals(dag, VarkaVectorIR.canonicalDag(List.of(VarkaCanonicalIr.parse(
+          VarkaVectorIR.canonical(tree)))));
+    }
   }
 
   @Test
