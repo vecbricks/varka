@@ -139,7 +139,7 @@ public final class VarkaMathContract {
       }
       String tier = function == Operator.HYPOT ? "u05" : "u10";
       return symbol.matches(op + "dx_" + tier + "(sve|rvv)")
-          || bits == 128 && symbol.equals(op + "d2_" + tier + "advsimd");
+          || (bits == 128 && symbol.equals(op + "d2_" + tier + "advsimd"));
     }
 
     private static boolean witness(String text, boolean none, int words) {
