@@ -249,9 +249,19 @@ final class VarkaEmitBudget {
    * (VarkaEmitterParityBenchmark; details in VARKA-9.md): fused throughput declines only
    * gently with depth while sequential passes collapse linearly, so the cap bounds emitted
    * method size and register pressure by policy, well past any depth a real projection
-   * produces, rather than marking a measured performance edge. Condition nodes count.
+   * produces, rather than marking a measured performance edge. Condition nodes count. It is the
+   * default of {@link VarkaEmitOptions#maxChainDepth}, which a benchmark raises to price the
+   * depths past it (VARKA-620).
    */
   public static final int MAX_CHAIN_DEPTH = 16;
+
+  /**
+   * The most literals a one-output loop body hoists into vector locals; past it every broadcast
+   * is inlined at its use. The hoist measured as a win up to a chain's worth of literals, one
+   * per level of a 16-deep chain ({@code VARKA-9.md}), so it shares {@link #MAX_CHAIN_DEPTH}'s
+   * value. It is a literal count, not a depth, and does not move with the depth option.
+   */
+  static final int HOIST_LITERALS = 16;
 
   /**
    * The most distinct op nodes one emitted kernel may hold, across all outputs after CSE, in the
@@ -719,14 +729,27 @@ final class VarkaEmitBudget {
       // The popcount alone at the long lane; at a narrower lane the popcount, the sign shift,
       // the mask and the add of the high bits the widening to 64 gains (32, 48 or 56).
       case BitCount n -> n.laneType() == VarkaVectorIR.LaneType.LONG ? 1 : 4;
-      // The lanewise square root: one call.
-      case VarkaVectorIR.MathUnary _ -> 1;
+      // The lanewise square root: one call. A per-lane call extracts and inserts each lane, at
+      // most eight double lanes at 512 bits, the larger form as above; the scalar calls between
+      // them are no vector op.
+      case VarkaVectorIR.MathUnary n -> n.fn().laneCall() ? 16 : 1;
       // The rint construction: the absolute value, the add and subtract of 2^52, the sign's AND
       // and OR, the compare against 2^52 and the blend, and three reinterpretations, which the
       // budget counts as calls though they emit no instruction; then the NaN's compare and
       // blend, where the operand can hold a NaN other than the canonical one.
       case VarkaVectorIR.RoundToIntegral n ->
           VarkaRoundingLowering.mayHoldOtherNaN(n) ? 12 : 10;
+      // The canonicalisation: the add of zero, the NaN test and the blend.
+      case VarkaVectorIR.CanonicalFloat _ -> 3;
+      // A reinterpretation: one lane call, which C2 emits as nothing.
+      case VarkaVectorIR.CanonicalBits _ -> 1;
+      // The lane operations of each step (VARKA-337 2.4), the operand fetches not counted.
+      case VarkaVectorIR.HashStep n -> switch (n.mix()) {
+        case MURMUR3_INT, MURMUR3_HIGH -> 17;
+        case MURMUR3_LOW -> 8;
+        case XXH64_INT -> 15;
+        case XXH64_LONG -> 16;
+      };
     };
   }
 

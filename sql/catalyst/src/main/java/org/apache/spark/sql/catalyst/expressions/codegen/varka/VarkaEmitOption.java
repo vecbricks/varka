@@ -582,6 +582,13 @@ public sealed interface VarkaEmitOption
       new Flag("fromLongMasks", Reason.MISCOMPILED, false,
           VarkaEmitOptions::fromLongMasks, Builder::fromLongMasks,
           new FlagTag("fromLongMasks", true)),
+      // A machine choice (VARKA-375): fromLong is intrinsic on every host the milestone measures
+      // at its default width, and the construction is the form for a host without the
+      // instruction, an aarch64 core without SVE2's bit permute. Its tag keeps the default's
+      // rendering empty.
+      new Flag("maskFromWord", Reason.MACHINE, false,
+          VarkaEmitOptions::maskFromWord, Builder::maskFromWord,
+          new FlagTag("maskFromWord", true)),
       // A long-lane abs is a decimal's (VARKA-348 2.6): the compare, negation and blend by
       // default, intrinsic on every x86 host at 256 and 512 bits; the lanewise ABS is the arm,
       // intrinsic only with AVX-512, measured against the blend there. Only a shape over a
@@ -640,7 +647,15 @@ public sealed interface VarkaEmitOption
       new Choice<VarkaEmitOptions.IntervalFault>("intervalFault", Reason.FAULT_INJECTOR,
           VarkaEmitOptions.IntervalFault.class, VarkaEmitOptions.IntervalFault.NONE,
           VarkaEmitOptions::intervalFault, Builder::intervalFault,
-          new ChoiceTag("intervalFault="), Optional.empty()));
+          new ChoiceTag("intervalFault="), Optional.empty()),
+      // The depth cap, raised by VARKA-620's benchmark to price the depths past it. The fuzzer
+      // draws a raised cap too, so a variant that grows a draw past 16 is emitted and checked
+      // rather than skipped. A raise changes no byte of a shape the default cap admits, but the
+      // matrix runs the suites under it (VARKA-620), so the tests that assert the default cap
+      // are listed in the skip list.
+      new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.MAX_CHAIN_DEPTH,
+          VarkaEmitOptions::maxChainDepth, Builder::maxChainDepth, new CountTag("chainDepth="),
+          List.of(VarkaEmitBudget.MAX_CHAIN_DEPTH, 32), List.of(32)));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

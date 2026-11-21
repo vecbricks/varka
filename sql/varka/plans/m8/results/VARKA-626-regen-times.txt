@@ -1,0 +1,18 @@
+The step totals of `dev/varka_regen_generated.sh --all` on 20 November 2026, from the sbt "Total time"
+lines of each run's log (the laptop, 24 threads, under a heavy-pool lock; the logs lived in
+~/varka-ops/logs and are summarised here because that directory is scratch).
+
+run                              sbt seconds   of which VarkaWidthAuditSuite
+varka-337 (337a2, merge)         800           not recorded
+varka-350 (350 baseline)         749           not recorded
+varka-356 (356 trig, merge)      823           not recorded
+varka-357 (357 baseline, first)  907           not recorded
+varka-depth (620, first)         890           not recorded
+varka-depth (620, second)        778           not recorded
+varka-357 (357 baseline, merge)  1059          752
+
+The last run's seven sbt calls, in order: types 11 s, fuzz types 5 s, cast matrix 144 s (mostly
+compiling the test tree), coverage 18 s, width audit 752 s, bytes 114 s, coverage again 15 s. Its
+wall clock was 17 minutes 40 seconds, 20:38 to 20:55 CET. The width audit's probes run one after
+another; row 581 measured four probes at once at 165 s against 572 s one after another on 24 cores
+(`VARKA-581-probe-times.txt`).

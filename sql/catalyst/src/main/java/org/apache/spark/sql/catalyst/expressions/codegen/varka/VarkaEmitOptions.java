@@ -488,6 +488,16 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        folds away where it is off, is right on every host and JDK; true is the losing arm, an
  *        AND a site cheaper on x86 below AVX-512, kept for the A/B and for the JDKs that fix the
  *        rule ({@code m9/SCOPE.md} item 114).
+ * @param maskFromWord whether every word an emitted kernel turns into a mask is built by the
+ *        construction of {@link VarkaMaskFromWord} - a broadcast, an {@code AND} with each lane's
+ *        bit and a compare with zero, emitted in the kernel - rather than by
+ *        {@code VectorMask.fromLong} (VARKA-375). JDK 25's C2 lowers
+ *        {@code fromLong} on aarch64 only with SVE2's bit-permute extension, so on a NEON-only or
+ *        SVE1 core it is the Vector API's allocating Java fallback; the construction uses no
+ *        mask-from-bits instruction. Under it the masked body's words skip the
+ *        {@code VarkaMaskGuard} AND, which guards only {@code fromLong}. False, {@code fromLong},
+ *        is the default: it is intrinsic on every host the milestone measures at its default
+ *        width; true is the arm for a host without the instruction.
  * @param decimalAbsLanewise whether a long-lane {@code abs}, a decimal's unscaled value's
  *        (VARKA-348 2.6) and a {@code BIGINT}'s alike (VARKA-104), so that the arm moves both, is
  *        the lanewise {@code ABS}, one {@code evpabsq} where x86 has
@@ -540,6 +550,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        in the JVM can see it (VARKA-548). {@link FloatingFault#NONE} in production.
  * @param intervalFault the same for the day-time interval lowerings (milestone 8 row 504,
  *        {@code VARKA-103.md} 3.7). {@link IntervalFault#NONE} in production.
+ * @param maxChainDepth the deepest op path one output may have, which the emitter's analysis and
+ *        the compiler's budget check both refuse past, by default {@code
+ *        VarkaEmitBudget.MAX_CHAIN_DEPTH}. A measurement knob (VARKA-620): a benchmark raises it
+ *        to price depths past the cap, and no session conf sets it.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -590,6 +604,7 @@ public record VarkaEmitOptions(
     boolean dropStackMaps,
     int misdescribeDataBytes,
     boolean fromLongMasks,
+    boolean maskFromWord,
     boolean decimalAbsLanewise,
     boolean dropDecimalBound,
     DecimalStore decimalStore,
@@ -598,7 +613,8 @@ public record VarkaEmitOptions(
     boolean mathUlpContract,
     NarrowGroupStore narrowGroupStore,
     FloatingFault floatingFault,
-    IntervalFault intervalFault) {
+    IntervalFault intervalFault,
+    int maxChainDepth) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -628,6 +644,17 @@ public record VarkaEmitOptions(
    */
   public enum Division { MAGIC, DOUBLE_RECIP, DOUBLE_DIV }
 
+  /*
+   * A note this enum cannot express, kept beside it rather than inside its javadoc, which
+   * describes the calendar prefix: the 64-bit lane has a fourth lowering, the magic-number
+   * identity of `VarkaLoopEmitter.emitMagicDivide`, and it is selected by {@link #useAVX}
+   * rather than by this enum, because it is a property of the machine and not a variant a
+   * caller chooses. The consequence is that on a host whose conversions fall back there is no
+   * value of this enum that emits the conversion form at the long lane; a test or a benchmark
+   * that wants it asks for a level instead, which is what `withUseAVX` is for. VARKA-88 step 4's
+   * A/B is the reason that matters, and `VARKA-88.md` 9.2 records it.
+   */
+
   /**
    * The two forms of the decimal store's interleave (VARKA-157 2.2). A lane group's words
    * {@code lo} and their sign extensions {@code hi} go into two vectors of slots, the low words
@@ -643,6 +670,14 @@ public record VarkaEmitOptions(
   public enum DecimalStore { REARRANGE, SELECT_FROM }
 
   /**
+   * The forms of a narrow store whose species is wider than the int lane group
+   * ({@link VarkaEmitOptions#narrowGroupStore}). {@link #MASKED} stores each group under the mask
+   * of its own lanes and is the reference form; {@link #COMBINED} ORs the groups' parts into one
+   * whole vector and stores that once a run of groups. Both give the same bytes in the column.
+   */
+  public enum NarrowGroupStore { MASKED, COMBINED }
+
+  /**
    * The AVX2 forms of {@code L2D} ({@code VarkaConversionLowering}). {@link #XOR_SPLIT}, the
    * default (VARKA-583), and {@link #SPLIT}, part 343b1's, are exact over every long: both
    * convert the high and the low word apart and add them, the first by a logical shift and an
@@ -652,25 +687,6 @@ public record VarkaEmitOptions(
    * not take are arms kept to be measured against it.
    */
   public enum WideConversionForm { SPLIT, MAGIC, XOR_SPLIT }
-
-  /**
-   * The forms of a narrow store whose species is wider than the int lane group
-   * ({@link VarkaEmitOptions#narrowGroupStore}). {@link #MASKED} stores each group under the mask
-   * of its own lanes and is the reference form; {@link #COMBINED} ORs the groups' parts into one
-   * whole vector and stores that once a run of groups. Both give the same bytes in the column.
-   */
-  public enum NarrowGroupStore { MASKED, COMBINED }
-
-  /*
-   * A note this enum cannot express, kept beside it rather than inside its javadoc, which
-   * describes the calendar prefix: the 64-bit lane has a fourth lowering, the magic-number
-   * identity of `VarkaLoopEmitter.emitMagicDivide`, and it is selected by {@link #useAVX}
-   * rather than by this enum, because it is a property of the machine and not a variant a
-   * caller chooses. The consequence is that on a host whose conversions fall back there is no
-   * value of this enum that emits the conversion form at the long lane; a test or a benchmark
-   * that wants it asks for a level instead, which is what `withUseAVX` is for. VARKA-88 step 4's
-   * A/B is the reason that matters, and `VARKA-88.md` 9.2 records it.
-   */
 
   /** The two {@code trunc(date, ...)} lowerings; see {@link #truncDate}. */
   public enum TruncDateForm { SUBTRACT, RECOMPOSE }
@@ -699,7 +715,20 @@ public record VarkaEmitOptions(
      * {@code degrees} multiplying by the constant rounded to nine digits rather than by
      * {@code Math.toDegrees(1.0)}'s bits, which differs from Spark's answer in the last bits.
      */
-    DEGREES_ROUNDED;
+    DEGREES_ROUNDED,
+    /**
+     * The canonicalisation without its add of zero (VARKA-337 3.9): the NaN blend alone, so
+     * {@code -0.0} keeps its sign bit where Spark's {@code NormalizeNaNAndZero} answers
+     * {@code 0.0}.
+     */
+    CANONICAL_ZERO_DROPPED,
+    /**
+     * A math function's per-lane call of the other class's method, {@code StrictMath.sin} for
+     * Spark's {@code Math.sin} and {@code Math.asin} for {@code StrictMath.asin}: on x86 the
+     * first differs from Spark's answer for {@code sin}, {@code cos} and {@code tan} on thousands
+     * of inputs in a million, and the second never does, since {@code Math} delegates there.
+     */
+    MATH_OTHER_CLASS;
   }
 
   /**
@@ -812,8 +841,9 @@ public record VarkaEmitOptions(
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
-          false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
-          false, NarrowGroupStore.MASKED, FloatingFault.NONE, IntervalFault.NONE);
+          false, false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
+          false, NarrowGroupStore.MASKED, FloatingFault.NONE, IntervalFault.NONE,
+          VarkaEmitBudget.MAX_CHAIN_DEPTH);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -861,6 +891,9 @@ public record VarkaEmitOptions(
     }
     if (intervalFault == null) {
       throw VarkaErrors.illegalArgument("intervalFault must not be null");
+    }
+    if (maxChainDepth < 1) {
+      throw VarkaErrors.illegalArgument("maxChainDepth must be positive: " + maxChainDepth);
     }
     if (lanesOverride != 0 && (lanesOverride < 1 || Integer.bitCount(lanesOverride) != 1)) {
       throw VarkaErrors.illegalArgument(
@@ -931,6 +964,7 @@ public record VarkaEmitOptions(
       b.dropStackMaps = dropStackMaps;
       b.misdescribeDataBytes = misdescribeDataBytes;
       b.fromLongMasks = fromLongMasks;
+      b.maskFromWord = maskFromWord;
       b.decimalAbsLanewise = decimalAbsLanewise;
       b.dropDecimalBound = dropDecimalBound;
       b.decimalStore = decimalStore;
@@ -940,6 +974,7 @@ public record VarkaEmitOptions(
       b.narrowGroupStore = narrowGroupStore;
       b.floatingFault = floatingFault;
       b.intervalFault = intervalFault;
+      b.maxChainDepth = maxChainDepth;
     return b;
   }
 
@@ -993,6 +1028,7 @@ public record VarkaEmitOptions(
     private boolean dropStackMaps;
     private int misdescribeDataBytes;
     private boolean fromLongMasks;
+    private boolean maskFromWord;
     private boolean decimalAbsLanewise;
     private boolean dropDecimalBound;
     private DecimalStore decimalStore;
@@ -1002,6 +1038,7 @@ public record VarkaEmitOptions(
     private NarrowGroupStore narrowGroupStore;
     private FloatingFault floatingFault;
     private IntervalFault intervalFault;
+    private int maxChainDepth;
 
     private Builder() {
     }
@@ -1246,6 +1283,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder maskFromWord(boolean fromWord) {
+      this.maskFromWord = fromWord;
+      return this;
+    }
+
     public Builder decimalAbsLanewise(boolean lanewise) {
       this.decimalAbsLanewise = lanewise;
       return this;
@@ -1291,6 +1333,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder maxChainDepth(int depth) {
+      this.maxChainDepth = depth;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1304,10 +1351,10 @@ public record VarkaEmitOptions(
           severalKernels,
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
-          misdescribeDataBytes, fromLongMasks, decimalAbsLanewise, dropDecimalBound,
+          misdescribeDataBytes, fromLongMasks, maskFromWord, decimalAbsLanewise, dropDecimalBound,
           decimalStore, wideConversionForm, roundToOddByShifts, mathUlpContract,
           narrowGroupStore,
-          floatingFault, intervalFault);
+          floatingFault, intervalFault, maxChainDepth);
     }
   }
 
@@ -1326,6 +1373,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withCallSiteBudget(int callSites) {
     return toBuilder().callSiteBudget(callSites).build();
+  }
+
+  public VarkaEmitOptions withMaxChainDepth(int depth) {
+    return toBuilder().maxChainDepth(depth).build();
   }
 
   public VarkaEmitOptions withHeavyGroupOutputs(int outputs) {
@@ -1509,10 +1560,6 @@ public record VarkaEmitOptions(
     return toBuilder().decimalStore(form).build();
   }
 
-  public VarkaEmitOptions withWideConversionForm(WideConversionForm form) {
-    return toBuilder().wideConversionForm(form).build();
-  }
-
   /**
    * The narrow store's form ({@link #narrowGroupStore}): the masked per-group store that ships,
    * or the combined whole store kept to be measured against it on a host without a predicated
@@ -1520,6 +1567,10 @@ public record VarkaEmitOptions(
    */
   public VarkaEmitOptions withNarrowGroupStore(NarrowGroupStore form) {
     return toBuilder().narrowGroupStore(form).build();
+  }
+
+  public VarkaEmitOptions withWideConversionForm(WideConversionForm form) {
+    return toBuilder().wideConversionForm(form).build();
   }
 
   public VarkaEmitOptions withRoundToOddByShifts(boolean byShifts) {

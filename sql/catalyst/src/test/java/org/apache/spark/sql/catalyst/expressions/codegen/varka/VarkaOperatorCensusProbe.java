@@ -282,6 +282,28 @@ public final class VarkaOperatorCensusProbe {
     }
   }
 
+  /**
+   * The constant of {@code op_mulc32_long}, a 32-bit multiplier such as the low limb of a magic
+   * for {@code 10^k}, broadcast once outside the loop from an array element as above.
+   */
+  private static final long[] LIMB = {0xCCCC_CCCDL};
+
+  /** The low 32 bits of each lane, as a limb split keeps them. */
+  private static final long LOW_32 = 0xFFFF_FFFFL;
+
+  /**
+   * Both inputs masked to their low 32 bits, the column per lane and the limb once outside the
+   * loop: the shape C2's {@code MulVLNode::has_uint_inputs} matches, both inputs an AND with a
+   * replicated constant of at most {@code 2^32 - 1}, so that AVX2 can take {@code vpmuludq}.
+   */
+  static void op_mulc32_long() {
+    var limb = LongVector.broadcast(LS, LIMB[0]).lanewise(VectorOperators.AND, LOW_32);
+    for (int i = 0; i < ROWS; i += LS.length()) {
+      LongVector.fromArray(LS, LA, i).lanewise(VectorOperators.AND, LOW_32)
+          .lanewise(BinOp.OP, limb).intoArray(LO, i);
+    }
+  }
+
   static void op_bin_float() {
     for (int i = 0; i < ROWS; i += FS.length()) {
       FloatVector.fromArray(FS, FA, i).lanewise(BinOp.OP, FloatVector.fromArray(FS, FB, i))
@@ -1143,6 +1165,7 @@ public final class VarkaOperatorCensusProbe {
         case "bin.long" -> op_bin_long();
         case "un.long" -> op_un_long();
         case "mulc.long" -> op_mulc_long();
+        case "mulc32.long" -> op_mulc32_long();
         case "bin.float" -> op_bin_float();
         case "bin.double" -> op_bin_double();
         case "shift.byte" -> op_shift_byte();

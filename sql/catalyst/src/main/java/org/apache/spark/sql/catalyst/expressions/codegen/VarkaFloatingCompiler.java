@@ -38,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypeId;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CanonicalFloat;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
@@ -52,6 +53,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Mat
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
+import org.apache.spark.sql.catalyst.optimizer.NormalizeNaNAndZero;
 import org.apache.spark.sql.types.DataType;
 
 /**
@@ -73,6 +75,12 @@ import org.apache.spark.sql.types.DataType;
  * LEGACY and TRY ({@code try_divide} is LEGACY's division), the batch handed to the row engine
  * under ANSI, which raises {@code DIVIDE_BY_ZERO}; a non-zero literal divisor needs no test, as
  * in Spark, and a literal zero declines by name.
+ *
+ * <p>The family also owns the canonicalisation ({@link CanonicalFloat}, VARKA-337 2.1), the
+ * value of Spark's {@code NormalizeNaNAndZero}: {@code -0.0} to {@code 0.0} and every NaN to the
+ * canonical NaN, wherever another family's lowering builds it too. Spark puts that expression
+ * only in the keys a join, a window or an aggregate evaluates, so no projection or filter holds
+ * it today; the arm is the one place a later key operator takes the node from.
  */
 final class VarkaFloatingCompiler {
 
@@ -98,6 +106,8 @@ final class VarkaFloatingCompiler {
       case Multiply a -> () -> binary(IntOp.MUL, Overflow.WRAP, a.left(), a.right(), l, inputs,
           literals, sink);
       case Divide d when l == LaneType.DOUBLE -> () -> divide(d, inputs, literals, sink);
+      case NormalizeNaNAndZero z -> () -> operand(z.child(), l, inputs, literals, sink)
+          .map(CanonicalFloat::of);
       case UnaryMinus n -> () -> operand(n.child(), l, inputs, literals, sink)
           .map(x -> negate(x, l, literals, sink));
       case Abs a -> () -> operand(a.child(), l, inputs, literals, sink)

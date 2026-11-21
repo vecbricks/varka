@@ -45,6 +45,12 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
     }
     rejects(emit(chain(VarkaEmitBudget.MAX_CHAIN_DEPTH + 1),
       VarkaEmitBudget.MAX_CHAIN_DEPTH + 1), "MAX_CHAIN_DEPTH")
+    // The cap is the option's value (VARKA-620): a raised one admits the chain the default
+    // refuses, refuses one level past itself, and its message keeps the constant's name, which
+    // the fuzzer's skips match on.
+    val raised = VarkaMatrix.base.withMaxChainDepth(20)
+    assert(emit(chain(20), 20, raised)._2.nonEmpty)
+    rejects(emit(chain(21), 21, raised), "MAX_CHAIN_DEPTH=20")
     rejects(emit(new AddDays(new ColumnRef(1), new LiteralSlot(0)), 1), "column ordinal")
     rejects(emit(new AddDays(new ColumnRef(0), new LiteralSlot(1)), 1), "literal slot")
     // Below the range as well as above it: a negative index would otherwise reach the column

@@ -119,7 +119,7 @@ class VarkaEmitOptionSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
     assert(table.filter(_.reason == Reason.KNOB).map(_.name) ===
       Seq("groupBudget", "fusedCeiling", "lanesOverride", "methodByteBudget", "callSiteBudget",
-        "heavyGroupOutputs"))
+        "heavyGroupOutputs", "maxChainDepth"))
     assert(table.filter(_.reason == Reason.DIAGNOSTIC).map(_.name) === Seq("exactRefusalStatus"))
     assert(table.filter(_.reason == Reason.MISCOMPILED).map(_.name) === Seq("fromLongMasks"))
     // The one sanctioned departure from Spark's answers, off by default and not drawn: the

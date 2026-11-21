@@ -92,8 +92,24 @@ class VarkaMathBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
     // hypot read x_n and y_n, pow reads p_n and y_n.
     assert(r.getLong(11) === 0 && r.getLong(12) === 0)
 
+    // The columns of rows 356 to 358's sections: u in [-1, 1), c in [1, 3), q non-positive at
+    // one row in ten, and their null columns each null at its own rows, apart from p_n's, which
+    // log(c, p) reads with c_n.
+    val e = spark.sql(
+      s"""select min(u), max(u), min(c), max(c), count_if(q <= 0),
+         |       count_if(u_n is null), count_if(c_n is null), count_if(q_n is null),
+         |       count_if(c_n is null and p_n is null), count_if(q_n is null and q <= 0)
+         |from $view""".stripMargin).head()
+    assert(e.getDouble(0) >= -1 && e.getDouble(0) < -0.99)
+    assert(e.getDouble(1) < 1 && e.getDouble(1) > 0.99)
+    assert(e.getDouble(2) >= 1 && e.getDouble(2) < 1.01)
+    assert(e.getDouble(3) < 3 && e.getDouble(3) > 2.99)
+    assert(e.getLong(4) === rows / 10)
+    assert(e.getLong(5) === rows / 10 && e.getLong(6) === rows / 10 && e.getLong(7) === rows / 10)
+    assert(e.getLong(8) === 0 && e.getLong(9) === 0)
+
     val sections = VarkaMathBaselineBenchmark.sections().asScala.toSeq
-    assert(sections.size === 24, sections.map(_.title).mkString("sections:\n", "\n", ""))
+    assert(sections.size === 62, sections.map(_.title).mkString("sections:\n", "\n", ""))
     assert(sections.map(_.title).distinct.size === sections.size)
     for (s <- sections) {
       withClue(s.title) {
@@ -104,7 +120,9 @@ class VarkaMathBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
         assert(df.schema.head.dataType.sql === "DOUBLE")
         val answer = df.collect().toSeq
         checkAnswer(varkaSpark.sql(s.query), answer)
-        val nulls = if (s.nullInputs) s.columns * rows / 10 else 0
+        // ln(q) nulls its non-positive tenth of the rows whatever the nulls.
+        val nulls = (if (s.nullInputs) s.columns * rows / 10 else 0) +
+          s.domainNullTenths * rows / 10
         assert(answer.count(_.isNullAt(0)) === nulls)
         assert(answer.filterNot(_.isNullAt(0)).count(row => !row.getDouble(0).isFinite) === 0)
       }
@@ -122,7 +140,7 @@ class VarkaMathBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     forEachTwoLaneRefusal { declines =>
-      // Every section is NONE, so a check that could not see a Varka node anywhere would pass
+      // Most sections are NONE, so a check that could not see a Varka node anywhere would pass
       // each of them; a comparison of the two DOUBLE columns fuses with the refusal off, and
       // fails such a check here. A filter driven at the DOUBLE lane is what the refusal
       // declines, so the same filter with it on proves the setting took effect.
