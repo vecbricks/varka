@@ -22,6 +22,7 @@ import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescr
 
 import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.Label;
+import java.lang.constant.ClassDesc;
 import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
 import java.util.List;
@@ -68,6 +69,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsN
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathFn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
@@ -1172,18 +1174,65 @@ final class VarkaVectorWalk {
 
   /**
    * {@code MathUnary}: the function's lanewise operator, whose bits are {@code Math}'s on every
-   * input. The word is the operand's, since nothing here nulls a lane.
+   * input, or for a per-lane call ({@link MathFn#laneCall}) {@link #emitMathLaneCall}. The word
+   * is the operand's, since nothing here nulls a lane.
    */
   private static void emitMathUnary(CodeBuilder cb, MathUnary n, boolean dense,
       Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
     emitValue(cb, n.child(), dense, analysis, s, computed);
     line(cb, analysis, n);
     Lane lane = analysis.laneOf(n);
+    if (n.fn().laneCall()) {
+      emitMathLaneCall(cb, n.fn(), lane, analysis);
+      return;
+    }
     String operator = switch (n.fn()) {
       case SQRT -> "SQRT";
+      case SIN, COS, TAN, ASIN, ACOS, ATAN -> throw VarkaErrors.illegalState(
+          n.fn() + " is a per-lane call");
     };
     cb.getstatic(VECTOR_OPERATORS, operator, VO_UNARY);
     cb.invokevirtual(lane.vector, "lanewise", MethodTypeDesc.of(lane.vector, VO_UNARY));
+  }
+
+  /**
+   * A per-lane call: {@code [v] -> [v']}, each lane {@code k} of the double vector replaced by
+   * {@code fn(v.lane(k))}, the scalar method Spark's code calls, so the bits are that method's on
+   * every input. The loop is unrolled over the baked lane count, which the kernel plan requires
+   * of a kernel holding a call ({@code VarkaKernelPlan.NO_BAKED_LANES_FOR_A_CALL}): {@code lane}
+   * and {@code withLane} at a constant index are an extract and an insert, and each lane read
+   * comes from the vector before its own lane is replaced, since a later index has not been
+   * written yet. No local is taken: the double result is moved under its index with
+   * {@code dup_x2} and {@code pop}.
+   *
+   * <p>Every lane is called, a null lane's or a padding lane's too; the call is pure and the
+   * validity word discards what such a lane answers, so the answer is unchanged, and a lane's
+   * time is the call's whatever it holds.
+   */
+  private static void emitMathLaneCall(CodeBuilder cb, MathFn fn, Lane lane, Analysis analysis) {
+    if (lane != Lane.DOUBLE || analysis.lanes == 0 || analysis.lane.bits != Long.SIZE) {
+      throw VarkaErrors.illegalState("a per-lane " + fn + " needs a double vector at a baked "
+          + "lane count of a 64-bit drive lane, not " + lane + " at " + analysis.lanes);
+    }
+    String called =
+        analysis.options.floatingFault() == VarkaEmitOptions.FloatingFault.MATH_OTHER_CLASS
+            ? otherClass(fn.owner()) : fn.owner();
+    ClassDesc owner = ClassDesc.ofInternalName(called);
+    for (int k = 0; k < analysis.lanes; k++) {
+      cb.dup();                                                 // [v, v]
+      cb.loadConstant(k);
+      cb.invokevirtual(lane.vector, "lane", DOUBLE_LANE);       // [v, v[k]]
+      cb.invokestatic(owner, fn.method(), DOUBLE_FN);           // [v, fn(v[k])]
+      cb.loadConstant(k);                                       // [v, r, k]
+      cb.dup_x2();                                              // [v, k, r, k]
+      cb.pop();                                                 // [v, k, r]
+      cb.invokevirtual(lane.vector, "withLane", DOUBLE_WITH_LANE);
+    }
+  }
+
+  /** The other of {@code java.lang.Math} and {@code StrictMath}, for the planted fault. */
+  private static String otherClass(String owner) {
+    return owner.equals("java/lang/Math") ? "java/lang/StrictMath" : "java/lang/Math";
   }
 
   /**

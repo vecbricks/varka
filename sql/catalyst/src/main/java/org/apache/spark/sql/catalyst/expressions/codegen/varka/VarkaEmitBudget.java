@@ -729,8 +729,10 @@ final class VarkaEmitBudget {
       // The popcount alone at the long lane; at a narrower lane the popcount, the sign shift,
       // the mask and the add of the high bits the widening to 64 gains (32, 48 or 56).
       case BitCount n -> n.laneType() == VarkaVectorIR.LaneType.LONG ? 1 : 4;
-      // The lanewise square root: one call.
-      case VarkaVectorIR.MathUnary _ -> 1;
+      // The lanewise square root: one call. A per-lane call extracts and inserts each lane, at
+      // most eight double lanes at 512 bits, the larger form as above; the scalar calls between
+      // them are no vector op.
+      case VarkaVectorIR.MathUnary n -> n.fn().laneCall() ? 16 : 1;
       // The rint construction: the absolute value, the add and subtract of 2^52, the sign's AND
       // and OR, the compare against 2^52 and the blend, and three reinterpretations, which the
       // budget counts as calls though they emit no instruction; then the NaN's compare and

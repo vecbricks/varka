@@ -347,7 +347,10 @@ public final class VarkaMatrixRuns {
     return (reason.startsWith(VarkaKernelPlan.NO_BAKED_INT_LANES)
             && Lane.emitLanes(options, Lane.INT) == 0)
         || (reason.startsWith(VarkaKernelPlan.NO_BAKED_LONG_LANES)
-            && Lane.emitLanes(options, Lane.LONG) == 0);
+            && Lane.emitLanes(options, Lane.LONG) == 0)
+        // A per-lane math call is unrolled over the double lanes, so it needs them baked too.
+        || (reason.startsWith(VarkaKernelPlan.NO_BAKED_LANES_FOR_A_CALL)
+            && Lane.emitLanes(options, Lane.DOUBLE) == 0);
   }
 
   // ---------------------------------------------------------------------------------------------
