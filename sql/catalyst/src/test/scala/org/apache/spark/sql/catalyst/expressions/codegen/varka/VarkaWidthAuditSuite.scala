@@ -358,13 +358,14 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     val catalyst = Option(row.get("catalyst"))
       .map(_.elements().asScala.map(_.asText()).toSet).getOrElse(Set.empty[String])
     assert(catalyst === Set("InSet"), s"the row's catalyst field is $catalyst")
-    val in = VarkaWidthAuditShapes.parsedRow(executable) match {
+    val columns = VarkaCoverageRows.columns(coverageJson.toPath)
+    val in = VarkaWidthAuditShapes.parsedRow(executable, columns) match {
       case i: In => i
       case other => fail(s"the row's spelling parsed to ${other.getClass.getSimpleName}")
     }
     assert(in.list.exists(!_.isInstanceOf[Literal]),
       "every element is a Literal, so a rule matching Literals alone would rewrite the row")
-    val resolved = VarkaWidthAuditShapes.resolvedRow(executable, catalyst)
+    val resolved = VarkaWidthAuditShapes.resolvedRow(executable, catalyst, columns)
     assert(resolved.isInstanceOf[InSet],
       s"the audit resolved the row to ${resolved.getClass.getSimpleName}: $resolved")
     // The audit's own path: on a host that compiles the row's condition the row is a shape, not

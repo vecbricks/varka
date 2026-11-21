@@ -1,0 +1,64 @@
+package org.apache.spark.sql.catalyst.expressions.codegen.varka;
+
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import org.junit.jupiter.api.Test;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
+
+class VarkaScratchDecimalDepthSuite {
+  static int height(VarkaVectorIR n) {
+    int h = 0;
+    for (VarkaVectorIR c : VarkaVectorIR.childrenOf(n)) h = Math.max(h, height(c));
+    return h + 1;
+  }
+
+  static void distinct(VarkaVectorIR n, IdentityHashMap<VarkaVectorIR, Boolean> seen) {
+    if (seen.put(n, true) != null) return;
+    for (VarkaVectorIR c : VarkaVectorIR.childrenOf(n)) distinct(c, seen);
+  }
+
+  static PairMul node(int words, int word, boolean rightLong) {
+    VarkaVectorIR yLo = new ColumnRef(2, LaneType.LONG);
+    VarkaVectorIR yHi = rightLong ? new BitOp(BitOpKind.SHR, yLo, new WordConst(63))
+        : new ColumnRef(3, LaneType.LONG);
+    return new PairMul(new ColumnRef(0, LaneType.LONG), new ColumnRef(1, LaneType.LONG), yLo,
+        yHi, words, word, rightLong);
+  }
+
+  static String report(String what, List<VarkaVectorIR> roots) {
+    var seen = new IdentityHashMap<VarkaVectorIR, Boolean>();
+    int h = 0;
+    for (VarkaVectorIR r : roots) { h = Math.max(h, height(r)); distinct(r, seen); }
+    Map<String, Integer> kinds = new TreeMap<>();
+    for (VarkaVectorIR n : seen.keySet()) kinds.merge(n.getClass().getSimpleName(), 1, Integer::sum);
+    String bytes;
+    try {
+      var opts = VarkaMatrixRuns.parse("maxChainDepth=256,methodByteBudget=60000");
+      byte[] b = VarkaLoopEmitter.emit("org.apache.spark.sql.varka.execution.VarkaScratchDec",
+          roots, 4, 0, "Scratch.java", "scratch", opts);
+      int max = VarkaEmittedClass.measure(b).codeLength().values().stream().mapToInt(i -> i).max().orElse(-1);
+      bytes = max + " B largest method, " + b.length + " B class";
+    } catch (Throwable t) {
+      bytes = "emit threw " + t.getClass().getSimpleName() + ": " + String.valueOf(t.getMessage()).substring(0, Math.min(90, String.valueOf(t.getMessage()).length()));
+    }
+    return "SCRATCH " + what + ": height " + h + ", " + seen.size() + " distinct nodes, " + bytes + "; " + kinds;
+  }
+
+  @Test
+  void pairMul() {
+    for (boolean rl : new boolean[] {false, true}) {
+      for (int words : new int[] {2, 4}) {
+        var roots = new java.util.ArrayList<VarkaVectorIR>();
+        for (int w = 0; w < words; w++) {
+          VarkaVectorIR low = VarkaDecimalLowering.lower(node(words, w, rl), Set.of());
+          System.out.println(report("PairMul words=" + words + " word=" + w + " rightLong=" + rl, List.of(low)));
+          roots.add(low);
+        }
+        System.out.println(report("PairMul words=" + words + " ALL " + words + " words together rightLong=" + rl, roots));
+      }
+    }
+  }
+}

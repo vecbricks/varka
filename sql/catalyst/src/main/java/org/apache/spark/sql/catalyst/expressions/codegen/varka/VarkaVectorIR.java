@@ -18,12 +18,16 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.util.EnumSet;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Set;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.function.ToIntFunction;
+
+import javax.annotation.Nullable;
 
 import org.apache.spark.sql.types.Decimal;
 
@@ -80,6 +84,7 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
             VarkaVectorIR.BoundedDivide, VarkaVectorIR.BitOp, VarkaVectorIR.BitCount,
             VarkaVectorIR.MathUnary, VarkaVectorIR.RoundToIntegral, VarkaVectorIR.Cond,
+            VarkaVectorIR.CanonicalFloat, VarkaVectorIR.CanonicalBits, VarkaVectorIR.HashStep,
             VarkaVectorIR.GuardedDay, VarkaVectorIR.GuardedRange, VarkaVectorIR.WidenLane,
             VarkaVectorIR.ConvertLane,
             VarkaVectorIR.NarrowLane, VarkaVectorIR.WidenDecimal {
@@ -166,6 +171,9 @@ public sealed interface VarkaVectorIR
       case BitCount n -> n.child().laneType();
       case MathUnary n -> n.child().laneType();
       case RoundToIntegral n -> n.child().laneType();
+      case CanonicalFloat n -> n.child().laneType();
+      case CanonicalBits n -> n.lane();
+      case HashStep n -> n.mix().lane();
       case Greatest n -> n.left().laneType();
       case Least n -> n.left().laneType();
       case IfElse n -> n.thenNode().laneType();
@@ -231,7 +239,7 @@ public sealed interface VarkaVectorIR
       case BoolColumn b -> b.ordinal();
       case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
           BitCount _, MathUnary _, RoundToIntegral _, Greatest _, Least _, IfElse _, CondValue _,
-          BoolOutput _,
+          BoolOutput _, CanonicalFloat _, CanonicalBits _, HashStep _,
           Compare _, NullSafeEqual _, CondConst _, NullValue _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
@@ -320,7 +328,7 @@ public sealed interface VarkaVectorIR
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
           BitOp _, BitCount _, MathUnary _, RoundToIntegral _, Compare _, NullSafeEqual _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _,
-          InRanges _ -> {
+          InRanges _, CanonicalFloat _, CanonicalBits _, HashStep _ -> {
         for (VarkaVectorIR child : childrenOf(node)) {
           narrowValuesIn(child, lanes, seen);
         }
@@ -367,7 +375,7 @@ public sealed interface VarkaVectorIR
           Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _, TruncDate _, WeekOfYear _,
           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, RoundToIntegral _,
           Compare _, NullSafeEqual _, BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _,
-          CrossLane _, InRanges _ -> {
+          CrossLane _, InRanges _, CanonicalFloat _, CanonicalBits _, HashStep _ -> {
         boolean any = false;
         for (VarkaVectorIR child : childrenOf(node)) {
           any |= needsNarrowSpecies(child, seen);
@@ -526,8 +534,54 @@ public sealed interface VarkaVectorIR
   /**
    * The lane-wise math function a {@link MathUnary} calls. {@code SQRT} is IEEE's square root,
    * correctly rounded as {@code Math.sqrt} is, so the lanewise operator answers its bits.
+   *
+   * <p>Every other member is computed by a per-lane call (the {@code LANE_CALL} form of
+   * {@code VARKA-345.md} 2.2): each lane is read out of the vector, passed to the scalar method
+   * named by {@link #owner} and {@link #method}, and written back, so its bits are that method's
+   * on every input. The owner is the class Spark's generated code reaches: {@code java.lang.Math}
+   * for {@code sin}, {@code cos} and {@code tan}, whose answer is the host's intrinsic and differs
+   * from {@code StrictMath}'s on x86, and {@code java.lang.StrictMath} for {@code asin},
+   * {@code acos} and {@code atan}, which {@code Math} delegates to on every host
+   * ({@code VARKA-356.md} item 0.3). These take a {@code DOUBLE} operand only, as Spark does.
    */
-  enum MathFn { SQRT }
+  enum MathFn {
+    SQRT(null, null),
+    SIN("java/lang/Math", "sin"),
+    COS("java/lang/Math", "cos"),
+    TAN("java/lang/Math", "tan"),
+    ASIN("java/lang/StrictMath", "asin"),
+    ACOS("java/lang/StrictMath", "acos"),
+    ATAN("java/lang/StrictMath", "atan");
+
+    private final @Nullable String owner;
+    private final @Nullable String method;
+
+    MathFn(@Nullable String owner, @Nullable String method) {
+      this.owner = owner;
+      this.method = method;
+    }
+
+    /** Whether this function is computed by a per-lane call rather than a lanewise operator. */
+    public boolean laneCall() {
+      return owner != null;
+    }
+
+    /** The internal name of the class whose static method a per-lane call invokes. */
+    public String owner() {
+      if (owner == null) {
+        throw VarkaErrors.illegalState(this + " is a lanewise operator, not a per-lane call");
+      }
+      return owner;
+    }
+
+    /** The name of the static {@code (D)D} method a per-lane call invokes. */
+    public String method() {
+      if (method == null) {
+        throw VarkaErrors.illegalState(this + " is a lanewise operator, not a per-lane call");
+      }
+      return method;
+    }
+  }
 
   /**
    * How a {@link RoundToIntegral} picks the integer: {@code RINT} is the nearest, a tie going to
@@ -542,6 +596,33 @@ public sealed interface VarkaVectorIR
    * three shifts, {@code <<}, {@code >>} and {@code >>>}.
    */
   enum BitOpKind { AND, OR, XOR, SHL, SHR, USHR }
+
+  /**
+   * The step a {@link HashStep} folds into its seed: one of Spark's per-value hash primitives,
+   * {@code Murmur3_x86_32}'s on the int lane and {@code XXH64}'s on the long lane (VARKA-337 2.2).
+   * {@code MURMUR3_INT} is {@code hashInt(word, seed)}. Murmur3's {@code hashLong} reads the low
+   * and then the high int of its value before one finalisation, so it is two steps:
+   * {@code MURMUR3_LOW}, the first {@code mixH1} with no finalisation, and {@code MURMUR3_HIGH},
+   * the second with {@code fmix(h, 8)}; {@code hashLong(v, seed)} is
+   * {@code MURMUR3_HIGH(MURMUR3_LOW(seed, low(v)), high(v))}. {@code XXH64_INT} is
+   * {@code hashInt} of the low 32 bits of its long word, which it zero-extends as Spark's
+   * {@code input & 0xFFFFFFFFL} does, and {@code XXH64_LONG} is {@code hashLong}.
+   */
+  enum HashMix {
+    MURMUR3_INT(LaneType.INT), MURMUR3_LOW(LaneType.INT), MURMUR3_HIGH(LaneType.INT),
+    XXH64_INT(LaneType.LONG), XXH64_LONG(LaneType.LONG);
+
+    private final LaneType lane;
+
+    HashMix(LaneType lane) {
+      this.lane = lane;
+    }
+
+    /** The lane of the seed, the word and the result. */
+    public LaneType lane() {
+      return lane;
+    }
+  }
 
   /**
    * What an integer operation does when its result leaves the int32 range, which is
@@ -1109,10 +1190,11 @@ public sealed interface VarkaVectorIR
    * either mode (VARKA-104): Spark's
    * {@code x < 0 ? -x : x}, the negation taken where the operand is negative. It shares the
    * negation's one overflowing input and its check, and its validity is the child's, so the two
-   * are one node with one flag, emitted on a narrow or floating lane as one lanewise {@code ABS}
-   * rather than a compare, a negation and a blend; on the long lane the blend is the default and
-   * the lanewise form an option ({@code VarkaEmitOptions.decimalAbsLanewise}). Where the negation
-   * commutes with reduction modulo the narrow width, {@code abs} does not - {@code abs(-128)}
+   * are one node with one flag, emitted on a narrow, int or floating lane as one lanewise
+   * {@code ABS} rather than a compare, a negation and a blend; on the long lane the blend is the
+   * default and the lanewise form an option ({@code VarkaEmitOptions.decimalAbsLanewise}). Where
+   * the negation commutes with reduction modulo the narrow width, {@code abs} does not -
+   * {@code abs(-128)}
    * and {@code abs(128)} differ - so a wrapping {@code abs} at the int lane is never a ring node
    * and reduces its own result.
    *
@@ -1432,16 +1514,20 @@ public sealed interface VarkaVectorIR
   }
 
   /**
-   * {@code fn(child)} over a floating lane: one lanewise math operator, Spark's
-   * {@code java.lang.Math} function of the same name. Only a function whose lanewise operator
-   * answers {@code Math}'s bits on every input is a member of {@link MathFn}. Null-intolerant:
-   * the validity is the child's, and no input nulls a lane.
+   * {@code fn(child)} over a floating lane, the function Spark's generated code calls: a lanewise
+   * operator where its bits are that function's on every input ({@code SQRT}), and otherwise a
+   * per-lane call of the scalar method itself ({@link MathFn#laneCall}), at {@code DOUBLE} only.
+   * Null-intolerant: the validity is the child's, and no input nulls a lane.
    */
   record MathUnary(MathFn fn, VarkaVectorIR child, int hash) implements VarkaVectorIR {
     public MathUnary {
       if (!child.laneType().isFloating()) {
         throw VarkaErrors.illegalArgument(fn + " takes a floating child, not "
             + child.laneType() + ", from a " + child.getClass().getSimpleName());
+      }
+      if (fn.laneCall() && child.laneType() != LaneType.DOUBLE) {
+        throw VarkaErrors.illegalArgument(fn + " takes a DOUBLE child, as Spark's function "
+            + "does, not " + child.laneType());
       }
       hash = hashOf(fn, child);
     }
@@ -1472,6 +1558,108 @@ public sealed interface VarkaVectorIR
     }
 
     public RoundToIntegral(RoundMode mode, VarkaVectorIR child) { this(mode, child, 0); }
+    @Override public int hashCode() { return hash; }
+  }
+
+  /**
+   * Spark's canonical form of a floating value, {@code NormalizeNaNAndZero}'s and the floating
+   * step of {@code hash} and {@code xxhash64}: {@code -0.0} becomes {@code 0.0}, every NaN the
+   * lane's canonical NaN ({@code 0x7fc00000} or {@code 0x7ff8000000000000}, the bits
+   * {@code floatToIntBits} and {@code doubleToLongBits} answer for any NaN), and every other value
+   * stays itself. It is the one canonicalisation in the IR (VARKA-337 2.1): a key a later
+   * operator evaluates takes this node from {@code NormalizeNaNAndZero} as Spark puts it there,
+   * and no second form is written.
+   *
+   * <p>The lowering is {@code blend(x + 0.0, NaN, isNaN(x))}: under round-to-nearest the sum of
+   * {@code -0.0} and {@code +0.0} is {@code +0.0}, any other non-NaN {@code x} plus zero is
+   * {@code x} exactly (the JVM keeps subnormals), and the blend replaces whatever NaN the sum
+   * holds. The NaN test reads the operand, not the sum, so the add and the test are independent.
+   * Null-intolerant: the validity is the child's.
+   *
+   * <p>Idempotent by construction: {@link #of} answers its operand when that is already a
+   * canonicalisation, so a value canonicalised twice - a hash over a normalised join key - is
+   * one node. Build it through {@link #of}.
+   */
+  record CanonicalFloat(VarkaVectorIR child, int hash) implements VarkaVectorIR {
+    public CanonicalFloat {
+      if (!child.laneType().isFloating()) {
+        throw VarkaErrors.illegalArgument("a canonicalisation takes a floating child, not "
+            + child.laneType() + ", from a " + child.getClass().getSimpleName());
+      }
+      if (child instanceof CanonicalFloat) {
+        throw VarkaErrors.illegalArgument("a canonicalisation of a canonicalisation: build it "
+            + "through CanonicalFloat.of, which answers its operand");
+      }
+      // The records' formula over the components, as every node's (VarkaVectorIRSharingSuite):
+      // like any one-child node it shares its child's hash, and equality tells the two apart.
+      hash = hashOf(child);
+    }
+
+    public CanonicalFloat(VarkaVectorIR child) { this(child, 0); }
+    @Override public int hashCode() { return hash; }
+
+    /** {@code x} canonicalised: {@code x} itself when it already is a canonicalisation. */
+    public static VarkaVectorIR of(VarkaVectorIR x) {
+      return x instanceof CanonicalFloat ? x : new CanonicalFloat(x);
+    }
+  }
+
+  /**
+   * The bits of a canonical floating value as an integral value of the same width,
+   * {@code Float.floatToIntBits} at the {@code FLOAT} lane (an {@code INT} result) and
+   * {@code Double.doubleToLongBits} at the {@code DOUBLE} lane (a {@code LONG} one): the word
+   * Spark's hash reads for a floating value (VARKA-337 2.2). Over a canonical value the raw bits
+   * are those functions' answers, since its only NaN is the one they map every NaN to, so the
+   * lowering is a reinterpretation, {@code viewAsIntegralLanes}, which C2 emits as nothing. The
+   * constructor takes a {@link CanonicalFloat} child and nothing else, so no caller can read a
+   * floating value's bits without Spark's {@code -0.0} and NaN rule. Its validity is the child's.
+   */
+  record CanonicalBits(VarkaVectorIR child, int hash) implements VarkaVectorIR {
+    public CanonicalBits {
+      if (!(child instanceof CanonicalFloat)) {
+        throw VarkaErrors.illegalArgument("the bits of a floating value are read from its "
+            + "canonicalisation, not from a " + child.getClass().getSimpleName());
+      }
+      hash = hashOf(child);
+    }
+
+    public CanonicalBits(VarkaVectorIR child) { this(child, 0); }
+    @Override public int hashCode() { return hash; }
+
+    /** The integral lane of the same width as the child's. */
+    public LaneType lane() {
+      return child.laneType() == LaneType.FLOAT ? LaneType.INT : LaneType.LONG;
+    }
+  }
+
+  /**
+   * One step of Spark's {@code hash} or {@code xxhash64} fold: {@code mix} of {@code word} into
+   * {@code seed}, both on the mix's lane, Spark's primitive lane by lane with its own constants
+   * (VARKA-337 2.2). The compiler folds a hash's children through the steps in Spark's order,
+   * the first step's seed the expression's literal seed, and gives each step a word Spark's
+   * per-type rule makes: an int, a long, the low or high half of one, or a floating value's
+   * {@link CanonicalBits}. A null word is skipped, as Spark skips a null child: its lane answers
+   * the seed, so the step's validity is the seed's, and a fold from a literal seed is never
+   * null.
+   */
+  record HashStep(HashMix mix, VarkaVectorIR seed, VarkaVectorIR word, int hash)
+      implements VarkaVectorIR {
+    public HashStep {
+      Objects.requireNonNull(mix, "mix");
+      if (seed.laneType() != mix.lane() || word.laneType() != mix.lane()) {
+        throw VarkaErrors.illegalArgument("a " + mix + " hash step folds a " + mix.lane()
+            + " word into a " + mix.lane() + " seed, not a " + word.laneType() + " word into a "
+            + seed.laneType() + " seed");
+      }
+      if (seed instanceof Cond || word instanceof Cond) {
+        throw VarkaErrors.illegalArgument("a hash step folds values, not conditions: " + mix);
+      }
+      hash = hashOf(mix, seed, word);
+    }
+
+    public HashStep(HashMix mix, VarkaVectorIR seed, VarkaVectorIR word) {
+      this(mix, seed, word, 0);
+    }
     @Override public int hashCode() { return hash; }
   }
 
@@ -2195,79 +2383,93 @@ public sealed interface VarkaVectorIR
    * neither rides {@link Record#toString}.
    */
   static String canonical(VarkaVectorIR node) {
+    return canonicalWith(node, VarkaVectorIR::canonical);
+  }
+
+  /**
+   * {@link #canonical}'s one rendering of a node, with {@code kid} giving each child's text: the
+   * child's own {@code canonical} for the tree text, a one-character stand-in to measure the
+   * node's own part of it ({@link #canonicalLength}). One switch, so the two cannot differ.
+   */
+  static String canonicalWith(VarkaVectorIR node,
+      java.util.function.Function<VarkaVectorIR, String> kid) {
     return switch (node) {
       case ColumnRef n -> "col:" + n.ordinal() + laneTag(n.lane());
       case DecimalColumn n -> "dec:" + n.ordinal() + laneTag(n.lane()) + ":p" + n.precision();
       case DecimalWord n -> wordTag(n);
       case LiteralSlot n -> "lit:" + n.index() + laneTag(n.lane());
-      case AddDays n -> "(addDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
-      case SubDays n -> "(subDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
-      case GuardedDay n -> "(guardedDay " + canonical(n.days()) + ")";
-      case GuardedRange n -> "(guardedRange" + guardTag(n) + " " + canonical(n.child()) + " "
+      case AddDays n -> "(addDays " + kid.apply(n.days()) + " " + kid.apply(n.offset()) + ")";
+      case SubDays n -> "(subDays " + kid.apply(n.days()) + " " + kid.apply(n.offset()) + ")";
+      case GuardedDay n -> "(guardedDay " + kid.apply(n.days()) + ")";
+      case GuardedRange n -> "(guardedRange" + guardTag(n) + " " + kid.apply(n.child()) + " "
           + n.lo() + " " + n.hi() + ")";
-      case WidenLane n -> "(widen:" + n.target().name() + " " + canonical(n.child()) + ")";
-      case ConvertLane n -> "(convert:" + n.target().name() + " " + canonical(n.child())
+      case WidenLane n -> "(widen:" + n.target().name() + " " + kid.apply(n.child()) + ")";
+      case ConvertLane n -> "(convert:" + n.target().name() + " " + kid.apply(n.child())
           + ")";
-      case NarrowLane n -> "(narrow:" + n.target().name() + " " + canonical(n.child()) + ")";
-      case WidenDecimal n -> "(wdec " + canonical(n.child()) + ")";
-      case DateDiff n -> "(dateDiff " + canonical(n.end()) + " " + canonical(n.start()) + ")";
+      case NarrowLane n -> "(narrow:" + n.target().name() + " " + kid.apply(n.child()) + ")";
+      case WidenDecimal n -> "(wdec " + kid.apply(n.child()) + ")";
+      case DateDiff n -> "(dateDiff " + kid.apply(n.end()) + " " + kid.apply(n.start()) + ")";
       case Compare n ->
-          "(cmp:" + n.op().name() + " " + canonical(n.left()) + " " + canonical(n.right()) + ")";
+          "(cmp:" + n.op().name() + " " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
       case NullSafeEqual n ->
-          "(nullSafeEq " + canonical(n.left()) + " " + canonical(n.right()) + ")";
+          "(nullSafeEq " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
       case BoolColumn n -> "bool:" + n.ordinal() + laneTag(n.lane());
       case CondConst n -> "(condConst:" + n.value().name() + laneTag(n.lane()) + ")";
       case NullValue n -> "(null:" + n.lane().name() + ")";
       case BoolCompare n ->
-          "(boolCmp:" + n.op().name() + " " + canonical(n.left()) + " "
-              + canonical(n.right()) + ")";
-      case CondIf n -> "(condIf " + canonical(n.cond()) + " " + canonical(n.thenCond()) + " "
-          + canonical(n.elseCond()) + ")";
+          "(boolCmp:" + n.op().name() + " " + kid.apply(n.left()) + " "
+              + kid.apply(n.right()) + ")";
+      case CondIf n -> "(condIf " + kid.apply(n.cond()) + " " + kid.apply(n.thenCond()) + " "
+          + kid.apply(n.elseCond()) + ")";
       case BoolNullSafeEq n ->
-          "(boolNullSafeEq " + canonical(n.left()) + " " + canonical(n.right()) + ")";
-      case And n -> "(and " + canonical(n.left()) + " " + canonical(n.right()) + ")";
-      case Or n -> "(or " + canonical(n.left()) + " " + canonical(n.right()) + ")";
-      case Not n -> "(not " + canonical(n.child()) + ")";
-      case CrossLane n -> "(cross:" + n.lane().name() + " " + canonical(n.child()) + ")";
-      case IsNotNull n -> "(isNotNull " + canonical(n.child()) + ")";
-      case InRanges n -> "(inRanges " + canonical(n.child()) + " " + n.renderBounds() + ")";
-      case IfElse n -> "(if " + canonical(n.cond()) + " " + canonical(n.thenNode()) + " "
-          + canonical(n.elseNode()) + ")";
-      case CondValue n -> "(condValue " + canonical(n.cond()) + ")";
-      case BoolOutput n -> "(bool-out " + canonical(n.cond()) + ")";
-      case Greatest n -> "(greatest " + canonical(n.left()) + " " + canonical(n.right()) + ")";
-      case Least n -> "(least " + canonical(n.left()) + " " + canonical(n.right()) + ")";
-      case DayOfWeek n -> "(dayOfWeek " + canonical(n.days()) + ")";
-      case WeekDay n -> "(weekDay " + canonical(n.days()) + ")";
-      case DayOfWeekIso n -> "(dayOfWeekIso " + canonical(n.days()) + ")";
-      case NextDay n -> "(nextDay " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
-      case ThursdayOf n -> "(thursdayOf " + canonical(n.days()) + ")";
-      case Year n -> "(year " + canonical(n.days()) + ")";
-      case Month n -> "(month " + canonical(n.days()) + ")";
-      case DayOfMonth n -> "(dayOfMonth " + canonical(n.days()) + ")";
-      case Quarter n -> "(quarter " + canonical(n.days()) + ")";
-      case DayOfYear n -> "(dayOfYear " + canonical(n.days()) + ")";
-      case LastDay n -> "(lastDay " + canonical(n.days()) + ")";
-      case TruncDate n -> "(truncDate:" + n.level().name() + " " + canonical(n.days()) + ")";
+          "(boolNullSafeEq " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
+      case And n -> "(and " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
+      case Or n -> "(or " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
+      case Not n -> "(not " + kid.apply(n.child()) + ")";
+      case CrossLane n -> "(cross:" + n.lane().name() + " " + kid.apply(n.child()) + ")";
+      case IsNotNull n -> "(isNotNull " + kid.apply(n.child()) + ")";
+      case InRanges n -> "(inRanges " + kid.apply(n.child()) + " " + n.renderBounds() + ")";
+      case IfElse n -> "(if " + kid.apply(n.cond()) + " " + kid.apply(n.thenNode()) + " "
+          + kid.apply(n.elseNode()) + ")";
+      case CondValue n -> "(condValue " + kid.apply(n.cond()) + ")";
+      case BoolOutput n -> "(bool-out " + kid.apply(n.cond()) + ")";
+      case Greatest n -> "(greatest " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
+      case Least n -> "(least " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
+      case DayOfWeek n -> "(dayOfWeek " + kid.apply(n.days()) + ")";
+      case WeekDay n -> "(weekDay " + kid.apply(n.days()) + ")";
+      case DayOfWeekIso n -> "(dayOfWeekIso " + kid.apply(n.days()) + ")";
+      case NextDay n -> "(nextDay " + kid.apply(n.days()) + " " + kid.apply(n.offset()) + ")";
+      case ThursdayOf n -> "(thursdayOf " + kid.apply(n.days()) + ")";
+      case Year n -> "(year " + kid.apply(n.days()) + ")";
+      case Month n -> "(month " + kid.apply(n.days()) + ")";
+      case DayOfMonth n -> "(dayOfMonth " + kid.apply(n.days()) + ")";
+      case Quarter n -> "(quarter " + kid.apply(n.days()) + ")";
+      case DayOfYear n -> "(dayOfYear " + kid.apply(n.days()) + ")";
+      case LastDay n -> "(lastDay " + kid.apply(n.days()) + ")";
+      case TruncDate n -> "(truncDate:" + n.level().name() + " " + kid.apply(n.days()) + ")";
       case TruncDateDynamic n ->
-          "(truncDateDynamic " + canonical(n.days()) + " " + canonical(n.level()) + ")";
-      case WeekOfYear n -> "(weekOfYear " + canonical(n.days()) + ")";
+          "(truncDateDynamic " + kid.apply(n.days()) + " " + kid.apply(n.level()) + ")";
+      case WeekOfYear n -> "(weekOfYear " + kid.apply(n.days()) + ")";
       case AddMonths n ->
-          "(addMonths " + canonical(n.days()) + " " + canonical(n.months()) + ")";
+          "(addMonths " + kid.apply(n.days()) + " " + kid.apply(n.months()) + ")";
       case MakeDate n -> "(makeDate:" + (n.failOnError() ? "ANSI" : "NULL") + " "
-          + canonical(n.year()) + " " + canonical(n.month()) + " " + canonical(n.day()) + ")";
+          + kid.apply(n.year()) + " " + kid.apply(n.month()) + " " + kid.apply(n.day()) + ")";
       case IntArith n -> "(int:" + n.op().name() + ":" + n.mode().name() + " "
-          + canonical(n.left()) + " " + canonical(n.right()) + ")";
+          + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
       case IntNeg n -> "(" + (n.abs() ? "abs:" : "neg:") + n.mode().name() + " "
-          + canonical(n.child()) + ")";
-      case ConstDivide n -> "(divc:" + n.divisor() + " " + canonical(n.child()) + ")";
+          + kid.apply(n.child()) + ")";
+      case ConstDivide n -> "(divc:" + n.divisor() + " " + kid.apply(n.child()) + ")";
       case BoundedDivide n ->
-          "(divb:" + n.divisor() + "/" + n.bound() + " " + canonical(n.child()) + ")";
-      case BitOp n -> "(bit:" + n.op().name() + " " + canonical(n.left()) + " "
-          + canonical(n.right()) + ")";
-      case BitCount n -> "(bitCount " + canonical(n.child()) + ")";
-      case MathUnary n -> "(math:" + n.fn().name() + " " + canonical(n.child()) + ")";
-      case RoundToIntegral n -> "(round:" + n.mode().name() + " " + canonical(n.child()) + ")";
+          "(divb:" + n.divisor() + "/" + n.bound() + " " + kid.apply(n.child()) + ")";
+      case BitOp n -> "(bit:" + n.op().name() + " " + kid.apply(n.left()) + " "
+          + kid.apply(n.right()) + ")";
+      case BitCount n -> "(bitCount " + kid.apply(n.child()) + ")";
+      case MathUnary n -> "(math:" + n.fn().name() + " " + kid.apply(n.child()) + ")";
+      case RoundToIntegral n -> "(round:" + n.mode().name() + " " + kid.apply(n.child()) + ")";
+      case CanonicalFloat n -> "(canon " + kid.apply(n.child()) + ")";
+      case CanonicalBits n -> "(canonBits " + kid.apply(n.child()) + ")";
+      case HashStep n -> "(hash:" + n.mix().name() + " " + kid.apply(n.seed()) + " "
+          + kid.apply(n.word()) + ")";
     };
   }
 
@@ -2381,7 +2583,157 @@ public sealed interface VarkaVectorIR
       case MathUnary n -> "(math:" + n.fn().name() + " " + lineOf.applyAsInt(n.child()) + ")";
       case RoundToIntegral n ->
           "(round:" + n.mode().name() + " " + lineOf.applyAsInt(n.child()) + ")";
+      case CanonicalFloat n -> "(canon " + lineOf.applyAsInt(n.child()) + ")";
+      case CanonicalBits n -> "(canonBits " + lineOf.applyAsInt(n.child()) + ")";
+      case HashStep n -> "(hash:" + n.mix().name() + " " + lineOf.applyAsInt(n.seed()) + " "
+          + lineOf.applyAsInt(n.word()) + ")";
     };
+  }
+
+  /**
+   * The longest tree text {@link #shapeText} keeps: 2^26 characters. Every shape whose tree
+   * rendering is shorter keeps it, so the committed shape hashes stay; a longer one, which the
+   * old cap of 16 levels could not admit above a fan-out of three and which a deeper cap admits
+   * at any fan-out, renders as a DAG ({@link #canonicalDag}). A tree text of 3 to the 16th, the
+   * longest an admitted chain of the fan-out-three nodes reached, is 43 million characters.
+   */
+  long TREE_TEXT_LIMIT = 1L << 26;
+
+  /** The most characters of a rendering a message carries. */
+  int BRIEF_LIMIT = 4096;
+
+  /**
+   * The longest tree text a reproduction file holds as a tree. The shape hash's limit is sized
+   * for a hash; a file is read back by a replay that tokenizes the line, so a longer shape is
+   * written as its DAG.
+   */
+  int FILE_TEXT_LIMIT = 1 << 16;
+
+  /**
+   * The length of {@code canonical(node)}, counted once per node and saturating at
+   * {@link Long#MAX_VALUE} / 4, so a shared chain a hundred levels deep answers at once where
+   * rendering it would not finish. {@link #canonicalWith} renders the node with each child as one
+   * character, so its tree length is that rendering's length plus, for each child reference, the
+   * child's tree length less the one character.
+   */
+  static long canonicalLength(VarkaVectorIR node) {
+    return canonicalLength(node, new IdentityHashMap<>());
+  }
+
+  private static long canonicalLength(VarkaVectorIR node,
+      IdentityHashMap<VarkaVectorIR, Long> memo) {
+    Long known = memo.get(node);
+    if (known != null) {
+      return known;
+    }
+    final long saturated = Long.MAX_VALUE / 4;
+    long[] extra = {0L};
+    String line = canonicalWith(node, child -> {
+      extra[0] = Math.min(saturated, extra[0] + canonicalLength(child, memo) - 1);
+      return "0";
+    });
+    long length = Math.min(saturated, line.length() + extra[0]);
+    memo.put(node, length);
+    return length;
+  }
+
+  /**
+   * The text the shape hash is taken over for {@code outputs}: each output's {@link #canonical}
+   * tree rendering and a newline where the whole is under {@link #TREE_TEXT_LIMIT}, as it always
+   * was, and otherwise the {@link #canonicalDag} of the outputs. A tree text never starts with
+   * the DAG's marker, so no two shapes can share a text.
+   */
+  static String shapeText(List<VarkaVectorIR> outputs) {
+    long total = 0;
+    for (VarkaVectorIR output : outputs) {
+      total = Math.min(Long.MAX_VALUE / 4, total + canonicalLength(output) + 1);
+    }
+    if (total > TREE_TEXT_LIMIT) {
+      return canonicalDag(outputs);
+    }
+    StringBuilder text = new StringBuilder();
+    for (VarkaVectorIR output : outputs) {
+      text.append(canonical(output)).append('\n');
+    }
+    return text.toString();
+  }
+
+  /**
+   * The DAG rendering of {@code outputs}: one {@code id=line} per distinct node, in the order
+   * a node's children precede it, each line its {@link #canonicalWith} rendering with the children
+   * as ids, then {@code roots} and the output ids. A node is named once, however many parents and
+   * however many equal copies reach it: nodes are numbered by their line, so two equal nodes
+   * built as distinct objects, which the lane lifts do, get one id, and two equal shapes always
+   * give one text. It starts with {@code dag}, which no tree rendering does. Linear in the
+   * distinct nodes, and recursive in the depth, which admission bounds.
+   */
+  static String canonicalDag(List<VarkaVectorIR> outputs) {
+    var idOfObject = new IdentityHashMap<VarkaVectorIR, Integer>();
+    var idOfLine = new java.util.HashMap<String, Integer>();
+    StringBuilder text = new StringBuilder("dag\n");
+    StringBuilder roots = new StringBuilder("roots");
+    for (VarkaVectorIR output : outputs) {
+      roots.append(' ').append(dagId(output, idOfObject, idOfLine, text));
+    }
+    return text.append(roots).append('\n').toString();
+  }
+
+  private static int dagId(VarkaVectorIR node,
+      java.util.Map<VarkaVectorIR, Integer> idOfObject,
+      java.util.Map<String, Integer> idOfLine, StringBuilder text) {
+    Integer known = idOfObject.get(node);
+    if (known != null) {
+      return known;
+    }
+    // canonicalWith, not canonicalShallow: the line carries every field the tree text does, an
+    // InRanges node's bounds among them, which the shallow line abbreviates to a count.
+    String line = canonicalWith(node,
+        child -> String.valueOf(dagId(child, idOfObject, idOfLine, text)));
+    Integer id = idOfLine.get(line);
+    if (id == null) {
+      id = idOfLine.size();
+      idOfLine.put(line, id);
+      text.append(id).append('=').append(line).append('\n');
+    }
+    idOfObject.put(node, id);
+    return id;
+  }
+
+  /**
+   * {@link #canonical}'s text where it fits {@link #TREE_TEXT_LIMIT}, which is every shape that
+   * ever had a committed hash, and the node's {@link #canonicalDag} where it does not: every
+   * field of the node either way, for a reproduction or a debug summary. Only the tree form has a
+   * reader ({@code VarkaCanonicalIr}), which reads the DAG form as well (VARKA-630).
+   */
+  static String canonicalExact(VarkaVectorIR node) {
+    return canonicalLength(node) <= TREE_TEXT_LIMIT
+        ? canonical(node) : canonicalDag(List.of(node));
+  }
+
+  /**
+   * A node's rendering on one line, for a file that holds one value to a line: the tree text up
+   * to {@link #FILE_TEXT_LIMIT} characters, else its DAG with the lines joined by {@code ;}, which
+   * no line of a rendering contains.
+   * {@code VarkaCanonicalIr} reads either form back.
+   */
+  static String canonicalOneLine(VarkaVectorIR node) {
+    return canonicalLength(node) <= FILE_TEXT_LIMIT
+        ? canonical(node) : canonicalDag(List.of(node)).stripTrailing().replace('\n', ';');
+  }
+
+  /**
+   * A rendering for a message: {@link #canonical} where it is under {@link #BRIEF_LIMIT}
+   * characters, and else the start of the node's DAG with its size, so that an error about a deep
+   * shared chain does not build the text the chain's tree would be.
+   */
+  static String canonicalBrief(VarkaVectorIR node) {
+    long length = canonicalLength(node);
+    if (length <= BRIEF_LIMIT) {
+      return canonical(node);
+    }
+    String dag = canonicalDag(List.of(node));
+    return dag.substring(0, Math.min(dag.length(), 240)) + "... (a tree rendering of "
+        + (length >= Long.MAX_VALUE / 4 ? "over 10^18" : String.valueOf(length)) + " characters)";
   }
 
   /** Whether {@code root}'s subtree contains a member of {@code nodes} (structural equality). */
@@ -2395,6 +2747,76 @@ public sealed interface VarkaVectorIR
       }
     }
     return false;
+  }
+
+  /**
+   * Whether {@code a} and {@code b} are equal as {@code equals} says, in time linear in the
+   * pairs of distinct nodes instead of the paths between them.
+   *
+   * <p>A record's {@code equals} tries identity first, so a node shared inside one compile is
+   * one step; but two equal DAGs that share no object compare a shared node once per path, which
+   * at a fan-out of two a level doubles with every level (VARKA-630, measured in
+   * {@code results/VARKA-630-shape-key-equals.txt}). This walks the pairs once: a differing class
+   * or cached hash ends it at once, the children are compared first, each pair once, and a node is
+   * then compared with {@code b} rebuilt over {@code a}'s children, which differs from {@code a}
+   * only in what a record holds besides its children. Where a rebuilt node is refused it falls
+   * back to the record's own {@code equals}, which is right but may walk every path.
+   */
+  static boolean sameStructure(VarkaVectorIR a, VarkaVectorIR b) {
+    return sameStructure(a, b, new IdentityHashMap<>());
+  }
+
+  // The identity test is the point: a node both keys share is one step, as is the memo's.
+  @SuppressWarnings("ReferenceEquality")
+  private static boolean sameStructure(VarkaVectorIR a, VarkaVectorIR b,
+      IdentityHashMap<VarkaVectorIR, Set<VarkaVectorIR>> equalPairs) {
+    if (a == b) {
+      return true;
+    }
+    if (a.getClass() != b.getClass() || a.hashCode() != b.hashCode()) {
+      return false;
+    }
+    Set<VarkaVectorIR> known = equalPairs.get(a);
+    if (known != null && known.contains(b)) {
+      return true;
+    }
+    VarkaVectorIR[] kidsA = childrenOf(a);
+    VarkaVectorIR[] kidsB = childrenOf(b);
+    if (kidsA.length != kidsB.length) {
+      return false;
+    }
+    for (int i = 0; i < kidsA.length; i++) {
+      if (!sameStructure(kidsA[i], kidsB[i], equalPairs)) {
+        return false;
+      }
+    }
+    boolean same;
+    try {
+      same = kidsA.length == 0 ? a.equals(b) : a.equals(withChildren(b, kidsA));
+    } catch (IllegalArgumentException refused) {
+      // A constructor refused the rebuild: ask the record, which is right though it may walk
+      // every path. The test over every node type pins that no node type is refused.
+      same = a.equals(b);
+    }
+    if (same) {
+      equalPairs.computeIfAbsent(a,
+          k -> Collections.newSetFromMap(new IdentityHashMap<>())).add(b);
+    }
+    return same;
+  }
+
+  /** {@link #sameStructure} over two lists of the same length, in order. */
+  static boolean sameStructure(List<VarkaVectorIR> a, List<VarkaVectorIR> b) {
+    if (a.size() != b.size()) {
+      return false;
+    }
+    var equalPairs = new IdentityHashMap<VarkaVectorIR, Set<VarkaVectorIR>>();
+    for (int i = 0; i < a.size(); i++) {
+      if (!sameStructure(a.get(i), b.get(i), equalPairs)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** {@code node}'s children, in the order its record declares them; a leaf has none. */
@@ -2457,6 +2879,9 @@ public sealed interface VarkaVectorIR
       case BitCount n -> new VarkaVectorIR[] {n.child()};
       case MathUnary n -> new VarkaVectorIR[] {n.child()};
       case RoundToIntegral n -> new VarkaVectorIR[] {n.child()};
+      case CanonicalFloat n -> new VarkaVectorIR[] {n.child()};
+      case CanonicalBits n -> new VarkaVectorIR[] {n.child()};
+      case HashStep n -> new VarkaVectorIR[] {n.seed(), n.word()};
     };
   }
 
@@ -2537,6 +2962,9 @@ public sealed interface VarkaVectorIR
       case BitCount n -> new BitCount(children[0]);
       case MathUnary n -> new MathUnary(n.fn(), children[0]);
       case RoundToIntegral n -> new RoundToIntegral(n.mode(), children[0]);
+      case CanonicalFloat n -> CanonicalFloat.of(children[0]);
+      case CanonicalBits n -> new CanonicalBits(children[0]);
+      case HashStep n -> new HashStep(n.mix(), children[0], children[1]);
     };
   }
 

@@ -83,7 +83,8 @@ public sealed interface VarkaEmitOption
     PRICED_CHECK,
     /**
      * A fault injector: it feeds the emitter a wrong input so a test can show that the emitter's
-     * own self-checks fire. The fuzzer never draws one.
+     * own self-checks fire, or plants a plausible wrong lowering so a test can show that the
+     * checks against Spark catch it. The fuzzer never draws one.
      */
     FAULT_INJECTOR,
     /**
@@ -581,6 +582,13 @@ public sealed interface VarkaEmitOption
       new Flag("fromLongMasks", Reason.MISCOMPILED, false,
           VarkaEmitOptions::fromLongMasks, Builder::fromLongMasks,
           new FlagTag("fromLongMasks", true)),
+      // A machine choice (VARKA-375): fromLong is intrinsic on every host the milestone measures
+      // at its default width, and the construction is the form for a host without the
+      // instruction, an aarch64 core without SVE2's bit permute. Its tag keeps the default's
+      // rendering empty.
+      new Flag("maskFromWord", Reason.MACHINE, false,
+          VarkaEmitOptions::maskFromWord, Builder::maskFromWord,
+          new FlagTag("maskFromWord", true)),
       // A long-lane abs is a decimal's (VARKA-348 2.6): the compare, negation and blend by
       // default, intrinsic on every x86 host at 256 and 512 bits; the lanewise ABS is the arm,
       // intrinsic only with AVX-512, measured against the blend there. Only a shape over a
@@ -626,7 +634,28 @@ public sealed interface VarkaEmitOption
           NarrowGroupStore.MASKED, VarkaEmitOptions::narrowGroupStore,
           Builder::narrowGroupStore, new ChoiceTag("narrowGroupStore="),
           Optional.<Class<? extends VarkaVectorIR>>empty(),
-          new Subject(o -> o.toBuilder().lanesOverride(4).build())));
+          new Subject(o -> o.toBuilder().lanesOverride(4).build())),
+      // The floating arithmetic's fault injector (m8/VARKA-504.md, m8/VARKA-548.md 2.3): a test
+      // asks for one of the plausible wrong lowerings through the emission's own options rather
+      // than a JVM-wide static, so the faulty compile keys apart and no other compile sees it.
+      // None in production; its tag keeps the default's rendering empty.
+      new Choice<VarkaEmitOptions.FloatingFault>("floatingFault", Reason.FAULT_INJECTOR,
+          VarkaEmitOptions.FloatingFault.class, VarkaEmitOptions.FloatingFault.NONE,
+          VarkaEmitOptions::floatingFault, Builder::floatingFault,
+          new ChoiceTag("floatingFault="), Optional.empty()),
+      // The day-time interval lowerings' fault injector, on the same terms (VARKA-103.md 3.7).
+      new Choice<VarkaEmitOptions.IntervalFault>("intervalFault", Reason.FAULT_INJECTOR,
+          VarkaEmitOptions.IntervalFault.class, VarkaEmitOptions.IntervalFault.NONE,
+          VarkaEmitOptions::intervalFault, Builder::intervalFault,
+          new ChoiceTag("intervalFault="), Optional.empty()),
+      // The depth cap, raised by VARKA-620's benchmark to price the depths past it. The fuzzer
+      // draws a raised cap too, so a variant that grows a draw past 16 is emitted and checked
+      // rather than skipped. A raise changes no byte of a shape the default cap admits, but the
+      // matrix runs the suites under it (VARKA-620), so the tests that assert the default cap
+      // are listed in the skip list.
+      new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.MAX_CHAIN_DEPTH,
+          VarkaEmitOptions::maxChainDepth, Builder::maxChainDepth, new CountTag("chainDepth="),
+          List.of(VarkaEmitBudget.MAX_CHAIN_DEPTH, 32), List.of(32)));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

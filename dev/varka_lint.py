@@ -54,6 +54,10 @@ naming files on the command line turns that scoping off.
                    architectures drifts from the compiler's host fact; for an x86 check call
                    VarkaHostIsa.isX86(arch), and mark a line that pins the names on purpose
                    `arch-list: ok` (VARKA-548)
+  global-fault     in a .java file under sql/catalyst/src/main, a static field that is not final
+                   in a type whose name holds Fault: a JVM-wide fault leaks into other compiles,
+                   and a class emitted under it can be cached under a clean key; hold the fault
+                   in VarkaEmitOptions instead (VARKA-548)
 
   dev/varka_lint.py [--cached | --working-tree | --range A..B | FILE...]
   dev/varka_lint.py --selftest
@@ -376,6 +380,23 @@ def names_tests_at_run_time(text):
     )
 
 
+TEMPLATE = re.compile(r"^\s*@(?:ParameterizedTest|RepeatedTest)\b", re.M)
+
+
+def names_template_invocation(test, text):
+    """Whether `test` can be an invocation of one of a JUnit suite's templates: its key is the
+    template's display name, a space and its rendered name (VARKA-477), so the name starts with
+    the display name of a template, read from the blank line before the annotation to the next."""
+    for m in TEMPLATE.finditer(text):
+        start = text.rfind("\n\n", 0, m.start())
+        end = text.find("\n\n", m.end())
+        block = text[max(start, 0) : end if end >= 0 else len(text)]
+        for d in re.finditer(r'@DisplayName\(\s*"((?:[^"\\]|\\.)*)"', block):
+            if test.startswith(unescape(d.group(1)) + " "):
+                return True
+    return False
+
+
 def unescape(name):
     return name.replace('\\"', '"').replace("\\\\", "\\")
 
@@ -421,6 +442,7 @@ def rule_skips_tsv(ch):
         elif (
             not names_test(test, text)
             and not names_tests_at_run_time(text)
+            and not names_template_invocation(test, text)
             and not inherited_test(test)
         ):
             yield f"{SKIPS}:{n}: skips-tsv: {suite} has no test named '{test}'"
@@ -682,6 +704,131 @@ def rule_arch_list(ch):
                 )
 
 
+JAVA_TYPE = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Za-z_$][\w$]*)|[{}]")
+
+
+def comment_free_java(text):
+    """`text` with comments blanked and string and character literal contents blanked, every
+    newline kept, so an offset and a line number are the source's."""
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c in "\"'":
+            quote = c
+            out.append(c)
+            i += 1
+            while i < n:
+                if text[i] == "\\" and i + 1 < n:
+                    out.extend((" ", " "))
+                    i += 2
+                elif text[i] == quote:
+                    out.append(quote)
+                    i += 1
+                    break
+                else:
+                    out.append("\n" if text[i] == "\n" else " ")
+                    i += 1
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            end = n if end < 0 else end
+            out.append(" " * (end - i))
+            i = end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            end = n if end < 0 else end + 2
+            out.extend("\n" if ch == "\n" else " " for ch in text[i:end])
+            i = end
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def blank_annotations(text):
+    """`text` with every annotation blanked, its name and its balanced argument list, every
+    newline kept; `text` is already comment- and literal-free, so the parentheses balance."""
+    out = list(text)
+    for m in re.finditer(r"@\s*[\w$.]+", text):
+        if text.startswith("interface", m.start() + 1):
+            continue
+        end = m.end()
+        j = end
+        while j < len(text) and text[j] in " \t\n":
+            j += 1
+        if j < len(text) and text[j] == "(":
+            depth = 0
+            while j < len(text):
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                j += 1
+                if depth == 0:
+                    break
+            end = j
+        for k in range(m.start(), end):
+            if out[k] != "\n":
+                out[k] = " "
+    return "".join(out)
+
+
+def rule_global_fault(ch):
+    for path in ch.files:
+        if not path.endswith(".java") or not path.startswith("sql/catalyst/src/main/"):
+            continue
+        clean = comment_free_java(read(path))
+        # The innermost enclosing type's name at every offset, from each type declaration and
+        # the brace depth: a nested type counts by its own name, which need not hold Fault.
+        owner = [None] * len(clean)
+        stack = []
+        pending, start = None, 0
+        for m in JAVA_TYPE.finditer(clean):
+            name = m.group(1)
+            if name is not None:
+                pending = name
+                continue
+            current = next((s for s in reversed(stack) if s), None)
+            owner[start : m.start()] = [current] * (m.start() - start)
+            start = m.end()
+            if m.group() == "{":
+                stack.append(pending)
+                pending = None
+            elif stack:
+                stack.pop()
+        current = next((s for s in reversed(stack) if s), None)
+        owner[start:] = [current] * (len(clean) - start)
+        # Annotations are blanked with their balanced argument lists, so an `=`, a brace or a
+        # parenthesis inside one neither ends a head nor hides the field it annotates.
+        fields = blank_annotations(clean)
+        # A field declaration ends at its `;`, and its head is what sits since the previous
+        # `;`, `{` or `}` - except a `{` or `}` after `=`, which is its initializer's.
+        last = 0
+        for m in re.finditer(r"[{};]", fields):
+            seg = fields[last : m.start()]
+            if m.group() == ";":
+                head = seg.split("=", 1)[0]
+                if (
+                    re.search(r"\bstatic\b", head)
+                    and not re.search(r"\bfinal\b", head)
+                    and not re.search(r"[{}()]", head)
+                ):
+                    where = last + re.search(r"\bstatic\b", seg).start()
+                    owner_name = owner[where]
+                    # The field's declared type, its head less the trailing name: a fault held
+                    # by a type whose own name lacks Fault is as JVM-wide as one in a Fault type.
+                    declared = re.sub(r"[\w$]+\s*(?:\[\s*\])*\s*$", "", head)
+                    if (owner_name is not None and "Fault" in owner_name) or "Fault" in declared:
+                        line = fields.count("\n", 0, where) + 1
+                        if ch.wrote(path, line):
+                            yield (
+                                f"{path}:{line}: global-fault: a static non-final field of, or "
+                                "in, a type whose name holds Fault is JVM-wide state another "
+                                "compile can see; hold the fault in VarkaEmitOptions instead "
+                                "(m8/VARKA-548.md)"
+                            )
+                last = m.end()
+            elif "=" not in seg:
+                last = m.end()
+
+
 RULES = {
     "license-header": rule_license_header,
     "import-root": rule_import_root,
@@ -695,6 +842,7 @@ RULES = {
     "guava": rule_guava,
     "nan-compare": rule_nan_compare,
     "arch-list": rule_arch_list,
+    "global-fault": rule_global_fault,
 }
 
 
@@ -817,6 +965,28 @@ def selftest():
                 tables: split,
                 suite: lic + "class VarkaShapeSuite {}\n",
                 SKIPS: skip % "a name nobody wrote",
+            },
+            "skips-tsv:has no test named",
+            True,
+        )
+        case(
+            "a skip line naming a template's invocation",
+            {
+                tables: split,
+                suite: lic + 'class VarkaShapeSuite {\n@ParameterizedTest(name = "of {0}")\n'
+                '@DisplayName("a template")\nvoid t(int i) {}\n}\n',
+                SKIPS: skip % "a template of 1",
+            },
+            "skips-tsv",
+            False,
+        )
+        case(
+            "a skip line naming no test of a suite with a template",
+            {
+                tables: split,
+                suite: lic + 'class VarkaShapeSuite {\n@ParameterizedTest(name = "of {0}")\n'
+                '@DisplayName("a template")\nvoid t(int i) {}\n}\n',
+                SKIPS: skip % "another template of 1",
             },
             "skips-tsv:has no test named",
             True,
@@ -1015,6 +1185,52 @@ def selftest():
             ),
         ):
             case(f"arch-list {flagged}: {path}: {text!r}", {path: lic + text}, "arch-list", flagged)
+        for path, text, flagged in (
+            (
+                "sql/catalyst/src/main/java/varka/XFault.java",
+                "enum XFault {\n  private static volatile XFault planted = NONE;\n}\n",
+                True,
+            ),
+            (
+                "sql/catalyst/src/main/java/varka/XFault.java",
+                "enum XFault {\n  private static final int OK = 1;\n}\n",
+                False,
+            ),
+            # An annotation's `=`, braces or parentheses neither end a head nor hide a field.
+            (
+                "sql/catalyst/src/main/java/varka/XFault.java",
+                'class XFault {\n  @SuppressWarnings({"x"}) static XFault planted;\n}\n',
+                True,
+            ),
+            (
+                "sql/catalyst/src/main/java/varka/XFault.java",
+                'class XFault {\n  @Deprecated(since = "1")\n  static XFault planted;\n}\n',
+                True,
+            ),
+            (
+                "sql/catalyst/src/main/java/varka/XFault.java",
+                "class XFault {\n  @Foo(a = 1) void m() { }\n  static XFault planted;\n}\n",
+                True,
+            ),
+            # A fault held elsewhere is reported by its declared type.
+            (
+                "sql/catalyst/src/main/java/varka/Compiler.java",
+                "class Compiler {\n  static volatile Options.FloatingFault planted = NONE;\n}\n",
+                True,
+            ),
+            (
+                "sql/catalyst/src/main/java/varka/Compiler.java",
+                "class Compiler {\n  static final Options.FloatingFault NONE_ = NONE;\n}\n",
+                False,
+            ),
+            # The name must hold Fault case-sensitively: a Defaults is no fault type.
+            (
+                "sql/catalyst/src/main/java/varka/Defaults.java",
+                "class Defaults {\n  private static volatile Defaults planted;\n}\n",
+                False,
+            ),
+        ):
+            case(f"global-fault {flagged}: {path}", {path: lic + text}, "global-fault", flagged)
     if fails == 0:
         print(f"varka_lint selftest: ok ({len(cases)} cases)")
     return fails

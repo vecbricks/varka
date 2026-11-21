@@ -24,10 +24,9 @@ import scala.jdk.OptionConverters._
 
 import com.fasterxml.jackson.databind.ObjectMapper
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{VarkaExpressionCompiler, VarkaOutputSpec}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
-import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
 
 /**
  * The shapes the width audit (VARKA-153) asks C2 about: every row of the coverage table as the
@@ -69,62 +68,12 @@ object VarkaWidthAuditShapes {
   /** A coverage row the compiler declines at this width, with its reason. */
   case class Declined(name: String, reason: String) extends Entry
 
-  // The coverage table's columns, as `VarkaCoverageSuite` declares them.
-  private val d = AttributeReference("d", DateType)()
-  private val d2 = AttributeReference("d2", DateType)()
-  private val i = AttributeReference("i", IntegerType)()
-  private val ymm = AttributeReference("ymm",
-    YearMonthIntervalType(YearMonthIntervalType.MONTH, YearMonthIntervalType.MONTH))()
-  private val ymy = AttributeReference("ymy",
-    YearMonthIntervalType(YearMonthIntervalType.YEAR, YearMonthIntervalType.YEAR))()
-  private val ym = AttributeReference("ym",
-    YearMonthIntervalType(YearMonthIntervalType.YEAR, YearMonthIntervalType.MONTH))()
-  private val l = AttributeReference("l", LongType)()
-  private val l2 = AttributeReference("l2", LongType)()
-  private val t = AttributeReference("t", TimeType(6))()
-  private val t2 = AttributeReference("t2", TimeType(6))()
-  private val dt = AttributeReference("dt", DayTimeIntervalType())()
-  private val dt2 = AttributeReference("dt2", DayTimeIntervalType())()
-  // BOOLEAN columns, as conditions: two so a comparison can be column against column.
-  private val b = AttributeReference("b", BooleanType)()
-  private val b2 = AttributeReference("b2", BooleanType)()
-  // TINYINT and SMALLINT columns (VARKA-329), as `VarkaCoverageSuite` declares them.
-  private val y1 = AttributeReference("y1", ByteType)()
-  private val y2 = AttributeReference("y2", ByteType)()
-  private val s1 = AttributeReference("s1", ShortType)()
-  private val s2 = AttributeReference("s2", ShortType)()
-  // TIMESTAMP_NTZ columns (VARKA-338), as `VarkaCoverageSuite` declares them.
-  private val ntz = AttributeReference("ntz", TimestampNTZType)()
-  private val ntz2 = AttributeReference("ntz2", TimestampNTZType)()
-  // The floating columns (VARKA-341), as `VarkaCoverageSuite` declares them.
-  private val x = AttributeReference("x", DoubleType)()
-  private val x2 = AttributeReference("x2", DoubleType)()
-  private val f = AttributeReference("f", FloatType)()
-  private val f2 = AttributeReference("f2", FloatType)()
-  // DECIMAL columns (VARKA-347), as `VarkaCoverageSuite` declares them.
-  private val d9 = AttributeReference("d9", DecimalType(9, 2))()
-  private val d9b = AttributeReference("d9b", DecimalType(9, 2))()
-  private val d18 = AttributeReference("d18", DecimalType(18, 2))()
-  private val d18b = AttributeReference("d18b", DecimalType(18, 2))()
-  // Two scales beside the four of scale 2 (VARKA-348), so a comparison can rescale: d9s4 against
-  // d9 compares at DECIMAL(11, 4), and d16s9 meets every other at a common type it names.
-  private val d9s4 = AttributeReference("d9s4", DecimalType(9, 4))()
-  private val d16s9 = AttributeReference("d16s9", DecimalType(16, 9))()
-  private val d8 = AttributeReference("d8", DecimalType(8, 2))()
-  // The 128-bit pair's columns (VARKA-359), as `VarkaCoverageSuite` declares them.
-  private val d19 = AttributeReference("d19", DecimalType(19, 2))()
-  private val d38 = AttributeReference("d38", DecimalType(38, 2))()
-  private val d38b = AttributeReference("d38b", DecimalType(38, 2))()
-  private val d3810 = AttributeReference("d3810", DecimalType(38, 10))()
-  private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
-    y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
-    d9s4, d16s9, d8, d19, d38, d38b, d3810)
-
   /**
    * A coverage row's executable spelling as the audit builds it: parsed and analyzed over the
-   * table's columns, by the one parser-resolver the test sources share.
+   * table's columns (`VarkaCoverageRows.columns`), by the one parser-resolver the test sources
+   * share.
    */
-  private[varka] def parsedRow(executable: String): Expression =
+  private[varka] def parsedRow(executable: String, columns: Seq[Attribute]): Expression =
     VarkaSqlResolve.parse(executable, columns)
 
   /**
@@ -135,8 +84,9 @@ object VarkaWidthAuditShapes {
    * element, is what makes the audit see the form a plan builds; a row that claims an `InSet`
    * and resolves otherwise throws there rather than being audited as an `In`.
    */
-  private[varka] def resolvedRow(executable: String, catalyst: Set[String]): Expression =
-    VarkaSqlResolve.inSetAsClaimed(parsedRow(executable), catalyst.contains("InSet"))
+  private[varka] def resolvedRow(executable: String, catalyst: Set[String],
+      columns: Seq[Attribute]): Expression =
+    VarkaSqlResolve.inSetAsClaimed(parsedRow(executable, columns), catalyst.contains("InSet"))
 
   /**
    * Every row of `coverage.json` as a kernel, through the compiler, keyed by the row's SQL, or
@@ -147,6 +97,7 @@ object VarkaWidthAuditShapes {
    * (`VarkaWidthAuditSuite` asserts the preferred width has none).
    */
   def coverageRows(coverageJson: File): Seq[Entry] = {
+    val columns = VarkaCoverageRows.columns(coverageJson.toPath)
     val doc = new ObjectMapper().readTree(coverageJson)
     doc.get("expressions").elements().asScala.toSeq.map { e =>
       val sql = e.get("sql").asText()
@@ -158,13 +109,13 @@ object VarkaWidthAuditShapes {
       // marker, so the row's SQL has to travel with it.
       val resolved =
         try {
-          resolvedRow(executable, catalyst)
+          resolvedRow(executable, catalyst, columns)
         } catch {
           case e: IllegalArgumentException =>
             throw new IllegalArgumentException(s"coverage row '$sql': ${e.getMessage}", e)
         }
       if (form == "predicate") {
-        predicateRow(sql, resolved)
+        predicateRow(sql, resolved, columns)
       } else {
         // On the host's terms too: a two-lane x86 host refuses a BOOLEAN row over a decimal
         // column (VARKA-596) and a checked BIGINT operation (VARKA-104), as a predicate row's
@@ -196,7 +147,8 @@ object VarkaWidthAuditShapes {
    * kernel's shape, as before the refusal, since that is a property of the row and not of the
    * width; one with nothing fused is declined with every conjunct's reason.
    */
-  private def predicateRow(sql: String, resolved: Expression): Entry = {
+  private def predicateRow(sql: String, resolved: Expression,
+      columns: Seq[Attribute]): Entry = {
     val explained = VarkaExpressionCompiler.explainAndCompilePredicate(resolved, columns,
       VarkaEmitOptions.DEFAULTS, hostAdmission)
     val specs = explained.specs.asScala.toSeq

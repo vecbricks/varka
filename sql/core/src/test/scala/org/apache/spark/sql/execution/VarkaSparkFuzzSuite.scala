@@ -28,8 +28,8 @@ import scala.util.Random
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.catalyst.expressions.Cast
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaCatalystGrammar,
-  VarkaFuzzTypes, VarkaJitEvidence, VarkaKernelWarmth, VarkaKernelWarmup, VarkaShapeCache,
-  VarkaTypeId}
+  VarkaCoverageRows, VarkaFuzzTypes, VarkaJitEvidence, VarkaKernelWarmth, VarkaKernelWarmup,
+  VarkaShapeCache, VarkaTypeId}
 import org.apache.spark.sql.catalyst.plans.logical.Filter
 import org.apache.spark.sql.execution.VarkaSparkFuzz._
 
@@ -481,6 +481,23 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         }
       }
     }
+  }
+
+  test("the fixture holds every column of coverage.json its draws read, at its type") {
+    // The draws leave out the rows over a BOOLEAN, narrow or DECIMAL column
+    // (`VarkaSparkFuzz.leftOut`), so the fixture builds only the other columns, by design.
+    val wanted =
+      VarkaCoverageRows.columns(getWorkspaceFilePath("sql", "varka", "coverage.json"))
+        .filterNot(a => leftOut(a.name))
+    val schema =
+      spark.sql(fixtureSql(drawData(new Random(495), 1, safe = true))).schema
+    wanted.foreach { a =>
+      assert(schema.find(_.name == a.name).map(_.dataType) === Some(a.dataType),
+        s"fixture.${a.name}")
+    }
+    // The count guards the filter: one that left out every column would pass the loop above.
+    assert(wanted.size === 18, s"${wanted.map(_.name).mkString(" ")}: the columns the draws " +
+      "read changed (the table or `VarkaSparkFuzz.leftOut`); update the count with them")
   }
 
   test("each column the fuzz descriptor puts in the fixture is one of the view's, of its type") {

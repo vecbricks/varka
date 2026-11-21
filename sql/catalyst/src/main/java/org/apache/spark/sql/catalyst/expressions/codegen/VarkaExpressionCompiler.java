@@ -46,6 +46,7 @@ import org.apache.spark.sql.catalyst.expressions.BindReferences;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
+import org.apache.spark.sql.catalyst.expressions.KnownFloatingPointNormalized;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.ForwardedOutput;
@@ -459,7 +460,7 @@ public final class VarkaExpressionCompiler {
     if (!entries.stream().allMatch(e -> ((Expression) e).deterministic())) {
       String why = "the projection has a nondeterministic entry, whose values would depend on "
           + "the path each batch took";
-      DeclineSink sink = new DeclineSink(childOutput, options.rangeSets());
+      DeclineSink sink = new DeclineSink(childOutput, options);
       UnaryOperator<Expression> bind = binder(childOutput);
       SortedMap<Integer, VarkaDecline> declines = new TreeMap<>();
       for (int at = 0; at < entries.size(); at++) {
@@ -600,7 +601,7 @@ public final class VarkaExpressionCompiler {
       this.demoted = demoted;
       this.options = options;
       this.admission = admission;
-      this.sink = new DeclineSink(childOutput, options.rangeSets(), admission);
+      this.sink = new DeclineSink(childOutput, options, admission);
       this.bind = binder(childOutput);
     }
 
@@ -629,6 +630,11 @@ public final class VarkaExpressionCompiler {
       // see the Scala trait's superclass, hence the casts.)
       Expression bound = bind.apply((Expression) named);
       Expression e = bound instanceof Alias alias ? alias.child() : bound;
+      // The optimizer's tag over a normalised key is its child (VARKA-337), so a tagged column is
+      // a bare column here too.
+      if (e instanceof KnownFloatingPointNormalized k && k.child() instanceof BoundReference) {
+        e = k.child();
+      }
       // A bare column is compilable as a node but never emitted as an output: emitting it would
       // be a copy loop, while forwarding the input's vector is zero-copy.
       if (e instanceof BoundReference br) {
@@ -737,7 +743,7 @@ public final class VarkaExpressionCompiler {
      */
     private boolean fitsAlone(Expression e) {
       VarkaSlotTable own = new VarkaSlotTable();
-      DeclineSink ownSink = new DeclineSink(childOutput, options.rangeSets(), admission);
+      DeclineSink ownSink = new DeclineSink(childOutput, options, admission);
       return compileRoot(e, own, new VarkaSlotTable(), ownSink)
           .map(ir -> ownSink.guardDayColumns(ir, 0))
           .map(ir -> VarkaLoopEmitter.fitsBudgets(List.of(ir), own.size(), options))
@@ -805,7 +811,7 @@ public final class VarkaExpressionCompiler {
     if (!condition.deterministic()) {
       String why = "the condition is nondeterministic: a fused conjunct would run ahead of a "
           + "nondeterministic one and change the rows it sees";
-      DeclineSink sink = new DeclineSink(childOutput, options.rangeSets());
+      DeclineSink sink = new DeclineSink(childOutput, options);
       UnaryOperator<Expression> bind = binder(childOutput);
       List<VarkaConjunctSpec> specs = new ArrayList<>();
       for (Expression conjunct : conjuncts(condition)) {
@@ -828,7 +834,7 @@ public final class VarkaExpressionCompiler {
       PredicatePass once =
           predicateOnce(condition, childOutput, demoted, options, admission);
       Map<Integer, String> late = VarkaConjunctOrder.behindRaising(written,
-          once.specs().stream().map(VarkaConjunctSpec::fused).toList());
+          once.specs().stream().map(VarkaConjunctSpec::fused).toList(), childOutput);
       if (!late.isEmpty()) {
         demoted.putAll(late);
         continue;
@@ -967,7 +973,7 @@ public final class VarkaExpressionCompiler {
     boolean twoLaneHost = admission.declineTwoLaneConditions();
     VarkaSlotTable inputs = new VarkaSlotTable();
     VarkaSlotTable literals = new VarkaSlotTable();
-    DeclineSink sink = new DeclineSink(childOutput, options.rangeSets(), admission.familiesOff());
+    DeclineSink sink = new DeclineSink(childOutput, options, admission.familiesOff());
     List<Cond> fused = new ArrayList<>();
     List<VarkaConjunctSpec> specs = new ArrayList<>();
     UnaryOperator<Expression> bind = binder(childOutput);

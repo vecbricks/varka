@@ -26,23 +26,29 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.ClassTemplate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
+import org.junit.jupiter.api.extension.ConditionEvaluationResult;
 import org.junit.jupiter.api.extension.DynamicTestInvocationContext;
+import org.junit.jupiter.api.extension.ExecutionCondition;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.InvocationInterceptor;
 import org.junit.jupiter.api.extension.ReflectiveInvocationContext;
+import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.platform.commons.support.AnnotationSupport;
 import org.junit.platform.commons.support.HierarchyTraversalMode;
 import org.junit.platform.commons.support.ReflectionSupport;
+import org.junit.platform.engine.UniqueId;
 import org.opentest4j.AssertionFailedError;
 import org.opentest4j.TestAbortedException;
 
@@ -75,19 +81,25 @@ import org.apache.spark.sql.util.ArrowUtils;
  * An {@code ownJvm} class in the shared JVM skips all four wrappers: the child JVM ran the class
  * under them, and each test only takes the child's result, as it is.
  *
+ * <p>A generated test is held the same way under its key, the name the skip list, the reports
+ * and the child's answers know it by: a {@code @TestFactory}'s dynamic test under the name its
+ * factory gives it, and an invocation of a {@code @ParameterizedTest} or a {@code @RepeatedTest}
+ * under its method's display name, a space and the invocation's rendered name
+ * ({@link #invocationKey}).
+ *
  * <p>A cancel is opentest4j's {@link TestAbortedException}, which JUnit reports as aborted and the
  * listener prints {@code !!! CANCELED !!!}. It is thrown from the interceptor rather than decided
  * by an {@code ExecutionCondition}, because a condition would report the test disabled, which is
  * ScalaTest's "ignored", not its "canceled".
  *
  * <p>Around the class: before it, the extension fails a class whose shape it cannot hold
- * ({@link #checkShape}: two tests with one name, a test that is not a plain {@code @Test}, a
- * {@code @Nested} class, the annotation only inherited); and under
+ * ({@link #checkShape}: two tests with one name, a template whose invocations make no stable key,
+ * a {@code @Nested} class, the annotation only inherited); and under
  * the memory sanitizer it holds the class to leave Arrow's root allocator where it found it, as
  * {@code VarkaMatrixTests.run} does.
  */
 public final class VarkaSuiteExtension
-    implements BeforeAllCallback, AfterAllCallback, InvocationInterceptor {
+    implements BeforeAllCallback, AfterAllCallback, InvocationInterceptor, ExecutionCondition {
 
   /** How a JUnit test is cancelled and failed, and the exception a cancel is. */
   static final Outcomes OUTCOMES = new Outcomes(
@@ -120,7 +132,7 @@ public final class VarkaSuiteExtension
 
   @Override
   public void afterAll(ExtensionContext context) {
-    DYNAMIC_NAMES.remove(context.getRequiredTestClass());
+    GENERATED_KEYS.remove(context.getRequiredTestClass());
     VarkaTestReach.suiteEnd(context.getRequiredTestClass().getSimpleName());
     Long before = context.getStore(NAMESPACE).get(ARROW_BEFORE, Long.class);
     if (before == null) {
@@ -144,12 +156,11 @@ public final class VarkaSuiteExtension
    * <ul>
    *   <li>two tests with one display name, since the skip list and the fused-batch report key a
    *       test by its suite and name;</li>
-   *   <li>a {@code @ParameterizedTest} or {@code @RepeatedTest} test: JUnit runs those through
-   *       another interceptor method than {@link #interceptTestMethod}, so they would bypass the
-   *       skip list, {@code PinsDefaults}, {@code C2Code} and the watchdog, and their
-   *       invocations' names ({@code [1] ...}) make poor skip-list keys. A {@code @TestFactory}'s
-   *       dynamic tests are held ({@link #interceptDynamicTest}), each under the name the factory
-   *       gives it, except in an {@code ownJvm} class, whose child answers by test method;</li>
+   *   <li>a test template whose invocations make no stable key ({@link #templateRefusal}): one
+   *       other than {@code @ParameterizedTest} and {@code @RepeatedTest}, or one whose name
+   *       numbers its invocations by a count that moves when a case is added;</li>
+   *   <li>a class template ({@code @ParameterizedClass}), whose invocations rerun each test
+   *       under one name;</li>
    *   <li>a {@code @Nested} class, which inherits this extension but not the annotation, and
    *       whose tests the listener and the reports would put under the outer class's name;</li>
    *   <li>{@code @VarkaSuite} inherited from a superclass only: {@code dev/varka_matrix.sh} finds
@@ -164,20 +175,17 @@ public final class VarkaSuiteExtension
       throw new IllegalStateException(name + " names more than one test " + repeated
           + "; a Varka suite's test names are its skip-list keys and must be unique");
     }
-    var templates = new ArrayList<String>();
     for (Method m : AnnotationSupport.findAnnotatedMethods(testClass, TestTemplate.class,
         HierarchyTraversalMode.TOP_DOWN)) {
-      templates.add(m.getName());
+      Optional<String> refusal = templateRefusal(m);
+      if (refusal.isPresent()) {
+        throw new IllegalStateException(name + "." + m.getName() + " " + refusal.get());
+      }
     }
-    if (!templates.isEmpty()) {
-      throw new IllegalStateException(name + " has parameterized or repeated tests " + templates
-          + "; a @VarkaSuite test is a plain @Test or a @TestFactory's, which the harness wraps");
-    }
-    VarkaSuite annotation = testClass.getDeclaredAnnotation(VarkaSuite.class);
-    if (annotation != null && annotation.ownJvm() && !AnnotationSupport.findAnnotatedMethods(
-        testClass, TestFactory.class, HierarchyTraversalMode.TOP_DOWN).isEmpty()) {
-      throw new IllegalStateException(name + " is ownJvm and has dynamic tests; the child JVM "
-          + "answers a test by its method, so an ownJvm class keeps to plain @Test methods");
+    if (AnnotationSupport.isAnnotated(testClass, ClassTemplate.class)) {
+      throw new IllegalStateException(name + " is a class template (@ParameterizedClass, ...),"
+          + " which runs every test once an invocation under one name; a @VarkaSuite class's"
+          + " tests are generated by method templates, which the harness keys apart");
     }
     List<Class<?>> nested = ReflectionSupport.findNestedClasses(testClass,
         c -> c.isAnnotationPresent(Nested.class));
@@ -208,6 +216,57 @@ public final class VarkaSuiteExtension
     return names;
   }
 
+  // A placeholder of a @ParameterizedTest name that renders an argument: {0}, {1,number,#}, ...
+  private static final Pattern ARGUMENT_PLACEHOLDER = Pattern.compile(
+      "\\{(\\d+(,[^}]*)?|arguments|argumentsWithNames|argumentSetName"
+          + "|argumentSetNameOrArgumentsWithNames)}");
+
+  // The placeholder of @ParameterizedTest's default name, which JUnit renders as "[{index}] ...".
+  private static final String DEFAULT_NAME_PLACEHOLDER = "{default_display_name}";
+
+  /**
+   * Why the harness cannot hold the test template {@code m}, or empty when it can. An
+   * invocation's key is its method's display name and its rendered name ({@link #invocationKey}),
+   * and a key is a skip-list line's and the ledger's name for the test, so it must not move when
+   * a case is added: a {@code @ParameterizedTest}'s name renders an argument and holds neither
+   * {@code {index}} (nor JUnit's default, which renders it) nor {@code {displayName}} (which the
+   * key holds already), and a
+   * {@code @RepeatedTest}'s holds {@code {currentRepetition}} and not the total. Any other kind
+   * of template is refused, since nothing says what its invocations' names are.
+   */
+  static Optional<String> templateRefusal(Method m) {
+    Optional<ParameterizedTest> parameterized =
+        AnnotationSupport.findAnnotation(m, ParameterizedTest.class);
+    if (parameterized.isPresent()) {
+      String pattern = parameterized.get().name();
+      if (!ARGUMENT_PLACEHOLDER.matcher(pattern).find()
+          || pattern.contains(ParameterizedTest.INDEX_PLACEHOLDER)
+          || pattern.contains(DEFAULT_NAME_PLACEHOLDER)
+          || pattern.contains(ParameterizedTest.DISPLAY_NAME_PLACEHOLDER)) {
+        return Optional.of("names its invocations '" + pattern + "'; in a Varka suite a"
+            + " @ParameterizedTest's name renders an argument and holds no {index},"
+            + " {default_display_name} or {displayName}, since the method's display name and"
+            + " that name are each invocation's skip-list key");
+      }
+      return Optional.empty();
+    }
+    Optional<RepeatedTest> repeated = AnnotationSupport.findAnnotation(m, RepeatedTest.class);
+    if (repeated.isPresent()) {
+      String pattern = repeated.get().name();
+      if (!pattern.contains(RepeatedTest.CURRENT_REPETITION_PLACEHOLDER)
+          || pattern.contains(RepeatedTest.TOTAL_REPETITIONS_PLACEHOLDER)
+          || pattern.contains(RepeatedTest.DISPLAY_NAME_PLACEHOLDER)) {
+        return Optional.of("names its repetitions '" + pattern + "'; in a Varka suite a"
+            + " @RepeatedTest is named \"repetition {currentRepetition}\", or another name with"
+            + " the repetition and neither the total nor {displayName}, since the method's"
+            + " display name and that name are each repetition's skip-list key");
+      }
+      return Optional.empty();
+    }
+    return Optional.of("is a test template other than @ParameterizedTest and @RepeatedTest,"
+        + " whose invocations the harness cannot name");
+  }
+
   /** The names that occur more than once in {@code names}, each once, in first-repeat order. */
   static List<String> repeatedNames(List<String> names) {
     var seen = new HashSet<String>();
@@ -228,25 +287,82 @@ public final class VarkaSuiteExtension
   public void interceptTestMethod(Invocation<Void> invocation,
       ReflectiveInvocationContext<Method> invocationContext, ExtensionContext context)
       throws Throwable {
-    Class<?> testClass = context.getRequiredTestClass();
+    hold(invocation, context, context.getRequiredTestClass(), context.getDisplayName(), false);
+  }
+
+  /**
+   * A {@code @TestFactory}'s dynamic test, held as a plain {@code @Test} is
+   * ({@link #interceptTestMethod}) under the name the factory gave it, which is its key.
+   */
+  @Override
+  public void interceptDynamicTest(Invocation<Void> invocation,
+      DynamicTestInvocationContext invocationContext, ExtensionContext context)
+      throws Throwable {
+    // A dynamic test's context holds no class of its own; its factory's, a parent, does.
+    Class<?> testClass = null;
+    for (Optional<ExtensionContext> c = Optional.of(context); c.isPresent() && testClass == null;
+        c = c.get().getParent()) {
+      testClass = c.get().getTestClass().orElse(null);
+    }
+    if (testClass == null) {
+      invocation.skip();
+      throw new IllegalStateException("a dynamic test outside any test class: "
+          + context.getUniqueId());
+    }
+    hold(invocation, context, testClass, context.getDisplayName(), true);
+  }
+
+  /**
+   * An invocation of a {@code @ParameterizedTest} or a {@code @RepeatedTest}, held as a plain
+   * {@code @Test} is under its key, {@link #invocationKey} of its template's display name and
+   * its own.
+   */
+  @Override
+  public void interceptTestTemplateMethod(Invocation<Void> invocation,
+      ReflectiveInvocationContext<Method> invocationContext, ExtensionContext context)
+      throws Throwable {
+    hold(invocation, context, context.getRequiredTestClass(), keyOf(context), true);
+  }
+
+  /**
+   * Runs one test of {@code testClass}, or takes its result from the child JVM, under
+   * {@link #runTest}, with {@code test} as its key. A {@code generated} test's key is known only
+   * as it runs, so a key the class's generated tests have already used fails the test here.
+   */
+  private static void hold(Invocation<Void> invocation, ExtensionContext context,
+      Class<?> testClass, String test, boolean generated) throws Throwable {
     VarkaSuite suite = AnnotationSupport.findAnnotation(testClass, VarkaSuite.class)
-        .orElseThrow(() -> new IllegalStateException(
-            testClass.getName() + " registers VarkaSuiteExtension without @VarkaSuite"));
+        .orElse(null);
+    if (suite == null) {
+      invocation.skip();
+      throw new IllegalStateException(
+          testClass.getName() + " registers VarkaSuiteExtension without @VarkaSuite");
+    }
+    // The set starts with the plain tests' names, so a generated key may not take one either.
+    if (generated && !GENERATED_KEYS.computeIfAbsent(testClass, c -> {
+      Set<String> keys = ConcurrentHashMap.newKeySet();
+      keys.addAll(displayNames(c));
+      return keys;
+    }).add(test)) {
+      invocation.skip();
+      throw new IllegalStateException(testClass.getSimpleName() + " names more than one test "
+          + "'" + test + "'; a Varka suite's test names are its skip-list keys and must be unique");
+    }
     long minutes = capMinutes(suite);
     Guard guard = minutes == 0 ? Guard.NONE
         : (s, t, body) -> VarkaWatchdog.guard(s, t, minutes, body);
-    String test = context.getDisplayName();
     boolean answeredByChild = suite.ownJvm() && !VarkaChildJvm.inChild();
     // Jupiter requires an intercepted invocation to be proceeded or skipped exactly once; a test
     // cancelled before its body, or answered from the child JVM, skips it.
     var invoked = new boolean[1];
     Body<Object> body;
     if (answeredByChild) {
+      String className = testClass.getName();
       body = () -> {
         invoked[0] = true;
         invocation.skip();
         return answerFromChild(
-            childResults(testClass.getName(), minutes, List.of(suite.jvmFlags())), test);
+            childResults(className, minutes, List.of(suite.jvmFlags())), test);
       };
     } else {
       body = () -> {
@@ -267,57 +383,58 @@ public final class VarkaSuiteExtension
   }
 
   /**
-   * A {@code @TestFactory}'s dynamic test, held as a plain {@code @Test} is
-   * ({@link #interceptTestMethod}) under the name the factory gave it, which is its skip-list key:
-   * a name a class's tests have already used fails the test, since the names are only known as
-   * the factory hands them out. An {@code ownJvm} class has none ({@link #checkShape}).
+   * The plain tests' names and the generated test keys each class has run, for {@link #hold}'s
+   * check.
    */
-  @Override
-  public void interceptDynamicTest(Invocation<Void> invocation,
-      DynamicTestInvocationContext invocationContext, ExtensionContext context)
-      throws Throwable {
-    // A dynamic test's context holds no class of its own; its factory's, a parent, does.
-    Class<?> testClass = null;
-    for (Optional<ExtensionContext> c = Optional.of(context); c.isPresent() && testClass == null;
-        c = c.get().getParent()) {
-      testClass = c.get().getTestClass().orElse(null);
-    }
-    if (testClass == null) {
-      throw new IllegalStateException("a dynamic test outside any test class: "
-          + context.getUniqueId());
-    }
-    Class<?> owner = testClass;
-    VarkaSuite suite = AnnotationSupport.findAnnotation(owner, VarkaSuite.class)
-        .orElseThrow(() -> new IllegalStateException(
-            owner.getName() + " registers VarkaSuiteExtension without @VarkaSuite"));
-    long minutes = capMinutes(suite);
-    Guard guard = minutes == 0 ? Guard.NONE
-        : (s, t, body) -> VarkaWatchdog.guard(s, t, minutes, body);
-    String test = context.getDisplayName();
-    if (!DYNAMIC_NAMES.computeIfAbsent(owner, c -> ConcurrentHashMap.newKeySet()).add(test)) {
-      invocation.skip();
-      throw new IllegalStateException(owner.getSimpleName() + " names more than one test "
-          + "'" + test + "'; a Varka suite's test names are its skip-list keys and must be unique");
-    }
-    var invoked = new boolean[1];
-    Body<Object> body = () -> {
-      invoked[0] = true;
-      invocation.proceed();
-      return null;
-    };
-    try {
-      runTest(VarkaMatrixRuns.CONFIG, VarkaMatrixRuns.skips(),
-          Optional.ofNullable(System.getProperty(VarkaMatrixRuns.REPORT_PROPERTY)), guard,
-          owner.getSimpleName(), test, context.getTags(), false, body);
-    } finally {
-      if (!invoked[0]) {
-        invocation.skip();
-      }
-    }
+  private static final Map<Class<?>, Set<String>> GENERATED_KEYS = new ConcurrentHashMap<>();
+
+  /**
+   * The type of the last unique-id segment of a test template's invocation, which Jupiter's
+   * engine gives it and the launcher's identifiers carry.
+   */
+  static final String INVOCATION_SEGMENT = "test-template-invocation";
+
+  /**
+   * The key of a test template's invocation: the template's display name, a space, and the
+   * invocation's rendered name, {@code SMALLINT sweep [LEGACY, +, widened]}. The listener names
+   * the invocation so, and the child JVM's answers are read back by it.
+   */
+  static String invocationKey(String template, String invocation) {
+    return template + " " + invocation;
   }
 
-  /** The dynamic test names each class has run, for {@link #interceptDynamicTest}'s check. */
-  private static final Map<Class<?>, Set<String>> DYNAMIC_NAMES = new ConcurrentHashMap<>();
+  /** Whether the unique id {@code uniqueId} is a test template's invocation's. */
+  static boolean isInvocation(String uniqueId) {
+    return UniqueId.parse(uniqueId).getLastSegment().getType().equals(INVOCATION_SEGMENT);
+  }
+
+  /** The key of the test template invocation {@code context} runs. */
+  private static String keyOf(ExtensionContext context) {
+    String template = context.getParent().map(ExtensionContext::getDisplayName)
+        .orElseThrow(() -> new IllegalStateException(
+            "a template invocation with no template: " + context.getUniqueId()));
+    return invocationKey(template, context.getDisplayName());
+  }
+
+  /**
+   * Leaves out a template's invocation that {@link VarkaSuiteRunner}'s {@code -z} or {@code -t}
+   * filters do not select. The runner filters the other tests at discovery, where a template's
+   * invocations do not exist yet, so it hands its filters here as a configuration parameter. The
+   * invocation is disabled with {@link VarkaSuiteRunner#NOT_SELECTED}, which the listener
+   * neither prints nor counts, as ScalaTest's runner shows nothing of a test it filtered out.
+   */
+  @Override
+  public ConditionEvaluationResult evaluateExecutionCondition(ExtensionContext context) {
+    if (context.getTestMethod().isEmpty() || !isInvocation(context.getUniqueId())) {
+      return ConditionEvaluationResult.enabled("not a template invocation");
+    }
+    Optional<String> filters = context.getConfigurationParameter(
+        VarkaSuiteRunner.FILTERS_PARAMETER + context.getRequiredTestClass().getName());
+    if (filters.isEmpty() || VarkaSuiteRunner.selects(filters.get(), keyOf(context))) {
+      return ConditionEvaluationResult.enabled("selected");
+    }
+    return ConditionEvaluationResult.disabled(VarkaSuiteRunner.NOT_SELECTED);
+  }
 
   /** The minutes the watchdog gives each of {@code suite}'s tests: 0 for no watchdog. */
   static long capMinutes(VarkaSuite suite) {
