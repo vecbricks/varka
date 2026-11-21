@@ -257,7 +257,8 @@ public final class VarkaReproductionSuite {
     var two = new VarkaShapeKey(List.of(sharedChain(64)), 1, 0);
     assertTimeoutPreemptively(Duration.ofSeconds(5), () -> assertEquals(one, two));
     assertEquals(one.hashCode(), two.hashCode());
-    // A chain over another column differs at its foot, found without walking the paths.
+    // A chain over another column differs at its foot, and its root hash with it, so this
+    // only checks that a differing key is refused, not the walk past the hash.
     VarkaVectorIR other = new ColumnRef(1);
     for (int i = 0; i < 64; i++) {
       other = new IntArith(IntOp.ADD, Overflow.WRAP, other, other);

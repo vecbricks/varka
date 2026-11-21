@@ -1,0 +1,42 @@
+package org.apache.spark.sql.catalyst.expressions.codegen.varka;
+
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+class VarkaScratchEqualsSuite {
+  static VarkaVectorIR chain(int depth) {
+    VarkaVectorIR node = new VarkaVectorIR.ColumnRef(0);
+    for (int i = 0; i < depth; i++) {
+      node = new VarkaVectorIR.IntArith(VarkaVectorIR.IntOp.ADD, VarkaVectorIR.Overflow.WRAP,
+          node, node);
+    }
+    return node;
+  }
+
+  @Test
+  void time() {
+    var opts = VarkaEmitOptions.DEFAULTS.withMaxChainDepth(64);
+    var cache = new VarkaShapeCacheImpl(16);
+    for (int d : new int[] {8, 16, 20, 24, 28, 32, 48, 64}) {
+      var a = new VarkaShapeKey(List.of(chain(d)), 1, 0);
+      var b = new VarkaShapeKey(List.of(chain(d)), 1, 0);
+      long t0 = System.nanoTime();
+      boolean eq = a.equals(b);
+      System.out.println("SCRATCH equals depth=" + d + " equal=" + eq + " us="
+          + (System.nanoTime() - t0) / 1000);
+      var k1 = new VarkaShapeKey(List.of(chain(d)), 1, 0, opts);
+      var k2 = new VarkaShapeKey(List.of(chain(d)), 1, 0, opts);
+      try {
+        long m0 = System.nanoTime();
+        cache.getOrEmit(VarkaScratchEqualsSuite.class.getClassLoader(), k1, "scratch");
+        long m1 = System.nanoTime();
+        cache.getOrEmit(VarkaScratchEqualsSuite.class.getClassLoader(), k2, "scratch");
+        long m2 = System.nanoTime();
+        System.out.println("SCRATCH cache depth=" + d + " miss_ms=" + (m1 - m0) / 1_000_000
+            + " hit_ms=" + (m2 - m1) / 1_000_000 + " hits=" + cache.hitCount());
+      } catch (Throwable t) {
+        System.out.println("SCRATCH cache depth=" + d + " threw " + t.getClass().getSimpleName());
+      }
+    }
+  }
+}

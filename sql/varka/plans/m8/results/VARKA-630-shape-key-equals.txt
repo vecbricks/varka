@@ -1,8 +1,8 @@
 VARKA-630 part 2a: the time of VarkaShapeKey.equals, and of a shape-cache hit, on two
 disjoint copies of a shared chain, before and after sameStructure.
 
-Date: 21 November 2026, one laptop, one JVM, a scratch test (not committed; its source is at the
-end), run once per cell. These are single readings, not a benchmark.
+Date: 21 November 2026, one laptop, one JVM, a scratch test (its source is kept beside this file,
+not built), run once per cell. These are single readings, not a benchmark.
 
 The shape: level k adds level k-1 to itself (IntArith ADD, WRAP, over ColumnRef 0), so it has
 2^k paths and k+1 distinct nodes. The two keys are built by two separate calls and share no
@@ -45,4 +45,7 @@ reading reached before. The first row's 4.7 ms is class loading and JIT warm-up.
 Not measured: a shape that is not a chain (a wide DAG), the cost of sameStructure on a small
 shape where record equals is already one step, and the lane lifts (part 2b).
 
-Scratch test source: ~/varka-ops/scratch/VarkaScratchEqualsSuite.java at the time of writing.
+The scratch test is VARKA-630-shape-key-equals.scratch.txt in this directory: a JUnit class that
+was run from the test source tree and deleted, so the readings can be repeated by copying it back
+as VarkaScratchEqualsSuite.java; the before column ran the same loops with record equals, from
+the two-key equals loop of an earlier scratch of the same shape.

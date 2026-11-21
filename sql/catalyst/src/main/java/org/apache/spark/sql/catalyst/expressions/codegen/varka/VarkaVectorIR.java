@@ -18,7 +18,9 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.util.EnumSet;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Set;
 import java.util.List;
 import java.util.Locale;
@@ -2556,11 +2558,11 @@ public sealed interface VarkaVectorIR
    * child's tree length less the one character.
    */
   static long canonicalLength(VarkaVectorIR node) {
-    return canonicalLength(node, new java.util.IdentityHashMap<>());
+    return canonicalLength(node, new IdentityHashMap<>());
   }
 
   private static long canonicalLength(VarkaVectorIR node,
-      java.util.IdentityHashMap<VarkaVectorIR, Long> memo) {
+      IdentityHashMap<VarkaVectorIR, Long> memo) {
     Long known = memo.get(node);
     if (known != null) {
       return known;
@@ -2607,7 +2609,7 @@ public sealed interface VarkaVectorIR
    * distinct nodes, and recursive in the depth, which admission bounds.
    */
   static String canonicalDag(List<VarkaVectorIR> outputs) {
-    var idOfObject = new java.util.IdentityHashMap<VarkaVectorIR, Integer>();
+    var idOfObject = new IdentityHashMap<VarkaVectorIR, Integer>();
     var idOfLine = new java.util.HashMap<String, Integer>();
     StringBuilder text = new StringBuilder("dag\n");
     StringBuilder roots = new StringBuilder("roots");
@@ -2687,15 +2689,15 @@ public sealed interface VarkaVectorIR
    * {@code results/VARKA-630-shape-key-equals.txt}). This walks the pairs once: a differing class
    * or cached hash ends it at once, the children are compared first, each pair once, and a node is
    * then compared with {@code b} rebuilt over {@code a}'s children, which differs from {@code a}
-   * only in what a record holds besides its children. Where a rebuilt node would be refused the
-   * answer is "not equal", which costs a cache miss and never a wrong hit.
+   * only in what a record holds besides its children. Where a rebuilt node is refused it falls
+   * back to the record's own {@code equals}, which is right but may walk every path.
    */
   static boolean sameStructure(VarkaVectorIR a, VarkaVectorIR b) {
-    return sameStructure(a, b, new java.util.IdentityHashMap<>());
+    return sameStructure(a, b, new IdentityHashMap<>());
   }
 
   private static boolean sameStructure(VarkaVectorIR a, VarkaVectorIR b,
-      java.util.IdentityHashMap<VarkaVectorIR, Set<VarkaVectorIR>> equalPairs) {
+      IdentityHashMap<VarkaVectorIR, Set<VarkaVectorIR>> equalPairs) {
     if (a == b) {
       return true;
     }
@@ -2720,11 +2722,13 @@ public sealed interface VarkaVectorIR
     try {
       same = kidsA.length == 0 ? a.equals(b) : a.equals(withChildren(b, kidsA));
     } catch (IllegalArgumentException refused) {
-      return false;
+      // A constructor refused the rebuild: ask the record, which is right though it may walk
+      // every path. The test over every node type pins that no node type is refused.
+      same = a.equals(b);
     }
     if (same) {
       equalPairs.computeIfAbsent(a,
-          k -> java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())).add(b);
+          k -> Collections.newSetFromMap(new IdentityHashMap<>())).add(b);
     }
     return same;
   }
@@ -2734,7 +2738,7 @@ public sealed interface VarkaVectorIR
     if (a.size() != b.size()) {
       return false;
     }
-    var equalPairs = new java.util.IdentityHashMap<VarkaVectorIR, Set<VarkaVectorIR>>();
+    var equalPairs = new IdentityHashMap<VarkaVectorIR, Set<VarkaVectorIR>>();
     for (int i = 0; i < a.size(); i++) {
       if (!sameStructure(a.get(i), b.get(i), equalPairs)) {
         return false;
