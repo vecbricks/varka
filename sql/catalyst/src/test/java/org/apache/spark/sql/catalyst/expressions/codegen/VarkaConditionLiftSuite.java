@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolColumn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondIf;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
@@ -80,6 +81,22 @@ class VarkaConditionLiftSuite {
         .orElseThrow();
     assertEquals(LaneType.LONG, lifted.laneType());
     assertShared(lifted);
+  }
+
+  @Test
+  @DisplayName("a shared chain through CondIf lifts once, and a list of conjuncts shares one lift")
+  void condIfAndListLiftShareNodes() {
+    Cond c = new BoolColumn(0, LaneType.SHORT);
+    for (int i = 0; i < 64; i++) {
+      c = new CondIf(c, c, new Not(c));
+    }
+    Cond chain = c;
+    Cond lifted = assertTimeoutPreemptively(Duration.ofSeconds(10),
+        () -> VarkaConditionCompiler.onIntLane(chain));
+    CondIf root = (CondIf) lifted;
+    assertSame(root.cond(), root.thenCond());
+    var both = VarkaConditionCompiler.onIntLaneAll(java.util.List.of(chain, chain));
+    assertSame(both.get(0), both.get(1));
   }
 
   @Test

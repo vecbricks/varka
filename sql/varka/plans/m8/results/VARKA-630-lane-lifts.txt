@@ -36,5 +36,8 @@ The 16-level int-lane reading is the first call and includes class loading. The 
 separately. `VarkaChronoCompiler.rearm` rebuilds a value chain, not a condition, and was neither
 changed nor measured.
 
+The before column is a single reading from a run whose source is not committed (it is this
+loop plus a record-equals comparison of two lifts), so it cannot be reproduced from this branch.
+
 Not measured: a condition that is not a chain, and any query that reaches a shared condition.
 Whether Catalyst boolean expressions compile to a shared condition is not shown here.

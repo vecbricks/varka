@@ -442,7 +442,9 @@ final class VarkaConditionCompiler {
 
   /** {@code conds} on the int lane, each through {@link #onIntLane}. */
   static List<Cond> onIntLaneAll(List<Cond> conds) {
-    return conds.stream().map(VarkaConditionCompiler::onIntLane).toList();
+    // One memo for the list: a condition two conjuncts share is lifted once, into one object.
+    Map<Cond, Cond> memo = new IdentityHashMap<>();
+    return conds.stream().map(c -> onIntLane(c, memo)).toList();
   }
 
   /**
