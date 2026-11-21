@@ -66,6 +66,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -428,6 +429,7 @@ public final class VarkaIrGrammar {
       case WidenLane n -> boundsOf(n.child());
       // The grammar draws no floating tree outside its own conversion production.
       case ConvertLane n -> throw new IllegalArgumentException("a floating node: " + n);
+      case ReinterpretLane n -> throw new IllegalArgumentException("a floating node: " + n);
       case NarrowLane n -> {
         Bounds b = boundsOf(n.child());
         yield new Bounds(b.value() <= Integer.MAX_VALUE ? b.value() : 1L << 31, b.guarded());

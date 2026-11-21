@@ -944,6 +944,7 @@ final class VarkaChronoCompiler {
           VarkaVectorIR.DecimalWord _, LiteralSlot _, GuardedDay _,
           VarkaVectorIR.GuardedRange _,
           VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _, VarkaVectorIR.ConvertLane _,
+          VarkaVectorIR.ReinterpretLane _,
           VarkaVectorIR.WidenDecimal _,
           VarkaVectorIR.DateDiff _,
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, DayOfWeekIso _, VarkaVectorIR.Year _,

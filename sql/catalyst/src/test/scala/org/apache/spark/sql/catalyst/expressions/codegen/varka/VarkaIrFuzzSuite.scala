@@ -1216,11 +1216,13 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // The floating conversion (VARKA-343) and the lane crossing under it have their own draw, on
     // its own seed, so that no shape here moves: the floating cast test above runs it, and the
     // test after it asserts its reach.
+    // The reinterpretation (VARKA-345) is a floating node too, built by the fdlibm ports alone;
+    // `VarkaMathPortSuite` holds it and the port it serves to the reference and to StrictMath.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
       "BoolOutput" - "DecimalColumn" - "DecimalWord" - "NullValue" - "WidenDecimal" - "MathUnary" -
       "RoundToIntegral" - "CanonicalFloat" - "HashStep" - "CanonicalBits" -
-      "ConvertLane" - "CrossLane"
+      "ConvertLane" - "CrossLane" - "ReinterpretLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")

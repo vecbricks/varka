@@ -74,6 +74,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -971,6 +972,7 @@ final class Analysis {
             refuse(node, Refusal.VALUE_RANGE);
           }
         }
+        case ReinterpretLane n -> { }
         case NarrowLane n -> { }
         case WidenDecimal n -> { }
         case NextDay n -> { }
@@ -1093,7 +1095,7 @@ final class Analysis {
       // narrow AND, OR or XOR does, a compare or a shift right does not - instead of falling
       // into "not ring" and leaving an unreduced int value for its readers.
       case ColumnRef _, DecimalColumn _, DecimalWord _, LiteralSlot _, WidenLane _,
-          NarrowLane _, ConvertLane _,
+          NarrowLane _, ConvertLane _, ReinterpretLane _,
           WidenDecimal _, AddDays _, SubDays _, AddMonths _, MakeDate _, GuardedDay _,
           GuardedRange _, NextDay _,
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
@@ -1464,6 +1466,7 @@ final class Analysis {
           : wordOwner.get(n.child());
       case WidenLane n -> wordOwner.get(n.child());
       case ConvertLane n -> wordOwner.get(n.child());
+      case ReinterpretLane n -> wordOwner.get(n.child());
       case NarrowLane n -> wordOwner.get(n.child());
       case WidenDecimal n -> wordOwner.get(n.child());
       case Year n -> wordOwner.get(n.days());
@@ -1533,6 +1536,7 @@ final class Analysis {
       case GuardedRange n -> n.mode() == Overflow.NULL ? null : pureWord.get(n.child());
       case WidenLane n -> pureWord.get(n.child());
       case ConvertLane n -> pureWord.get(n.child());
+      case ReinterpretLane n -> pureWord.get(n.child());
       case NarrowLane n -> pureWord.get(n.child());
       case WidenDecimal n -> pureWord.get(n.child());
       case Year n -> pureWord.get(n.days());
@@ -1728,6 +1732,7 @@ final class Analysis {
       // The conversions: the child's value in the other lane, and the child's validity.
       case WidenLane n -> analyzeOp(node, false, n.child());
       case ConvertLane n -> analyzeOp(node, false, n.child());
+      case ReinterpretLane n -> analyzeOp(node, false, n.child());
       case NarrowLane n -> analyzeOp(node, false, n.child());
       // The decimal store interleaves long lanes into sixteen-byte slots: the root's value is its
       // child's, its validity the child's, and the kernel must be driven at the long lane, as a

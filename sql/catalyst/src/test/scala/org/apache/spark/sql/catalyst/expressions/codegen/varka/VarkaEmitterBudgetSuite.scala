@@ -440,6 +440,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new NarrowLane(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base),
       (new WidenLane(new IntNeg(Overflow.WRAP, c)), 1, 0, VarkaMatrix.base),
       (new ConvertLane(new IntNeg(Overflow.WRAP, c), LaneType.FLOAT), 1, 0, VarkaMatrix.base),
+      (new ReinterpretLane(new IntNeg(Overflow.WRAP, lc), LaneType.DOUBLE), 1, 0,
+        VarkaMatrix.base),
       (new CrossLane(new Compare(CompareOp.LT, c, c1), LaneType.LONG), 2, 0, VarkaMatrix.base),
       (new DecimalColumn(0, LaneType.LONG, 9), 1, 0, VarkaMatrix.base),
       // A 128-bit column's two words, which share one load and check a body (VARKA-359).
