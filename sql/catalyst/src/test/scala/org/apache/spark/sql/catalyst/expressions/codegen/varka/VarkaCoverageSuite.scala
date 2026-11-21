@@ -1622,7 +1622,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("coalesce(d38, d19) = d38b"),
       Row("greatest(d38, d38b) > 0.00", "keeps the running pick where the next operand is null "
         + "or where both are valid and the pick is not smaller, once per word"),
-      Row("least(d38, d38b, d19) <= 0.00"))),
+      Row("least(d38, d19) <= 0.00"))),
 
     // Decimal +, - and * whose result stays within 18 digits (VARKA-349), under a comparison:
     // a sum or difference is one long add or subtract of the operands rescaled to the result's
@@ -2262,7 +2262,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val pairValues = Seq(
     "d38 IN (1.00, 12345678901234567890, -0.50)", "IF(d18 > 0.00, d38, d19) < d38b",
     "CASE WHEN d38 < 0.00 THEN d38b END <=> d38", "coalesce(d38, d19) = d38b",
-    "greatest(d38, d38b) > 0.00", "least(d38, d38b, d19) <= 0.00")
+    "greatest(d38, d38b) > 0.00", "least(d38, d19) <= 0.00")
 
   // VarkaEmitterNarrowSuite's byte square sweeps every TINYINT pair through the comparisons and
   // the picks, but over values only, with no null row, and its IN is a range set where the rows

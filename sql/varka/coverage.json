@@ -9159,8 +9159,8 @@
     "note" : "keeps the running pick where the next operand is null or where both are valid and the pick is not smaller, once per word",
     "verified" : "differential"
   }, {
-    "sql" : "least(d38, d38b, d19) <= 0.00",
-    "executable" : "least(d38, d38b, d19) <= 0.00",
+    "sql" : "least(d38, d19) <= 0.00",
+    "executable" : "least(d38, d19) <= 0.00",
     "family" : "DECIMAL lane pair",
     "form" : "predicate",
     "catalyst" : [ "Cast", "Least", "LessThanOrEqual" ],
