@@ -731,11 +731,13 @@ final class VarkaDecimalCompiler {
         continue;
       }
       Pair b = v.get();
+      // acc and accValid are set together on the first operand, so accValid is set here.
+      Cond seen = Objects.requireNonNull(accValid);
       Cond keepAcc = new VarkaVectorIR.Or(new VarkaVectorIR.Not(ok.get()),
-          new VarkaVectorIR.And(accValid, DecimalWords.compare(keep, acc.lo(), acc.hi(), b.lo(),
+          new VarkaVectorIR.And(seen, DecimalWords.compare(keep, acc.lo(), acc.hi(), b.lo(),
               b.hi())));
       acc = chosen(keepAcc, acc, b, type);
-      accValid = new VarkaVectorIR.Or(accValid, ok.get());
+      accValid = new VarkaVectorIR.Or(seen, ok.get());
     }
     if (acc == null) {
       return sink.decline("a pick with no operand", whole);
