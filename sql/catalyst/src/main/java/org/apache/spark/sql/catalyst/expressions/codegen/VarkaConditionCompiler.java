@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
@@ -391,40 +392,58 @@ final class VarkaConditionCompiler {
    * without checking the lanes again.
    */
   static Cond onIntLane(Cond cond) {
+    return onIntLane(cond, new IdentityHashMap<>());
+  }
+
+  /**
+   * {@link #onIntLane(Cond)} with {@code memo}, the lift of each condition already met, by
+   * identity: a condition reached by several paths is lifted once and the copies share it, where
+   * a lift without it rebuilt a shared condition once per path (VARKA-630).
+   */
+  private static Cond onIntLane(Cond cond, IdentityHashMap<Cond, Cond> memo) {
     if (!cond.laneType().isNarrow()) {
       return cond;
     }
-    return switch (cond) {
+    Cond known = memo.get(cond);
+    if (known != null) {
+      return known;
+    }
+    Cond lifted = switch (cond) {
       case Compare c -> new Compare(c.op(), onIntValue(c.left()), onIntValue(c.right()));
       case VarkaVectorIR.NullSafeEqual c ->
           new VarkaVectorIR.NullSafeEqual(onIntValue(c.left()), onIntValue(c.right()));
       // Over a condition the test lifts with it; over a column it reads the column widened.
       case VarkaVectorIR.IsNotNull n -> n.child() instanceof Cond c
-          ? new VarkaVectorIR.IsNotNull(onIntLane(c))
+          ? new VarkaVectorIR.IsNotNull(onIntLane(c, memo))
           : new VarkaVectorIR.IsNotNull(onIntValue(n.child()));
       case InRanges r -> new InRanges(onIntValue(r.child()), r.bounds());
       case VarkaVectorIR.And a ->
-          new VarkaVectorIR.And(onIntLane(a.left()), onIntLane(a.right()));
+          new VarkaVectorIR.And(onIntLane(a.left(), memo), onIntLane(a.right(), memo));
       case VarkaVectorIR.Or o ->
-          new VarkaVectorIR.Or(onIntLane(o.left()), onIntLane(o.right()));
-      case VarkaVectorIR.Not n -> new VarkaVectorIR.Not(onIntLane(n.child()));
+          new VarkaVectorIR.Or(onIntLane(o.left(), memo), onIntLane(o.right(), memo));
+      case VarkaVectorIR.Not n -> new VarkaVectorIR.Not(onIntLane(n.child(), memo));
       case VarkaVectorIR.BoolColumn b -> new VarkaVectorIR.BoolColumn(b.ordinal(), LaneType.INT);
       case VarkaVectorIR.CondConst c -> new VarkaVectorIR.CondConst(c.value(), LaneType.INT);
       // A mask compared with a mask, at the lane its operands lift to, as on the long lane.
       case VarkaVectorIR.BoolCompare c ->
-          new VarkaVectorIR.BoolCompare(c.op(), onIntLane(c.left()), onIntLane(c.right()));
+          new VarkaVectorIR.BoolCompare(c.op(), onIntLane(c.left(), memo),
+              onIntLane(c.right(), memo));
       case VarkaVectorIR.BoolNullSafeEq c ->
-          new VarkaVectorIR.BoolNullSafeEq(onIntLane(c.left()), onIntLane(c.right()));
+          new VarkaVectorIR.BoolNullSafeEq(onIntLane(c.left(), memo), onIntLane(c.right(), memo));
       case VarkaVectorIR.CondIf c -> new VarkaVectorIR.CondIf(
-          onIntLane(c.cond()), onIntLane(c.thenCond()), onIntLane(c.elseCond()));
+          onIntLane(c.cond(), memo), onIntLane(c.thenCond(), memo), onIntLane(c.elseCond(), memo));
       // Never narrow, so the return above takes it; named so that the switch stays exhaustive.
       case VarkaVectorIR.CrossLane c -> c;
     };
+    memo.put(cond, lifted);
+    return lifted;
   }
 
   /** {@code conds} on the int lane, each through {@link #onIntLane}. */
   static List<Cond> onIntLaneAll(List<Cond> conds) {
-    return conds.stream().map(VarkaConditionCompiler::onIntLane).toList();
+    // One memo for the list: a condition two conjuncts share is lifted once, into one object.
+    IdentityHashMap<Cond, Cond> memo = new IdentityHashMap<>();
+    return conds.stream().map(c -> onIntLane(c, memo)).toList();
   }
 
   /**
@@ -628,6 +647,12 @@ final class VarkaConditionCompiler {
    * on the long lane, as the {@code isnotnull(i)} the optimizer infers beside {@code i < l}.
    */
   static Optional<Cond> onLongLane(Cond cond) {
+    return onLongLane(cond, new IdentityHashMap<>());
+  }
+
+  /** {@link #onLongLane(Cond)} with the memo of {@link #onIntLane(Cond, IdentityHashMap)}. */
+  private static Optional<Cond> onLongLane(Cond cond,
+      IdentityHashMap<Cond, Optional<Cond>> memo) {
     if (cond.laneType() == VarkaVectorIR.LaneType.LONG) {
       return Optional.of(cond);
     }
@@ -637,30 +662,35 @@ final class VarkaConditionCompiler {
     if (cond.laneType().isFloating()) {
       return Optional.empty();
     }
-    return switch (cond) {
+    Optional<Cond> known = memo.get(cond);
+    if (known != null) {
+      return known;
+    }
+    Optional<Cond> lifted = switch (cond) {
       case Compare c -> Optional.of(new Compare(c.op(), new VarkaVectorIR.WidenLane(c.left()),
           new VarkaVectorIR.WidenLane(c.right())));
       case VarkaVectorIR.NullSafeEqual c -> Optional.of(new VarkaVectorIR.NullSafeEqual(
           new VarkaVectorIR.WidenLane(c.left()), new VarkaVectorIR.WidenLane(c.right())));
       // Over a condition the test lifts with it; over a column it reads the column widened.
       case VarkaVectorIR.IsNotNull n -> n.child() instanceof Cond c
-          ? onLongLane(c).map(l -> (Cond) new VarkaVectorIR.IsNotNull(l))
+          ? onLongLane(c, memo).map(l -> (Cond) new VarkaVectorIR.IsNotNull(l))
           : Optional.of(new VarkaVectorIR.IsNotNull(new VarkaVectorIR.WidenLane(n.child())));
-      case VarkaVectorIR.And a -> onLongLane(a.left()).flatMap(l ->
-          onLongLane(a.right()).map(r -> (Cond) new VarkaVectorIR.And(l, r)));
-      case VarkaVectorIR.Or o -> onLongLane(o.left()).flatMap(l ->
-          onLongLane(o.right()).map(r -> (Cond) new VarkaVectorIR.Or(l, r)));
-      case VarkaVectorIR.Not n -> onLongLane(n.child()).map(c -> (Cond) new VarkaVectorIR.Not(c));
+      case VarkaVectorIR.And a -> onLongLane(a.left(), memo).flatMap(l ->
+          onLongLane(a.right(), memo).map(r -> (Cond) new VarkaVectorIR.And(l, r)));
+      case VarkaVectorIR.Or o -> onLongLane(o.left(), memo).flatMap(l ->
+          onLongLane(o.right(), memo).map(r -> (Cond) new VarkaVectorIR.Or(l, r)));
+      case VarkaVectorIR.Not n ->
+          onLongLane(n.child(), memo).map(c -> (Cond) new VarkaVectorIR.Not(c));
       case VarkaVectorIR.BoolColumn b -> Optional.of(new VarkaVectorIR.BoolColumn(
           b.ordinal(), LaneType.LONG));
       case VarkaVectorIR.CondConst c -> Optional.of(new VarkaVectorIR.CondConst(
           c.value(), LaneType.LONG));
-      case VarkaVectorIR.BoolCompare c -> onLongLane(c.left()).flatMap(l ->
-          onLongLane(c.right()).map(r -> (Cond) new VarkaVectorIR.BoolCompare(c.op(), l, r)));
-      case VarkaVectorIR.BoolNullSafeEq c -> onLongLane(c.left()).flatMap(l ->
-          onLongLane(c.right()).map(r -> (Cond) new VarkaVectorIR.BoolNullSafeEq(l, r)));
-      case VarkaVectorIR.CondIf c -> onLongLane(c.cond()).flatMap(k ->
-          onLongLane(c.thenCond()).flatMap(t -> onLongLane(c.elseCond()).map(
+      case VarkaVectorIR.BoolCompare c -> onLongLane(c.left(), memo).flatMap(l ->
+          onLongLane(c.right(), memo).map(r -> (Cond) new VarkaVectorIR.BoolCompare(c.op(), l, r)));
+      case VarkaVectorIR.BoolNullSafeEq c -> onLongLane(c.left(), memo).flatMap(l ->
+          onLongLane(c.right(), memo).map(r -> (Cond) new VarkaVectorIR.BoolNullSafeEq(l, r)));
+      case VarkaVectorIR.CondIf c -> onLongLane(c.cond(), memo).flatMap(k ->
+          onLongLane(c.thenCond(), memo).flatMap(t -> onLongLane(c.elseCond(), memo).map(
               e -> (Cond) new VarkaVectorIR.CondIf(k, t, e))));
       case InRanges r -> Optional.empty();
       // A crossing onto a floating lane leaves at the check above, which reads its target lane;
@@ -669,6 +699,8 @@ final class VarkaConditionCompiler {
       case VarkaVectorIR.CrossLane c -> Optional.of(c.child().laneType() == LaneType.LONG
           ? c.child() : new VarkaVectorIR.CrossLane(c.child(), LaneType.LONG));
     };
+    memo.put(cond, lifted);
+    return lifted;
   }
 
   /**
