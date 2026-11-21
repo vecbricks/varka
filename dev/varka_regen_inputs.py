@@ -85,7 +85,7 @@ def first_reason(changed, generated):
 def running_jdk():
     """java.runtime.version of the JVM sbt would start, read from `java`."""
     out = subprocess.run(
-        ["java", "-XshowSettings:property", "-version"], capture_output=True, text=True
+        ["java", "-XshowSettings:properties", "-version"], capture_output=True, text=True
     ).stderr
     m = re.search(r"java\.runtime\.version = (\S+)", out)
     return m.group(1) if m else None
