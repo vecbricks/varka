@@ -135,13 +135,14 @@ public final class VarkaMatrixRuns {
 
   /**
    * The options that change what C2 compiles a kernel against, not only its bytes: a second
-   * vector species in the JVM (the lane count, the half species) or the instructions C2 may use.
-   * The narrow store's form changes which calls a kernel makes, not the species or the
-   * instructions; its configuration reaches C2 through its table subject's
-   * {@code lanesOverride=4} ({@code VarkaEmitOption.TABLE}).
+   * vector species in the JVM (the lane count, the half species), the instructions C2 may use,
+   * or a construction of several Vector API calls in place of each {@code fromLong} intrinsic,
+   * which C2 compiles otherwise (VARKA-375). The narrow store's form changes which calls a
+   * kernel makes, not the species or the instructions; its configuration reaches C2 through its
+   * table subject's {@code lanesOverride=4} ({@code VarkaEmitOption.TABLE}).
    */
   public static final Set<String> C2_OPTIONS =
-      Set.of("lanesOverride", "narrowHalfSpecies", "useAVX");
+      Set.of("lanesOverride", "narrowHalfSpecies", "useAVX", "maskFromWord");
 
   /** Whether {@code config} sets an option of {@link #C2_OPTIONS}. */
   public static boolean changesC2(String config) {
@@ -346,7 +347,10 @@ public final class VarkaMatrixRuns {
     return (reason.startsWith(VarkaKernelPlan.NO_BAKED_INT_LANES)
             && Lane.emitLanes(options, Lane.INT) == 0)
         || (reason.startsWith(VarkaKernelPlan.NO_BAKED_LONG_LANES)
-            && Lane.emitLanes(options, Lane.LONG) == 0);
+            && Lane.emitLanes(options, Lane.LONG) == 0)
+        // A per-lane math call is unrolled over the double lanes, so it needs them baked too.
+        || (reason.startsWith(VarkaKernelPlan.NO_BAKED_LANES_FOR_A_CALL)
+            && Lane.emitLanes(options, Lane.DOUBLE) == 0);
   }
 
   // ---------------------------------------------------------------------------------------------

@@ -7,14 +7,13 @@ Class-File API, running the Vector API over zero-copy views of Arrow columnar
 buffers - behind one config flag, falling back to stock Spark per batch on
 anything the engine cannot serve. A Varka failure never fails a query.
 
-The current scope is date arithmetic (`date_add`, `date_sub`, `datediff`,
-`CASE WHEN`/`IF` over date comparisons, `greatest`/`least`,
-`dayofweek`/`weekday`, and since VARKA-26 the calendar extractions
-`year`/`month`/`dayofmonth`/`quarter`) and, since VARKA-21, date filters
-(`BETWEEN`, `IN`, `IS [NOT] NULL` and their `AND`/`OR` combinations as mask
-kernels) over
-Arrow-cached data - deep enough to exercise real fusion, small enough to
-measure honestly.
+The scope is no longer only dates. The census of Spark's expressions
+(`sql/varka/plans/m8/census.tsv`, summarised by `dev/varka_census.py --summary`)
+tracks thirteen types: BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, FLOAT, DOUBLE,
+DECIMAL, DATE, TIME, TIMESTAMP_NTZ and the year-month and day-time intervals. For
+each expression and type it records what fuses today and what is still to build,
+and the coverage is uneven across the types. Whether one expression is covered is
+answered by the generated coverage table below, not by this paragraph.
 
 ## Main ideas
 

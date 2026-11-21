@@ -144,7 +144,7 @@ final class VarkaSizeAdmission {
       String hash = VarkaShapeCache.shapeHash(key);
       var ir = new StringBuilder();
       for (VarkaVectorIR output : key.outputs()) {
-        ir.append(ir.length() > 0 ? ", " : "").append(VarkaVectorIR.canonical(output));
+        ir.append(ir.length() > 0 ? ", " : "").append(VarkaVectorIR.canonicalExact(output));
       }
       var ctx = new VarkaErrorContext(VarkaErrorContext.PLANNING,
           VarkaShapeCache.sourceFileFor(hash) + " [" + ir + "] (planning)", hash,

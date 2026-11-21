@@ -1,0 +1,16 @@
+Row 628's laptop experiment, 21 November 2026. VarkaChainDepthBenchmark at depth 16 on the laptop under
+-XX:UseAVX=2 -XX:MaxVectorSize=16 (the 7763's AVX2 instruction set at 128-bit vectors; a shared machine,
+so directions), with a local, uncommitted switch for the maskFromWord emit option. Per row, in ns.
+
+BIGINT depth 16        fused    Spark row path    scalar loop
+maskFromWord off       55.8     8.0               2.9
+maskFromWord on        54.0     7.9               2.9
+
+The fused arm is about 7 times slower than the row path with the option off and on, as the runner reads
+(120.4 against 18.8). `-XX:+PrintIntrinsics` on the same run prints, for the two-lane long compare and
+mask:
+
+** not supported: arity=2 op=comp/0 vlen=2 etype=long ismask=usestore
+** not supported: arity=0 op=broadcast vlen=2 etype=long ismask=1 bcast_mode=0
+** not supported: arity=2 op=test/4 vlen=2 etype=long ismask=1
+** not supported: arity=0 op=broadcast vlen=2 etype=long ismask=1 bcast_mode=0

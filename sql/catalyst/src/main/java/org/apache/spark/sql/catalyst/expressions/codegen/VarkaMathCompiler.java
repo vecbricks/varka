@@ -16,10 +16,19 @@
  */
 package org.apache.spark.sql.catalyst.expressions.codegen;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import javax.annotation.Nullable;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathFn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 
 import org.apache.spark.sql.catalyst.expressions.Acos;
 import org.apache.spark.sql.catalyst.expressions.Acosh;
@@ -57,11 +66,16 @@ import org.apache.spark.sql.catalyst.expressions.Tanh;
  * <p>By default each function fuses bit for bit Spark's answer, in an exact form its row of the
  * plan defines ({@code VARKA-345.md} 2.1); with
  * {@code spark.sql.codegen.varka.math.ulpContract.enabled} a function may instead take the vector
- * math library within a contracted bound (2.5). No function fuses yet: the family claims each
- * class so that {@code floatingDecline} lets it through to a reason of its own, and each declines
- * naming the row that fuses it - 356 the trigonometric functions, 357 the hyperbolic ones, 358
- * the exponential, logarithmic, power and root ones ({@code VARKA-356.md} 2.1). A row that fuses
- * a function replaces its reason here with its lowering.
+ * math library within a contracted bound (2.5). The family claims each class so that
+ * {@code floatingDecline} lets it through, and a function not yet built declines naming the row
+ * that fuses it - 356 the trigonometric functions, 357 the hyperbolic ones, 358 the exponential,
+ * logarithmic, power and root ones ({@code VARKA-356.md} 2.1).
+ *
+ * <p>Fused: {@code sin}, {@code cos}, {@code tan}, {@code asin}, {@code acos} and {@code atan},
+ * each a {@link MathUnary} whose lanes call the method Spark's code calls; and {@code sec},
+ * {@code csc} and {@code cot} as Spark writes them, {@code 1 / Math.cos(c)} and the rest: Java's
+ * division of doubles, never Spark's {@code Divide}, so a zero divisor answers an infinity and is
+ * no null, which is the floating division in {@code WRAP} over the call.
  */
 final class VarkaMathCompiler {
 
@@ -72,9 +86,42 @@ final class VarkaMathCompiler {
   record Owner(String function, int row) {
     /** The reason the function declines with until its row lands. */
     String reason() {
-      return function + " is row " + row + "'s: no math function fuses yet";
+      return function + " is row " + row + "'s: not fused yet";
     }
   }
+
+  /**
+   * The 26 classes and their functions' owners, in the order of {@code VARKA-356.md} 2.1. A table
+   * of classes rather than a {@code switch}, so that {@code VarkaCoverageSuite}'s scan of this
+   * file counts as admitted only the classes {@link #arm} lowers.
+   */
+  private static final List<Map.Entry<Class<? extends Expression>, Owner>> OWNERS = List.of(
+      Map.entry(Sin.class, new Owner("sin", 356)),
+      Map.entry(Cos.class, new Owner("cos", 356)),
+      Map.entry(Tan.class, new Owner("tan", 356)),
+      Map.entry(Asin.class, new Owner("asin", 356)),
+      Map.entry(Acos.class, new Owner("acos", 356)),
+      Map.entry(Atan.class, new Owner("atan", 356)),
+      Map.entry(Atan2.class, new Owner("atan2", 356)),
+      Map.entry(Sec.class, new Owner("sec", 356)),
+      Map.entry(Csc.class, new Owner("csc", 356)),
+      Map.entry(Cot.class, new Owner("cot", 356)),
+      Map.entry(Sinh.class, new Owner("sinh", 357)),
+      Map.entry(Cosh.class, new Owner("cosh", 357)),
+      Map.entry(Tanh.class, new Owner("tanh", 357)),
+      Map.entry(Asinh.class, new Owner("asinh", 357)),
+      Map.entry(Acosh.class, new Owner("acosh", 357)),
+      Map.entry(Atanh.class, new Owner("atanh", 357)),
+      Map.entry(Exp.class, new Owner("exp", 358)),
+      Map.entry(Expm1.class, new Owner("expm1", 358)),
+      Map.entry(Log.class, new Owner("ln", 358)),
+      Map.entry(Logarithm.class, new Owner("log", 358)),
+      Map.entry(Log10.class, new Owner("log10", 358)),
+      Map.entry(Log1p.class, new Owner("log1p", 358)),
+      Map.entry(Log2.class, new Owner("log2", 358)),
+      Map.entry(Pow.class, new Owner("pow", 358)),
+      Map.entry(Hypot.class, new Owner("hypot", 358)),
+      Map.entry(Cbrt.class, new Owner("cbrt", 358)));
 
   /**
    * The function {@code e} computes and its row, or empty for a node that is not one of the 26
@@ -83,36 +130,12 @@ final class VarkaMathCompiler {
    * the analyzer has cast any other operand before a plan reaches the compiler.
    */
   static Optional<Owner> ownerOf(Expression e) {
-    Owner owner = switch (e) {
-      case Sin _ -> new Owner("sin", 356);
-      case Cos _ -> new Owner("cos", 356);
-      case Tan _ -> new Owner("tan", 356);
-      case Asin _ -> new Owner("asin", 356);
-      case Acos _ -> new Owner("acos", 356);
-      case Atan _ -> new Owner("atan", 356);
-      case Atan2 _ -> new Owner("atan2", 356);
-      case Sec _ -> new Owner("sec", 356);
-      case Csc _ -> new Owner("csc", 356);
-      case Cot _ -> new Owner("cot", 356);
-      case Sinh _ -> new Owner("sinh", 357);
-      case Cosh _ -> new Owner("cosh", 357);
-      case Tanh _ -> new Owner("tanh", 357);
-      case Asinh _ -> new Owner("asinh", 357);
-      case Acosh _ -> new Owner("acosh", 357);
-      case Atanh _ -> new Owner("atanh", 357);
-      case Exp _ -> new Owner("exp", 358);
-      case Expm1 _ -> new Owner("expm1", 358);
-      case Log _ -> new Owner("ln", 358);
-      case Logarithm _ -> new Owner("log", 358);
-      case Log10 _ -> new Owner("log10", 358);
-      case Log1p _ -> new Owner("log1p", 358);
-      case Log2 _ -> new Owner("log2", 358);
-      case Pow _ -> new Owner("pow", 358);
-      case Hypot _ -> new Owner("hypot", 358);
-      case Cbrt _ -> new Owner("cbrt", 358);
-      default -> null;
-    };
-    return Optional.ofNullable(owner);
+    for (var entry : OWNERS) {
+      if (entry.getKey().isInstance(e)) {
+        return Optional.of(entry.getValue());
+      }
+    }
+    return Optional.empty();
   }
 
   /** The family's claim, or null. */
@@ -121,7 +144,44 @@ final class VarkaMathCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    return ownerOf(e).<VarkaFamilyArm>map(owner -> () -> sink.decline(owner.reason(), e))
-        .orElse(null);
+    return switch (e) {
+      case Sin f -> () -> call(MathFn.SIN, f.child(), inputs, literals, sink);
+      case Cos f -> () -> call(MathFn.COS, f.child(), inputs, literals, sink);
+      case Tan f -> () -> call(MathFn.TAN, f.child(), inputs, literals, sink);
+      case Asin f -> () -> call(MathFn.ASIN, f.child(), inputs, literals, sink);
+      case Acos f -> () -> call(MathFn.ACOS, f.child(), inputs, literals, sink);
+      case Atan f -> () -> call(MathFn.ATAN, f.child(), inputs, literals, sink);
+      case Sec f -> () -> reciprocal(MathFn.COS, f.child(), inputs, literals, sink);
+      case Csc f -> () -> reciprocal(MathFn.SIN, f.child(), inputs, literals, sink);
+      case Cot f -> () -> reciprocal(MathFn.TAN, f.child(), inputs, literals, sink);
+      default -> ownerOf(e).<VarkaFamilyArm>map(owner -> () -> sink.decline(owner.reason(), e))
+          .orElse(null);
+    };
+  }
+
+  /**
+   * {@code fn(x)}, a per-lane call over the double operand. The class's input type is
+   * {@code DOUBLE}, so an operand of another type arrives under the analyzer's cast and fuses
+   * where the floating casts family lowers it.
+   */
+  private static Optional<VarkaVectorIR> call(MathFn fn, Expression x, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    Optional<VarkaVectorIR> operand = VarkaNodeCompiler.compileNode(x, inputs, literals, sink);
+    if (operand.isPresent() && operand.get().laneType() != LaneType.DOUBLE) {
+      return sink.decline("a math operand computed on the " + operand.get().laneType()
+          + " lane", x);
+    }
+    return operand.map(v -> new MathUnary(fn, v));
+  }
+
+  /**
+   * {@code 1 / fn(x)}, Spark's {@code sec}, {@code csc} and {@code cot}: Java's {@code /} on
+   * doubles, the literal {@code 1} on the left as Spark writes it, so {@code csc(0.0)} is
+   * {@code +inf} and {@code csc(-0.0)} {@code -inf}.
+   */
+  private static Optional<VarkaVectorIR> reciprocal(MathFn fn, Expression x,
+      VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    return call(fn, x, inputs, literals, sink).map(v -> new IntArith(IntOp.DIV, Overflow.WRAP,
+        VarkaNodeCompiler.doubleSlot(1.0, sink), v));
   }
 }
