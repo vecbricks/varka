@@ -1,0 +1,26 @@
+VARKA-375: dev/varka_canary/MathLaneProbe.java fromlong, the maskcost lines, on the laptop.
+
+Host: AMD Ryzen AI 9 HX PRO 370 (Zen 5, AVX-512), JDK 25.0.5.0.3+1-3-26.04.1-Ubuntu.
+Date: 20 November 2026, about 01:30 UTC, worktree varka-375-mask-from-long-arm off 342ed6851f8.
+Machine state: NOT idle - load average 37.8 on 24 threads from other agents' test JVMs. The
+bytes a word are a property of the compiled code and do not depend on load; the nanoseconds a
+word do, and are kept only as the run printed them, not as a measurement (sql/varka/AGENTS.md,
+"Measurements, not adjectives").
+
+Command, once at the JVM's width and once at 128 bits:
+  java --add-modules jdk.incubator.vector dev/varka_canary/MathLaneProbe.java fromlong
+  java -XX:MaxVectorSize=16 --add-modules jdk.incubator.vector \
+    dev/varka_canary/MathLaneProbe.java fromlong
+
+Output (the WARNING line about the incubator module removed):
+
+arch=amd64 jvm=25.0.5.0.3+1-3-26.04.1-Ubuntu UseAVX=3 MaxVectorSize=64 species double=8 library=default; VectorMask.fromLong over Species[double, 8, S_512_BIT] and Species[byte, 16, S_128_BIT], sink=269608164000
+maskcost fromLong         0.00 bytes/word     1.20 ns/word (a blend at Species[double, 8, S_512_BIT] and Species[byte, 16, S_128_BIT])
+maskcost maskFromWord     0.00 bytes/word     2.35 ns/word (a blend at Species[double, 8, S_512_BIT] and Species[byte, 16, S_128_BIT])
+arch=amd64 jvm=25.0.5.0.3+1-3-26.04.1-Ubuntu UseAVX=3 MaxVectorSize=16 species double=2 library=default; VectorMask.fromLong over Species[double, 2, S_128_BIT] and Species[byte, 16, S_128_BIT], sink=269583674000
+maskcost fromLong       162.18 bytes/word   125.35 ns/word (a blend at Species[double, 2, S_128_BIT] and Species[byte, 16, S_128_BIT])
+maskcost maskFromWord   296.01 bytes/word   161.04 ns/word (a blend at Species[double, 2, S_128_BIT] and Species[byte, 16, S_128_BIT])
+
+Reading: at 512 bits neither form allocates. At 128 bits the double species has two 64-bit lanes,
+which x86 C2 gives no mask lowering (m7 row 374), and both forms are the Java fallback; the
+construction allocates more, since its compare and its cast make two-lane masks as well.

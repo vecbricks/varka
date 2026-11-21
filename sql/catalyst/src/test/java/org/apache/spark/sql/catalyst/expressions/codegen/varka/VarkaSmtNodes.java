@@ -94,6 +94,9 @@ final class VarkaSmtNodes {
       entry(BitCount.class, "a popcount has no linear integer meaning"),
       entry(MathUnary.class, "a floating function: the prelude has no double as a value"),
       entry(RoundToIntegral.class, "a rounding of the double lane: the prelude has no double"),
+      entry(CanonicalFloat.class, "a floating canonicalisation: the prelude has no float"),
+      entry(CanonicalBits.class, "the bits of a floating value: the prelude has no float"),
+      entry(HashStep.class, "a hash step: its multiplies are no linear integer term"),
       entry(ConvertLane.class, "a conversion to or from a floating lane"),
       entry(CrossLane.class, "a condition moved between lanes; no decimal shape builds one"),
       entry(InRanges.class, "a range set of the int lane; no decimal shape builds one"),
@@ -265,7 +268,9 @@ final class VarkaSmtNodes {
           ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
           TruncDate _, TruncDateDynamic _, WeekOfYear _, AddMonths _, MakeDate _, GuardedDay _,
           ConstDivide _, BoundedDivide _, BitCount _, MathUnary _, RoundToIntegral _, ConvertLane _,
-          CrossLane _, InRanges _, BoolCompare _, BoolNullSafeEq _ -> throw refused(node);
+          CrossLane _, InRanges _, BoolCompare _, BoolNullSafeEq _, CanonicalFloat _,
+          CanonicalBits _, HashStep _ ->
+          throw refused(node);
     };
   }
 

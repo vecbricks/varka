@@ -529,10 +529,9 @@ public final class VarkaShapeCacheImpl {
    * bytes under a name the C1-exclusion directive matches.
    */
   public static String shapeHash(VarkaShapeKey key) {
-    StringBuilder canonical = new StringBuilder();
-    for (VarkaVectorIR output : key.outputs()) {
-      canonical.append(VarkaVectorIR.canonical(output)).append('\n');
-    }
+    // The tree renderings of every output where they are short, as they always were, and the DAG
+    // of the outputs where a shared chain would render exponentially (VARKA-630).
+    StringBuilder canonical = new StringBuilder(VarkaVectorIR.shapeText(key.outputs()));
     canonical.append(key.numInputs()).append('|').append(key.numLiterals());
     canonical.append(key.options().canonical());
     String hex = JavaUtils.sha256Hex(canonical.toString()).substring(0, 16);
