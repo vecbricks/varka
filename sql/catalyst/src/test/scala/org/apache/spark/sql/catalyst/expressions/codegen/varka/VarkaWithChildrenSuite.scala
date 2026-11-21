@@ -76,7 +76,9 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     // The hash step and a canonical value's bits (VARKA-337) have no production yet
     // (`VARKA-337.md` 10), and are rebuilt directly below. Nor the reinterpretation (VARKA-345),
     // which the fdlibm ports build.
-    val undrawn = permitted -- seen - "NullSafeEqual" - "BoolColumn" - "CondConst" -
+    // The guarded product (VARKA-611) is drawn by its own sequence, and rebuilt directly below.
+    val undrawn = permitted -- seen - "GuardedProduct" - "NullSafeEqual" - "BoolColumn" -
+      "CondConst" -
       "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" - "DecimalColumn" -
       "DecimalWord" - "MathUnary" - "RoundToIntegral" - "CanonicalFloat" - "ConvertLane" -
       "HashStep" - "CanonicalBits" - "ReinterpretLane" -
@@ -189,6 +191,16 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     assert(VarkaVectorIR.canonical(new ConvertLane(i, LaneType.FLOAT)).startsWith("(convert:FLOAT"))
     intercept[Exception](VarkaVectorIR.withChildren(new ConvertLane(i, LaneType.DOUBLE),
       new ColumnRef(2, LaneType.DOUBLE)))
+  }
+
+  test("a guarded product is rebuilt over its own two operands, in order") {
+    val x = new ColumnRef(0, LaneType.LONG)
+    val y = new ColumnRef(1, LaneType.LONG)
+    val product = new GuardedProduct(x, y)
+    assert(VarkaVectorIR.withChildren(product, VarkaVectorIR.childrenOf(product): _*) == product)
+    assert(VarkaVectorIR.withChildren(product, y, x) == new GuardedProduct(y, x))
+    assert(VarkaVectorIR.canonical(product).startsWith("(guardedMul"))
+    intercept[Exception](VarkaVectorIR.withChildren(product, x))
   }
 
   test("a replacement is rebuilt in place, the node's other fields kept") {

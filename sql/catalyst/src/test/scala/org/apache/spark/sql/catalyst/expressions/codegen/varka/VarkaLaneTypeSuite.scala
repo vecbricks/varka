@@ -104,7 +104,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     classOf[IntArith], classOf[IntNeg], classOf[Greatest], classOf[Least], classOf[IfElse],
     classOf[Compare], classOf[NullSafeEqual], classOf[And], classOf[Or], classOf[Not],
     classOf[IsNotNull], classOf[BoolCompare], classOf[CondIf], classOf[BoolNullSafeEq],
-    classOf[ConstDivide], classOf[GuardedRange], classOf[BitOp], classOf[BitCount],
+    classOf[ConstDivide], classOf[GuardedRange], classOf[GuardedProduct], classOf[BitOp],
+    classOf[BitCount],
     classOf[CondValue], classOf[BoolOutput],
     // A hash step's lane is its primitive's, and a floating value's bits are at its width.
     classOf[HashStep], classOf[CanonicalBits])
@@ -481,6 +482,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "IfElse" => new IfElse(new IsNotNull(c), c, c1)
         case "GuardedDay" => new GuardedDay(c)
         case "GuardedRange" => new GuardedRange(c, -10, 10)
+        // A long value from two long columns whatever the row (VARKA-611).
+        case "GuardedProduct" => new GuardedProduct(new ColumnRef(0, LaneType.LONG),
+          new ColumnRef(1, LaneType.LONG))
         // Always over a long child, whatever `lane` says: the node is an int value computed in
         // the long lane, so it is the one type that reaches the emitter from both rows below
         // and is emitted at the long species either way.
@@ -562,7 +566,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",
       "Compare", "NullSafeEqual", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide",
       "BoolColumn", "CondConst", "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue",
-      "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
+      "BoolOutput", "GuardedRange", "GuardedProduct", "NarrowLane", "WidenLane", "BitOp",
+      "BitCount",
       "DecimalColumn", "DecimalWord", "NullValue", "WidenDecimal", "ConvertLane", "CrossLane",
       "HashStep", "CanonicalBits", "ReinterpretLane"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +

@@ -103,6 +103,8 @@ public final class VarkaReproductionSuite {
         new NarrowLane(new ConstDivide(new GuardedRange(
             new IntArith(IntOp.ADD, Overflow.WRAP, x, new LiteralSlot(0, LaneType.LONG)),
             -1000L, 86_400_000_000_000L), 1000L, ConstDivide.EXACT_DIVIDEND_BOUND)),
+        // The guarded product of two long columns (VARKA-611).
+        new GuardedProduct(x, new ColumnRef(0, LaneType.LONG)),
         // A decimal column beside an int one widened to its lane.
         new IntArith(IntOp.ADD, Overflow.WRAP, new DecimalColumn(2, LaneType.LONG, 9),
             new WidenLane(new ColumnRef(0), LaneType.LONG)),
