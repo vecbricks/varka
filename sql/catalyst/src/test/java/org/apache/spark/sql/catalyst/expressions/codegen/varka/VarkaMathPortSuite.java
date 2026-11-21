@@ -81,13 +81,17 @@ public final class VarkaMathPortSuite {
   }
 
   /**
-   * The matrix's configuration under test with the two budgets a port's size needs put back: an
-   * option arm of {@code maxChainDepth} 16 or 32, or of a small or zero {@code methodByteBudget},
-   * declines {@code exp} by design (36 levels, 68 ops), which its own tests below state.
+   * The matrix's configuration under test with what a port's size needs put back: an option arm
+   * of {@code maxChainDepth} 16 or 32, or of a small or zero {@code methodByteBudget}, declines
+   * {@code exp} by design (36 levels, 68 ops), which its own tests below state. So does the arm
+   * with {@code cse} off, which the port is written for: its words and reductions are shared
+   * nodes, and without sharing the 68 distinct ops expand into methods of about 15 KB, over the
+   * 8000-byte budget that HotSpot compiles (measured: {@code loopDense0} 14620 bytes).
    */
   private static VarkaEmitOptions portBase() {
     return VarkaMatrixRuns.BASE.withMaxChainDepth(VarkaEmitBudget.AUTO_CHAIN_DEPTH)
-        .withMethodByteBudget(VarkaEmitOptions.DEFAULTS.methodByteBudget());
+        .withMethodByteBudget(VarkaEmitOptions.DEFAULTS.methodByteBudget())
+        .withCse(true);
   }
 
   private static String hex(double v) {
