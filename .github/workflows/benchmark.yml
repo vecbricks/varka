@@ -698,10 +698,23 @@ jobs:
         mkdir -p target/kernel-history
         cpu="$(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //')"
         echo "$cpu" > "target/kernel-history/cpu-$SPLIT.txt"
+        # With `pr`, the launcher is the pull request's own, since it builds that tree; one cut
+        # before --fork-base existed would fail every shard on its usage line, so say so first.
+        if ! grep -q -- '--fork-base' dev/varka_kernel_history.sh; then
+          echo "::error::this checkout's dev/varka_kernel_history.sh has no --fork-base;" \
+            "merge the base branch into the pull request first"
+          exit 1
+        fi
+        # A guard that fails the launcher must not lose the shard's renamed logs: the merged
+        # reading takes one summary and one provenance file per shard, by name.
+        status=0
         dev/varka_kernel_history.sh "${args[@]}" "${jvm[@]}" \
-          --fork-base "$(( (SPLIT - 1) * forks ))" --out target/kernel-history
-        mv target/kernel-history/provenance.txt "target/kernel-history/provenance-$SPLIT.txt"
-        mv target/kernel-history/summary.txt "target/kernel-history/summary-$SPLIT.txt"
+          --fork-base "$(( (SPLIT - 1) * forks ))" --out target/kernel-history || status=$?
+        for f in provenance summary; do
+          [ -f "target/kernel-history/$f.txt" ] \
+            && mv "target/kernel-history/$f.txt" "target/kernel-history/$f-$SPLIT.txt"
+        done
+        exit "$status"
     - name: Upload the shard's logs
       if: always()
       uses: actions/upload-artifact@v7
