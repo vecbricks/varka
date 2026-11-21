@@ -960,14 +960,15 @@ rows #1567 landed hold one, each naming its exact form, so both generated files 
    "the IR has no `LIBRARY` node" holds trivially and is not claimed; 3.5's planted kernel lane
    through the coverage differential needs a math row and moves to 345b with 3.3.
 
-### 10.2 345b: the `PORT` frame and `exp` as its template, in two stacked parts (20 November 2026)
+### 10.2 345b: the `PORT` frame, and `exp` as its template in a second part (20 November 2026)
 
 Built in the owner's absence, as the part the brief named: the expansion frame that writes a
 ported function's operation sequence as IR nodes inside the kernel (open point 10, option (b)),
 and `exp` on it, exact to `StrictMath.exp`. It did not fit one pull request under the cap (1368
-counted lines), so it is two, stacked on 345a2 (`varka-345a2-recut`): **345b1** (branch
-`varka-345b-port-frame`), the frame, and **345b2** (`varka-345b2-exp`, on top of it), `exp`.
-Section 5 item 3's other pieces are in neither (see "Left" below).
+counted lines), so it is two, stacked on 345a2: **345b1**, the frame, which is this record, and
+**345b2**, `exp` on it, whose record (what it built, what was measured, the decisions taken)
+comes with its own pull request, since the code it describes is not in this one. Section 5
+item 3's other pieces are in neither.
 
 **345b1, as built.**
 
@@ -988,73 +989,12 @@ Section 5 item 3's other pieces are in neither (see "Left" below).
   raw bits, 2^24 lanes a word helper and 2^21 a compare (23 compares at eight high words from 0
   to `0x7fffffff`, NaN lanes included, as `vfdlibm`'s lemma L3 covers them).
 
-**345b2, as built.**
+**Left of section 5 items 3 and 4.** `exp` on the frame (345b2), the `LANE_CALL` and `LIBRARY`
+lowerings and the dead-lane blend (356 builds `LANE_CALL` on its branch), `MathBinary`, the test
+hook, the vector files' format under `sql/varka/math/`, question 2's classification (3.8), the
+`--asm` half of 3.1, 3.3, 3.7, the `mathPort` option, the branch measurement of 2.4, and the
+port's speed on the runners.
 
-- `exp` on the frame, node for node `vfdlibm`'s `Exp.expBlended`: every branch computed in every
-  lane and blended, so no lane is finished by a call; the C's three planted faults of
-  `vfdlibm` (`exp.dropCorrection`, `constantOffByOneUlp`, `thresholdMoved`) as a package-private
-  `Fault` argument, so the production expansion has none.
-- `D2I` admitted: `VarkaKernelPlan.conversionRefusal` lets `DOUBLE` to `INT` through, alone of
-  the conversions to an integral lane, and `emitShapeConversion` lowers it as `convertShape`
-  part 0, Java's `(int)` on every host (343's item 0: x86 fixes NaN to 0 and saturates, aarch64's
-  `fcvtzs` does the same). No compiler arm builds it for a SQL cast, so no SQL answer moves.
-- `VarkaEmitBudget.MAX_PORT_CHAIN_DEPTH`, 64, the depth cap of an output holding a port in
-  `MAX_CHAIN_DEPTH`'s (16) place: `exp`'s expansion is 36 deep (its polynomial alone ten), and
-  the first run declined it as "chain deeper than MAX_CHAIN_DEPTH=16". An output holds a port
-  exactly when it holds a `ReinterpretLane`, which only the ports build, so no fuzz draw and no
-  SQL shape sees the other cap, and `fitsBudgets` reads the same rule as `Analysis`.
-- The library's test-scope copy: `vfdlibm`'s eight main sources at commit `0b31cd1e9a2c` under
-  `sql/catalyst/src/test/java/io/github/vecbricks/vfdlibm/`, unchanged, with
-  `sql/varka/math/vfdlibm-copy.tsv` recording the commit and each file's SHA-256, written by
-  `dev/varka_vfdlibm_sync.py`, whose `--check --from <clone>` compares the copy with the library
-  at that commit.
-- `VarkaMathPortSuite` gains 2.3's tests 1 and 2 for `exp`: the sampled differential over the
-  four draws (2^24 inputs), and the fixed vectors (each threshold of `e_exp.c` in both signs with
-  its 64 neighbours each way, the subnormal scale-back's start, SLEEF's special values and eight
-  NaN patterns, 4136 inputs) at 2, 4 and 8 lanes over four null patterns and four lengths, each
-  lane against `StrictMath.exp`, `VFdlibm.exp` and `Exp.expBlended` by raw bits; the reference
-  evaluator over the port's tree; each planted fault caught; the constants' words; the depth
-  against both caps; and the copy's digests against the manifest.
-
-**Measured (laptop, 20 November 2026).** The suite passes, every `exp` lane bit-identical to all
-three oracles, NaN payloads included; it runs in 20.5 s in its own JVM. The emitted port's speed
-against `LANE_CALL` of `StrictMath.exp` (section 5 item 4, done-when) is not measured: the
-`LANE_CALL` lowering is row 356's, unmerged, and the runners are the coordinator's to dispatch.
-Owed: that pair on the EPYC runners at 256 and 128 bits once 356 merges.
-
-**Decisions taken while the owner was away (20 November 2026).**
-
-1. *Which of `vfdlibm`'s two `exp` arms the port emits.* The blended one. `VFdlibm.exp` finishes
-   its rare lanes (the filter and the subnormal scale-back) by a per-lane `StrictMath.exp`, which
-   in Varka's IR is the `LANE_CALL` lowering; that lowering is row 356's (PR #1567, unmerged), so
-   a finish arm now would build a second one beside it. The blended arm needs no call and is
-   proven the same in `vfdlibm`'s `PROOFS.md`. The finish arm is the measured alternative the
-   port gains once `LANE_CALL` is on master (2.4's rule decides between them per host).
-2. *The test path to `vfdlibm`.* A test-scope copy, byte-identical to one commit, rather than a
-   dependency: the library has no published artifact, and a source path outside the repository
-   would leave CI without the cross-check. The copy is marked generated (`linguist-generated`),
-   so the size cap does not count it, is excluded from RAT and checkstyle as a third-party file
-   under its own Apache-2.0 header with Sun's notice, and is never edited: the suite fails a
-   digest that leaves the manifest, and the sync script's check fails a manifest the library's
-   commit does not hold. The first import of `io.github.vecbricks` in catalyst is the copy's own
-   package, not an artifact, so the lint's `import-root` rule was skipped for that commit.
-3. *No vfdlibm change.* The port follows the merged `Exp.expBlended`, so nothing in `vfdlibm`
-   moves and no paired `vfdlibm` branch is opened for this part; the pairing holds for `exp`
-   through `vfdlibm` #6, #17 and #22, which the copy carries.
-4. *Two compares differ in form from the library's, not in mask.* The IR's floating compares
-   are Spark's ordering or `IEEE_EQ`, `IEEE_LT` and `IEEE_LE`; the library's `x > O_THRESHOLD` is
-   written `O_THRESHOLD < x` and its `IS_NAN` test `!(x == x)`, IEEE identities with the same
-   lane masks, NaN lanes included, so no proof is owed.
-5. *A depth cap of the ports' own*, rather than a higher `MAX_CHAIN_DEPTH`: raising the shared
-   cap would change which fuzz draws fit and which compiler folds are needed, moving committed
-   sequences; the port's cap reaches no shape that existed before.
-6. *No `MathForm` field and no `mathPort` option yet.* A `PORT` node is expanded by the compiler
-   into ordinary nodes, so its form is in the shape key through the expanded tree, and an emit
-   option that no compiler arm reads would only add a matrix configuration emitting the
-   defaults' bytes (the reading 345a1 took for `mathUlpContract`). Both land with the first
-   function that fuses with a `PORT` arm, `exp` in row 358, where the compiler chooses the form.
-
-**Left of section 5 items 3 and 4.** The `LANE_CALL` and `LIBRARY` lowerings and the dead-lane
-blend (356 builds `LANE_CALL` on its branch), `MathBinary`, the test hook, the vector files'
-format under `sql/varka/math/`, question 2's classification (3.8), the `--asm` half of 3.1, 3.3,
-3.7, the `mathPort` option, the branch measurement of 2.4, and the port's speed on the runners.
+*Corrected 21 November 2026 (review of this part): the frame's tests run each helper over the
+double and long views at the base lane count and over null lanes at two and four lanes; the
+`FLOAT` and `INT` views are lowered and registered, and no kernel runs them yet.*

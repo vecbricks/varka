@@ -402,7 +402,8 @@ public final class VarkaKernelPlan {
     // The width rule (`VARKA-343.md` 2.2): a tree holding a 64-bit value drives at 64 bits, at
     // the long lane if it holds one and at the double lane otherwise, and a tree of 32-bit values
     // drives at the int lane if it holds one and at the float lane otherwise. The floating lanes
-    // meet the others only through a ConvertLane, so a tree of one floating lane drives there.
+    // meet the others only through a ConvertLane or a ReinterpretLane, so a tree of one floating
+    // lane drives there.
     if (lanes.contains(LaneType.LONG)) {
       return LaneType.LONG;
     }

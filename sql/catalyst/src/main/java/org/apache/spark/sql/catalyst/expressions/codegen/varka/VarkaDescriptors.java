@@ -40,6 +40,7 @@ final class VarkaDescriptors {
       ClassDesc.of("java.lang.foreign.MemorySegment");
   static final ClassDesc BYTE_ORDER = ClassDesc.of("java.nio.ByteOrder");
   static final ClassDesc INT_VECTOR = ClassDesc.of("jdk.incubator.vector.IntVector");
+  static final ClassDesc FLOAT_VECTOR = ClassDesc.of("jdk.incubator.vector.FloatVector");
   static final ClassDesc LONG_VECTOR = ClassDesc.of("jdk.incubator.vector.LongVector");
   static final ClassDesc VECTOR = ClassDesc.of("jdk.incubator.vector.Vector");
   static final ClassDesc VECTOR_MASK = ClassDesc.of("jdk.incubator.vector.VectorMask");
@@ -232,8 +233,7 @@ final class VarkaDescriptors {
   static final MethodTypeDesc REINTERPRET_I = MethodTypeDesc.of(INT_VECTOR);
 
   /** {@code FloatVector Vector.reinterpretAsFloats()}. */
-  static final MethodTypeDesc REINTERPRET_F =
-      MethodTypeDesc.of(ClassDesc.of("jdk.incubator.vector.FloatVector"));
+  static final MethodTypeDesc REINTERPRET_F = MethodTypeDesc.of(FLOAT_VECTOR);
 
   /** {@code VectorMask DoubleVector.compare(VectorOperators.Comparison, Vector)}. */
   static final MethodTypeDesc COMPARE_DD =

@@ -135,8 +135,8 @@ public final class VarkaMathPort {
    * width is the mask's cast. Where {@code cond} is unknown, over a null operand, the lane takes
    * {@code otherwise}, as {@link IfElse} does, and the lane's validity is that branch's. So a
    * port keeps a null operand null only where the {@code otherwise} chain of each of its blends
-   * ends in a value computed from the operand, never in a literal alone; {@code exp}'s does, and
-   * its suite runs it over null lanes.
+   * ends in a value computed from the operand, never in a literal alone: a port written on this
+   * frame has to check that rule itself over null lanes, as the helpers' suite does for a view.
    */
   static VarkaVectorIR blend(Cond cond, VarkaVectorIR then, VarkaVectorIR otherwise) {
     return new IfElse(at(cond, then.laneType()), then, otherwise);
@@ -161,7 +161,11 @@ public final class VarkaMathPort {
     return new ReinterpretLane(b, LaneType.DOUBLE);
   }
 
-  /** {@code __HI(x)}: each lane's high word, unsigned, its sign bit included, at the long lane. */
+  /**
+   * {@code __HI(x)}: each lane's high word, unsigned, its sign bit included, at the long lane.
+   * fdlibm's is a signed {@code int}, so arithmetic or a shift transcribed from the C onto this
+   * word differs for a negative {@code x}: take {@link #absBits} first, as the compares do.
+   */
   VarkaVectorIR hi(VarkaVectorIR x) {
     return new BitOp(BitOpKind.USHR, bits(x), lit(32L));
   }
@@ -199,7 +203,11 @@ public final class VarkaMathPort {
     return (h & LOW_WORD) << 32;
   }
 
-  /** fdlibm's {@code hx < h} on {@code |x|}'s bits, one signed 64-bit compare. */
+  /**
+   * fdlibm's {@code hx < h} on {@code |x|}'s bits, one signed 64-bit compare. {@code absBits} must
+   * be non-negative, that is {@link #absBits} of the bits: a negative double's raw bits compare
+   * below every threshold. The same holds for {@link #hiAtLeast} and {@link #hiAbove}.
+   */
   Cond hiBelow(VarkaVectorIR absBits, int h) {
     requireHighWord(h);
     return new Compare(CompareOp.LT, absBits, lit(fromHiBits(h)));

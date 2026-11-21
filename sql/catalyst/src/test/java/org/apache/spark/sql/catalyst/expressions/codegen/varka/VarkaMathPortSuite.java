@@ -202,4 +202,38 @@ public final class VarkaMathPortSuite {
     }
     assertEquals(List.of(), failures);
   }
+
+  @Test
+  @DisplayName("a view keeps its child's null lanes and values, at the base width and at two and "
+      + "four lanes")
+  void viewsKeepTheirChildsNulls() {
+    // `hi` reads the double column's bits at the long lane, so the view over a column with null
+    // lanes is what is run: a null lane stays null and a valid one is the bits' high word.
+    Helper h = helper("hi", p -> p.hi(X), (x, y) -> x >>> 32);
+    int n = 1000;
+    var rnd = new SplittableRandom(0x345b1L);
+    long[] xs = new long[n];
+    for (int i = 0; i < n; i++) {
+      xs[i] = rnd.nextLong();
+    }
+    for (int lanes : new int[] {0, 2, 4}) {
+      try (Kernel k = new Kernel(new Built(h.root(), h.lits()), lanes);
+           Arena arena = Arena.ofConfined()) {
+        Col x = VarkaEmitterFixtures.makeLongInput(arena, n, i -> i % 3 == 1, i -> xs[i], false);
+        Col y = VarkaEmitterFixtures.makeLongInput(arena, n, i -> false, i -> 0L, false);
+        Output out = VarkaEmitterFixtures.makeLongOutput(arena, n);
+        k.run(x, y, out, n);
+        for (int i = 0; i < n; i++) {
+          int bit = out.validity().get(ValueLayout.JAVA_BYTE, i >> 3L) >> (i & 7);
+          boolean valid = (bit & 1) != 0;
+          int lane = i;
+          assertEquals(i % 3 != 1, valid, () -> "validity of lane " + lane + " at " + lanes);
+          if (valid) {
+            assertEquals(xs[i] >>> 32, out.data().get(ValueLayout.JAVA_LONG, i * 8L),
+                "value of lane " + i + " at " + lanes);
+          }
+        }
+      }
+    }
+  }
 }

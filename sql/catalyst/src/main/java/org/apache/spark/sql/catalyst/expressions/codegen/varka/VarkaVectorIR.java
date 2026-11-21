@@ -321,8 +321,7 @@ public sealed interface VarkaVectorIR
       case LiteralSlot _, BoolColumn _, CondConst _, DecimalColumn _, DecimalWord _,
           NullValue _ -> { }
       case WidenLane _, NarrowLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _,
-      ReinterpretLane _,
-          AddMonths _,
+          ReinterpretLane _, AddMonths _,
           MakeDate _, IntArith _, IntNeg _, GuardedDay _, GuardedRange _, NextDay _,
           TruncDateDynamic _,
           DateDiff _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _,
@@ -369,8 +368,7 @@ public sealed interface VarkaVectorIR
       case BoolColumn _, CondConst _, DecimalColumn _, DecimalWord _, NullValue _ -> false;
       case NarrowLane n -> n.target().isNarrow() || needsNarrowSpecies(n.child(), seen);
       case WidenLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _, AddMonths _,
-      ReinterpretLane _,
-          MakeDate _,
+          ReinterpretLane _, MakeDate _,
           IntArith _, IntNeg _,
           GuardedDay _, GuardedRange _, NextDay _, TruncDateDynamic _, DateDiff _, Greatest _,
           Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _, WeekDay _, DayOfWeekIso _,
