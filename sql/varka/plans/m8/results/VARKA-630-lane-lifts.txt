@@ -1,0 +1,43 @@
+VARKA-630 part 2b: the time of the lane lifts on a shared condition chain, before and after a
+memo by identity.
+
+Date: 21 November 2026, one laptop, one JVM, a scratch test run once per cell (single readings,
+not a benchmark); its source is VARKA-630-lane-lifts.scratch.txt beside this file.
+
+The shape: a condition chain where level k is `level(k-1) AND NOT level(k-1)`, over one
+comparison of two SHORT columns, so it has 2^k paths over k + 1 distinct nodes.
+`VarkaConditionCompiler.onIntLane` and `onLongLane` lift it to the int and the long lane.
+
+Before (no memo), from an earlier scratch test of the same shape on the #1591 branch head
+dc9fd060c32, whose lifts have no memo (its source is the same loop, with equals added):
+
+  depth  onIntLane   onLongLane
+  8      9 ms        1 ms
+  16     11 ms       23 ms
+  20     121 ms      213 ms
+  22     578 ms      807 ms
+  24     2521 ms     3194 ms
+
+Each two levels multiplied the time by four. The same run compared two separate lifts with
+record equals: 56 ms at depth 16, 1724 ms at 22, and over 30000 ms at 24 (part 2a's
+VarkaVectorIR.sameStructure is the fix for that comparison, not a memo).
+
+After (identity memo, the copies of a shared condition are one object):
+
+  depth  onIntLane   onLongLane
+  16     13593 us    763 us
+  24     178 us      280 us
+  32     248 us      400 us
+  48     291 us      174 us
+  64     163 us      189 us
+
+The 16-level int-lane reading is the first call and includes class loading. The third lift,
+`VarkaIntegralCastCompiler.onLane`, has the same shape and the same memo; it was not timed
+separately. `VarkaChronoCompiler.rearm` rebuilds a value chain, not a condition, and was neither
+changed nor measured.
+
+The before column is a single reading from a run whose source is not committed (it is this
+loop plus a record-equals comparison of two lifts), so it cannot be reproduced from this branch.
+
+Not measured: a condition that is not a chain, and any query that reaches a shared condition.
+Whether Catalyst boolean expressions compile to a shared condition is not shown here.

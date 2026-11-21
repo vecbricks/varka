@@ -89,7 +89,7 @@ the trees" (the IR's own doc).
   `VarkaIntegralCastCompiler.onLane` and `VarkaChronoCompiler.rearm` rebuild a condition
   without a memo, so a shared node is rebuilt once per path into distinct, equal objects. They
   run only where a predicate's conjuncts sit on two lanes (a narrow or int conjunct beside a
-  long one), not on any chain above.
+  long one), not on any chain above. *Corrected 21 November 2026 (row 630 part 2b): on a shared condition chain these were exponential, 2.5 s at depth 24 for `onIntLane` and 3.2 s for `onLongLane` (`results/VARKA-630-lane-lifts.txt`); `onIntLane`, `onLongLane` and `VarkaIntegralCastCompiler.onLane` now memoise by identity and a shared condition is lifted once. `rearm` lifts a value chain and is still unmeasured.*
 - **`equals` between two disjoint copies.** A record's `equals` tries identity first, so a node
   shared within one compile equals itself in one step; two equal DAGs that share no object compare
   a shared node once per path. The shape cache meets them on every hit, since `VarkaShapeKey` is a
