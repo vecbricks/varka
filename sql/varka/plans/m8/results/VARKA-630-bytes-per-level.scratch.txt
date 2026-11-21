@@ -1,0 +1,51 @@
+package org.apache.spark.sql.catalyst.expressions.codegen.varka;
+
+import java.util.List;
+import java.util.function.BinaryOperator;
+import org.junit.jupiter.api.Test;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
+
+class VarkaScratchBytesSuite {
+  static int bytes(VarkaVectorIR root, int inputs, int literals) {
+    var opts = VarkaMatrixRuns.parse("maxChainDepth=256,methodByteBudget=60000");
+    byte[] b = VarkaLoopEmitter.emit("org.apache.spark.sql.varka.execution.VarkaScratchBytes",
+        List.of(root), inputs, literals, "Scratch.java", "scratch", opts);
+    return VarkaEmittedClass.measure(b).codeLength().values().stream().mapToInt(i -> i).max().orElse(-1);
+  }
+
+  record Op(String name, LaneType lane, java.util.function.BiFunction<VarkaVectorIR, Integer, VarkaVectorIR> step) {}
+
+  @Test
+  void perLevel() {
+    LaneType L = LaneType.LONG, I = LaneType.INT;
+    List<Op> ops = List.of(
+        new Op("INT add WRAP", I, (n, k) -> new IntArith(IntOp.ADD, Overflow.WRAP, n, new LiteralSlot(0, I))),
+        new Op("LONG add WRAP", L, (n, k) -> new IntArith(IntOp.ADD, Overflow.WRAP, n, new LiteralSlot(0, L))),
+        new Op("LONG add FAIL", L, (n, k) -> new IntArith(IntOp.ADD, Overflow.FAIL, n, new LiteralSlot(0, L))),
+        new Op("LONG mul WRAP", L, (n, k) -> new IntArith(IntOp.MUL, Overflow.WRAP, n, new LiteralSlot(0, L))),
+        new Op("LONG sub WRAP", L, (n, k) -> new IntArith(IntOp.SUB, Overflow.WRAP, n, new LiteralSlot(0, L))),
+        new Op("LONG xor", L, (n, k) -> new BitOp(BitOpKind.XOR, n, new LiteralSlot(0, L))),
+        new Op("LONG div by 10 (exact bound)", L,
+            (n, k) -> new ConstDivide(n, 10L, ConstDivide.EXACT_DIVIDEND_BOUND)),
+        new Op("LONG select: if(x < lit, x, lit)", L, (n, k) -> new IfElse(
+            new Compare(CompareOp.LT, n, new LiteralSlot(0, L)), n, new LiteralSlot(0, L))));
+    for (Op op : ops) {
+      StringBuilder sb = new StringBuilder("SCRATCH " + op.name() + ":");
+      int prev = -1, prevD = 0;
+      for (int d : new int[] {8, 16, 32, 48}) {
+        VarkaVectorIR n = new ColumnRef(0, op.lane());
+        for (int i = 0; i < d; i++) n = op.step().apply(n, i);
+        try {
+          int b = bytes(n, 1, 1);
+          sb.append(" d=").append(d).append(" ").append(b).append("B");
+          if (prev >= 0) sb.append(" (+").append((b - prev) / (d - prevD)).append("/level)");
+          prev = b; prevD = d;
+        } catch (Throwable t) {
+          sb.append(" d=").append(d).append(" threw ").append(t.getClass().getSimpleName());
+          break;
+        }
+      }
+      System.out.println(sb);
+    }
+  }
+}

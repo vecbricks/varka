@@ -128,6 +128,54 @@ A check that their tables hold every column of the map would be a cheap follow-u
 
 ## 8. Outcome
 
+Built on 20 November 2026 from origin/master `7c7ec29cae9`, by the build sheet below with the three
+decisions recorded at the end of this file.
+
+- `VarkaCoverageRows.columns(path)` walks `coverage.json`'s `columns` object field by field, and
+  `read` takes its columns from it.
+- `VarkaEmittedBytesSuite` and `VarkaWidthAuditShapes` no longer declare the 35 columns: both read
+  them from the file they compile the rows of. The bytes oracle's `coverage` is `coverageOf(file)`,
+  and a row that does not parse or resolve against the file's columns fails the suite, naming the
+  row and the resolver's reason ("unknown column q"); `coverage_rows_skipped` is rendered as an
+  empty list, so `emitted_bytes.json` keeps its bytes.
+- New tests: the bytes suite's planted table (a row over `q`, which the map lacks, fails naming
+  both); the coverage suite's read-back of its own columns in order and type; the differential
+  suite's every-fixture-every-column check; the fuzz suite's check of the 18 columns its draws read.
+- `dev/varka_new_lane.py` drops the width-audit site (a type's sites are now two: the coverage
+  column and the census), and `ADDING_A_TYPE.md` step 11 says three places, not five.
+
+Tests (laptop, one sbt at a time): `VarkaCoverageSuite -z "read back in the order"` 1/1;
+`VarkaEmittedBytesSuite` and `VarkaWidthAuditSuite` 14 passed, 2 canceled (the option and pairs
+audits, opt-in through `VARKA_OPTION_AUDIT`, as on master); `VarkaCoverageCompositionFuzzSuite`,
+`VarkaGroupingBoundSuite` and `VarkaDivisorProofSuite` all passed at their committed seeds.
+`git diff --exit-code` over `emitted_bytes.json`, `width_audit.json` and `coverage.json` exits 0.
+`dev/varka_new_lane.py --check` prints "no site is missing" on every line, each type "(2 checked)".
+
+Predictions:
+
+- **P1 held**: `emitted_bytes.json` and `width_audit.json` are byte-identical. Since both files'
+  ordinals follow the column order, this is also the check that the new reader keeps the file's
+  order.
+- **P2 held for the verdicts**: the three suites pass at their committed seeds. That the old
+  order was lost is inferred, not measured: `extract[Map]` gives an immutable `Map`, which is a
+  hash map at 35 entries. If so, a seed logged before this change no longer reproduces its shape;
+  the draft pull request body says so.
+
+The two new sql/core tests passed. `/code-review high` on the branch found six points, none a
+wrong answer: P2's scoring (taken, above); the fuzz test copied `coverageRows`' filter (now one
+`VarkaSparkFuzz.leftOut` both use); its count of 18 is a hand-kept fact (kept, as the sheet asks,
+with a message saying to move it and a line in step 11); the empty skip list's comparison reads as
+live (a comment now says why the key stays); a guide line over 100 columns (rewrapped); and the
+`readsBoolean`/`readsNarrow`/`readsDecimal` regexes, a column-name list this row leaves in place
+(pre-existing; out of this row, noted for the lead as a candidate row).
+
+Not run in this window: the whole `VarkaCoverageDifferentialSuite` and `VarkaSparkFuzzSuite` (only
+their new tests, and after the review's extraction of `VarkaSparkFuzz.leftOut` the fuzz one
+again with "the draw includes every row of the table", which reads the extracted filter), B3's
+planted fault 3 (the sql/core fixtures), and
+CI. Faults 1 and 2 were planted and reverted: sorting the columns fails the coverage suite's
+read-back test, and a guard message of `"x"` fails the bytes suite's planted-table test.
+
 ## Build sheet (11 November 2026)
 
 Follow `BUILD_SHEETS.md` (same folder). Everything below was read at origin/master `c62f492fc89`.
@@ -334,3 +382,29 @@ Review and push. Open pull requests on the same files: #1428 (`VarkaEmittedBytes
 the option arms), #1478 and #1484 (`VarkaWidthAuditShapes.scala`: `coverageRows` and
 `predicateRow`'s compile calls; on a conflict keep their compile calls with this row's local
 `columns`), and #1428, #1478, #1484 (`PLAN.md`): rebase if one merged first.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **Row 567 had merged** (B0's last grep printed `2`), so B8's last point applied: the bytes
+   oracle's claim line is `VarkaSqlResolve.inSetAsClaimed(resolved, catalyst.contains("InSet"))`
+   outside the resolve guard, as on master, so a row whose spelling and catalyst field disagree
+   still fails with the fold's own message rather than the guard's.
+2. **`parsedRow` and `resolvedRow` take the columns.** Row 607 added these two members of
+   `VarkaWidthAuditShapes` after the sheet was written, and both read the deleted `columns` list;
+   the sheet's B1 item 3 names only `coverageRows` and `predicateRow`. They take a
+   `columns: Seq[Attribute]` parameter, as `predicateRow` does, `coverageRows` passes its own, and
+   the one other caller, `VarkaWidthAuditSuite`'s "the coverage table's d18 IN row reaches the
+   audit as an InSet", reads them from its `coverageJson` with `VarkaCoverageRows.columns`. The
+   alternative, a lazy object-level list read from the workspace file, would put back a second
+   source beside the file each caller is handed, which is what the row removes.
+3. **`ADDING_A_TYPE.md`'s site list** (the paragraph after step 11, "per Spark type on the lane,
+   a coverage column, the width audit's shapes and the census") drops the width audit, as
+   `dev/varka_new_lane.py` does (B1 item 6); the sheet named only step 11.
+4. **The size is over the sheet's estimate by more than half** (420 counted lines against 250;
+   `BUILD_SHEETS.md` 8 lists that as a stop). The window's brief sets the cap at 1000 and says to
+   stop only when truly blocked, so the work went on: the removed copies were smaller than the
+   sheet's 95 lines each (90 and 60), and the rest is this file's outcome and decisions and the
+   review's fixes.
+5. **The row is marked Done** as sheet B1 item 8 says: every done-when condition holds on the
+   laptop and `dev/varka_push_check.py` passes. The pull request's Build is owed, as the row says.
+

@@ -944,6 +944,7 @@ final class VarkaChronoCompiler {
           VarkaVectorIR.DecimalWord _, LiteralSlot _, GuardedDay _,
           VarkaVectorIR.GuardedRange _,
           VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _, VarkaVectorIR.ConvertLane _,
+          VarkaVectorIR.ReinterpretLane _,
           VarkaVectorIR.WidenDecimal _,
           VarkaVectorIR.DateDiff _,
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, DayOfWeekIso _, VarkaVectorIR.Year _,
@@ -957,7 +958,8 @@ final class VarkaChronoCompiler {
           VarkaVectorIR.InRanges _, VarkaVectorIR.IntArith _, IntNeg _, VarkaVectorIR.ConstDivide _,
           VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
           VarkaVectorIR.MathUnary _, VarkaVectorIR.RoundToIntegral _, VarkaVectorIR.CondValue _,
-          VarkaVectorIR.BoolOutput _ ->
+          VarkaVectorIR.BoolOutput _, VarkaVectorIR.CanonicalFloat _,
+          VarkaVectorIR.CanonicalBits _, VarkaVectorIR.HashStep _ ->
           new Rebuilt(node, false, false);
     };
     VarkaValueRange.Range range =

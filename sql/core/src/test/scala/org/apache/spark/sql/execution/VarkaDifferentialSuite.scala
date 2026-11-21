@@ -413,6 +413,130 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
     }
   }
 
+  /**
+   * Runs `f` in the four combinations of whole-stage codegen and
+   * `spark.sql.legacy.filterShortCircuitOnNullConjunct` on both sessions, passing it whether
+   * Spark's filter drops a row at its first NULL conjunct: only with both on (SPARK-60315).
+   */
+  private def withNullConjunctModes(f: Boolean => Unit): Unit = {
+    for (codegen <- Seq(true, false); legacy <- Seq(true, false)) {
+      withBothConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, codegen.toString) {
+        withBothConf(SQLConf.LEGACY_FILTER_SHORT_CIRCUIT_ON_NULL_CONJUNCT.key, legacy.toString) {
+          withClue(s"wholeStage=$codegen, legacy=$legacy: ") {
+            f(codegen && legacy)
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Compares `query` on both engines and asserts the outcome they share: `rows` where
+   * `answers`, and otherwise an error whose condition starts with `condition`.
+   */
+  private def checkNullConjunctOutcome(
+      query: String, answers: Boolean, rows: Seq[Row], condition: String): Unit = {
+    checkSparkAnswerMaybeThrows(query) match {
+      case VarkaMaybeThrows.Answered(got) if answers =>
+        QueryTest.sameRows(rows, got).foreach(d => fail(s"$query\n$d"))
+      case r: VarkaMaybeThrows.Raised if !answers =>
+        assert(r.condition.startsWith(condition), s"$query\n$r")
+      case other => fail(s"$query\nexpected ${if (answers) rows else condition}, both gave $other")
+    }
+  }
+
+  /** The conjuncts the Varka filter node of `plan` fuses, or none without one. */
+  private def fusedConjuncts(plan: SparkPlan): Seq[String] =
+    collectFirst(plan) { case v: VarkaFilterExecBase => v.condition }.toSeq
+      .flatMap(c => splitConjunctivePredicates(c).map(_.sql))
+
+  // varka-session-lint: allow the error or the rows as the user meets them, in the four sessions
+  // of codegen and the legacy NULL setting
+  test("a NULL conjunct does not stop a filter before a later one that raises, unless " +
+      "Spark's legacy codegen setting says so, with codegen on and off") {
+    // VARKA-386, after SPARK-60315. On the first row `NOT (year(d) = 2021 AND i > 0)` is NULL,
+    // and each raising conjunct below raises on it: the year-month subtraction in every mode,
+    // `(l * 3) > 0` and `make_date(2021, m, 1)` under ANSI. Spark evaluates the conjuncts after a
+    // NULL one and raises, except with whole-stage codegen on under
+    // `spark.sql.legacy.filterShortCircuitOnNullConjunct`, where it drops the row at the NULL
+    // conjunct. `x` is NULL on the first row. The second row passes every condition below, and
+    // the first row fails `year(d) > 2022`. One partition, so one error is raised first.
+    Seq(spark, varkaSpark).foreach { session =>
+      session.sql(
+        """SELECT * FROM VALUES
+          |  (DATE'2021-03-15', CAST(NULL AS INT), 9223372036854775807L,
+          |   make_ym_interval(-178956970, 0), 13, CAST(NULL AS INT)),
+          |  (DATE'2023-12-27', 12, 1L, make_ym_interval(1, 0), 5, 1)
+          |AS t(d, i, l, ym, m, x)""".stripMargin)
+        .coalesce(1).createOrReplaceTempView("varka_null_conjunct")
+      session.catalog.cacheTable("varka_null_conjunct")
+    }
+    def plan(q: String): SparkPlan = varkaSpark.sql(q).queryExecution.executedPlan
+    val t = "SELECT i FROM varka_null_conjunct WHERE"
+    val nullOnFirst = "NOT (year(d) = 2021 AND i > 0)"
+    val ymRaises = "ym >= INTERVAL '1' YEAR - ym"
+    val productRaises = "(l * 3) > 0"
+    val dateRaises = "make_date(2021, m, 1) < d"
+    val interval = "INTERVAL_ARITHMETIC_OVERFLOW"
+    try {
+      withNullConjunctModes { skipsAtNull =>
+        withAnsi(false) {
+          // (a) Every conjunct fused: the kernel declines the batch on the overflowing lane, so
+          // the per-row fallback decides, in the order and with the NULL rule Spark's filter has.
+          val fused = s"$t $nullOnFirst AND $ymRaises"
+          assert(fusedConjuncts(plan(fused)).size == 2, plan(fused))
+          assert(collectFirst(plan(fused)) { case f: FilterExec => f }.isEmpty, plan(fused))
+          checkNullConjunctOutcome(fused, skipsAtNull, Seq(Row(12)), interval)
+          // (d) A FALSE conjunct after the NULL one stops the row before the raising one in
+          // every mode, and so does a null test, which is never NULL itself.
+          checkNullConjunctOutcome(s"$t $nullOnFirst AND year(d) > 2022 AND $ymRaises",
+            answers = true, Seq(Row(12)), interval)
+          checkNullConjunctOutcome(s"$t i IS NOT NULL AND $nullOnFirst AND $ymRaises",
+            answers = true, Seq(Row(12)), interval)
+          // (f) A null test written between the NULL conjunct and the raising one, of a column
+          // the raising one does not read: after the NULL conjunct codegen evaluates it where it
+          // is written, before the subtraction, so every session drops the row. The fallback
+          // follows that placement rather than the lazy one, which would put it last.
+          val between = s"$t $nullOnFirst AND x IS NOT NULL AND $ymRaises"
+          assert(fusedConjuncts(plan(between)).size == 3, plan(between))
+          checkNullConjunctOutcome(between, answers = true, Seq(Row(12)), interval)
+        }
+        withAnsi(true) {
+          // (b) The NULL conjunct comes before a residual conjunct that raises: fused, it would
+          // drop the row before the residual filter sees it, so it is not fused, while
+          // `d > DATE'2000-01-01'`, which cannot be NULL, still is.
+          val residual = s"$t d > DATE'2000-01-01' AND $nullOnFirst AND $productRaises"
+          val fusedThere = fusedConjuncts(plan(residual))
+          assert(fusedThere.size == 1 && !fusedThere.exists(_.contains("year")), plan(residual))
+          checkNullConjunctOutcome(residual, skipsAtNull, Seq(Row(12)), "ARITHMETIC_OVERFLOW")
+          // Written after the product, the null test runs before it only in codegen's order, so
+          // Spark's answer depends on codegen; nothing fuses, and Varka answers as Spark does.
+          val late = s"$t $nullOnFirst AND $productRaises AND i IS NOT NULL"
+          assertNotFused(plan(late))
+          withClue("the null test written last: ") {
+            val codegen = varkaSpark.conf.get(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key).toBoolean
+            checkNullConjunctOutcome(late, codegen, Seq(Row(12)), "ARITHMETIC_OVERFLOW")
+          }
+          // (c) The per-row fallback under ANSI, on a fused conjunct of another family.
+          val date = s"$t $nullOnFirst AND $dateRaises"
+          assert(fusedConjuncts(plan(date)).size == 2, plan(date))
+          checkNullConjunctOutcome(date, skipsAtNull, Seq(Row(12)), "DATETIME_FIELD_OUT_OF_BOUNDS")
+          // (e) The FILTER clause of an aggregate is Spark's own codegen: no Varka node runs it.
+          val aggregate = s"SELECT count(i) FILTER (WHERE $nullOnFirst AND $productRaises) " +
+            "FROM varka_null_conjunct"
+          assert(collectFirst(plan(aggregate)) { case v: VarkaFilterExecBase => v }.isEmpty,
+            plan(aggregate))
+          checkNullConjunctOutcome(aggregate, skipsAtNull, Seq(Row(1)), "ARITHMETIC_OVERFLOW")
+        }
+      }
+    } finally {
+      Seq(spark, varkaSpark).foreach { session =>
+        session.catalog.uncacheTable("varka_null_conjunct")
+        session.catalog.dropTempView("varka_null_conjunct")
+      }
+    }
+  }
+
   test("a projection over a Varka filter's compacted batch answers through the row " +
       "path, because the filter compacts a string column generically (recorded limitation)") {
     // The filter's compaction (VARKA-21) rebuilds fixed-width Arrow columns as Arrow and every

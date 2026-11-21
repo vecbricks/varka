@@ -34,7 +34,8 @@ import java.util.function.Consumer;
  * {@code VarkaWidthAuditSuite} (VARKA-582), and of {@code VarkaOperatorCensusSuite},
  * {@code VarkaInliningCliffSuite}, the two warm-up suites, sql/core's
  * {@code VarkaSizeLadderJitSuite}, {@code VarkaDeoptCycleSuite}'s Python parser and
- * {@code VarkaVectorTemplateWarmupSuite}'s {@code -version} JVMs (VARKA-585).
+ * {@code VarkaVectorTemplateWarmupSuite}'s {@code -version} JVMs (VARKA-585), and of
+ * {@code VarkaMathBindingSuite}'s binding probe (VARKA-345).
  *
  * <p>The child's output ends only when the child exits, so a launcher that reads it to its end on
  * the calling thread and waits afterwards never sees a timeout, and a read blocked on a pipe does

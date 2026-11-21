@@ -31,18 +31,18 @@ or	Or	predicateExpressions	in		bool	bool	bool	bool	done	331,27	fused as a condit
 <	LessThan	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)	dec
 <=	LessThanOrEqual	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)	dec
 !	Not	predicateExpressions	in		bool	bool		bool	plumbing	331,27	alias of not	
-abs	Abs	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,bigint,float,double,ym,dt	byte,short,float,double,dec	semantics	330,104,103,342,348,359	the minimum value overflows: wraps or throws; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)	
+abs	Abs	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,ym,dt	byte,short,float,double,dec	semantics	330,104,103,342,348,359,621	the minimum value overflows: wraps or throws; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)	
 greatest	Greatest	mathExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329	NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)	
 least	Least	mathExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329	NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)	
 rand	Rand	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
 random	Rand	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
 randn	Randn	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
 uniform	Uniform	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
-acos	Acos	mathExpressions	in		double	double		double	ulp	367,356	Math	
+acos	Acos	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane StrictMath.acos call (VARKA-356)	
 acosh	Acosh	mathExpressions	in		double	double		double	ulp	367,357	Spark's log-and-sqrt formula over StrictMath.log	
-asin	Asin	mathExpressions	in		double	double		double	ulp	367,356	Math	
+asin	Asin	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane StrictMath.asin call, which Math.asin delegates to (VARKA-356)	
 asinh	Asinh	mathExpressions	in		double	double		double	ulp	367,357	Spark's log-and-sqrt formula over StrictMath.log	
-atan	Atan	mathExpressions	in		double	double		double	ulp	367,356	Math	
+atan	Atan	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane StrictMath.atan call (VARKA-356)	
 atan2	Atan2	mathExpressions	in		double	double		double	ulp	367,356	Math	
 atanh	Atanh	mathExpressions	in		double	double		double	ulp	367,357	Spark's formula over StrictMath.log	
 bin	Bin	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026								
@@ -50,8 +50,8 @@ bround	BRound	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,sh
 cbrt	Cbrt	mathExpressions	in		double	double		double	ulp	367,358	Math	
 ceil	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	int,bigint	byte,short,float,double,dec	semantics	344,351,363	double and integral give bigint, decimal a decimal of scale 0; fused for int in `ceil(i)`, the int under a cast to double	
 ceiling	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	bigint	byte,short,float,double,dec	semantics	344,351,363	alias of ceil	
-cos	Cos	mathExpressions	in		double	double		double	ulp	367,356	Math	
-sec	Sec	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.cos	
+cos	Cos	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane Math.cos call (VARKA-356)	
+sec	Sec	mathExpressions	in		double	double	double	double	done	356	1 / Math.cos, Java's division over the per-lane call (VARKA-356)	
 cosh	Cosh	mathExpressions	in		double	double		double	ulp	367,357	Math	
 conv	Conv	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026								
 degrees	ToDegrees	mathExpressions	in		double	double	double	double	done	342	Math.toDegrees is one multiply, bit-exact	
@@ -80,12 +80,12 @@ round	Round	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,shor
 truncate	Truncate	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint	byte,short,float,double,dec	semantics	344,346,351,363	ROUND_DOWN to a scale; integral and decimal are semantics, double as round (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3	
 sign	Signum	mathExpressions	in		double,ym,dt	double	double,ym,dt	double	done	342	exact: a compare and a blend	
 signum	Signum	mathExpressions	in		double,ym,dt	double	double,ym,dt	double	done	342	alias of sign	
-sin	Sin	mathExpressions	in		double	double		double	ulp	367,356	Math	
-csc	Csc	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.sin	
+sin	Sin	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane Math.sin call, the host's answer as Spark's (VARKA-356)	
+csc	Csc	mathExpressions	in		double	double	double	double	done	356	1 / Math.sin, Java's division over the per-lane call (VARKA-356)	
 sinh	Sinh	mathExpressions	in		double	double		double	ulp	367,357	Math	
 sqrt	Sqrt	mathExpressions	in		double	double	double	double	done	342	IEEE 754 rounds sqrt correctly, so a lane is bit-exact	
-tan	Tan	mathExpressions	in		double	double		double	ulp	367,356	Math	
-cot	Cot	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.tan	
+tan	Tan	mathExpressions	in		double	double	double	double	done	356	exact: a per-lane Math.tan call (VARKA-356)	
+cot	Cot	mathExpressions	in		double	double	double	double	done	356	1 / Math.tan, Java's division over the per-lane call (VARKA-356)	
 tanh	Tanh	mathExpressions	in		double	double		double	ulp	367,357	Math	
 width_bucket	WidthBucket	mathExpressions	in		double,time,ym,dt	bigint		double	semantics	344	bucket arithmetic over doubles	
 +	Add	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,ym,dt	byte,short,float,double,dec	semantics	330,104,103,342,349,360	integral overflow modes; decimal result scale; date and timestamp sums are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38	
@@ -621,8 +621,8 @@ extract_dt_hours	ExtractANSIIntervalHours	implicit: interval	in		dt	byte		byte	p
 extract_dt_minutes	ExtractANSIIntervalMinutes	implicit: interval	in		dt	byte		byte	plumbing	103	division by a constant	
 extract_dt_seconds	ExtractANSIIntervalSeconds	implicit: interval	in		dt	dec		dec	plumbing	103,157	a DECIMAL(8,6) result	
 known_not_null	KnownNotNull	implicit: internals	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	plumbing	333	a relabel the optimizer adds	
-known_fp_normalized	KnownFloatingPointNormalized	implicit: internals	in		float,double	float,double		float,double	plumbing	337	a relabel around NaN and -0.0 normalization; uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it	
-normalize_nan_and_zero	NormalizeNaNAndZero	implicit: internals	in		float,double	float,double		float,double	plumbing	337	the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7); uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it	
+known_fp_normalized	KnownFloatingPointNormalized	implicit: internals	in		float,double	float,double		float,double	plumbing	337	a relabel around NaN and -0.0 normalization, compiled as its child since 337a1 (its need stays plumbing: the census marks a need done only where a coverage row fuses it, which none can); uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it	
+normalize_nan_and_zero	NormalizeNaNAndZero	implicit: internals	in		float,double	float,double		float,double	plumbing	337	the optimizer's canonical NaN and +0.0 before a key or a hash: one node, CanonicalFloat, built in 337a1 and shared with the hash input (m8/PLAN.md 2.7); uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it	
 try_eval	TryEval	implicit: internals	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	330,342	the try_ functions' wrapper: every error raised anywhere in its subtree becomes null; over a decimal subtree: no 64-bit decimal arithmetic raises, so it waits for the rows whose decimal nodes do; unclaimed, suggested home row 350 (VARKA-349.md 7)	
 check_overflow	CheckOverflow	implicit: decimal internals	out	evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)								
 make_decimal	MakeDecimal	implicit: decimal internals	out	evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)								

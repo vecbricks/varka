@@ -153,4 +153,70 @@ Size: small, as the row says.
   passes;
 - a repeated test and an `ownJvm` factory run under the harness too.
 
-## 8. Outcome
+## 8. Decisions taken while the owner was away (20 November 2026)
+
+The owner was away while this was built; these are the plan's own recommendations or the
+choices it left open, taken so the build could go on.
+
+1. **Question 1, the key rule: required, as recommended.** A `@ParameterizedTest` in a Varka
+   suite names its invocations with a `name` that renders an argument and holds no `{index}`;
+   JUnit's default (`{default_display_name}`, which renders `[{index}] ...`) is refused. Also
+   refused: `{displayName}`, since the key already starts with the method's display name.
+2. **Question 2, the conversion: done here for the 18 slices, not the 18 full sweeps.**
+   `VarkaEmitterNarrowArithSuite`'s 18 slice methods are one `@ParameterizedTest` over a static
+   method source, under today's 18 names. The plan's second template, the 2^32 sweeps, was built
+   and then put back as 18 methods: the pre-commit's `dev/varka_sweeps.py --check` proves that
+   the nightly's shards (`-z pair for + in`, ...) each select opt-in tests by reading the display
+   names in the source, and a template's names exist only at run time, so the check found every
+   shard text selecting nothing. Teaching the check to render templates is more than the
+   conversion is worth; the slices prove the mechanism the done-when asks for.
+3. **A `@RepeatedTest`'s key comes from its `name`, not from the index alone.** The plan's key
+   `<display name> repetition <n>` is reached by requiring the name to hold
+   `{currentRepetition}` and not `{totalRepetitions}` (JUnit's default holds both). One rule for
+   both template kinds - the key is the display name and the rendered name - keeps the listener,
+   the extension and the child's answers on one function, and the printed line is the key.
+4. **The `-z` / `-t` filter of an invocation is an `ExecutionCondition`, not `invocation.skip()`.**
+   The plan's [I] is settled by `InvocationInterceptor.Invocation.skip()`'s javadoc in JUnit 6.0.3:
+   it only bypasses the proceed-once check, so the invocation is reported as passed - the case
+   the plan named as the reason to filter otherwise. A disabled invocation is reported skipped
+   with a reason, `VarkaSuiteRunner.NOT_SELECTED`, that the listener neither prints nor counts,
+   so a filtered invocation appears nowhere, as a filtered `@Test` does. The runner hands its
+   filters to the extension as a Launcher configuration parameter per class.
+5. **A `@TestFactory`'s dynamic tests stay unfiltered by `-z`.** JUnit evaluates no condition for
+   a dynamic test, and the only ways to leave one out at run time report it passed or cancelled.
+   No Varka suite filters a factory today; the skill says so.
+6. **The end-to-end skip-list proof runs in a child JVM.** The configuration and the skip list are
+   static per JVM (`VarkaMatrixRuns.CONFIG`, `skips()`), so `VarkaSuiteHarnessSuite` runs its
+   template fixture through `VarkaChildJvm.run` with its own `-Dvarka.matrix.config`,
+   `-Dspark.test.home` (a temporary tree holding a planted `skips.tsv`) and report file. That is
+   the planted case of section 3 item 3, done locally; the matrix run of the converted suite is
+   still owed to CI.
+
+## 9. Outcome
+
+Built on 20 November 2026 on the local branch `varka-477-junit-parameterized` (not pushed).
+
+- **Built.** Sections 2.1 to 2.4 as planned, with the deviations of section 8: the key and its
+  refusals in `checkShape`, `interceptTestTemplateMethod` beside the two other interceptors in one
+  `hold`, the listener's key for an invocation, factories in `ownJvm` classes answered by name,
+  the runner's `-z`/`-t` over invocations through an `ExecutionCondition`, and the 18 slices of
+  `VarkaEmitterNarrowArithSuite` as one template. `dev/varka_new_tests.py` stops listing a
+  template's own display name as a test, and `dev/varka_lint.py`'s skip-list rule accepts a line
+  naming a template's invocation.
+- **Review.** `/code-review high` found seven issues (two important: a template failing as a
+  whole went unreported, and a generated key equal to a plain test's name went unchecked; one
+  pre-existing: class templates were not refused; four nits in the lint, the listener's disabled
+  templates, the new-tests window and `{default_display_name}`). All were fixed in one round,
+  with tests.
+- **Measured, locally.** `VarkaSuiteHarnessSuite` passes (all of its tests), among them the child-JVM run of
+  section 3 item 3: the listed failing invocation is cancelled, the listed passing one fails as a
+  stale entry, and the fused-batch report holds exactly the six keys.
+  `VarkaEmitterNarrowArithSuite` passes in its own JVM (38 tests, 19 opt-in cancels).
+- **P1: holds for the 18 converted slices.** The keys printed are the 18 display names on master,
+  byte for byte (diffed). The 18 full sweeps were not converted (section 8 item 2).
+- **P2: owed.** The PR Build's time for the suite needs a runner.
+- **Owed to CI:** the converted suite under the dispatched option matrix, and in its own JVM in
+  the PR Build.
+- **Where the plan was wrong.** `invocation.skip()` reports a pass, so it cannot filter (2.3's
+  [I]); and the second template, the full sweeps, collides with `dev/varka_sweeps.py`'s
+  source-level shard check, which the plan did not know of.

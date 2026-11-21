@@ -138,9 +138,8 @@ run_step forced build/sbt -batch "project catalyst" \
 # One output of each composition is forced to decline as well (VARKA-296); forcing every one
 # (-Dvarka.sparkfuzz.forceAll=true) cost two hours for 5,000 compositions, so it is for idle windows.
 if [ "$sparkfuzz" -gt 0 ]; then
-  # Without the nested trees (VARKA-298) until row 386 is fixed: they meet it most nights.
   run_step sparkfuzz build/sbt -batch "project sql" \
-    "set Test/javaOptions ++= Seq(\"-Dvarka.sparkfuzz.iterations=$sparkfuzz\", \"-Dvarka.sparkfuzz.nested=false\", \"-Dvarka.sparkfuzz.seed=$seed\", \"-Dspark.test.timeout=170\", \"-Dvarka.test.watchdog.minutes=170\")" \
+    "set Test/javaOptions ++= Seq(\"-Dvarka.sparkfuzz.iterations=$sparkfuzz\", \"-Dvarka.sparkfuzz.seed=$seed\", \"-Dspark.test.timeout=170\", \"-Dvarka.test.watchdog.minutes=170\")" \
     'testOnly *VarkaSparkFuzzSuite *VarkaSparkReproducerSuite'
 fi
 # The same compositions with the kernel warm-up on, as production runs (VARKA-327): each shape's

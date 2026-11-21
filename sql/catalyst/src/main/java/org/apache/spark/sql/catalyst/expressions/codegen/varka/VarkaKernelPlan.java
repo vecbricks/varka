@@ -33,6 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Int
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 
 /**
@@ -67,7 +68,9 @@ public final class VarkaKernelPlan {
      * of the host, not of the roots, so the compiler asks for it at admission ({@link #admit})
      * and {@link #of} never makes it.
      */
-    TWO_LANE_CONDITION
+    TWO_LANE_CONDITION,
+    /** A per-lane math call at a width with no baked lane count. */
+    MATH_CALL
   }
 
   private final Optional<Refusal> refusal;
@@ -135,6 +138,13 @@ public final class VarkaKernelPlan {
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
         operands.add(child);
         todo.push(child);
+      }
+    }
+    // A per-lane math call is unrolled over the baked lane count of the 64-bit drive lane.
+    for (VarkaVectorIR node : nodes) {
+      if (node instanceof VarkaVectorIR.MathUnary m && m.fn().laneCall()
+          && (lanes == 0 || lane.bits != Long.SIZE)) {
+        return refused(new Refusal(Kind.MATH_CALL, NO_BAKED_LANES_FOR_A_CALL));
       }
     }
     Set<VarkaVectorIR> storeNarrowings = new HashSet<>();
@@ -392,7 +402,8 @@ public final class VarkaKernelPlan {
     // The width rule (`VARKA-343.md` 2.2): a tree holding a 64-bit value drives at 64 bits, at
     // the long lane if it holds one and at the double lane otherwise, and a tree of 32-bit values
     // drives at the int lane if it holds one and at the float lane otherwise. The floating lanes
-    // meet the others only through a ConvertLane, so a tree of one floating lane drives there.
+    // meet the others only through a ConvertLane or a ReinterpretLane, so a tree of one floating
+    // lane drives there.
     if (lanes.contains(LaneType.LONG)) {
       return LaneType.LONG;
     }
@@ -497,6 +508,14 @@ public final class VarkaKernelPlan {
   // -------------------------------------------------------------------------------------------
   // The refusals
   // -------------------------------------------------------------------------------------------
+
+  /**
+   * The reason a kernel holding a per-lane math call ({@code MathFn#laneCall}) declines at a
+   * width with no baked lane count, {@code validityByWidth} off: the call is unrolled over the
+   * lanes, so their count must be known when the kernel is emitted.
+   */
+  public static final String NO_BAKED_LANES_FOR_A_CALL =
+      "a per-lane math call needs a baked lane count to be unrolled";
 
   /**
    * The reason a narrow value read or stored by an int-lane kernel declines at a width with no
@@ -797,12 +816,13 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.DateDiff _, IntArith _, VarkaVectorIR.IntNeg _,
           VarkaVectorIR.ConstDivide _, VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _,
           VarkaVectorIR.BitCount _, VarkaVectorIR.MathUnary _, VarkaVectorIR.RoundToIntegral _,
-          VarkaVectorIR.IfElse _,
+          VarkaVectorIR.CanonicalFloat _, VarkaVectorIR.CanonicalBits _,
+          VarkaVectorIR.HashStep _, VarkaVectorIR.IfElse _,
           VarkaVectorIR.CondValue _, VarkaVectorIR.Greatest _, VarkaVectorIR.Least _,
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _,
           VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _,
           VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _, VarkaVectorIR.NullValue _,
-          ConvertLane _ ->
+          ConvertLane _, ReinterpretLane _ ->
           LongNarrowRole.NONE;
     };
   }
@@ -851,12 +871,13 @@ public final class VarkaKernelPlan {
           IntArith _, VarkaVectorIR.IntNeg _, VarkaVectorIR.ConstDivide _,
           VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
           VarkaVectorIR.MathUnary _, VarkaVectorIR.RoundToIntegral _, VarkaVectorIR.IfElse _,
-          VarkaVectorIR.CondValue _,
+          VarkaVectorIR.CanonicalFloat _, VarkaVectorIR.CanonicalBits _,
+          VarkaVectorIR.HashStep _, VarkaVectorIR.CondValue _,
           VarkaVectorIR.Greatest _,
           VarkaVectorIR.Least _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,
           VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _,
           VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _,
-          VarkaVectorIR.NullValue _, ConvertLane _ ->
+          VarkaVectorIR.NullValue _, ConvertLane _, ReinterpretLane _ ->
           LongNarrowReader.NONE;
     };
   }

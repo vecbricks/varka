@@ -20,14 +20,17 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -117,12 +120,24 @@ public final class VarkaReproductionSuite {
         new BitCount(new BitOp(BitOpKind.XOR, new ColumnRef(0), new LiteralSlot(0))),
         // An int column converted to the float lane, at the int lane's count.
         new ConvertLane(new ColumnRef(0), LaneType.FLOAT),
+        // A double column's bits at the long lane, an fdlibm port's word access (VARKA-345).
+        new ReinterpretLane(new ColumnRef(0, LaneType.DOUBLE), LaneType.LONG),
         // A floating lane's square root over its IEEE division, whose zero divisor nulls a lane.
         new MathUnary(MathFn.SQRT, new IntArith(IntOp.DIV, Overflow.NULL,
             new ColumnRef(0, LaneType.DOUBLE), new LiteralSlot(0, LaneType.DOUBLE))),
         // The rint construction's node over a double column (VARKA-344).
         new VarkaVectorIR.RoundToIntegral(VarkaVectorIR.RoundMode.RINT,
             new ColumnRef(0, LaneType.DOUBLE)),
+        // The canonicalisation over a float sum (VARKA-337).
+        VarkaVectorIR.CanonicalFloat.of(new IntArith(IntOp.ADD, Overflow.WRAP,
+            new ColumnRef(0, LaneType.FLOAT), new LiteralSlot(0, LaneType.FLOAT))),
+        // Murmur3 over a double's canonical bits, its two halves (VARKA-337).
+        VarkaEmitterHashSuite.step(false, new LiteralSlot(0), new ColumnRef(0, LaneType.DOUBLE),
+            new LiteralSlot(0, LaneType.LONG)),
+        // XXH64 over a double's canonical bits, the step and the reinterpretation built by name.
+        new VarkaVectorIR.HashStep(VarkaVectorIR.HashMix.XXH64_LONG,
+            new LiteralSlot(0, LaneType.LONG), new VarkaVectorIR.CanonicalBits(
+                VarkaVectorIR.CanonicalFloat.of(new ColumnRef(0, LaneType.DOUBLE)))),
         // A double comparison crossed to the long lane of the choice's values (VARKA-343).
         new IfElse(new CrossLane(new Compare(CompareOp.GT, new ColumnRef(2, LaneType.DOUBLE),
             new LiteralSlot(1, LaneType.DOUBLE)), LaneType.LONG), x,
@@ -178,6 +193,121 @@ public final class VarkaReproductionSuite {
   private static byte[] emit(List<VarkaVectorIR> roots, int inputs, int literals) {
     return VarkaLoopEmitter.emit("org.apache.spark.sql.varka.execution.VarkaReproductionProbe",
         roots, inputs, literals, "Probe.java", "shape probe", VarkaEmitOptions.DEFAULTS);
+  }
+
+  /** A chain whose every level uses the one below twice, so its tree text doubles a level. */
+  private static VarkaVectorIR sharedChain(int depth) {
+    VarkaVectorIR node = new ColumnRef(0);
+    for (int i = 0; i < depth; i++) {
+      node = new IntArith(IntOp.ADD, Overflow.WRAP, node, node);
+    }
+    return node;
+  }
+
+  @Test
+  @DisplayName("the tree text's length is counted node by node, as the rendering is (VARKA-630)")
+  void canonicalLengthIsTheRenderingsLength() {
+    List<VarkaVectorIR> trees = new ArrayList<>(theRest());
+    trees.add(everyNodeType());
+    trees.add(sharedChain(12));
+    for (VarkaVectorIR tree : trees) {
+      assertEquals(VarkaVectorIR.canonical(tree).length(), VarkaVectorIR.canonicalLength(tree),
+          () -> VarkaVectorIR.canonical(tree));
+    }
+  }
+
+  @Test
+  @DisplayName("a shape under the tree limit keeps its tree text, so its committed hash stays")
+  void shortShapeKeepsItsTreeText() {
+    List<VarkaVectorIR> trees = new ArrayList<>(theRest());
+    trees.add(everyNodeType());
+    trees.add(sharedChain(16));
+    String expected = trees.stream().map(t -> VarkaVectorIR.canonical(t) + "\n")
+        .collect(java.util.stream.Collectors.joining());
+    assertEquals(expected, VarkaVectorIR.shapeText(trees));
+  }
+
+  @Test
+  @DisplayName("the DAG text keeps every field of a node, an InRanges node's bounds included")
+  void dagTextKeepsWhatTheTreeTextKeeps() {
+    VarkaVectorIR a = new InRanges(new ColumnRef(0), List.of(1, 5));
+    VarkaVectorIR b = new InRanges(new ColumnRef(0), List.of(7, 9));
+    assertFalse(VarkaVectorIR.canonical(a).equals(VarkaVectorIR.canonical(b)));
+    assertFalse(VarkaVectorIR.canonicalDag(List.of(a)).equals(
+        VarkaVectorIR.canonicalDag(List.of(b))));
+    // Two outputs that differ only in the bounds stay two nodes, over one column: the marker, three
+    // nodes and the roots.
+    String both = VarkaVectorIR.canonicalDag(List.of(a, b));
+    assertEquals(5, both.split("\n").length, both);
+    // The corpus's DAG text is stable across a fresh copy, and a different tree differs.
+    List<VarkaVectorIR> trees = new ArrayList<>(theRest());
+    trees.add(everyNodeType());
+    for (VarkaVectorIR tree : trees) {
+      String dag = VarkaVectorIR.canonicalDag(List.of(tree));
+      assertTrue(dag.startsWith("dag\n") && dag.endsWith("\n"), dag);
+      assertEquals(dag, VarkaVectorIR.canonicalDag(List.of(VarkaCanonicalIr.parse(
+          VarkaVectorIR.canonical(tree)))));
+    }
+  }
+
+  @Test
+  @DisplayName("two equal shape keys over a deep shared chain compare in linear time (VARKA-630)")
+  void deepSharedKeysCompareInLinearTime() {
+    // Built twice, so the two share no object: a record's equals would compare the shared node
+    // once per path, 2^64 here.
+    var one = new VarkaShapeKey(List.of(sharedChain(64)), 1, 0);
+    var two = new VarkaShapeKey(List.of(sharedChain(64)), 1, 0);
+    assertTimeoutPreemptively(Duration.ofSeconds(5), () -> assertEquals(one, two));
+    assertEquals(one.hashCode(), two.hashCode());
+    // A chain over another column differs at its foot, and its root hash with it, so this
+    // only checks that a differing key is refused, not the walk past the hash.
+    VarkaVectorIR other = new ColumnRef(1);
+    for (int i = 0; i < 64; i++) {
+      other = new IntArith(IntOp.ADD, Overflow.WRAP, other, other);
+    }
+    var different = new VarkaShapeKey(List.of(other), 1, 0);
+    assertTimeoutPreemptively(Duration.ofSeconds(5), () -> assertNotEquals(one, different));
+  }
+
+  @Test
+  @DisplayName("sameStructure agrees with equals on every node type and between them")
+  void sameStructureAgreesWithEquals() {
+    List<VarkaVectorIR> first = new ArrayList<>(theRest());
+    first.add(everyNodeType());
+    first.add(sharedChain(12));
+    List<VarkaVectorIR> second = new ArrayList<>(theRest());
+    second.add(everyNodeType());
+    second.add(sharedChain(12));
+    for (int i = 0; i < first.size(); i++) {
+      for (int j = 0; j < second.size(); j++) {
+        int a = i;
+        int b = j;
+        assertEquals(first.get(i).equals(second.get(j)),
+            VarkaVectorIR.sameStructure(first.get(i), second.get(j)),
+            () -> "trees " + a + " and " + b);
+      }
+      assertTrue(VarkaVectorIR.sameStructure(first.get(i), second.get(i)), "tree " + i);
+    }
+  }
+
+  @Test
+  @DisplayName("a deep shared chain has a DAG text, one line a node, where its tree has none")
+  void deepSharedChainRendersAsADag() {
+    VarkaVectorIR chain = sharedChain(64);
+    assertTrue(VarkaVectorIR.canonicalLength(chain) > VarkaVectorIR.TREE_TEXT_LIMIT);
+    String text = VarkaVectorIR.shapeText(List.of(chain));
+    assertTrue(text.startsWith("dag\n"), text);
+    // 64 adds and the column, then the roots line.
+    assertEquals(1 + 65 + 1, text.split("\n").length, text);
+    assertTrue(text.endsWith("roots 64\n"), text);
+    // Two equal chains built as distinct objects, as the lane lifts rebuild a shared node, give
+    // one text, and two different chains give two.
+    assertEquals(text, VarkaVectorIR.shapeText(List.of(sharedChain(64))));
+    assertFalse(text.equals(VarkaVectorIR.shapeText(List.of(sharedChain(63)))));
+    // A message carries the start of it and the tree's size, not the tree.
+    String brief = VarkaVectorIR.canonicalBrief(chain);
+    assertTrue(brief.length() < 400 && brief.startsWith("dag\n"), brief);
+    assertEquals(VarkaVectorIR.canonicalDag(List.of(chain)), VarkaVectorIR.canonicalExact(chain));
   }
 
   @Test
@@ -270,6 +400,79 @@ public final class VarkaReproductionSuite {
     assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("decw:0:p38"));
     assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("decw:0:mid:p38"));
     assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("decw:0:lo:p18"));
+  }
+
+  @Test
+  @DisplayName("the auto chain cap renders as no option, and an explicit 16 renders and reads back "
+      + "(VARKA-629)")
+  void autoChainCapRendersAsNothing() {
+    assertFalse(
+        VarkaErrorContext.renderOptions(VarkaEmitOptions.DEFAULTS).contains("axChainDepth"));
+    var sixteen = VarkaEmitOptions.DEFAULTS.withMaxChainDepth(16);
+    String text = VarkaErrorContext.renderOptions(sixteen);
+    assertTrue(text.contains("maxChainDepth=16"), text);
+    assertEquals(sixteen, VarkaMatrixRuns.parse(text));
+    assertNotEquals(VarkaEmitOptions.DEFAULTS, sixteen);
+  }
+
+  @Test
+  @DisplayName("a DAG rendering is read back, on one line or several, and hashes as it did "
+      + "(VARKA-630)")
+  void dagFormReadsBack() {
+    // Over the tree limit, so the exact text is the DAG form; and one the tree form still holds.
+    List<VarkaVectorIR> roots = List.of(sharedChain(40), sharedChain(5), new ColumnRef(1));
+    var parsed = new ArrayList<VarkaVectorIR>();
+    for (VarkaVectorIR root : roots) {
+      String line = VarkaVectorIR.canonicalOneLine(root);
+      assertTrue(line.indexOf('\n') < 0, line);
+      VarkaVectorIR read = VarkaCanonicalIr.parse(line);
+      assertTrue(VarkaVectorIR.sameStructure(root, read), line);
+      parsed.add(read);
+    }
+    assertTrue(VarkaVectorIR.canonicalOneLine(roots.get(0)).startsWith("dag;"));
+    // The one-line form joins the lines by ';', so no node's rendering may contain one.
+    assertFalse(VarkaVectorIR.canonical(everyNodeType()).contains(";"));
+    assertEquals(hash(roots, 2, 0), hash(parsed, 2, 0));
+    // The several-line form, as canonicalDag writes it.
+    String lines = VarkaVectorIR.canonicalDag(List.of(roots.get(0)));
+    assertTrue(VarkaVectorIR.sameStructure(roots.get(0), VarkaCanonicalIr.parse(lines)));
+  }
+
+  @Test
+  @DisplayName("a DAG line that names a node not yet read, or breaks the numbering, is refused")
+  void malformedDagIsRefused() {
+    refuses("before it is read", "dag;0=col:0;1=(int:ADD:WRAP 0 2);roots 1");
+    refuses("not the next id", "dag;1=col:0;roots 1");
+    refuses("one root", "dag;0=col:0;roots 0 0");
+    refuses("one root", "dag;0=col:0");
+    refuses("not both", "dag;0=col:0\nroots 0");
+  }
+
+  private static void refuses(String why, String text) {
+    var e = assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse(text));
+    assertTrue(e.getMessage().contains(why), e.getMessage());
+  }
+
+  @Test
+  @DisplayName("a reproduction file with a DAG output renders and reads back (VARKA-630)")
+  void fileWithDagOutputRoundTrips() {
+    String output = VarkaVectorIR.canonicalOneLine(sharedChain(40));
+    var written = new VarkaReproduction(new VarkaFailureSignature("IndexOutOfBoundsException",
+        "Index # out of bounds for length #"), VarkaFallbackEvent.KERNEL_FAILURE,
+        "Varka context:\n  kind: kernel-failure", "2026-10-14T12:00:00Z", "25", false,
+        "0123456789abcdef", 1, 0, false, "", List.of(output), List.of(), List.of(), null,
+        new byte[] {(byte) 0xCA, (byte) 0xFE, 0, 1});
+    VarkaReproduction read = VarkaReproduction.parse(written.render());
+    assertEquals(List.of(output), read.outputs());
+    // The replay rebuilds the key from the DAG line and finds the file's shape hash.
+    var key = new VarkaShapeKey(List.of(sharedChain(40)), 1, 0, VarkaEmitOptions.DEFAULTS);
+    var file = new VarkaReproduction(written.signature(), written.stage(), written.context(),
+        written.writtenAt(), written.java(), false, VarkaShapeCacheImpl.shapeHash(key), 1, 0,
+        false, "", List.of(output), List.of(), List.of(), null, written.classBytes());
+    assertTrue(VarkaReplay.of(file).notes().get(0).startsWith("rebuilt shape "),
+        () -> VarkaReplay.of(file).notes().toString());
+    assertTrue(VarkaVectorIR.sameStructure(sharedChain(40),
+        VarkaCanonicalIr.parse(read.outputs().get(0))));
   }
 
   private static VarkaReproduction sample(VarkaReproduction.KernelCall call) {

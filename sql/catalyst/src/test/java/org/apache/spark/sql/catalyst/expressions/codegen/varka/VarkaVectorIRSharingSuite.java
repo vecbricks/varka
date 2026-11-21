@@ -123,31 +123,86 @@ public final class VarkaVectorIRSharingSuite {
   }
 
   @Test
-  @DisplayName("nested signum, interval abs and interval division explain at depth 20, not fused")
+  @DisplayName("nested signum, interval abs and interval division explain at depth 20, each "
+      + "fused or declined by its lane's cap (VARKA-559, VARKA-629)")
   void sharingExpressionsExplainAtDepth() {
     // Per level an interval's abs reaches its operand by three paths, its division by seven and
     // a signum by four: before the cached hash these took 25 s at depth 16, 10 s at 8 and 18 s
-    // at 12 (results/VARKA-559-planning-cost.txt), so the bound decides it at 20.
+    // at 12 (results/VARKA-559-planning-cost.txt), so the bound decides it at 20. The predicate's
+    // lane is the lane of the cap: the signum's is the double lane, 16, and the intervals' the
+    // int lane, 64 (VARKA-629). So the signum declines at 20, the abs fuses (it fuses to 28) and
+    // declines past the int cap at 32, and the division, whose levels are several high, declines.
+    // The default options, not the matrix's, since the matrix moves the budgets that decide it.
     DataType ym = new YearMonthIntervalType((byte) 0, (byte) 1);
-    List<Object[]> chains = List.of(new Object[] {DataTypes.DoubleType, "signum(X)"},
-        new Object[] {ym, "abs(X)"}, new Object[] {ym, "(X) / 3"});
+    Object[][] chains = {{DataTypes.DoubleType, "signum(X)", 20, false},
+        {ym, "abs(X)", 20, true}, {ym, "abs(X)", 32, false}, {ym, "(X) / 3", 20, false}};
     for (Object[] chain : chains) {
       DataType type = (DataType) chain[0];
       var columns = CollectionConverters.asScala(List.<Attribute>of(
           VarkaSqlResolve.column("a", type), VarkaSqlResolve.column("c", type))).toSeq();
       String x = "a";
-      for (int i = 0; i < 20; i++) {
+      for (int i = 0; i < (int) chain[2]; i++) {
         x = ((String) chain[1]).replace("X", x);
       }
       Expression e = VarkaSqlResolve.parse("(" + x + ") > c", columns);
       List<VarkaConjunctSpec> specs = assertTimeoutPreemptively(Duration.ofSeconds(20),
-          () -> VarkaExpressionCompiler.explainPredicate(e, columns, VarkaMatrixRuns.BASE,
-              VarkaAdmission.NO_HOST_REFUSAL), () -> "explaining " + chain[1] + " 20 deep");
-      // Over the budget's height, a constant, so not fused under any configuration; the reason
-      // is not asserted, since a configuration may decline the chain earlier for another.
+          () -> VarkaExpressionCompiler.explainPredicate(e, columns, VarkaEmitOptions.DEFAULTS,
+              VarkaAdmission.NO_HOST_REFUSAL),
+          () -> "explaining " + chain[1] + " " + chain[2] + " deep");
       assertEquals(1, specs.size());
-      assertFalse(specs.get(0).fused(), () -> chain[1] + " fused 20 deep");
+      assertEquals(chain[3], specs.get(0).fused(), () -> chain[1] + " " + chain[2] + " deep");
     }
+  }
+
+  /**
+   * The one conjunct of {@code (chain nested depth deep) > c}, explained under a chain-depth cap
+   * of {@code cap}, within a bound a per-path walk would miss by orders of magnitude.
+   */
+  private static VarkaConjunctSpec explain(DataType type, String chain, int depth, int cap) {
+    var columns = CollectionConverters.asScala(List.<Attribute>of(
+        VarkaSqlResolve.column("a", type), VarkaSqlResolve.column("c", type))).toSeq();
+    String x = "a";
+    for (int i = 0; i < depth; i++) {
+      x = chain.replace("X", x);
+    }
+    Expression e = VarkaSqlResolve.parse("(" + x + ") > c", columns);
+    // The default options, not the matrix's: the stops below are the default budgets', and a
+    // configuration that moves a budget moves them (the byte budget, the ceiling).
+    List<VarkaConjunctSpec> specs = assertTimeoutPreemptively(Duration.ofSeconds(20),
+        () -> VarkaExpressionCompiler.explainPredicate(e, columns,
+            VarkaEmitOptions.DEFAULTS.withMaxChainDepth(cap), VarkaAdmission.NO_HOST_REFUSAL),
+        () -> "explaining " + chain + " " + depth + " deep");
+    assertEquals(1, specs.size());
+    return specs.get(0);
+  }
+
+  @Test
+  @DisplayName("the fan-out chains fuse to the depth the cap allows, and decline in milliseconds "
+      + "past it (VARKA-630)")
+  void fanOutChainsStopAtTheCap() {
+    DataType ym = new YearMonthIntervalType((byte) 0, (byte) 1);
+    // The deepest depth each chain fuses at and the first it does not, at cap 64 and at cap 128
+    // (results/VARKA-630-chain-depths.txt): an interval's abs reaches its operand by three paths,
+    // a signum by four. Raising the cap moves each stop, so the cap is what stopped it.
+    Object[][] chains = {{DataTypes.DoubleType, "signum(X)", 12, 16, 16, 24},
+        {ym, "abs(X)", 28, 32, 40, 64}};
+    for (Object[] c : chains) {
+      DataType type = (DataType) c[0];
+      String chain = (String) c[1];
+      assertTrue(explain(type, chain, (int) c[2], 64).fused(), () -> chain + " " + c[2]);
+      assertFalse(explain(type, chain, (int) c[3], 64).fused(), () -> chain + " " + c[3]);
+      assertTrue(explain(type, chain, (int) c[4], 128).fused(), () -> chain + " " + c[4]);
+      assertFalse(explain(type, chain, (int) c[5], 128).fused(), () -> chain + " " + c[5]);
+    }
+  }
+
+  @Test
+  @DisplayName("a chain of adds fuses to 63 deep under a cap of 64 and to 64 under 128 "
+      + "(VARKA-630)")
+  void addChainFusesToTheCapLessTheCompare() {
+    assertTrue(explain(DataTypes.IntegerType, "(X + 1)", 63, 64).fused());
+    assertFalse(explain(DataTypes.IntegerType, "(X + 1)", 64, 64).fused());
+    assertTrue(explain(DataTypes.IntegerType, "(X + 1)", 64, 128).fused());
   }
 
   @Test
@@ -221,11 +276,17 @@ public final class VarkaVectorIRSharingSuite {
   /**
    * A node of {@code type} over leaves, by reflection as {@code VarkaIrFuzzSuite.admitsLongLanes}
    * builds one: each lane and enum constant in turn until the constructor accepts, so a new node
-   * type is built here unedited; {@code BoundedDivide} checks a pair it derives, so by hand.
+   * type is built here unedited; {@code BoundedDivide} checks a pair it derives, and
+   * {@code CanonicalBits} takes a canonicalisation, so both by hand.
    */
   private static VarkaVectorIR anyNodeOf(Class<?> type) throws ReflectiveOperationException {
     if (type == BoundedDivide.class) {
       return BoundedDivide.of(new ColumnRef(0, LaneType.INT), 3, 10);
+    }
+    // The bits of a floating value take its canonicalisation, never a leaf.
+    if (type == VarkaVectorIR.CanonicalBits.class) {
+      return new VarkaVectorIR.CanonicalBits(
+          VarkaVectorIR.CanonicalFloat.of(new ColumnRef(0, LaneType.FLOAT)));
     }
     RecordComponent[] components = type.getRecordComponents();
     Class<?>[] signature =

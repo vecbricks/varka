@@ -249,9 +249,54 @@ final class VarkaEmitBudget {
    * (VarkaEmitterParityBenchmark; details in VARKA-9.md): fused throughput declines only
    * gently with depth while sequential passes collapse linearly, so the cap bounds emitted
    * method size and register pressure by policy, well past any depth a real projection
-   * produces, rather than marking a measured performance edge. Condition nodes count.
+   * produces, rather than marking a measured performance edge. Condition nodes count. It is what
+   * {@link VarkaEmitOptions#maxChainDepth}'s auto value resolves to on every lane but the int one
+   * ({@link #chainDepthCap}); a benchmark raises the option to price the depths past it
+   * (VARKA-620).
    */
   public static final int MAX_CHAIN_DEPTH = 16;
+
+  /**
+   * The value of {@link VarkaEmitOptions#maxChainDepth} that leaves the cap to the output's lane,
+   * which is its default.
+   */
+  public static final int AUTO_CHAIN_DEPTH = 0;
+
+  /**
+   * The auto cap of an output whose tree holds only the int lane: a fused chain of int adds,
+   * subtractions, multiplications, compares and selects is 8 to 34 times faster than the row path
+   * to depth 64 at both vector widths (VARKA-620, {@code VarkaChainDepthBenchmark}). That is the
+   * only shape measured: the BIGINT lane is not in the reading, 128 bits being slower than the
+   * row path (row 628), nor are the narrow and floating lanes, nor the calendar and bounded
+   * division chains, which are int-lane trees too and are admitted to 64 without a measurement.
+   * Any other tree keeps {@link #MAX_CHAIN_DEPTH}.
+   */
+  public static final int INT_LANE_MAX_CHAIN_DEPTH = 64;
+
+  /**
+   * The deepest op path {@code root} may have under {@code options}: its {@code maxChainDepth}
+   * where one is set, on every lane, which lowers the int lane's 64 as well as raising the others'
+   * 16, and where it is auto 64 for a tree that holds the int lane alone and 16 for any other.
+   * The tree, not the root's lane, decides: a BIGINT chain narrowed to an int root is a long-lane
+   * chain, which row 628 measured slower than the row path at 128 bits. An explicit 16 is 16 on the
+   * int lane too, which a default that read 16 as unset could not say.
+   */
+  public static int chainDepthCap(VarkaEmitOptions options, VarkaVectorIR root) {
+    int set = options.maxChainDepth();
+    if (set != AUTO_CHAIN_DEPTH) {
+      return set;
+    }
+    return VarkaVectorIR.lanesIn(root).equals(java.util.Set.of(VarkaVectorIR.LaneType.INT))
+        ? INT_LANE_MAX_CHAIN_DEPTH : MAX_CHAIN_DEPTH;
+  }
+
+  /**
+   * The most literals a one-output loop body hoists into vector locals; past it every broadcast
+   * is inlined at its use. The hoist measured as a win up to a chain's worth of literals, one
+   * per level of a 16-deep chain ({@code VARKA-9.md}), so it shares {@link #MAX_CHAIN_DEPTH}'s
+   * value. It is a literal count, not a depth, and does not move with the depth option.
+   */
+  static final int HOIST_LITERALS = 16;
 
   /**
    * The most distinct op nodes one emitted kernel may hold, across all outputs after CSE, in the
@@ -664,7 +709,7 @@ final class VarkaEmitBudget {
       // node of its own), the narrowing conversion, the compare (an unsigned one too: it is the
       // lane's own compare operator, intrinsic at more than two long lanes, VARKA-376 9).
       case AddDays _, SubDays _, DateDiff _, Greatest _, Least _, WidenLane _,
-          NarrowLane _, ConvertLane _, Compare _, NullSafeEqual _ -> 1;
+          NarrowLane _, ConvertLane _, ReinterpretLane _, Compare _, NullSafeEqual _ -> 1;
       // The blend, plus the shift pair a narrow pick may reduce with at the int lane.
       case IfElse n -> n.laneType().isNarrow() ? 3 : 1;
       // The broadcast 0 and the add of 1 under the known-true mask; its validity, the OR of the
@@ -719,14 +764,27 @@ final class VarkaEmitBudget {
       // The popcount alone at the long lane; at a narrower lane the popcount, the sign shift,
       // the mask and the add of the high bits the widening to 64 gains (32, 48 or 56).
       case BitCount n -> n.laneType() == VarkaVectorIR.LaneType.LONG ? 1 : 4;
-      // The lanewise square root: one call.
-      case VarkaVectorIR.MathUnary _ -> 1;
+      // The lanewise square root: one call. A per-lane call extracts and inserts each lane, at
+      // most eight double lanes at 512 bits, the larger form as above; the scalar calls between
+      // them are no vector op.
+      case VarkaVectorIR.MathUnary n -> n.fn().laneCall() ? 16 : 1;
       // The rint construction: the absolute value, the add and subtract of 2^52, the sign's AND
       // and OR, the compare against 2^52 and the blend, and three reinterpretations, which the
       // budget counts as calls though they emit no instruction; then the NaN's compare and
       // blend, where the operand can hold a NaN other than the canonical one.
       case VarkaVectorIR.RoundToIntegral n ->
           VarkaRoundingLowering.mayHoldOtherNaN(n) ? 12 : 10;
+      // The canonicalisation: the add of zero, the NaN test and the blend.
+      case VarkaVectorIR.CanonicalFloat _ -> 3;
+      // A reinterpretation: one lane call, which C2 emits as nothing.
+      case VarkaVectorIR.CanonicalBits _ -> 1;
+      // The lane operations of each step (VARKA-337 2.4), the operand fetches not counted.
+      case VarkaVectorIR.HashStep n -> switch (n.mix()) {
+        case MURMUR3_INT, MURMUR3_HIGH -> 17;
+        case MURMUR3_LOW -> 8;
+        case XXH64_INT -> 15;
+        case XXH64_LONG -> 16;
+      };
     };
   }
 

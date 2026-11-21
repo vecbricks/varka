@@ -200,21 +200,60 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
   @volatile private var results: Map[Probe, Try[Census]] = Map.empty
 
   /**
-   * Runs the five probes one after another, before any test, so no test body waits on a child
-   * JVM: `beforeAll` is under neither `VarkaTestWatchdog`'s cap nor `spark.test.timeout`, which
-   * both wrap a test body, and `childTimeoutSeconds` bounds each probe. A probe that fails is kept
-   * as its failure, so each test that reads it fails naming it, and the tests that read none
-   * still run.
+   * How many probes run at once: `-Dvarka.widthAudit.parallelProbes`, or one for every four cores
+   * up to the five probes, which is one on a four-core runner and five on the laptop's 24 cores.
+   * On those 24 cores four at once took 326 s and five at once 262 s where one after another took
+   * 762 s (`plans/m8/results/VARKA-626-regen-speedup.txt`), the slowest probe alone 252 s
+   * (`VARKA-581-probe-times.txt`), so `childTimeoutSeconds` still holds for each.
+   */
+  private val parallelProbes: Int = {
+    val key = "varka.widthAudit.parallelProbes"
+    Option(System.getProperty(key)).map { v =>
+      val n = scala.util.Try(v.toInt).getOrElse(0)
+      require(n >= 1, s"$key must be a positive integer, got '$v'")
+      n
+    }.getOrElse {
+      // A CI shard runs other test JVMs beside the audit, which the readings below do not cover,
+      // so the default there is one at a time, as before.
+      if (sys.env.contains("CI") || sys.env.contains("GITHUB_ACTIONS")) 1
+      else math.max(1, math.min(5, Runtime.getRuntime.availableProcessors() / 4))
+    }
+  }
+
+  /**
+   * Runs the five probes, `parallelProbes` at a time, before any test, so no test body waits on
+   * a child JVM: `beforeAll` is under neither `VarkaTestWatchdog`'s cap nor `spark.test.timeout`,
+   * which both wrap a test body, and `childTimeoutSeconds` bounds each probe. A probe that fails
+   * is kept as its failure, so each test that reads it fails naming it, and the tests that read
+   * none still run.
    */
   override def beforeAll(): Unit = {
     super.beforeAll()
     val probes = Seq(preferredProbe, preferredAgainProbe) ++ widthsBytes.map(forcedProbes)
-    results = probes.map { probe =>
-      val begun = System.nanoTime()
-      val result = Try(audit(probe))
-      logInfo(s"${probe.name} took ${(System.nanoTime() - begun) / 1000000000L} s")
-      probe -> result
-    }.toMap
+    val pool = java.util.concurrent.Executors.newFixedThreadPool(parallelProbes)
+    try {
+      val running = probes.map { probe =>
+        probe -> pool.submit(new java.util.concurrent.Callable[(Probe, Try[Census])] {
+          override def call(): (Probe, Try[Census]) = {
+            val begun = System.nanoTime()
+            val result = Try(audit(probe))
+            logInfo(s"${probe.name} took ${(System.nanoTime() - begun) / 1000000000L} s")
+            probe -> result
+          }
+        })
+      }
+      // Every probe is waited for, and a probe whose task died of a fatal error is kept as its
+      // failure like any other, so that no sibling's child JVM is left running behind a throw.
+      results = running.map { case (probe, task) =>
+        try task.get()
+        catch {
+          case e: java.util.concurrent.ExecutionException => probe -> Failure(e.getCause)
+        }
+      }.toMap
+    } finally {
+      pool.shutdownNow()
+      pool.awaitTermination(1, java.util.concurrent.TimeUnit.MINUTES)
+    }
   }
 
   /** The census of `probe`, or a failure of the calling test that names the probe. */
@@ -358,24 +397,32 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     val catalyst = Option(row.get("catalyst"))
       .map(_.elements().asScala.map(_.asText()).toSet).getOrElse(Set.empty[String])
     assert(catalyst === Set("InSet"), s"the row's catalyst field is $catalyst")
-    val in = VarkaWidthAuditShapes.parsedRow(executable) match {
+    val columns = VarkaCoverageRows.columns(coverageJson.toPath)
+    val in = VarkaWidthAuditShapes.parsedRow(executable, columns) match {
       case i: In => i
       case other => fail(s"the row's spelling parsed to ${other.getClass.getSimpleName}")
     }
     assert(in.list.exists(!_.isInstanceOf[Literal]),
       "every element is a Literal, so a rule matching Literals alone would rewrite the row")
-    val resolved = VarkaWidthAuditShapes.resolvedRow(executable, catalyst)
+    val resolved = VarkaWidthAuditShapes.resolvedRow(executable, catalyst, columns)
     assert(resolved.isInstanceOf[InSet],
       s"the audit resolved the row to ${resolved.getClass.getSimpleName}: $resolved")
-    // The audit's own path: on a host that compiles the row's condition the row is a shape, not
-    // a decline. The two forms lower alike, so the census alone cannot tell which one was
-    // audited. On an x86 host whose 64-bit species have two lanes or fewer, C2 lowers no mask
-    // for a filter's condition, so the audit declines this row's condition before its shape can
-    // matter; that decline is the row's answer there, and any other decline is a failure
-    // (VARKA-607).
-    val audited = VarkaWidthAuditShapes.coverageRows(coverageJson)
-      .find(_.name == sql).getOrElse(fail(s"the audit has no entry for '$sql'"))
-    audited match {
+    // The audit's own path, with the two-lane refusal off: on every host the row is a shape,
+    // not a decline. The two forms lower alike, so the census alone cannot tell which one was
+    // audited (VARKA-615).
+    def audited(entries: Seq[VarkaWidthAuditShapes.Entry]): VarkaWidthAuditShapes.Entry =
+      entries.find(_.name == sql).getOrElse(fail(s"the audit has no entry for '$sql'"))
+    val unrefused =
+      VarkaWidthAuditShapes.coverageRows(coverageJson, VarkaAdmission.NO_HOST_REFUSAL, _ == sql)
+    audited(unrefused) match {
+      case _: VarkaWidthAuditShapes.Shape =>
+      case other => fail(s"the audit did not compile the row with no host refusal: $other")
+    }
+    // On the host's terms, as the census records it: on an x86 host whose 64-bit species have
+    // two lanes or fewer, C2 lowers no mask for a filter's condition, so the audit declines this
+    // row's condition before its shape can matter; that decline is the row's answer there, and
+    // any other decline is a failure (VARKA-607).
+    audited(VarkaWidthAuditShapes.coverageRows(coverageJson)) match {
       case _: VarkaWidthAuditShapes.Shape =>
       case VarkaWidthAuditShapes.Declined(_, VarkaKernelPlan.TWO_LANE_CONDITION_REASON) =>
       case other =>
