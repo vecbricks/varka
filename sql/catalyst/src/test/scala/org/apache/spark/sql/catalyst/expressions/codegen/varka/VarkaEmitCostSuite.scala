@@ -85,11 +85,12 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // is always floating (VARKA-343), and the lane crossing, which joins a floating condition
     // to an integral one (`VARKA-343.md` 2.2.1). The canonicalisation is a floating node too
     // (VARKA-337 2.6), priced per floating lane at that refit, and so are a canonical value's
-    // bits and the hash steps, per step.
+    // bits and the hash steps, per step, and the reinterpretation, whose one side is floating
+    // too (`VARKA-345.md` 10.2).
     val awaitingRefit = Set("NullSafeEqual", "BoolColumn", "CondConst", "BoolCompare", "CondIf",
       "BoolNullSafeEq", "CondValue", "BoolOutput", "DecimalColumn", "DecimalWord", "NullValue",
       "WidenDecimal", "MathUnary", "RoundToIntegral", "CanonicalFloat", "ConvertLane", "CrossLane",
-      "CanonicalBits", "HashStep", "Compare/ULT",
+      "CanonicalBits", "HashStep", "ReinterpretLane", "Compare/ULT",
       "Compare/ULE", "Compare/UGT", "Compare/UGE")
     assert(awaitingRefit.forall(t => !expected.exists(f => f == t || f.startsWith(t + "/"))),
       s"${awaitingRefit.toSeq.sorted} is priced: take it off the list of nodes awaiting a refit")

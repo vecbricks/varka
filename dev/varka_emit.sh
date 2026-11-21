@@ -38,6 +38,12 @@
 # runs the --asm probe at that species instead of the host's preferred one, which is how
 # a two-lane 64-bit body is read on a 512-bit machine.
 #
+# --jvm-arg=FLAG (repeatable) adds FLAG to the forked JVM's options, on both paths; with
+# --jvm-arg=-Djdk.incubator.vector.DEBUG=true the JDK's lines naming the math library symbol it
+# bound each operator to are printed once a kernel runs that operator, which only an --asm run
+# does, so they are absent from a run without it and prove nothing; read an --asm run against them:
+# the call in loopDense0's assembly targets the address the line printed (VARKA-345.md 2.5).
+#
 # Everything but --asm is passed through to VarkaEmitDump (catalyst test scope);
 # --table prints the markdown op-count table a plan registers (one row per
 # expression, one column per --variant, deltas against the defaults).
@@ -85,14 +91,24 @@ if [ "${1:-}" = "--replay" ]; then
   exit $?
 fi
 cd "$root"
-asm=0; width=""; pass=()
+asm=0; width=""; pass=(); jvm=""
 for a in "$@"; do
   case "$a" in
     --asm) asm=1 ;;
     --width=*) width="${a#--width=}" ;;
+    --jvm-arg=*)
+      # The flag is pasted into a Scala string literal of an sbt `set`, so it cannot hold one.
+      case "$a" in
+        *'"'*|*'\'*) echo "--jvm-arg cannot hold \" or \\: $a" >&2; exit 2 ;;
+      esac
+      jvm+=", \"${a#--jvm-arg=}\"" ;;
     *) pass+=("$a") ;;
   esac
 done
+# The JDK's own lines about its math library's bindings, printed under the DEBUG property.
+bindings() {
+  sed -E 's/^\[info\] ?//' "$1" | grep -E '^DEBUG: VectorMathLibrary: [A-Z0-9]+ \S+ => 0x' || true
+}
 [ "${#pass[@]}" -gt 0 ] || { usage; }
 # sbt splits runMain's argument string on spaces; keep each expression one token.
 quoted=""
@@ -107,17 +123,23 @@ if [ "$asm" -eq 0 ]; then
   trap 'rm -f "$log"' EXIT
   # `|| true` so `set -e` does not abort before the diagnosis below: a non-zero run is
   # exactly the case this block exists to explain.
-  build/sbt -batch "catalyst/Test/runMain $main$quoted" > "$log" 2>&1 || true
+  opts=()
+  [ -n "$jvm" ] && opts=("set Test/javaOptions ++= Seq(${jvm#, })")
+  build/sbt -batch "project catalyst" ${opts[@]+"${opts[@]}"} \
+    "Test/runMain $main$quoted" > "$log" 2>&1 || true
   # `|| true` again: grep exits 1 when it filters everything out, which under `set -e` would
   # abort here - the same silence, one line further down.
-  report="$(sed -E 's/^\[(info|error)\] ?//' "$log" \
-    | sed -n '/^entry \|^| expression/,$p' | grep -v -E '^\[(success|warn)\]|^WARNING: ' || true)"
+  # The JDK ends each binding line with an empty one, which would split the report's table.
+  report="$(sed -E 's/^\[(info|error)\] ?//' "$log" | sed -n '/^entry \|^| expression/,$p' \
+    | awk '/^DEBUG: / { d = / => 0x/; next } d && $0 == "" { d = 0; next } { d = 0; print }' \
+    | grep -v -E '^\[(success|warn)\]|^WARNING: ' || true)"
   if [ -z "$report" ]; then
     echo "the dump produced no report; the run's own output follows" >&2
     sed -E 's/^\[(info|error)\] ?//' "$log" | grep -E 'Exception|Error|error:' | head -5 >&2
     exit 1
   fi
   printf '%s\n' "$report"
+  bindings "$log"
   exit 0
 fi
 
@@ -135,7 +157,7 @@ print_cmd="-XX:CompileCommand=print,org.apache.spark.sql.varka.execution.VarkaFu
 flags='set Test/javaOptions ++= Seq("-XX:+UnlockDiagnosticVMOptions",'
 flags+=" \"-XX:CompileCommand=quiet\", \"$print_cmd\""
 [ -n "$width" ] && flags+=", \"-XX:MaxVectorSize=$width\""
-flags+=")"
+flags+="$jvm)"
 LD_LIBRARY_PATH="${VARKA_HSDIS_DIR:-}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 build/sbt -batch "project catalyst" "$flags" \
   "Test/runMain $main$quoted --rounds 50000" > "$log" 2>&1 || true
@@ -146,6 +168,7 @@ keep='^(entry |inputs |literals |output [0-9]+ IR|shape hash|method +bytes'
 keep+='|[A-Za-z0-9_]+( +[0-9]+){4,}$|line map|  [0-9]+=|ran [0-9]+ rounds|\(--rounds)'
 sed -E 's/^\[(info|error)\] ?//' "$log" \
   | grep -E "$keep"
+bindings "$log"
 echo
 echo "== mnemonics in the standard C2 compilation of loopDense0 (full disassembly: $log) =="
 sed -E 's/^\[info\] ?//' "$log" | awk '

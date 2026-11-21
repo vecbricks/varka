@@ -135,9 +135,10 @@ final class VarkaNodeCompiler {
   /**
    * The most literals an {@code IN} list may hold and still fuse, counted after dedup. The basis,
    * recorded in {@code VARKA-20.md}: 16 is depth-safe under any fold shape
-   * ({@code MAX_CHAIN_DEPTH} = 16 while the balanced chain here is {@code ceil(log2 16) + 1} = 5
-   * levels), and its 31 op nodes left half the emitter's {@code MAX_FUSED_NODES} = 64 budget to
-   * the rest of the projection when that cap bounded every kernel; under the byte budget it
+   * ({@code MAX_CHAIN_DEPTH} = 16, the cap of a tree not of the int lane alone, while the
+   * balanced chain here is {@code ceil(log2 16) + 1} = 5 levels), and its 31 op nodes left half
+   * the emitter's {@code MAX_FUSED_NODES} = 64 budget to the rest of the projection when that cap
+   * bounded every kernel; under the byte budget it
    * bounds only the reference form, and the choice of 16 stands on the depth argument. (The
    * emitter's broadcast hoist is NOT part of the basis: its gate counts the kernel's total
    * literal slots, so a capped IN plus any other literal already re-broadcasts inline - the
