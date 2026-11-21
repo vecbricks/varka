@@ -18,12 +18,16 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.util.EnumSet;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Set;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.function.ToIntFunction;
+
+import javax.annotation.Nullable;
 
 import org.apache.spark.sql.types.Decimal;
 
@@ -530,8 +534,54 @@ public sealed interface VarkaVectorIR
   /**
    * The lane-wise math function a {@link MathUnary} calls. {@code SQRT} is IEEE's square root,
    * correctly rounded as {@code Math.sqrt} is, so the lanewise operator answers its bits.
+   *
+   * <p>Every other member is computed by a per-lane call (the {@code LANE_CALL} form of
+   * {@code VARKA-345.md} 2.2): each lane is read out of the vector, passed to the scalar method
+   * named by {@link #owner} and {@link #method}, and written back, so its bits are that method's
+   * on every input. The owner is the class Spark's generated code reaches: {@code java.lang.Math}
+   * for {@code sin}, {@code cos} and {@code tan}, whose answer is the host's intrinsic and differs
+   * from {@code StrictMath}'s on x86, and {@code java.lang.StrictMath} for {@code asin},
+   * {@code acos} and {@code atan}, which {@code Math} delegates to on every host
+   * ({@code VARKA-356.md} item 0.3). These take a {@code DOUBLE} operand only, as Spark does.
    */
-  enum MathFn { SQRT }
+  enum MathFn {
+    SQRT(null, null),
+    SIN("java/lang/Math", "sin"),
+    COS("java/lang/Math", "cos"),
+    TAN("java/lang/Math", "tan"),
+    ASIN("java/lang/StrictMath", "asin"),
+    ACOS("java/lang/StrictMath", "acos"),
+    ATAN("java/lang/StrictMath", "atan");
+
+    private final @Nullable String owner;
+    private final @Nullable String method;
+
+    MathFn(@Nullable String owner, @Nullable String method) {
+      this.owner = owner;
+      this.method = method;
+    }
+
+    /** Whether this function is computed by a per-lane call rather than a lanewise operator. */
+    public boolean laneCall() {
+      return owner != null;
+    }
+
+    /** The internal name of the class whose static method a per-lane call invokes. */
+    public String owner() {
+      if (owner == null) {
+        throw VarkaErrors.illegalState(this + " is a lanewise operator, not a per-lane call");
+      }
+      return owner;
+    }
+
+    /** The name of the static {@code (D)D} method a per-lane call invokes. */
+    public String method() {
+      if (method == null) {
+        throw VarkaErrors.illegalState(this + " is a lanewise operator, not a per-lane call");
+      }
+      return method;
+    }
+  }
 
   /**
    * How a {@link RoundToIntegral} picks the integer: {@code RINT} is the nearest, a tie going to
@@ -1464,16 +1514,20 @@ public sealed interface VarkaVectorIR
   }
 
   /**
-   * {@code fn(child)} over a floating lane: one lanewise math operator, Spark's
-   * {@code java.lang.Math} function of the same name. Only a function whose lanewise operator
-   * answers {@code Math}'s bits on every input is a member of {@link MathFn}. Null-intolerant:
-   * the validity is the child's, and no input nulls a lane.
+   * {@code fn(child)} over a floating lane, the function Spark's generated code calls: a lanewise
+   * operator where its bits are that function's on every input ({@code SQRT}), and otherwise a
+   * per-lane call of the scalar method itself ({@link MathFn#laneCall}), at {@code DOUBLE} only.
+   * Null-intolerant: the validity is the child's, and no input nulls a lane.
    */
   record MathUnary(MathFn fn, VarkaVectorIR child, int hash) implements VarkaVectorIR {
     public MathUnary {
       if (!child.laneType().isFloating()) {
         throw VarkaErrors.illegalArgument(fn + " takes a floating child, not "
             + child.laneType() + ", from a " + child.getClass().getSimpleName());
+      }
+      if (fn.laneCall() && child.laneType() != LaneType.DOUBLE) {
+        throw VarkaErrors.illegalArgument(fn + " takes a DOUBLE child, as Spark's function "
+            + "does, not " + child.laneType());
       }
       hash = hashOf(fn, child);
     }
@@ -2556,11 +2610,11 @@ public sealed interface VarkaVectorIR
    * child's tree length less the one character.
    */
   static long canonicalLength(VarkaVectorIR node) {
-    return canonicalLength(node, new java.util.IdentityHashMap<>());
+    return canonicalLength(node, new IdentityHashMap<>());
   }
 
   private static long canonicalLength(VarkaVectorIR node,
-      java.util.IdentityHashMap<VarkaVectorIR, Long> memo) {
+      IdentityHashMap<VarkaVectorIR, Long> memo) {
     Long known = memo.get(node);
     if (known != null) {
       return known;
@@ -2607,7 +2661,7 @@ public sealed interface VarkaVectorIR
    * distinct nodes, and recursive in the depth, which admission bounds.
    */
   static String canonicalDag(List<VarkaVectorIR> outputs) {
-    var idOfObject = new java.util.IdentityHashMap<VarkaVectorIR, Integer>();
+    var idOfObject = new IdentityHashMap<VarkaVectorIR, Integer>();
     var idOfLine = new java.util.HashMap<String, Integer>();
     StringBuilder text = new StringBuilder("dag\n");
     StringBuilder roots = new StringBuilder("roots");
@@ -2675,6 +2729,76 @@ public sealed interface VarkaVectorIR
       }
     }
     return false;
+  }
+
+  /**
+   * Whether {@code a} and {@code b} are equal as {@code equals} says, in time linear in the
+   * pairs of distinct nodes instead of the paths between them.
+   *
+   * <p>A record's {@code equals} tries identity first, so a node shared inside one compile is
+   * one step; but two equal DAGs that share no object compare a shared node once per path, which
+   * at a fan-out of two a level doubles with every level (VARKA-630, measured in
+   * {@code results/VARKA-630-shape-key-equals.txt}). This walks the pairs once: a differing class
+   * or cached hash ends it at once, the children are compared first, each pair once, and a node is
+   * then compared with {@code b} rebuilt over {@code a}'s children, which differs from {@code a}
+   * only in what a record holds besides its children. Where a rebuilt node is refused it falls
+   * back to the record's own {@code equals}, which is right but may walk every path.
+   */
+  static boolean sameStructure(VarkaVectorIR a, VarkaVectorIR b) {
+    return sameStructure(a, b, new IdentityHashMap<>());
+  }
+
+  // The identity test is the point: a node both keys share is one step, as is the memo's.
+  @SuppressWarnings("ReferenceEquality")
+  private static boolean sameStructure(VarkaVectorIR a, VarkaVectorIR b,
+      IdentityHashMap<VarkaVectorIR, Set<VarkaVectorIR>> equalPairs) {
+    if (a == b) {
+      return true;
+    }
+    if (a.getClass() != b.getClass() || a.hashCode() != b.hashCode()) {
+      return false;
+    }
+    Set<VarkaVectorIR> known = equalPairs.get(a);
+    if (known != null && known.contains(b)) {
+      return true;
+    }
+    VarkaVectorIR[] kidsA = childrenOf(a);
+    VarkaVectorIR[] kidsB = childrenOf(b);
+    if (kidsA.length != kidsB.length) {
+      return false;
+    }
+    for (int i = 0; i < kidsA.length; i++) {
+      if (!sameStructure(kidsA[i], kidsB[i], equalPairs)) {
+        return false;
+      }
+    }
+    boolean same;
+    try {
+      same = kidsA.length == 0 ? a.equals(b) : a.equals(withChildren(b, kidsA));
+    } catch (IllegalArgumentException refused) {
+      // A constructor refused the rebuild: ask the record, which is right though it may walk
+      // every path. The test over every node type pins that no node type is refused.
+      same = a.equals(b);
+    }
+    if (same) {
+      equalPairs.computeIfAbsent(a,
+          k -> Collections.newSetFromMap(new IdentityHashMap<>())).add(b);
+    }
+    return same;
+  }
+
+  /** {@link #sameStructure} over two lists of the same length, in order. */
+  static boolean sameStructure(List<VarkaVectorIR> a, List<VarkaVectorIR> b) {
+    if (a.size() != b.size()) {
+      return false;
+    }
+    var equalPairs = new IdentityHashMap<VarkaVectorIR, Set<VarkaVectorIR>>();
+    for (int i = 0; i < a.size(); i++) {
+      if (!sameStructure(a.get(i), b.get(i), equalPairs)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** {@code node}'s children, in the order its record declares them; a leaf has none. */

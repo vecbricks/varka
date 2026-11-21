@@ -107,6 +107,15 @@ final class VarkaDescriptors {
   /** {@code int IntVector.lane(int)}: one lane read, at a constant index. */
   static final MethodTypeDesc INT_LANE =
       MethodTypeDesc.of(ConstantDescs.CD_int, ConstantDescs.CD_int);
+  /** {@code DoubleVector DoubleVector.withLane(int, double)}: one lane replaced. */
+  static final MethodTypeDesc DOUBLE_WITH_LANE =
+      MethodTypeDesc.of(DOUBLE_VECTOR, ConstantDescs.CD_int, ConstantDescs.CD_double);
+  /** {@code double DoubleVector.lane(int)}: one lane read. */
+  static final MethodTypeDesc DOUBLE_LANE =
+      MethodTypeDesc.of(ConstantDescs.CD_double, ConstantDescs.CD_int);
+  /** {@code double fn(double)}: a static scalar math method, a per-lane call's target. */
+  static final MethodTypeDesc DOUBLE_FN =
+      MethodTypeDesc.of(ConstantDescs.CD_double, ConstantDescs.CD_double);
   /**
    * The whole-batch bitmap pass, one call per node of a served root's word expression:
    * {@code copyColumnValidity(MemorySegment dst, long addr, int nulls, int rows)} for a single
