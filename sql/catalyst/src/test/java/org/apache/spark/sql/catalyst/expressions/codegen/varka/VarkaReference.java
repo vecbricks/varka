@@ -138,6 +138,11 @@ public final class VarkaReference {
               v -> (int) convert(n.child().laneType(), n.target(), v));
       case ConvertLane n -> throw new IllegalArgumentException(
           "a conversion is evaluated through mixedValue: " + n);
+      // A float's bits are its int row, so the view at the other 32-bit lane is the row itself.
+      case ReinterpretLane n when n.target().bits() == Integer.SIZE ->
+          value(n.child(), row, isNull, lits);
+      case ReinterpretLane n -> throw new IllegalArgumentException(
+          "a 64-bit view is evaluated through longValue: " + n);
       case DateDiff(var end, var start, _) -> both(end, start, row, isNull, lits, (e, s) -> e - s);
       case DayOfWeek n -> map(n.days(), row, isNull, lits, v -> (Math.floorMod(v, 7) + 4) % 7 + 1);
       case WeekDay n -> map(n.days(), row, isNull, lits, v -> (Math.floorMod(v, 7) + 3) % 7);
@@ -597,6 +602,11 @@ public final class VarkaReference {
           "a widening reads int rows, and is evaluated through mixedValue: " + n);
       case ConvertLane n -> throw new IllegalArgumentException(
           "a conversion is evaluated through mixedValue: " + n);
+      // A double's bits are its long row, so the view at the other 64-bit lane is the row itself.
+      case ReinterpretLane n when n.target().bits() == Long.SIZE ->
+          longValue(n.child(), row, isNull, lits);
+      case ReinterpretLane n -> throw new IllegalArgumentException(
+          "a 32-bit view is evaluated through value: " + n);
       // At the DOUBLE lane by Spark's ordering, the first of two equal operands kept.
       case Greatest(var left, var right, _) when node.laneType() == LaneType.DOUBLE ->
           pick(longValue(left, row, isNull, lits), longValue(right, row, isNull, lits),
@@ -939,6 +949,11 @@ public final class VarkaReference {
           case FALSE -> VarkaVectorIR.Truth.FALSE;
           case UNKNOWN -> VarkaVectorIR.Truth.NULL;
         }, x.lane());
+      }
+      // A view keeps the row's bits: a double's or a long's as they are, a float's or an int's
+      // sign-extended, so the child's answer is the view's at its own lane.
+      if (node instanceof ReinterpretLane r) {
+        return column(mixedOf(r.child(), intLits, longLits), r.target());
       }
       if (node instanceof ConvertLane c) {
         OptionalLong v = mixedOf(c.child(), intLits, longLits);

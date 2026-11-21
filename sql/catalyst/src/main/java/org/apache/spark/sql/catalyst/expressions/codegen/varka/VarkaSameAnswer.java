@@ -283,6 +283,7 @@ public final class VarkaSameAnswer {
               VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _, VarkaVectorIR.MathUnary _,
               VarkaVectorIR.Cond _, VarkaVectorIR.GuardedDay _, VarkaVectorIR.GuardedRange _,
               VarkaVectorIR.WidenLane _, VarkaVectorIR.ConvertLane _, VarkaVectorIR.NarrowLane _,
+              VarkaVectorIR.ReinterpretLane _,
               VarkaVectorIR.WidenDecimal _, VarkaVectorIR.CanonicalBits _,
               VarkaVectorIR.HashStep _ -> byValueChildren(n);
         };
