@@ -150,6 +150,57 @@ public final class VarkaVectorIRSharingSuite {
     }
   }
 
+  /**
+   * {@code predicate}'s one conjunct, explained under a chain-depth cap of 64, so that the cap
+   * is not what stops it; each explanation must come back within the bound a per-path walk
+   * would miss by orders of magnitude.
+   */
+  private static VarkaConjunctSpec explainUnderCap64(DataType type, String chain, int depth) {
+    var columns = CollectionConverters.asScala(List.<Attribute>of(
+        VarkaSqlResolve.column("a", type), VarkaSqlResolve.column("c", type))).toSeq();
+    String x = "a";
+    for (int i = 0; i < depth; i++) {
+      x = chain.replace("X", x);
+    }
+    Expression e = VarkaSqlResolve.parse("(" + x + ") > c", columns);
+    return assertTimeoutPreemptively(Duration.ofSeconds(20),
+        () -> VarkaExpressionCompiler.explainPredicate(e, columns,
+            VarkaMatrixRuns.BASE.withMaxChainDepth(64), VarkaAdmission.NO_HOST_REFUSAL),
+        () -> "explaining " + chain + " " + depth + " deep").get(0);
+  }
+
+  @Test
+  @DisplayName("the fan-out chains stop at the fused-node budget with the cap raised to 64, "
+      + "each in milliseconds (VARKA-630)")
+  void fanOutChainsStopAtTheNodeBudget() {
+    DataType ym = new YearMonthIntervalType((byte) 0, (byte) 1);
+    // The deepest depth each chain fuses at and the first it does not, read from
+    // results/VARKA-630-chain-depths.txt: an interval's abs reaches its operand by three paths, a
+    // signum by four, an interval division by seven.
+    Object[][] chains = {{DataTypes.DoubleType, "signum(X)", 12, 16}, {ym, "abs(X)", 28, 32},
+        {ym, "(X) / 3", 4, 8}};
+    for (Object[] c : chains) {
+      var fuses = explainUnderCap64((DataType) c[0], (String) c[1], (int) c[2]);
+      assertTrue(fuses.fused(), () -> c[1] + " " + c[2] + " deep: " + fuses.decline());
+      var stops = explainUnderCap64((DataType) c[0], (String) c[1], (int) c[3]);
+      assertFalse(stops.fused(), () -> c[1] + " " + c[3] + " deep fused");
+      assertTrue(stops.decline().orElseThrow().toString().contains("fused budget"),
+          () -> c[1] + " " + c[3] + " deep: " + stops.decline());
+    }
+  }
+
+  @Test
+  @DisplayName("a chain of adds fuses to 63 deep and meets the 64-node budget at 64, whatever the "
+      + "cap (VARKA-630)")
+  void addChainMeetsTheNodeBudgetBeforeTheCap() {
+    var fuses = explainUnderCap64(DataTypes.IntegerType, "(X + 1)", 63);
+    assertTrue(fuses.fused(), () -> "" + fuses.decline());
+    var stops = explainUnderCap64(DataTypes.IntegerType, "(X + 1)", 64);
+    assertFalse(stops.fused());
+    assertTrue(stops.decline().orElseThrow().toString().contains("fused budget"),
+        () -> "" + stops.decline());
+  }
+
   @Test
   @DisplayName("structurally equal nodes still collapse: the chain's distinct nodes grow by a "
       + "constant a level")
