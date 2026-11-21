@@ -214,7 +214,7 @@ public final class VarkaDecimalRemainderOps {
     var iota = LongVector.fromArray(LS, IOTA, 0);
     long word = 0;
     for (int g = 0; g < GROUPS; g++) {
-      long at = g * L * 8L;
+      long at = g * (long) L * 8L;
       var xl = LongVector.fromMemorySegment(LS, block, XL + at, LE);
       var xh = LongVector.fromMemorySegment(LS, block, XH + at, LE);
       var yl = LongVector.fromMemorySegment(LS, block, YL + at, LE);
