@@ -42,9 +42,24 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     def fits(roots: Seq[VarkaVectorIR], inputs: Int,
         options: VarkaEmitOptions = reference): Boolean =
       VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](roots: _*), inputs, options)
-    assert(fits(Seq(chain(0, 16)), 1))
-    assert(!fits(Seq(chain(0, 17)), 1))
-    assert(!fits(Seq(chain(0, 17)), 1, VarkaMatrix.base))
+    // The chain is on the int lane, whose auto cap is 64 (VARKA-629); an explicit cap is the cap
+    // on every lane, so 16 refuses the 17th level there too.
+    val sixteen = reference.withMaxChainDepth(VarkaEmitBudget.MAX_CHAIN_DEPTH)
+    assert(fits(Seq(chain(0, 16)), 1, sixteen))
+    assert(!fits(Seq(chain(0, 17)), 1, sixteen))
+    assert(!fits(Seq(chain(0, 17)), 1, VarkaMatrix.base.withMaxChainDepth(16)))
+    val intCap = VarkaEmitBudget.INT_LANE_MAX_CHAIN_DEPTH
+    assert(fits(Seq(chain(0, intCap)), 1, VarkaMatrix.base))
+    assert(!fits(Seq(chain(0, intCap + 1)), 1, VarkaMatrix.base))
+    // The tree, not the root, decides: the same count of long-lane XORs narrowed to an int root
+    // holds the long lane, whose cap stays 16, where 17 int levels fit under 64.
+    val lit = new LiteralSlot(0, LaneType.LONG)
+    val narrowed = new NarrowLane(
+      (0 until 20).foldLeft[VarkaVectorIR](new DecimalColumn(0, LaneType.LONG, 9))(
+        (n, _) => new BitOp(BitOpKind.XOR, n, lit)), LaneType.INT)
+    assert(narrowed.laneType() == LaneType.INT)
+    assert(!fits(Seq(narrowed), 1, VarkaMatrix.base))
+    assert(fits(Seq(chain(0, 17)), 1, VarkaMatrix.base))
     // Five disjoint depth-13 chains are 65 distinct ops - the same shape the emitter's own
     // rejection test uses against MAX_FUSED_NODES - and under the byte budget they fit.
     val five: Seq[VarkaVectorIR] = (0 until 5).map(k => chain(k, 13))
