@@ -1855,7 +1855,7 @@ final class Analysis {
           if (widest >= n.dividendBound()) {
             throw VarkaErrors.illegalArgument("a constant division claims its dividend is "
                 + "under " + n.dividendBound() + " and the guard below it admits " + widest
-                + ": " + VarkaVectorIR.canonical(node));
+                + ": " + VarkaVectorIR.canonicalBrief(node));
           }
         }
         analyzeOp(node, false, n.child());

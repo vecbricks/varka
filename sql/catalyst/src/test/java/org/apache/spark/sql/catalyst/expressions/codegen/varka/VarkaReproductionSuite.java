@@ -190,6 +190,58 @@ public final class VarkaReproductionSuite {
         roots, inputs, literals, "Probe.java", "shape probe", VarkaEmitOptions.DEFAULTS);
   }
 
+  /** A chain whose every level uses the one below twice, so its tree text doubles a level. */
+  private static VarkaVectorIR sharedChain(int depth) {
+    VarkaVectorIR node = new ColumnRef(0);
+    for (int i = 0; i < depth; i++) {
+      node = new IntArith(IntOp.ADD, Overflow.WRAP, node, node);
+    }
+    return node;
+  }
+
+  @Test
+  @DisplayName("the tree text's length is counted from the shallow lines, node by node (VARKA-630)")
+  void canonicalLengthIsTheRenderingsLength() {
+    List<VarkaVectorIR> trees = new ArrayList<>(theRest());
+    trees.add(everyNodeType());
+    trees.add(sharedChain(12));
+    for (VarkaVectorIR tree : trees) {
+      assertEquals(VarkaVectorIR.canonical(tree).length(), VarkaVectorIR.canonicalLength(tree),
+          () -> VarkaVectorIR.canonical(tree));
+    }
+  }
+
+  @Test
+  @DisplayName("a shape under the tree limit keeps its tree text, so its committed hash stays")
+  void shortShapeKeepsItsTreeText() {
+    List<VarkaVectorIR> trees = new ArrayList<>(theRest());
+    trees.add(everyNodeType());
+    trees.add(sharedChain(16));
+    String expected = trees.stream().map(t -> VarkaVectorIR.canonical(t) + "\n")
+        .collect(java.util.stream.Collectors.joining());
+    assertEquals(expected, VarkaVectorIR.shapeText(trees));
+  }
+
+  @Test
+  @DisplayName("a deep shared chain has a DAG text, one line a node, where its tree has none")
+  void deepSharedChainRendersAsADag() {
+    VarkaVectorIR chain = sharedChain(64);
+    assertTrue(VarkaVectorIR.canonicalLength(chain) > VarkaVectorIR.TREE_TEXT_LIMIT);
+    String text = VarkaVectorIR.shapeText(List.of(chain));
+    assertTrue(text.startsWith("dag\n"), text);
+    // 64 adds and the column, then the roots line.
+    assertEquals(1 + 65 + 1, text.split("\n").length, text);
+    assertTrue(text.endsWith("roots 64\n"), text);
+    // Two equal chains built as distinct objects, as the lane lifts rebuild a shared node, give
+    // one text, and two different chains give two.
+    assertEquals(text, VarkaVectorIR.shapeText(List.of(sharedChain(64))));
+    assertFalse(text.equals(VarkaVectorIR.shapeText(List.of(sharedChain(63)))));
+    // A message carries the start of it and the tree's size, not the tree.
+    String brief = VarkaVectorIR.canonicalBrief(chain);
+    assertTrue(brief.length() < 400 && brief.startsWith("dag\n"), brief);
+    assertEquals(VarkaVectorIR.canonicalDag(List.of(chain)), VarkaVectorIR.canonicalExact(chain));
+  }
+
   @Test
   @DisplayName("the canonical IR reads back every node type, at both lanes")
   void everyNodeTypeRoundTrips() {
