@@ -28,6 +28,8 @@ parallelProbes=N` (N = 5; the first two rows are from the runs above):
   1                762 s (12 min 42 s)
   4                326 s (5 min 26 s)
   5                262 s (4 min 22 s), all seven tests passed, none canceled
+  5 (final code)   208 s (3 min 28 s), seven tests passed, run alone on an otherwise idle machine:
+                   the 262 s run above shared the laptop with another job
 
 With five probes and four slots the fifth ran alone in a second wave. Five at once on the 24 cores
 caused no timeout of the 600 s a child may take; the default is now one probe at once for every
