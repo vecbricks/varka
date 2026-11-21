@@ -124,11 +124,11 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // decimal column, an unscaled long whose constructor refuses the int lane until the int arm
     // of VARKA-347 2.3 is built, the decimal output, which widens a long value into a decimal
     // slot and refuses an int child (VARKA-157), and the conversion, one side of which is
-    // floating (VARKA-343).
+    // floating (VARKA-343), as is the reinterpretation's (VARKA-345).
     assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] +
       classOf[RoundToIntegral] + classOf[CanonicalFloat] +
       classOf[DecimalColumn] + classOf[DecimalWord] + classOf[WidenDecimal] +
-      classOf[ConvertLane] ===
+      classOf[ConvertLane] + classOf[ReinterpretLane] ===
       concreteNodeTypes(classOf[VarkaVectorIR]) - classOf[CrossLane]) // its child: another lane
     val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
     assert(new MathUnary(MathFn.SQRT, doubleCol).laneType() === LaneType.DOUBLE)
@@ -523,6 +523,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         // own conversion is refused by the plan at the unknown level these options carry.
         case "ConvertLane" => if (lane == LaneType.INT) new ConvertLane(c, LaneType.FLOAT)
           else new ConvertLane(new NarrowLane(c), LaneType.DOUBLE)
+        // A view of the column's bits at the floating lane of its width (VARKA-345).
+        case "ReinterpretLane" => new ReinterpretLane(c,
+          if (lane == LaneType.INT) LaneType.FLOAT else LaneType.DOUBLE)
         case "CrossLane" => new CrossLane(new IsNotNull(c), LaneType.DOUBLE)
         case other => fail(s"no instance recipe for $other; a node type was added")
       }) catch {
@@ -561,13 +564,13 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       "BoolColumn", "CondConst", "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue",
       "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
       "DecimalColumn", "DecimalWord", "NullValue", "WidenDecimal", "ConvertLane", "CrossLane",
-      "HashStep", "CanonicalBits"),
+      "HashStep", "CanonicalBits", "ReinterpretLane"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
         "the two conversions, which build over the other lane's child whatever the row, " +
         "VARKA-335's bitwise operations, VARKA-336's null-safe equality, VARKA-460's " +
         "condition as a value, VARKA-27's boolean output, VARKA-347's decimal column, " +
         "VARKA-157's decimal output, VARKA-343's conversion to the double lane and VARKA-333's " +
-        "null leaf, and VARKA-337's hash step and floating bits")
+        "null leaf, VARKA-337's hash step and floating bits, and VARKA-345's reinterpretation")
   }
 
   test("a narrowing is an int over a long child, and a kernel that holds one is driven at the " +

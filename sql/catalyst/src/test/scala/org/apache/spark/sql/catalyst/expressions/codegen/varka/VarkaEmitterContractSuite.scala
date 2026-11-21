@@ -43,8 +43,14 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
       val e = intercept[IllegalArgumentException](body)
       assert(e.getMessage.contains(fragment), s"message was: ${e.getMessage}")
     }
+    // The chain is on the int lane, whose auto cap is 64 (VARKA-629); an explicit 16 is 16 there
+    // too, and a lane other than the int one keeps 16 (VarkaEmitterBudgetSuite).
+    val intCap = VarkaEmitBudget.INT_LANE_MAX_CHAIN_DEPTH
+    assert(emit(chain(intCap), intCap)._2.nonEmpty)
+    rejects(emit(chain(intCap + 1), intCap + 1), "MAX_CHAIN_DEPTH=64")
+    val sixteen = VarkaMatrix.base.withMaxChainDepth(VarkaEmitBudget.MAX_CHAIN_DEPTH)
     rejects(emit(chain(VarkaEmitBudget.MAX_CHAIN_DEPTH + 1),
-      VarkaEmitBudget.MAX_CHAIN_DEPTH + 1), "MAX_CHAIN_DEPTH")
+      VarkaEmitBudget.MAX_CHAIN_DEPTH + 1, sixteen), "MAX_CHAIN_DEPTH=16")
     // The cap is the option's value (VARKA-620): a raised one admits the chain the default
     // refuses, refuses one level past itself, and its message keeps the constant's name, which
     // the fuzzer's skips match on.

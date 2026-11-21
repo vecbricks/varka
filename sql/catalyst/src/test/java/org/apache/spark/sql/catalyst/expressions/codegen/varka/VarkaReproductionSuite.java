@@ -123,6 +123,8 @@ public final class VarkaReproductionSuite {
         new BitCount(new BitOp(BitOpKind.XOR, new ColumnRef(0), new LiteralSlot(0))),
         // An int column converted to the float lane, at the int lane's count.
         new ConvertLane(new ColumnRef(0), LaneType.FLOAT),
+        // A double column's bits at the long lane, an fdlibm port's word access (VARKA-345).
+        new ReinterpretLane(new ColumnRef(0, LaneType.DOUBLE), LaneType.LONG),
         // A floating lane's square root over its IEEE division, whose zero divisor nulls a lane.
         new MathUnary(MathFn.SQRT, new IntArith(IntOp.DIV, Overflow.NULL,
             new ColumnRef(0, LaneType.DOUBLE), new LiteralSlot(0, LaneType.DOUBLE))),
@@ -485,6 +487,19 @@ public final class VarkaReproductionSuite {
     assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("bool:0:long:p9"));
     assertThrows(IllegalArgumentException.class,
         () -> VarkaCanonicalIr.parse("(condConst:TRUE:long:x)"));
+  }
+
+  @Test
+  @DisplayName("the auto chain cap renders as no option, and an explicit 16 renders and reads back "
+      + "(VARKA-629)")
+  void autoChainCapRendersAsNothing() {
+    assertFalse(
+        VarkaErrorContext.renderOptions(VarkaEmitOptions.DEFAULTS).contains("axChainDepth"));
+    var sixteen = VarkaEmitOptions.DEFAULTS.withMaxChainDepth(16);
+    String text = VarkaErrorContext.renderOptions(sixteen);
+    assertTrue(text.contains("maxChainDepth=16"), text);
+    assertEquals(sixteen, VarkaMatrixRuns.parse(text));
+    assertNotEquals(VarkaEmitOptions.DEFAULTS, sixteen);
   }
 
   @Test

@@ -648,12 +648,14 @@ public sealed interface VarkaEmitOption
           VarkaEmitOptions.IntervalFault.class, VarkaEmitOptions.IntervalFault.NONE,
           VarkaEmitOptions::intervalFault, Builder::intervalFault,
           new ChoiceTag("intervalFault="), Optional.empty()),
-      // The depth cap, raised by VARKA-620's benchmark to price the depths past it. The fuzzer
-      // draws a raised cap too, so a variant that grows a draw past 16 is emitted and checked
-      // rather than skipped. A raise changes no byte of a shape the default cap admits, but the
-      // matrix runs the suites under it (VARKA-620), so the tests that assert the default cap
-      // are listed in the skip list.
-      new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.MAX_CHAIN_DEPTH,
+      // The depth cap: auto by default (VARKA-629), which is 64 for a tree of the int lane alone
+      // and 16 for any other, and raised by VARKA-620's benchmark to price the depths past it.
+      // The fuzzer draws 16 and 32, so a draw past 16 is emitted and checked rather than skipped
+      // on the lanes whose default is 16; on the int lane, whose default is 64, they only lower
+      // it, and no draw above 64 is made yet (VARKA-629 owes one). A cap changes no byte of a
+      // shape the default admits, but the matrix runs the suites under it (VARKA-620), so the
+      // tests that assert the default caps are listed in the skip list.
+      new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.AUTO_CHAIN_DEPTH,
           VarkaEmitOptions::maxChainDepth, Builder::maxChainDepth, new CountTag("chainDepth="),
           List.of(VarkaEmitBudget.MAX_CHAIN_DEPTH, 32), List.of(32)));
 
