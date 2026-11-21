@@ -448,6 +448,19 @@ existing shape, and the PR build and the option matrix pass.
 
 (Written when the work lands.)
 
+**The baseline** (20 November 2026): `VarkaIntegralDivisionBaselineBenchmark` (sql/core's test tree,
+`org.apache.spark.sql.execution.benchmark`) and `VarkaIntegralDivisionBaselineQueriesSuite`, 62
+sections, 31 at each null density, in the build sheet's order. Row 598 (#1486) merged before the
+build, so the sheet's post-#1486 column applies: every section but the two controls is `NONE` at
+both settings of the two-lane refusal, the filters included, and the control `i ^ j` is `WHOLE`; the
+queries suite asserts those counts and each section's class at both refusals. The queries suite
+passed on the laptop (`Tests: succeeded 2, failed 0`). The laptop dry run (4.3, on the branch merged
+with master `6821ea3318b`) exited 0: at the default width, at 256 and at 128 bits each, 0 sections
+`is listed as`, 2 `fuses whole on the varka on arm` (the control) and 0 `fuses only its null tests`,
+the counts 1.3 expects after #1486. Both planted faults of 3 failed as stated and were reverted. The
+EPYC 7763 results at 256 and 128 bits are the owner's dispatch. Section 4's predictions are the
+kernel's, scored by 30a and 30b.
+
 ## Build sheet (11 November 2026)
 
 The step this sheet builds is section 5's step 1, **the baseline**, and nothing else: a benchmark of

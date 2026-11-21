@@ -41,7 +41,8 @@ import org.apache.spark.sql.internal.SQLConf
  * at both ends of `[-2, 22]`; `xw` with a fraction, at both zeros, NaN and both infinities, past
  * `2^51`, past `2^52` inside the long range and past `2^63`, with no finite value overflowed to an
  * infinity; `xwf` with a fraction, at both zeros and NaN, past `2^51` and past `2^52`, with no
- * infinity and every value inside `2^62.2`. Under LEGACY it also checks `floor` and `ceil` over
+ * infinity and every value inside `2^62.2`; `f` at NaN, at `-0.0` and with a fraction at scale 1.
+ * Under LEGACY it also checks `floor` and `ceil` over
  * `xw`'s NaN, infinities and values past the long range on both sessions: Spark compiles them as
  * `(long) Math.floor(c)` and `(long) Math.ceil(c)`, so NaN answers 0 and the rest saturate at
  * `Long.MaxValue` or `Long.MinValue`, rather than null. Under ANSI it checks that `floor` and
@@ -192,8 +193,17 @@ class VarkaRoundingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
           .where("isnan(v) and fl = 0 and ce = 0").count() === rows / 1000)
       }
 
+      // f is x / 1000 as a float: x's zeros and NaN rows, a fraction at scale 1 on most rows, and
+      // its own nulls in f_n.
+      val fl = spark.sql(
+        s"""select count_if(isnan(f)), count_if(cast(f as string) = '-0.0'),
+           |       count_if(not isnan(f) and abs(f) * 10 % 1 <> 0), count_if(f_n is null)
+           |from $view""".stripMargin).head()
+      assert(fl.getLong(0) === rows / 1000 && fl.getLong(1) === rows / 8)
+      assert(fl.getLong(2) > rows / 3 && fl.getLong(3) === rows / 10)
+
       val sections = VarkaRoundingBaselineBenchmark.sections().asScala.toSeq
-      assert(sections.size === 40, sections.map(_.title).mkString("sections:\n", "\n", ""))
+      assert(sections.size === 50, sections.map(_.title).mkString("sections:\n", "\n", ""))
       assert(sections.map(_.title).distinct.size === sections.size)
       for (s <- sections) {
         withClue(s.title) {

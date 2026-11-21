@@ -116,9 +116,19 @@ jobs:
           if [ "$CANARY" = MathLaneProbe ]; then
             probe "control: per-lane scalar fallback forced" control \
               -Djdk.incubator.vector.VectorMathLibrary=java "${ARGS}"
+            mask_lines='fromBitsCoerced|\*\* |LongToMask|^arch=|^DEBUG: (CPUFeatures|AArch64|X64)'
+            mask_lines="$mask_lines|^maskcost|^exit"
             probe "VectorMask.fromLong under PrintIntrinsics" fromlong \
-              "-XX:+UnlockDiagnosticVMOptions -XX:+PrintIntrinsics" fromlong \
-              'fromBitsCoerced|\*\* |LongToMask|^arch=|^DEBUG: (CPUFeatures|AArch64|X64)|^exit'
+              "-XX:+UnlockDiagnosticVMOptions -XX:+PrintIntrinsics" fromlong "$mask_lines"
+            # The same pass on aarch64 under UseSVE=1, which clears SVE2 and its bit permute from
+            # the JVM's features (vm_version_aarch64.cpp), so fromLong is the Java fallback as on
+            # an SVE1 core: its maskcost lines are what a kernel pays there, and the
+            # construction's (VARKA-375). A simulation of the feature set, not of an SVE1 core.
+            if [ "$(uname -m)" = aarch64 ]; then
+              probe "VectorMask.fromLong under -XX:UseSVE=1" fromlong-usesve1 \
+                "-XX:UseSVE=1 -XX:+UnlockDiagnosticVMOptions -XX:+PrintIntrinsics" fromlong \
+                "$mask_lines"
+            fi
           fi
         } | tee -a "$GITHUB_STEP_SUMMARY"
     - name: Keep the raw output
