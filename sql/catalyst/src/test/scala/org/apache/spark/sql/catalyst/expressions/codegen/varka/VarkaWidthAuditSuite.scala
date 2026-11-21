@@ -200,21 +200,46 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
   @volatile private var results: Map[Probe, Try[Census]] = Map.empty
 
   /**
-   * Runs the five probes one after another, before any test, so no test body waits on a child
-   * JVM: `beforeAll` is under neither `VarkaTestWatchdog`'s cap nor `spark.test.timeout`, which
-   * both wrap a test body, and `childTimeoutSeconds` bounds each probe. A probe that fails is kept
-   * as its failure, so each test that reads it fails naming it, and the tests that read none
-   * still run.
+   * How many probes run at once: `-Dvarka.widthAudit.parallelProbes`, or one for every six cores
+   * up to four, which is one on a four-core runner and four on the laptop. Four probes at once
+   * took 165 s where one after another took 572 s on 24 cores (`plans/m8/results/VARKA-581-probe-
+   * times.txt`), the slowest alone taking 252 s, so `childTimeoutSeconds` still holds for each.
+   */
+  private val parallelProbes: Int = {
+    val key = "varka.widthAudit.parallelProbes"
+    Option(System.getProperty(key)).map { v =>
+      val n = scala.util.Try(v.toInt).getOrElse(0)
+      require(n >= 1, s"$key must be a positive integer, got '$v'")
+      n
+    }.getOrElse(math.max(1, math.min(4, Runtime.getRuntime.availableProcessors() / 6)))
+  }
+
+  /**
+   * Runs the five probes, `parallelProbes` at a time, before any test, so no test body waits on
+   * a child JVM: `beforeAll` is under neither `VarkaTestWatchdog`'s cap nor `spark.test.timeout`,
+   * which both wrap a test body, and `childTimeoutSeconds` bounds each probe. A probe that fails
+   * is kept as its failure, so each test that reads it fails naming it, and the tests that read
+   * none still run.
    */
   override def beforeAll(): Unit = {
     super.beforeAll()
     val probes = Seq(preferredProbe, preferredAgainProbe) ++ widthsBytes.map(forcedProbes)
-    results = probes.map { probe =>
-      val begun = System.nanoTime()
-      val result = Try(audit(probe))
-      logInfo(s"${probe.name} took ${(System.nanoTime() - begun) / 1000000000L} s")
-      probe -> result
-    }.toMap
+    val pool = java.util.concurrent.Executors.newFixedThreadPool(parallelProbes)
+    try {
+      val running = probes.map { probe =>
+        pool.submit(new java.util.concurrent.Callable[(Probe, Try[Census])] {
+          override def call(): (Probe, Try[Census]) = {
+            val begun = System.nanoTime()
+            val result = Try(audit(probe))
+            logInfo(s"${probe.name} took ${(System.nanoTime() - begun) / 1000000000L} s")
+            probe -> result
+          }
+        })
+      }
+      results = running.map(_.get()).toMap
+    } finally {
+      pool.shutdown()
+    }
   }
 
   /** The census of `probe`, or a failure of the calling test that names the probe. */
