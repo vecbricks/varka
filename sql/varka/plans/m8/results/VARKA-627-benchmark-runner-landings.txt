@@ -1,0 +1,63 @@
+The last 40 runs of `benchmark.yml` on vecbricks/varka, read with
+`gh run list -R vecbricks/varka --workflow benchmark.yml --limit 40` at 22:20 CET on 20 November 2026
+(the newest run was created at 19:56 UTC), with each failed run's failing step and the "Runner CPU"
+line its log gives. 26 succeeded and 14 failed.
+
+Of the 14 failures, 6 were a dispatch that expected the 7763 and landed elsewhere: the Xeon 8573C twice
+(the two runs of one dispatch, 14:24 UTC on 20 November), the EPYC 9V74 three times (09:26 UTC on 11
+November, 08:09 and 22:41 UTC on 19 November) and the EPYC 9V45 once (19:56 UTC on 20 November). Four
+were the probe's own tests, which expect another CPU on purpose (EXPECTED_CPU in their logs):
+42968045704 expected NO-SUCH-CPU and landed on a Xeon 8573C, 42969599090 expected Xeon and landed on a
+9V74, and 42980385610 and 42980410660 expected Xeon and landed on a 7763. The other 4 failed in "Run
+benchmarks": one on a 7763 (21:00 UTC on 10 November) and three on a 9V45 (06:02 UTC on 11 November).
+
+Of the 6 landings on the wrong CPU, the 9V74 (three of the six) exposes no AVX-512 and runs the 7763's
+instruction set; the 8573C and the 9V45 (three of the six) are the AVX-512 hosts.
+
+Reruns of one run, from ~/varka-ops/logs/bench-retry-44753192923.log (the 256-bit run of #1571): the
+first dispatch at 14:24 UTC landed on a Xeon 8573C, and the run was rerun six more times, at 17:25,
+18:28, 19:32 and 20:35 CET by the hourly loop and twice more by hand-started watchers, all of which
+failed in the probe step; only the first and the last attempt's CPU was read.
+
+run id       created (UTC)         conclusion | failing step | runner CPU of a failed run (the last attempt's)
+run id       created (UTC)         conclusion | failing step | runner CPU of a failed run
+42894494552 2026-11-10T20:21:32Z success
+42900850708 2026-11-10T21:00:59Z failure | Run benchmarks | Runner CPU: AMD EPYC 7763 64-Core Processor
+42900873635 2026-11-10T21:01:07Z success
+42930745045 2026-11-11T00:21:49Z success
+42930757311 2026-11-11T00:21:55Z success
+42930769718 2026-11-11T00:22:01Z success
+42964088305 2026-11-11T05:11:21Z success
+42968007113 2026-11-11T05:47:10Z success
+42968017626 2026-11-11T05:47:16Z success
+42968045704 2026-11-11T05:47:32Z failure | Probe the machine's CPU and vector datap | Runner CPU: INTEL(R) XEON(R) PLATINUM 8573C
+42969599090 2026-11-11T06:02:01Z failure | Probe the machine's CPU and vector datap | Runner CPU: AMD EPYC 9V74 80-Core Processor
+42969611404 2026-11-11T06:02:07Z failure | Run benchmarks | Runner CPU: AMD EPYC 9V45 96-Core Processor
+42969622474 2026-11-11T06:02:13Z failure | Run benchmarks | Runner CPU: AMD EPYC 9V45 96-Core Processor
+42969632967 2026-11-11T06:02:19Z failure | Run benchmarks | Runner CPU: AMD EPYC 9V45 96-Core Processor
+42980360382 2026-11-11T07:33:30Z success
+42980373354 2026-11-11T07:33:37Z success
+42980385610 2026-11-11T07:33:42Z failure | Probe the machine's CPU and vector datap | Runner CPU: AMD EPYC 7763 64-Core Processor
+42980398246 2026-11-11T07:33:48Z success
+42980410660 2026-11-11T07:33:54Z failure | Probe the machine's CPU and vector datap | Runner CPU: AMD EPYC 7763 64-Core Processor
+42980423218 2026-11-11T07:34:00Z success
+42995168666 2026-11-11T09:26:17Z failure | Probe the machine's CPU and vector datap | Runner CPU: AMD EPYC 9V74 80-Core Processor
+42995183669 2026-11-11T09:26:24Z success
+43183588553 2026-11-12T08:31:03Z success
+43549050075 2026-11-14T02:57:13Z success
+43575854826 2026-11-14T08:26:37Z success
+43582841112 2026-11-14T09:55:49Z success
+43582853857 2026-11-14T09:56:00Z success
+44485236913 2026-11-19T08:09:27Z success
+44485256404 2026-11-19T08:09:36Z failure | Probe the machine's CPU and vector datap | Runner CPU: AMD EPYC 9V74 80-Core Processor
+44631009813 2026-11-19T22:41:44Z failure | Probe the machine's CPU and vector datap | Runner CPU: AMD EPYC 9V74 80-Core Processor
+44674066878 2026-11-20T04:23:24Z success
+44674071674 2026-11-20T04:23:27Z success
+44686538498 2026-11-20T06:15:38Z success
+44749807389 2026-11-20T14:03:25Z success
+44749813323 2026-11-20T14:03:27Z success
+44753192923 2026-11-20T14:24:44Z failure | Probe the machine's CPU and vector datap | Runner CPU: INTEL(R) XEON(R) PLATINUM 8573C
+44753199417 2026-11-20T14:24:46Z failure | Probe the machine's CPU and vector datap | Runner CPU: INTEL(R) XEON(R) PLATINUM 8573C
+44756465218 2026-11-20T14:45:09Z success
+44756471866 2026-11-20T14:45:12Z success
+44806818476 2026-11-20T19:56:43Z failure | Probe the machine's CPU and vector datap | Runner CPU: AMD EPYC 9V45 96-Core Processor

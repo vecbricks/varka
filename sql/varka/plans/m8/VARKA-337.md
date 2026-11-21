@@ -626,6 +626,152 @@ byte lengths 1, 2, 8, 9, 15 and 16 are 337b's, after row 359a, and the row's don
 
 (Written when the work lands.)
 
+**337a1, the canonicalisation** (20 November 2026, branch `varka-337-float-normalize`, local,
+built while the owner was away; the decisions are in the section below). Built: the IR node
+`CanonicalFloat` (2.1) with `CanonicalFloat.of` as its structural idempotence rule, its constructor
+refusing an integral child and a canonicalisation child; its lowering `blend(x + 0.0, NaN,
+isNaN(x))` in `VarkaVectorWalk.emitCanonicalFloat`, one scratch local, the canonical NaN a
+class-file constant; the arm for `NormalizeNaNAndZero` in `VarkaFloatingCompiler` under the
+floating arithmetic family's switch, whose `covers` text names it; `KnownFloatingPointNormalized`
+compiled as its child at the start of `compileNode`; the node's arms in every exhaustive switch
+(analysis, slots, budget weight 3, cost feature `CanonicalFloat/<lane>` on the awaiting-refit list,
+range analysis, same-answer rule as a canonical NaN, kernel plan, operand position, the canonical
+text form `(canon x)` and its parser); the warm-up's `FLOAT` block gains the scalar add and the
+scalar blend under the NaN test (the `DOUBLE` block had both); the reference evaluates the node by
+Spark's `FLOAT_NORMALIZER` and `DOUBLE_NORMALIZER`; the planted fault `CANONICAL_ZERO_DROPPED` of
+3.9's first bullet; the IR grammar's side sequence (2.6) on seed `CANONICAL_FUZZ_SEED` =
+20261120 at both floating lanes, the pinned floating sequences drawing what they drew.
+
+Tests: `VarkaEmitterCanonicalFloatSuite` (new) holds the kernel to Spark's normalisers over the
+regions of 3.2 at both lanes (both zeros, NaN payloads and signalling NaNs of both signs, the four
+`DOUBLE` NaN range endpoints, infinities, subnormal edges, extremes, 20000 drawn patterns per
+lane, nulls staying null), shows the planted fault failed by the zeros (`0x80000000` against 0) and
+the same check passing without it, and, behind `-Dvarka.sweep=true`, every one of the 2^32 `FLOAT`
+patterns once and again over its own output: no mismatch, the whole suite 4.2 s on the laptop with
+the sweep on (laptop wall time, not a benchmark). `VarkaExpressionCompilerSuite` pins
+`NormalizeNaNAndZero(x)` as one node at each lane, `KnownFloatingPointNormalized(
+NormalizeNaNAndZero(x))` and the form normalised twice as the same one node, the tag over a plain
+value as no canonicalisation, and the family's switch off as the decline naming it.
+`VarkaIrFuzzSuite` runs the side sequence against the reference at both lanes and checks that it
+reaches the node, never nests it, and that the pinned sequences never draw it.
+
+Left of 337a: the hash steps (`HashStep`, `HashFn`, the `HASH` family and `VarkaHashCompiler`, the
+fold and the null skip, every type of 2.3 but the decimal above 18), `hash.smt2`, the 32-bit hash
+sweeps, the coverage rows and the remaining planted faults; before them, by section 5's order, the
+baseline (its build sheet below) and the spike. The node's `DOUBLE` half rests on the sampled
+regions and IEEE's rule as 3.1 says; `hash.smt2`'s blend claim comes with the hash steps. Owed on
+CI: the PR build and the option matrix (3.8).
+
+Prediction 5 of section 4, scored for this part: **held**. `dev/varka_regen_generated.sh --all`
+moved no shape in `emitted_bytes.json` and no row of `coverage.json`; it changed the family switch
+table's text in `docs/sql-varka.md` (the widened `covers`) and the laptop's JDK build string in
+`width_audit.json`. The side sequence is unpinned, so no committed fuzz block moved. Predictions 1
+to 4 and 6 are the hash's and stay open.
+
+**337a2, the hash steps** (20 November 2026, branch `varka-337a2-hash`, stacked on 337a1, local,
+built while the owner was away; decisions 11 to 15 below). Built: `HashStep(mix, seed, word)` with
+`HashMix`'s five primitive tails (decision 13) and `CanonicalBits`, a canonical value's bits
+(decision 12); their lowering in `VarkaHashLowering`, Spark's constants and operator order, the
+word's half emitted before the seed, `h * 5` as `(h << 2) + h`, and the null skip inside the step
+in the masked body, its mask through `emitMaskOfWord` (decision 14); every exhaustive switch gains
+the two nodes (analysis, slots and word liveness, budget weights 17, 8, 17, 15, 16 and 1, cost
+features `HashStep/<mix>` and `CanonicalBits/<lane>` on the awaiting-refit list, range analysis,
+same answer, kernel plan, operand position, the text form `(hash:<MIX> s w)` and `(canonBits x)`
+and their parser); the warm-up's shift list gains `ROL` and both floating blocks the
+reinterpretation; the reference answers each step by Spark's `Murmur3_x86_32` and `XXH64`, a
+Murmur3 pair by `hashLong`. No compiler arm builds the nodes yet, so no query reaches them and no
+generated file moves.
+
+Tests: `VarkaEmitterHashSuite` (new) holds the kernels of `hash` and `xxhash64` over one `INT`,
+`BIGINT`, `FLOAT` and `DOUBLE` column to `Murmur3HashFunction.hash` and `XxHash64Function.hash`
+over the extremes, the powers of two and their negatives, the floating cells of
+`VarkaEmitterCanonicalFloatSuite` (both zeros, NaN payloads of both signs, the four `DOUBLE` NaN
+range endpoints) and 4000 drawn values, at five seeds, every seventh row null and hashing to its
+seed; a fold of an `INT` and a `BIGINT` child with nulls in either and both positions; the
+constructors' refusals; and, behind `-Dvarka.sweep=true`, every `INT` and every `FLOAT` pattern
+through both hashes (3.1). The suites that list node types take both nodes. `VarkaVectorIRSharingSuite`'s
+hash formula is the records' own for both nodes: `CanonicalFloat` keeps 337a1's
+`hashOf(child)`, as #1566 settled it, and `CanonicalBits` takes the same `hashOf(child)` by the
+owner's decision of 20 November 2026, so neither mixes its class in.
+
+Left of 337a: the compiler, the `HASH` family and the coverage rows (part 337a3, stacked on this
+one); the IR grammar's productions of 2.6 (the fuzz and grammar suites list both nodes as not
+drawn yet, pointing here), `hash.smt2` with the step, fold and blend claims of 3.4, and the
+planted faults of 3.9's second and third bullets. Then, by section 5's order, the baseline (its
+build sheet below) and the spike, and the measurement that scores predictions 1 to 4; the PR
+build and the option matrix (3.8).
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **The canonicalisation first, as its own part (337a1), before the baseline and the spike.**
+   Section 5 orders the baseline, the spike, then 337a. The baseline and the spike time `hash`
+   and `xxhash64`; the node alone is reachable from no query (0 item 4), so it has nothing to
+   time and nothing for the baseline to precede. Building it first keeps 337a under the size cap
+   and leaves the baseline's build sheet, which needs runner results, for the owner. The hash
+   steps stay after the baseline as planned.
+2. **The canonical NaN is a class-file constant**, `ldc` of `Float.NaN` or `Double.NaN`, which
+   the class-file API writes through `floatToIntBits` and `doubleToLongBits`
+   (`BufWriterImpl.java:241`, `:262` in jdk-25), so its bits are `0x7fc00000` and
+   `0x7ff8000000000000`, as 2.1 asks; no literal slot, so the node carries no literal and a shape
+   holding it keys on the node alone.
+3. **The NaN test is `test(IS_NAN)`** of the operand, the form item 5's admission checked, not
+   the `x != x` compare `rint`'s NaN blend uses; both select the same lanes.
+4. **The constructor refuses a canonicalisation child**, so every builder goes through
+   `CanonicalFloat.of` and a nested pair cannot be built by accident; `withChildren` rebuilds
+   through `of`, so a rebuilt node over a canonical child is that child.
+5. **`KnownFloatingPointNormalized` is unwrapped before `floatingDecline`**, at the start of
+   `compileNode`, rather than admitted there and claimed by an arm: it builds no node and is no
+   family's (2.3). The coverage suite lists it with the infrastructure classes, with the reason,
+   since no coverage row can hold it, which is open point 5's option (a) as the owner settled it.
+   `NormalizeNaNAndZero` lives in Spark's `optimizer` package, which the suite's class scan did
+   not resolve; the scan now resolves that package too, and the normaliser has the same entry for
+   the same reason.
+6. **The side sequence is one seed for both lanes**, 20261120, with the canonicalisation drawn by
+   a coin that only the flag draws, so the pinned `fuzz_float` and `fuzz_double` shapes do not
+   move; 341's sequences take the production over at row 352's refit.
+7. **Same answer**: the node and Spark's `NormalizeNaNAndZero` answer one fixed NaN, so
+   `VarkaSameAnswer` reads both as its `Canonical` step, `rint`'s.
+8. **A tagged column is forwarded.** `KnownFloatingPointNormalized` over a bare column, as a
+   projection entry, is classified as the column, forwarded with no kernel, as a bare column is.
+9. **The census needs stay `plumbing`.** `dev/varka_census.py --check` accepts `done` only where a
+   coverage row fuses the class, and no coverage row can hold either class (option (a)), so the
+   notes say what 337a1 built and the need column keeps its value.
+10. **The AVX2 width audit run is recorded, not regenerated.** Under `-XX:UseAVX=2` the census
+   differs from the committed AVX-512 file in 134 cells, all of them masked `BYTE` stores and
+   64-bit masks at two lanes, which AVX2 has no lowering for (`sql/varka/AGENTS.md`). None holds the
+   node. The committed file stays the AVX-512 host's.
+
+Taken for part 337a2, the hash steps (branch `varka-337a2-hash`, stacked on 337a1):
+
+11. **The hash steps before the baseline and the spike.** The coordinator's brief of 20 November
+   2026 ordered the hash steps first, the baseline and the spike after them if section 5 puts them
+   before 337b. Section 5 puts both before 337a, so they are not after anything left here: the
+   baseline's build sheet asks for its own branch off origin/master and runner results, and the
+   spike for runner times, neither of which this window can take. Both stay owed, in section 5's
+   order, and the measurement that scores predictions 1 to 4 needs both.
+12. **A floating value's bits are a node of their own, `CanonicalBits`**, not a read inside the
+   step as 2.2 has it. With the bits as an `INT` or `LONG` value, Murmur3 over a `DOUBLE` and
+   XXH64 over a `FLOAT` take their lane crossings from the nodes that exist (`NarrowLane`,
+   `WidenLane`, `BitOp`), so every `HashStep` is on one lane and the analysis, the kernel plan
+   and the reference need no crossing rule of their own. The guard 2.2 asks of the step moves with
+   it: `CanonicalBits` takes a `CanonicalFloat` child and nothing else.
+13. **Murmur3's `hashLong` is two steps.** `HashMix` has five members, one per primitive tail:
+   `MURMUR3_INT`, `MURMUR3_LOW` (the first `mixH1`, no finalisation), `MURMUR3_HIGH` (the second
+   and `fmix(8)`), `XXH64_INT` and `XXH64_LONG`. A 64-bit word's halves are `NarrowLane`s of the
+   word and of `word >>> 32`, row 28's representation, as 2.2 says. The reference answers the
+   pair by Spark's `hashLong` and refuses a half alone, which no compiler path builds.
+14. **The null skip is the step's own, as 2.2 has it**: in the masked body the seed is kept under
+   the step and blended back where the word is null, the mask from the word's validity word, and
+   the step's validity is the seed's (aliased, a null-skipping node for the all-null shortcut). No
+   blend is emitted where the word's validity is constant true, nor in the dense body. A
+   composition, `IfElse(IsNotNull(word), step, seed)`, was built first and failed: the emitter's
+   null test reads only a column's word (`Analysis`: "IsNotNull child must be a ColumnRef ..."),
+   so every computed word, a long's halves and a float's bits among them, would have declined.
+15. **337a is split by the size cap**: 337a2 holds the two nodes, their lowering, the IR's
+   consumers, the reference, the warm-up and the kernel suite; 337a3 the compiler, the family, the
+   coverage rows and the generated files; a later part the grammar productions of 2.6,
+   `hash.smt2` and the step and fold planted faults of 3.9.
+
 ## Build sheet (11 November 2026)
 
 The step this sheet builds is section 5's step 1, **the baseline class**, and nothing else: a

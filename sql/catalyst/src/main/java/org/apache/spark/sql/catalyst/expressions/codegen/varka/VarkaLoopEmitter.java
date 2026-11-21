@@ -151,7 +151,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
  *
  * <p>Out-of-shape IR - unknown lane types, a condition in a value position, out-of-range
  * ordinals or slots, a day offset that is neither a literal slot nor a column, trees past
- * {@link VarkaEmitBudget#MAX_CHAIN_DEPTH} or {@link VarkaEmitBudget#MAX_FUSED_NODES} - is
+ * the depth cap {@link VarkaEmitOptions#maxChainDepth} (by default
+ * {@link VarkaEmitBudget#MAX_CHAIN_DEPTH}) or past {@link VarkaEmitBudget#MAX_FUSED_NODES} - is
  * rejected with {@link IllegalArgumentException}, which the evaluator wiring treats as "fall
  * back". Refusing to emit is a normal outcome here, not an error path: the query still runs, on
  * stock Spark.
@@ -1866,7 +1867,7 @@ public final class VarkaLoopEmitter {
 
   /**
    * Whether {@code outputs} over {@code numInputs} kernel columns fit this emitter's
-   * structural budgets ({@link VarkaEmitBudget#MAX_CHAIN_DEPTH} height per output,
+   * structural budgets ({@link VarkaEmitOptions#maxChainDepth} height per output,
    * {@link VarkaEmitBudget#MAX_INPUTS} columns, and {@link VarkaEmitBudget#MAX_FUSED_NODES}
    * distinct ops across all outputs where {@code options} have no byte budget), counted exactly as
    * {@link Analysis} and {@link #emit} count them. The compiler mirrors the budgets with this
@@ -1890,7 +1891,7 @@ public final class VarkaLoopEmitter {
     java.util.HashMap<VarkaVectorIR, Integer> heights = new java.util.HashMap<>();
     int[] opNodes = {0};
     for (VarkaVectorIR root : outputs) {
-      if (budgetWalk(root, heights, opNodes) > MAX_CHAIN_DEPTH
+      if (budgetWalk(root, heights, opNodes) > options.maxChainDepth()
           || (capOps && opNodes[0] > MAX_FUSED_NODES)) {
         return false;
       }
@@ -1927,7 +1928,11 @@ public final class VarkaLoopEmitter {
     return new int[] {served, analysis.declinedBitmapRoots};
   }
 
-  /** The height of {@code node}, memoized per distinct node like {@code Analysis.height}. */
+  /**
+   * The height of {@code node}, memoized per distinct node like {@code Analysis.height}. The
+   * leaves are the nodes {@code Analysis} gives height 0 and counts as no op: the column reads,
+   * the decimal ones among them, the literal slots and the two constants.
+   */
   private static int budgetWalk(VarkaVectorIR node,
       Map<VarkaVectorIR, Integer> heights, int[] opNodes) {
     Integer memo = heights.get(node);
@@ -1935,8 +1940,10 @@ public final class VarkaLoopEmitter {
       return memo;
     }
     int height;
-    if (node instanceof ColumnRef || node instanceof LiteralSlot || node instanceof BoolColumn
-        || node instanceof CondConst || node instanceof VarkaVectorIR.NullValue) {
+    if (node instanceof ColumnRef || node instanceof VarkaVectorIR.DecimalColumn
+        || node instanceof VarkaVectorIR.DecimalWord || node instanceof LiteralSlot
+        || node instanceof BoolColumn || node instanceof CondConst
+        || node instanceof VarkaVectorIR.NullValue) {
       height = 0;
     } else {
       opNodes[0]++;

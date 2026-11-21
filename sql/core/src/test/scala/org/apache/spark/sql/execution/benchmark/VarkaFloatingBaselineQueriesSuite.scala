@@ -48,8 +48,13 @@ class VarkaFloatingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
 
   test("every section of the floating baseline runs, and both sessions answer it alike") {
     withTable(2000) {
+      // The remainder sections' divisors are never zero, so no section raises under ANSI.
+      val zeros = spark.sql(
+        "select count_if(w = 0 or wf = 0), count_if(wn is null), count_if(wfn is null) " +
+          "from varka_floating").head()
+      assert(zeros.getLong(0) === 0 && zeros.getLong(1) === 200 && zeros.getLong(2) === 200)
       val sections = VarkaFloatingBaselineBenchmark.sections(false).asScala
-      assert(sections.size === 20)
+      assert(sections.size === 30)
       for (s <- sections) {
         withClue(s.title) {
           checkAnswer(varkaSpark.sql(s.query), spark.sql(s.query))

@@ -571,8 +571,9 @@ final class VarkaVectorTemplateWarmup {
         VectorOperators.MUL, VectorOperators.DIV, VectorOperators.MIN, VectorOperators.MAX,
         VectorOperators.AND, VectorOperators.OR, VectorOperators.XOR);
 
+    // ROL is the hash steps' rotate (VARKA-337).
     private static final List<Binary> SHIFTS = List.of(VectorOperators.ASHR,
-        VectorOperators.LSHR, VectorOperators.LSHL);
+        VectorOperators.LSHR, VectorOperators.LSHL, VectorOperators.ROL);
 
     private static final List<Comparison> COMPARISONS = List.of(VectorOperators.EQ,
         VectorOperators.NE, VectorOperators.LT, VectorOperators.LE, VectorOperators.GT,
@@ -695,7 +696,7 @@ final class VarkaVectorTemplateWarmup {
             + IntVector.broadcast(s, 5).lane(0) + IntVector.zero(s).lane(0)
             + a.add(4, m).lane(0) + a.sub(4).lane(0) + a.min(4).lane(0) + a.max(4).lane(0)
             + a.or(4).lane(0) + a.lanewise(VectorOperators.BIT_COUNT).lane(0)
-            + a.withLane(1, 3).lane(1) + masks(s, m, tail, acc);
+            + a.withLane(1, 3).lane(1) + masks(s, m, tail, acc) + intWordMask(s, acc);
         a.intoMemorySegment(seg, 0, ByteOrder.LITTLE_ENDIAN);
         a.intoMemorySegment(seg, 64, ByteOrder.LITTLE_ENDIAN, tail);
         acc += IntVector.fromMemorySegment(s, seg, 0, ByteOrder.LITTLE_ENDIAN).lane(0)
@@ -732,7 +733,8 @@ final class VarkaVectorTemplateWarmup {
             + LongVector.broadcast(s, 5L).lane(0) + LongVector.zero(s).lane(0)
             + a.and(1L).lane(0) + a.mul(4L).lane(0) + a.or(4L).lane(0)
             + a.lanewise(VectorOperators.NEG, m).lane(0) + a.add(1L, m).lane(0)
-            + a.lanewise(VectorOperators.BIT_COUNT).lane(0) + masks(s, m, tail, acc);
+            + a.lanewise(VectorOperators.BIT_COUNT).lane(0) + masks(s, m, tail, acc)
+            + longWordMask(s, acc);
         a.intoMemorySegment(seg, 128, ByteOrder.LITTLE_ENDIAN);
         a.intoMemorySegment(seg, 256, ByteOrder.LITTLE_ENDIAN, tail);
         acc += LongVector.fromMemorySegment(s, seg, 128, ByteOrder.LITTLE_ENDIAN).lane(0)
@@ -777,6 +779,8 @@ final class VarkaVectorTemplateWarmup {
             + a.lanewise(VectorOperators.ADD, 2.0, m).lane(0) + a.blend(b, m).lane(0)
             // rint's canonical NaN, blended in with the scalar form.
             + a.blend(Double.NaN, m).lane(0));
+        // A hash reads a canonical double's bits as longs (VARKA-337).
+        acc += a.viewAsIntegralLanes().lane(0);
         for (Comparison op : DOUBLE_COMPARISONS) {
           acc += a.compare(op, b).toLong();
         }
@@ -806,6 +810,10 @@ final class VarkaVectorTemplateWarmup {
         acc += x.compare(VectorOperators.LT, 0x1.0p52).toLong()
             + (long) x.reinterpretAsLongs().and(Long.MIN_VALUE).or(y.reinterpretAsLongs())
             .reinterpretAsDoubles().lane(0);
+        // A per-lane math call (VARKA-356): each lane read, and the result written back. The
+        // last lane, since a 64-bit species has only lane 0.
+        int last = x.length() - 1;
+        acc += (long) x.withLane(last, y.lane(0)).lane(last);
       }
       return acc;
     }
@@ -837,6 +845,11 @@ final class VarkaVectorTemplateWarmup {
         // negation and abs.
         acc += (long) (x.add(y).lane(0) + x.sub(y).lane(0) + x.mul(y).lane(0)
             + x.lanewise(VectorOperators.NEG).lane(0) + x.lanewise(VectorOperators.ABS).lane(0));
+        // The canonicalisation's calls (VARKA-337): the add of a scalar zero and the blend of
+        // the scalar NaN under the NaN test; the double block above has both forms already.
+        acc += (long) x.add(0.0f).blend(Float.NaN, x.test(VectorOperators.IS_NAN)).lane(0);
+        // A hash reads a canonical float's bits as ints.
+        acc += x.viewAsIntegralLanes().lane(0);
       }
       return acc;
     }
@@ -874,7 +887,7 @@ final class VarkaVectorTemplateWarmup {
         // The narrow arithmetic (VARKA-330): the lane's add, subtract and multiply, the lanewise
         // NEG and ABS the emitter negates and takes abs with, the saturating operators the ANSI
         // overflow check compares against, and the mask calls a range test makes - fromLong is
-        // the masked body's guard collect.
+        // the masked body's guard collect, and byteWordMask its form under maskFromWord.
         ByteVector sum = a.add(b);
         ByteVector satAdd = a.lanewise(VectorOperators.SADD, b);
         VectorMask<Byte> inRange = sum.compare(VectorOperators.EQ, satAdd);
@@ -885,7 +898,7 @@ final class VarkaVectorTemplateWarmup {
             + sum.lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(1)
             + a.lanewise(VectorOperators.ABS).lane(1)
-            + VectorMask.fromLong(s, 0x5L).and(inRange).toLong()
+            + VectorMask.fromLong(s, 0x5L).and(inRange).toLong() + byteWordMask(s, acc)
             + a.lanewise(VectorOperators.SSUB, b).lane(0)
             + a.compare(VectorOperators.GT, (byte) 0).toLong()
             // The condition as a value (VARKA-332): 1 added under the known-true mask.
@@ -920,7 +933,7 @@ final class VarkaVectorTemplateWarmup {
             + sum.lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(1)
             + a.lanewise(VectorOperators.ABS).lane(1)
-            + VectorMask.fromLong(s, 0x5L).and(inRange).toLong()
+            + VectorMask.fromLong(s, 0x5L).and(inRange).toLong() + shortWordMask(s, acc)
             + a.lanewise(VectorOperators.SSUB, b).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
             // The condition as a value (VARKA-332): 1 added under the known-true mask.
@@ -930,6 +943,40 @@ final class VarkaVectorTemplateWarmup {
         a.intoMemorySegment(seg, 1088, ByteOrder.LITTLE_ENDIAN, tail);
       }
       return acc;
+    }
+
+    /*
+     * The word's mask as maskFromWord emits it in the kernel (VARKA-375), operator by operator
+     * rather than through VarkaMaskFromWord: the emitted kernel makes these calls itself, and the
+     * warm-up's reach check counts only the calls this class makes. At the preferred species, the
+     * only one these are called at, a byte or short lane always takes the element select, as the
+     * emitter's does where the lane count is the running JVM's.
+     */
+
+    private static long byteWordMask(VectorSpecies<Byte> s, long word) {
+      ByteVector words = ByteVector.fromArray(s, VarkaMaskFromWord.BYTE_ELEMENT, 0)
+          .selectFrom(LongVector.broadcast(s.withLanes(long.class), word).reinterpretAsBytes());
+      return words.and(ByteVector.fromArray(s, VarkaMaskFromWord.BYTE_BITS, 0))
+          .compare(VectorOperators.NE, (byte) 0).toLong();
+    }
+
+    private static long shortWordMask(VectorSpecies<Short> s, long word) {
+      ShortVector words = ShortVector.fromArray(s, VarkaMaskFromWord.SHORT_ELEMENT, 0)
+          .selectFrom(LongVector.broadcast(s.withLanes(long.class), word).reinterpretAsShorts());
+      return words.and(ShortVector.fromArray(s, VarkaMaskFromWord.SHORT_BITS, 0))
+          .compare(VectorOperators.NE, (short) 0).toLong();
+    }
+
+    private static long intWordMask(VectorSpecies<Integer> s, long word) {
+      return IntVector.broadcast(s, (int) word)
+          .and(IntVector.fromArray(s, VarkaMaskFromWord.INT_BITS, 0))
+          .compare(VectorOperators.NE, 0).toLong();
+    }
+
+    private static long longWordMask(VectorSpecies<Long> s, long word) {
+      return LongVector.broadcast(s, word)
+          .and(LongVector.fromArray(s, VarkaMaskFromWord.LONG_BITS, 0))
+          .compare(VectorOperators.NE, 0L).toLong();
     }
 
     /**
@@ -972,7 +1019,12 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.lanewise(VectorOperators.SADD, b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (byte) 0).toLong()
-            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong();
+            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong()
+            // A word mask's element select and bit test at this species, on the loaded vector
+            // rather than a word broadcast as longs, which would add a long species of this shape.
+            + ByteVector.fromArray(w, VarkaMaskFromWord.BYTE_ELEMENT, 0).selectFrom(a)
+                .and(ByteVector.fromArray(w, VarkaMaskFromWord.BYTE_BITS, 0))
+                .compare(VectorOperators.NE, (byte) 0).toLong();
         ByteVector combined = a;
         for (int part = 0; part < parts; part++) {
           IntVector widened = (IntVector) a.convertShape(VectorOperators.B2I, is, part);
@@ -1006,7 +1058,12 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.lanewise(VectorOperators.SADD, b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
-            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong();
+            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong()
+            // A word mask's element select and bit test at this species, on the loaded vector
+            // rather than a word broadcast as longs, which would add a long species of this shape.
+            + ShortVector.fromArray(w, VarkaMaskFromWord.SHORT_ELEMENT, 0).selectFrom(a)
+                .and(ShortVector.fromArray(w, VarkaMaskFromWord.SHORT_BITS, 0))
+                .compare(VectorOperators.NE, (short) 0).toLong();
         ShortVector combined = a;
         for (int part = 0; part < parts; part++) {
           IntVector widened = (IntVector) a.convertShape(VectorOperators.S2I, is, part);
@@ -1060,6 +1117,9 @@ final class VarkaVectorTemplateWarmup {
     /**
      * The mask and species calls of one lane: every method the kernels call on a mask, of each
      * lane, and on a species, whose implementations are per mask class and shared by the species.
+     * The construction {@code maskFromWord} emits in place of {@code fromLong} is warmed by the
+     * integral lanes' blocks ({@link #longWordMask} and the others), a floating lane's being its
+     * integral lane's and a mask cast.
      */
     private static <E> long masks(VectorSpecies<E> s, VectorMask<E> m, VectorMask<E> tail,
         long bits) {
