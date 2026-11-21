@@ -2421,8 +2421,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // default at 65 and not at 64.
     def chainOf(depth: Int): NamedExpression =
       out((0 until depth).foldLeft[Expression](d)((e, k) => DateAdd(e, Literal(k + 1))))
-    def partialOf(depth: Int, options: VarkaEmitOptions) = VarkaExpressionCompiler.compilePartial(
-      Seq(chainOf(depth), out(DateAdd(d, Literal(1)))), childOutput, options).get
+    def partialOf(depth: Int, options: VarkaEmitOptions): PartialVarkaProjection =
+      VarkaExpressionCompiler.compilePartial(
+        Seq(chainOf(depth), out(DateAdd(d, Literal(1)))), childOutput, options).get
     val sixteen = VarkaEmitOptions.DEFAULTS.withMaxChainDepth(16)
     val deepPartial = partialOf(17, sixteen)
     assert(deepPartial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)))
