@@ -120,7 +120,7 @@ public final class VarkaMathPortSuite {
       m.setAccessible(true);
       return m;
     } catch (ReflectiveOperationException e) {
-      throw new ExceptionInInitializerError(e);
+      throw new IllegalStateException(e);
     }
   }
 
@@ -346,7 +346,7 @@ public final class VarkaMathPortSuite {
       try {
         outBlended = ((DoubleVector) fn.blended().invoke(null, v, null)).toArray();
       } catch (ReflectiveOperationException e) {
-        throw new AssertionError(e);
+        throw new IllegalStateException(e);
       }
       for (int j = 0; j < in.length && base + j < length; j++) {
         strict[base + j] = Double.doubleToRawLongBits(fn.strict().applyAsDouble(in[j]));
