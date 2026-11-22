@@ -20,12 +20,21 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.math.BigInteger;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullSafeEqual;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Or;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.types.DecimalType;
 
 /**
@@ -36,7 +45,9 @@ import org.apache.spark.sql.types.DecimalType;
  *
  * <p>Compile-time data: a literal's two long-table slots and the constant pairs of the load's
  * {@code 10^p} check, built once a shape. The comparisons over two values' words are here too
- * ({@link #compare}, {@link #nullSafeEqual}), as conditions built from the IR's long-lane nodes.
+ * ({@link #compare}, {@link #nullSafeEqual}), as conditions built from the IR's long-lane nodes,
+ * and so are a value's negation and {@code abs} ({@link #negatedLow}, {@link #negatedHigh},
+ * {@link #isNegative}).
  */
 public record DecimalWords(long lo, long hi) {
 
@@ -121,6 +132,44 @@ public record DecimalWords(long lo, long hi) {
       VarkaVectorIR yLo, VarkaVectorIR yHi) {
     return new Or(new Compare(CompareOp.LT, xHi, yHi), new And(new Compare(CompareOp.EQ, xHi,
         yHi), new Compare(low, xLo, yLo)));
+  }
+
+  // ---- Negation and abs over a value's words (`m8/VARKA-359.md` 2.5) -----------------------
+
+  /**
+   * The low word of {@code -v}: {@code -lo}, wrapping. {@code -v = ~v + 1}, and the low word of
+   * {@code ~v + 1} is {@code ~lo + 1 = -lo} modulo {@code 2^64}; the carry out of it is
+   * {@link #negatedHigh}'s borrow.
+   */
+  public static VarkaVectorIR negatedLow(VarkaVectorIR lo) {
+    return new IntNeg(Overflow.WRAP, lo);
+  }
+
+  /**
+   * The high word of {@code -v}: {@code ~hi + (lo == 0 ? 1 : 0)}, wrapping, with {@code zero}
+   * and {@code allOnes} the long slots of 0 and -1. The {@code + 1} of {@code ~v + 1} carries
+   * out of the low word exactly where {@code ~lo} is all ones, that is where {@code lo = 0}, and
+   * that carry is the borrow's only appearance in this row. The high word never wraps on a
+   * decimal: {@code |v| <= 10^38 - 1 < 2^127}, so {@code -v} is in range ({@code decimal128.smt2}'s
+   * carry layer). Valid where {@code lo} and {@code hi} are, which is where the value is.
+   */
+  public static VarkaVectorIR negatedHigh(VarkaVectorIR lo, VarkaVectorIR hi, VarkaVectorIR zero,
+      VarkaVectorIR allOnes) {
+    return new IntArith(IntOp.ADD, Overflow.WRAP, new BitOp(BitOpKind.XOR, hi, allOnes),
+        new CondValue(new Compare(CompareOp.EQ, lo, zero), LaneType.LONG));
+  }
+
+  /** {@code v < 0}, which is its high word's sign: {@code LT(hi, 0)}, {@code zero} the slot 0. */
+  public static Cond isNegative(VarkaVectorIR hi, VarkaVectorIR zero) {
+    return new Compare(CompareOp.LT, hi, zero);
+  }
+
+  /**
+   * One word of {@code abs(v)}: {@code IfElse(v < 0, negated, word)}, {@code negated} the same
+   * word of {@code -v}. Both words take the one condition, so the two blends pick from one value.
+   */
+  public static VarkaVectorIR absWord(Cond negative, VarkaVectorIR negated, VarkaVectorIR word) {
+    return new IfElse(negative, negated, word);
   }
 
   /**
