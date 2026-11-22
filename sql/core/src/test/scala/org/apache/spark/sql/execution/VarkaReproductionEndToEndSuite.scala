@@ -116,6 +116,10 @@ class VarkaReproductionEndToEndSuite
   private def assertReplays(file: VarkaReproduction): Unit = {
     val replay = VarkaReplay.of(file)
     assert(replay.reproduced(), replay.report().asScala.mkString("\n"))
+    if (file.classBytes() != null) {
+      assert(replay.sameClass().isPresent && replay.sameClass().get().booleanValue(),
+        replay.report().asScala.mkString("\n"))
+    }
   }
 
   test("an exception inside a kernel writes a file with the batch, which replays to it") {
@@ -181,6 +185,35 @@ class VarkaReproductionEndToEndSuite
     assert(call != null && call.omitted() == null && call.selectionBitmaps(), call)
     assert(call.inputs().size() === 1)
     assert(call.inputs().get(0).data().length === call.rows() * 16, call.inputs().get(0))
+    assertReplays(file)
+  }
+
+  test("a boolean column's kernel writes a file with its bitmap, which replays to the same " +
+      "class") {
+    // A CASE WHEN over a nullable boolean column fuses as a predicate over the column's two
+    // bitmaps, so the file records the column at width 1 with its data bitmap.
+    val bools = "varka_reproduction_bools"
+    for (session <- Seq(spark, varkaSpark)) {
+      session.range(0, 1000)
+        .selectExpr("IF(id % 3 = 2, NULL, id % 2 = 0) AS b", "CAST(id AS INT) AS i")
+        .createOrReplaceTempView(bools)
+      session.catalog.cacheTable(bools)
+    }
+    val filter = s"SELECT i FROM $bools WHERE CASE WHEN b THEN i > 400 END"
+    val expected = spark.sql(filter).collect().toSeq
+    val (file, _) = reproduced {
+      withOptions(_.withMisdescribeDataBytes(-4)) {
+        withFailureDeclared(checkAnswer(varkaSpark.sql(filter), expected))
+      }
+    }
+    assert(file.signature().kind() === "IndexOutOfBoundsException", file.signature())
+    val outputs = file.outputs().asScala.mkString(" ")
+    assert(outputs.contains("bool:") && outputs.contains("condIf"), outputs)
+    val call = file.call()
+    assert(call != null && call.selectionBitmaps(), call)
+    assert(call.inputs().asScala.exists(input =>
+      input.width() == 1 && input.data().length == (call.rows() + 7) / 8), call)
+    assert(file.classBytes() != null)
     assertReplays(file)
   }
 

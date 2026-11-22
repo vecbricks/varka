@@ -47,8 +47,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wid
  *
  * <p>A parse is checked by rendering it again: {@link #parse} refuses a string whose tree does not
  * render back to it exactly, so a node this parser reads wrongly is an error here rather than a
- * replay of another kernel. A node type added to the IR without a case here fails that check, and
- * the round-trip test over the every-node-type key and the IR grammar's trees fails with it.
+ * replay of another kernel. The round trip ({@code VarkaReproductionSuite}) reaches every record
+ * of the sealed IR with no exemption, rebuilds each with every enum and boolean value its
+ * constructor admits, and holds the parsed tree equal to the original, so a record or an enum
+ * member without a case here fails it.
  */
 public final class VarkaCanonicalIr {
 
@@ -221,6 +223,10 @@ public final class VarkaCanonicalIr {
       }
       case "null" -> new VarkaVectorIR.NullValue(lane(parts));
       case "bool-out" -> new BoolOutput(cond());
+      case "condConst" -> condConst(parts);
+      case "boolCmp" -> new BoolCompare(CompareOp.valueOf(parts[1]), cond(), cond());
+      case "condIf" -> new CondIf(cond(), cond(), cond());
+      case "boolNullSafeEq" -> new BoolNullSafeEq(cond(), cond());
       case "greatest" -> new Greatest(node(), node());
       case "least" -> new Least(node(), node());
       case "dayOfWeek" -> new DayOfWeek(node());
@@ -277,7 +283,21 @@ public final class VarkaCanonicalIr {
   }
 
   /**
-   * {@code col:N} or {@code lit:N}, each with {@code :long} on the long lane, or
+   * {@code condConst:TRUTH}, with {@code :long} or another lane after it off the int lane: a head
+   * with no children, so the closing parenthesis follows it.
+   */
+  private static CondConst condConst(String[] parts) {
+    if (parts.length < 2 || parts.length > 3) {
+      throw new IllegalArgumentException("not a condition constant: '" + String.join(":", parts)
+          + "'");
+    }
+    LaneType lane = parts.length == 3
+        ? LaneType.valueOf(parts[2].toUpperCase(Locale.ROOT)) : LaneType.INT;
+    return new CondConst(Truth.valueOf(parts[1]), lane);
+  }
+
+  /**
+   * {@code col:N}, {@code lit:N} or {@code bool:N}, each with {@code :long} on the long lane, or
    * {@code dec:N:long:pP}, a decimal column, which always names its lane and its precision, or
    * {@code decw:N:lo:pP} and {@code decw:N:hi:pP}, the two words of a 128-bit one.
    */
@@ -311,6 +331,7 @@ public final class VarkaCanonicalIr {
     return switch (parts[0]) {
       case "col" -> new ColumnRef(index, lane);
       case "lit" -> new LiteralSlot(index, lane);
+      case "bool" -> new BoolColumn(index, lane);
       default -> throw new IllegalArgumentException("not a leaf: '" + token + "'");
     };
   }
