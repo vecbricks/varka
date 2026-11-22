@@ -160,11 +160,13 @@ add its 20 slots to the fork's 40? Read from `results/VARKA-637-pr-matrix-scope.
 * **What blocks it.** A PR's test classes, its reach record and its harness store are artifacts
   of the fork's Build. `actions/download-artifact` can take another repository's artifact with
   `repository:` and `run-id:`, but only with a token that may read that repository's Actions.
-  vecbricks/varka's job token cannot, and the owner chose no token secret (row 525). Without
-  one, each matrix builds for itself (11 minutes before the first bin) and runs without a reach
-  record. The master run 44485292430 ran without one: 191 bins and 1,457 bin-minutes, against a
-  median of 171 and 1,275 for the completed PR runs with one, 14% more
-  (`results/VARKA-637-pr-matrix-scope.txt`).
+  Whether vecbricks/varka's job token may do so for the public fork is not proven, as 3.3's
+  read of runs is not; the owner chose no token secret (row 525). Without such a read, each
+  matrix builds for itself (11 minutes before the first bin) and runs without a reach record.
+  The master run 44485292430 ran without one: 191 bins and 1,457 bin-minutes, against a median
+  of 171 bins and 1,275 bin-minutes for the completed PR runs, about 12% more bins and 14% more
+  bin-minutes (`results/VARKA-637-pr-matrix-scope.txt`; the PR runs' median may hold a run
+  without a reach record too, such as 44179178461 at 191 bins).
 * **What it would give.** One matrix of about 1,450 bin-minutes on 18 of the 20 slots is at
   least 81 minutes of bins plus the build, against a 34-minute floor on the fork's 38 when the
   fork is free. It adds half again to the slots, but runs each matrix about twice as slowly as an
@@ -175,9 +177,11 @@ add its 20 slots to the fork's 40? Read from `results/VARKA-637-pr-matrix-scope.
   row 522.
 * **Verdict.** Not a row now. Rows 637 and 638 take about a seventh of the bin-minutes off the
   fork, more from red runs, and the sweep onto vecbricks/varka. If after them the fork's median
-  bin wait still exceeds 30 minutes over a week, the cheap test is a one-job probe: a fine-grained
-  token with read access to the fork's Actions, stored as a vecbricks/varka secret, downloading
-  one Build's classes archive. That reverses row 525's choice, which only the owner can make.
+  bin wait still exceeds 30 minutes over a week, the cheap test is a one-job probe that
+  downloads one fork Build's classes archive from vecbricks/varka, first with the job's own
+  `github.token`, which needs no secret, and only if that is refused with a fine-grained token
+  stored as a vecbricks/varka secret. The second reverses row 525's choice, which only the owner
+  can make.
 
 ## 9. Done when
 

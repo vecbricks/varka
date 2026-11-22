@@ -39,8 +39,10 @@ first-match draft of the rules VARKA-637.md 3.1 designs:
 
 A run takes the widest tier any of its paths has. The draft is coarser than VARKA-637.md 3.1 as
 reviewed: it puts docs/sql-varka.md under none, which VarkaCoverageSuite reads, so the
-353-support-table-r run (tooling here) would be a suites run of VarkaCoverageSuite under 3.1; no
-other run of the 8 narrower ones touches a file a suite reads, and the totals stand.
+353-support-table-r run (tooling here) would be a suites run of VarkaCoverageSuite under 3.1,
+and its dev/ scripts would add the suites that name them; among the other 7 narrower runs no
+changed document, figure or workflow is one a suite reads (their dev/ scripts were not checked
+against the test sources), and the totals stand.
 
 | tier | runs | bin-min | share of bin-min |
 |---|---:|---:|---:|
@@ -58,8 +60,14 @@ one touches a file every kernel's compile runs (Analysis, Slots, VarkaEmitBudget
 or VarkaEmitOptions, VarkaVectorIR, VarkaKernelPlan, VarkaNodeCompiler, VarkaExpressionCompiler,
 VarkaBodyEmitter, VarkaLoopEmitter). Of the 73 entries of VarkaEmitOption.TABLE, 4 name a node
 kind whose emission alone reads them (readOnlyBy: ConvertLane twice, DecimalColumn,
-WidenDecimal); the two runs that change VarkaConversionLowering, which lowers ConvertLane
-(600-bigint-float-avx2-r, 611-guarded-product-r), also change files on the list above.
+WidenDecimal). The main classes that name those node kinds (a grep of sql/catalyst/src/main on
+the branch's base) are the core list above plus the compilers that build them
+(VarkaFloatingCompiler, VarkaFloatingCastCompiler, VarkaMathPort, VarkaDecimalCompiler,
+VarkaConditionCompiler, VarkaTimeCompiler, DecimalWords), each of which serves other node kinds
+too, and two lowerings, VarkaConversionLowering and VarkaRoundingLowering. The two runs that
+change VarkaConversionLowering (600-bigint-float-avx2-r, 611-guarded-product-r) also change files
+on the core list; 359-decimal128-lane-pair changes DecimalWords, VarkaConditionCompiler and
+VarkaDecimalCompiler, which serve every decimal node, not one kind.
 
 The six "suites" runs' changed suites, as a share of the summed suite seconds in
 sql/varka/matrix/suite-seconds.tsv (141 suites, 2,058 s): 605-nullif-ntz-sanitizer-r,

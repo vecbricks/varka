@@ -25,8 +25,10 @@ results file says where the draft is coarser; the totals do not move):
   22 November alone, 3 of the 14 dispatches were in this group, 23% of the day's bin-minutes.
 * **An option-reader scope saves nothing.** 46 runs change main code, and nearly all of them
   touch a class that every kernel's compile runs. Only 4 of the 73 options in
-  `VarkaEmitOption.TABLE` are read by a single node kind's emission (`readOnlyBy`), and no run's
-  diff stays inside those node kinds' lowering. Row 518 measured the same thing at run time:
+  `VarkaEmitOption.TABLE` are read by a single node kind's emission (`readOnlyBy`). The main
+  classes that name those node kinds also serve other kinds, apart from two lowerings, and the
+  two runs that change one of those lowerings also change core files (the results file lists
+  them). Row 518 measured the same thing at run time:
   most options are read by nearly every kernel, and a scope built from option reads missed 22
   tests that the byte comparison names. So 3.3 is designed but not built.
 * **Red runs cost a fifth.** 12 runs failed, using 14,924 bin-minutes (22%), and each of them
@@ -70,7 +72,8 @@ A changed suite maps to itself. A changed test class that is not a suite maps to
 that reaches it through the test sources' references: the transitive closure of the class names
 mentioned in each test source.
 `sql/varka/matrix/scope.tsv` also lists the test classes that suites load by name or that
-register IR node types (the registry suites, whose misses failed #1338). A change to one of
+walk every sealed IR type (the registry suites, which #1338's new node failed on CI though the
+branch's own suites passed). A change to one of
 those is `full`. So is a change to any class `VarkaMatrixRuns`, `VarkaTestReach` or the suite
 runner loads, because every suite runs through them.
 
