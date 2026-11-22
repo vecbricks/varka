@@ -1329,3 +1329,28 @@ decide provenance by comparing a node's NaN bits with a child's: those are two e
 open payload, which need not agree. And a test that warms neither body, as the suites do with the
 warm-up off, cannot see the split; `dev/varka_tier_split.py` compiles one body and holds the other
 back so that it can (VARKA-557).
+
+## A long-lane kernel unsettled in the compiled test is row 383's back-edge trap, not the sanitizer
+
+`VARKA-605.md` 11 read the compiled test's unsettled long-lane kernels (`nullif(t, t2)`,
+`try_subtract(l, l2)`, `if(x IS NULL, x2, NULL)` at seed 20261111). Three lessons outlive it:
+
+* **A seed names a sample of the table as it stands.** The compiled test shuffles the coverage
+  rows of a lane by the seed, so a row added anywhere moves every later sample: #1500's
+  `nullif(ntz, ntz2)` at seed 20261111 was out of that seed's sample nine days later. A tier fact
+  read off a seed replays only at its commit, or by its rows, which the test's info line now
+  names. Two rows can be one kernel (`nullif(ntz, ntz2)` and `nullif(t, t2)` emit the same
+  class), so compare the dumped classes before calling a case gone.
+* **A row alone is not the row in a sample.** Alone, two of these rows (`nullif(ntz, ntz2)` and
+  `nullif(t, t2)`) settled every time; in the
+  sample, behind other long-lane kernels, the three cycled through 40 to 50 compiles of `loopMasked0`
+  a minute, each thrown away at a `profile_predicate` trap, and never served C2 code. The kernel
+  class is fresh each history, so what carries over is the profile of the code every kernel
+  inlines. Replay a tier fact in the JVM history it was read in.
+* **A `profile_predicate` trap's bytecode does not say which test failed.** C2 places a loop's
+  predicates at the loop's entry and every test hoisted into it traps there, so the bytecode is a
+  loop position (here the vector loop's `goto` back edge) whichever check it was. What told the
+  memory sanitizer's check (row 430) from the loop's own profile (row 383) apart was a plain
+  control, which reproduced the case 3 of 3, and the bytecode showing the sanitizer's check
+  before the loop. `-XX:+UnlockDiagnosticVMOptions -XX:-UseProfiledLoopPredicate` clears it, as it
+  cleared row 383's releases; it is a diagnosis, not a fix.
