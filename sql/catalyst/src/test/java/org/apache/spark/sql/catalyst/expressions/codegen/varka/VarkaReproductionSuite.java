@@ -128,6 +128,9 @@ public final class VarkaReproductionSuite {
         // A floating lane's square root over its IEEE division, whose zero divisor nulls a lane.
         new MathUnary(MathFn.SQRT, new IntArith(IntOp.DIV, Overflow.NULL,
             new ColumnRef(0, LaneType.DOUBLE), new LiteralSlot(0, LaneType.DOUBLE))),
+        // The single-rounding multiply-add over double columns and a literal (VARKA-342).
+        new VarkaVectorIR.Fma(new ColumnRef(0, LaneType.DOUBLE), new ColumnRef(1, LaneType.DOUBLE),
+            new LiteralSlot(0, LaneType.DOUBLE)),
         // The rint construction's node over a double column (VARKA-344).
         new VarkaVectorIR.RoundToIntegral(VarkaVectorIR.RoundMode.RINT,
             new ColumnRef(0, LaneType.DOUBLE)),
