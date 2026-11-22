@@ -373,6 +373,15 @@ class VarkaEmitterBitwiseSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     }
   }
 
+  /** Why the plan declines the `bit_get` kernel under `options`, or the empty string. */
+  private def bitGetRefusal(options: VarkaEmitOptions): String =
+    VarkaKernelPlan.refusalOf(java.util.List.of(bitGetRoot), options).orElse("")
+
+  /** The kernel `bit_get` compiles to: the shift, the mask by literal 1, the byte narrowing. */
+  private def bitGetRoot: VarkaVectorIR = new NarrowLane(new BitOp(BitOpKind.AND,
+    new BitOp(BitOpKind.SHR, c0, new GuardedRange(c1, 0, 31)), new LiteralSlot(0)),
+    LaneType.BYTE)
+
   /**
    * `bit_get` as the compiler builds it over an int column and an int position column: the
    * position guarded by `[0, 31]`, the shift, the mask by the literal 1 and the narrowing to the
@@ -381,12 +390,28 @@ class VarkaEmitterBitwiseSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
    * each residue of a value's low bits meets every position.
    */
   private def bitGetSweep(rows: Long, value: (Long, Int) => Int, what: String): Unit = {
-    val root = new NarrowLane(new BitOp(BitOpKind.AND, new BitOp(BitOpKind.SHR, c0,
-      new GuardedRange(c1, 0, 31)), new LiteralSlot(0)), LaneType.BYTE)
+    val root = bitGetRoot
+    // Without a baked int lane count (validityByWidth off) the byte store has no narrow species
+    // to name, and the plan declines the kernel: the row engine answers it, and the emitter is
+    // never handed a refused plan.
+    if (Lane.emitLanes(VarkaMatrix.base, Lane.INT) == 0) {
+      assert(bitGetRefusal(VarkaMatrix.base) == VarkaKernelPlan.NO_BAKED_INT_LANES)
+      return
+    }
     val input: (Long, Int) => Int = (r, c) =>
       if (c == 0) value(r, 0) else ((r + (r >>> 5)) & 31).toInt
     sweep(s"bit_get over $what", root, 2, Array(1), rows, input,
       BitwiseGet(int(0), int(1)), byteOut = true)
+  }
+
+  test("bit_get declines, never fails, where the width has no baked int lane count") {
+    val noLanes = VarkaMatrix.base.withValidityByWidth(false)
+    assert(Lane.emitLanes(noLanes, Lane.INT) == 0)
+    assert(bitGetRefusal(noLanes) == VarkaKernelPlan.NO_BAKED_INT_LANES)
+    val e = intercept[IllegalArgumentException] {
+      emitMulti(Seq(bitGetRoot), 2, 1, noLanes)
+    }
+    assert(e.getMessage.contains(VarkaKernelPlan.NO_BAKED_INT_LANES))
   }
 
   test("bit_get matches Spark over a strided slice of the ints, every position in [0, 31]") {

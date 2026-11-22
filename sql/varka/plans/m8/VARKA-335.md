@@ -666,3 +666,18 @@ cancels with the width-decline reasons the integral-cast suite uses, which may w
    and below") then holds for the census's entries; the int sweeps pair each value with one
    count or position, as section 9 item 7 already departed for the shifts, which the row's
    status names.
+
+### 9.6 The option matrix's first run on the PR (22 November 2026)
+
+The matrix passed 172 of 176 jobs; the four failures were all the `bit_get` tests under two
+arms, and every one is the by-design decline of a narrow value at a width with no baked lane
+count, not a wrong answer. With `validityByWidth` off the byte `bit_get` writes (and `y2` in the
+filter `bit_get(l, i) = y2`) has no narrow species to name, so the plan declines with
+`NO_BAKED_INT_LANES` or `NO_BAKED_LONG_LANES`, the same reason as rows 329 and 332. The
+`[0, 31]` guard is not involved: the column position is still a `GuardedRange`. Under
+`lanesOverride=16` only the filter `bit_get(l, i) = y2` declines, since sixteen long lanes
+would be a 1024-bit species and `y2` is a narrow column in a bigint kernel; the projection
+fuses. The emitter's own sweep called the emitter directly and so met the refusal as an
+`INTERNAL_ERROR` exception; it now checks the plan first, as the floating-cast suite does, and a
+new test pins the decline. Nine lines in `skips.tsv` record the coverage tests that expect a
+fused kernel under those arms.
