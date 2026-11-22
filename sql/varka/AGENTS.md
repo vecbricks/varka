@@ -178,7 +178,11 @@ subject is the defaults' emitted structure takes the tag `PinsDefaults`; a test
 whose subject is what C2 makes of a kernel takes `C2Code`, which runs it only
 under a configuration that changes what C2 is given (`VarkaMatrixRuns.C2_OPTIONS`);
 and an answer test a configuration breaks by design gets a line in
-`sql/varka/matrix/skips.tsv` with its reason. A Varka pull request's Build runs
+`sql/varka/matrix/skips.tsv` with its reason. Git merges that file with its
+union driver, so two branches appending skips never conflict; but union also
+brings back a line one side removed or edited, so after such a merge check the
+file by hand and with `dev/varka_lint.py sql/varka/matrix/skips.tsv`, which
+reads every line. A Varka pull request's Build runs
 the suites at the defaults only: its option configurations are checked by the
 `varka-option-matrix` workflow dispatched on its branch, which runs all of them,
 as the weekly run does. There a configuration
