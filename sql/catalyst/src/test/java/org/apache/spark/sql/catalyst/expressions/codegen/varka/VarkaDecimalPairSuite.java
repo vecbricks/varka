@@ -111,6 +111,14 @@ public final class VarkaDecimalPairSuite {
     return rows;
   }
 
+  /**
+   * {@link #rows} without a null, so that a kernel's null-free (dense) body meets the edges too:
+   * every batch of {@link #rows} holds nulls, and takes the masked body.
+   */
+  private static List<Row> denseRows(DecimalType ta, DecimalType tb) {
+    return rows(ta, tb).stream().filter(r -> r.a() != null && r.b() != null).toList();
+  }
+
   private static DecimalVector vector(String name, List<Row> rows, boolean left,
       DecimalType type, BufferAllocator allocator) {
     var v = new DecimalVector(name, allocator, type.precision(), type.scale());
@@ -204,7 +212,13 @@ public final class VarkaDecimalPairSuite {
     CompiledVarkaPredicate compiled = compile(sql, columns);
     Expression bound = VarkaSqlResolve.bind(
         VarkaSqlResolve.replaced(VarkaSqlResolve.parse(sql, seq(columns))), seq(columns));
-    List<Row> rows = rows(ta, tb);
+    for (List<Row> rows : List.of(rows(ta, tb), denseRows(ta, tb))) {
+      checkRows(sql, compiled, bound, rows, ta, tb);
+    }
+  }
+
+  private static void checkRows(String sql, CompiledVarkaPredicate compiled, Expression bound,
+      List<Row> rows, DecimalType ta, DecimalType tb) {
     for (int lanes : WIDTHS) {
       Long[] got = answers(compiled, rows, ta, tb, lanes);
       for (int i = 0; i < rows.size(); i++) {
@@ -267,21 +281,20 @@ public final class VarkaDecimalPairSuite {
   }
 
   @Test
-  @DisplayName("the null tests of a wide column, of a widening cast, a choice or a pick over one "
-      + "read its validity, and a wide negation, abs, sum or lowering cast declines")
+  @DisplayName("the null tests of a wide column, of a widening cast, a choice, a pick, a negation "
+      + "or an abs over one read its validity, and a wide sum or lowering cast declines")
   void nullTests() {
     var t = new DecimalType(20, 2);
     for (String sql : List.of("a IS NULL", "a IS NOT NULL", "CAST(a AS DECIMAL(38, 2)) IS NULL",
         "b IS NOT NULL", "IF(a > 0, a, b) IS NULL", "coalesce(a, b) IS NULL",
         "greatest(a, b) IS NOT NULL", "least(b, a) IS NULL",
-        "CASE WHEN a > 0 THEN b WHEN a < 0 THEN a ELSE b END IS NULL")) {
+        "CASE WHEN a > 0 THEN b WHEN a < 0 THEN a ELSE b END IS NULL", "-b IS NULL",
+        "abs(b) IS NOT NULL")) {
       check(sql, t, new DecimalType(38, 2));
     }
-    // Each can raise, or null a row whose leaves are valid: a sum by overflowing, a lowering
-    // cast likewise, and Spark's negation and abs of a 38-digit value, which round it to 34
-    // digits through Scala's BigDecimal and can overflow the type (Decimal.unary_-).
-    for (String sql : List.of("(a + b) IS NULL", "CAST(b AS DECIMAL(20, 2)) IS NULL",
-        "-b IS NULL", "abs(b) IS NOT NULL")) {
+    // Each can raise, or null a row whose leaves are valid: a sum by overflowing, and a
+    // lowering cast likewise.
+    for (String sql : List.of("(a + b) IS NULL", "CAST(b AS DECIMAL(20, 2)) IS NULL")) {
       String reason = decline(sql, t, new DecimalType(38, 2));
       assertTrue(reason.contains("row"), () -> sql + ": " + reason);
     }
@@ -306,6 +319,58 @@ public final class VarkaDecimalPairSuite {
           "coalesce(CASE WHEN a > 0 THEN a END, nullif(b, a)) IS NOT NULL",
           "greatest(nullif(a, b), NULL) IS NULL", "least(a, NULL, b) IS NOT NULL")) {
         check(sql, t, tb);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("a wide negation and abs answer as Spark on the word edges, a low word of 0 "
+      + "borrowing from the high word, and keep all 38 digits of a value at the bound")
+  void negationAndAbs() {
+    // Spark negates a wide value exactly (Decimal.unary_-, SPARK-45438), so -x and abs(x) of a
+    // 38-digit value keep every digit; the edges hold 10^p - 1 and -(10^p - 1), and 2^64 and
+    // -2^64, whose low word is 0.
+    for (int p : new int[] {19, 20, 38}) {
+      var t = new DecimalType(p, 2);
+      for (String sql : List.of("-a < b", "-a = b", "-a <=> b", "abs(a) < b", "abs(a) = b",
+          "abs(a) >= b", "-(-a) = a", "abs(-a) = abs(a)", "-abs(a) <= a", "b > -a")) {
+        check(sql, t, t);
+      }
+    }
+    // A narrower side under the negation is widened first, a 64-bit one by its sign extension.
+    check("-a < b", new DecimalType(18, 2), new DecimalType(38, 2));
+    check("abs(a) = b", new DecimalType(19, 2), new DecimalType(38, 2));
+  }
+
+  @Test
+  @DisplayName("a wide IN answers as Spark: each literal's two words in the long table, a "
+      + "literal past a long and the bound among them")
+  void wideIn() {
+    for (int p : new int[] {20, 38}) {
+      var t = new DecimalType(p, 2);
+      String list = String.join(", ", List.of(TWO_64.add(TWO_63), TWO_63, BigInteger.ZERO,
+          TWO_64.negate(), bound(t).negate()).stream()
+          .map(u -> new BigDecimal(u, t.scale()).toPlainString()).toList());
+      check("a IN (" + list + ")", t, t);
+      check("a NOT IN (" + list + ")", t, t);
+      check("-b IN (" + list + ")", t, t);
+    }
+  }
+
+  @Test
+  @DisplayName("the wide choices and picks answer as Spark as compared values, word by word "
+      + "under one condition: IF, CASE, coalesce, nvl, nullif, greatest and least")
+  void choicesAndPicks() {
+    var narrow = new DecimalType(20, 2);
+    var wide = new DecimalType(38, 2);
+    for (DecimalType ta : List.of(narrow, wide)) {
+      for (String sql : List.of("IF(a < b, a, b) < b", "IF(a IS NULL, b, a) = b",
+          "CASE WHEN a > 0 THEN a WHEN b > 0 THEN b ELSE -a END <= b",
+          "CASE WHEN a < 0 THEN b END <=> a", "coalesce(a, b) <=> b", "nvl(a, b) > 0.00",
+          "nullif(a, b) <=> a", "greatest(a, b) = a", "greatest(a, b) >= b", "least(a, b) < b",
+          "least(a, b, -a) <=> least(-a, b)", "-greatest(a, b) <= abs(a)",
+          "coalesce(nullif(a, b), -b) IN (0.00, 1.00)")) {
+        check(sql, ta, wide);
       }
     }
   }
