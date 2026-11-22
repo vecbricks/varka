@@ -149,6 +149,16 @@ public final class VarkaMathCompilerSuite {
   }
 
   @Test
+  @DisplayName("a log with a constant base whose evaluation fails declines rather than throws")
+  void failingConstantBaseDeclines() {
+    // Under ANSI the cast raises, which the optimizer leaves to the row engine; without ANSI it
+    // is a null base. Either way the compile declines and the row engine answers.
+    String why = reason("log(CAST('abc' AS DOUBLE), x)", Set.of(), VarkaMatrixRuns.BASE);
+    assertTrue(why.contains("a log base whose evaluation fails")
+        || why.contains("a log with a null base"), why);
+  }
+
+  @Test
   @DisplayName("a per-lane call declines at a width with no baked lane count")
   void callNeedsBakedLanes() {
     String why = reason("sin(x)", Set.of(), VarkaMatrixRuns.BASE.withValidityByWidth(false));

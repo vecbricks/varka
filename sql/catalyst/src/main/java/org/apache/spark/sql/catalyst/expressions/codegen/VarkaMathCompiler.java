@@ -22,6 +22,8 @@ import java.util.Optional;
 
 import javax.annotation.Nullable;
 
+import scala.util.control.NonFatal;
+
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMathDomain;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
@@ -232,7 +234,17 @@ final class VarkaMathCompiler {
       return logOf(MathFn.LOG, 0.0, f.right(), inputs, literals, sink);
     }
     if (base.foldable()) {
-      Object b = base.eval(null);
+      Object b;
+      try {
+        b = base.eval(null);
+      } catch (Throwable failed) {
+        // A base the optimizer left unfolded because its evaluation fails (an ANSI cast in a
+        // branch no row takes): the row engine raises it, or never reaches it.
+        if (!NonFatal.apply(failed)) {
+          throw failed;
+        }
+        return sink.decline("a log base whose evaluation fails", base);
+      }
       if (b == null) {
         return sink.decline("a log with a null base, null on every row", base);
       }

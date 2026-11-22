@@ -1479,7 +1479,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         + "so at -0.0 and not at NaN",
         math = Some(MathCell(exactForms.head,
           operator = Some(VarkaMathBinding.Operator.LOG)))),
-      Row("log(x)", "the one-argument log: ln's call and null, with no divide",
+      Row("log(x)", "the one-argument log as parsed: ln's call and null, with no divide; once "
+        + "the optimizer folds e, the divide by StrictMath.log(e) that Spark's code then makes",
         math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.LOG)))),
       Row("log10(x)", "exact: a per-lane StrictMath.log10 call, null at x <= 0.0",
         math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.LOG10)))),
