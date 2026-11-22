@@ -730,7 +730,13 @@ public record VarkaEmitOptions(
      * first differs from Spark's answer for {@code sin}, {@code cos} and {@code tan} on thousands
      * of inputs in a million, and the second never does, since {@code Math} delegates there.
      */
-    MATH_OTHER_CLASS;
+    MATH_OTHER_CLASS,
+    /**
+     * The log family's domain null at {@code x < threshold} rather than Spark's {@code <=}
+     * ({@link VarkaMathDomain}): {@code ln(0.0)} answers {@code -inf} where Spark answers null, and
+     * every other input agrees.
+     */
+    MATH_DOMAIN_LT;
   }
 
   /**

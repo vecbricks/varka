@@ -563,7 +563,10 @@ public sealed interface VarkaVectorIR
    * for {@code sin}, {@code cos} and {@code tan}, whose answer is the host's intrinsic and differs
    * from {@code StrictMath}'s on x86, and {@code java.lang.StrictMath} for {@code asin},
    * {@code acos} and {@code atan}, which {@code Math} delegates to on every host
-   * ({@code VARKA-356.md} item 0.3). These take a {@code DOUBLE} operand only, as Spark does.
+   * ({@code VARKA-356.md} item 0.3). The exponential, logarithmic and root members are the ones
+   * Spark's generated code names: {@code StrictMath}'s {@code exp}, {@code expm1}, {@code log},
+   * {@code log10} and {@code log1p}, and {@code Math.cbrt}, the host's answer, which on x86
+   * differs from {@code StrictMath}'s. These take a {@code DOUBLE} operand only, as Spark does.
    */
   enum MathFn {
     SQRT(null, null),
@@ -572,7 +575,13 @@ public sealed interface VarkaVectorIR
     TAN("java/lang/Math", "tan"),
     ASIN("java/lang/StrictMath", "asin"),
     ACOS("java/lang/StrictMath", "acos"),
-    ATAN("java/lang/StrictMath", "atan");
+    ATAN("java/lang/StrictMath", "atan"),
+    EXP("java/lang/StrictMath", "exp"),
+    EXPM1("java/lang/StrictMath", "expm1"),
+    LOG("java/lang/StrictMath", "log"),
+    LOG10("java/lang/StrictMath", "log10"),
+    LOG1P("java/lang/StrictMath", "log1p"),
+    CBRT("java/lang/Math", "cbrt");
 
     private final @Nullable String owner;
     private final @Nullable String method;

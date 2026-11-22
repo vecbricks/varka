@@ -22,6 +22,7 @@ import java.util.Optional;
 
 import javax.annotation.Nullable;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMathDomain;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
@@ -42,6 +43,7 @@ import org.apache.spark.sql.catalyst.expressions.Cos;
 import org.apache.spark.sql.catalyst.expressions.Cosh;
 import org.apache.spark.sql.catalyst.expressions.Cot;
 import org.apache.spark.sql.catalyst.expressions.Csc;
+import org.apache.spark.sql.catalyst.expressions.EulerNumber;
 import org.apache.spark.sql.catalyst.expressions.Exp;
 import org.apache.spark.sql.catalyst.expressions.Expm1;
 import org.apache.spark.sql.catalyst.expressions.Expression;
@@ -76,6 +78,14 @@ import org.apache.spark.sql.catalyst.expressions.Tanh;
  * {@code csc} and {@code cot} as Spark writes them, {@code 1 / Math.cos(c)} and the rest: Java's
  * division of doubles, never Spark's {@code Divide}, so a zero divisor answers an infinity and is
  * no null, which is the floating division in {@code WRAP} over the call.
+ *
+ * <p>Row 358's functions but {@code pow} and {@code hypot} fuse the same way: {@code exp},
+ * {@code expm1} and {@code cbrt} as a call; {@code ln}, {@code log10}, {@code log1p} and
+ * {@code log} with one argument as a call under Spark's domain null ({@link VarkaMathDomain});
+ * {@code log2} and {@code log} with a base as Spark writes them,
+ * {@code StrictMath.log(c) / StrictMath.log(2)} and {@code StrictMath.log(x) / StrictMath.log(b)},
+ * each logarithm under its null and the divide Java's, a constant divisor folded to the double
+ * Spark computes a row.
  */
 final class VarkaMathCompiler {
 
@@ -154,6 +164,15 @@ final class VarkaMathCompiler {
       case Sec f -> () -> reciprocal(MathFn.COS, f.child(), inputs, literals, sink);
       case Csc f -> () -> reciprocal(MathFn.SIN, f.child(), inputs, literals, sink);
       case Cot f -> () -> reciprocal(MathFn.TAN, f.child(), inputs, literals, sink);
+      case Exp f -> () -> call(MathFn.EXP, f.child(), inputs, literals, sink);
+      case Expm1 f -> () -> call(MathFn.EXPM1, f.child(), inputs, literals, sink);
+      case Cbrt f -> () -> call(MathFn.CBRT, f.child(), inputs, literals, sink);
+      case Log f -> () -> logOf(MathFn.LOG, 0.0, f.child(), inputs, literals, sink);
+      case Log10 f -> () -> logOf(MathFn.LOG10, 0.0, f.child(), inputs, literals, sink);
+      case Log1p f -> () -> logOf(MathFn.LOG1P, -1.0, f.child(), inputs, literals, sink);
+      case Log2 f -> () -> logOf(MathFn.LOG, 0.0, f.child(), inputs, literals, sink)
+          .map(v -> quotient(v, VarkaNodeCompiler.doubleSlot(StrictMath.log(2), sink)));
+      case Logarithm f -> () -> logarithm(f, inputs, literals, sink);
       default -> ownerOf(e).<VarkaFamilyArm>map(owner -> () -> sink.decline(owner.reason(), e))
           .orElse(null);
     };
@@ -166,12 +185,70 @@ final class VarkaMathCompiler {
    */
   private static Optional<VarkaVectorIR> call(MathFn fn, Expression x, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
+    return operand(x, inputs, literals, sink).map(v -> new MathUnary(fn, v));
+  }
+
+  /** The double operand of a math function, compiled; a value on another lane declines. */
+  private static Optional<VarkaVectorIR> operand(Expression x, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
     Optional<VarkaVectorIR> operand = VarkaNodeCompiler.compileNode(x, inputs, literals, sink);
     if (operand.isPresent() && operand.get().laneType() != LaneType.DOUBLE) {
       return sink.decline("a math operand computed on the " + operand.get().laneType()
           + " lane", x);
     }
-    return operand.map(v -> new MathUnary(fn, v));
+    return operand;
+  }
+
+  /**
+   * {@code fn(x)} under Spark's domain null, null where {@code x <= asymptote}: {@code 0.0} for
+   * {@code ln}, {@code log10} and {@code log2}, {@code -1.0} for {@code log1p}
+   * ({@code UnaryLogExpression.yAsymptote}).
+   */
+  private static Optional<VarkaVectorIR> logOf(MathFn fn, double asymptote, Expression x,
+      VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    return operand(x, inputs, literals, sink).map(v -> VarkaMathDomain.nullAtOrBelow(fn, v,
+        VarkaNodeCompiler.doubleSlot(asymptote, sink), sink.floatingFault()));
+  }
+
+  /** Java's {@code /} on doubles: the bare IEEE quotient, a zero divisor an infinity. */
+  private static VarkaVectorIR quotient(VarkaVectorIR dividend, VarkaVectorIR divisor) {
+    return new IntArith(IntOp.DIV, Overflow.WRAP, dividend, divisor);
+  }
+
+  /**
+   * Spark's {@code log}: with {@code EulerNumber} on the left, as {@code log(x)} parses,
+   * {@code StrictMath.log(x)} under its null and no divide, as Spark's code generator writes it;
+   * otherwise {@code StrictMath.log(x) / StrictMath.log(b)}, null where either operand is at or
+   * below {@code 0.0}, which is each logarithm's null carried through the divide. A constant base
+   * folds: {@code StrictMath.log(b)} computed here is the double Spark computes a row, and a base
+   * at or below {@code 0.0}, which nulls every row, declines. A base folded from
+   * {@code EulerNumber} by the optimizer divides by {@code StrictMath.log(Math.E)}, as Spark's code
+   * does then.
+   */
+  private static Optional<VarkaVectorIR> logarithm(Logarithm f, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    Expression base = f.left();
+    if (base instanceof EulerNumber) {
+      return logOf(MathFn.LOG, 0.0, f.right(), inputs, literals, sink);
+    }
+    if (base.foldable()) {
+      Object b = base.eval(null);
+      if (b == null) {
+        return sink.decline("a log with a null base, null on every row", base);
+      }
+      double v = (Double) b;
+      if (v <= 0.0) {
+        return sink.decline("a log with a constant base at or below 0.0, null on every row",
+            base);
+      }
+      return logOf(MathFn.LOG, 0.0, f.right(), inputs, literals, sink)
+          .map(x -> quotient(x, VarkaNodeCompiler.doubleSlot(StrictMath.log(v), sink)));
+    }
+    Optional<VarkaVectorIR> x = logOf(MathFn.LOG, 0.0, f.right(), inputs, literals, sink);
+    if (x.isEmpty()) {
+      return x;
+    }
+    return logOf(MathFn.LOG, 0.0, base, inputs, literals, sink).map(b -> quotient(x.get(), b));
   }
 
   /**
@@ -181,7 +258,7 @@ final class VarkaMathCompiler {
    */
   private static Optional<VarkaVectorIR> reciprocal(MathFn fn, Expression x,
       VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
-    return call(fn, x, inputs, literals, sink).map(v -> new IntArith(IntOp.DIV, Overflow.WRAP,
+    return call(fn, x, inputs, literals, sink).map(v -> quotient(
         VarkaNodeCompiler.doubleSlot(1.0, sink), v));
   }
 }

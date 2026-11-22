@@ -1214,8 +1214,8 @@ final class VarkaVectorWalk {
     }
     String operator = switch (n.fn()) {
       case SQRT -> "SQRT";
-      case SIN, COS, TAN, ASIN, ACOS, ATAN -> throw VarkaErrors.illegalState(
-          n.fn() + " is a per-lane call");
+      case SIN, COS, TAN, ASIN, ACOS, ATAN, EXP, EXPM1, LOG, LOG10, LOG1P, CBRT ->
+          throw VarkaErrors.illegalState(n.fn() + " is a per-lane call");
     };
     cb.getstatic(VECTOR_OPERATORS, operator, VO_UNARY);
     cb.invokevirtual(lane.vector, "lanewise", MethodTypeDesc.of(lane.vector, VO_UNARY));

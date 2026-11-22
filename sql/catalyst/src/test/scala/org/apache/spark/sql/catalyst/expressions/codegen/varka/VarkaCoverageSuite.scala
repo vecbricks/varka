@@ -1442,10 +1442,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         domain = Some("s1 BETWEEN -32764 AND 32764")),
       Row("bround(s1, -2)", "", domain = Some("s1 BETWEEN -32749 AND 32749")),
       Row("truncate(s1, -2)"))),
-    // The math functions (VARKA-345, VARKA-356), exact by default: each lane is passed to the
-    // scalar method Spark's generated code calls, so the bits are that method's on this host -
-    // Math's for sin, cos and tan, StrictMath's for asin, acos and atan, which Math delegates
-    // to - and the work around the call stays in the kernel.
+    // The math functions (VARKA-345, VARKA-356, VARKA-358), exact by default: each lane is
+    // passed to the scalar method Spark's generated code calls, so the bits are that method's on
+    // this host - Math's for sin, cos, tan and cbrt, StrictMath's for asin, acos and atan, which
+    // Math delegates to, and for the exponentials and logarithms, which Spark's code names - and
+    // the work around the call stays in the kernel.
     Family("Math functions", predicates = false, Seq(
       Row("sin(x)", "exact: a per-lane Math.sin call, the host's answer as Spark's",
         math = Some(MathCell(exactForms(2), operator = Some(VarkaMathBinding.Operator.SIN)))),
@@ -1467,7 +1468,31 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("sin(x) * 2.0D + cos(x2)", "the arithmetic around the calls in the kernel",
         math = Some(MathCell(exactForms(2)))),
       Row("sin(i)", "the int converted exactly, then the call",
-        math = Some(MathCell(exactForms(2)))))),
+        math = Some(MathCell(exactForms(2)))),
+      Row("exp(x)", "exact: a per-lane StrictMath.exp call, as Spark's code makes",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.EXP)))),
+      Row("expm1(x)", "exact: a per-lane StrictMath.expm1 call",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.EXPM1)))),
+      Row("cbrt(x)", "exact: a per-lane Math.cbrt call, the host's answer as Spark's",
+        math = Some(MathCell(exactForms(2), operator = Some(VarkaMathBinding.Operator.CBRT)))),
+      Row("ln(x)", "exact: a per-lane StrictMath.log call, null at x <= 0.0 by Java's <=, "
+        + "so at -0.0 and not at NaN",
+        math = Some(MathCell(exactForms.head,
+          operator = Some(VarkaMathBinding.Operator.LOG)))),
+      Row("log(x)", "the one-argument log: ln's call and null, with no divide",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.LOG)))),
+      Row("log10(x)", "exact: a per-lane StrictMath.log10 call, null at x <= 0.0",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.LOG10)))),
+      Row("log1p(x)", "exact: a per-lane StrictMath.log1p call, null at x <= -1.0",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.LOG1P)))),
+      Row("log2(x)", "ln(x) / StrictMath.log(2) as Spark writes it, the divisor folded",
+        math = Some(MathCell(exactForms.head))),
+      Row("log(2.0D, x)", "a constant base: StrictMath.log(2.0) folded as the divisor",
+        math = Some(MathCell(exactForms.head))),
+      Row("log(x2, x)", "StrictMath.log(x) / StrictMath.log(x2), null where either is at or "
+        + "below 0.0", math = Some(MathCell(exactForms.head))),
+      Row("exp(x) * 2.0D + 1.0D", "the arithmetic around the call in the kernel",
+        math = Some(MathCell(exactForms.head))))),
     Family("Math functions as conditions", predicates = true, Seq(
       Row("sin(x) < 0.5D", "the call, then the floating compare in Spark's order",
         math = Some(MathCell(exactForms(2)))))),
