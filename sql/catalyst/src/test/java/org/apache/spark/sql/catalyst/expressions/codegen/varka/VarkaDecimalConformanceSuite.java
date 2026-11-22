@@ -18,7 +18,6 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.math.BigInteger;
-import java.util.Set;
 
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DecimalType;
@@ -72,11 +71,5 @@ public final class VarkaDecimalConformanceSuite extends VarkaTypeConformance {
   @Override
   protected BigInteger[] decimalSlots() {
     return VALUES;
-  }
-
-  /** {@code IN} over the pair is 359b's: its fixture declines where the long's fuses. */
-  @Override
-  protected Set<String> declinesInPart() {
-    return Set.of("in");
   }
 }

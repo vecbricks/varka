@@ -65,9 +65,7 @@ IR_FILE = "sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/
 IR_FILE += "VarkaVectorIR.java"
 # A suite that enumerates node types says so in one of these words; the three named suites walk
 # every node type too, whatever words they use.
-REGISTRY_PATTERN = (
-    "getPermittedSubclasses|concreteNodeTypes|a node type was added|never drew|NOT_PARSED_YET"
-)
+REGISTRY_PATTERN = "getPermittedSubclasses|concreteNodeTypes|a node type was added|never drew"
 REGISTRY_NAMED = ("VarkaEmitCostSuite", "VarkaIrFuzzSuite", "VarkaVectorIRSharingSuite")
 REASON_PLACES = TEST_TREES + ("sql/varka/coverage.json", "docs")
 GENERATED_SUITES = (
@@ -227,7 +225,7 @@ REGISTRIES = {
     "VarkaIrFuzzSuite": ("unbuilt entry or draw", r'"{n}"|' + BUILT, ("IrGrammar",)),
     "VarkaLaneTypeSuite": ('instance recipe (case "{n}")', r'case "{n}"', ()),
     "VarkaEmitterBudgetSuite": ("register row", BUILT, ()),
-    "VarkaReproductionSuite": ("round trip or NOT_PARSED_YET entry", BUILT + r"|\b{n}\.class", ()),
+    "VarkaReproductionSuite": ("round trip", BUILT, ()),
     "VarkaEmitCostSuite": ("feature or awaiting-refit entry", r'"{n}["/]', ("EmitCostFit",)),
     "VarkaVectorIRSharingSuite": None,
 }
