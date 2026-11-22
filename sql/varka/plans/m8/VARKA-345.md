@@ -1152,5 +1152,6 @@ suite passes, 11 tests, every `exp` and `expm1` lane bit-identical to `StrictMat
 and to the blended arm on 2^24 sampled inputs a function and on the fixed vectors at 2, 4 and 8
 lanes, NaN payloads included; each planted fault caught. `expm1`'s expansion is 49 deep as measured on 20 November, and the suite holds it within the port cap (`exp`'s
 36), so the first two predictions held. The earlier run of 20 November (457 s on a shared
-laptop, before the review's changes to `exp`) is not a timing; the third prediction is scored
-from the run's log in the pull request body.
+laptop, before the review's changes to `exp`) is not a timing; the third prediction held in one run (86.5 s, under the 141 s limit) and failed in the
+next (175.1 s, the laptop shared), so the suite's cost is not established and is owed a timing
+on an idle machine or the runners.
