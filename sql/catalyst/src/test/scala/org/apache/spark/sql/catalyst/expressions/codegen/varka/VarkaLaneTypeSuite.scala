@@ -104,8 +104,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     classOf[IntArith], classOf[IntNeg], classOf[Greatest], classOf[Least], classOf[IfElse],
     classOf[Compare], classOf[NullSafeEqual], classOf[And], classOf[Or], classOf[Not],
     classOf[IsNotNull], classOf[BoolCompare], classOf[CondIf], classOf[BoolNullSafeEq],
-    classOf[ConstDivide], classOf[GuardedRange], classOf[GuardedProduct], classOf[BitOp],
-    classOf[BitCount],
+    classOf[ConstDivide], classOf[GuardedRange], classOf[BitOp], classOf[BitCount],
     classOf[CondValue], classOf[BoolOutput],
     // A hash step's lane is its primitive's, and a floating value's bits are at its width.
     classOf[HashStep], classOf[CanonicalBits])
@@ -125,11 +124,12 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // decimal column, an unscaled long whose constructor refuses the int lane until the int arm
     // of VARKA-347 2.3 is built, the decimal output, which widens a long value into a decimal
     // slot and refuses an int child (VARKA-157), and the conversion, one side of which is
-    // floating (VARKA-343), as is the reinterpretation's (VARKA-345).
+    // floating (VARKA-343), as is the reinterpretation's (VARKA-345). The guarded product is a
+    // long value from two long operands (VARKA-611).
     assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] +
       classOf[RoundToIntegral] + classOf[CanonicalFloat] +
       classOf[DecimalColumn] + classOf[DecimalWord] + classOf[WidenDecimal] +
-      classOf[ConvertLane] + classOf[ReinterpretLane] ===
+      classOf[ConvertLane] + classOf[ReinterpretLane] + classOf[GuardedProduct] ===
       concreteNodeTypes(classOf[VarkaVectorIR]) - classOf[CrossLane]) // its child: another lane
     val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
     assert(new MathUnary(MathFn.SQRT, doubleCol).laneType() === LaneType.DOUBLE)
@@ -482,9 +482,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "IfElse" => new IfElse(new IsNotNull(c), c, c1)
         case "GuardedDay" => new GuardedDay(c)
         case "GuardedRange" => new GuardedRange(c, -10, 10)
-        // A long value from two long columns whatever the row (VARKA-611).
-        case "GuardedProduct" => new GuardedProduct(new ColumnRef(0, LaneType.LONG),
-          new ColumnRef(1, LaneType.LONG))
+        // The emitter refuses it at the unknown emit level these options carry, so no instance
+        // is built here; VarkaEmitterLongLaneSuite emits it at level 2 and 3 (VARKA-611).
+        case "GuardedProduct" => throw new IllegalArgumentException("level-gated")
         // Always over a long child, whatever `lane` says: the node is an int value computed in
         // the long lane, so it is the one type that reaches the emitter from both rows below
         // and is emitted at the long species either way.
@@ -555,7 +555,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     val atLong = buildable.filter(_._1 == LaneType.LONG).map(_._2).toSet
     val atInt = buildable.filter(_._1 == LaneType.INT).map(_._2).toSet
     assert(atInt + "MathUnary" + "RoundToIntegral" + "CanonicalFloat" ===
-      types.map(_.getSimpleName).toSet - "DecimalColumn" - "DecimalWord",
+      types.map(_.getSimpleName).toSet - "DecimalColumn" - "DecimalWord" - "GuardedProduct",
       "every integral node type is emittable at INT but the decimal column and the decimal word")
     val sqrt = new MathUnary(MathFn.SQRT, new ColumnRef(0, LaneType.DOUBLE))
     val sqrtBytes = VarkaLoopEmitter.emit("VarkaReachMathUnaryDOUBLE",
@@ -566,8 +566,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",
       "Compare", "NullSafeEqual", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide",
       "BoolColumn", "CondConst", "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue",
-      "BoolOutput", "GuardedRange", "GuardedProduct", "NarrowLane", "WidenLane", "BitOp",
-      "BitCount",
+      "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
       "DecimalColumn", "DecimalWord", "NullValue", "WidenDecimal", "ConvertLane", "CrossLane",
       "HashStep", "CanonicalBits", "ReinterpretLane"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
