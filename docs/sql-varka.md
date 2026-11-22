@@ -291,7 +291,7 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `LongType` (`bigint`) | LONG | 85 | 58 | 2 | plumbing 7, semantics 18 | 0 | 88 |
 | `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
 | `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 82 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 9 | plumbing 12, semantics 43 | 3 | 77: 60 to precision 18, 17 at precision 19 to 38 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 9 | plumbing 12, semantics 43 | 3 | 85: 60 to precision 18, 25 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
 | `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
@@ -320,7 +320,7 @@ One row per section of Spark's function registry, and per family of the operator
 
 #### Math functions
 
-The functions whose fused form could depart from Spark's answer, by the plan row that fuses them: what each returns by default, and the bound it computes to with `spark.sql.codegen.varka.math.ulpContract.enabled` true, which the host library's contract (row 367) states.
+The math functions that do not fuse yet, by the plan row that fuses them (the ones that fuse today are named above and compute Spark's answer exactly): what each will return by default once fused, and the bound it will compute to with `spark.sql.codegen.varka.math.ulpContract.enabled` true, which the host library's contract (row 367) states.
 
 | Functions | Row | Fused for | By default | Under the ulp contract |
 | :--- | :--- | :--- | :--- | :--- |

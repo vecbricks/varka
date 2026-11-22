@@ -1379,7 +1379,8 @@ def math_rows(scoped):
     groups = {}
     for r in scoped:
         if r[9] == "ulp":
-            key = ", ".join(x for x in r[10].split(",") if x and x != CONTRACT_ROW)
+            rows_of = (x for x in r[10].split(",") if x and x != CONTRACT_ROW)
+            key = ", ".join(sorted(rows_of, key=row_key))
             groups.setdefault(key, []).append(r)
     out = []
     for key, rows in sorted(groups.items(), key=lambda kv: row_key(kv[0])):
@@ -1510,8 +1511,9 @@ def support_block(out, cov, probe, forms):
             [":---"] + ["---:"] * 4 + [":---", ":---"],
         ),
         "#### Math functions\n",
-        "The functions whose fused form could depart from Spark's answer, by the plan row that"
-        " fuses them: what each returns by default, and the bound it computes to with"
+        "The math functions that do not fuse yet, by the plan row that fuses them (the ones"
+        " that fuse today are named above and compute Spark's answer exactly): what each will"
+        " return by default once fused, and the bound it will compute to with"
         " `spark.sql.codegen.varka.math.ulpContract.enabled` true, which the host library's"
         f" contract (row {CONTRACT_ROW}) states.\n",
         table(
