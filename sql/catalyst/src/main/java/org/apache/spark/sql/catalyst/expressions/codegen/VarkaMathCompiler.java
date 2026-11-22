@@ -223,7 +223,8 @@ final class VarkaMathCompiler {
    * otherwise {@code StrictMath.log(x) / StrictMath.log(b)}, null where either operand is at or
    * below {@code 0.0}, which is each logarithm's null carried through the divide. A constant base
    * folds: {@code StrictMath.log(b)} computed here is the double Spark computes a row, and a base
-   * at or below {@code 0.0}, which nulls every row, declines. A base folded from
+   * at or below {@code 0.0} or null, which nulls every row, declines. So does a base whose
+   * evaluation throws, which the row engine raises if a row reaches it. A base folded from
    * {@code EulerNumber} by the optimizer divides by {@code StrictMath.log(Math.E)}, as Spark's code
    * does then.
    */

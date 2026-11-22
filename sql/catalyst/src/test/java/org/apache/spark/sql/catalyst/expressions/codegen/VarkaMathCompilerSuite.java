@@ -39,6 +39,8 @@ import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.GreaterThan;
+import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.Logarithm;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
@@ -161,15 +163,29 @@ public final class VarkaMathCompilerSuite {
   @Test
   @DisplayName("a log with a constant base whose evaluation fails declines rather than throws")
   void failingConstantBaseDeclines() {
-    // Spark's ConstantFolding leaves such a base unfolded only in a conditional branch, where
-    // no row may reach it; outside one the query fails at planning before the compiler runs.
-    // The expression is built, not parsed: the SQL helper folds a string cast to double itself,
-    // and so would raise first. The cast is ANSI whatever the configuration says.
-    Expression base = new Cast(Literal.create("abc", DataTypes.StringType),
-        DataTypes.DoubleType, Option.empty(), EvalMode.ANSI());
-    String why = outcome(new Logarithm(base, COLUMNS.apply(0)), Set.of(), VarkaMatrixRuns.BASE)
-        .orElseThrow(() -> new AssertionError("a failing log base fused"));
-    assertTrue(why.contains("a log base whose evaluation fails"), why);
+    // Such a base reaches the compiler when ConstantFolding leaves it: in a conditional branch,
+    // which no row may take, or with the rule excluded. The expressions are built, not parsed:
+    // the SQL helper folds a string cast to double itself, and so would raise first. The cast is
+    // ANSI whatever the configuration says.
+    Expression x = COLUMNS.apply(0);
+    Expression log = new Logarithm(new Cast(Literal.create("abc", DataTypes.StringType),
+        DataTypes.DoubleType, Option.empty(), EvalMode.ANSI()), x);
+    Expression branch = new If(new GreaterThan(x, Literal.create(0.0, DataTypes.DoubleType)),
+        log, COLUMNS.apply(1));
+    for (Expression e : List.of(log, branch)) {
+      String why = outcome(e, Set.of(), VarkaMatrixRuns.BASE)
+          .orElseThrow(() -> new AssertionError(e + " fused"));
+      assertTrue(why.contains("a log base whose evaluation fails"), e + ": " + why);
+    }
+  }
+
+  @Test
+  @DisplayName("a log with a null constant base declines, every row being null")
+  void nullConstantBaseDeclines() {
+    Expression log = new Logarithm(Literal.create(null, DataTypes.DoubleType), COLUMNS.apply(0));
+    String why = outcome(log, Set.of(), VarkaMatrixRuns.BASE)
+        .orElseThrow(() -> new AssertionError(log + " fused"));
+    assertTrue(why.contains("a log with a null base"), why);
   }
 
   @Test
