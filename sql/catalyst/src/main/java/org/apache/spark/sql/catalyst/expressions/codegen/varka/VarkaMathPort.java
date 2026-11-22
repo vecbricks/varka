@@ -437,11 +437,11 @@ public final class VarkaMathPort {
   // ln2_hi, ln2_lo and invln2 are e_exp.c's O_THRESHOLD, LN2HI_0, LN2LO_0 and INVLN2.
   static final double HUGE = 1.0e+300;
   static final double TINY = 1.0e-300;
-  static final double Q1 = -3.33333333333331316428e-02; // BFA11111 111110F4
-  static final double Q2 = 1.58730158725481460165e-03; // 3F5A01A0 19FE5585
-  static final double Q3 = -7.93650757867487942473e-05; // BF14CE19 9EAADBB7
-  static final double Q4 = 4.00821782732936239552e-06; // 3ED0CFCA 86E65239
-  static final double Q5 = -2.01099218183624371326e-07; // BE8AFDB7 6E09C32D
+  static final double Q1 = -0.03333333333333313; // 0xBFA11111, 0x111110F4
+  static final double Q2 = 0.0015873015872548146; // 0x3F5A01A0, 0x19FE5585
+  static final double Q3 = -7.93650757867488e-05; // 0xBF14CE19, 0x9EAADBB7
+  static final double Q4 = 4.008217827329362e-06; // 0x3ED0CFCA, 0x86E65239
+  static final double Q5 = -2.0109921818362437e-07; // 0xBE8AFDB7, 0x6E09C32D
 
   /** {@code |x| >= 56*ln2}: the filter's outer test (line 146). */
   static final int HX_56_LN2 = 0x4043687A;
