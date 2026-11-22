@@ -3649,9 +3649,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "two kernels, and an entry no kernel serves keeps its own reason") {
     // MAX_INPUTS bounds a kernel's column set, a bitset in a long; past it an entry fits alone but
     // not beside the others, which is another kernel's entry. A checked bigint product over a
-    // column is not a size, so it stays residual whatever the option. That holds under the
-    // BOUND_ONLY form only: the other forms build a GuardedProduct for it (VARKA-611), so the
-    // test pins that form and keeps its residual entry under every arm.
+    // column is not a size, so it stays residual whatever severalKernels says. It is residual
+    // only under the BOUND_ONLY form: MAGNITUDE, and BY_HOST at its levels, build a
+    // GuardedProduct for it (VARKA-611), so the test pins BOUND_ONLY for every
+    // checkedLongMultiply arm.
     val bound = VarkaMatrix.base
       .withCheckedLongMultiply(VarkaEmitOptions.CheckedLongMultiply.BOUND_ONLY)
     val columns = (0 until 70).map(c => AttributeReference(s"c$c", DateType)())
