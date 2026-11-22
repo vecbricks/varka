@@ -37,6 +37,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRefinementFi
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSmtNodes.Outcome;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSmtTerm.Quot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSmtTerm.Var;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.internal.SQLConf$;
 import org.apache.spark.sql.types.DataTypes;
@@ -167,7 +168,11 @@ final class VarkaDecimalRefinementFile {
       Outcome o = printer.kernel(root, VarkaLoopEmitter.guardsForTest(k.outputs(),
           k.inputOrdinals().size(), k.numLiterals(), VarkaEmitOptions.DEFAULTS));
       var words = new VarkaSmtTerm.WordForm();
-      Outcome p = VarkaSmtSamples.printed(o, root, words);
+      // A decimal store's data is the stored value, read signed as the specification's is; a
+      // long root's printed data is the unsigned reading, which a predicate's boolean never meets.
+      Outcome p = root instanceof WidenDecimal
+          ? new Outcome(words.term(o.decline()), words.term(o.valid()), words.term(o.data()))
+          : VarkaSmtSamples.printed(o, root, words);
       var spec = new Spec(k.inputOrdinals());
       Spec.Value s = spec.of(e);
       String raises = Spec.or(s.raise(), Spec.any(spec.reads));
