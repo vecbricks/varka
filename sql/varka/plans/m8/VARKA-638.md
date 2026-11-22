@@ -6,18 +6,19 @@ Row 638 of `PLAN.md`, added on 22 November 2026 by the owner's word, from the sa
 matrices as row 637. `~/varka-ops/pre-pr.sh`, the local gate before every push, ends with an arm
 sweep: every suite the branch adds or changes, under every configuration
 (`dev/varka_matrix.sh --all -j 4 --suites <changed>`). It was added after three red matrices of
-22 November (#1617, #1619, #1625) failed on configurations nobody had run locally. It takes 10 to
-30 minutes on the laptop and holds one of the laptop's few sbt slots, so five branches queue
-behind one another. vecbricks/varka has 20 Free-plan runners, idle on 22 November except for the
-benchmarks.
+22 November (#1617, #1619, #1625) failed on configurations nobody had run locally. Four
+branches' sweeps of 22 November took 12 to 58 minutes on the laptop
+(`results/VARKA-638-sweep-sizes.txt`), each holding one of the laptop's few sbt slots, so
+branches queue behind one another. vecbricks/varka has 20 Free-plan runners, idle on 22 November
+except for the benchmarks.
 
 ## 2. The admission check, done
 
-* **The sweep's size, from the 22 November logs** (`~/varka-ops/logs/pre-pr-*.log`, each sweep's
-  report table). Row 611's sweep (`pre-pr-varka-611w.log`) ran 10 catalyst suites under 56
-  configurations in 7,718 JVM-seconds, its longest configuration 395 s, and one sql suite under
-  60 configurations in 1,509. Row 504's sweep (`pre-pr-varka-504-checks-can-fail-r-w.log`) ran
-  6 catalyst suites in 2,688. At `-j 4` that is about 38 and 11 minutes of laptop time.
+* **The sweep's size** (`results/VARKA-638-sweep-sizes.txt`, from the run directories of four
+  branches' sweeps of 22 November). Row 611's sweep ran 10 catalyst suites under 59
+  configurations in 11,656 JVM-seconds and one sql suite in 1,509, 55 minutes of laptop wall in
+  all, its longest JVM 395 s. Row 345's swept one suite, `VarkaMathPortSuite`, in 13,651
+  JVM-seconds and 58 minutes. Rows 504 and 600 took 13 and 12 minutes.
 * **The sweep is row 637's first stage under another name.** Both plan the changed suites under
   every configuration without the reach record, and the planner can already pack them into
   bins (`dev/varka_matrix_bins.py plan --suites`). The row needs no second runner script, only
@@ -41,18 +42,22 @@ Builds waited over an hour behind the matrices, so such a sweep would gate nothi
 
 ### 3.1 Where: vecbricks/varka, as a mode of the option matrix workflow
 
-`varka-option-matrix.yml` gains `stage: all | sweep` (default `all`) and `pr` (a pull request
-number of vecbricks/varka). With `stage=sweep`, the build job checks out `refs/pull/<pr>/head`
-as the benchmarks do. It compiles the test classes itself, through the same `--build-only` step
-the matrix falls back to today. It plans row 637's `first` list without failed-run units: the
-changed suites from `dev/varka_matrix_scope.py`, plus `VarkaMatrixSuite` when the options
-change, which is `pre-pr.sh`'s rule. The bins run as they do now at `max-parallel: 16`, which
-leaves the build job, the report job and two runners for the benchmarks.
+`varka-option-matrix.yml` gains `stage: all | sweep` (default `all`), `pr` (a pull request number of
+vecbricks/varka) and `sha` (that pull request's head, in full). With `stage=sweep`, the build job
+checks out `refs/pull/<pr>/head` as the benchmarks do. It compiles the test classes itself, through
+the same `--build-only` step the matrix falls back to today. It plans row 637's `first` list without
+failed-run units: the changed suites from `dev/varka_matrix_scope.py`, plus `VarkaMatrixSuite` when
+the options change, which is `pre-pr.sh`'s rule. The bins run as they do now at `max-parallel: 16`,
+which leaves the build job, the report job and two runners for the benchmarks. The workflow declares
+`permissions: contents: read` at the top, as `benchmark.yml` does, since a sweep runs a pull
+request's test code; `report-failure` keeps its own wider block.
 
-On vecbricks/varka the build job's guard admits only `stage=sweep` dispatches that carry a
-`pr`. The owner left the workflow disabled there on 1 November 2026 so that nothing starts a
-matrix on 20 slots by accident (`VARKA-522.md` 7 question 3). The guard keeps that reason, but
-the workflow has to be enabled for dispatches. That is question 1 of 6.
+On vecbricks/varka the build job's guard admits only `workflow_dispatch` events with
+`stage=sweep`, a `pr` and a `sha`. It refuses `schedule` there, which today's guard admits only
+there, so the Sunday cron cannot start the full matrix once the workflow is enabled. The owner
+left the workflow disabled there so that nothing starts a matrix on 20 slots by accident
+(`VARKA-522.md` 7 question 3). The guard keeps that reason, but the workflow has to be enabled
+for dispatches. That is question 1 of 6, and the enable waits until the guard has merged (7).
 
 ### 3.2 What it records
 
@@ -63,15 +68,17 @@ configurations.
 
 ### 3.3 How its result gates the pull request's matrix
 
-The fork's matrix build job (row 637 3.4) looks for a vecbricks/varka run of the workflow whose
-`run-name` holds its own head SHA. It reads the public API with the job's `github.token`.
+The fork's matrix build job (row 637 3.4) looks for vecbricks/varka runs of the workflow whose
+`run-name` holds its own head SHA, and takes the newest. A red sweep that was re-dispatched and
+went green therefore counts as green. It reads the public API with the job's `github.token`.
 
 * **Green:** `first` holds only the failed-run units, and the swept (configuration, suite) units
   are not rerun.
 * **Red or still running:** the build job fails with the sweep's link before any bin starts.
   `scope=full` overrides it.
-* **None:** the fork runs the sweep as its own `first` stage, as row 637 designs. Nothing is
-  blocked; only the saving is lost.
+* **None, or a lookup that fails** (an API error, or the unauthenticated limit of 60 requests
+  an hour, which a hosted runner's address shares): the fork runs the sweep as its own `first`
+  stage, as row 637 designs. Nothing is blocked; only the saving is lost.
 
 Reading another repository's runs with a job token is not proven for this setup. Step 1 probes
 it. If the token cannot read them, the lookup goes unauthenticated, which the public API allows
@@ -90,8 +97,8 @@ request opens. The matrix dispatch then waits for the sweep, not for the laptop.
 are the owner's operations directory, not this repository's, so the row's pull request changes
 only the workflow, the planner and the plan. The `~/varka-ops` change is listed as its own step.
 A finding on the way: `pre-pr.sh` adds `VarkaMatrixSuite` again when the branch already changes
-it (the logs of rows 600 and 611 list it twice). The sweep's planner keeps each suite
-once.
+it (the logs of rows 600 and 611 list it twice, `results/VARKA-638-sweep-sizes.txt`). The
+sweep's planner keeps each suite once.
 
 ### 3.6 What is deliberately unchanged
 
@@ -102,13 +109,16 @@ which stay on the laptop and take seconds to minutes.
 
 No calibration row prices a runner JVM against a laptop JVM (`dev/varka_calibration.py`). So the
 predictions carry the ratio r, a runner JVM's seconds over the laptop's at `-j 4`, which step 2
-measures. The prediction is r between 1 and 2.5.
+measures. The prediction is r between 1 and 2.5. The JVM-seconds are from
+`results/VARKA-638-sweep-sizes.txt`.
 
 1. The build job takes 11 to 15 minutes, row 507's 11 plus a cache vecbricks/varka may not have
    warm.
-2. Row 611's sweep, 9,227 JVM-seconds on the laptop (about 38 minutes there), takes about 20
-   minutes of wall at r = 1.5: 13 for build and setup, then 9,227 x 1.5 / 32 lanes, about 7.
-   It uses none of the laptop's sbt time.
+2. Row 611's sweep, 13,165 JVM-seconds and 55 minutes on the laptop, takes about 23 minutes of
+   wall at r = 1.5: 13 for build and setup, then 13,165 x 1.5 / 32 lanes, about 10. Its longest
+   JVM, 395 s, is 10 minutes at that ratio, so it does not set the wall. Row 345's one-suite
+   sweep, 13,651 JVM-seconds in 57 JVMs of up to 366 s, takes about the same. Neither uses the
+   laptop's sbt time.
 3. The fork's matrix loses its `first` stage for every swept head, with no cost to the fork.
 
 ## 5. Tests
@@ -124,8 +134,8 @@ measures. The prediction is r between 1 and 2.5.
 1. **Enable `varka-option-matrix.yml` on vecbricks/varka for sweep dispatches.** Recommended:
    yes, with the guard of 3.1. The alternative is a copy of the bins job in a file of its own,
    about 150 lines kept in step with the matrix's by hand.
-2. **The benchmarks' share.** Recommended: the sweep takes 16 of the 20 slots, and a benchmark
-   dispatched meanwhile waits at most one sweep bin.
+2. **The benchmarks' share.** Recommended: the sweep takes 16 of the 20 slots, the build and
+   report jobs one each at most, and a benchmark dispatched meanwhile takes one of the two left.
 
 ## 7. Sequencing
 
@@ -134,10 +144,12 @@ script), since it plans from that script's suites.
 
 1. Probe, one dispatch: does a fork job's `github.token` list vecbricks/varka's runs? Done when
    the answer and the request are in `results/VARKA-638-gate-probe.txt`.
-2. The `stage` and `pr` inputs, the guard, the run name, the sweep plan and the gate of 3.3. Done
-   when a sweep dispatch for one open pull request has run, and its time and r are in
+2. The `stage`, `pr` and `sha` inputs, the guard that refuses `schedule` on vecbricks/varka, the
+   permissions block, the run name, the sweep plan and the gate of 3.3. Done when it has merged.
+3. On the owner's word, after step 2 merged: `gh workflow enable` on vecbricks/varka and one
+   sweep dispatch for an open pull request. Done when its time and r are in
    `results/VARKA-638-sweep.txt`.
-3. The `~/varka-ops` change (3.5), on the owner's word.
+4. The `~/varka-ops` change (3.5), on the owner's word.
 
 ## 8. A note, not a row: pull request matrices on vecbricks/varka
 
@@ -151,7 +163,8 @@ add its 20 slots to the fork's 40? Read from `results/VARKA-637-pr-matrix-scope.
   vecbricks/varka's job token cannot, and the owner chose no token secret (row 525). Without
   one, each matrix builds for itself (11 minutes before the first bin) and runs without a reach
   record. The master run 44485292430 ran without one: 191 bins and 1,457 bin-minutes, against a
-  median of 171 and 1,275 for the completed PR runs with one, 14% more.
+  median of 171 and 1,275 for the completed PR runs with one, 14% more
+  (`results/VARKA-637-pr-matrix-scope.txt`).
 * **What it would give.** One matrix of about 1,450 bin-minutes on 18 of the 20 slots is at
   least 81 minutes of bins plus the build, against a 34-minute floor on the fork's 38 when the
   fork is free. It adds half again to the slots, but runs each matrix about twice as slowly as an

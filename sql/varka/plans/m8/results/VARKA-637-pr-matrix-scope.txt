@@ -13,7 +13,13 @@ so their bin-minutes are partial.
 Columns: bins, the bin jobs listed; bin-min, the summed minutes of the bin jobs that ran (start
 to completion, cancelled and skipped jobs left out); longest, the longest such bin in minutes;
 wall, the run's first job creation to its last job completion in minutes; wait, the median bin
-job's minutes from creation to start, which is the queue for the fork's 40 slots.
+job's minutes from creation to start, which is the queue for the fork's 40 slots. The jobs API's
+filter=latest gives each job's latest attempt, so a run whose bins were re-run carries the re-run
+attempt's times against the first attempt's creation: 44882879917 (356-trig) was re-run
+(run_started_at 08:48 against created_at 08:01 UTC), its median wait came out negative, and it is
+shown as n/a; its bin-min is the re-run attempt's. The master run 44485292430, left out of the
+totals, read 193 jobs, 191 bins, 1,457 bin-min, longest 19.6, wall 60, wait 18.2; it ran without
+a reach record.
 
 ## Tier of each run's diff
 
@@ -31,7 +37,10 @@ first-match draft of the rules VARKA-637.md 3.1 designs:
   all      anything else: main code, test classes that are not suites, generated data files,
            unknown paths
 
-A run takes the widest tier any of its paths has.
+A run takes the widest tier any of its paths has. The draft is coarser than VARKA-637.md 3.1 as
+reviewed: it puts docs/sql-varka.md under none, which VarkaCoverageSuite reads, so the
+353-support-table-r run (tooling here) would be a suites run of VarkaCoverageSuite under 3.1; no
+other run of the 8 narrower ones touches a file a suite reads, and the totals stand.
 
 | tier | runs | bin-min | share of bin-min |
 |---|---:|---:|---:|
@@ -110,7 +119,7 @@ run          branch                      result     tier     bins  bin-min  long
 44902111221  630-lift-memo               success    all      171   1293     18.9     54    16.9
 44893721544  356-trig                    success    all      171   1318     20.7     47    19.4
 44891212201  630-linear-equals           success    all      170   1276     20.4     44    16.9
-44882879917  356-trig                    failure    all      171   1233     18.4     55    -24.7
+44882879917  356-trig                    failure    all      171   1233     18.4     55    n/a
 44877758025  630-linear-canonical        success    all      169   1258     18.1     61    18.5
 44852634122  cov-int-unary               success    all      169   1274     17.4     64    34.7
 44851815315  356-trig                    success    all      170   1257     17.2     64    24.4

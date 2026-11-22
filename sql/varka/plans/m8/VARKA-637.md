@@ -2,11 +2,11 @@
 
 ## 1. Where this came from
 
-Row 637 of `PLAN.md`, added on 22 November 2026 by the owner's word, from the day's option
-matrices. Five pull request matrices took 107 to 184 minutes from start to end (runs
-45013534970, 45014204596, 45017980114, 45019774322 and 45023435545), but no bin in them took
-more than 29.8 minutes. The rest of the time was queueing: up to five matrices of about 175 jobs
-each shared the fork's 40 slots, and the median bin waited 33 to 103 minutes to start. A
+Row 637 of `PLAN.md`, added on 22 November 2026 by the owner's word, from the day's option matrices.
+Five pull request matrices took 116 to 185 minutes from their first job's creation to their last
+job's end (runs 45013534970, 45014204596, 45017980114, 45019774322 and 45023435545), but no bin in
+them took more than 29.8 minutes. The rest of the time was queueing: up to five matrices of about
+175 jobs each shared the fork's 40 slots, and the median bin waited 33 to 103 minutes to start. A
 documents-and-tooling pull request (#1627, run 45058286930) and a planner-only one (#1632, run
 45060246559) each ran the whole matrix. The Builds waited over an hour behind the matrices.
 `results/VARKA-637-pr-matrix-scope.txt` holds every dispatch from 15 November on.
@@ -15,7 +15,8 @@ documents-and-tooling pull request (#1627, run 45058286930) and a planner-only o
 
 Read through the Actions API on 22 November 2026 (`results/VARKA-637-pr-matrix-scope.txt`).
 There were 58 pull request dispatches in eight days, using 67,612 bin-minutes. Each diff was
-taken against master as it stood at the dispatch and sorted by the draft rules of 3.1:
+taken against master as it stood at the dispatch and sorted by a draft of 3.1's rules (the
+results file says where the draft is coarser; the totals do not move):
 
 * **Path scope saves about a seventh.** 50 runs (85.4% of the bin-minutes) change main code or
   shared test classes, so they need the whole matrix under any path rule. 6 runs change only
@@ -45,19 +46,23 @@ diffs that touch no main code, and a first stage for every run.
 configurations and suites. BASE is the merge base with vecbricks/varka's master; the build job
 fetches that master, which is public, so no token is needed. Every changed path is matched
 against `sql/varka/matrix/scope.tsv`, an allow-list of path patterns with one tier each. The
-widest tier any path takes wins. A path no pattern lists is `full`, and so is a scope
-computation that fails for any reason. The rules fail closed.
+widest tier any path takes wins, and a `smoke` path adds the `smoke` checks to a `suites` run
+(the planner's selftest and its full-plan check). A path no pattern lists is `full`, and so is a
+scope computation that fails for any reason. The rules fail closed.
 
 | tier | the diff touches only | the run |
 |---|---|---|
-| `none` | documents: `*.md`, `sql/varka/plans/`, `skills/`, `papers/`, figures, benchmark results and provenance files, workflows the matrix does not run | no bins; the report job ends green and prints the scope |
-| `smoke` | the matrix's own machinery: `dev/varka_matrix*`, `varka-option-matrix.yml`, `.github/actions/` (whose actions the bins use), the planner's weight files | one bin of each kind (the defaults, one configuration, one platform), plus the planner's selftest and a full plan checked so that every (configuration, suite) lands once |
-| `suites` | test sources and `dev/` scripts, where every changed test class maps to suites by 3.2 | the mapped suites under every configuration and platform, with the reach record |
+| `none` | documents no test source names: `*.md`, `sql/varka/plans/`, `skills/`, `papers/`, figures, benchmark results and provenance files, workflows that neither the matrix runs nor make its artifacts | no bins; the report job ends green and prints the scope |
+| `smoke` | the matrix's own machinery: `dev/varka_matrix*`, `varka-option-matrix.yml`, `.github/actions/` (whose actions the bins use), the planner's weight files, and the Build workflows that make the classes archive and the reach record (`build_and_test.yml`, `build_main.yml`, `varka-master.yml`) | one bin of each kind (the defaults, one configuration, one platform), plus the planner's selftest and a full plan checked so that every (configuration, suite) lands once |
+| `suites` | test sources, `dev/` scripts and documents that test sources name, where every changed file maps to suites by 3.2 | the mapped suites under every configuration and platform, with the reach record |
 | `full` | anything else: main code, generated data files read by suites (`coverage.json`, `emitted_bytes.json` and the rest), build files, `VarkaEmitOption*`, `skips.tsv`, unknown paths | today's matrix |
 
-A `dev/` script is `none` only when no test source names it. Otherwise it takes the suites that
-name it. 75 test sources mention a `dev/` script today, mostly in comments, and the rule does
-not tell a comment from a call.
+A document or a `dev/` script is `none` only when no test source names its path. Otherwise it
+takes the suites that name it. For example, `VarkaCoverageSuite` checks `docs/sql-varka.md`'s
+generated table, and `VarkaMethodNamesSuite` reads two figure scripts under
+`sql/varka/plans/figures/`. About 75 test sources name a `dev/` script today, the count
+depending on the pattern, mostly in comments, and the rule does not tell a comment from a
+call.
 
 ### 3.2 From changed test classes to suites
 
@@ -84,19 +89,21 @@ suites under every configuration without the reach record, which is `pre-pr.sh`'
 also holds the units of any bin that failed in the last red run of the same branch, read from
 that run's `varka-option-matrix-plan` artifact (new, 30 days) and its jobs. When row 638's sweep
 already passed on the same head, `first` holds only the failed-run units, and the swept units
-leave the run. `rest` is the tier's
-other units. `rest` waits for `first` and runs only if `first` is green. GitHub refuses an empty
-matrix, so each list's job carries `if: <list> != '[]'`. The report job reads both. A red
-`first` ends the run after its own bins.
+leave the run. `rest` is the tier's other units. GitHub refuses an empty matrix, so each list's
+job carries `if: <list> != '[]'`. `rest` waits for `first` and runs when `first` succeeded or
+was skipped for an empty list: `if: !cancelled() && needs.build.result == 'success' &&
+needs.first.result != 'failure' && <rest> != '[]'`. A plain `needs` would skip `rest` with a
+skipped `first`, and a main-code diff with no changed suite would end green with no bins. The
+report job reads both. A red `first` ends the run after its own bins.
 
 ### 3.5 Inputs, and what a run prints
 
-`scope: auto | full` (default `auto`) and `stages: two | one` (default `two`). `full` and `one`
-give today's run for any diff. The step summary's first line says `scope: <tier>`, the reason
-(the first path that set the tier), and the counts of configurations, suites and bins. A
-scoped or empty run that passes is green, so the owner's rule of flagging a merge without a
-green matrix still reads one run per head. The scope is recomputed from the head, so a flag can
-be checked.
+`scope: auto | full` and `stages: two | one` (default `two`). `scope` defaults to `full` until 7's
+step 3 turns it to `auto` (3.6). `full` and `one` give today's run for any diff. The step summary's
+first line says `scope: <tier>`, the reason (the first path that set the tier), and the counts of
+configurations, suites and bins. A scoped or empty run that passes is green, so the owner's rule of
+flagging a merge without a green matrix still reads one run per head. The scope is recomputed from
+the head, so a flag can be checked.
 
 ### 3.6 The safety net
 
@@ -115,7 +122,7 @@ matrix ran, so a miss is traced to the tier that let it through and the rule is 
 ### 3.7 What is deliberately unchanged
 
 The reach record and row 508's digest selection, which trims inside a configuration and which
-`full` still needs to scale: 2 shows 86% of the bin-minutes are `full`. The planner's weights
+`full` still needs to scale: 2 shows 85.4% of the bin-minutes are `full`. The planner's weights
 (row 617). The platform bins (row 505).
 
 ## 4. The measurement
@@ -136,8 +143,9 @@ These are read from the runs' own measured seconds rather than priced. The calib
 2. The first stage cuts the 12 red runs' 14,924 bin-minutes by at least half, provided each
    failed in a unit `first` holds (an arm of a changed suite, or a unit that failed on the
    branch before). Runs whose failure lay elsewhere are counted and named.
-3. A green `full` run's wall time rises by up to its longest `first` bin, 30 minutes at most,
-   when slots are free. When slots are short it falls, because red runs no longer hold 170 jobs.
+3. A green `full` run's wall time rises by up to its longest `first` bin, 33 minutes at most (the
+   window's longest bin was 32.2), when slots are free. When slots are short it falls, because red
+   runs no longer hold 170 jobs.
 4. The live week's median bin wait falls under 30 minutes, from 22 November's 33 to 103.
 
 ## 5. Tests
@@ -148,6 +156,9 @@ These are read from the runs' own measured seconds rather than priced. The calib
 * `dev/varka_matrix_bins.py --selftest`: the `first` list holds the changed suites under every
   configuration and the failed units, and `rest` never repeats a unit of `first`.
 * `--replay` over the 58 heads, committed as the results file of 4.
+* One dispatch with `scope=auto` on a main-code head that changes no suite: `first` is empty and
+  skipped, and `rest` still runs every bin. This is the case a plain `needs` would turn green
+  with no bins.
 
 ## 6. Risks
 
@@ -163,13 +174,14 @@ These are read from the runs' own measured seconds rather than priced. The calib
 
 ## 7. Sequencing
 
-Two pull requests, each under 1,000 counted lines.
+Three pull requests, each under 1,000 counted lines, one per step.
 
 1. `dev/varka_matrix_scope.py` with `scope.tsv`, its selftest and `--replay`, plus the replay's
    results file. Done when the replay is committed and 4.1's prediction 1 is scored.
 2. The workflow: the `scope` and `stages` inputs, the two bin lists, the plan artifact and the
    summary line, with `scope` defaulting to `full`. Done when a dispatch with `scope=auto` on a
-   documents-only head ends green with no bins, and one on a suites-only head runs its suites.
+   documents-only head ends green with no bins, one on a suites-only head runs its suites, and
+   one on a main-code head with no changed suite runs every bin (5).
 3. After row 522's weekly run on the fork has run twice: the daily full run and the default
    turned to `auto`. Done when one live week is committed and predictions 2 to 4 are scored.
 
