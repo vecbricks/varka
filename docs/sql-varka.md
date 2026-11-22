@@ -1353,14 +1353,14 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `CASE WHEN d9 < d9b THEN d9 ELSE d9b END` | `predicate`, `condition` |  | a DECIMAL(9, 2) choice, the comparison and the blend on the long lane | not audited |
-| `if(d9 < d9b, d18, d18b)` | `predicate`, `condition` |  | a DECIMAL(18, 2) choice under a DECIMAL(9, 2) condition | not audited |
-| `coalesce(d9, d9s4)` | `condition` |  | DECIMAL(11, 4): d9 times 10^2, then the first valid operand | not audited |
-| `greatest(d18, d18b)` | `intArithmetic` |  | the null-skipping pick, of one scale | not audited |
-| `least(d9, d9s4)` | `intArithmetic` |  | the null-skipping pick at DECIMAL(11, 4), d9 carrying its rescale | not audited |
-| `-d18` | none |  | a negation, which cannot overflow: an unscaled value within 18 digits is never the long lane's minimum | not audited |
-| `abs(d18)` | none |  | a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option | not audited |
-| `try_subtract(d9, d9s4)` | none |  | DECIMAL(12, 4), row 349's difference stored by the same path: no difference within 18 digits overflows, so TRY's null never fires | not audited |
+| `CASE WHEN d9 < d9b THEN d9 ELSE d9b END` | `predicate`, `condition` |  | a DECIMAL(9, 2) choice, the comparison and the blend on the long lane | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `if(d9 < d9b, d18, d18b)` | `predicate`, `condition` |  | a DECIMAL(18, 2) choice under a DECIMAL(9, 2) condition | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `coalesce(d9, d9s4)` | `condition` |  | DECIMAL(11, 4): d9 times 10^2, then the first valid operand | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `greatest(d18, d18b)` | `intArithmetic` |  | the null-skipping pick, of one scale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `least(d9, d9s4)` | `intArithmetic` |  | the null-skipping pick at DECIMAL(11, 4), d9 carrying its rescale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `-d18` | none |  | a negation, which cannot overflow: an unscaled value within 18 digits is never the long lane's minimum | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `abs(d18)` | none |  | a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `try_subtract(d9, d9s4)` | none |  | DECIMAL(12, 4), row 349's difference stored by the same path: no difference within 18 digits overflows, so TRY's null never fires | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 
 #### Time arithmetic
 
