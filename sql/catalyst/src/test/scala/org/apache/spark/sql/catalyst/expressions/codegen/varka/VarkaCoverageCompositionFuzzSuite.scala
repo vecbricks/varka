@@ -133,11 +133,13 @@ class VarkaCoverageCompositionFuzzSuite
    * leaves the other, which `VARKA-29.md` pins and which the default answers with a kernel per
    * lane (VARKA-480); and, for a conjunct,
    * the order rule of VARKA-380, which demotes one Spark evaluates after a residual conjunct
-   * that can raise. Any other reason on an admitted row is a finding.
+   * that can raise, and the null-test rule of VARKA-598, which leaves a filter to Spark when
+   * only its IS NOT NULL tests would fuse. Any other reason on an admitted row is a finding.
    */
   private def isCompositionDecline(reason: String, laneRule: Boolean = true): Boolean =
     reason.contains("budget") || (laneRule && reason.contains("one kernel holds one lane")) ||
-      reason.contains(VarkaConjunctOrder.OUT_OF_ORDER)
+      reason.contains(VarkaConjunctOrder.OUT_OF_ORDER) ||
+      reason.contains(VarkaExpressionCompiler.ONLY_NULL_TESTS)
 
   /**
    * A projection's entries: the one-lane rule holds only with several kernels off, since with

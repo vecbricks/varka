@@ -46,6 +46,7 @@ import org.apache.spark.sql.catalyst.expressions.GreaterThan;
 import org.apache.spark.sql.catalyst.expressions.GreaterThanOrEqual;
 import org.apache.spark.sql.catalyst.expressions.In;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
+import org.apache.spark.sql.catalyst.expressions.IsNull;
 import org.apache.spark.sql.catalyst.expressions.LessThan;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.Multiply;
@@ -310,6 +311,24 @@ public final class VarkaConjunctOrderSuite {
         new IsNotNull(l2), sumOfL(ANSI));
     assertTrue(VarkaConjunctOrder.behindRaising(intolerant, List.of(true, false, false), output)
         .isEmpty());
+  }
+
+  @Test
+  @DisplayName("a puller that is demoted can raise where it stands, so the fused conjunct after "
+      + "it is demoted for that, not for an order the rule does not follow")
+  void demotedPullerMovesTheLine() {
+    // (coalesce(l2, 0) + 1) > 0 (fused, can raise) pulls isnotnull(l2) ahead of (l + 1) > 0 in
+    // codegen, which the residual filter would place last, so it is demoted. Residual now, it
+    // raises where it stands, and d IS NULL, which is never NULL and so is demoted for no other
+    // reason, comes behind a raising conjunct: that is the reason it gets, and not that the port
+    // of codegen's order drifted.
+    Expression puller = new GreaterThan(new Add(new Coalesce(seq(l2, lit(0L, LongType$.MODULE$))),
+        lit(1L, LongType$.MODULE$), ctx(ANSI)), lit(0L, LongType$.MODULE$));
+    List<Expression> conjuncts = List.of(puller, new IsNull(d), new IsNotNull(l2), sumOfL(ANSI));
+    var late = VarkaConjunctOrder.behindRaising(conjuncts, List.of(true, true, false, false),
+        output);
+    assertEquals(java.util.Set.of(0, 1), late.keySet());
+    assertTrue(late.get(1).contains(VarkaConjunctOrder.OUT_OF_ORDER), late.get(1));
   }
 
   @Test
