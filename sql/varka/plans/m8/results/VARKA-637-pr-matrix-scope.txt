@@ -25,7 +25,7 @@ a reach record.
 
 The diff is the head against its merge base with vecbricks/varka's master as it stood when the
 run was created (the last first-parent master commit before created_at). The tiers are a
-first-match draft of the rules VARKA-637.md 3.1 designs:
+first-match draft of the rules VARKA-637.md 3.2 designs:
 
   suites   only test suites (*Suite.scala or *Suite.java under sql/catalyst or sql/core src/test),
            with documents, tooling or benchmarks beside them
@@ -37,9 +37,9 @@ first-match draft of the rules VARKA-637.md 3.1 designs:
   all      anything else: main code, test classes that are not suites, generated data files,
            unknown paths
 
-A run takes the widest tier any of its paths has. The draft is coarser than VARKA-637.md 3.1 as
+A run takes the widest tier any of its paths has. The draft is coarser than VARKA-637.md 3.2 as
 reviewed: it puts docs/sql-varka.md under none, which VarkaCoverageSuite reads, so the
-353-support-table-r run (tooling here) would be a suites run of VarkaCoverageSuite under 3.1,
+353-support-table-r run (tooling here) would be a suites run of VarkaCoverageSuite under 3.2,
 and its dev/ scripts would add the suites that name them; among the other 7 narrower runs no
 changed document, figure or workflow is one a suite reads (their dev/ scripts were not checked
 against the test sources), and the totals stand.
@@ -146,7 +146,11 @@ run          branch (PR)                       red bins  failing suite: config  
   branches' first dispatches, cov-int-unary's one earlier run (44827399601) was cancelled, not
   red, and 356-trig's last red run before 44882879917, 44741487426, failed bin b156, whose units
   are validityByWidth=false alone and hold no VarkaGroupingBoundSuite. The rule's only hits are
-  603b's 44141461002 and 44159650039, which their changed suite stops anyway.
+  603b's 44141461002 and 44159650039, which their changed suite stops anyway. Read as the last
+  run with any failed bin, whatever its conclusion (VARKA-637.md 3.1), the rule still adds
+  none: 356-trig's cancelled 44818547486 had one red bin, b035, which failed downloading the
+  classpath before any unit ran and holds no VarkaGroupingBoundSuite, and cov-int-unary's
+  cancelled 44827399601 had no red bin.
 * 335-bit-get's run stops on its changed suite, but its other red tests, in two coverage suites
   it did not change, would show only in the next run's second stage.
 * 10,011 bin-minutes is a ceiling, not a saving: each stopped run still pays the build job and

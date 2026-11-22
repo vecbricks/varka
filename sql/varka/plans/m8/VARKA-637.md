@@ -29,12 +29,13 @@ There were 58 pull request dispatches in eight days, using 67,612 bin-minutes.
   bin-minutes, failed only in suites their pull requests did not change (#1619's among them).
   10,011 is a ceiling on the saving: a stopped run still pays for its build and its first stage.
   The failed-run rule stopped no run that the changed suites did not.
-* **Path scope saves about a seventh.** Each diff was taken against master as it stood at the
-  dispatch and sorted by a draft of 3.2's rules (the results file says where the draft is
+* **Path scope saves at most about a seventh.** Each diff was taken against master as it stood at
+  the dispatch and sorted by a draft of 3.2's rules (the results file says where the draft is
   coarser; the totals do not move). 50 runs (85.4% of the bin-minutes) change main code or
   shared test classes, so they need the whole matrix under any path rule. 6 runs change only
   suites, and their suites are at most 7.6% of the matrix's suite seconds. One run changes only
-  tooling and one only the matrix's own files. Those 8 runs used 9,878 bin-minutes (14.6%). On
+  tooling and one only the matrix's own files. Those 8 runs used 9,878 bin-minutes (14.6%), the
+ceiling of a tier saving, since `suites` and `smoke` runs still run bins. On
   22 November alone, 3 of the 14 dispatches were in this group, 23% of the day's bin-minutes.
 * **An option-reader scope saves nothing.** 46 runs change main code, and nearly all of them
   touch a class that every kernel's compile runs. Only 4 of the 73 options in
@@ -66,15 +67,18 @@ The changed suites are `pre-pr.sh`'s rule: every `*Suite.scala` or `*Suite.java`
 with vecbricks/varka's master; the build job fetches that master, which is public, so no token is
 needed.
 
-`first` also holds the units of any bin that failed in the last red run of the same branch, read
-from that run's `varka-option-matrix-plan` artifact (new, 30 days) and its jobs. When row 638's
+`first` also holds the units of any bin that failed in the branch's last run with a failed bin,
+whatever that run's conclusion, so a run cancelled after a red bin counts (#1626's 45060620623
+was). They are read from that run's `varka-option-matrix-plan` artifact (new, 30 days) and its
+jobs, which the build job's token reads with `actions: read`. When row 638's
 sweep already passed on the same head, `first` holds only the failed-run units, and the swept
 units leave the run. `rest` is every other unit of today's matrix, so a green run covers what
 today's run covers and nothing is dropped.
 
 GitHub refuses an empty matrix, so each list's job carries `if: <list> != '[]'`. `rest` waits
-for `first` and runs when `first` succeeded or was skipped for an empty list: `if: !cancelled()
-&& needs.build.result == 'success' && needs.first.result != 'failure' && <rest> != '[]'`. A
+for `first` and runs when `first` succeeded or was skipped for an empty list: `if: ${{
+!cancelled() && needs.build.result == 'success' && needs.first.result != 'failure' && <rest> !=
+'[]' }}`, wrapped because a bare `if:` that starts with `!` is a YAML tag. A
 plain `needs` would skip `rest` with a skipped `first`, and a main-code diff with no changed
 suite would end green with no bins. The report job reads both. A red `first` ends the run after
 its own bins.
@@ -142,11 +146,11 @@ reaches the owner through `report-failure` on the fork (522 7 question 5). The i
 pull requests merged since the last green full run, each with the tier its matrix ran, so a miss
 is traced to the tier that let it through and the rule is widened.
 
-*22 November 2026, by the lead's settlement:* no daily full run. The tiers save 14.6% of the
-bin-minutes (2). The window averaged about seven matrices a day (58 in eight days), so the tiers
-save about one matrix a day, which is what a daily full run of master costs (1,457 bin-minutes
-for the window's master run). A daily run would spend the tiers' whole saving, so the weekly is
-the net, and a miss can go up to a week undetected.
+*22 November 2026, by the lead's settlement:* no daily full run. The tiers save at most 14.6% of
+the bin-minutes (2). The window averaged about seven matrices a day (58 in eight days), so the
+tiers save at most about one matrix a day, which is what a daily full run of master costs
+(1,457 bin-minutes for the window's master run). A daily run would spend the tiers' whole
+saving, so the weekly is the net, and a miss can go up to a week undetected.
 
 ### 3.6 What is deliberately unchanged
 
@@ -178,8 +182,9 @@ These are read from the runs' own measured seconds rather than priced. The calib
    window's longest bin was 32.2), when slots are free. When slots are short it falls, because red
    runs no longer hold 170 jobs.
 4. The live week's median bin wait falls under 30 minutes, from 22 November's 33 to 103.
-5. If the tiers are built: the replay scores the 58 runs at 12% to 17% fewer bin-minutes from
-   the tiers alone, and the 8 narrower runs drop to under a tenth of their bins.
+5. If the tiers are built: the replay scores the 58 runs at 10% to 14.6% fewer bin-minutes from
+   the tiers alone (14.6% is the ceiling, every narrower run's whole matrix), and the 8 narrower
+   runs drop to under a tenth of their bins.
 
 ## 5. Tests
 
@@ -233,7 +238,8 @@ Each pull request under 1,000 counted lines.
    The alternative is the weekly alone, which leaves a miss up to a week undetected.
 
    *22 November 2026, by the lead's settlement:* the weekly alone (3.5). The question did not go
-   to the owner, since the evidence settles it.
+   to the owner, since the evidence settles it. 3.5 prices the daily run at 1,457 bin-minutes,
+   the window's master run, in place of the 1,300 above.
 
 2. **Building 3.3 anyway.** Recommended: no. 2 found no run it would scope.
 

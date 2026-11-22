@@ -52,8 +52,11 @@ failed-run units: the changed suites from `dev/varka_matrix_scope.py --suites`, 
 `VarkaMatrixSuite` when the options change, which is `pre-pr.sh`'s rule. The bins run as they do
 now, at most `slots` at a time, a new input that defaults to 16 and sets `max-parallel`. At 16 it
 leaves the build job, the report job and two runners for the benchmarks (6 question 2). The
-workflow declares `permissions: contents: read` at the top, as `benchmark.yml` does, since a sweep
-runs a pull request's test code; `report-failure` keeps its own wider block.
+workflow declares `permissions: contents: read` and `actions: read` at the top, since a sweep
+runs a pull request's test code. `actions: read` is not optional: on the fork the build job reads
+its Build's runs and artifacts with `github.token` (`dev/varka_matrix_reuse.py` and the
+`download-artifact` steps), and without it every fork matrix would compile for itself and run
+without the reach record. `report-failure` keeps its own wider block.
 
 On vecbricks/varka the build job's guard admits only `workflow_dispatch` events with
 `stage=sweep`, a `pr` and a `sha`. It refuses `schedule` there, which today's guard admits only
@@ -79,8 +82,11 @@ went green therefore counts as green. It reads the public API with the job's `gi
 
 * **Green:** `first` holds only the failed-run units, and the swept (configuration, suite) units
   are not rerun.
-* **Red or still running:** the build job fails with the sweep's link before any bin starts.
-  `scope=full` overrides it.
+* **Red:** the build job fails with the sweep's link before any bin starts. A new input,
+  `sweep_gate: on | off` (default `on`), turns the gate off for one dispatch, for a sweep that
+  went red from a runner fault.
+* **Still running:** the build job polls it every minute for up to 30 minutes, then counts it as
+  none.
 * **None, or a lookup that fails** (an API error, or the unauthenticated limit of 60 requests
   an hour, which a hosted runner's address shares): the fork runs the sweep as its own `first`
   stage, as row 637 designs. Nothing is blocked; only the saving is lost.
@@ -101,9 +107,9 @@ this row.
 request opens. The matrix dispatch then waits for the sweep, not for the laptop. Those scripts
 are the owner's operations directory, not this repository's, so the row's pull request changes
 only the workflow, the planner and the plan. The `~/varka-ops` change is listed as its own step.
-A finding on the way: `pre-pr.sh` adds `VarkaMatrixSuite` again when the branch already changes
-it (the logs of rows 600 and 611 list it twice, `results/VARKA-638-sweep-sizes.txt`). The
-sweep's planner keeps each suite once.
+A finding on the way: the logs of rows 600 and 611 list `VarkaMatrixSuite` twice
+(`results/VARKA-638-sweep-sizes.txt`), from before `pre-pr.sh` deduplicated it with `sort -u` on
+22 November. The sweep's planner keeps each suite once too.
 
 ### 3.6 What is deliberately unchanged
 
@@ -156,7 +162,7 @@ plans from that step's `dev/varka_matrix_scope.py --suites` and its `first` list
 
 1. Probe, one dispatch: does a fork job's `github.token` list vecbricks/varka's runs? Done when
    the answer and the request are in `results/VARKA-638-gate-probe.txt`.
-2. The `stage`, `pr`, `sha` and `slots` inputs, the guard that refuses `schedule` on
+2. The `stage`, `pr`, `sha`, `slots` and `sweep_gate` inputs, the guard that refuses `schedule` on
    vecbricks/varka, the permissions block, the run name, the sweep plan and the gate of 3.3.
    Done when it has merged.
 3. After step 2 merged: `gh workflow enable` on vecbricks/varka, by the owner's word of
@@ -183,8 +189,9 @@ add its 20 slots to the fork's 40? Read from `results/VARKA-637-pr-matrix-scope.
   without a reach record too, such as 44179178461 at 191 bins).
 * **What it would give.** One matrix of about 1,450 bin-minutes on 18 of the 20 slots is at
   least 81 minutes of bins plus the build, against a 34-minute floor on the fork's 38 when the
-  fork is free. It adds half again to the slots, but runs each matrix about twice as slowly as an
-  idle fork would.
+  fork is free, about 92 minutes with the 11-minute build against 34, so 2.5 to 3 times as
+  slow as an idle fork. It adds half again to the slots. (The 1,450 is a run without a reach
+  record, the fork's 1,275 one with it.)
 * **The token-free alternative.** vecbricks/varka runs work that needs no Build: this row's
   sweep, or the weekly full matrix on master. The weekly is the opposite of row 522's direction,
   which moves the weekly to the fork, so it is the owner's call. This plan does not move the
