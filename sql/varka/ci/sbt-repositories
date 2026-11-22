@@ -17,11 +17,13 @@
 # The sbt launcher's repositories for Varka's CI jobs (VARKA-639). Each job that runs sbt copies
 # this file to ~/.sbt/repositories, the launcher's default `sbt.repository.config`, before its
 # first sbt call. The list is the one built into sbt-launch-1.13.0.jar (sbt/sbt.boot.properties)
-# with Google's mirror of Maven Central added second: the launcher tries the repositories in
-# order and moves on after an error, so an HTTP 429 from repo1.maven.org falls through to the
-# mirror, which serves the same files. It covers the launcher's download of sbt and Scala and
-# the meta-build's plugins; the Spark projects' own resolvers are set in project/SparkBuild.scala
-# and already put the mirror first.
+# with Google's mirror of Maven Central added second. The launcher looks a module up in each
+# repository in order and moves on after an error, so an HTTP 429 from repo1.maven.org on a
+# module's pom falls through to the mirror, which serves the same files. A jar is fetched from the
+# repository that served its pom, so a 429 on the jar alone does not fall through. The file reaches
+# the launcher's download of sbt and Scala only: the meta-build's plugins resolve from Maven
+# Central without it, and the Spark projects' resolvers (project/SparkBuild.scala) already put the
+# mirror first.
 [repositories]
   local
   maven-central

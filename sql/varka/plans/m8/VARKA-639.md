@@ -85,7 +85,9 @@ Checked for the claim in 3.2:
 Cache keys:
 
 * Upstream Spark's jobs use the keys `build-<os>-<hash>` with the restore prefix `build-<os>-`.
-  They never restore a Varka `build-<hash>` entry.
+  They never restore a Varka `build-<hash>` entry. The other way round does happen: Varka's prefix
+  `build-` also matches an upstream `build-Linux-<hash>` entry, which holds the same paths and
+  equivalent files.
 * No other workflow uses Varka's keys.
 
 ## 3. The design
@@ -119,12 +121,20 @@ restored `~/.sbt` is replaced. `~/.sbt/repositories` is the launcher's default
 `sbt.repository.config`, so every sbt call in the job reads it, including the calls inside
 `dev/varka_*.sh`, with no argument changed.
 
-What the file reaches:
+What the file reaches, as the runs of section 9 show:
 
-* The launcher's download of sbt and Scala.
-* The meta-build's plugins: sbt prepends the launcher's repositories to a build's default
-  resolvers.
+* The launcher's download of sbt and Scala, the step that failed in #1625's Build.
+* Not the meta-build's plugins. With `maven-central` replaced by a dead URL, no plugin lookup tried
+  that URL, and the plugins came from repo1.maven.org. They are covered by the restored Coursier
+  cache only.
 * Not Spark's projects. `SparkBuild.scala` sets their `externalResolvers` itself, mirror first.
+
+The fallback works per module, not per file. The launcher resolves through Coursier, which looks a
+module's pom up in each repository in turn but fetches the jar from the repository that served the
+pom. A 429 on a pom falls through to the mirror, as #1625's would have. A 429 on a jar whose pom
+Maven Central has just served does not. Putting the mirror first would cover both, as
+`SparkBuild.scala` does for the projects, but it would make the mirror the launcher's primary
+source; the order here keeps Maven Central first, as asked.
 
 **What resolves cannot change.**
 
@@ -191,7 +201,9 @@ cache restores and drops the downloads.
 
 1. **A cache entry can grow.** A job that saves `~/.sbt` now also saves the 2 KB file. Only Varka
    jobs restore those entries, and each one writes the file again.
-2. **The mirror can lag behind Maven Central.** A version published minutes ago could be missing
+2. **A 429 on a jar alone still fails the boot**, as 3.2 says. The restored `~/.sbt` holds the
+   boot directory, so a job whose `build-` restore hits does not download sbt at all.
+3. **The mirror can lag behind Maven Central.** A version published minutes ago could be missing
    from it. It is consulted only after Maven Central has failed, and every version is pinned.
 
 ## 8. Sequencing
@@ -200,4 +212,26 @@ One commit: the file, the steps, and this record.
 
 ## 9. Outcome
 
-Filled in below as the checks land.
+Built as designed in 3.1 and 3.2, except that 3.2's reach was corrected after the runs below:
+the plan said the file also reached the meta-build's plugins, and it does not.
+
+Local runs on the laptop, 22 November 2026, at `d17e3b51475` (the file's comments changed after
+it, its list did not). Each ran `build/sbt -batch about` from the worktree with
+`-Dsbt.repository.config=<file>` and a scratch `sbt.boot.directory`, `sbt.global.base`,
+`sbt.ivy.home` and `COURSIER_CACHE`, so nothing came from the laptop's own caches and
+`~/.sbt/repositories` was never written.
+
+| run | file | result | sbt 1.13.0's jar came from | sbt-assembly came from |
+|---|---|---|---|---|
+| as written | `sql/varka/ci/sbt-repositories` | exit 0 in 88 s, "This is sbt 1.13.0" | repo1.maven.org | repo1.maven.org |
+| Central dead | the same, `maven-central` replaced by `http://127.0.0.1:9/maven2/` | exit 0 in 126 s, "This is sbt 1.13.0" | the Google mirror | repo1.maven.org |
+
+The second run logged five refused connections to the dead URL, all for BOM jars that the pom
+reader looks up, and none for a plugin. So the launcher parses the file, its `#` comments
+included, and falls through to the mirror when Maven Central refuses.
+
+The workflows: PyYAML parses every changed file, and `actionlint` reports the same 62 findings
+before and after the change, none on a changed line.
+
+Left for the row: the first Build after the merge, whose assembly gate should restore both
+entries.
