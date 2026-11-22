@@ -242,13 +242,14 @@ final class VarkaDecimalCompiler {
   }
 
   /**
-   * Why a value of {@code type}, wider than the long lane, declines: the wide representation is
-   * row 359's, and a cast that rescales into it, the one coercion puts over the operand of the
+   * Why a value of {@code type}, wider than the long lane, declines: as a long, which
+   * {@link #value} asks, the wide representation is row 359's lane pair, which {@link #pair}
+   * builds instead; a cast that rescales into it, the one coercion puts over the operand of the
    * smaller scale or over a choice's branch of the smaller scale, needs row 360's wide rescale as
    * well, and a cast over that rescale which lowers the scale or the integral digits row 350's
    * too. A sum, difference or product names the row of its own wide form instead, which is the
-   * more precise answer, and so does a cast, a negation, a choice or a pick over one that needs
-   * no rescale.
+   * more precise answer, and so does a cast, a negation, a choice or a pick over one, which
+   * {@link #pair} reads before it builds any of them.
    */
   private static String wideReason(Expression e, DecimalType type) {
     return switch (e) {
@@ -537,10 +538,13 @@ final class VarkaDecimalCompiler {
   /**
    * The decimal {@code e} as a {@link Pair}, or empty with the reason noted. A value within 18
    * digits is its {@link #value} and the sign extension {@code u >> 63}, which is the high word
-   * of a long's value read as 128 bits. A wider one is a constant's two slots, a column's two
-   * word leaves, or a cast that keeps the scale and only widens the precision, which keeps the
-   * unscaled value, over one of these or over a value within 18 digits: the cast coercion puts
-   * over the narrower side of {@code d18 < d38}. Every other wide form declines naming its row.
+   * of a long's value read as 128 bits. A wider one is a constant's two slots (the null
+   * constant's two {@code NullValue}s), a column's two word leaves, a cast that keeps the scale
+   * and only widens the precision, which keeps the unscaled value - the cast coercion puts over
+   * the narrower side of {@code d18 < d38} - and, over any of these, the forms of 2.5 that
+   * cannot fail: {@code -x} and {@code abs(x)} by the words' borrow ({@link #negated}), and the
+   * choices and picks word by word under one condition ({@link #pairChoice}, {@link #pairPick}).
+   * Every other wide form declines naming its row.
    */
   private static Optional<Pair> pair(Expression e, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
@@ -559,13 +563,249 @@ final class VarkaDecimalCompiler {
     if (e.foldable()) {
       return widePairLiteral(e, type, sink);
     }
+    // A wide sum, difference or product anywhere under a cast, a negation, a choice or a pick
+    // declines with the union of every such operand's rows (wideArithmeticBelow), read before
+    // the arms below descend and stop at the first operand that declines, so that
+    // IF(p, x + y, a * b) and IF(p, a * b, x + y) decline alike.
+    if (wideArithmeticBelow(e).isPresent()) {
+      return sink.decline(wideReason(e, type), e);
+    }
     return switch (e) {
       case BoundReference br -> columnPair(br, type, inputs, sink);
       case Cast c when c.child().dataType() instanceof DecimalType from
           && from.scale() == type.scale() && keepsDigits(from, type) ->
           pair(c.child(), inputs, literals, sink).map(p -> new Pair(p.lo(), p.hi(), type));
+      // Neither can fail or leave the precision: |-v| = |v| <= 10^p - 1, and Spark negates a
+      // wide value exactly (Decimal.unary_-, SPARK-45438), so the words' borrow is its answer.
+      case UnaryMinus m -> pair(m.child(), inputs, literals, sink)
+          .map(p -> negated(p, type, sink));
+      case Abs a -> pair(a.child(), inputs, literals, sink).map(p -> abs(p, type, sink));
+      // nvl, nvl2, ifnull, nullif, nullifzero and zeroifnull arrive as their replacements.
+      case RuntimeReplaceable r -> pair(r.replacement(), inputs, literals, sink)
+          .map(p -> new Pair(p.lo(), p.hi(), type));
+      // Under the switch of the family that claims each in the chain, as value() asks it.
+      case If i -> VarkaNodeCompiler.inFamily(VarkaFamily.CONDITION, () -> pairChoice(i,
+          List.of(i.predicate()), List.of(i.trueValue()), i.falseValue(), type, inputs,
+          literals, sink), i, sink);
+      case CaseWhen c -> VarkaNodeCompiler.inFamily(VarkaFamily.CONDITION,
+          () -> pairCaseWhen(c, type, inputs, literals, sink), c, sink);
+      case Coalesce c -> VarkaNodeCompiler.inFamily(VarkaFamily.CONDITION,
+          () -> pairCoalesce(c, type, inputs, literals, sink), c, sink);
+      case Greatest g -> VarkaNodeCompiler.inFamily(VarkaFamily.INT_ARITHMETIC,
+          () -> pairPick(g, CollectionConverters.asJava(g.children()), CompareOp.GE, type,
+              inputs, literals, sink), g, sink);
+      case Least l -> VarkaNodeCompiler.inFamily(VarkaFamily.INT_ARITHMETIC,
+          () -> pairPick(l, CollectionConverters.asJava(l.children()), CompareOp.LE, type,
+              inputs, literals, sink), l, sink);
       default -> sink.decline(wideReason(e, type), e);
     };
+  }
+
+  /**
+   * {@code -p} over its words, of {@code type} (`m8/VARKA-359.md` 2.5): {@code lo' = -lo} and
+   * {@code hi' = ~hi + (lo == 0)}, the borrow of {@code -v = ~v + 1} ({@code DecimalWords}).
+   * Six lane calls a lane group; the two words stay valid where {@code p}'s are.
+   */
+  private static Pair negated(Pair p, DecimalType type, DeclineSink sink) {
+    return new Pair(DecimalWords.negatedLow(p.lo()), DecimalWords.negatedHigh(p.lo(), p.hi(),
+        sink.longSlot(0L), sink.longSlot(-1L)), type);
+  }
+
+  /**
+   * {@code abs(p)} over its words: each word of {@link #negated} where the high word is
+   * negative, and its own word elsewhere, both blends under the one sign test.
+   */
+  private static Pair abs(Pair p, DecimalType type, DeclineSink sink) {
+    Pair minus = negated(p, type, sink);
+    Cond negative = DecimalWords.isNegative(p.hi(), sink.longSlot(0L));
+    return new Pair(DecimalWords.absWord(negative, minus.lo(), p.lo()),
+        DecimalWords.absWord(negative, minus.hi(), p.hi()), type);
+  }
+
+  /**
+   * {@code IF} and {@code CASE WHEN} wider than 18 digits, as {@link #choice} builds them over
+   * longs: the right fold of {@code IfElse(cond, value, rest)}, here once per word under the
+   * branch's one condition, so a row's two words come from one branch.
+   */
+  private static Optional<Pair> pairChoice(Expression whole, List<Expression> predicates,
+      List<Expression> values, Expression otherwise, DecimalType type, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    var conds = new ArrayList<Cond>();
+    var branches = new ArrayList<Pair>();
+    for (int b = 0; b < predicates.size(); b++) {
+      Optional<Cond> k = condition(predicates.get(b), whole, inputs, literals, sink);
+      if (k.isEmpty()) {
+        return Optional.empty();
+      }
+      Optional<Pair> v = pairBranch(whole, values.get(b), type, inputs, literals, sink);
+      if (v.isEmpty()) {
+        return Optional.empty();
+      }
+      conds.add(k.get());
+      branches.add(v.get());
+    }
+    Optional<Pair> acc = pairBranch(whole, otherwise, type, inputs, literals, sink);
+    if (acc.isEmpty()) {
+      return Optional.empty();
+    }
+    Pair folded = acc.get();
+    for (int b = conds.size() - 1; b >= 0; b--) {
+      folded = chosen(conds.get(b), branches.get(b), folded, type);
+    }
+    return Optional.of(folded);
+  }
+
+  /** {@code CASE WHEN} as the {@link #pairChoice} of its branches, a missing ELSE the null. */
+  private static Optional<Pair> pairCaseWhen(CaseWhen c, DecimalType type,
+      VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    List<Tuple2<Expression, Expression>> branches = CollectionConverters.asJava(c.branches());
+    var predicates = new ArrayList<Expression>(branches.size());
+    var values = new ArrayList<Expression>(branches.size());
+    for (Tuple2<Expression, Expression> branch : branches) {
+      predicates.add(branch._1());
+      values.add(branch._2());
+    }
+    Expression otherwise = c.elseValue().isDefined() ? c.elseValue().get()
+        : Literal.create(null, type);
+    return pairChoice(c, predicates, values, otherwise, type, inputs, literals, sink);
+  }
+
+  /**
+   * {@code coalesce} wider than 18 digits: the right fold of {@code IfElse(valid(head), head,
+   * rest)} once per word, the validity {@link #valid}'s, as {@link #coalesce} folds longs.
+   */
+  private static Optional<Pair> pairCoalesce(Coalesce c, DecimalType type, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    List<Expression> children = CollectionConverters.asJava(c.children());
+    if (children.isEmpty()) {
+      return sink.decline("a coalesce with no operand", c);
+    }
+    var values = new ArrayList<Pair>();
+    var tests = new ArrayList<Cond>();
+    for (int i = 0; i < children.size(); i++) {
+      Optional<Pair> v = pairBranch(c, children.get(i), type, inputs, literals, sink);
+      if (v.isEmpty()) {
+        return Optional.empty();
+      }
+      values.add(v.get());
+      if (i < children.size() - 1) {
+        Optional<Cond> t = valid(children.get(i), inputs, literals, sink);
+        if (t.isEmpty()) {
+          return Optional.empty();
+        }
+        tests.add(t.get());
+      }
+    }
+    Pair folded = values.get(values.size() - 1);
+    for (int i = tests.size() - 1; i >= 0; i--) {
+      folded = chosen(tests.get(i), values.get(i), folded, type);
+    }
+    return Optional.of(folded);
+  }
+
+  /**
+   * {@code greatest} ({@code keep} {@code GE}) and {@code least} ({@code LE}) wider than 18
+   * digits, folded from the left as Spark skips nulls: the running pick {@code a} is kept over
+   * the next operand {@code b} under {@code b IS NULL OR (a IS NOT NULL AND a keep b)}, once per
+   * word, and the pick is valid where either is (`m8/VARKA-359.md` 2.5). Where {@code b} is valid
+   * and {@code a} is not, the condition is false, so {@code b} is taken; where both are null the
+   * pick is {@code a}'s null.
+   */
+  private static Optional<Pair> pairPick(Expression whole, List<Expression> children,
+      CompareOp keep, DecimalType type, VarkaSlotTable inputs, VarkaSlotTable literals,
+      DeclineSink sink) {
+    Pair acc = null;
+    Cond accValid = null;
+    for (Expression child : children) {
+      Optional<Pair> v = pairBranch(whole, child, type, inputs, literals, sink);
+      if (v.isEmpty()) {
+        return Optional.empty();
+      }
+      Optional<Cond> ok = valid(child, inputs, literals, sink);
+      if (ok.isEmpty()) {
+        return Optional.empty();
+      }
+      if (acc == null) {
+        acc = v.get();
+        accValid = ok.get();
+        continue;
+      }
+      Pair b = v.get();
+      // acc and accValid are set together on the first operand, so accValid is set here.
+      Cond seen = Objects.requireNonNull(accValid);
+      Cond keepAcc = new VarkaVectorIR.Or(new VarkaVectorIR.Not(ok.get()),
+          new VarkaVectorIR.And(seen, DecimalWords.compare(keep, acc.lo(), acc.hi(), b.lo(),
+              b.hi())));
+      acc = chosen(keepAcc, acc, b, type);
+      accValid = new VarkaVectorIR.Or(seen, ok.get());
+    }
+    if (acc == null) {
+      return sink.decline("a pick with no operand", whole);
+    }
+    return Optional.of(acc);
+  }
+
+  /** {@code IfElse(cond, then, otherwise)} on each word, of {@code type}. */
+  private static Pair chosen(Cond cond, Pair then, Pair otherwise, DecimalType type) {
+    return new Pair(new IfElse(cond, then.lo(), otherwise.lo()),
+        new IfElse(cond, then.hi(), otherwise.hi()), type);
+  }
+
+  /**
+   * One operand of a wide choice or pick as a {@link Pair} of the node's scale, or empty with the
+   * reason noted; as {@link #branch} holds a long branch, the scale check guards against an arm
+   * returning another type, every operand having the node's type after coercion.
+   */
+  private static Optional<Pair> pairBranch(Expression whole, Expression e, DecimalType type,
+      VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    Optional<Pair> v = pair(e, inputs, literals, sink);
+    if (v.isEmpty()) {
+      return Optional.empty();
+    }
+    if (v.get().type().scale() != type.scale()
+        || v.get().type().precision() > type.precision()) {
+      return sink.decline("a choice of decimals of two scales with no cast to one", whole);
+    }
+    return Optional.of(new Pair(v.get().lo(), v.get().hi(), type));
+  }
+
+  /**
+   * The value of a wide decimal {@code IN} as its {@link Pair}, or empty with the reason noted:
+   * a rescale into the wide common type, the cast coercion puts over a value of a smaller scale,
+   * names rows 359 and 360 as a comparison's side does ({@link #compared}).
+   */
+  static Optional<Pair> wideInValue(Expression value, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    if (!value.foldable() && rescalesIntoWide(value)) {
+      return sink.decline(wideReason(value, (DecimalType) value.dataType()), value);
+    }
+    return pair(value, inputs, literals, sink);
+  }
+
+  /**
+   * {@code x = c} over the words of {@code x} and of the constant {@code unscaled}, two slots of
+   * the long table: one leaf of a wide {@code IN}'s chain, three lane calls.
+   */
+  static Cond equalsConstant(Pair x, BigInteger unscaled, DeclineSink sink) {
+    DecimalWords w = DecimalWords.of(unscaled);
+    return DecimalWords.compare(CompareOp.EQ, x.lo(), x.hi(), sink.longSlot(w.lo()),
+        sink.longSlot(w.hi()));
+  }
+
+  /**
+   * The unscaled value of {@code d} at {@code type}'s scale, for a type wider than 18 digits, or
+   * empty where no value of the type equals it, as {@link #unscaledAt} reads a long: its digits
+   * do not end within the scale, or it is past the precision.
+   */
+  static Optional<BigInteger> wideUnscaledAt(Decimal d, DecimalType type) {
+    BigInteger unscaled;
+    try {
+      unscaled = d.toJavaBigDecimal().setScale(type.scale()).unscaledValue();
+    } catch (ArithmeticException notExact) {
+      return Optional.empty();
+    }
+    return unscaled.abs().compareTo(BigInteger.TEN.pow(type.precision())) < 0
+        ? Optional.of(unscaled) : Optional.empty();
   }
 
   /**
@@ -590,7 +830,7 @@ final class VarkaDecimalCompiler {
   /**
    * A constant wider than 18 digits as two slots of the long table, the words of its unscaled
    * value at its type's scale, folded as {@link #literal} folds one and declining as it does,
-   * but for the null constant, which no pair holds.
+   * but for the null constant, which is two null words.
    */
   private static Optional<Pair> widePairLiteral(Expression e, DecimalType type,
       DeclineSink sink) {
@@ -600,10 +840,10 @@ final class VarkaDecimalCompiler {
     }
     Object value = folded.get().value();
     if (value == null) {
-      // A pair holds no null of its own: a null test needs none (wideProbe passes the null
-      // constant, valid() answers false for it), and the value half is row 359's part 359b.
-      return sink.decline("a null decimal constant wider than " + MAX_PRECISION + " digits as a "
-          + "value is row 359's", e);
+      // The null of the long lane in each word, as nullValue() is one long's: the branch a CASE
+      // without an ELSE lacks and nullif's NULL. valid() answers false for it.
+      var none = new VarkaVectorIR.NullValue(LaneType.LONG);
+      return Optional.of(new Pair(none, none, type));
     }
     if (!(value instanceof Decimal d)) {
       return sink.decline("a decimal constant that is not a Decimal", e);
@@ -771,10 +1011,9 @@ final class VarkaDecimalCompiler {
    * whose null their leaves' validity and their conditions decide, so their validity is
    * {@link #valid}'s though no {@link Pair} holds them - {@link #pair}'s forms, the null
    * constant, a cast that keeps every digit, a choice (a {@code CASE} without an {@code ELSE}
-   * included) and a pick, under its family's switch. Everything else declines naming its row: a
-   * sum, a product or a lowering cast can overflow, and Spark negates a wide value through
-   * Scala's {@code BigDecimal}, rounding it to 34 digits, so {@code -x} and {@code abs} can
-   * raise.
+   * included) and a pick, under its family's switch; {@code -x} and {@code abs(x)}, which Spark
+   * computes exactly, reach {@link #pair} by the default arm. Everything else declines naming its
+   * row: a sum, a product or a lowering cast can overflow.
    */
   private static Optional<DecimalType> wideProbe(Expression e, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {

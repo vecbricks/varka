@@ -733,3 +733,43 @@
 (assert (not (= (w.val (jlong.shr x 63) (c.lo x)) x)))
 (check-sat)
 (pop 1)
+
+; The negation over the words: -v = ~v + 1, so lo' = -lo and hi' = ~hi + borrow, the
+; borrow 1 exactly where lo = 0, both wrapping as Java's longs do. abs(v) takes each word
+; of -v where hi < 0 and its own word elsewhere.
+
+(echo "lo' = -lo and hi' = ~hi + (lo = 0) are the words of -v for |v| <= 10^38 - 1: expect unsat")
+(push 1)
+(declare-const xh Int)
+(declare-const xl Int)
+(declare-const yh Int)
+(declare-const yl Int)
+(assert (and (jlong.in xh) (jlong.in xl) (jlong.in yh) (jlong.in yl)))
+(assert (<= (abs (w.val xh (c.lo xl))) 99999999999999999999999999999999999999))
+(assert (not (= (w.val (jlong.add (jlong.not xh) (ite (= xl 0) 1 0)) (c.lo (jlong.neg xl))) (- (w.val xh (c.lo xl))))))
+(check-sat)
+(pop 1)
+
+(echo "and without the borrow they are not: expect sat")
+(push 1)
+(declare-const xh Int)
+(declare-const xl Int)
+(declare-const yh Int)
+(declare-const yl Int)
+(assert (and (jlong.in xh) (jlong.in xl) (jlong.in yh) (jlong.in yl)))
+(assert (<= (abs (w.val xh (c.lo xl))) 99999999999999999999999999999999999999))
+(assert (not (= (w.val (jlong.not xh) (c.lo (jlong.neg xl))) (- (w.val xh (c.lo xl))))))
+(check-sat)
+(pop 1)
+
+(echo "abs over the words, blended on hi < 0, is |v| for |v| <= 10^38 - 1: expect unsat")
+(push 1)
+(declare-const xh Int)
+(declare-const xl Int)
+(declare-const yh Int)
+(declare-const yl Int)
+(assert (and (jlong.in xh) (jlong.in xl) (jlong.in yh) (jlong.in yl)))
+(assert (<= (abs (w.val xh (c.lo xl))) 99999999999999999999999999999999999999))
+(assert (not (= (w.val (ite (< xh 0) (jlong.add (jlong.not xh) (ite (= xl 0) 1 0)) xh) (c.lo (ite (< xh 0) (jlong.neg xl) xl))) (abs (w.val xh (c.lo xl))))))
+(check-sat)
+(pop 1)
