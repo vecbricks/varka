@@ -66,10 +66,9 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     // a committed sequence would move every shape after it and the corpora the cost model is
     // fitted on, so its sequence comes on a seed of its own (`VARKA-347.md` 3 item 5) and its
     // fold into the corpora with row 352's refit. It is rebuilt directly below.
-    // The floating square root (VARKA-342) is in no grammar for the same reason: the grammars
-    // draw no floating tree, whose values have no integer bound, and a floating draw would move
-    // the committed sequences. `VarkaEmitterFloatingArithSuite` holds it to the reference, and it
-    // is rebuilt directly below.
+    // The floating square root and the FMA (VARKA-342) are drawn only by the floating
+    // arithmetic sequences, which this test's grammars do not include: their values have no
+    // integer bound. Each is rebuilt directly below.
     // No grammar draws the floating conversion (VARKA-343) yet, for the same reason; it is
     // rebuilt directly below. The canonicalisation (VARKA-337) is drawn by a side sequence of its
     // own, which these grammars are not, and is rebuilt directly below.
@@ -80,7 +79,7 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     val undrawn = permitted -- seen - "GuardedProduct" - "NullSafeEqual" - "BoolColumn" -
       "CondConst" -
       "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" - "DecimalColumn" -
-      "DecimalWord" - "MathUnary" - "RoundToIntegral" - "CanonicalFloat" - "ConvertLane" -
+      "DecimalWord" - "MathUnary" - "Fma" - "RoundToIntegral" - "CanonicalFloat" - "ConvertLane" -
       "HashStep" - "CanonicalBits" - "ReinterpretLane" -
       "CrossLane" // the crossing is drawn from 343a5
     assert(undrawn.isEmpty, s"the grammars never drew: ${undrawn.toSeq.sorted.mkString(", ")}")
@@ -178,6 +177,17 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
       new HashStep(HashMix.XXH64_LONG, seed, other))
     assert(VarkaVectorIR.withChildren(bits, canon) == bits)
     intercept[IllegalArgumentException](VarkaVectorIR.withChildren(bits, other))
+  }
+
+  test("an FMA is rebuilt over its own three operands, in order, and refuses integral ones") {
+    val x = new ColumnRef(0, LaneType.DOUBLE)
+    val y = new ColumnRef(1, LaneType.DOUBLE)
+    val fma = new Fma(x, y, x)
+    assert(VarkaVectorIR.withChildren(fma, VarkaVectorIR.childrenOf(fma): _*) == fma)
+    assert(VarkaVectorIR.withChildren(fma, y, x, y) == new Fma(y, x, y))
+    intercept[Exception](VarkaVectorIR.withChildren(fma, x, y))
+    intercept[Exception](
+      VarkaVectorIR.withChildren(fma, new ColumnRef(0), new ColumnRef(1), new ColumnRef(2)))
   }
 
   test("a floating conversion is rebuilt over its own child and keeps its target") {

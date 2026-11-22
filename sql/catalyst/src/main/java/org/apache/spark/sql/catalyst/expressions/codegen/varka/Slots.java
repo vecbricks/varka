@@ -82,6 +82,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Fma;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
@@ -1227,6 +1228,9 @@ final class Slots {
       case BitOp n -> andRef(s.wordRef.get(n.left()), s.wordRef.get(n.right()));
       case BitCount n -> s.wordRef.get(n.child());
       case MathUnary n -> s.wordRef.get(n.child());
+      // The three operands' AND, folded as Analysis.ownerOf folds their owners.
+      case Fma n -> andRef(andRef(s.wordRef.get(n.a()), s.wordRef.get(n.b())),
+          s.wordRef.get(n.c()));
       case RoundToIntegral n -> s.wordRef.get(n.child());
       case CanonicalFloat n -> s.wordRef.get(n.child());
       case CanonicalBits n -> s.wordRef.get(n.child());
@@ -1751,6 +1755,7 @@ final class Slots {
         case BitOp x -> { }
         case BitCount x -> { }
         case MathUnary x -> { }
+        case Fma x -> { }
         case RoundToIntegral x -> { }
         case CanonicalFloat x -> { }
         case CanonicalBits x -> { }
@@ -1843,6 +1848,9 @@ final class Slots {
           demand(analysis.wordOwner.get(x.right())); }
         case BitCount x -> { }
         case MathUnary x -> { }
+        case Fma x -> { demand(analysis.wordOwner.get(x.a()));
+          demand(analysis.wordOwner.get(x.b()));
+          demand(analysis.wordOwner.get(x.c())); }
         case RoundToIntegral x -> { }
         case CanonicalFloat x -> { }
         case CanonicalBits x -> { }

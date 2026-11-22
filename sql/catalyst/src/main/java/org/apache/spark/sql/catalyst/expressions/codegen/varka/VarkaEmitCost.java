@@ -122,6 +122,7 @@ final class VarkaEmitCost {
       case BitOp n -> name + '/' + n.op() + '/' + n.laneType();
       case BitCount n -> name + '/' + n.laneType();
       case VarkaVectorIR.MathUnary n -> name + '/' + n.fn() + '/' + n.laneType();
+      case VarkaVectorIR.Fma n -> name + '/' + n.laneType();
       case VarkaVectorIR.RoundToIntegral n -> name + '/' + n.mode() + '/' + n.laneType();
       case VarkaVectorIR.CanonicalFloat n -> name + '/' + n.laneType();
       case VarkaVectorIR.CanonicalBits n -> name + '/' + n.laneType();

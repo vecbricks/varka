@@ -80,7 +80,7 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // Nodes whose price waits for the next refit of the model (VARKA-352). A group holding one is
     // unpredictable, so the budget answers it by the weights (VarkaEmitBudget); the entry leaves
     // this list the day the node is priced, and fails here if it is priced while still listed.
-    // MathUnary exists at a floating lane only, and the floating lanes are unpriced
+    // MathUnary and Fma exist at a floating lane only, and the floating lanes are unpriced
     // (`VarkaEmitCostFit.PRICED_LANES`, VARKA-342 5.1); so is the conversion, one side of which
     // is always floating (VARKA-343), and the lane crossing, which joins a floating condition
     // to an integral one (`VARKA-343.md` 2.2.1). The canonicalisation is a floating node too
@@ -90,8 +90,8 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // and compares there, and is priced with the long-lane conversion at that refit.
     val awaitingRefit = Set("NullSafeEqual", "BoolColumn", "CondConst", "BoolCompare", "CondIf",
       "BoolNullSafeEq", "CondValue", "BoolOutput", "DecimalColumn", "DecimalWord", "NullValue",
-      "WidenDecimal", "MathUnary", "RoundToIntegral", "CanonicalFloat", "ConvertLane", "CrossLane",
-      "CanonicalBits", "HashStep", "ReinterpretLane", "GuardedProduct", "Compare/ULT",
+      "WidenDecimal", "MathUnary", "Fma", "RoundToIntegral", "CanonicalFloat", "ConvertLane",
+      "CrossLane", "CanonicalBits", "HashStep", "ReinterpretLane", "GuardedProduct", "Compare/ULT",
       "Compare/ULE", "Compare/UGT", "Compare/UGE")
     assert(awaitingRefit.forall(t => !expected.exists(f => f == t || f.startsWith(t + "/"))),
       s"${awaitingRefit.toSeq.sorted} is priced: take it off the list of nodes awaiting a refit")

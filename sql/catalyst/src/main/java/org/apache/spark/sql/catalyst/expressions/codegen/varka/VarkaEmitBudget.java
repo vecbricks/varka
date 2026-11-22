@@ -789,6 +789,8 @@ final class VarkaEmitBudget {
       // most eight double lanes at 512 bits, the larger form as above; the scalar calls between
       // them are no vector op.
       case VarkaVectorIR.MathUnary n -> n.fn().laneCall() ? 16 : 1;
+      // The lanewise fused multiply-add: one call.
+      case VarkaVectorIR.Fma _ -> 1;
       // The rint construction: the absolute value, the add and subtract of 2^52, the sign's AND
       // and OR, the compare against 2^52 and the blend, and three reinterpretations, which the
       // budget counts as calls though they emit no instruction; then the NaN's compare and

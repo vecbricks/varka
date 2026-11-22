@@ -75,6 +75,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Fma;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
@@ -1004,6 +1005,7 @@ final class Analysis {
         case BitOp n -> { }
         case BitCount n -> { }
         case MathUnary n -> { }
+        case Fma n -> { }
         case RoundToIntegral n -> { }
         case CanonicalFloat n -> { }
         case CanonicalBits n -> { }
@@ -1104,8 +1106,8 @@ final class Analysis {
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
-          BitOp _, BitCount _, MathUnary _, RoundToIntegral _, Compare _, NullSafeEqual _,
-          BoolColumn _, CanonicalFloat _, CanonicalBits _, HashStep _,
+          BitOp _, BitCount _, MathUnary _, Fma _, RoundToIntegral _, Compare _,
+          NullSafeEqual _, BoolColumn _, CanonicalFloat _, CanonicalBits _, HashStep _,
           BoolCompare _,
           CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, CondValue _, NullValue _, BoolOutput _ -> false;
@@ -1455,6 +1457,7 @@ final class Analysis {
       case BitOp n -> andOwner(node, n.left(), n.right());
       case BitCount n -> wordOwner.get(n.child());
       case MathUnary n -> wordOwner.get(n.child());
+      case Fma n -> andOwner(node, andOwner(node, n.a(), n.b()), wordOwner.get(n.c()));
       case RoundToIntegral n -> wordOwner.get(n.child());
       case CanonicalFloat n -> wordOwner.get(n.child());
       case CanonicalBits n -> wordOwner.get(n.child());
@@ -1488,8 +1491,14 @@ final class Analysis {
 
   /** {@code Slots.andRef}'s folding over owners: all-true drops out, equal operands collapse. */
   private WordOwner andOwner(VarkaVectorIR node, VarkaVectorIR a, VarkaVectorIR b) {
-    WordOwner wa = wordOwner.get(a);
-    WordOwner wb = wordOwner.get(b);
+    return andOwner(node, wordOwner.get(a), wordOwner.get(b));
+  }
+
+  /**
+   * The fold over two owners; a three-operand node folds its first two and then the third, as
+   * {@code Slots.andRef} folds the refs, the node's own word standing for an AND not folded.
+   */
+  private static WordOwner andOwner(VarkaVectorIR node, WordOwner wa, WordOwner wb) {
     if (wa == WordOwner.Const.ALL_TRUE) {
       return wb;
     }
@@ -1526,6 +1535,8 @@ final class Analysis {
       case BitOp n -> andExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case BitCount n -> pureWord.get(n.child());
       case MathUnary n -> pureWord.get(n.child());
+      case Fma n -> andExpr(andExpr(pureWord.get(n.a()), pureWord.get(n.b())),
+          pureWord.get(n.c()));
       case RoundToIntegral n -> pureWord.get(n.child());
       case CanonicalFloat n -> pureWord.get(n.child());
       case CanonicalBits n -> pureWord.get(n.child());
@@ -1830,6 +1841,8 @@ final class Analysis {
       case BitCount n -> analyzeOp(node, false, n.child());
       // A floating math function computes every lane and nulls none.
       case MathUnary n -> analyzeOp(node, false, n.child());
+      // So does the fused multiply-add, over its three operands.
+      case Fma n -> analyzeOp(node, false, n.a(), n.b(), n.c());
       case RoundToIntegral n -> analyzeOp(node, false, n.child());
       case CanonicalFloat n -> analyzeOp(node, false, n.child());
       case CanonicalBits n -> analyzeOp(node, false, n.child());

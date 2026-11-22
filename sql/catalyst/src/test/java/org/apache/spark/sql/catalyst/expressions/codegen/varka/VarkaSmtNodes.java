@@ -93,6 +93,7 @@ final class VarkaSmtNodes {
       entry(ConstDivide.class, DIVISION), entry(BoundedDivide.class, DIVISION),
       entry(BitCount.class, "a popcount has no linear integer meaning"),
       entry(MathUnary.class, "a floating function: the prelude has no double as a value"),
+      entry(Fma.class, "a fused multiply-add: the prelude has no double as a value"),
       entry(RoundToIntegral.class, "a rounding of the double lane: the prelude has no double"),
       entry(CanonicalFloat.class, "a floating canonicalisation: the prelude has no float"),
       entry(CanonicalBits.class, "the bits of a floating value: the prelude has no float"),
@@ -269,8 +270,8 @@ final class VarkaSmtNodes {
       case AddDays _, SubDays _, DateDiff _, DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _,
           ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
           TruncDate _, TruncDateDynamic _, WeekOfYear _, AddMonths _, MakeDate _, GuardedDay _,
-          ConstDivide _, BoundedDivide _, BitCount _, MathUnary _, RoundToIntegral _, ConvertLane _,
-          ReinterpretLane _, GuardedProduct _,
+          ConstDivide _, BoundedDivide _, BitCount _, MathUnary _, Fma _, RoundToIntegral _,
+          ConvertLane _, ReinterpretLane _, GuardedProduct _,
           CrossLane _, InRanges _, BoolCompare _, BoolNullSafeEq _, CanonicalFloat _,
           CanonicalBits _, HashStep _ ->
           throw refused(node);

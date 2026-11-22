@@ -172,6 +172,7 @@ public final class VarkaReference {
               : -Float.intBitsToFloat(v)));
       case MathUnary n -> map(n.child(), row, isNull, lits,
           v -> Float.floatToRawIntBits(mathFloat(n.fn(), Float.intBitsToFloat(v))));
+      case Fma n -> floatFma(n, row, isNull, lits);
       case RoundToIntegral n -> throw VarkaErrors.illegalArgument(
           "a rounding takes a double child, which is no int-lane value: " + n);
       // Spark's own normaliser, NormalizeNaNAndZero's, so the reference is not the lowering.
@@ -523,6 +524,7 @@ public final class VarkaReference {
         yield c.isEmpty() ? c : OptionalLong.of(Double.doubleToRawLongBits(
             mathDouble(n.fn(), Double.longBitsToDouble(c.getAsLong()))));
       }
+      case Fma n -> doubleFma(n, row, isNull, lits);
       // StrictMath's rint, never the lowering's construction, so the reference stays independent
       // of the code it checks, and the canonical NaN for a NaN, as Spark's MathUtils.rint.
       case RoundToIntegral n -> {
@@ -760,6 +762,34 @@ public final class VarkaReference {
       case MUL -> a * b;
       case DIV -> a / b;
     }));
+  }
+
+  /**
+   * An {@code Fma} at the {@code FLOAT} lane: {@code Math.fma}'s float form, one rounding to a
+   * float, never the double form narrowed. Null where any operand is.
+   */
+  private static OptionalInt floatFma(Fma n, int[] row, boolean[] isNull, int[] lits) {
+    var a = value(n.a(), row, isNull, lits);
+    var b = value(n.b(), row, isNull, lits);
+    var c = value(n.c(), row, isNull, lits);
+    if (a.isEmpty() || b.isEmpty() || c.isEmpty()) {
+      return OptionalInt.empty();
+    }
+    return OptionalInt.of(Float.floatToRawIntBits(Math.fma(Float.intBitsToFloat(a.getAsInt()),
+        Float.intBitsToFloat(b.getAsInt()), Float.intBitsToFloat(c.getAsInt()))));
+  }
+
+  /** An {@code Fma} at the {@code DOUBLE} lane: {@code Math.fma}. Null where any operand is. */
+  private static OptionalLong doubleFma(Fma n, long[] row, boolean[] isNull, long[] lits) {
+    var a = longValue(n.a(), row, isNull, lits);
+    var b = longValue(n.b(), row, isNull, lits);
+    var c = longValue(n.c(), row, isNull, lits);
+    if (a.isEmpty() || b.isEmpty() || c.isEmpty()) {
+      return OptionalLong.empty();
+    }
+    return OptionalLong.of(Double.doubleToRawLongBits(Math.fma(
+        Double.longBitsToDouble(a.getAsLong()), Double.longBitsToDouble(b.getAsLong()),
+        Double.longBitsToDouble(c.getAsLong()))));
   }
 
   /** A floating {@code IntArith} at the {@code DOUBLE} lane, by {@link #floatingArith}. */
