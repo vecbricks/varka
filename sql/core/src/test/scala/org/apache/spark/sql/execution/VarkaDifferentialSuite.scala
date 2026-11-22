@@ -1205,6 +1205,20 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
     }
   }
 
+  // varka-session-lint: allow the filter node's own fields, which only a session plans
+  test("a filter over a scan, whose condition is its conjuncts' fold, keeps no whole condition") {
+    cacheCseTables()
+    try {
+      val plan = varkaSpark.sql("SELECT i FROM varka_cse_and_nn WHERE i > 0 AND m > 0 AND " +
+        "d > d0").queryExecution.executedPlan
+      val filter = collectFirst(plan) { case f: VarkaFilterExecBase => f }
+        .getOrElse(fail(s"no Varka filter:\n${plan.treeString}"))
+      assert(filter.wholeCondition.isEmpty, filter.treeString)
+    } finally {
+      uncacheCseTables()
+    }
+  }
+
   // varka-session-lint: allow the gate read off Spark's generated code, which only a session
   // compiles
   test("the fallback's elimination gate is the branch Spark's compiled filter takes") {
