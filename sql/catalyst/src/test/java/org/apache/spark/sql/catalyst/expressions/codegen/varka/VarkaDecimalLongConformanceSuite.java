@@ -67,9 +67,9 @@ public final class VarkaDecimalLongConformanceSuite extends VarkaTypeConformance
   }
 
   /**
-   * The sum and difference of two values within 10 digits, the negation and {@code abs} fit the
-   * result type's 11, so Spark never raises on them, whatever the mode; only the product, past
-   * 18 digits, leaves the long.
+   * The sum and difference of two values within 10 digits fit the result type's 11, and the
+   * negation and {@code abs} stay within the operand's 10, so Spark never raises on them, whatever
+   * the mode; only the product, past 18 digits, leaves the long.
    */
   @Override
   protected boolean overflowReachable(String register) {
