@@ -24,7 +24,6 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference, EvalMode, Expression,
   Literal, Multiply, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
-
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isEpilogue, isLoop}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.types.LongType
