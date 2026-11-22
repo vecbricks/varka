@@ -95,7 +95,9 @@ matrix (row 531). No baseline kept for pull requests (row 531's steps 2 and 3).
 
 The build job's condition admits `schedule` on `MaxGekk/spark` instead of vecbricks/varka, and
 the comment says why: the fork has 40 slots and the master Build, and vecbricks/varka has
-neither. On vecbricks/varka the workflow stays `disabled_manually` (question 3).
+neither. On vecbricks/varka the workflow stays `disabled_manually` (question 3); from row 638's
+guard on it is enabled there for sweep dispatches only (*22 November 2026, by the owner's word*,
+question 3).
 
 `report-failure`'s condition (`:481`) turns with it, or a failed weekly on the fork would report
 to nobody, and its comment at `:476-477` ("where issues are on") turns with it. Turning it
@@ -243,6 +245,11 @@ Size: small, as the row says. It is three files and one waiting job.
    comment.
 
    *1 November 2026, by the owner's word:* leave it disabled.
+
+   *22 November 2026, by the owner's word (`VARKA-638.md` 6 question 1):* re-enable it on
+   vecbricks/varka for sweep runs only, once row 638's guard has merged. That guard admits only
+   `stage=sweep` dispatches there and refuses the Sunday schedule, so the 1 November reason,
+   that nothing starts a matrix on 20 slots by accident, still holds.
 
 4. **The weekly's shape once row 505 lands.** Recommended: the dispatch shape, 30 bins plus the
    axis's own slots, so the weekly also covers the instruction sets. The row's "up to 38" then

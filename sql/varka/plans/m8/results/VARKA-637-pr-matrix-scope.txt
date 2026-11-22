@@ -88,6 +88,75 @@ first is left out of the matrix; the other two had no measured seconds in the fi
 The 58 runs came from 37 branches; 12 branches were dispatched more than once (356-trig seven
 times, 603b four, cov-int-unary and depth-cap-measure three, eight branches twice).
 
+## Stage one scored against the 12 red runs (read 22 November 2026 at about 23:55 CET)
+
+The question: would VARKA-637.md 3.1's first stage have held a red bin of each red run? Stage
+one is the suites the pull request's diff adds or changes (a suite file in the diff, not a suite
+reached through a changed helper), under every configuration the run's bins plan, plus the units
+of the bins that failed in the branch's last red run. The failing tests and configurations are
+each run's report job log (the `*** FAILED ***` lines); each test was found in the head's test
+sources with `git grep -F`, and the diff is the head against the merge base of the table below.
+Every failing configuration is a line of the build's `configurations` list, which the bins and
+`dev/varka_matrix.sh --all` both read, so stage one plans it. 44882879917 is read from the jobs
+of its first attempt, which `filter=latest` lists for its red bin and report; its second
+attempt's job list returned HTTP 502 three times.
+
+run          branch (PR)                       red bins  failing suite: config          stage one
+45046518805  600-bigint-float-avx2-r (#1625)   b064      VarkaDifferentialHarnessSuite  stops
+                                                         (changed): useAVX=2,
+                                                         wideConversionForm=MAGIC
+45009252877  613-partial-projection (#1619)    b044      VarkaFloatingLaneSuite (not    misses
+                                                         changed): severalKernels=false
+45003017229  335-bit-get (#1617)               b012,     VarkaEmitterBitwiseSuite       stops
+                                               b023,     (changed): validityByWidth=
+                                               b123      false; also VarkaCoverage-
+                                                         HarnessSuite and VarkaCoverage-
+                                                         DifferentialSuite (not changed):
+                                                         validityByWidth=false,
+                                                         lanesOverride=16
+44953252336  345b2-exp-on-master               b160      VarkaMathPortSuite (changed):  stops
+                                                         cse=false
+44882879917  356-trig                          b060      VarkaGroupingBoundSuite (not   misses
+                                                         changed): driverOutputTable=
+                                                         false
+44834265511  cov-int-unary                     b027      VarkaCoverageHarnessSuite (not misses
+                                                         changed): checkIntOverflow=false
+44741487426  356-trig                          b156      VarkaMathExactSuite (changed): stops
+                                                         validityByWidth=false
+44663505883  386-filter-null-then-raise        b047      VarkaDifferentialSuite         stops
+                                                         (changed): checkIntOverflow=false
+44663244734  603f-review                       b074,     VarkaEmitterNarrowArithSuite   stops
+                                               b090      (changed): groupBudget=64, =800
+44159650039  603b                              b099      VarkaEmitterNarrowArithSuite   stops
+                                                         (changed): validityByWidth=false
+44141461002  603b                              b053      VarkaEmitterNarrowArithSuite   stops
+                                                         (changed): validityByWidth=false
+43690478822  603b                              b061      VarkaCoverageCompositionFuzz-  misses
+                                                         Suite (not changed): lanesOverride
+                                                         =4,narrowGroupStore=COMBINED
+
+| stage one | red runs | their bin-min |
+|---|---:|---:|
+| holds a red bin, so it stops the run | 8 | 10,011 |
+| holds none: the run failed only in suites its PR did not change | 4 | 4,913 |
+| total | 12 | 14,924 |
+
+* All four misses change main code, and the main change failed a suite the branch did not
+  touch. The failed-run rule adds none: 603b's 43690478822 and 613's 45009252877 are their
+  branches' first dispatches, cov-int-unary's one earlier run (44827399601) was cancelled, not
+  red, and 356-trig's last red run before 44882879917, 44741487426, failed bin b156, whose units
+  are validityByWidth=false alone and hold no VarkaGroupingBoundSuite. The rule's only hits are
+  603b's 44141461002 and 44159650039, which their changed suite stops anyway.
+* 335-bit-get's run stops on its changed suite, but its other red tests, in two coverage suites
+  it did not change, would show only in the next run's second stage.
+* 10,011 bin-minutes is a ceiling, not a saving: each stopped run still pays the build job and
+  its own stage-one bins, which this reading did not price. The two largest laptop sweeps of
+  22 November were 219 and 228 JVM-minutes (results/VARKA-638-sweep-sizes.txt).
+* Outside the 12: #1626 (611-guarded-product-r, 45060620623, cancelled, so not counted) had red
+  bin b030 before the cancel, in VarkaExpressionCompilerSuite, which its PR did not change
+  (useAVX=2,checkedLongMultiply=BY_HOST and =MAGNITUDE). Stage one would have missed it too.
+  The branch's fix then changed that suite, so its next run's stage one would hold it.
+
 ## Shape
 
 A completed run (46) has a median of 171 bin jobs and 1,275 bin-minutes; no bin took more than
