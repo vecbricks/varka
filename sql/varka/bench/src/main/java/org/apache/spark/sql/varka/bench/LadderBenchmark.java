@@ -29,7 +29,7 @@ import java.util.List;
  *
  * <pre>
  *   spark-submit --master local[1] --driver-memory 6g --class ...LadderBenchmark \
- *     varka-bench.jar --label spark-4.2.0-jdk25 --rows 2000000 --out FILE [--input parquet]
+ *     varka-bench.jar --label spark-4.3.0-jdk25 --rows 2000000 --out FILE [--input parquet]
  * </pre>
  *
  * <p><b>Why.</b> The fork's ladder ({@code VarkaSizeLadderBenchmark}) times its vanilla arm
