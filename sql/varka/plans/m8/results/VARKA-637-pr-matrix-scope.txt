@@ -1,0 +1,141 @@
+# What a pull request's option matrix runs, and what its diff could have let it skip (VARKA-637,
+# VARKA-638), read on 22 November 2026 at about 22:00 CET.
+
+## Source
+
+Every workflow_dispatch run of varka-option-matrix.yml on MaxGekk/spark created from 15 November
+2026 00:00 UTC to the reading, from the Actions API (runs, then each run's jobs with
+filter=latest). 62 dispatches; 3 have no jobs listed (the jobs API returned none) and one is the
+master run 44485292430, so 58 are pull request branches (one, 45029680160, was cancelled
+after its build job). Three were still running at the reading,
+so their bin-minutes are partial.
+
+Columns: bins, the bin jobs listed; bin-min, the summed minutes of the bin jobs that ran (start
+to completion, cancelled and skipped jobs left out); longest, the longest such bin in minutes;
+wall, the run's first job creation to its last job completion in minutes; wait, the median bin
+job's minutes from creation to start, which is the queue for the fork's 40 slots.
+
+## Tier of each run's diff
+
+The diff is the head against its merge base with vecbricks/varka's master as it stood when the
+run was created (the last first-parent master commit before created_at). The tiers are a
+first-match draft of the rules VARKA-637.md 3.1 designs:
+
+  suites   only test suites (*Suite.scala or *Suite.java under sql/catalyst or sql/core src/test),
+           with documents, tooling or benchmarks beside them
+  none     documents: *.md, sql/varka/plans, skills, papers, figures, the benchmark results and
+           provenance files, workflows other than the option matrix's
+  tooling  dev/ scripts other than the matrix's own
+  matrix   the matrix's own: dev/varka_matrix*, varka-option-matrix.yml, sql/varka/matrix/*.tsv
+           but skips.tsv
+  all      anything else: main code, test classes that are not suites, generated data files,
+           unknown paths
+
+A run takes the widest tier any of its paths has.
+
+| tier | runs | bin-min | share of bin-min |
+|---|---:|---:|---:|
+| all | 50 | 57,734 | 85.4% |
+| suites | 6 | 7,504 | 11.1% |
+| tooling | 1 | 1,402 | 2.1% |
+| matrix | 1 | 972 | 1.4% |
+| total | 58 | 67,612 | |
+
+Of the 50 "all" runs, 46 change main code and 4 change only shared test classes and other files
+(502-ir-replay-file, 615-width-audit-admission, 477-junit-parameterized, and skips-union-merge,
+whose sql/varka/.gitattributes no rule lists). The 46 main-code runs change one to seventeen
+main files each; nearly every
+one touches a file every kernel's compile runs (Analysis, Slots, VarkaEmitBudget, VarkaEmitOption
+or VarkaEmitOptions, VarkaVectorIR, VarkaKernelPlan, VarkaNodeCompiler, VarkaExpressionCompiler,
+VarkaBodyEmitter, VarkaLoopEmitter). Of the 73 entries of VarkaEmitOption.TABLE, 4 name a node
+kind whose emission alone reads them (readOnlyBy: ConvertLane twice, DecimalColumn,
+WidenDecimal); the two runs that change VarkaConversionLowering, which lowers ConvertLane
+(600-bigint-float-avx2-r, 611-guarded-product-r), also change files on the list above.
+
+The six "suites" runs' changed suites, as a share of the summed suite seconds in
+sql/varka/matrix/suite-seconds.tsv (141 suites, 2,058 s): 605-nullif-ntz-sanitizer-r,
+VarkaCoverageCompositionFuzzSuite, 7.6%; 340-ntz-fields, VarkaTimestampNtzCastSuite, 0.9%;
+626-regen-speed, VarkaWidthAuditSuite, 630-depth-measure, VarkaVectorIRSharingSuite, and
+30-integral-division (two runs), VarkaIntegralDivisionBaselineQueriesSuite, none listed (the
+first is left out of the matrix; the other two had no measured seconds in the file).
+
+## By result
+
+| result | runs | bin-min |
+|---|---:|---:|
+| success | 34 | 43,516 |
+| failure | 12 | 14,924 |
+| cancelled | 9 | 5,747 |
+| running | 3 | 3,425 |
+
+The 58 runs came from 37 branches; 12 branches were dispatched more than once (356-trig seven
+times, 603b four, cov-int-unary and depth-cap-measure three, eight branches twice).
+
+## Shape
+
+A completed run (46) has a median of 171 bin jobs and 1,275 bin-minutes; no bin took more than
+32.2 minutes. 1,275 bin-minutes on the 38 bin slots is a floor of 34 minutes of bins. On 22
+November 14 dispatches used 16,103 bin-minutes, three of them (617-matrix-planner-check-r,
+353-support-table-r, 605-nullif-ntz-sanitizer-r) 3,721, 23%.
+
+## The runs
+
+run          branch                      result     tier     bins  bin-min  longest  wall  wait
+45061408127  skips-union-merge           running    all      174   930      15.9     150   57.4
+45060620623  611-guarded-product-r       cancelled  all      178   1070     28.4     148   61.6
+45060442549  342c-census-r               running    all      176   1093     22.7     161   70.8
+45060246559  617-matrix-planner-check-r  cancelled  matrix   194   972      13.7     153   63.9
+45058286930  353-support-table-r         running    tooling  205   1402     19.1     183   55.2
+45046518805  600-bigint-float-avx2-r     failure    all      178   1387     32.2     77    34.9
+45029680160  383-profile-predicate-r     cancelled  all      1     0        0.0      1     0.0
+45023435545  604-decimal-remainder-f-r   success    all      173   1305     18.1     116   74.2
+45019774322  613-partial-projection      success    all      173   1338     29.8     153   86.7
+45017980114  335-bit-get                 success    all      174   1334     16.4     172   103.3
+45014204596  605-nullif-ntz-sanitizer-r  success    suites   172   1347     23.5     185   88.9
+45013534970  345b2-exp-on-master         success    all      172   1342     28.4     152   32.9
+45009252877  613-partial-projection      failure    all      172   1274     23.6     48    17.9
+45003017229  335-bit-get                 failure    all      174   1309     18.2     68    36.0
+44997955603  fuzz-conjunct-order         success    all      173   1319     25.5     64    29.2
+44965594023  340-ntz-fields              success    suites   172   1309     29.1     108   69.6
+44964612543  359-decimal128-lane-pair    success    all      172   1301     18.5     119   77.1
+44961659346  502-ir-replay-file          success    all      172   1277     21.8     109   30.4
+44953252336  345b2-exp-on-master         failure    all      172   1342     27.4     70    32.0
+44942318779  615-width-audit-admission   success    all      171   1302     30.2     81    41.1
+44941538747  345b-on-345a2               success    all      172   1324     27.9     79    37.7
+44935397305  629-auto-chain-cap          success    all      171   1287     20.8     74    32.9
+44926227103  345a2-on-master             success    all      171   1303     18.0     67    39.8
+44925573089  626-regen-speed             success    suites   171   1309     27.6     70    29.2
+44912821531  630-depth-measure           success    suites   171   1300     17.9     40    16.0
+44903689463  630-dag-parser              success    all      171   1304     22.4     57    30.6
+44902111221  630-lift-memo               success    all      171   1293     18.9     54    16.9
+44893721544  356-trig                    success    all      171   1318     20.7     47    19.4
+44891212201  630-linear-equals           success    all      170   1276     20.4     44    16.9
+44882879917  356-trig                    failure    all      171   1233     18.4     55    -24.7
+44877758025  630-linear-canonical        success    all      169   1258     18.1     61    18.5
+44852634122  cov-int-unary               success    all      169   1274     17.4     64    34.7
+44851815315  356-trig                    success    all      170   1257     17.2     64    24.4
+44838304187  356-trig                    success    all      168   1266     16.4     51    25.3
+44834265511  cov-int-unary               failure    all      167   1268     18.2     56    18.8
+44829659183  depth-cap-measure           success    all      169   1249     17.8     47    18.1
+44827399601  cov-int-unary               cancelled  all      167   32       8.1      11    0.0
+44821849987  depth-cap-measure           cancelled  all      169   77       12.1     25    5.9
+44818547486  356-trig                    cancelled  all      168   434      18.4     46    4.0
+44811998883  30-integral-division        cancelled  suites   161   1012     17.0     36    11.3
+44792709646  depth-cap-measure           success    all      168   1223     27.2     47    15.2
+44749801924  30-integral-division        success    suites   161   1227     26.2     48    14.2
+44741487426  356-trig                    failure    all      162   1218     20.0     60    34.6
+44739335563  375-mask-from-long-arm      success    all      165   1263     18.4     59    15.2
+44706556660  337-float-normalize         success    all      161   1215     19.3     41    14.2
+44696243575  386-filter-null-then-raise  success    all      160   1174     16.0     74    46.0
+44684484818  337-float-normalize         cancelled  all      161   974      15.0     134   79.7
+44683892034  356-trig                    cancelled  all      161   1176     15.7     159   93.0
+44683177019  603f-review                 success    all      160   1187     21.1     157   85.5
+44682949765  375-mask-from-long-arm      success    all      164   1192     16.1     152   69.3
+44663505883  386-filter-null-then-raise  failure    all      160   1190     16.5     96    52.1
+44663244734  603f-review                 failure    all      160   1193     14.5     87    35.7
+44649325572  548b                        success    all      160   1184     16.0     95    59.1
+44648792550  477-junit-parameterized     success    all      160   1219     21.4     94    51.1
+44179178461  603b                        success    all      191   1440     17.4     59    17.9
+44159650039  603b                        failure    all      160   1183     16.5     51    13.2
+44141461002  603b                        failure    all      160   1189     24.5     56    13.1
+43690478822  603b                        failure    all      160   1138     22.6     43    12.6
