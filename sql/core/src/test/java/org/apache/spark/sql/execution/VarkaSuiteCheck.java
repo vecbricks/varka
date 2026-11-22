@@ -262,14 +262,18 @@ public final class VarkaSuiteCheck {
     final List<Finding> findings = new ArrayList<>();
   }
 
-  /** Each suite's checks: those run, those with a literal lifted, and those the compiler fused. */
+  /**
+   * Each suite's checks: those run, those with a literal lifted, those the compiler fused, and
+   * those of which a kernel answered some batch. A fused check whose every batch declined compared
+   * Spark with Spark only, so the last count tells it from one a kernel answered.
+   */
   private static final Map<String, int[]> COUNTS = new HashMap<>();
 
   /** {@code suite}'s counts so far, as a line the end of a suite prints. */
   public static synchronized String summary(String suite) {
-    int[] c = COUNTS.getOrDefault(suite, new int[3]);
+    int[] c = COUNTS.getOrDefault(suite, new int[4]);
     return suite + ": " + c[0] + " checks through Varka, " + c[1] + " with a column, " + c[2]
-        + " fused";
+        + " fused, " + c[3] + " answered by a kernel";
   }
 
   /** The test running now, by suite; a check outside a test has none. */
@@ -329,7 +333,7 @@ public final class VarkaSuiteCheck {
 
   private static void checkOnce(String suite, Expression prepared, InternalRow input,
       boolean record, Expect expect, List<Finding> findings) {
-    int[] counts = COUNTS.computeIfAbsent(suite, k -> new int[3]);
+    int[] counts = COUNTS.computeIfAbsent(suite, k -> new int[4]);
     counts[0]++;
     Lifted lifted = lift(prepared, input);
     if (lifted.lifted() == 0) {
@@ -359,6 +363,9 @@ public final class VarkaSuiteCheck {
       }
       return null;
     });
+    if (outcomes.stream().anyMatch(o -> o.answered > 0)) {
+      counts[3]++;
+    }
     for (VarkaExpressionHarness.Outcome o : outcomes) {
       for (String f : o.findings) {
         // The harness's findings are the kernel's and the evaluator's, but for this one.

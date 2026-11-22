@@ -138,7 +138,8 @@ public final class VarkaSuiteCheckSuite {
     VarkaSuiteCheck.Decision d = VarkaSuiteCheck.endTest(suite, "fused");
     assertEquals(VarkaSuiteCheck.Action.PASS, d.action(), d.message());
     String summary = VarkaSuiteCheck.summary(suite);
-    assertTrue(summary.endsWith(" 1 fused"), "the check did not reach the harness: " + summary);
+    assertTrue(summary.endsWith(" 1 fused, 1 answered by a kernel"),
+        "the check did not reach a kernel: " + summary);
   }
 
   @Test
