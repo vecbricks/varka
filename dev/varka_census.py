@@ -17,8 +17,9 @@
 #
 """The census of Spark's scalar expressions over milestone 8's type set (m8/PLAN.md 2).
 
-  dev/varka_census.py            # rewrite m8/census.tsv and m8/casts.tsv, print the summary
-  dev/varka_census.py --check    # fail if the committed census differs from a fresh one
+  dev/varka_census.py            # rewrite the census, the cast matrix and the docs' support
+                                 # table, print the summary
+  dev/varka_census.py --check    # fail if any of the three differs from a fresh one
   dev/varka_census.py --summary  # print the counts only
 
 The mechanical half reads `FunctionRegistry.scala`: every registered name, the class or builder
@@ -49,6 +50,11 @@ source types are not curated: they are the sources `legal()` allows. Nor are the
 the cast entries (the aliases, `cast` and `try_cast`, marked `matrix`): they are derived from
 casts_fused.tsv by matrix_fused() (VARKA-606).
 So the census is regenerated, not edited, and a registry change upstream shows up here.
+
+The census reaches users as the support table of docs/sql-varka.md (VARKA-353), a block this
+script writes between its markers and --check holds to what it renders: per type and per family,
+the math functions and the casts per mode, every cell read from the census, the cast probe and
+coverage.json, so a new lowering moves the table in the same commit as the census.
 """
 
 import argparse
@@ -651,6 +657,15 @@ def decimal_representation_lines(scoped):
     return lines
 
 
+def pair_counts(scoped):
+    """The (entry, type) pairs of the in-scope rows, per type: (admitted, fused today), each a
+    Counter. The summary's "pairs by type" and the support table's by-type columns read this."""
+    pairs = [(r, t) for r in scoped for t in r[5].split(",") if t]
+    admitted = collections.Counter(t for _, t in pairs)
+    fused = collections.Counter(t for r, t in pairs if t in r[7].split(","))
+    return admitted, fused
+
+
 def summary(out):
     registered = [r for r in out if not r[2].startswith("implicit")]
     lines = []
@@ -676,11 +691,9 @@ def summary(out):
     lines.append("")
     need = collections.Counter(r[9] for r in scoped)
     lines.append("in scope, by need: " + ", ".join(f"{k} {need.get(k, 0)}" for k in NEEDS))
-    pairs = [(r, t) for r in scoped for t in r[5].split(",")]
-    fused = [(r, t) for r, t in pairs if t in r[7].split(",")]
-    lines.append(f"(entry, type) pairs: {len(pairs)}, fused today {len(fused)}")
-    per_type = collections.Counter(t for _, t in pairs)
-    per_type_fused = collections.Counter(t for _, t in fused)
+    per_type, per_type_fused = pair_counts(scoped)
+    total, total_fused = sum(per_type.values()), sum(per_type_fused.values())
+    lines.append(f"(entry, type) pairs: {total}, fused today {total_fused}")
     lines.append("pairs by type (fused today / admitted):")
     for t in ORDER:
         tag = "new" if t in NEW else "existing"
@@ -1165,6 +1178,412 @@ def cast_summary(rows):
     return "\n".join(lines) + "\n"
 
 
+# ---- the support table --------------------------------------------------------------------
+
+# The users' table of the census (VARKA-353): a block of docs/sql-varka.md this script writes and
+# --check holds to what it renders, beside the blocks VarkaCoverageSuite writes there.
+DOCS = "docs/sql-varka.md"
+SUPPORT = "support table"
+SUPPORT_MARKS = (f"<!-- BEGIN generated {SUPPORT} -->\n", f"<!-- END generated {SUPPORT} -->\n")
+REGEN = "python3 dev/varka_census.py"
+# The two representations of a decimal (m8/PLAN.md 2.8): an unscaled long up to precision 18,
+# a 128-bit lane pair above it.
+BANDS = {"p18": "to precision 18", "p38": "precision 19 to 38"}
+SIMPLE_COLUMN_TYPES = {
+    "boolean": "bool",
+    "tinyint": "byte",
+    "smallint": "short",
+    "int": "int",
+    "bigint": "bigint",
+    "float": "float",
+    "double": "double",
+    "date": "date",
+    "timestamp_ntz": "ntz",
+}
+
+
+def column_type(declared):
+    """The census type of a coverage column's declared type, and its band for a decimal, read
+    from the type rather than the column's name.
+
+    >>> [column_type(t) for t in ["decimal(18,2)", "decimal(19,2)", "interval day to second"]]
+    [('dec', 'p18'), ('dec', 'p38'), ('dt', None)]
+    >>> column_type("time(6)"), column_type("interval year")
+    (('time', None), ('ym', None))
+    >>> column_type("decimal(40,2)")
+    Traceback (most recent call last):
+    SystemExit: census: coverage column type 'decimal(40,2)' has no census type
+    """
+    d = declared.strip().lower()
+    m = re.fullmatch(r"decimal\((\d+),\s*\d+\)", d)
+    if m and 1 <= int(m.group(1)) <= 38:
+        return "dec", "p18" if int(m.group(1)) <= 18 else "p38"
+    if d in SIMPLE_COLUMN_TYPES:
+        return SIMPLE_COLUMN_TYPES[d], None
+    if re.fullmatch(r"time(\(\d\))?", d):
+        return "time", None
+    m = re.fullmatch(r"interval (year|month)( to month)?", d)
+    if m:
+        return "ym", None
+    if re.fullmatch(r"interval (day|hour|minute|second)( to (hour|minute|second))?", d):
+        return "dt", None
+    raise SystemExit(f"census: coverage column type {declared!r} has no census type")
+
+
+def columns_read(sql, columns):
+    """The columns a coverage row's SQL names: identifiers outside its quoted literals that are
+    column names, so `d` in `trunc(d, 'MM')` is read and `1L` names no `L`.
+
+    >>> sorted(columns_read("d + INTERVAL '1 d' DAY < x2 AND 1L > l", {"d", "x2", "l", "L"}))
+    ['d', 'l', 'x2']
+    """
+    bare = re.sub(r"'[^']*'|\"[^\"]*\"", " ", sql)
+    return {w for w in re.findall(r"(?<![\w.])[A-Za-z_]\w*", bare) if w in columns}
+
+
+def coverage_by_type(data):
+    """Per census type, the coverage rows that read a column of it; `dec` is split by band under
+    the keys "p18" and "p38", and a row reading both bands counts under "p38", the band whose
+    lane pair it needs.
+
+    >>> data = {"columns": {"d18": "decimal(18,2)", "d18b": "decimal(18,2)",
+    ...                     "d38": "decimal(38,2)", "i": "int"},
+    ...         "expressions": [{"executable": "d18 > 0"}, {"executable": "d38 IS NULL"},
+    ...                         {"executable": "d18b < d38 AND i > 0"}]}
+    >>> c = coverage_by_type(data)
+    >>> c["dec"], c["p18"], c["p38"], c["int"]
+    (3, 1, 2, 1)
+    """
+    columns = {name: column_type(t) for name, t in data["columns"].items()}
+    counts = collections.Counter()
+    for row in data["expressions"]:
+        read = columns_read(row["executable"], columns)
+        counts.update({columns[c][0] for c in read})
+        bands = {columns[c][1] for c in read if columns[c][1]}
+        if bands:
+            counts["p38" if "p38" in bands else "p18"] += 1
+    return counts
+
+
+def owner_declined(r):
+    """The types an in-scope entry's reason declines by the owner's decision."""
+    m = re.match(r"declined ([\w,]+): ", r[4])
+    return m.group(1).split(",") if m else []
+
+
+def left_reason(r, t):
+    """Why an in-scope entry leaves type `t` unfused, the class derived from its census row: fused
+    in part (the `^` column), or owed to the rows it names, with the need beside them. None where
+    `t` is fused. A type the owner declined is not among the entry's types at all (owner_declined).
+
+    >>> row = ["x", "X", "s", "in", "", "int,dec", "", "int", "", "semantics", "359", "", ""]
+    >>> left_reason(row, "dec"), left_reason(row, "int")
+    ('owed to row 359 (semantics)', None)
+    >>> left_reason(row[:12] + ["dec"], "dec")
+    'fused in part'
+    """
+    if t in r[7].split(","):
+        return None
+    if t in r[12].split(","):
+        return "fused in part"
+    rows = [x for x in r[10].split(",") if x]
+    if not rows:
+        return f"owed, no row named ({r[9]})"
+    return f"owed to row{'s' if len(rows) > 1 else ''} {', '.join(rows)} ({r[9]})"
+
+
+def row_key(x):
+    m = re.match(r"(\d+)(.*)", x)
+    return (int(m.group(1)), m.group(2)) if m else (1 << 30, x)
+
+
+def cell(text):
+    return str(text).replace("|", "\\|")
+
+
+def table(header, rows, align):
+    out = ["| " + " | ".join(header) + " |", "| " + " | ".join(align) + " |"]
+    out += ["| " + " | ".join(cell(c) for c in r) + " |" for r in rows]
+    return "\n".join(out) + "\n"
+
+
+def lanes_of(t):
+    """A census type's lanes as the type registry states them, its words per value by band."""
+    r = next(r for r in types_rows() if r["census"] == t)
+    if r["lanes"] == "-":
+        return r["storage"]
+    if ":" in r["words"]:
+        words = [w.split(":") for w in r["words"].split(",")]
+        by = ", ".join(f"{n} to precision {p[1:]}" for p, n in words)
+        return f"{r['lanes'].replace(',', ', ')}, words per value: {by}"
+    return r["lanes"].replace(",", ", ")
+
+
+def by_type(scoped, cov, order=None):
+    """The by-type table's rows: one per census type, in registry order.
+
+    >>> scoped = [
+    ...     ["=", "EqualTo", "s", "in", "", "int,dec", "", "int", "", "plumbing", "348", "", "dec"],
+    ...     ["/", "Divide", "s", "in", "declined dec: x", "int", "", "", "", "semantics", "359",
+    ...      "", ""]]
+    >>> for r in by_type(scoped, {"int": 4, "dec": 3, "p18": 1, "p38": 2}, ["int", "dec"]):
+    ...     print(r[2:])
+    [2, 1, 0, 'semantics 1', 0, 4]
+    [1, 0, 1, '', 1, '3: 1 to precision 18, 2 at precision 19 to 38']
+    """
+    spark = {r["census"]: r["spark"] for r in types_rows()}
+    admitted, fused = pair_counts(scoped)
+    out = []
+    for t in order or ORDER:
+        reasons = [(r, left_reason(r, t)) for r in scoped if t in r[5].split(",")]
+        part = sum(why == "fused in part" for _, why in reasons)
+        left = collections.Counter(r[9] for r, why in reasons if why and why != "fused in part")
+        rows = cov.get(t, 0)
+        if t == "dec":
+            p18, p38 = cov.get("p18", 0), cov.get("p38", 0)
+            rows = f"{rows}: {p18} {BANDS['p18']}, {p38} at {BANDS['p38']}"
+        out.append(
+            [
+                f"`{spark.get(t, t)}` (`{t}`)",
+                lanes_of(t),
+                admitted.get(t, 0),
+                fused.get(t, 0),
+                part,
+                ", ".join(f"{k} {n}" for k, n in sorted(left.items())),
+                sum(t in owner_declined(r) for r in scoped),
+                rows,
+            ]
+        )
+    return out
+
+
+def family_name(section):
+    if section.startswith("implicit: "):
+        return section[len("implicit: ") :] + ", no registry entry"
+    return section.removesuffix("Expressions")
+
+
+def by_family(scoped):
+    """The by-family table's rows: one per census section, in census order.
+
+    >>> scoped = [
+    ...     ["a", "A", "mathExpressions", "in", "", "int,double", "", "int,double", "", "done",
+    ...      "", "", ""],
+    ...     ["b", "B", "mathExpressions", "in", "", "int,dec", "", "int", "", "semantics",
+    ...      "359,348", "", ""]]
+    >>> by_family(scoped)
+    [['math', 2, 1, 2, 0, 'dec', '348, 359']]
+    """
+    out = []
+    for section in dict.fromkeys(r[2] for r in scoped):
+        rows = [r for r in scoped if r[2] == section]
+        owed = {t for r in rows for t in r[5].split(",") if left_reason(r, t)}
+        named = {x for r in rows if r[9] != "done" for x in r[10].split(",") if x}
+        out.append(
+            [
+                family_name(section),
+                len(rows),
+                sum(r[9] == "done" for r in rows),
+                sum(bool(r[7]) for r in rows),
+                sum(bool(r[12]) for r in rows),
+                ", ".join(t for t in ORDER if t in owed),
+                ", ".join(sorted(named, key=row_key)),
+            ]
+        )
+    return out
+
+
+# The bound a math function computes to under spark.sql.codegen.varka.math.ulpContract.enabled,
+# per host library, is row 367's contract; until it commits one, every function reads this.
+NO_CONTRACT = "exact; no contract"
+CONTRACT_ROW = "367"
+
+
+def math_rows(scoped):
+    """The math functions whose departure from Spark's answer would need a ulp contract (need
+    `ulp`), grouped by the rows that fuse them: their names, the rows, the types fused today, the
+    answer by default and under the opt-in mode.
+
+    >>> scoped = [["sin", "Sin", "m", "in", "", "double", "", "", "", "ulp", "367,356", "", ""],
+    ...           ["cos", "Cos", "m", "in", "", "double", "", "", "", "ulp", "367,356", "", ""]]
+    >>> math_rows(scoped)
+    [['`sin`, `cos`', '356', 'none', "Spark's, bit for bit", 'exact; no contract']]
+    """
+    groups = {}
+    for r in scoped:
+        if r[9] == "ulp":
+            rows_of = (x for x in r[10].split(",") if x and x != CONTRACT_ROW)
+            key = ", ".join(sorted(rows_of, key=row_key))
+            groups.setdefault(key, []).append(r)
+    out = []
+    for key, rows in sorted(groups.items(), key=lambda kv: row_key(kv[0])):
+        fused = {t for r in rows for t in r[7].split(",") if t}
+        out.append(
+            [
+                ", ".join(f"`{r[0]}`" for r in rows),
+                key,
+                ", ".join(t for t in ORDER if t in fused) or "none",
+                "Spark's, bit for bit",
+                NO_CONTRACT,
+            ]
+        )
+    return out
+
+
+def form_label(form):
+    """A cast form for a footnote, a decimal by its band rather than its probe precision."""
+
+    def band(m):
+        return "DECIMAL " + BANDS["p18" if int(m.group(1)) <= 18 else "p38"]
+
+    return re.sub(r"DECIMAL\((\d+),\s*\d+\)", band, form)
+
+
+def cast_forms(root=ROOT):
+    """Per (from, to) and mode, the declined forms of casts_fused.tsv as "FROM to TO"."""
+    out = collections.defaultdict(list)
+    with open(os.path.join(root, CASTS_FUSED), encoding="utf-8") as f:
+        for line in f.read().splitlines()[1:]:
+            src, dst, from_type, to_type, *answers = line.split("\t")
+            for mode, answer in zip(FUSED_MODES, answers):
+                if answer == "declined":
+                    label = f"{form_label(from_type)} to {form_label(to_type)}"
+                    if label not in out[(src, dst, mode)]:
+                        out[(src, dst, mode)].append(label)
+    return out
+
+
+def cast_cell(probe, shown, src, dst, mode):
+    """One cell of a mode's cast matrix, by that mode's own legality: blank where the mode rejects
+    the pair, `=` for an identity, `context` for a pair that fuses only inside another operator
+    where a coverage row casts it in this mode (`shown`, coverage_index's "#casts"), else
+    `fused`, `declined` or `k of n` forms.
+
+    >>> probe = {("dt", "dt"): ({"ansi": 2}, {"ansi": 1}), ("date", "int"): ({"legacy": 1}, {}),
+    ...          ("dec", "dec"): ({"ansi": 2, "try": 2}, {"ansi": 0, "try": 0})}
+    >>> shown = {("dec", "dec", "ansi")}
+    >>> [cast_cell(probe, shown, *p) for p in [("dt", "dt", "ansi"), ("date", "int", "legacy")]]
+    ['1 of 2', 'declined']
+    >>> [cast_cell(probe, shown, "date", "int", m) for m in ("ansi", "try")]
+    ['', '']
+    >>> [cast_cell(probe, shown, *p) for p in [("int", "int", "try"), ("dec", "dec", "ansi"),
+    ...                                        ("dec", "dec", "try")]]
+    ['=', 'context', 'declined']
+    >>> cast_cell({}, shown, "int", "bigint", "ansi")
+    Traceback (most recent call last):
+    SystemExit: census: cast int to bigint is legal under ansi and the probe has no form of it
+    """
+    if not legal(src, dst)[MODE_LEGAL[mode]]:
+        return ""
+    if cast_kind(src, dst)[0] == "identity":
+        return "="
+    if (src, dst) in CONTEXT_CASTS and (src, dst, mode) in shown:
+        return "context"
+    legal_forms, fused = probe.get((src, dst), ({}, {}))
+    n, k = legal_forms.get(mode, 0), fused.get(mode, 0)
+    if not n:
+        raise SystemExit(
+            f"census: cast {src} to {dst} is legal under {mode} and the probe has no form of it"
+        )
+    return "fused" if k == n else "declined" if not k else f"{k} of {n}"
+
+
+def cast_tables(probe, shown, forms):
+    """The three cast matrices, each under its own `<details>`, with a footnote per cell fused
+    in part naming the cast's kind and its declined forms."""
+    out = []
+    for mode in FUSED_MODES:
+        rows, notes = [], []
+        for src in ORDER:
+            cells = [cast_cell(probe, shown, src, dst, mode) for dst in ORDER]
+            rows.append([f"`{src}`"] + cells)
+            for dst, c in zip(ORDER, cells):
+                if " of " in c:
+                    declined = "; ".join(forms[(src, dst, mode)])
+                    kind = cast_kind(src, dst)[0]
+                    notes.append(f"* `{src}` to `{dst}` ({kind}), {c} forms; declined: {declined}")
+        out.append(f'<details markdown="1">\n<summary>{mode.upper()}</summary>\n')
+        out.append(table(["from \\ to"] + [f"`{t}`" for t in ORDER], rows, [":---"] * 14))
+        if notes:
+            out.append("\n" + "\n".join(notes) + "\n")
+        out.append("\n</details>\n")
+    return "\n".join(out)
+
+
+def support_block(out, cov, probe, forms):
+    """The text between the support table's markers."""
+    scoped = [r for r in out if r[3] == "in"]
+    parts = [
+        f"Written by `dev/varka_census.py` from the census (`{OUT}`, `{CASTS_OUT}`), the"
+        f" compiler's cast probe (`{CASTS_FUSED}`) and `{COVERAGE}`; regenerate it with"
+        f" `{REGEN}`, and `{REGEN} --check` fails while it is stale.\n",
+        "#### By type\n",
+        "An entry is a function or operator of the census; a type counts *fused* for it only"
+        " when every form of the entry over that type fuses, and *in part* when some form does."
+        " *Left, by need* is the rest by what fusing it takes (`plumbing`, a compiler arm and IR on"
+        " lanes that exist; `semantics`, Spark's overflow, NaN, rounding or scale rules; `ulp`, a"
+        " math function exact to Spark's answer); the family table names the plan rows that"
+        " owe them. *Declined* are the entries the owner's decision keeps off the type."
+        " *Coverage rows* are the rows of the coverage table below that read a column of the"
+        " type; a row reading decimals of both bands counts at 19 to 38, whose lane pair it"
+        " needs.\n",
+        table(
+            ["Type", "Lanes", "Entries", "Fused", "In part", "Left, by need", "Declined"]
+            + ["Coverage rows"],
+            by_type(scoped, cov),
+            [":---", ":---"] + ["---:"] * 3 + [":---", "---:", ":---"],
+        ),
+        "#### By family\n",
+        "One row per section of Spark's function registry, and per family of the operators the"
+        " parser builds with no registry entry: its entries in scope, those fused for every type"
+        " they admit, those fused for at least one, those fused in part for some type, the types"
+        " still owed and the plan rows the unfinished entries name.\n",
+        table(
+            ["Family", "Entries", "Every type", "Some type", "In part", "Types owed", "Rows"],
+            by_family(scoped),
+            [":---"] + ["---:"] * 4 + [":---", ":---"],
+        ),
+        "#### Math functions\n",
+        "The math functions that do not fuse yet, by the plan row that fuses them (the ones"
+        " that fuse today are named above and compute Spark's answer exactly): what each will"
+        " return by default once fused, and the bound it will compute to with"
+        " `spark.sql.codegen.varka.math.ulpContract.enabled` true, which the host library's"
+        f" contract (row {CONTRACT_ROW}) states.\n",
+        table(
+            ["Functions", "Row", "Fused for", "By default", "Under the ulp contract"],
+            math_rows(scoped),
+            [":---"] * 5,
+        ),
+        "#### Casts by mode\n",
+        "One matrix per evaluation mode, rows the source type and columns the target, each cell"
+        " by that mode's own legality: blank where the mode rejects the cast, `=` for an identity"
+        " the analyzer removes, `context` where the cast fuses only inside another operator, as a"
+        " coverage row (compiled under ANSI) shows, and"
+        " otherwise how many of the probe's forms (interval unit pairs, decimal precisions and"
+        " scales) fuse. LEGACY is the mode with `spark.sql.ansi.enabled` false, ANSI with it true,"
+        " and TRY is `try_cast`.\n",
+        cast_tables(probe, coverage_index()["#casts"], forms),
+    ]
+    return "\n".join(parts)
+
+
+def splice(text, block):
+    """`text` with the support table's block replaced by `block`.
+
+    >>> b, e = SUPPORT_MARKS
+    >>> splice("a\\n" + b + "old\\n" + e + "z\\n", "new\\n")
+    'a\\n<!-- BEGIN generated support table -->\\nnew\\n<!-- END generated support table -->\\nz\\n'
+    >>> splice("a\\n", "new\\n")
+    Traceback (most recent call last):
+    SystemExit: census: docs/sql-varka.md has no support table block
+    """
+    begin, end = SUPPORT_MARKS
+    i, j = text.find(begin), text.find(end)
+    if i < 0 or j < i or text.count(begin) != 1:
+        raise SystemExit(f"census: {DOCS} has no {SUPPORT} block")
+    return text[: i + len(begin)] + block + text[j:]
+
+
 # Every landed type is held to the conformance contract (VARKA-484, VARKA-475.md 3.1): a suite
 # Varka<Name>ConformanceSuite over VarkaTypeConformance, or the row that owes it, both named in
 # the type registry (VarkaTypes' conformance). A landed type is one Varka reads today. A type the
@@ -1216,6 +1635,25 @@ def conformance_errors(root=ROOT):
     return errors
 
 
+def stale(files, committed):
+    """For each rendered file whose committed text (`committed(path)`) differs, the message that
+    names it and the command that rewrites it: a hand edit of one cell of the support table is a
+    stale docs file.
+
+    >>> b, e = SUPPORT_MARKS
+    >>> fresh = "x\\n" + b + "| a | 1 |\\n" + e
+    >>> stale({DOCS: fresh}, {DOCS: fresh}.get)
+    []
+    >>> stale({DOCS: fresh}, {DOCS: fresh.replace("| 1 |", "| 2 |")}.get)
+    ['census: docs/sql-varka.md is stale; run dev/varka_census.py']
+    """
+    return [
+        f"census: {path} is stale; run dev/varka_census.py"
+        for path, text in files.items()
+        if committed(path) != text
+    ]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="fail if the committed file is stale")
@@ -1236,12 +1674,16 @@ def main():
             print("census: " + e, file=sys.stderr)
         return 1
     casts = cast_matrix()
+    probe = casts_fused()
+    cov = coverage_by_type(json.loads(read(COVERAGE)))
+    block = support_block(out, cov, probe, cast_forms())
     files = {OUT: render(out), CASTS_OUT: render_rows(CAST_HEADER, casts)}
+    files[DOCS] = splice(read(DOCS), block)
     if args.check:
-        stale = [path for path, text in files.items() if read(path) != text]
-        for path in stale:
-            print(f"census: {path} is stale; run dev/varka_census.py", file=sys.stderr)
-        return 1 if stale else 0
+        found = stale(files, read)
+        for message in found:
+            print(message, file=sys.stderr)
+        return 1 if found else 0
     if not args.summary:
         for path, text in files.items():
             with open(os.path.join(ROOT, path), "w", encoding="utf-8") as f:
