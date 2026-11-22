@@ -17150,16 +17150,16 @@
       "16" : "37a40b0ab2544c84"
     },
     "narrowConversionForm=ROUND_TO_ODD over useAVX=2" : {
-      "4" : "726121f13f44527f",
-      "16" : "a4c63b9065b592b3"
+      "4" : "ee98d3a911a962b1",
+      "16" : "37a40b0ab2544c84"
     },
     "narrowConversionForm=WINDOWED over useAVX=2" : {
-      "4" : "726121f13f44527f",
-      "16" : "a4c63b9065b592b3"
+      "4" : "ee98d3a911a962b1",
+      "16" : "37a40b0ab2544c84"
     },
     "narrowConversionForm=SCALAR over useAVX=2" : {
-      "4" : "726121f13f44527f",
-      "16" : "a4c63b9065b592b3"
+      "4" : "ee98d3a911a962b1",
+      "16" : "37a40b0ab2544c84"
     },
     "narrowGroupStore=MASKED over lanesOverride=4" : {
       "4" : "d88ceac1873f23c0"
