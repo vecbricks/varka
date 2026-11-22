@@ -838,7 +838,9 @@ public final class VarkaDifferentialHarnessSuite {
             shape("CAST(l AS DOUBLE) AS a, CAST(l AS FLOAT) AS b, x AS c", SERVED)))));
     // The bounded L2D declines a batch with a bigint past 2^51, which the row engine answers,
     // and serves one inside its window; every L2F form is exact on every long, so each serves,
-    // the windowed one also over the window's edges.
+    // the windowed one also over the window's edges. Each part names its wide form, so a matrix
+    // arm that sets the bounded one cannot turn a part that expects every batch served into one
+    // that declines.
     var source = table("l, x", "CAST(NULL AS BIGINT), CAST(NULL AS DOUBLE)",
         conversionRows.toArray(String[]::new));
     var window = table("l, x", "CAST(NULL AS BIGINT), CAST(NULL AS DOUBLE)",
@@ -861,15 +863,18 @@ public final class VarkaDifferentialHarnessSuite {
             shape("CAST(l AS DOUBLE) AS v", SERVED),
             shape("CAST(l AS FLOAT) AS v", SERVED)),
           options(o -> o.withUseAVX(2)
+                .withWideConversionForm(VarkaEmitOptions.WideConversionForm.XOR_SPLIT)
                 .withNarrowConversionForm(VarkaEmitOptions.NarrowConversionForm.WINDOWED),
               source,
             shape("CAST(l AS FLOAT) AS v", SERVED),
             shape("CAST(l AS DOUBLE) AS a, CAST(l AS FLOAT) AS b, x AS c", SERVED)),
           options(o -> o.withUseAVX(2)
+                .withWideConversionForm(VarkaEmitOptions.WideConversionForm.XOR_SPLIT)
                 .withNarrowConversionForm(VarkaEmitOptions.NarrowConversionForm.WINDOWED),
               window,
             shape("CAST(l AS FLOAT) AS v", SERVED)),
           options(o -> o.withUseAVX(2)
+                .withWideConversionForm(VarkaEmitOptions.WideConversionForm.XOR_SPLIT)
                 .withNarrowConversionForm(VarkaEmitOptions.NarrowConversionForm.SCALAR),
               source,
             shape("CAST(l AS FLOAT) AS v", SERVED),
