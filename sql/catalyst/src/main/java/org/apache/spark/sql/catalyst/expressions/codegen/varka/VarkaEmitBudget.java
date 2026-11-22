@@ -658,6 +658,28 @@ final class VarkaEmitBudget {
    * {@link #MAX_FUSED_NODES} counting nodes only where that budget is off.
    */
   static int weightOf(VarkaVectorIR node) {
+    return weightOf(node, VarkaEmitOptions.DEFAULTS);
+  }
+
+  /** The long lane count the scalar conversion's weight assumes: 512 bits of long lanes. */
+  static final int SCALAR_WEIGHT_LANES = 8;
+
+  /**
+   * {@link #weightOf(VarkaVectorIR)} under {@code options}: a long to float conversion below
+   * emit level 3 weighs the calls of the form {@code narrowConversionForm} names, as the emitter
+   * writes it, so the default rounding to odd keeps its 24 calls and the windowed form, which
+   * holds both its arms, its 31 (VARKA-600). The scalar form's calls grow with the lane count,
+   * which options do not carry, so it is weighed at {@link #SCALAR_WEIGHT_LANES}.
+   */
+  static int weightOf(VarkaVectorIR node, VarkaEmitOptions options) {
+    if (node instanceof ConvertLane n && n.child().laneType() == VarkaVectorIR.LaneType.LONG
+        && n.target() == VarkaVectorIR.LaneType.FLOAT && options.convertsFallBack()) {
+      return switch (options.narrowConversionForm()) {
+        case ROUND_TO_ODD -> VarkaConversionLowering.ODD_CALLS;
+        case WINDOWED -> VarkaConversionLowering.WINDOWED_CALLS;
+        case SCALAR -> VarkaConversionLowering.scalarCalls(SCALAR_WEIGHT_LANES);
+      };
+    }
     return switch (node) {
       // The leaves' loads and broadcasts are paid once per column and literal, not per node.
       // A boolean column and a constant are leaves: a data word read and a constant, no lane call.
@@ -702,10 +724,10 @@ final class VarkaEmitBudget {
       // A long converted to a floating lane: one convertShape at level 3, and below it the AVX2
       // form, the larger, whose calls the weight counts as the long division's does: which one
       // emits cannot be asked here. For L2D that is the largest of its forms, 343b1's split; for
-      // L2F the windowed form, both of whose arms are in its method (VARKA-600).
+      // L2F the rounding to odd, the default; the options' form is weighed by the overload.
       case ConvertLane n when n.child().laneType() == VarkaVectorIR.LaneType.LONG ->
           n.target() == VarkaVectorIR.LaneType.FLOAT
-              ? VarkaConversionLowering.WINDOWED_CALLS : VarkaConversionLowering.SPLIT_CALLS;
+              ? VarkaConversionLowering.ODD_CALLS : VarkaConversionLowering.SPLIT_CALLS;
       // One lanewise op each: the add or subtract, the min or max, the blend (its condition is a
       // node of its own), the narrowing conversion, the compare (an unsigned one too: it is the
       // lane's own compare operator, intrinsic at more than two long lanes, VARKA-376 9).

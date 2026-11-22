@@ -144,6 +144,24 @@ final class VarkaConversionLowering {
   }
 
   /**
+   * The L2F form this emission builds: {@code narrowConversionForm}, except that
+   * {@link NarrowConversionForm#SCALAR} reads and inserts each long lane at a constant index,
+   * which needs a baked long lane count no larger than the float species', and without one it
+   * is the rounding to odd, which answers the same on every long. Slots, the scratch count and
+   * the emission all ask this, so they agree.
+   */
+  static NarrowConversionForm narrowForm(Analysis analysis) {
+    NarrowConversionForm form = analysis.options.narrowConversionForm();
+    if (form == NarrowConversionForm.SCALAR) {
+      int longs = analysis.lanesOf(Lane.LONG);
+      if (longs == 0 || analysis.lanesOf(Lane.FLOAT) < longs) {
+        return NarrowConversionForm.ROUND_TO_ODD;
+      }
+    }
+    return form;
+  }
+
+  /**
    * How many scratch locals {@code n}'s form parks values in: the rounding to odd's four, which
    * the windowed form shares, the scalar form's one long vector, and none for {@code L2D}.
    */
@@ -151,7 +169,7 @@ final class VarkaConversionLowering {
     if (!takesWideForm(analysis, n) || n.target() != LaneType.FLOAT) {
       return 0;
     }
-    return switch (analysis.options.narrowConversionForm()) {
+    return switch (narrowForm(analysis)) {
       case ROUND_TO_ODD, WINDOWED -> 4;
       case SCALAR -> 1;
     };
@@ -164,7 +182,7 @@ final class VarkaConversionLowering {
       if (tmp == null) {
         throw VarkaErrors.illegalState("an L2F form with no scratch planned: " + n);
       }
-      switch (analysis.options.narrowConversionForm()) {
+      switch (narrowForm(analysis)) {
         case ROUND_TO_ODD -> emitRoundToOdd(cb, tmp, analysis);
         case WINDOWED -> emitWindowed(cb, tmp, analysis);
         case SCALAR -> emitScalarLanes(cb, tmp[0], analysis);
