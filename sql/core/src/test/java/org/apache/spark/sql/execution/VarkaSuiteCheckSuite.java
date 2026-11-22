@@ -158,7 +158,7 @@ public final class VarkaSuiteCheckSuite {
         VarkaSuiteCheck.Expect.VALUE);
     VarkaSuiteCheck.Decision d = VarkaSuiteCheck.endTest("VarkaSuiteCheckSuite", "planted");
     assertEquals(VarkaSuiteCheck.Action.FAIL, d.action(), d.message());
-    assertTrue(d.message().contains("[varka]") && d.message().contains("Spark raises"),
-        d.message());
+    assertTrue(d.message().contains("[varka]")
+        && d.message().contains("the kernel answered a row Spark raises"), d.message());
   }
 }

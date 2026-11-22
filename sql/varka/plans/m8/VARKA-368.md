@@ -544,7 +544,7 @@ or the plan's own recommendation favours, and says why.
    `varka` finding. A batch the evaluator sent to the row path without running a kernel
    (`FELL_BACK`) is not, since no guard was asked. `VALUE_RANGE` cannot tell the two apart: a `GuardedRange` raises it where
    Spark raises and also where a lowering is exact only within a bound, such as the
-   `ConstDivide` of the finding below, so a decline with it passes either way.
+   `ConstDivide` of the finding above, so a decline with it passes either way.
 6. **Spark's two projections disagreeing is a finding of kind `spark`**, failing unless
    `expression_excluded.tsv` lists the test, rather than passing silently as 2.4's table has it:
    a row no one compared is what the exclusions' stale rule exists to keep visible. None arose.
@@ -571,6 +571,14 @@ or the plan's own recommendation favours, and says why.
     `ArrowColumnVector`'s, so the harness is self-consistent. No `read-path` finding arose in the
     three suites. Which reader the harness should model, the cache node's or the plain columnar
     node's, is left to the owner; nothing moves today.
+
+**Open point for the owner (22 November 2026, from the pre-PR review).** The lift's 17 rows,
+the lead's "17 rows a literal", fill a full lane group only at int or wider lanes. With
+`narrowLanes` on, the default, a `TINYINT` or `SMALLINT` kernel runs 16 to 64 lanes, so at 512
+bits the suites run its epilogue alone and never its loop. The proposal is 65 rows (the widest
+group plus one) in all three places that hold the count: `VarkaSuiteCheck.LIFTED_ROWS`,
+`VarkaArrowSource.LiftedRows` and the golden suite's lift (`VarkaLiteralLiftSuite.scala:53`).
+Nothing changes until the owner decides.
 
 ## 10. Outcome
 

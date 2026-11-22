@@ -55,6 +55,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFusedKernel;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrixRuns;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSqlResolve;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
+import org.apache.spark.sql.execution.varka.VarkaKernelRunner;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
@@ -73,9 +74,11 @@ public final class VarkaSuiteCheck {
   private VarkaSuiteCheck() {}
 
   /**
-   * The rows of a lifted fixture: as many as {@code VarkaArrowSource}'s lift writes, so a kernel
-   * runs its loop over a full lane group at every vector width and then its epilogue, where one
-   * row would run the epilogue alone.
+   * The rows of a lifted fixture: as many as {@code VarkaArrowSource}'s lift writes, the plan's 17,
+   * so a kernel of int or wider lanes runs its loop over a full lane group at every vector width
+   * and then its epilogue, where one row would run the epilogue alone. A kernel at a narrow lane
+   * (32 short or 64 byte lanes at 512 bits) runs its epilogue alone: an open point of
+   * {@code VARKA-368.md}'s decisions, for the owner.
    */
   public static final int LIFTED_ROWS = 17;
 
@@ -326,11 +329,14 @@ public final class VarkaSuiteCheck {
    * others are refusals of a range its lowering covers, after which the row path still answers.
    * {@code VALUE_RANGE} is both: a {@code GuardedRange} raises it where Spark raises and also
    * where a lowering is exact only within a bound (a {@code ConstDivide}'s dividend), so a decline
-   * with it on a raising row passes either way.
+   * with it on a raising row passes either way. The evaluator's {@code STATUS_DERIVED_INPUT} is a
+   * guard too, reported where the row engine raises; its {@code STATUS_INPUT_BOUND} is a refusal,
+   * so a raising row it declines is reported, as the plan's rule asks.
    */
   static final int VALUE_STATUSES = VarkaFusedKernel.STATUS_MAKE_DATE
       | VarkaFusedKernel.STATUS_INT_OVERFLOW | VarkaFusedKernel.STATUS_VALUE_RANGE
-      | VarkaFusedKernel.STATUS_DECIMAL_SLOT | VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO;
+      | VarkaFusedKernel.STATUS_DECIMAL_SLOT | VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO
+      | VarkaKernelRunner.STATUS_DERIVED_INPUT;
 
   private static void checkOnce(String suite, Expression prepared, InternalRow input,
       boolean record, Expect expect, List<Finding> findings) {
