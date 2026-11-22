@@ -17014,89 +17014,87 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "14c930007ea5ebd4",
-      "16" : "4e3db58e13be51f9"
+      "4" : "2c3b755500d8d24d",
+      "16" : "3c524821c63016bd"
     },
     "useAVX=0" : {
-      "4" : "146625d722bb72d2",
-      "16" : "343d3b8b130a01ba"
+      "4" : "275d42f2a30e90d3",
+      "16" : "eecdfd2296d29e38"
     },
     "useAVX=1" : {
-      "4" : "146625d722bb72d2",
-      "16" : "343d3b8b130a01ba"
+      "4" : "275d42f2a30e90d3",
+      "16" : "eecdfd2296d29e38"
     },
     "useAVX=2" : {
-      "4" : "146625d722bb72d2",
-      "16" : "343d3b8b130a01ba"
+      "4" : "275d42f2a30e90d3",
+      "16" : "eecdfd2296d29e38"
     },
     "useAVX=3" : {
-      "4" : "14c930007ea5ebd4",
-      "16" : "4e3db58e13be51f9"
+      "4" : "2c3b755500d8d24d",
+      "16" : "3c524821c63016bd"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "32de4fae4bb0c3c1",
-      "16" : "663f4dc1dbf462fa"
+      "4" : "a72dbc5cd9a34f89",
+      "16" : "acf8ab57e7e7a148"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "34888e430e7c3b42",
-      "16" : "08a3a84dc1377320"
+      "4" : "82ef4265f2d4afca",
+      "16" : "d31e92228ce220a9"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "146625d722bb72d2",
-      "16" : "343d3b8b130a01ba"
+      "4" : "275d42f2a30e90d3",
+      "16" : "eecdfd2296d29e38"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "146625d722bb72d2",
-      "16" : "343d3b8b130a01ba"
+      "4" : "275d42f2a30e90d3",
+      "16" : "eecdfd2296d29e38"
     },
     "wideConversionForm=XOR_SPLIT over useAVX=2" : {
-      "4" : "146625d722bb72d2",
-      "16" : "343d3b8b130a01ba"
+      "4" : "275d42f2a30e90d3",
+      "16" : "eecdfd2296d29e38"
     },
     "roundToOddByShifts=true over useAVX=2" : {
-      "4" : "146625d722bb72d2",
-      "16" : "343d3b8b130a01ba"
+      "4" : "275d42f2a30e90d3",
+      "16" : "eecdfd2296d29e38"
     },
     "roundToOddByShifts=false over useAVX=2" : {
-      "4" : "146625d722bb72d2",
-      "16" : "343d3b8b130a01ba"
+      "4" : "275d42f2a30e90d3",
+      "16" : "eecdfd2296d29e38"
     },
     "narrowGroupStore=MASKED over lanesOverride=4" : {
-      "4" : "251e673a25a7fa06",
-      "16" : "251e673a25a7fa06"
+      "4" : "2b39115516f48b3f"
     },
     "narrowGroupStore=COMBINED over lanesOverride=4" : {
-      "4" : "c3cd34f2ee9f39a3",
-      "16" : "c3cd34f2ee9f39a3"
+      "4" : "03e1ddb86616ac97"
     },
     "narrowLanes=true" : {
-      "4" : "14c930007ea5ebd4",
-      "16" : "4e3db58e13be51f9"
+      "4" : "2c3b755500d8d24d",
+      "16" : "3c524821c63016bd"
     },
     "narrowLanes=false" : {
-      "4" : "14ff43ace9312b16",
-      "16" : "cad2b44f8433db1c"
+      "4" : "aed15541ae07d51d",
+      "16" : "99e8779e23b7a28c"
     },
     "narrowGroupStore=COMBINED" : {
       "2" : "084139c58a044298",
-      "4" : "1f87dc9239e6e6dd",
-      "16" : "6d9863dcd9ab751b"
+      "4" : "0b171eeae32aa300",
+      "16" : "3c524821c63016bd"
     },
     "groupLocalSlots=false" : {
-      "4" : "2cb4a8efd4e80034",
-      "16" : "150eec57b3200859"
+      "4" : "8774c95d001080b6",
+      "16" : "03db3b4f8510dbb9"
     },
     "methodByteBudget=0" : {
-      "4" : "551499e1ec09e2f4",
-      "16" : "58aa2eaf94ffd1dd"
+      "4" : "8d71d5c974d7ff15",
+      "16" : "ddd71a102678d7b0"
     },
     "mathUlpContract=true" : {
-      "4" : "14c930007ea5ebd4",
-      "16" : "6d9863dcd9ab751b"
+      "4" : "2c3b755500d8d24d",
+      "16" : "3c524821c63016bd"
     },
     "maskFromWord=true" : {
-      "4" : "e233e9f48eda9e02",
-      "16" : "8689794fc8582f8a"
+      "4" : "52f80ffa2b346653",
+      "16" : "d74c38a07902b1e8"
     }
   }
 }
