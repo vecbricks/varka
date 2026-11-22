@@ -96,7 +96,9 @@ public final class VarkaDecimalRemainderAllocationSuite {
       // The first call runs the template warm-up, as the first vector code of a Varka JVM does.
       VarkaDecimalRemainderOps.remainder(xa, ya, oa, words, 64, false);
       pollute(arena);
-      for (boolean pmod : new boolean[] {false, true}) {
+      // x % y, pmod, then x % y again: the compile that serves the third pass has both arms of
+      // loop64's pmod branch in its profile, the state a Varka JVM reaches.
+      for (boolean pmod : new boolean[] {false, true, false}) {
         for (int c = 0; c < PRIMING_CALLS; c++) {
           VarkaDecimalRemainderOps.remainder(xa, ya, oa, words, 64, pmod);
         }
