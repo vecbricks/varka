@@ -17,7 +17,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 /**
- * The factor the main lane-group loop's step is multiplied by under
+ * The factor the lane-group loops' steps are multiplied by under
  * {@link VarkaEmitOptions#uncountedMainLoop()}: one, read from a field C2 does not fold.
  *
  * <p>C2 compiles a loop as counted only when its induction variable steps by a constant. A
@@ -27,16 +27,27 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
  * back edge's state, where a failed profiled predicate is limited only by the method's trap
  * count. A released kernel of the long lane after a kernel history traps there dozens of times
  * inside the warm-up's deadline ({@code VARKA-383.md} 9.2 to 9.5). Multiplying the lane count by
- * this field makes the step a load rather than a constant, so the loop is not counted and none
- * of that is built; the range checks stay in the loop.
+ * {@link #one()} makes the step a load rather than a constant, so the loop is not counted and
+ * none of that is built; the range checks stay in the loop. Both loops over Arrow accesses take
+ * it: the main loop and the epilogue loop of a kernel that converts between lanes or whose
+ * narrowing load spans more than one group.
  */
 public final class VarkaLoopStride {
 
   private VarkaLoopStride() {}
 
-  /** One, and never written. */
-  // Not final on purpose: a final field is a constant to C2, which would count the loop again.
-  // Public, since the emitted kernels live in another runtime package.
+  // Not final on purpose: C2 folds a static final field to its constant even when it is read
+  // through a method, which would make the step a constant and the loop counted again. Private,
+  // so that nothing can write it: a zero would make every kernel of the arm spin forever, and any
+  // other value skip or repeat lane groups.
   @SuppressWarnings("NonFinalStaticField")
-  public static int one = 1;
+  private static int one = 1;
+
+  /**
+   * One. The emitted kernels call this, as {@code invokestatic}, since they live in another
+   * runtime package; C2 inlines it and still loads the field.
+   */
+  public static int one() {
+    return one;
+  }
 }

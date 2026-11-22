@@ -556,15 +556,17 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        or one holding a math port, 16 for any other); any other value is the cap on every
  *        lane, so one below 64 lowers the int lane's cap too. A measurement knob (VARKA-620): a
  *        benchmark sets it to price depths past a cap, and no session conf sets it.
- * @param uncountedMainLoop whether the main lane-group loop steps by a value C2 cannot fold
- *        ({@link VarkaLoopStride#one} times the lane count) rather than by the bytecode constant,
- *        so that C2 does not compile it as a counted loop ({@code VARKA-383.md} 9.5). False,
+ * @param uncountedMainLoop whether the main lane-group loop, and the epilogue loop of a kernel
+ *        that converts between lanes or whose narrowing load spans more than one group, step by a
+ *        value C2 cannot fold ({@link VarkaLoopStride#one()} times the lane count) rather than by
+ *        the bytecode constant, so that C2 does not compile them as counted loops
+ *        ({@code VARKA-383.md} 9.5). False,
  *        the default, steps by the constant: C2 then counts the loop and, because its Arrow
  *        accesses carry {@code long} range checks, nests it to eliminate them, adding the nest's
  *        loop predicates under the back edge's state with no per-bytecode trap limit; a profiled
  *        one of them that fails is recompiled and fails again until the method's trap limit, and
  *        the warm-up releases the kernel still allocating. True keeps every range check in the
- *        loop and every answer the same. No epilogue reads it.
+ *        loop and every answer the same.
  */
 public record VarkaEmitOptions(
     int groupBudget,

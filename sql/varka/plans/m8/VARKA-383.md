@@ -330,7 +330,8 @@ uploads the directory; a `kernel-history-report` job merges the shards' logs and
   projection, `date_add(d, 3)`, `add_months(d, 2)`, `last_day(d)` over one date column with every
   seventeenth row null, compiled through `VarkaExpressionCompiler`, instead of the cheap tails.
   Its verdict is printed and counted; its answers are compared as the others are.
-* Runners have four vCPUs: every dispatch passes `--jvms 1 --cpus 4`.
+* Runners have four vCPUs: every dispatch passes `--jvms 1 --cpus 4` (the workflow now puts
+  `--jvms 1 --cpus $(nproc)` first, 9.7).
 
 **The cases.**
 
@@ -857,11 +858,12 @@ under the arm below, one non-counted loop with its head's predicates and no peel
 Draw 15's own compile in the fastdebug run (B) shows the same nest.
 
 **The arm built: `uncountedMainLoop`** (an emit option, default off). The main lane-group loop
-steps by `lanes * VarkaLoopStride.one`, a public non-final static C2 does not fold (the pattern of
-`VarkaMaskGuard.ones`), instead of the constant; C2 counts a loop only when its step is a constant
+steps by `lanes * VarkaLoopStride.one()`, a private non-final static read through a getter, which
+C2 inlines but does not fold (the pattern of `VarkaMaskGuard.ones`), instead of the constant; C2 counts a loop only when its step is a constant
 (`is_counted_loop`), so the loop is not counted, `create_loop_nest` never applies (it starts with
-`is_BaseCountedLoop`), and no predicate is built under the back edge. The epilogues, including
-the mixed and narrow-group epilogue loops of at most a few passes, are untouched. Every answer is
+`is_BaseCountedLoop`), and no predicate is built under the back edge. The epilogue loop of a
+mixed or narrow-group kernel, at most a few passes but over the same Arrow accesses, steps the
+same way (the PR's review found it counted); the epilogue of any other kernel has no back edge. Every answer is
 the same, so it is a `REFERENCE` option the fuzzer and the matrix draw, and it is in
 `VarkaMatrixRuns.C2_OPTIONS`, so the `C2Code` tests run under it. What it costs: the `long` range
 checks stay in the loop, one compare and branch per access per iteration, and the loop is neither
@@ -929,6 +931,11 @@ which 9.1 did; built here, not dispatched (no dispatch in this window). What exi
   with `--fork-base (split - 1) * forks` and each word of `extra-java-options` as a `--jvm`, and
   uploads its logs; `kernel-history-report` merges the shards' logs into one directory and runs
   `dev/varka_kernel_history.py` over it, with each shard's CPU. `pr` works as for the benchmarks.
+  After the PR's review: `history` must name `--forks` and must not name `--fork-base`; the
+  launcher gets `--jvms 1 --cpus $(nproc)` before `history`'s own words; the width check reads
+  `MaxVectorSize` under `extra-java-options`; the report fails on the shards' `--guard` and
+  `--max-slow`, after writing the summary; and the reader keys a `host` case by the bits its forks
+  printed, so a blank `history-bits` cannot pool a 256-bit and a 512-bit shard.
 * Not built: 3.1's `--prewarm first`, `--cold` and `--test e2e`, which served half (b), answered
   in section 0; and the nightly's `--max-long-released`, which waits for a runner number.
 

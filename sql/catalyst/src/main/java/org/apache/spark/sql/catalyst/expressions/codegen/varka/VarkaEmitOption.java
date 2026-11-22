@@ -659,9 +659,10 @@ public sealed interface VarkaEmitOption
       new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.AUTO_CHAIN_DEPTH,
           VarkaEmitOptions::maxChainDepth, Builder::maxChainDepth, new CountTag("chainDepth="),
           List.of(VarkaEmitBudget.MAX_CHAIN_DEPTH, 32), List.of(32)),
-      // The main loop's step (VARKA-383.md 9.5): by default the bytecode constant, which C2
-      // counts and nests over the Arrow accesses' long range checks; the arm steps by a value C2
-      // cannot fold, so the loop is not counted and the nest's back-edge predicates, which carry
+      // The steps of the loops over Arrow accesses, the main loop's and a looping epilogue's
+      // (VARKA-383.md 9.5): by default the bytecode constant, which C2 counts and nests over the
+      // Arrow accesses' long range checks; the arm steps by a value C2 cannot fold, so the loop
+      // is not counted and the nest's back-edge predicates, which carry
       // no per-bytecode trap limit, are never built. Kept off until the history reading on the
       // runners and the pairs decide; every answer is the same, so the fuzzer and the matrix
       // draw it. Its tag keeps the default's rendering empty.

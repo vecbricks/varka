@@ -1021,8 +1021,8 @@ history releases and row 605's unsettled rows all trapped at the main loop's bac
 - **Every emitted main loop is a nest candidate.** C2 nests a counted `int` loop only to
   eliminate `long` range checks in it, and each `MemorySegment` access of an Arrow buffer is one.
   A loop whose step is not a constant is not counted and is never nested: `uncountedMainLoop`
-  steps by `lanes * VarkaLoopStride.one`. The cost is the range checks left in the loop and no
-  unrolling; price it before shipping it.
+  steps every such loop, the looping epilogues' too, by `lanes * VarkaLoopStride.one()`. The
+  cost is the range checks left in the loop and no unrolling; price it before shipping it.
 - **See the nest in a fastdebug JVM's `-XX:+TraceLoopOpts`**: `Counted Loop`, then `Peel`, then a
   counted loop one stride later inside a new `Loop ... profile_predicated predicated`. The
   fastdebug JVM did not reproduce a release that the product JVM did, so use it for the shape,

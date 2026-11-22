@@ -893,12 +893,7 @@ final class VarkaBodyEmitter {
 
       cb.iload(s.iVar);
       cb.iload(s.lanes);
-      if (analysis.options.uncountedMainLoop()) {
-        // i += lanes * VarkaLoopStride.one: a step C2 cannot fold, so it does not count the
-        // loop and never nests it over the long range checks (VarkaLoopStride says why).
-        cb.getstatic(LOOP_STRIDE, "one", ConstantDescs.CD_int);
-        cb.imul();
-      }
+      emitUncountedStride(cb, analysis);
       cb.iadd();
       cb.istore(s.iVar);
     }
@@ -1004,10 +999,26 @@ final class VarkaBodyEmitter {
     emitLaneGroup(cb, dense, outputs, outputIdx, analysis, s);
     cb.iload(s.iVar);
     emitLaneCount(cb, analysis, s);
+    emitUncountedStride(cb, analysis);
     cb.iadd();
     cb.istore(s.iVar);
     cb.goto_(top);
     cb.labelBinding(done);
+  }
+
+  /**
+   * Under {@code uncountedMainLoop}, multiplies the step on the stack by
+   * {@code VarkaLoopStride.one()}: a value C2 cannot fold, so it does not count the loop and never
+   * nests it over its Arrow accesses' {@code long} range checks ({@link VarkaLoopStride} says
+   * why). Every loop whose body holds those accesses takes it: the main loop and the epilogue loop
+   * of {@link #emitMixedEpilogue}. The range-table loop of {@code VarkaVectorWalk} walks a static
+   * {@code int[]} with no {@code long} range check, so it keeps its constant step.
+   */
+  private static void emitUncountedStride(CodeBuilder cb, Analysis analysis) {
+    if (analysis.options.uncountedMainLoop()) {
+      cb.invokestatic(LOOP_STRIDE, "one", STRIDE_ONE);
+      cb.imul();
+    }
   }
 
   /** The driving lane's count: the baked constant, or the species' length where none is. */
