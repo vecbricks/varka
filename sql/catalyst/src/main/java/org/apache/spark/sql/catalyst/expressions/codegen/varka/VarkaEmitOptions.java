@@ -552,10 +552,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        {@code VARKA-103.md} 3.7). {@link IntervalFault#NONE} in production.
  * @param maxChainDepth the deepest op path one output may have, which the emitter's analysis and
  *        the compiler's budget check both refuse past. Zero, the default, is auto: the cap of the
- *        output's tree, {@link VarkaEmitBudget#chainDepthCap} (64 for a tree of the int lane alone,
- *        16 for any other); any other value is the cap on every lane, so one below 64 lowers the
- *        int lane's cap too. A measurement knob (VARKA-620): a benchmark sets it to price depths
- *        past a cap, and no session conf sets it.
+ *        output's tree, {@link VarkaEmitBudget#chainDepthCap} (64 for a tree of the int lane alone
+ *        or one holding a math port, 16 for any other); any other value is the cap on every
+ *        lane, so one below 64 lowers the int lane's cap too. A measurement knob (VARKA-620): a
+ *        benchmark sets it to price depths past a cap, and no session conf sets it.
  * @param uncountedMainLoop whether the main lane-group loop steps by a value C2 cannot fold
  *        ({@link VarkaLoopStride#one} times the lane count) rather than by the bytecode constant,
  *        so that C2 does not compile it as a counted loop ({@code VARKA-383.md} 9.5). False,
