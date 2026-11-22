@@ -1047,7 +1047,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // producers' unscaled longs are a sum's operands under the store and a comparison's.
     for (e <- Seq(SecondsOfTimeWithFraction(t6), TimeToSeconds(t6))) {
       val sum = VarkaExpressionCompiler.compile(Seq(out(Add(e, e))), withLong).toScala
-      assert(sum.isDefined, declineReason(Add(e, e), withLong))
+      assert(sum.isDefined, s"$e + $e declined")
       val root = sum.get.outputs.asScala.head
       assert(root.isInstanceOf[VarkaVectorIR.WidenDecimal], root)
       assert(root.asInstanceOf[VarkaVectorIR.WidenDecimal].child.isInstanceOf[IntArith], root)
@@ -1055,7 +1055,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       val t = e.dataType.asInstanceOf[DecimalType]
       val below = LessThan(e, Literal(Decimal(BigDecimal("10.5"), t.precision, t.scale), t))
       assert(VarkaExpressionCompiler.compile(Seq(out(below)), withLong).toScala.isDefined,
-        declineReason(below, withLong))
+        s"$below declined")
     }
   }
 

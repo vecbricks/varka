@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.math.BigInteger;
+import java.util.Set;
 
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DecimalType;
@@ -63,5 +64,15 @@ public final class VarkaDecimalLongConformanceSuite extends VarkaTypeConformance
   @Override
   protected BigInteger[] decimalSlots() {
     return VALUES;
+  }
+
+  /**
+   * The sum and difference of two values within 10 digits, the negation and {@code abs} fit the
+   * result type's 11, so Spark never raises on them, whatever the mode; only the product, past
+   * 18 digits, leaves the long.
+   */
+  @Override
+  protected boolean overflowReachable(String register) {
+    return !Set.of("+", "-", "negative", "abs", "try_add", "try_subtract").contains(register);
   }
 }

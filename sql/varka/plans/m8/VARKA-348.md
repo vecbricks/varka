@@ -1013,6 +1013,36 @@ projection arms are an addition to it, the house's own pull request first. The g
 (`coverage.json`, `docs/sql-varka.md`, `emitted_bytes.json`, `width_audit.json`, `census.tsv`,
 `decimal_refinement.smt2`) and the runs the body lists are owed too.
 
+**Gate findings (22 November 2026).** The three items that kept the branch from opening, and what
+each turned out to be.
+
+1. *The conformance harness had no check for a decimal store output.* `VarkaKernelChecks`'s
+   decimal slot lane refused a `WidenDecimal` root. It now writes, sizes and reads such an output
+   as a sixteen-byte slot through the helpers the long lane already has, and checks the high word
+   is the low word's sign extension. `VarkaDecimalLongConformanceSuite` then ran every
+   `(ANSI|LEGACY, value)` register. Its overflow check had required the fixture to reach an
+   overflow of `x + y`, `x - y`, `-x` and `abs(x)` as outputs, which cannot happen at
+   `DECIMAL(10, 2)` (the result type holds every sum), so `VarkaTypeConformance` gained
+   `overflowReachable(register)`, which that suite answers false for them; its overflow check is
+   still cancelled by the owed `x * y` (a `DECIMAL(21, 4)` output, row 359's), so the sum and
+   difference forms are held by the output, ordering and choice checks and the output suite.
+2. *The eight refinement checks failed at check 4 because of a sign.* The proof printer gives a
+   long root's data as its unsigned reading (`VarkaSmtSamples.readsWord`), correct for the
+   predicates a root of this lane is compared by in the other files, while the specification's
+   decimal value is signed, so every negative value refuted the equality. `VarkaDecimalRefinementFile`
+   now prints a `WidenDecimal` root's data through `WordForm.term`, the signed reading. The
+   regenerated `decimal_refinement.smt2` holds under Z3 (370 checks) and cvc5, and `--lint`
+   passes. Prediction 2 held once this was fixed.
+3. *The generated files* were regenerated on the rebased branch: `coverage.json`, the docs table,
+   `emitted_bytes.json` (it only appends the new rows' shapes) and `width_audit.json`. The width
+   audit's 128-bit probe took about five minutes on a loaded laptop, close to its 600 s budget:
+   two earlier runs under a load of 25 to 30 were destroyed at the budget and the third passed.
+4. *The rebase.* #1610 made the pair fuse comparisons, `IN`, negation and the choices'
+   comparison forms, and removed the pair suite's `declinesInPart`; the value outputs of the pair
+   still decline (row 359's store), so the override is back without `in`. A test of this row's
+   (the TIME producers as operands) passed an eager `declineReason` clue to `assert`, which
+   fails when the value fuses; the clues are now plain strings.
+
 ## Decisions taken while the owner was away (20 November 2026)
 
 1. **Every `value()` is an output, 349's arithmetic included.** Section 2.4 makes the decimal root
