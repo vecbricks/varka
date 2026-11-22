@@ -259,8 +259,10 @@ result can all be one of those types, and from the coverage table of the next se
 per fused spelling. An entry absent from the census is out of scope with a recorded reason: a
 `STRING`, a nested type, an aggregate or a nondeterministic function, say.
 
-**Math functions are exact by default.** Every math function Varka fuses (`sin`, `exp`, `log`,
-`pow` and the rest of the family) returns Spark's answer bit for bit. Spark computes `exp`,
+**Math functions are exact by default.** Today Varka fuses nine math functions, `sin`, `cos`,
+`tan`, `sec`, `csc`, `cot`, `asin`, `acos` and `atan`; the others (`exp`, `log`, `pow`, `atan2`,
+the hyperbolic functions and the rest of the family) decline to the row engine until their ports
+land. Every math function Varka fuses returns Spark's answer bit for bit. Spark computes `exp`,
 `log`, `pow` and their neighbours with `StrictMath`, fdlibm's answer on every host, and `sin`,
 `cos`, `tan`, `tanh` and `cbrt` with `Math`, which Java specifies only to within one ulp of the
 exact result: their last bit is the host JVM's choice inside that bound, and the default
@@ -271,7 +273,7 @@ answer instead of equal to it. A value computed so and then grouped, joined on, 
 as a partition key above the kernel can land on the other side of a threshold from Spark's
 answer, so the mode is for a consumer that tolerates it. No function has a contracted bound yet,
 so none computes under the contract and the setting changes no plan today: each function
-reads *exact; no contract*, and the exact ones above fuse as they are.
+reads *exact; no contract*.
 
 <!-- BEGIN generated support table -->
 Written by `dev/varka_census.py` from the census (`sql/varka/plans/m8/census.tsv`, `sql/varka/plans/m8/casts.tsv`), the compiler's cast probe (`sql/varka/plans/m8/casts_fused.tsv`) and `sql/varka/coverage.json`; regenerate it with `python3 dev/varka_census.py`, and `python3 dev/varka_census.py --check` fails while it is stale.
