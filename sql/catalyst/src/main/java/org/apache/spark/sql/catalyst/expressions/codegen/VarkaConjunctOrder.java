@@ -184,11 +184,11 @@ public final class VarkaConjunctOrder {
         changed |= demoteNullableAhead(order, conjuncts, childOutput, raises, isFused, late);
       }
       if (!changed) {
-        boolean byCodegen =
-            demoteNullCheckMovers(conjuncts, childOutput, false, raises, isFused, late);
-        boolean byLegacy =
-            demoteNullCheckMovers(conjuncts, childOutput, true, raises, isFused, late);
-        changed = byCodegen || byLegacy;
+        // One order at a time: a demotion here turns a conjunct into a residual one that can
+        // raise, and the rounds above must demote the fused conjuncts behind it before the other
+        // order reads the split, or it sees a state that no order rule has settled.
+        changed = demoteNullCheckMovers(conjuncts, childOutput, false, raises, isFused, late)
+            || demoteNullCheckMovers(conjuncts, childOutput, true, raises, isFused, late);
       }
     }
     return late;
@@ -359,9 +359,10 @@ public final class VarkaConjunctOrder {
       }
     }
     if (unexplained && !changed) {
-      // Unreachable while codegenOrder ports Spark's algorithm: the two sides can differ only in
-      // null tests, and the fused conjuncts that pull one are what moves it. Should the port
-      // drift, nothing stays fused, under a reason no suite takes for a composition decline.
+      // Unreachable while codegenOrder ports Spark's algorithm and the split is settled by the
+      // rounds above, as every call here is: the two sides can differ only in null tests, and the
+      // fused conjuncts that pull one are what moves it. Should the port drift, nothing stays
+      // fused, under a reason no suite takes for a composition decline.
       for (int f = 0; f < conjuncts.size(); f++) {
         if (isFused[f]) {
           isFused[f] = false;
