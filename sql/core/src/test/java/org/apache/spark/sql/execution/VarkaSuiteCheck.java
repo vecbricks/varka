@@ -59,6 +59,7 @@ import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Metadata;
+import org.junit.jupiter.api.Assertions;
 
 /**
  * One check of a Spark expression suite run again through the Varka evaluator, with each literal
@@ -315,7 +316,7 @@ public final class VarkaSuiteCheck {
       state.findings.add(new Finding(Kind.VARKA, prepared.sql() + ": the check failed: " + e));
     }
     if (current == null && !state.findings.isEmpty()) {
-      throw new AssertionError("a Varka check outside a test found:\n  "
+      Assertions.fail("a Varka check outside a test found:\n  "
           + String.join("\n  ", state.findings.stream().map(Finding::text).toList()));
     }
   }
