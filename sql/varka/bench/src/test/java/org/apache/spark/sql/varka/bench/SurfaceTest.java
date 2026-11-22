@@ -130,10 +130,12 @@ public class SurfaceTest {
       // reads it, so a shape left behind here fails them instead of this one. Restoring it
       // is not tidiness: without it, two unrelated tests fail with an unresolved interval
       // column and a cache that is not cached.
-      // The times table is dropped for the same reason: the residency check counts every
-      // cached partition in the session, and the driver only ever caches one table.
-      spark.catalog().uncacheTable("varka_times");
-      spark.catalog().dropTempView("varka_times");
+      // The times and doubles tables are dropped for the same reason: the residency check
+      // counts every cached partition in the session, and the driver only ever caches one table.
+      for (String view : List.of("varka_times", "varka_doubles")) {
+        spark.catalog().uncacheTable(view);
+        spark.catalog().dropTempView(view);
+      }
       DateSurfaceBenchmark.buildTable(spark, 1_000L, 2,
           org.apache.spark.storage.StorageLevel.MEMORY_ONLY(), DateSurfaceBenchmark.TableShape.ALL);
     }

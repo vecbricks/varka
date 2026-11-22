@@ -109,6 +109,19 @@ final class VarkaDescriptors {
   /** {@code int IntVector.lane(int)}: one lane read, at a constant index. */
   static final MethodTypeDesc INT_LANE =
       MethodTypeDesc.of(ConstantDescs.CD_int, ConstantDescs.CD_int);
+  /** {@code FloatVector FloatVector.zero(VectorSpecies)} (static). */
+  static final MethodTypeDesc FLOAT_ZERO = MethodTypeDesc.of(
+      ClassDesc.of("jdk.incubator.vector.FloatVector"), VECTOR_SPECIES);
+  /** {@code FloatVector FloatVector.withLane(int, float)}: one lane replaced. */
+  static final MethodTypeDesc FLOAT_WITH_LANE = MethodTypeDesc.of(
+      ClassDesc.of("jdk.incubator.vector.FloatVector"), ConstantDescs.CD_int,
+      ConstantDescs.CD_float);
+  /** {@code long LongVector.lane(int)}: one lane read, at a constant index. */
+  static final MethodTypeDesc LONG_LANE =
+      MethodTypeDesc.of(ConstantDescs.CD_long, ConstantDescs.CD_int);
+  /** {@code long LongVector.reduceLanes(VectorOperators.Associative)}: the lanes folded. */
+  static final MethodTypeDesc LONG_REDUCE_LANES =
+      MethodTypeDesc.of(ConstantDescs.CD_long, VO_ASSOCIATIVE);
   /** {@code DoubleVector DoubleVector.withLane(int, double)}: one lane replaced. */
   static final MethodTypeDesc DOUBLE_WITH_LANE =
       MethodTypeDesc.of(DOUBLE_VECTOR, ConstantDescs.CD_int, ConstantDescs.CD_double);

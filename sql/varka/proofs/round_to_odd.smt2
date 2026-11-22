@@ -36,6 +36,10 @@
 ;                 t = m ^ ((m ^ t12) & sel), t12 where big and m elsewhere
 ;                 p = (bits(0x1p52) | (v & Long.MIN_VALUE)) + (sel & (12 << 52))
 ;                 d = bitsToDouble(t | p) - bitsToDouble(p), f = (float) d
+;   L2F, windowed w = (v + 2^51) >>> 52, OR-ed over the group's lanes; where it is 0,
+;     (VARKA-600) f = (float) (bitsToDouble(v + MB) - M), and the L2F form above
+;                 elsewhere. The scalar L2F form is Java's own l2f per lane and needs
+;                 no check.
 ;
 ; These are the operations VarkaConversionLowering emits, from its constants; the L2F form
 ; has no mask, since C2 on x86 lowers none at two 64-bit lanes. p is 2^52 below 2^52, where
@@ -77,6 +81,12 @@
 ; negated float, all by the symmetry of rounding to nearest. That k >= 2 is the theorem's
 ; bound, and not slack in it, is shown on the top binade: rounding to odd at 26 bits then
 ; to nearest at 24 is one rounding, at 25 bits it is not.
+;
+; The windowed form's two claims: a lane's test is 0 exactly where -2^51 <= v < 2^51, and
+; there the magic's double, exact, rounded once to a float is (float) v. An OR over the
+; lanes is 0 exactly where every lane's is, so a group takes the magic only when every
+; lane is inside. Its sat check: with the test one bit wider, (v + 2^52) >>> 53, it
+; admits a v whose float the magic gets wrong.
 ;
 ; The sat checks: the domain admits Long.MIN_VALUE; the split with MB or the low word's
 ; magic one higher, or a shift of 31, is wrong; the magic is wrong one past its window at
@@ -267,6 +277,41 @@
 (declare-const v (_ BitVec 64))
 (assert (= v #xfff7ffffffffffff))
 (assert (not (= (fp.sub RNE (rto.bitsToDouble (bvadd v #x4338000000000000)) rto.M) ((_ to_fp 11 53) RNE v))))
+(check-sat)
+
+(echo "l2f windowed: (v + 2^51) >>> 52 is 0 exactly where -2^51 <= v < 2^51, for every long: expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const v (_ BitVec 64))
+(assert (not (= (= (bvlshr (bvadd v #x0008000000000000) #x0000000000000034) #x0000000000000000) (and (bvsge v #xfff8000000000000) (bvslt v #x0008000000000000)))))
+(check-sat)
+
+(echo "l2f windowed: where the test is 0 the magic rounded to a float is (float) v: expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const v (_ BitVec 64))
+(assert (= (bvlshr (bvadd v #x0008000000000000) #x0000000000000034) #x0000000000000000))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvadd v #x4338000000000000)) rto.M)) ((_ to_fp 8 24) RNE v))))
+(check-sat)
+
+(echo "l2f windowed: with the test one bit wider the magic's float is not (float) v: expect sat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const v (_ BitVec 64))
+(assert (= (bvlshr (bvadd v #x0010000000000000) #x0000000000000035) #x0000000000000000))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvadd v #x4338000000000000)) rto.M)) ((_ to_fp 8 24) RNE v))))
 (check-sat)
 
 (echo "l2f: (float) v is the rounding of m = |v| read unsigned, negated where v < 0, for every long: expect unsat")

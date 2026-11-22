@@ -412,6 +412,12 @@ public final class VarkaOperatorCensusProbe {
     }
   }
 
+  static void op_un_float() {
+    for (int i = 0; i < ROWS; i += FS.length()) {
+      FloatVector.fromArray(FS, FA, i).lanewise(UnOp.OP).intoArray(FO, i);
+    }
+  }
+
   static void op_un_double() {
     for (int i = 0; i < ROWS; i += DS.length()) {
       DoubleVector.fromArray(DS, DA, i).lanewise(UnOp.OP).intoArray(DO, i);
@@ -1181,6 +1187,7 @@ public final class VarkaOperatorCensusProbe {
         case "fma.float" -> op_fma_float();
         case "test.double" -> op_test_double();
         case "fma.double" -> op_fma_double();
+        case "un.float" -> op_un_float();
         case "un.double" -> op_un_double();
         case "conv.B2I" -> op_conv_B2I();
         case "conv.S2I" -> op_conv_S2I();
