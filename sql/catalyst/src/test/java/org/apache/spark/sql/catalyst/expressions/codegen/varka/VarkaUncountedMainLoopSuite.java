@@ -97,7 +97,9 @@ public final class VarkaUncountedMainLoopSuite {
           new int[] {2, 4, 8}, false),
       new Shape(new IntArith(IntOp.SUB, Overflow.WRAP, L0, new WidenLane(I1)), Columns.LONG,
           new int[] {2, 4, 8}, true),
-      new Shape(new IntArith(IntOp.ADD, Overflow.NULL, I0, I1), Columns.INT,
+      // Wrapping: a NULL-on-overflow int add answers differently under checkIntOverflow=false,
+      // which the matrix sweeps; the long try_subtract above is the guarded shape.
+      new Shape(new IntArith(IntOp.ADD, Overflow.WRAP, I0, I1), Columns.INT,
           new int[] {2, 4, 8}, false),
       new Shape(new IfElse(new Compare(CompareOp.GT, B0, B1), B0, B1), Columns.BYTE,
           new int[] {2, 4}, true));
