@@ -1042,6 +1042,14 @@ each turned out to be.
    still decline (row 359's store), so the override is back without `in`. A test of this row's
    (the TIME producers as operands) passed an eager `declineReason` clue to `assert`, which
    fails when the value fuses; the clues are now plain strings.
+5. *The ANSI form's false AND (CI, 22 November 2026).* `VarkaCoverageHarnessSuite`'s ANSI form
+   failed at the defaults on the eight value rows and the two TIME producers: "not served by a
+   kernel (the optimizer left no expression)". The position compared the value with its stand-in,
+   a typed null, and the optimizer folds `rid < 0 AND (e) = NULL` to an empty relation, so no
+   kernel ever saw it; the TIME producers' old declines had hidden this. The position now compares
+   a decimal with a typed zero (`VarkaAnsiForm.comparand`), and the kernel serves all ten. Not a
+   difference from Spark: Spark evaluates nothing there either. Prediction 4 is scored by it: the
+   `CASE` arm fused as predicted, and the false AND needed this repair, not a decline.
 
 ## Decisions taken while the owner was away (20 November 2026)
 
