@@ -1207,9 +1207,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // the null-lane draw below; an NTZ's null is the long lane's.
     // The decimal output (VARKA-157) has its own draw, on its own seed, so that no shape here
     // moves: the decimal-store test above runs it.
-    // The floating math function (VARKA-342) is out with the floating lanes: the grammar draws no
-    // floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a production is a row
-    // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it.
+    // The floating math function and the FMA (VARKA-342) are out with the floating lanes: this
+    // grammar draws no floating tree; the floating arithmetic sequences draw both, on seeds of
+    // their own, and their reach test below holds them to it.
     // The canonicalisation (VARKA-337) is a floating node too: its side sequence below draws it.
     // The hash step and a canonical value's bits (VARKA-337) have no production yet;
     // `VARKA-337.md` 10 names the part that adds them, in a side sequence of their own.
@@ -1221,7 +1221,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
       "BoolOutput" - "DecimalColumn" - "DecimalWord" - "NullValue" - "WidenDecimal" - "MathUnary" -
-      "RoundToIntegral" - "CanonicalFloat" - "HashStep" - "CanonicalBits" -
+      "Fma" - "RoundToIntegral" - "CanonicalFloat" - "HashStep" - "CanonicalBits" -
       "ConvertLane" - "CrossLane" - "ReinterpretLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
@@ -1728,6 +1728,56 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   test(s"random DOUBLE IR trees match the reference evaluator " +
       s"(seed $doubleSeed, $floatingIterations iterations)") {
     runFloatingSequence(LaneType.DOUBLE, doubleSeed)
+  }
+
+  // The floating arithmetic sequences (VARKA-342 3.10): the floating trees with row 342's nodes
+  // among them, each on a seed of its own so that the two sequences above do not move.
+  private val floatArithSeed = sys.props.get("varka.fuzz.seed").map(_.toLong)
+    .getOrElse(VarkaIrGrammar.FLOAT_ARITH_FUZZ_SEED)
+  private val doubleArithSeed = sys.props.get("varka.fuzz.seed").map(_.toLong)
+    .getOrElse(VarkaIrGrammar.DOUBLE_ARITH_FUZZ_SEED)
+
+  test(s"random FLOAT arithmetic IR trees match the reference evaluator " +
+      s"(seed $floatArithSeed, $floatingIterations iterations)") {
+    runFloatingSequence(LaneType.FLOAT, floatArithSeed,
+      VarkaIrGrammar.drawFloatingArithShape, "arithmetic ")
+  }
+
+  test(s"random DOUBLE arithmetic IR trees match the reference evaluator " +
+      s"(seed $doubleArithSeed, $floatingIterations iterations)") {
+    runFloatingSequence(LaneType.DOUBLE, doubleArithSeed,
+      VarkaIrGrammar.drawFloatingArithShape, "arithmetic ")
+  }
+
+  test("the floating arithmetic sequences hold floating values alone and draw every form of " +
+      "row 342 they own") {
+    for ((lane, drawSeed) <- Seq(LaneType.FLOAT -> VarkaIrGrammar.FLOAT_ARITH_FUZZ_SEED,
+        LaneType.DOUBLE -> VarkaIrGrammar.DOUBLE_ARITH_FUZZ_SEED)) {
+      val forms = scala.collection.mutable.Set[String]()
+      def collect(n: VarkaVectorIR): Unit = {
+        n match {
+          case a: IntArith => forms += s"${a.op} ${a.mode}"
+          case x: IntNeg => forms += (if (x.abs) "abs" else "negate")
+          case m: MathUnary => forms += m.fn.toString
+          case _: Fma => forms += "fma"
+          case _ =>
+        }
+        VarkaVectorIR.childrenOf(n).foreach(collect)
+      }
+      for (k <- 0 until 2000) {
+        val drawn = VarkaIrGrammar.drawFloatingArithShape(
+          VarkaIrGrammar.shapeRandom(drawSeed, k), lane)
+        for (root <- drawn.roots.asScala) {
+          assert(VarkaVectorIR.lanesIn(root).asScala === Set(lane),
+            s"$lane draw $k holds another lane: ${VarkaVectorIR.canonical(root)}")
+          collect(root)
+        }
+      }
+      val wanted = Set("ADD WRAP", "SUB WRAP", "MUL WRAP", "DIV WRAP", "DIV NULL", "negate",
+        "abs", "SQRT", "fma")
+      assert((wanted -- forms).isEmpty,
+        s"the $lane arithmetic sequence never drew: ${(wanted -- forms).toSeq.sorted}")
+    }
   }
 
   test("the floating sequences hold floating values alone and draw every form they own") {

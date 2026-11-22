@@ -378,6 +378,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new MathUnary(MathFn.SQRT, dc), 1, 0, VarkaMatrix.base),
       // A per-lane call weighs its larger form, an extract and an insert of each of eight lanes.
       (new MathUnary(MathFn.SIN, dc), 1, 0, VarkaMatrix.base.withLanesOverride(8)),
+      (new Fma(dc, dc, dc), 1, 0, VarkaMatrix.base),
       (new RoundToIntegral(RoundMode.RINT, dc), 1, 0, VarkaMatrix.base),
       // An operand that is never a NaN, or already the canonical one, takes no NaN blend.
       (new RoundToIntegral(RoundMode.RINT, new ConvertLane(c, LaneType.DOUBLE)), 1, 0,
