@@ -1622,7 +1622,18 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("IF(d18 > 0.00, d38, d38b) IS NULL", "a choice or a pick of wide values is null only "
         + "where its leaves are, so the test reads no word of the value"),
       Row("coalesce(d38, d19) IS NULL"),
-      Row("greatest(d38, d38b) IS NOT NULL"))),
+      Row("greatest(d38, d38b) IS NOT NULL"),
+      Row("d38 IN (1.00, 12345678901234567890, -0.50)", "the OR of the equalities, each "
+        + "literal's two words in two slots of the long table"),
+      Row("-d38 < d38b", "lo' = -lo and hi' = ~hi + (lo = 0): the borrow is the only carry, "
+        + "and Spark negates a wide value exactly"),
+      Row("abs(d38) >= d38b", "each word of -d38 where the high word is negative"),
+      Row("IF(d18 > 0.00, d38, d19) < d38b", "the choice on each word under one condition"),
+      Row("CASE WHEN d38 < 0.00 THEN d38b END <=> d38", "a missing ELSE is a null in each word"),
+      Row("coalesce(d38, d19) = d38b"),
+      Row("greatest(d38, d38b) > 0.00", "keeps the running pick where the next operand is null "
+        + "or where both are valid and the pick is not smaller, once per word"),
+      Row("least(d38, d19) <= 0.00"))),
 
     // Decimal +, - and * whose result stays within 18 digits (VARKA-349), under a comparison:
     // a sum or difference is one long add or subtract of the operands rescaled to the result's
@@ -2256,6 +2267,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "IF(d18 > 0.00, d38, d38b) IS NULL", "coalesce(d38, d19) IS NULL",
     "greatest(d38, d38b) IS NOT NULL")
 
+  // The pair's value half (VARKA-359b): the negation and abs words are proven in the carry
+  // layer of decimal128.smt2; the choices, picks and IN, which also read validity, are checked
+  // by the differential suites.
+  private val pairValues = Seq(
+    "d38 IN (1.00, 12345678901234567890, -0.50)", "IF(d18 > 0.00, d38, d19) < d38b",
+    "CASE WHEN d38 < 0.00 THEN d38b END <=> d38", "coalesce(d38, d19) = d38b",
+    "greatest(d38, d38b) > 0.00", "least(d38, d19) <= 0.00")
+
   // VarkaEmitterNarrowSuite's byte square sweeps every TINYINT pair through the comparisons and
   // the picks, but over values only, with no null row, and its IN is a range set where the rows
   // build an equality chain and a hash set; so the TINYINT rows stay differential here.
@@ -2361,7 +2380,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // The product of two columns, which the printer refuses (VARKA-506.md 2.4), keeps its
     // hand-written refinement.
     "d8 * d9 <= d9b" -> Refined("d8 * d9 <= d9b")) ++
-    pairNulls.map(_ -> Differential)
+    pairNulls.map(_ -> Differential) ++
+    pairValues.map(_ -> Differential)
 
   private def verifiedOf(family: Family, row: Row): Verified =
     rowVerified.getOrElse(row.sql, familyVerified.getOrElse(family.title, Differential))
