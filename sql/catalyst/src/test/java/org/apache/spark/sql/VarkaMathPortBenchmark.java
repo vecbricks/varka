@@ -150,8 +150,12 @@ public class VarkaMathPortBenchmark extends VarkaBenchmarkBase {
   /** The buffer every arm re-drives: four chunks, 128 KB of doubles, inside a core's L2. */
   private static final int BUFFER_ROWS = 4 * CHUNK;
 
-  /** The rows of a timed iteration. Read at run time, never folded into a timed loop. */
-  private static int numRows = 1 << 20;
+  /**
+   * The rows of a timed iteration: 256 passes over the buffer, so the fastest arm's iteration is
+   * several milliseconds and the results file's whole-millisecond Best Time column still has
+   * digits to compare. Read at run time, never folded into a timed loop.
+   */
+  private static int numRows = 1 << 22;
 
   /** On average one row in this many is special in the sparse class. */
   private static final int SPARSE = 64;
