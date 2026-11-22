@@ -120,6 +120,10 @@ public final class VarkaSuiteRecord {
       for (String r : verdict.reasons().keySet()) {
         found.add("declined\t" + r);
       }
+      if (verdict.reasons().isEmpty()) {
+        // A decline that names no reason is still a decline, never the empty set that reads fused.
+        found.add("declined\t(no reason given)");
+      }
     }
   }
 
@@ -202,7 +206,10 @@ public final class VarkaSuiteRecord {
           + (recording() ? tests[1] + " of " + tests[0] + " tests reached their decision"
               : "the run is not at the defaults"));
       KEYS.remove(suite);
-      return null;
+      // A regeneration that wrote nothing must not pass, or the job's diff would find nothing.
+      return recording() && "true".equals(System.getenv("VARKA_SUITES_REGEN"))
+          ? suite + ": the record was not written, " + tests[1] + " of " + tests[0]
+              + " tests reached their decision" : null;
     }
     for (List<String> entry : DECLINES_LISTED) {
       if (entry.get(0).equals(suite) && !DECLINES_SEEN.contains(entry)
