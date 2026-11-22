@@ -62,7 +62,9 @@ the same selection as a reach record, which `plan --reach` and the configuration
 """
 
 import argparse
+import contextlib
 import hashlib
+import io
 import json
 import re
 import statistics
@@ -101,14 +103,19 @@ LANES = 2
 # The platform configurations (VARKA-505): the Varka suites at the defaults under a fixed
 # instruction set, whatever the pool's machine is. Each is (runner, JVM flags). A platform changes
 # what C2 does with the same bytes, so none of them is cut by the reach record, and a run takes
-# the defaults' seconds. The matrix's own bins run on `ubuntu-latest`; a platform's runs go in bins
-# of their own, in the order below.
+# its own measured seconds where the pair file has them, else the defaults'. The matrix's own bins
+# run on `ubuntu-latest`; a platform's runs go in bins of their own, in the order below.
 RUNNER = "ubuntu-latest"
 PLATFORMS = {
     "isa=avx2": (RUNNER, "-XX:UseAVX=2 -XX:MaxVectorSize=32"),
     "isa=w128": (RUNNER, "-XX:MaxVectorSize=16"),
     "isa=arm": ("ubuntu-24.04-arm", ""),
 }
+
+# The most jobs a GitHub Actions matrix may hold. The bins, the platforms' among them, are one
+# job's matrix, so `plan` refuses a cut of more bins than this rather than hand the workflow a
+# matrix GitHub rejects.
+MATRIX_CAP = 256
 
 
 def read_tsv(path):
@@ -398,6 +405,17 @@ def plan(
     return {"include": include}
 
 
+def over_cap(out, target, cap=MATRIX_CAP):
+    """Why the job matrix `out` cannot run, or None: more bins than a matrix may hold."""
+    count = len(out["include"])
+    if count <= cap:
+        return None
+    return (
+        f"{count} bins at a {target:.0f} s lane, over GitHub's cap of {cap} jobs a matrix; raise"
+        f" --target until the cut fits, or run fewer configurations"
+    )
+
+
 def whole_runs(junit_dirs, reach=None):
     """Each suite's seconds under each configuration that ran every test of it, the defaults
     among them, as {(run directory, suite): seconds}, from JUnit reports under
@@ -495,22 +513,58 @@ def read_bin_runs(root):
     return out
 
 
+def unfinished_units(root):
+    """The JVMs under `root` that left a `run.log` but no `seconds`, as `b003-u2/config/module`:
+    `dev/varka_matrix.sh` writes `seconds` once a JVM exits, failed or not, so these are the
+    units a cancel or the job's timeout killed, which `read_bin_runs` cannot time."""
+    out = set()
+    for log in Path(root).glob("**/b[0-9][0-9][0-9]-u*/runs/*/*/run.log"):
+        leaf = log.parent
+        if not (leaf / "seconds").exists():
+            out.add(f"{leaf.parent.parent.parent.name}/{leaf.parent.name}/{leaf.name}")
+    return sorted(out)
+
+
 def epoch(stamp):
     """An Actions API time stamp, `2026-11-14T21:20:38Z`, as seconds."""
     return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
 
 
+def json_jobs(text):
+    """The jobs in a saved jobs listing: one job a line (`--jq '.jobs[]'`), the API's pages
+    (`{"total_count": N, "jobs": [...]}`) one after another as `--paginate` prints them, compact
+    or pretty-printed, or a list of either."""
+    decoder = json.JSONDecoder()
+    values, at = [], 0
+    while True:
+        while at < len(text) and text[at].isspace():
+            at += 1
+        if at == len(text):
+            break
+        value, at = decoder.raw_decode(text, at)
+        values.append(value)
+    jobs = []
+    while values:
+        value = values.pop(0)
+        if isinstance(value, list):
+            values[:0] = value
+        elif isinstance(value, dict) and isinstance(value.get("jobs"), list):
+            jobs.extend(value["jobs"])
+        elif isinstance(value, dict):
+            jobs.append(value)
+    return jobs
+
+
 def read_bin_jobs(path):
-    """The run's bin jobs from the Actions API's jobs of a run, saved as one JSON object a line
-    (`gh api .../actions/runs/RUN/jobs?filter=all --paginate --jq '.jobs[]'`) or as the API's
-    own `{"jobs": [...]}`: for each bin its last attempt's created, started and completed times
-    and its units step's start and end, as seconds."""
-    text = Path(path).read_text(encoding="utf-8").strip()
-    if text.startswith('{"jobs"') or text.startswith("["):
-        loaded = json.loads(text)
-        jobs = loaded["jobs"] if isinstance(loaded, dict) else loaded
-    else:
-        jobs = [json.loads(line) for line in text.splitlines() if line.strip()]
+    """The run's bin jobs from the Actions API's jobs of a run, saved by `gh api
+    .../actions/runs/RUN/jobs?filter=all --paginate`, with or without `--jq '.jobs[]'`
+    (`json_jobs`): for each bin its last attempt's created, started and completed times and its
+    units step's start and end, as seconds. Bins whose last attempts differ, after a re-run of
+    some jobs, are refused: the run's phase and slots would span both attempts."""
+    try:
+        jobs = json_jobs(Path(path).read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"replay: {path} is no saved jobs listing: {e}") from None
     out = {}
     for job in jobs:
         m = BIN_JOB.fullmatch(job.get("name", ""))
@@ -529,6 +583,18 @@ def read_bin_jobs(path):
             "run_start": epoch(step["started_at"]) if ran else None,
             "run_end": epoch(step["completed_at"]) if ran else None,
         }
+    attempts = {}
+    for b, job in sorted(out.items()):
+        attempts.setdefault(job["attempt"], []).append(b)
+    if len(attempts) > 1:
+        kept = "; ".join(
+            f"attempt {a}: {len(bs)} bins, {', '.join(bs[:4])}{', ...' if len(bs) > 4 else ''}"
+            for a, bs in sorted(attempts.items())
+        )
+        raise SystemExit(
+            f"replay: the bin jobs in {path} come from more than one attempt ({kept}), so their"
+            " phase and slots would span them; replay a run none of whose jobs was re-run"
+        )
     return out
 
 
@@ -609,7 +675,9 @@ def replay(
     lanes_run = {b: lanes_time([u[4] for u in bins.get(b, [])]) for b in order}
     as_run = phase_time([job_overhead(jobs[b]) + lanes_run[b] for b in order], slots, wait)
     jvm = statistics.median(u[4] - sum(u[3].values()) for us in bins.values() for u in us)
-    setup = statistics.median(job_overhead(j) for j in jobs.values())
+    # Over the jobs that reached their units step: one that stopped short counts its whole length
+    # as overhead, which is not a replanned bin's set-up (`replay_inputs` makes sure one did).
+    setup = statistics.median(job_overhead(j) for j in jobs.values() if j["run_start"] is not None)
     pairs = {}
     for us in bins.values():
         for _, config, _, ran, _ in us:
@@ -656,20 +724,56 @@ def replay(
     }
 
 
-def planner_files(ref=None, pairs=None, suite_seconds=None):
-    """The files the planner reads, at git revision `ref` or as the working tree has them, with
-    `pairs` and `suite_seconds` read from the files given instead where they are. A file the
-    revision lacks reads as empty, as a missing file does."""
+def replay_inputs(run, jobs_path):
+    """`replay`'s run: its bins (`read_bin_runs`), its bin jobs (`read_bin_jobs`) and the units a
+    cancel or a timeout left untimed (`unfinished_units`). Inputs that match nothing, a wrong
+    directory or another run's jobs, are refused with what was found where."""
+    bins, jobs = read_bin_runs(run), read_bin_jobs(jobs_path)
+    found = (
+        f"{len(jobs)} bin jobs in {jobs_path}, {sum(map(len, bins.values()))} timed units"
+        f" of {len(bins)} bins under {run}"
+    )
+    if not jobs or not bins:
+        raise SystemExit(f"replay: nothing to replay: {found}")
+    if not set(jobs) & set(bins):
+        raise SystemExit(f"replay: no bin job has units, so the two are not one run's: {found}")
+    if all(j["run_start"] is None for j in jobs.values()):
+        raise SystemExit(f"replay: no bin job reached its step {RUN_STEP!r}: {found}")
+    return bins, jobs, unfinished_units(run)
+
+
+def planner_files(ref=None, pairs=None, suite_seconds=None, repo=None):
+    """The files the planner reads, at git revision `ref` of the repository `repo` (this one by
+    default) or as the working tree has them, with `pairs` and `suite_seconds` read from the
+    files given instead. A file the revision lacks reads as empty, as a missing file does; a ref
+    that is no commit, any other failure of git, and a given file that does not exist are
+    refused, since each would otherwise plan by fill values alone and look like an answer."""
+    for given in (pairs, suite_seconds):
+        if given is not None and not Path(given).is_file():
+            raise SystemExit(f"replay: no file {given}")
+    repo = repo or Path(__file__).resolve().parent.parent
+
+    def git(*argv):
+        return subprocess.run(["git", *argv], cwd=repo, capture_output=True, text=True, check=False)
+
+    if ref is not None:
+        checked = git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+        if checked.returncode != 0:
+            raise SystemExit(f"replay: --plan-from {ref} is no commit in {repo}")
+        ref = checked.stdout.strip()
     with tempfile.TemporaryDirectory() as tmp:
 
         def at(path):
             if ref is None:
                 return path
-            shown = subprocess.run(
-                ["git", "show", f"{ref}:{path}"], capture_output=True, text=True, check=False
-            )
             f = Path(tmp, Path(path).name)
-            f.write_text(shown.stdout if shown.returncode == 0 else "", encoding="utf-8")
+            if git("cat-file", "-e", f"{ref}:{path}").returncode != 0:
+                f.write_text("", encoding="utf-8")
+                return f
+            shown = git("show", f"{ref}:{path}")
+            if shown.returncode != 0:
+                raise SystemExit(f"replay: git show {ref}:{path} failed: {shown.stderr.strip()}")
+            f.write_text(shown.stdout, encoding="utf-8")
             return f
 
         return (
@@ -680,8 +784,10 @@ def planner_files(ref=None, pairs=None, suite_seconds=None):
         )
 
 
-def replay_lines(got, over=600.0):
-    """`replay`'s result as the lines `replay` prints, minutes for phases and seconds for bins."""
+def replay_lines(got, over=600.0, unfinished=()):
+    """`replay`'s result as the lines `replay` prints, minutes for phases and seconds for bins,
+    with the units a cancel or a timeout left untimed (`unfinished_units`), which "as run"
+    leaves out."""
 
     def bins(seconds):
         return (
@@ -699,6 +805,8 @@ def replay_lines(got, over=600.0):
         f"replanned            {got['replanned'] / 60:6.1f} min   {bins(got['bins replanned'])}",
         f"pairs the run has no seconds for: {got['missing pairs']};"
         f" bin jobs with no artifact: {', '.join(got['no artifact']) or 'none'}",
+        f"units with a run.log but no seconds, left out of as run: {len(unfinished)}"
+        + "".join(f"\n  {u}" for u in unfinished),
     ]
 
 
@@ -1442,28 +1550,163 @@ class SelfTest(unittest.TestCase):
                 for suite, t in suites.items():
                     xml = f'<testsuite name="p.{suite}" tests="1" time="{t}">\n</testsuite>\n'
                     (leaf / "junit" / f"TEST-p.{suite}.xml").write_text(xml, encoding="utf-8")
-        lines = []
-        for b, (created, started, run_start, run_end, completed) in jobs.items():
-            job = {
-                "name": f"Option matrix: {b}",
-                "run_attempt": 1,
-                "created_at": self._stamp(created),
-                "started_at": self._stamp(started),
-                "completed_at": self._stamp(completed),
-                "steps": [
-                    {
-                        "name": RUN_STEP,
-                        "started_at": self._stamp(run_start),
-                        "completed_at": self._stamp(run_end),
-                    }
-                ],
-            }
-            lines.append(json.dumps(job))
-        # A job that is not a bin's is read past.
-        lines.append(json.dumps({"name": "Option matrix: build and plan", "started_at": "x"}))
         f = Path(root, "jobs.jsonl")
-        f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        f.write_text("".join(json.dumps(j) + "\n" for j in self._jobs(jobs)), encoding="utf-8")
         return read_bin_runs(root), read_bin_jobs(f)
+
+    def _jobs(self, jobs, attempt=1):
+        """`jobs` as the API's job objects, a job that is not a bin's last; a job whose units
+        step times are None never reached that step."""
+        out = []
+        for b, (created, started, run_start, run_end, completed) in jobs.items():
+            step = {"name": "Set up job", "started_at": None, "completed_at": None}
+            if run_start is not None:
+                step = {
+                    "name": RUN_STEP,
+                    "started_at": self._stamp(run_start),
+                    "completed_at": self._stamp(run_end),
+                }
+            out.append(
+                {
+                    "name": f"Option matrix: {b}",
+                    "run_attempt": attempt,
+                    "created_at": self._stamp(created),
+                    "started_at": self._stamp(started),
+                    "completed_at": self._stamp(completed),
+                    "steps": [step],
+                }
+            )
+        # A job that is not a bin's is read past.
+        out.append({"name": "Option matrix: build and plan", "started_at": "x"})
+        return out
+
+    def test_the_jobs_file_reads_in_each_form_the_api_saves(self):
+        jobs = self._jobs({"b000": (0, 2, 32, 52, 55), "b001": (0, 57, 87, 97, 100)})
+        page = {"total_count": len(jobs), "jobs": jobs}
+        forms = {
+            "lines": "".join(json.dumps(j) + "\n" for j in jobs),
+            "one page": json.dumps(page),
+            "pretty": json.dumps(page, indent=2),
+            "pages": json.dumps({"total_count": 3, "jobs": jobs[:1]})
+            + json.dumps({"total_count": 3, "jobs": jobs[1:]}),
+            "slurped": json.dumps([page]),
+        }
+        with tempfile.TemporaryDirectory() as root:
+            got = {}
+            for name, text in forms.items():
+                f = Path(root, name)
+                f.write_text(text, encoding="utf-8")
+                got[name] = read_bin_jobs(f)
+            f.write_text("1 bins, the longest 480 s\n", encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "is no saved jobs listing"):
+                read_bin_jobs(f)
+        self.assertEqual(sorted(got["lines"]), ["b000", "b001"])
+        for name in forms:
+            self.assertEqual(got[name], got["lines"], name)
+
+    def test_bin_jobs_of_two_attempts_are_refused(self):
+        jobs = self._jobs({"b000": (0, 2, 32, 52, 55)}) + self._jobs(
+            {"b001": (0, 57, 87, 97, 100)}, attempt=2
+        )
+        with tempfile.TemporaryDirectory() as root:
+            f = Path(root, "jobs.jsonl")
+            f.write_text("".join(json.dumps(j) + "\n" for j in jobs), encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "attempt 1: 1 bins, b000; attempt 2"):
+                read_bin_jobs(f)
+            # A bin re-run whole keeps its last attempt alone.
+            f.write_text(
+                "".join(
+                    json.dumps(j) + "\n" for j in jobs + self._jobs({"b000": (0, 1, 2, 3, 4)}, 2)
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual({j["attempt"] for j in read_bin_jobs(f).values()}, {2})
+
+    def test_a_unit_a_cancel_killed_is_reported_and_inputs_that_match_nothing_refused(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._run(
+                root,
+                {"b000": [("x=1", "sql", {"A": 9.0}, 10)]},
+                {"b000": (0, 2, 32, 52, 55), "b001": (0, 57, 87, 97, 100)},
+            )
+            leaf = Path(root, "varka-option-matrix-b000", "b000-u1", "runs", "x=1", "sql-b000-1")
+            leaf.mkdir(parents=True)
+            (leaf / "run.log").write_text("killed\n", encoding="utf-8")
+            bins, jobs, unfinished = replay_inputs(root, Path(root, "jobs.jsonl"))
+            self.assertEqual(unfinished, ["b000-u1/x=1/sql-b000-1"])
+            got = replay(bins, jobs, [("sql", [("A", True)])], ({}, {}, {}, {}), 480.0)
+            lines = replay_lines(got, unfinished=unfinished)
+            self.assertIn("left out of as run: 1\n  b000-u1/x=1/sql-b000-1", lines[-1])
+            with tempfile.TemporaryDirectory() as empty:
+                with self.assertRaisesRegex(SystemExit, "0 timed units of 0 bins under"):
+                    replay_inputs(empty, Path(root, "jobs.jsonl"))
+            other = Path(root, "other.jsonl")
+            text = "".join(json.dumps(j) + "\n" for j in self._jobs({"b007": (0, 1, 2, 3, 4)}))
+            other.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "not one run's: 1 bin jobs in"):
+                replay_inputs(root, other)
+            text = "".join(json.dumps(j) + "\n" for j in self._jobs({"b000": (0, 1, None, 0, 4)}))
+            other.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "reached its step"):
+                replay_inputs(root, other)
+
+    def test_a_bin_job_that_stopped_short_stays_out_of_the_median_set_up(self):
+        # b002 failed before its units step after 600 s; the set-up and upload of the two jobs that
+        # ran their units are 33 s each, and stay the median however many jobs stop short.
+        with tempfile.TemporaryDirectory() as root:
+            bins, jobs = self._run(
+                root,
+                {
+                    "b000": [("x=1", "sql", {"A": 9.0}, 10)],
+                    "b001": [("x=1", "sql", {"A": 9.0}, 10)],
+                },
+                {
+                    "b000": (0, 2, 32, 42, 45),
+                    "b001": (0, 47, 77, 87, 90),
+                    "b002": (0, 92, None, None, 692),
+                    "b003": (0, 694, None, None, 1294),
+                },
+            )
+        got = replay(bins, jobs, [("sql", [("A", True)])], ({}, {}, {}, {}), 480.0)
+        self.assertEqual(got["setup"], 33.0)
+
+    def test_the_planner_files_refuse_a_ref_that_is_no_commit_and_a_missing_file(self):
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        with tempfile.TemporaryDirectory() as repo:
+            subprocess.run(["git", "init", "-q", repo], check=True)
+            Path(repo, SUITE_SECONDS).parent.mkdir(parents=True)
+            Path(repo, SUITE_SECONDS).write_text("A\t12.0\n", encoding="utf-8")
+            subprocess.run([*git, "-C", repo, "add", "-A"], check=True)
+            subprocess.run([*git, "-C", repo, "commit", "-q", "-m", "x"], check=True)
+            got = planner_files("HEAD", repo=Path(repo))
+            # A file the revision lacks reads as empty, as a missing file does.
+            self.assertEqual(got, ({"A": 12.0}, {}, {}, {}))
+            with self.assertRaisesRegex(SystemExit, "--plan-from HEAD~1 is no commit"):
+                planner_files("HEAD~1", repo=Path(repo))
+            with self.assertRaisesRegex(SystemExit, "no file"):
+                planner_files("HEAD", pairs=Path(repo, "nope.tsv"), repo=Path(repo))
+            with self.assertRaisesRegex(SystemExit, "no file"):
+                planner_files(suite_seconds=Path(repo, "nope.tsv"), repo=Path(repo))
+
+    def test_plan_refuses_a_matrix_past_the_cap(self):
+        # A lane of 10 s is shorter than any unit, so each suite run alone takes a bin.
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "configurations").write_text("", encoding="utf-8")
+            for count in (MATRIX_CAP, MATRIX_CAP + 1):
+                suites = "".join(f"@own p.S{i}\n" for i in range(count))
+                Path(root, "sql").write_text(suites, encoding="utf-8")
+                argv = ["plan", "--configurations", str(Path(root, "configurations"))]
+                argv += ["--suites", f"sql={Path(root, 'sql')}", "--target", "10"]
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = main(argv)
+                if count == MATRIX_CAP:
+                    self.assertEqual(code, 0)
+                    self.assertEqual(len(json.loads(out.getvalue())["include"]), MATRIX_CAP)
+                else:
+                    self.assertEqual((code, out.getvalue()), (1, ""))
+                    self.assertIn(f"::error::varka_matrix_bins plan: {count} bins", err.getvalue())
+                    self.assertIn("raise --target", err.getvalue())
 
     def test_as_run_replays_a_run_to_its_measured_phase(self):
         # One slot, each job 30 s of set-up and 3 of upload around its units, 2 s of wait for a
@@ -1587,16 +1830,17 @@ def replay_main(args):
     for entry in args.suites:
         module, path = entry.split("=", 1)
         suites.append((module, read_suites(path)))
+    bins, jobs, unfinished = replay_inputs(args.run, args.jobs)
     got = replay(
-        read_bin_runs(args.run),
-        read_bin_jobs(args.jobs),
+        bins,
+        jobs,
         suites,
         planner_files(args.plan_from, args.pairs, args.suite_seconds),
         args.target,
         read_reach(args.reach) if args.reach else None,
         args.slots,
     )
-    print("\n".join(replay_lines(got)))
+    print("\n".join(replay_lines(got, unfinished=unfinished)))
     return 0
 
 
@@ -1684,6 +1928,11 @@ def main(argv):
         read_config_seconds(CONFIG_SUITE_SECONDS),
         tuple(PLATFORMS) if args.platforms else (),
     )
+    why = over_cap(out, args.target)
+    if why is not None:
+        # The workflow prints this file when the step fails, so the annotation shows.
+        print(f"::error::varka_matrix_bins plan: {why}", file=sys.stderr)
+        return 1
     json.dump(out, sys.stdout)
     print()
     total = sum(b["seconds"] for b in out["include"])

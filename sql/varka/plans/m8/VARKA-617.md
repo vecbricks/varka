@@ -227,6 +227,25 @@ planner over master's configurations and suites (44485292430's, no reach record)
 the fresh file against 190 on October's, 13.7 per cent more, past the predicted 10. It is scored
 after step 4, as section 8 says.
 
+### 11.4 The review's fixes (22 November 2026, pull request 1)
+
+The high review of #1632 on `9032bbbb3d1` found one important fault and seven nits, all fixed:
+
+* `--plan-from` takes only a ref that is a commit, a path the commit lacks still reads empty and
+  any other `git show` failure stops the replay; a given `--pairs` or `--suite-seconds` that is
+  no file stops it too. Before, each planned by fill values alone and printed a believable figure.
+* The jobs file reads in every form `gh api --paginate` saves, with or without `--jq`.
+* Bin jobs whose last attempts differ are refused; a unit with a `run.log` and no `seconds`, killed
+  by a cancel or the timeout, is listed beside "no artifact"; inputs that match nothing stop with
+  the counts found and the paths read; the median set-up counts only jobs that ran their units.
+* `plan` fails, with an `::error::` line the workflow step now prints, when its cut holds more than
+  the 256 jobs a GitHub matrix may: this pull request's data takes a no-reach run from 190 bins to
+  216, 40 under the cap.
+
+The CI plan path's output is unchanged for valid input: `plan` as the workflow calls it, with and
+without `--platforms` and with run 43642146943's reach record, writes the same JSON and summary
+line before and after.
+
 ## 12. Decisions taken while the owner was away (20 November 2026)
 
 1. **Section 9's question: both runs.** The committed file holds 43642146943 and 44485292430, as
