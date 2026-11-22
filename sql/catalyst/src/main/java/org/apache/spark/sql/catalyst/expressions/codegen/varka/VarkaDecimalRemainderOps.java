@@ -107,7 +107,7 @@ public final class VarkaDecimalRemainderOps {
 
   static {
     if (L < 2 || BLOCK_ROWS % L != 0 || DS.length() != L) {
-      throw new ExceptionInInitializerError(L + " long lanes do not divide a 64-row block");
+      throw VarkaErrors.illegalState(L + " long lanes do not divide a 64-row block");
     }
     for (int j = 0; j < L; j++) {
       IOTA[j] = j;
@@ -155,7 +155,7 @@ public final class VarkaDecimalRemainderOps {
       return;
     }
     if (zeroDivisors.length < (length + BLOCK_ROWS - 1) / BLOCK_ROWS) {
-      throw new IllegalArgumentException(zeroDivisors.length + " zero-divisor words for "
+      throw VarkaErrors.illegalArgument(zeroDivisors.length + " zero-divisor words for "
           + length + " rows");
     }
     long bytes = length * 16L;
