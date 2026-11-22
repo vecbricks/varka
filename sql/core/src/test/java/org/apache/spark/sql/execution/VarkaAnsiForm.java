@@ -152,6 +152,18 @@ public final class VarkaAnsiForm {
   }
 
   /**
+   * What an expression of type {@code t} is compared with on the right side of a false AND: its
+   * {@link #standIn}, but a typed zero for a decimal. A comparison with the typed null is null,
+   * so the optimizer folds the filter to an empty relation and no kernel would see it.
+   */
+  static Optional<String> comparand(DataType t) {
+    if (t instanceof DecimalType) {
+      return Optional.of("CAST(0 AS " + t.sql() + ")");
+    }
+    return standIn(t, false);
+  }
+
+  /**
    * A position's query over {@code t}, and for a projection {@code SELECT <x> AS v FROM t} its
    * {@code x}, which {@link #check} plans beside the row's other projections.
    */
@@ -207,7 +219,7 @@ public final class VarkaAnsiForm {
       out.put(COALESCE_TAIL, standIn(t, false).map(c ->
           Written.projection("coalesce(" + c + ", " + e + ")")));
       // e = <column>, not e IS NOT NULL: Varka fuses no IS NOT NULL over a computed value.
-      out.put(FALSE_AND, standIn(t, false).map(c ->
+      out.put(FALSE_AND, comparand(t).map(c ->
           Written.filter(guard + " < 0 AND (" + e + ") = " + c)));
     }
     return out;
