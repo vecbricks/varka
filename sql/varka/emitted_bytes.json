@@ -16825,6 +16825,18 @@
       "4" : "40cf72553708bd66",
       "16" : "cf6c033cd0d20152"
     },
+    "narrowConversionForm=ROUND_TO_ODD over useAVX=2" : {
+      "4" : "40cf72553708bd66",
+      "16" : "cf6c033cd0d20152"
+    },
+    "narrowConversionForm=WINDOWED over useAVX=2" : {
+      "4" : "40cf72553708bd66",
+      "16" : "cf6c033cd0d20152"
+    },
+    "narrowConversionForm=SCALAR over useAVX=2" : {
+      "4" : "40cf72553708bd66",
+      "16" : "cf6c033cd0d20152"
+    },
     "narrowGroupStore=MASKED over lanesOverride=4" : {
       "4" : "a5e5b9102ef183e5"
     },
