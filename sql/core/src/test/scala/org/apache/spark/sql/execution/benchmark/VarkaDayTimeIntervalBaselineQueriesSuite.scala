@@ -143,11 +143,12 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
       def fused(list: Seq[VarkaDayTimeIntervalBaselineBenchmark.Section]): Seq[(String, String)] =
         list.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
           .map(s => (s.title, s.fusion.toString))
-      // The projections row 103 fuses, at both widths: the refusal below is a filter's. Of the
-      // four extracts together only the DAY field fuses.
+      // The projections row 103 fuses, at both widths: the refusal below is a filter's. The
+      // four extracts together are not among them: only the DAY field would fuse, and a
+      // projection under a row consumer whose residual entries outnumber its fused ones is left
+      // to Spark (VARKA-613).
       val projections = Seq("dt + dt2 - dt", "abs(dt)", "dt * 3", "extract(DAY FROM dt)")
-      def density(d: String): Seq[(String, String)] = projections.map(p => (s"$p, $d", "WHOLE")) :+
-        (s"extract DAY, HOUR, MINUTE and SECOND together, $d", "PARTIAL")
+      def density(d: String): Seq[(String, String)] = projections.map(p => (s"$p, $d", "WHOLE"))
       val blend = "CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths"
       assert(fused(sections) === density("no nulls") ++ Seq(
         ("filter dt > dt2, control, fuses today, no nulls", "WHOLE"),

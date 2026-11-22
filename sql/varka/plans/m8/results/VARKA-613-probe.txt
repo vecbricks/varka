@@ -1,0 +1,492 @@
+VarkaPartialProjectionProbe (VARKA-613), laptop (Ryzen AI 9 HX PRO 370), JDK 25, -XX:UseAVX=2
+(the EPYC runners' level), -XX:MaxVectorSize=32 (256-bit lanes) and 16 (128-bit), 2,000,000
+Arrow-cached rows of the day-time baseline's table, local[1], before the change. The laptop was
+shared with other agents' JVMs at a one-minute load average of 30 to 60, given per run, so the
+arms are read against each other within a pass, by best time. Each PLAN line is the Varka
+session's plan; "entries" is the Varka node's line per projection entry.
+
+=== run 1, 256 bits (load at start 39.60 42.64 48.81, at end 31.65 39.03 46.33)
+PLAN control, extract(DAY FROM dt) alone:
+VarkaColumnarToRow [extractansiintervaldays(dt#422) AS a#844]
++- Scan In-memory table varka_day_time_interval [dt#422]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused
+  Running case: spark row path (varka off)
+  Stopped after 12 iterations, 2090 ms
+  Running case: varka on
+  Stopped after 10 iterations, 2199 ms
+control, extract(DAY FROM dt) alone over 2000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                       146            174          17         13.7          72.9       1.0X
+varka on                                                         186            220          37         10.8          92.8       0.8X
+PLAN a. the blend:
+VarkaColumnarToRow [extractansiintervaldays(dt#422) AS a#6772, extractansiintervalhours(dt#422) AS b#6773, extractansiintervalminutes(dt#422) AS c#6774, extractansiintervalseconds(dt#422) AS d#6775]
++- Scan In-memory table varka_day_time_interval [dt#422]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt))
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 2246 ms
+  Running case: varka on
+  Stopped after 7 iterations, 2194 ms
+a. the blend over 2000000 rows:           Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          301            449         175          6.6         150.5       1.0X
+varka on                                            228            313          93          8.8         114.1       1.3X
+PLAN b. other inputs:
+VarkaColumnarToRow [extractansiintervaldays(dt#422) AS a#11327, extractansiintervalhours(dt2#423) AS b#11328, extractansiintervalminutes(dt2#423) AS c#11329, extractansiintervalseconds(dt2#423) AS d#11330]
++- Scan In-memory table varka_day_time_interval [dt#422, dt2#423]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt2)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt2)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt2))
+  Running case: spark row path (varka off)
+  Stopped after 8 iterations, 2025 ms
+  Running case: varka on
+  Stopped after 7 iterations, 2167 ms
+b. other inputs over 2000000 rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          170            253          52         11.7          85.1       1.0X
+varka on                                            200            310          79         10.0         100.0       0.9X
+PLAN c. heavy, shared:
+VarkaColumnarToRow [-dt#422 AS a#16434, abs(dt#422) AS b#16435, (dt#422 * 3) AS c#16436, extractansiintervalhours(dt#422) AS d#16437]
++- Scan In-memory table varka_day_time_interval [dt#422]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt))
+  Running case: spark row path (varka off)
+  Stopped after 11 iterations, 2006 ms
+  Running case: varka on
+  Stopped after 23 iterations, 2069 ms
+c. heavy, shared over 2000000 rows:       Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          130            182          28         15.4          64.8       1.0X
+varka on                                             58             90          26         34.2          29.2       2.2X
+PLAN d. heavy, other:
+VarkaColumnarToRow [-dt#422 AS a#26325, abs(dt#422) AS b#26326, (dt#422 * 3) AS c#26327, make_dt_interval(i#424, i2#425, i3#426, 0.000000) AS d#26328]
++- Scan In-memory table varka_day_time_interval [dt#422, i#424, i2#425, i3#426]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: make_dt_interval(varka_day_time_interval.i, varka_day_time_interval.i2, varka...)
+  Running case: spark row path (varka off)
+  Stopped after 11 iterations, 2130 ms
+  Running case: varka on
+  Stopped after 16 iterations, 2016 ms
+d. heavy, other over 2000000 rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          163            194          22         12.2          81.7       1.0X
+varka on                                            108            126          12         18.5          54.1       1.5X
+PLAN control, extract(DAY FROM dt) alone_n:
+VarkaColumnarToRow [extractansiintervaldays(dt_n#428) AS a#36400]
++- Scan In-memory table varka_day_time_interval [dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused
+  Running case: spark row path (varka off)
+  Stopped after 18 iterations, 2025 ms
+  Running case: varka on
+  Stopped after 43 iterations, 2036 ms
+control, extract(DAY FROM dt) alone_n over 2000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                          76            113          41         26.4          37.8       1.0X
+varka on                                                            29             47          12         69.6          14.4       2.6X
+PLAN a. the blend_n:
+VarkaColumnarToRow [extractansiintervaldays(dt_n#428) AS a#57351, extractansiintervalhours(dt_n#428) AS b#57352, extractansiintervalminutes(dt_n#428) AS c#57353, extractansiintervalseconds(dt_n#428) AS d#57354]
++- Scan In-memory table varka_day_time_interval [dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt_n)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt_n)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt_n))
+  Running case: spark row path (varka off)
+  Stopped after 16 iterations, 2086 ms
+  Running case: varka on
+  Stopped after 11 iterations, 2042 ms
+a. the blend_n over 2000000 rows:         Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          103            130          16         19.4          51.5       1.0X
+varka on                                            153            186          22         13.1          76.5       0.7X
+PLAN b. other inputs_n:
+VarkaColumnarToRow [extractansiintervaldays(dt_n#428) AS a#66506, extractansiintervalhours(dt2#423) AS b#66507, extractansiintervalminutes(dt2#423) AS c#66508, extractansiintervalseconds(dt2#423) AS d#66509]
++- Scan In-memory table varka_day_time_interval [dt2#423, dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt2)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt2)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt2))
+  Running case: spark row path (varka off)
+  Stopped after 13 iterations, 2040 ms
+  Running case: varka on
+  Stopped after 12 iterations, 2140 ms
+b. other inputs_n over 2000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          128            157          20         15.7          63.8       1.0X
+varka on                                            136            178          23         14.7          68.2       0.9X
+PLAN c. heavy, shared_n:
+VarkaColumnarToRow [-dt_n#428 AS a#75109, abs(dt_n#428) AS b#75110, (dt_n#428 * 3) AS c#75111, extractansiintervalhours(dt_n#428) AS d#75112]
++- Scan In-memory table varka_day_time_interval [dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt_n))
+  Running case: spark row path (varka off)
+  Stopped after 13 iterations, 2085 ms
+  Running case: varka on
+  Stopped after 17 iterations, 2150 ms
+c. heavy, shared_n over 2000000 rows:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          118            160          32         16.9          59.1       1.0X
+varka on                                             81            126          35         24.7          40.5       1.5X
+PLAN d. heavy, other_n:
+VarkaColumnarToRow [-dt_n#428 AS a#83896, abs(dt_n#428) AS b#83897, (dt_n#428 * 3) AS c#83898, make_dt_interval(i_n#429, i2#425, i3#426, 0.000000) AS d#83899]
++- Scan In-memory table varka_day_time_interval [dt_n#428, i2#425, i3#426, i_n#429]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: make_dt_interval(varka_day_time_interval.i_n, varka_day_time_interval.i2, var...)
+  Running case: spark row path (varka off)
+  Stopped after 6 iterations, 2108 ms
+  Running case: varka on
+  Stopped after 9 iterations, 2195 ms
+d. heavy, other_n over 2000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          285            351          81          7.0         142.6       1.0X
+varka on                                            183            244          41         10.9          91.4       1.6X
+
+=== run 1, 128 bits (load at start 31.65 39.03 46.33, at end 44.70 41.69 45.79)
+PLAN control, extract(DAY FROM dt) alone:
+VarkaColumnarToRow [extractansiintervaldays(dt#422) AS a#844]
++- Scan In-memory table varka_day_time_interval [dt#422]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 2003 ms
+  Running case: varka on
+  Stopped after 5 iterations, 2254 ms
+control, extract(DAY FROM dt) alone over 2000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                       320            401          55          6.3         160.0       1.0X
+varka on                                                         376            451          91          5.3         188.0       0.9X
+PLAN a. the blend:
+VarkaColumnarToRow [extractansiintervaldays(dt#422) AS a#3695, extractansiintervalhours(dt#422) AS b#3696, extractansiintervalminutes(dt#422) AS c#3697, extractansiintervalseconds(dt#422) AS d#3698]
++- Scan In-memory table varka_day_time_interval [dt#422]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt))
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 2463 ms
+  Running case: varka on
+  Stopped after 5 iterations, 3265 ms
+a. the blend over 2000000 rows:           Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          351            493         190          5.7         175.5       1.0X
+varka on                                            467            653         144          4.3         233.3       0.8X
+PLAN b. other inputs:
+VarkaColumnarToRow [extractansiintervaldays(dt#422) AS a#6778, extractansiintervalhours(dt2#423) AS b#6779, extractansiintervalminutes(dt2#423) AS c#6780, extractansiintervalseconds(dt2#423) AS d#6781]
++- Scan In-memory table varka_day_time_interval [dt#422, dt2#423]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt2)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt2)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt2))
+  Running case: spark row path (varka off)
+  Stopped after 7 iterations, 2198 ms
+  Running case: varka on
+  Stopped after 5 iterations, 3693 ms
+b. other inputs over 2000000 rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          274            314          32          7.3         136.8       1.0X
+varka on                                            547            739         145          3.7         273.4       0.5X
+PLAN c. heavy, shared:
+VarkaColumnarToRow [-dt#422 AS a#10781, abs(dt#422) AS b#10782, (dt#422 * 3) AS c#10783, extractansiintervalhours(dt#422) AS d#10784]
++- Scan In-memory table varka_day_time_interval [dt#422]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt))
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 2112 ms
+  Running case: varka on
+  Stopped after 5 iterations, 2494 ms
+c. heavy, shared over 2000000 rows:       Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          320            422          89          6.2         160.0       1.0X
+varka on                                            400            499          89          5.0         200.2       0.8X
+PLAN d. heavy, other:
+VarkaColumnarToRow [-dt#422 AS a#14048, abs(dt#422) AS b#14049, (dt#422 * 3) AS c#14050, make_dt_interval(i#424, i2#425, i3#426, 0.000000) AS d#14051]
++- Scan In-memory table varka_day_time_interval [dt#422, i#424, i2#425, i3#426]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: make_dt_interval(varka_day_time_interval.i, varka_day_time_interval.i2, varka...)
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 2989 ms
+  Running case: varka on
+  Stopped after 5 iterations, 3981 ms
+d. heavy, other over 2000000 rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          475            598         148          4.2         237.3       1.0X
+varka on                                            528            796         177          3.8         264.0       0.9X
+PLAN control, extract(DAY FROM dt) alone_n:
+VarkaColumnarToRow [extractansiintervaldays(dt_n#428) AS a#17315]
++- Scan In-memory table varka_day_time_interval [dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused
+  Running case: spark row path (varka off)
+  Stopped after 8 iterations, 2081 ms
+  Running case: varka on
+  Stopped after 8 iterations, 2015 ms
+control, extract(DAY FROM dt) alone_n over 2000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                         236            260          17          8.5         117.8       1.0X
+varka on                                                           169            252          51         11.8          84.7       1.4X
+PLAN a. the blend_n:
+VarkaColumnarToRow [extractansiintervaldays(dt_n#428) AS a#22700, extractansiintervalhours(dt_n#428) AS b#22701, extractansiintervalminutes(dt_n#428) AS c#22702, extractansiintervalseconds(dt_n#428) AS d#22703]
++- Scan In-memory table varka_day_time_interval [dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt_n)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt_n)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt_n))
+  Running case: spark row path (varka off)
+  Stopped after 6 iterations, 2100 ms
+  Running case: varka on
+  Stopped after 5 iterations, 2566 ms
+a. the blend_n over 2000000 rows:         Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          305            350          52          6.6         152.7       1.0X
+varka on                                            394            513         121          5.1         197.2       0.8X
+PLAN b. other inputs_n:
+VarkaColumnarToRow [extractansiintervaldays(dt_n#428) AS a#26703, extractansiintervalhours(dt2#423) AS b#26704, extractansiintervalminutes(dt2#423) AS c#26705, extractansiintervalseconds(dt2#423) AS d#26706]
++- Scan In-memory table varka_day_time_interval [dt2#423, dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt2)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt2)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt2))
+  Running case: spark row path (varka off)
+  Stopped after 6 iterations, 2106 ms
+  Running case: varka on
+  Stopped after 5 iterations, 2488 ms
+b. other inputs_n over 2000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          281            351          36          7.1         140.6       1.0X
+varka on                                            402            498         107          5.0         201.1       0.7X
+PLAN c. heavy, shared_n:
+VarkaColumnarToRow [-dt_n#428 AS a#30522, abs(dt_n#428) AS b#30523, (dt_n#428 * 3) AS c#30524, extractansiintervalhours(dt_n#428) AS d#30525]
++- Scan In-memory table varka_day_time_interval [dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt_n))
+  Running case: spark row path (varka off)
+  Stopped after 9 iterations, 2224 ms
+  Running case: varka on
+  Stopped after 5 iterations, 3398 ms
+c. heavy, shared_n over 2000000 rows:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          179            247          62         11.2          89.6       1.0X
+varka on                                            403            680         159          5.0         201.3       0.4X
+PLAN d. heavy, other_n:
+VarkaColumnarToRow [-dt_n#428 AS a#35261, abs(dt_n#428) AS b#35262, (dt_n#428 * 3) AS c#35263, make_dt_interval(i_n#429, i2#425, i3#426, 0.000000) AS d#35264]
++- Scan In-memory table varka_day_time_interval [dt_n#428, i2#425, i3#426, i_n#429]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: make_dt_interval(varka_day_time_interval.i_n, varka_day_time_interval.i2, var...)
+  Running case: spark row path (varka off)
+  Stopped after 7 iterations, 2069 ms
+  Running case: varka on
+  Stopped after 5 iterations, 2870 ms
+d. heavy, other_n over 2000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          185            296          79         10.8          92.7       1.0X
+varka on                                            511            574          53          3.9         255.7       0.4X
+
+=== run 2, 256 bits (load at start 49.37 42.96 46.10, at end 59.11 50.14 48.25)
+PLAN control, extract(DAY FROM dt) alone:
+VarkaColumnarToRow [extractansiintervaldays(dt#422) AS a#844]
++- Scan In-memory table varka_day_time_interval [dt#422]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused
+  Running case: spark row path (varka off)
+  Stopped after 6 iterations, 2234 ms
+  Running case: varka on
+  Stopped after 5 iterations, 2198 ms
+control, extract(DAY FROM dt) alone over 2000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                       272            372         119          7.4         135.8       1.0X
+varka on                                                         335            440          77          6.0         167.3       0.8X
+PLAN a. the blend:
+VarkaColumnarToRow [extractansiintervaldays(dt#422) AS a#4057, extractansiintervalhours(dt#422) AS b#4058, extractansiintervalminutes(dt#422) AS c#4059, extractansiintervalseconds(dt#422) AS d#4060]
++- Scan In-memory table varka_day_time_interval [dt#422]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt))
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 2340 ms
+  Running case: varka on
+  Stopped after 5 iterations, 3140 ms
+a. the blend over 2000000 rows:           Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          327            468         169          6.1         163.7       1.0X
+varka on                                            486            628         180          4.1         243.1       0.7X
+PLAN b. other inputs:
+VarkaColumnarToRow [extractansiintervaldays(dt#422) AS a#6956, extractansiintervalhours(dt2#423) AS b#6957, extractansiintervalminutes(dt2#423) AS c#6958, extractansiintervalseconds(dt2#423) AS d#6959]
++- Scan In-memory table varka_day_time_interval [dt#422, dt2#423]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt2)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt2)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt2))
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 2991 ms
+  Running case: varka on
+  Stopped after 6 iterations, 2439 ms
+b. other inputs over 2000000 rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          506            598          97          4.0         253.2       1.0X
+varka on                                            324            407          67          6.2         161.8       1.6X
+PLAN c. heavy, shared:
+VarkaColumnarToRow [-dt#422 AS a#10591, abs(dt#422) AS b#10592, (dt#422 * 3) AS c#10593, extractansiintervalhours(dt#422) AS d#10594]
++- Scan In-memory table varka_day_time_interval [dt#422]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt))
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 3520 ms
+  Running case: varka on
+  Stopped after 6 iterations, 2443 ms
+c. heavy, shared over 2000000 rows:       Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          554            704         116          3.6         276.9       1.0X
+varka on                                            377            407          25          5.3         188.5       1.5X
+PLAN d. heavy, other:
+VarkaColumnarToRow [-dt#422 AS a#13674, abs(dt#422) AS b#13675, (dt#422 * 3) AS c#13676, make_dt_interval(i#424, i2#425, i3#426, 0.000000) AS d#13677]
++- Scan In-memory table varka_day_time_interval [dt#422, i#424, i2#425, i3#426]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: make_dt_interval(varka_day_time_interval.i, varka_day_time_interval.i2, varka...)
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 2384 ms
+  Running case: varka on
+  Stopped after 5 iterations, 2640 ms
+d. heavy, other over 2000000 rows:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          328            477         210          6.1         163.9       1.0X
+varka on                                            395            528         119          5.1         197.4       0.8X
+PLAN control, extract(DAY FROM dt) alone_n:
+VarkaColumnarToRow [extractansiintervaldays(dt_n#428) AS a#16941]
++- Scan In-memory table varka_day_time_interval [dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 2065 ms
+  Running case: varka on
+  Stopped after 9 iterations, 2110 ms
+control, extract(DAY FROM dt) alone_n over 2000000 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                         356            413          55          5.6         178.0       1.0X
+varka on                                                           170            235          63         11.7          85.1       2.1X
+PLAN a. the blend_n:
+VarkaColumnarToRow [extractansiintervaldays(dt_n#428) AS a#21421, extractansiintervalhours(dt_n#428) AS b#21422, extractansiintervalminutes(dt_n#428) AS c#21423, extractansiintervalseconds(dt_n#428) AS d#21424]
++- Scan In-memory table varka_day_time_interval [dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt_n)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt_n)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt_n))
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 2485 ms
+  Running case: varka on
+  Stopped after 5 iterations, 2975 ms
+a. the blend_n over 2000000 rows:         Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          395            497          89          5.1         197.6       1.0X
+varka on                                            426            595         150          4.7         213.0       0.9X
+PLAN b. other inputs_n:
+VarkaColumnarToRow [extractansiintervaldays(dt_n#428) AS a#24688, extractansiintervalhours(dt2#423) AS b#24689, extractansiintervalminutes(dt2#423) AS c#24690, extractansiintervalseconds(dt2#423) AS d#24691]
++- Scan In-memory table varka_day_time_interval [dt2#423, dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt2)); c: residual (unsupported expression: extractansiintervalminutes(varka_day_time_interval.dt2)); d: residual (a decimal(8,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's: extractansiintervalseconds(varka_day_time_interval.dt2))
+  Running case: spark row path (varka off)
+  Stopped after 6 iterations, 2211 ms
+  Running case: varka on
+  Stopped after 5 iterations, 2968 ms
+b. other inputs_n over 2000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          289            369          49          6.9         144.5       1.0X
+varka on                                            351            594         226          5.7         175.3       0.8X
+PLAN c. heavy, shared_n:
+VarkaColumnarToRow [-dt_n#428 AS a#28507, abs(dt_n#428) AS b#28508, (dt_n#428 * 3) AS c#28509, extractansiintervalhours(dt_n#428) AS d#28510]
++- Scan In-memory table varka_day_time_interval [dt_n#428]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: extractansiintervalhours(varka_day_time_interval.dt_n))
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 2675 ms
+  Running case: varka on
+  Stopped after 5 iterations, 2079 ms
+c. heavy, shared_n over 2000000 rows:     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          328            535         232          6.1         163.9       1.0X
+varka on                                            296            416         112          6.7         148.2       1.1X
+PLAN d. heavy, other_n:
+VarkaColumnarToRow [-dt_n#428 AS a#31406, abs(dt_n#428) AS b#31407, (dt_n#428 * 3) AS c#31408, make_dt_interval(i_n#429, i2#425, i3#426, 0.000000) AS d#31409]
++- Scan In-memory table varka_day_time_interval [dt_n#428, i2#425, i3#426, i_n#429]
+      +- InMemoryRelation [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, dt_n#428, i_n#429, s_n#430], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [dt#422, dt2#423, i#424, i2#425, i3#426, s#427, CASE WHEN ((id#431L % 10) = 1) THEN null ELSE dt#422 END AS dt_n#428, CASE WHEN ((id#431L % 10) = 3) THEN null ELSE i#424 END AS i_n#429, CASE WHEN ((id#431L % 10) = 5) THEN null ELSE s#427 END AS s_n#430]
+               +- *(1) Project [id#431L, CASE WHEN ((id#431L % 1000) = 7) THEN INTERVAL '-0 00:00:00.000001' DAY TO SECOND WHEN ((id#431L % 1000) = 8) THEN INTERVAL '-1 00:00:00' DAY TO SECOND ELSE make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 1, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 2, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) END AS dt#422, make_dt_interval(0, 0, 0, cast((cast(hash(id#431L, 3, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 4, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6))) AS dt2#423, (pmod(hash(id#431L, 5, 42), 200001) - 100000) AS i#424, (pmod(hash(id#431L, 6, 42), 2001) - 1000) AS i2#425, (pmod(hash(id#431L, 9, 42), 200001) - 100000) AS i3#426, cast((cast(hash(id#431L, 7, 42) as decimal(18,6)) + (cast(pmod(hash(id#431L, 8, 42), 1000000) as decimal(10,0)) * 0.000001)) as decimal(18,6)) AS s#427]
+                  +- *(1) Range (0, 2000000, step=1, splits=1)
+  entries: a: fused; b: fused; c: fused; d: residual (unsupported expression: make_dt_interval(varka_day_time_interval.i_n, varka_day_time_interval.i2, var...)
+  Running case: spark row path (varka off)
+  Stopped after 5 iterations, 3454 ms
+  Running case: varka on
+  Stopped after 5 iterations, 3785 ms
+d. heavy, other_n over 2000000 rows:      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                          464            691         237          4.3         231.9       1.0X
+varka on                                            515            757         172          3.9         257.5       0.9X
