@@ -22,11 +22,12 @@ over three runs, but no row owns it.
 
 `VARKA-600.md` 2 item 4 names the likely cause: the form's guard is
 `VarkaVectorWalk.emitRangeGuard`, a long-lane compare to a mask, and at two 64-bit lanes C2 on
-x86 lowers no mask (`VARKA-503.md` 1, row 628's `-XX:+PrintIntrinsics` lines). Row 636, filed on
-the unpushed branch `varka-math-port-bench`, reads the same shape in the `exp` port and
-`vfdlibm`: at two `DOUBLE` lanes under `-XX:UseAVX=2` both box their vectors and run several
-times slower than a scalar call. This collapse is likely the same fallback, but nothing in these
-runs shows boxing.
+x86 lowers no mask (`VARKA-503.md` 1, row 628's `-XX:+PrintIntrinsics` lines). VARKA-636, filed
+on the unpushed branch `varka-math-port-bench` and not yet in this table, reports the same
+shape in the `exp` port and `vfdlibm` at two `DOUBLE` lanes under `-XX:UseAVX=2`; its readings
+are not committed, so this plan quotes none of them. This collapse is likely the same fallback,
+but nothing in these runs shows boxing. At 256 bits the magic form reads level with the split
+on one run, so that tie is a direction only.
 
 ## 2. The admission check, done
 
@@ -43,9 +44,9 @@ reads it.
 
 1. **Find why.** Run the benchmark's magic arm on the laptop under
    `-XX:UseAVX=2 -XX:MaxVectorSize=16` with `-XX:+PrintIntrinsics` and an allocation count
-   (`skills/the-jit.md`; the way rows 628 and 636 read theirs). Record which calls are
-   `not supported`, whether the vectors box, and the bytes a row. Read whether a session under
-   the option admits the kernel at two lanes.
+   (`skills/the-jit.md`; the way row 628 read its own). Record which calls are
+   `not supported`, whether the vectors box, and the allocated bytes a row. Read whether a
+   session under the option admits the kernel at two lanes.
 2. **Keep the compiler off it at two long lanes.** Either the option resolves to the XOR split
    where the emission lane has two long lanes, with a test that names the width, or the guard is
    written without a mask (row 600's `WINDOWED` test, `reduceLanes(OR)`, which `VARKA-600.md`
@@ -55,10 +56,10 @@ reads it.
 
 ## 4. Done when
 
-The cause is recorded with its `-XX:+PrintIntrinsics` lines and allocation count. At two long
-lanes the magic form is either never emitted, with a test, or measured on the EPYC 7763 at 128
-bits no slower than the XOR split. The other uses of the guard are listed with a verdict each.
-Row 636's answer, if it lands first, is read and reused.
+The cause is recorded with its `-XX:+PrintIntrinsics` lines and its allocated bytes a row. At
+two long lanes the magic form is either never emitted, with a test, or measured on the EPYC
+7763 at 128 bits no slower than the XOR split. The other uses of the guard are listed with a
+verdict each. VARKA-636's answer, if it lands first, is read and reused.
 
 ## 5. Outcome
 
