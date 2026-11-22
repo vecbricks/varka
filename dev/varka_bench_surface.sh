@@ -22,7 +22,8 @@
 #       [--driver-memory 16g] \
 #       [--max-fixed-share PERCENT] [--force] [--only REGEX] [--replace] [--shard I/N] \
 #       [--skip-build] \
-#       [--benchmark surface|chains|time|timechains|ladder] [--table-columns all|dates|times] \
+#       [--benchmark surface|chains|time|timechains|ladder|math] \
+#       [--table-columns all|dates|times|doubles] \
 #       [--input cache|parquet] \
 #       LABEL=SPARK_HOME:JAVA_HOME[:conf=value,conf=value...] ...
 #
@@ -39,7 +40,7 @@
 # TimeSurface-<label>-results.txt over its own table, varka_times: TIME, day-time
 # interval and bigint columns, one 64-bit lane each. The driver switches
 # spark.sql.timeType.enabled on for every arm, since the type is off by default in
-# every distribution; the stock arm is the same 4.2.0 release, which carries the type
+# every distribution; the stock arm is the same 4.3.0 release, which carries the type
 # and its functions. Its rows are 8 bytes wide where the date surface's are 4, so the
 # row count the fixed-share rule wants fits half as many rows in the same memory.
 #
@@ -59,6 +60,12 @@
 # --force on purpose: --force says the machine is not in its measured state, which is
 # a common thing to say and has nothing to do with discarding a results file.
 #
+# --benchmark math runs Maths, the math surface (VARKA-633), writing
+# MathSurface-<label>-results.txt over its own table, varka_doubles: two DOUBLE columns, x
+# in [-10, 10) and u in (-1, 1). Its entries are the math functions Varka fuses, each held
+# to --expect-fused on the Varka arm, so a stock arm times Spark's own call of the function
+# against Varka's kernel.
+#
 # --benchmark ladder runs LadderBenchmark, VARKA-171's size ladder on every distribution
 # (VARKA-194), writing VarkaLadder-<label>-results.txt: the same projection widened rung by
 # rung, over the surface's date table at the ladder's row count (--rows 2000000), so a
@@ -76,8 +83,8 @@
 # shard's output file is named for it, so shards of one run can share a directory.
 #
 #   dev/varka_bench_surface.sh \
-#       spark-4.2.0-jdk17=/opt/spark-4.2.0-bin-hadoop3:/usr/lib/jvm/java-17-openjdk-amd64 \
-#       spark-4.2.0-jdk25=/opt/spark-4.2.0-bin-hadoop3:/usr/lib/jvm/java-25-openjdk-amd64 \
+#       spark-4.3.0-jdk17=/opt/spark-4.3.0-bin-hadoop3:/usr/lib/jvm/java-17-openjdk-amd64 \
+#       spark-4.3.0-jdk25=/opt/spark-4.3.0-bin-hadoop3:/usr/lib/jvm/java-25-openjdk-amd64 \
 #       varka-off-jdk25=$PWD:/usr/lib/jvm/java-25-openjdk-amd64 \
 #       varka-jdk25=$PWD:/usr/lib/jvm/java-25-openjdk-amd64:varka
 #
@@ -103,7 +110,7 @@
 #
 # Each LABEL names one run and its results file,
 # sql/varka/bench/benchmarks/<STEM>-<LABEL>-results.txt, where STEM is DateSurface,
-# DateChain or TimeSurface by --benchmark. SPARK_HOME is a
+# DateChain, TimeSurface, TimeChain, VarkaLadder or MathSurface by --benchmark. SPARK_HOME is a
 # distribution's root - a downloaded release, or this checkout after
 # `build/sbt package` (its bin/spark-submit runs the assembled jars). The third
 # field is a comma-separated list of extra `--conf` settings; the word `varka`
@@ -181,9 +188,18 @@ case "$benchmark" in
   time)    main_class=org.apache.spark.sql.varka.bench.TimeSurfaceBenchmark; stem=TimeSurface ;;
   timechains) main_class=org.apache.spark.sql.varka.bench.TimeChainBenchmark; stem=TimeChain ;;
   ladder)  main_class=org.apache.spark.sql.varka.bench.LadderBenchmark;      stem=VarkaLadder ;;
-  *) echo "--benchmark wants surface, chains, time, timechains or ladder, got '$benchmark'" >&2
+  math)    main_class=org.apache.spark.sql.varka.bench.MathSurfaceBenchmark; stem=MathSurface ;;
+  *) echo "--benchmark wants surface, chains, time, timechains, ladder or math," \
+       "got '$benchmark'" >&2
      exit 2 ;;
 esac
+
+# The math table is measured over the cache only (VARKA-633), refused here rather than in the
+# first arm's JVM after the machine checks.
+if [ "$benchmark" = math ] && [ "$input" = parquet ]; then
+  echo "--benchmark math reads the cached varka_doubles table; drop --input parquet" >&2
+  exit 2
+fi
 
 # The --only truncation guard (VARKA-100). Checked before the machine checks below, not just
 # before the first arm: it reads the arguments and one git index entry, and a run that may
@@ -275,6 +291,12 @@ engine_jar() {
   [ -n "$j" ] || { echo "no engine jar under sql/varka/engine/target" >&2; exit 1; }
   echo "$PWD/$j"
 }
+# On a GitHub runner, the Actions run that measured, so a committed file names its run.
+run_provenance=()
+if [ -n "${GITHUB_RUN_ID:-}" ]; then
+  run_provenance=(--provenance
+    "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/${GITHUB_RUN_ATTEMPT:-1}")
+fi
 files=()
 for spec in "${dists[@]}"; do
   label="${spec%%=*}"; rest="${spec#*=}"
@@ -339,7 +361,7 @@ for spec in "${dists[@]}"; do
     --provenance "commit=$commit" --provenance "cores=$cores" \
     --provenance "datapath=$datapath" \
     --provenance "canary=$canary" --provenance "host=$(hostname -s)" \
-    --provenance "spark home=$spark_home"
+    --provenance "spark home=$spark_home" "${run_provenance[@]}"
   files+=("$label=$out")
 done
 
