@@ -220,7 +220,71 @@ labels, against the row path. The control: B in the spike, which no width or opt
 
 ## 9. Outcome
 
-*To be written when the work lands.*
+### 9.1 Part 1, built 20 November 2026: the helper, its test and the spike's arm
+
+Built on `varka-604-decimal-remainder-f` from master at `0b8be5a33e4`, while the owner was away
+and under his implementation-first order of that morning (the decisions are in 12).
+
+- **`VarkaDecimalRemainderOps`** (catalyst's Varka package): `remainder(xData, yData, outData,
+  zeroDivisors, length, pmod)` over raw slot addresses, mapped through `VarkaSegments.map` as
+  `IntRangeOps` maps its column, so that 577b's emitted call passes what a kernel already holds.
+  It walks the batch 64 rows a call: `transposeIn` copies a block's x and y slots into one
+  thread-local 3 KB block in the split layout (six columns of 64 words: x, y and the result, low
+  and high), padding a short block with `0 % 1`; `loop64` runs F's arithmetic over the block and
+  returns the zero divisors' word; `transposeOut` copies the live rows back. The word is masked to
+  the live rows and overwrites the caller's. The block comes from the global arena once a thread,
+  so a call allocates only the three segments it maps, which the warm-up's fixed 4,096 bytes
+  covers.
+- **One loop, not two.** 3.1 planned `remainder64` and `pmod64` calling a body forced inline, as
+  the spike's loops do. Without a compile command or directive (12, decision 3) C2 will not
+  inline a body of this size, so a body shared by two loops would be compiled once with `pmod` a
+  variable either way. `loop64` takes `pmod` as an argument: one branch a lane group, the same in
+  every group of a call.
+- **Out of line by size.** `loop64` stays a compile of its own, the condition 2's item 3 set,
+  because C2 inlines no method over `FreqInlineSize` (325 bytes of bytecode on x86 and aarch64,
+  `c2_globals_*.hpp`) at a hot call site (`InlineTree::should_inline`, "hot method too big"), and
+  the loop is several times that; the suite checks it is over 1,300 bytes.
+- **The species** is `SPECIES_PREFERRED`, as the probe measured: two lanes at 128 bits, eight on
+  the laptop. A kernel at `lanesOverride=2` on a wider host would call it at the wider species;
+  577b's option reads the setting that decides, so the call stays at the two-lane x86 setting.
+- **The spike's arm** "out-of-line F" (`Form.FX`, loops `loopRemainderFX` and `loopPmodFX`) calls
+  the helper over the slots. The harness reads the arm's compile unit where the vector code is,
+  `VarkaDecimalRemainderOps::loop64`: the code list's level and the intrinsic check's inlining
+  tree are read there, and the check does not look for a forced body in it.
+- **Test 5.1** is `VarkaDecimalRemainderOpsSuite`: both operations at 1, 3, 63, 64, 65, 4,096 and
+  4,133 rows over the spike's edge rows against `BigInteger`, every zero-divisor word, the 64
+  bytes past the batch left unwritten; a short block after a full block of the thread's reused
+  block; the output in the dividend's own slots; the size check. The spike suite's existing
+  check of every arm against `BigInteger` covers the new arm too.
+
+**Predictions, registered before the suite ran.** (1) Both operations agree with `BigInteger` at
+every length on the laptop's eight lanes, since the body is F's value for value. (2) `loop64` is
+over 1,300 bytes of bytecode; the spike's `bodyE` is 2,037 (its suite's sample line), and F has
+more operations than E. Scored in 9.2.
+
+### 9.2 Readings
+
+One run on the laptop (AVX-512, eight long lanes, a shared machine), 20 November 2026:
+`build/sbt 'catalyst/testOnly org.apache.spark.sql.VarkaDecimalRemainderOpsSuite
+org.apache.spark.sql.VarkaDecimalRemainderSpikeSuite'`, 10 tests, all passed.
+
+- Prediction 1: right. Both operations agreed with `BigInteger` at every length, and the spike
+  suite's check of every arm, the new one included, passed.
+- Prediction 2: right. `loop64` is 1,672 bytes of bytecode (`javap -c`, its `lreturn` at
+  1,671), about five times `FreqInlineSize`.
+- Not read here: the run at two lanes (`-XX:MaxVectorSize=16 -XX:UseAVX=2`), which is the
+  setting the helper is for, and any allocation reading. Both are owed (9.3).
+
+### 9.3 Left for part 2 and after
+
+- 577b is not built on any branch (no pair remainder node, no two-lane decline in the compiler),
+  so the option `decimalRemainderTwoLane`, its table entry and the compiler and emitter call wait
+  for it, with tests 5.2 to 5.4, as 8 sequenced.
+- Step 2 of 8, the probe re-run on 577b's master, now against this helper's shape (one loop with
+  `pmod` an argument, no directive) rather than the probe's compile commands.
+- Test 5.5 at 128 bits needs the runner's flags; the spike's intrinsic check of the new arm runs
+  in the benchmark (6).
+- The runner readings of 6.
 
 ## 10. Questions for the owner
 
@@ -245,3 +309,30 @@ labels, against the row path. The control: B in the spike, which no width or opt
   template warm-up, finds it within the warm-up's allowance;
 - an EPYC 7763 reading at 128 bits against B and the row path is committed;
 - the out-of-line transpose is a committed benchmark arm that reuses its block buffer.
+
+## 12. Decisions taken while the owner was away (20 November 2026)
+
+1. **Build part 1 before 577b.** Question 1 recommended building after 577b, and also said the
+   helper and the spike's arm could land before it. The owner's order of 20 November, 07:30 CET,
+   was implementation first, as much of a task as can be built; 577b is not on any branch, so
+   part 1 (the helper with test 5.1 and the spike's arm, the first half of 8's split) is built
+   now, and part 2 waits for 577b as planned. Nothing calls the helper outside the benchmark
+   until then.
+2. **The option waits with part 2.** An option no compiler reads would be drawn by the fuzzer
+   and the matrix for nothing and would move the generated files (`VarkaEmitOption.TABLE`), and
+   row 349, being built beside this row, edits `VarkaEmitOption.java` and `VarkaEmitOptions.java`.
+   So the option lands with the compiler call that reads it, after 349 merges.
+3. **No compiler directive; the loop stays out of line by its size.** 3.1 planned a directive
+   with `dontinline` on the loops and `inline` on the body. A HotSpot directive's inline list
+   applies only to compiles whose root method its `match` names (`InlineTree::should_inline`
+   reads `C->directive()`, the root's, `compilerDirectives.cpp`
+   `DirectivesStack::getMatchingDirective`), so it would have to match every method that can be
+   a root above the loop, a kernel the driver is inlined into among them; a `*.*` match would
+   take the place of every other directive for every compile, `VarkaKernelCompileDirective`'s
+   C1 exclusion included, since the first match wins. The size rule needs no directive and
+   holds in every JVM (9.1); the suite pins it. The transposes are scalar and may be inlined
+   into the driver, which the probe did not try; step 2's re-run reads that shape.
+4. **One `loop64` with `pmod` an argument**, not `remainder64` and `pmod64` (9.1), as a result of
+   3.
+5. **The suite lives in `org.apache.spark.sql`**, beside the spike's suite, since it draws the
+   spike's package-private edge rows (`row`, `slot`), the data 5.1 names.

@@ -48,6 +48,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [After a warm-up's `RELEASED` verdict, the "once compiled" rows measure the row engine](sql/varka/skills/benchmarking.md#after-a-warm-ups-released-verdict-the-once-compiled-rows-measure-the-row-engine)
 * [Spark's codegen cache: what a compile count and a cache hit measure](sql/varka/skills/benchmarking.md#sparks-codegen-cache-what-a-compile-count-and-a-cache-hit-measure)
 * [An Arm benchmark is a dispatch of `benchmark.yml` with `runner=ubuntu-24.04-arm`](sql/varka/skills/benchmarking.md#an-arm-benchmark-is-a-dispatch-of-benchmarkyml-with-runnerubuntu-2404-arm)
+* [A probe pass whose fused control loses is not read](sql/varka/skills/benchmarking.md#a-probe-pass-whose-fused-control-loses-is-not-read)
 * [A dispatch of Varka classes only skips the TPC-DS data job](sql/varka/skills/benchmarking.md#a-dispatch-of-varka-classes-only-skips-the-tpc-ds-data-job)
 
 #### [Build and environment](sql/varka/skills/build-and-environment.md)
@@ -208,6 +209,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [HotSpot counts calls per dispatched method, and stops counting a callee C2 has inlined](sql/varka/skills/the-jit.md#hotspot-counts-calls-per-dispatched-method-and-stops-counting-a-callee-c2-has-inlined)
 * [An overflowing `Math.*Exact` loses its message once its site has trapped enough](sql/varka/skills/the-jit.md#an-overflowing-mathexact-loses-its-message-once-its-site-has-trapped-enough)
 * [Which NaN an operation over two NaNs returns depends on the tier](sql/varka/skills/the-jit.md#which-nan-an-operation-over-two-nans-returns-depends-on-the-tier)
+* [A long-lane kernel unsettled in the compiled test is row 383's back-edge trap, not the sanitizer](sql/varka/skills/the-jit.md#a-long-lane-kernel-unsettled-in-the-compiled-test-is-row-383s-back-edge-trap-not-the-sanitizer)
 
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)
 * [Vector API on HotSpot, Measured (JDK 25, x86-64)](sql/varka/skills/vector-api-and-width.md#vector-api-on-hotspot-measured-jdk-25-x86-64)
