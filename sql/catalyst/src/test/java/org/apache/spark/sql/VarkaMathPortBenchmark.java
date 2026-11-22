@@ -51,7 +51,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Col
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 
 /**
- * What Varka's fdlibm ports are worth in speed (row 633 of {@code sql/varka/plans/m8/PLAN.md}):
+ * What Varka's fdlibm ports are worth in speed (row 635 of {@code sql/varka/plans/m8/PLAN.md}):
  * {@code exp} and {@code expm1} three ways over the same inputs, all three bit-identical, so the
  * tables compare speed only.
  *
