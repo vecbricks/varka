@@ -301,19 +301,17 @@ not a lane call. Only the read and the insert are lane calls, plus the one zero 
 1. **The default stays `ROUND_TO_ODD` in 600a.** Step 2 says "default unchanged", and question
    10.1 (a per-width default) needs the runner numbers and the owner's answer. So no width
    reads the option yet. 600b sets the default.
-2. **The budget weighs an `L2F` at `WINDOWED_CALLS` (31), up from 24.** This follows section
-   3.3 and the `L2D` precedent: the weight is the largest form's, since `weightOf` cannot ask
-   which form will be emitted. It applies at every level, the defaults' too, as 24 did. The
-   weight is read in one place: `VarkaLoopEmitter`'s `GroupOps` sums it, and `admit` compares
-   the sum with `groupBudget` (16), and with `fusedCeiling` (400) under reuse or the prediction.
-   One `L2F` is over 16 at either weight, so a second output joins such a group only by reuse or
-   the prediction. Below 400 the two weights give the same answers, and a group changes only
-   where its sum crosses 400 between them: 13 to 16 casts at 31 against 24. So 3.3 conflicts
-   with 3.2's "level 3 unchanged" in that one case, a kernel with a dozen or more of these
-   casts in one group. The bytes-moved check after the regeneration is owed (9.5) and settles
-   whether any pinned shape is one. The other choice was to leave 24 and
-   under-weigh `WINDOWED`. That would have broken the budget suite's rule that the weight is
-   the largest form's.
+2. **The budget weighs an `L2F` at the form the emission takes.** Below level 3, `weightOf`
+   weighs the form `VarkaConversionLowering.narrowForm` picks from the options and the kernel's
+   plan: 24 for `ROUND_TO_ODD`, so the defaults' grouping does not move, and 31 for `WINDOWED`.
+   `SCALAR` weighs `scalarCalls(8)`, 17, the most a baked long lane count can make it. Without a
+   baked long lane count `narrowForm` falls back to the rounding to odd, which weighs its 24. Two
+   options reach that fallback: `validityByWidth=false` and a `lanesOverride` with no long
+   species, such as 16. The weight is read in one place: `VarkaLoopEmitter`'s `GroupOps` sums
+   it, and `admit` compares the sum with `groupBudget` (16), and with `fusedCeiling` (400) under
+   reuse or the prediction. The other choice was the largest form's weight, 31, at every
+   setting, as for `L2D`. That would have moved the defaults' groups wherever 13 to 16 casts
+   share one group.
 3. **The slow arm is an in-kernel branch, not a batch decline** (question 10.2). The plan
    builds the branch, and the decline would have needed a refusal that `ROUND_TO_ODD` makes
    unnecessary.

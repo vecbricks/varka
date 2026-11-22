@@ -151,12 +151,18 @@ final class VarkaConversionLowering {
    * the emission all ask this, so they agree.
    */
   static NarrowConversionForm narrowForm(Analysis analysis) {
-    NarrowConversionForm form = analysis.options.narrowConversionForm();
-    if (form == NarrowConversionForm.SCALAR) {
-      int longs = analysis.lanesOf(Lane.LONG);
-      if (longs == 0 || analysis.lanesOf(Lane.FLOAT) < longs) {
-        return NarrowConversionForm.ROUND_TO_ODD;
-      }
+    return narrowForm(analysis.options, analysis.lanesOf(Lane.LONG), analysis.lanesOf(Lane.FLOAT));
+  }
+
+  /**
+   * {@link #narrowForm(Analysis)} from its inputs: the options and the plan's baked long and
+   * float lane counts ({@code VarkaKernelPlan.lanesOf}), which the grouping asks before an
+   * {@link Analysis} exists, so that a conversion is weighed as the form it emits.
+   */
+  static NarrowConversionForm narrowForm(VarkaEmitOptions options, int longs, int floats) {
+    NarrowConversionForm form = options.narrowConversionForm();
+    if (form == NarrowConversionForm.SCALAR && (longs == 0 || floats < longs)) {
+      return NarrowConversionForm.ROUND_TO_ODD;
     }
     return form;
   }

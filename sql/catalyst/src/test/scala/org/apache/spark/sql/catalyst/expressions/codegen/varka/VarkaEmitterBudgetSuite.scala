@@ -697,14 +697,14 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     }
   }
 
-  test("a bigint conversion to a floating lane weighs its AVX2 form, the larger of its forms",
-      PinsDefaults) {
+  test("a bigint conversion to a floating lane weighs its AVX2 form: the largest for a double, " +
+      "the emitted one for a float", PinsDefaults) {
     // One convertShape at level 3, and below it VarkaConversionLowering's form, whose calls the
-    // weight counts: the largest of each conversion's forms, since the budget cannot ask which
-    // form emits. For L2D that is part 343b1's split; the XOR split and the bounded L2D, three
-    // calls and its guard's two compares, are smaller. For L2F it is the windowed form, whose
-    // method holds both its arms; the default, the rounding to odd, keeps its own weight under
-    // the default options, so that a kernel's grouping does not move without an option set; both
+    // weight counts. For L2D that is the largest of its forms, part 343b1's split, since the
+    // budget does not ask which emits; the XOR split and the bounded L2D, three calls and its
+    // guard's two compares, are smaller. For L2F it is the form the emission takes: the default,
+    // the rounding to odd, at its 24 calls, so that a kernel's grouping does not move without an
+    // option set, and the windowed form at its 31, since its method holds both its arms. Both
     // steps of the rounding to odd emit the same count, and the scalar form two calls a lane and
     // its zero vector.
     import VarkaEmitOptions.NarrowConversionForm
@@ -720,7 +720,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
         LaneType.FLOAT -> windowed, LaneType.FLOAT -> windowed.withRoundToOddByShifts(true),
         LaneType.FLOAT -> avx2, LaneType.FLOAT -> avx2.withRoundToOddByShifts(true))) {
       val weight = VarkaEmitBudget.weightOf(new ConvertLane(new ColumnRef(0, LaneType.LONG),
-        target), options)
+        target), options, options.narrowConversionForm())
       val emits = form(target, options)
       assert(weight === emits, s"$target weighs $weight and its AVX2 form emits $emits lane ops")
     }
@@ -734,7 +734,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     }
     val longConversion = new ConvertLane(new ColumnRef(0, LaneType.LONG), LaneType.FLOAT)
     assert(VarkaEmitBudget.weightOf(longConversion) === VarkaConversionLowering.ODD_CALLS)
-    assert(VarkaEmitBudget.weightOf(longConversion, VarkaEmitOptions.DEFAULTS.withUseAVX(2)) ===
+    val defaults = VarkaEmitOptions.DEFAULTS.withUseAVX(2)
+    assert(VarkaEmitBudget.weightOf(longConversion, defaults, defaults.narrowConversionForm()) ===
       VarkaConversionLowering.ODD_CALLS, "the default options weigh the rounding to odd's calls")
     for (lanes <- Seq(2, 4, 8)) {
       val scalar = form(LaneType.FLOAT, avx2.withNarrowConversionForm(NarrowConversionForm.SCALAR)
@@ -742,6 +743,27 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
         VarkaConversionLowering.ODD_CALLS
       assert(scalar === VarkaConversionLowering.scalarCalls(lanes),
         s"the scalar form emits $scalar at $lanes long lanes")
+    }
+  }
+
+  test("a scalar bigint conversion to float with no baked long lane count weighs the rounding " +
+      "to odd it emits", PinsDefaults) {
+    // The scalar form reads each long lane at a constant index, so with no baked long lane count
+    // the lowering emits the rounding to odd instead (VarkaConversionLowering.narrowForm). The
+    // grouping must weigh that form's 24 calls, not the scalar form's 17 at eight lanes, or a
+    // group goes over its budget unseen. Both routes to no baked count are taken: validity by
+    // width off, and a lane override with no long species.
+    val scalar = VarkaMatrix.base.withUseAVX(2)
+      .withNarrowConversionForm(VarkaEmitOptions.NarrowConversionForm.SCALAR)
+    val conversion = new ConvertLane(new ColumnRef(0, LaneType.LONG), LaneType.FLOAT)
+    def ops(options: VarkaEmitOptions): Int =
+      vectorOps(emitMulti(Seq(conversion), 1, 0, options)._2)
+    for (options <- Seq(scalar.withValidityByWidth(false), scalar.withLanesOverride(16))) {
+      val emits = ops(options) - ops(options.withUseAVX(3)) + 1
+      assert(emits === VarkaConversionLowering.ODD_CALLS, s"the unbaked scalar form emits $emits")
+      val weight = VarkaLoopEmitter.runsForTest(java.util.List.of(conversion), options)
+        .get(0).get(0).ops()
+      assert(weight === emits, s"the conversion weighs $weight and emits $emits lane ops")
     }
   }
 

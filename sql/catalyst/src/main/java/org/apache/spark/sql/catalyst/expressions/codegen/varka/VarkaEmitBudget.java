@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
@@ -654,6 +655,12 @@ final class VarkaEmitBudget {
   static final int DECIMAL_PAIR_LOAD_WEIGHT = 9;
 
   /**
+   * The long lane count a baked scalar {@code L2F} is weighed at: 512 bits of long lanes, the
+   * most a kernel bakes, so that its {@code scalarCalls} bound the form at every width.
+   */
+  static final int SCALAR_WEIGHT_LANES = 8;
+
+  /**
    * What one node costs against {@link #GROUP_BUDGET} and {@link #FUSED_CEILING}. Every node has
    * weighed 1, because every node was one or two lane ops; the calendar nodes are not - each
    * expands to thirty-odd or more, since a civil-from-days decomposition is mostly division and
@@ -675,23 +682,23 @@ final class VarkaEmitBudget {
    * {@link #MAX_FUSED_NODES} counting nodes only where that budget is off.
    */
   static int weightOf(VarkaVectorIR node) {
-    return weightOf(node, VarkaEmitOptions.DEFAULTS);
+    VarkaEmitOptions options = VarkaEmitOptions.DEFAULTS;
+    return weightOf(node, options, options.narrowConversionForm());
   }
 
-  /** The long lane count the scalar conversion's weight assumes: 512 bits of long lanes. */
-  static final int SCALAR_WEIGHT_LANES = 8;
-
   /**
-   * {@link #weightOf(VarkaVectorIR)} under {@code options}: a long to float conversion below
-   * emit level 3 weighs the calls of the form {@code narrowConversionForm} names, as the emitter
-   * writes it, so the default rounding to odd keeps its 24 calls and the windowed form, which
-   * holds both its arms, its 31 (VARKA-600). The scalar form's calls grow with the lane count,
-   * which options do not carry, so it is weighed at {@link #SCALAR_WEIGHT_LANES}.
+   * {@link #weightOf(VarkaVectorIR)} under {@code options}, where {@code narrow} is the form a
+   * long to float conversion takes in this kernel: {@code VarkaConversionLowering.narrowForm}
+   * of the kernel's plan, the decision the emission makes from the same inputs. Below emit level
+   * 3 such a conversion weighs that form's calls, as the emitter writes it, so the rounding to
+   * odd keeps its 24 calls and the windowed form, which holds both its arms, its 31 (VARKA-600).
+   * The scalar form, which a kernel with no baked long lane count does not take, is weighed at
+   * {@link #SCALAR_WEIGHT_LANES}.
    */
-  static int weightOf(VarkaVectorIR node, VarkaEmitOptions options) {
+  static int weightOf(VarkaVectorIR node, VarkaEmitOptions options, NarrowConversionForm narrow) {
     if (node instanceof ConvertLane n && n.child().laneType() == VarkaVectorIR.LaneType.LONG
         && n.target() == VarkaVectorIR.LaneType.FLOAT && options.convertsFallBack()) {
-      return switch (options.narrowConversionForm()) {
+      return switch (narrow) {
         case ROUND_TO_ODD -> VarkaConversionLowering.ODD_CALLS;
         case WINDOWED -> VarkaConversionLowering.WINDOWED_CALLS;
         case SCALAR -> VarkaConversionLowering.scalarCalls(SCALAR_WEIGHT_LANES);
