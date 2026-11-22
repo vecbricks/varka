@@ -84,6 +84,6 @@ public final class VarkaDecimalConformanceSuite extends VarkaTypeConformance {
   @Override
   protected Set<String> declinesInPart() {
     return Set.of("in", "if", "when", "coalesce", "nullif", "greatest", "negative", "abs", "+",
-        "-", "try_add");
+        "-", "try_add", "least", "try_subtract");
   }
 }

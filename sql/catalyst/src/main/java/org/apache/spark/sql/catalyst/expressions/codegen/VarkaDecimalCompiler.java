@@ -677,15 +677,15 @@ final class VarkaDecimalCompiler {
 
   /**
    * The output root of a compiled decimal {@code value} of {@code whole}: at the output type's
-   * scale, which every producer builds, and then {@link #outputRoot}. A value at another scale is
-   * a producer's error, not a decline.
+   * scale, which every producer builds, and then {@link #outputRoot}. A value at another scale, or
+   * of a wider precision, declines with its types named: the store does not rescale.
    */
   private static Optional<VarkaVectorIR> widened(Expression whole, Scaled value,
       DeclineSink sink) {
     DecimalType type = (DecimalType) whole.dataType();
     if (value.type().scale() != type.scale() || value.type().precision() > type.precision()) {
-      throw VarkaErrors.illegalState("a decimal output of " + type.simpleString()
-          + " over a value of " + value.type().simpleString() + ": " + whole);
+      return sink.decline("a decimal output of " + type.simpleString() + " over a value of "
+          + value.type().simpleString() + ", which the store does not rescale", whole);
     }
     return outputRoot(whole, value.unscaled(), sink);
   }

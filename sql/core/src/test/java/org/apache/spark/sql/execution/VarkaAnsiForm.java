@@ -287,16 +287,6 @@ public final class VarkaAnsiForm {
         "try_cast(l AS TINYINT)", "try_cast(l AS SMALLINT)")) {
       out.put(sql + "\t" + COALESCE_TAIL, narrowChoice);
     }
-    // A TIME function's decimal fuses only as an output root; in a CASE arm or a comparison it
-    // is an operand, which row 348 consumes (VARKA-157.md 2.1). The COALESCE form fuses: the
-    // optimizer drops the typed null standing in for its first argument.
-    String decimalOperand = "a TIME function's decimal fuses only as an output root; anywhere "
-        + "else it is an operand, row 348's (VARKA-157.md 2.1)";
-    for (String sql : List.of("time_to_seconds(t)", "extract(SECOND FROM t)")) {
-      for (String position : List.of(CASE_ARM, FALSE_AND)) {
-        out.put(sql + "\t" + position, decimalOperand);
-      }
-    }
     return Map.copyOf(out);
   }
 
