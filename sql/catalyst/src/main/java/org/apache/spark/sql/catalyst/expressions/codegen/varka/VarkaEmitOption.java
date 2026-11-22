@@ -650,7 +650,8 @@ public sealed interface VarkaEmitOption
           VarkaEmitOptions::intervalFault, Builder::intervalFault,
           new ChoiceTag("intervalFault="), Optional.empty()),
       // The depth cap: auto by default (VARKA-629), which is 64 for a tree of the int lane alone
-      // and 16 for any other, and raised by VARKA-620's benchmark to price the depths past it.
+      // or one holding a math port and 16 for any other, and raised by VARKA-620's benchmark to
+      // price the depths past it.
       // The fuzzer draws 16 and 32, so a draw past 16 is emitted and checked rather than skipped
       // on the lanes whose default is 16; on the int lane, whose default is 64, they only lower
       // it, and no draw above 64 is made yet (VARKA-629 owes one). A cap changes no byte of a

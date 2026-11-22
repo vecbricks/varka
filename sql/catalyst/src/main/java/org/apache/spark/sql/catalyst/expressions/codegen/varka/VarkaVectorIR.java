@@ -288,6 +288,26 @@ public sealed interface VarkaVectorIR
     }
   }
 
+  /** Whether {@code root}'s tree holds a {@link ReinterpretLane}, built by the math ports only. */
+  static boolean holdsReinterpret(VarkaVectorIR root) {
+    return holdsReinterpret(root, new HashSet<>());
+  }
+
+  private static boolean holdsReinterpret(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
+    if (!seen.add(node)) {
+      return false;
+    }
+    if (node instanceof ReinterpretLane) {
+      return true;
+    }
+    for (VarkaVectorIR child : childrenOf(node)) {
+      if (holdsReinterpret(child, seen)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * The narrow lanes {@code root}'s tree reads as values: a narrow column leaf, which a widening
    * load spans parts of. A narrow column read only for its validity word - the {@code y1 IS NOT
@@ -1021,7 +1041,8 @@ public sealed interface VarkaVectorIR
    * half of the 32-bit target, as {@code L2I} does. {@code L2F} and {@code L2D}, which a host
    * without AVX512DQ runs as the Vector API's Java loop, take their AVX2 forms below emit level 3
    * ({@code VarkaConversionLowering}), and the kernel plan refuses them at the unknown level and
-   * the conversions from a floating lane to an integral one until row 343's later parts.
+   * the conversions from a floating lane to an integral one but {@code D2I} until row 343's
+   * later parts.
    */
   record ConvertLane(VarkaVectorIR child, LaneType target, int hash) implements VarkaVectorIR {
     public ConvertLane {
