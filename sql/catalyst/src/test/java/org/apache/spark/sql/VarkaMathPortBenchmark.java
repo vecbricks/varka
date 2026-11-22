@@ -17,6 +17,10 @@
 
 package org.apache.spark.sql;
 
+import java.lang.classfile.ClassFile;
+import java.lang.classfile.CodeElement;
+import java.lang.classfile.MethodModel;
+import java.lang.classfile.instruction.FieldInstruction;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -26,11 +30,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.SplittableRandom;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 import io.github.vecbricks.vfdlibm.VFdlibm;
 import jdk.incubator.vector.DoubleVector;
-import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorSpecies;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
@@ -75,7 +79,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  *
  * <p><b>Equal widths.</b> The kernel is emitted with no lane override, so it runs on the long
  * lane's preferred species, and the library is called on {@code DoubleVector.SPECIES_PREFERRED};
- * setup fails unless the two have the same lane count and it divides the chunk. On the runners
+ * setup reads every species constant in the kernel's bytecode and fails unless each has the
+ * library's lane count and that count divides the chunk. On the runners
  * that is four doubles at 256 bits and two under {@code -XX:MaxVectorSize=16}. Each section notes
  * the lane count, and the labels carry no width, so the 256-bit and 128-bit files diff by label.
  *
@@ -95,9 +100,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  *
  * <p><b>Before timing</b>, each function's three arms run over each class and their raw bits are
  * compared row by row, with the kernel's validity checked all set; any difference fails the run.
- * After a table, notes record the bytes each arm allocated in one warmed pass, which must be 0
- * (an arm that allocates has a call that failed to inline and boxes its vectors), and the
- * kernel's tier state as {@link VarkaTierWitness} read it after the settle. The file names the
+ * Then the per-row and library loops are warmed over all three classes, so no table depends on
+ * the order the classes run in. After a table, notes record the bytes each arm allocated in one
+ * warmed pass, which must be about 0, or the run fails (an arm that allocates has a call that
+ * failed to inline and boxes its vectors), and the kernel's tier state as
+ * {@link VarkaTierWitness} read it after the settle. The file names the
  * vfdlibm jar it ran against, and setup fails unless its version is {@link #VFDLIBM_VERSION}.
  *
  * <p>A dry run ({@code -Dvarka.bench.dryRun=true}) emits both kernels, runs the bit check over
@@ -139,14 +146,17 @@ public class VarkaMathPortBenchmark extends VarkaBenchmarkBase {
   private static final double STEADY_FRACTION = 0.3;
   private static final long WARM_WAIT_MILLIS = 30_000;
 
+  /** Passes of each per-row and library loop over each class before any table is timed. */
+  private static final int WARM_ROUNDS = 200;
+
   /** The two functions; the per-lane and library arms switch on it outside their loops. */
   private enum Fn { EXP, EXPM1 }
 
   /** A class of inputs: its label, as a table's title holds it, and its rows. */
   private record Inputs(String label, double[] xs) {}
 
-  /** A function's kernel and its long literals. */
-  private record Port(Fn fn, VarkaFusedKernel kernel, long[] lits) {}
+  /** A function's kernel, its long literals and its class bytes. */
+  private record Port(Fn fn, VarkaFusedKernel kernel, long[] lits, byte[] bytes) {}
 
   private int nextId = 0;
 
@@ -215,9 +225,10 @@ public class VarkaMathPortBenchmark extends VarkaBenchmarkBase {
   }
 
   /*
-   * One loop per function in each arm, each with a direct call, so no call site is shared
-   * between exp and expm1 and C2 inlines each into its own loop. A call left out of line would
-   * box the library's vectors, which the allocation note would show.
+   * One loop method per function in each arm, each with a direct call, so each loop has its own
+   * profile and C2 inlines the call into it; only the switch above the loops is shared by the two
+   * functions, one branch a pass. A call left out of line would box the library's vectors, which
+   * the allocation check after each table refuses.
    */
 
   private static void strictExp(MemorySegment in, MemorySegment out) {
@@ -323,18 +334,41 @@ public class VarkaMathPortBenchmark extends VarkaBenchmarkBase {
     String name = "org.apache.spark.sql.varka.execution.VarkaMathPortBench" + id;
     byte[] bytes = VarkaLoopEmitter.emit(name, List.of(root), 1, lits.length, null, null,
         VarkaEmitOptions.DEFAULTS);
-    return new Port(fn, defineKernel(loader, name, bytes), lits);
+    return new Port(fn, defineKernel(loader, name, bytes), lits, bytes);
   }
 
-  /** The lane count both vector arms run at, or a failure when they would differ. */
-  private static int lanes() {
-    require(VarkaEmitOptions.DEFAULTS.lanesOverride() == 0,
-        "the default options override the lane count");
-    int varka = LongVector.SPECIES_PREFERRED.length();
-    require(varka == SPECIES.length(), "the kernel's long lane has " + varka
-        + " lanes and the library's species " + SPECIES.length());
+  /**
+   * The lane count both vector arms run at, or a failure when they would differ: every species
+   * constant the kernel's bytecode reads ({@code LongVector.SPECIES_256}, or
+   * {@code SPECIES_PREFERRED} when no width is baked, and the int species {@code k} passes
+   * through) must have the library's species' lane count.
+   */
+  private static int lanes(Port port) {
+    var read = new TreeMap<String, Integer>();
+    for (MethodModel m : ClassFile.of().parse(port.bytes()).methods()) {
+      for (CodeElement e : m.code().map(c -> c.elementList()).orElse(List.of())) {
+        if (e instanceof FieldInstruction f
+            && f.owner().asInternalName().startsWith("jdk/incubator/vector/")
+            && f.name().stringValue().startsWith("SPECIES_")) {
+          String owner = f.owner().asInternalName().replace('/', '.');
+          read.put(owner + "." + f.name().stringValue(), speciesLanes(owner, f.name()
+              .stringValue()));
+        }
+      }
+    }
+    require(!read.isEmpty(), "the " + port.fn() + " kernel reads no species constant");
+    require(read.values().stream().allMatch(n -> n == SPECIES.length()), "the " + port.fn()
+        + " kernel's species " + read + " and the library's " + SPECIES.length() + " lanes differ");
     require(CHUNK % SPECIES.length() == 0, SPECIES.length() + " lanes do not divide " + CHUNK);
-    return varka;
+    return SPECIES.length();
+  }
+
+  private static int speciesLanes(String owner, String field) {
+    try {
+      return ((VectorSpecies<?>) Class.forName(owner).getField(field).get(null)).length();
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("cannot read " + owner + "." + field, e);
+    }
   }
 
   /** The vfdlibm jar's file name, checked to be {@link #VFDLIBM_VERSION}'s. */
@@ -371,13 +405,19 @@ public class VarkaMathPortBenchmark extends VarkaBenchmarkBase {
     }
   }
 
+  /**
+   * The most bytes a warmed pass may allocate. A pass of an arm that boxes its vectors
+   * allocates at least one object a vector, thousands of bytes; the bound leaves room only for
+   * the counter's own noise.
+   */
+  private static final long ALLOCATION_BOUND = 256;
+
   /** Bytes the current thread allocates in {@code body}. */
   private static long allocated(Runnable body) {
     var mx = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
-    long tid = Thread.currentThread().threadId();
-    long before = mx.getThreadAllocatedBytes(tid);
+    long before = mx.getCurrentThreadAllocatedBytes();
     body.run();
-    return mx.getThreadAllocatedBytes(tid) - before;
+    return mx.getCurrentThreadAllocatedBytes() - before;
   }
 
   // ---------------------------------------------------------------------------------------
@@ -386,11 +426,12 @@ public class VarkaMathPortBenchmark extends VarkaBenchmarkBase {
 
   @Override
   public void runBenchmarkSuite(String[] mainArgs) {
-    int lanes = lanes();
     String jar = vfdlibmJar();
     var loader = new VarkaGeneratedClassLoader(getClass().getClassLoader());
     try (Arena arena = Arena.ofConfined()) {
       List<Port> ports = List.of(port(Fn.EXP, loader), port(Fn.EXPM1, loader));
+      int lanes = lanes(ports.get(0));
+      require(lanes(ports.get(1)) == lanes, "the two kernels run at different lane counts");
       reportCaseIds();
       // The witness records from before any kernel runs, so it sees every compile of each.
       var witness = VarkaTierWitness.get();
@@ -412,6 +453,19 @@ public class VarkaMathPortBenchmark extends VarkaBenchmarkBase {
         System.out.println("dry run, " + lanes + " lanes, " + jar + "; tier of the exp kernel: "
             + settle(drive, numRows / BUFFER_ROWS));
         return;
+      }
+      // Every per-row and library loop sees every class before any is timed, so a table does
+      // not depend on the order the classes run in: a loop compiled on the ordinary class alone
+      // would carry the rare lanes' paths as traps, and the first special lane would deoptimize
+      // it. The kernel has no such path; it blends every branch.
+      for (Port p : ports) {
+        for (int round = 0; round < WARM_ROUNDS; round++) {
+          for (Inputs in : classes) {
+            b.fill(in.xs());
+            strict(p.fn(), b);
+            library(p.fn(), b);
+          }
+        }
       }
       for (Port p : ports) {
         section(title(p.fn()), () -> {
@@ -469,9 +523,14 @@ public class VarkaMathPortBenchmark extends VarkaBenchmarkBase {
       timer.stopTiming();
     });
     runCases(benchmark);
-    note("allocated in one pass, " + name + ", " + in.label() + ": StrictMath "
-        + allocated(() -> strict(fn, b)) + " B, vfdlibm " + allocated(() -> library(fn, b))
-        + " B, Varka kernel " + allocated(drive::driveChecked) + " B");
+    long strictBytes = allocated(() -> strict(fn, b));
+    long libraryBytes = allocated(() -> library(fn, b));
+    long kernelBytes = allocated(drive::driveChecked);
+    String allocation = "allocated in one pass, " + name + ", " + in.label() + ": StrictMath "
+        + strictBytes + " B, vfdlibm " + libraryBytes + " B, Varka kernel " + kernelBytes + " B";
+    require(Math.max(strictBytes, Math.max(libraryBytes, kernelBytes)) <= ALLOCATION_BOUND,
+        allocation + ", over " + ALLOCATION_BOUND + " B: an arm boxes or allocates per pass");
+    note(allocation);
     note("tier of the " + name + " kernel, " + in.label() + ": " + tier[0]);
   }
 
