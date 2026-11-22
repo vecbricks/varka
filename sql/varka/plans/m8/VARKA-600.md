@@ -344,6 +344,10 @@ Also owed as risks for 600b:
   claims), `dev/varka_prove.sh --solver both round_to_odd.smt2`, the suites listed in step 2's
   done-when, the width audit under `JDK_JAVA_OPTIONS=-XX:UseAVX=2` at both widths, the
   registry, option and matrix suites, and the option matrix's two new configurations.
+* Done on 22 November 2026, after the PR Build's `VarkaProofFilesSuite` failed on a stale
+  `round_to_odd.smt2`: the file was regenerated with `VARKA_PROOFS_REGEN=true` (45 lines added: the
+  windowed form's two claims and the sat check of a test one bit wider), and
+  `dev/varka_prove.sh --solver both round_to_odd.smt2` holds under z3 and cvc5, 62 checks each.
 * 600b in full: the runner runs at both widths, section 6.1 scored, the default per width.
 * Risk 5 (new): the emitted windowed kernel's allocation. The benchmark's harness does not
   print allocation, so 600b reads it beside the runner run, by the thread allocation counter
