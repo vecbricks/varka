@@ -145,6 +145,10 @@ By `VARKA-475.md` 4 rule 1, the forms take existing nodes at a floating lane:
   a lanewise math operator is a new kind of computation, and 356 to 358 add their functions to it.
 - `GuardedRange` at a floating lane (2.4) holds its bounds as the lane's bits and compares by
   IEEE, a NaN lane being outside.
+- *Added 20 November 2026 (5.3), the lead's settlement of 30 October 2026 in `VARKA-346.md` 8:*
+  **a second new node, `Fma(a, b, c)`**, `a * b + c` rounded once at a floating lane, evaluated by
+  `Math.fma`, which row 346's remainder and `FLOAT` round-to-odd use. No Spark expression builds
+  it, and it is never made from a multiply and an add: the no-contraction rule below stands.
 
 Two rules hold at a floating lane and are written into `IntArith`'s javadoc: **no algebraic
 rewrite** (`x + 0.0` is not `x` at `-0.0`, which is what 337's canonicalisation node relies on;
@@ -562,6 +566,133 @@ kernel, the division's `FAIL` unconditional; the `2^51` decline on AVX2 if 343b1
 bounded magic there (`VARKA-343.md` 8 makes the whole-range arms the default, so it may not
 arise); the lowering built over `VarkaIntervalCompiler`'s guard constants, which the proof
 reads; the coverage rows of the four; and the baselines' fuse lists for `ym * x` and `dt / x`.
+
+### 5.3 The FMA node, for row 346 (20 November 2026)
+
+Row 346's plan (`VARKA-346.md` 2.6, 8) gives this row the FMA node its remainder and its `FLOAT`
+output's round-to-odd need, the earliest wave owning a shared node (`VARKA-350.md` 8, question 4,
+names 342 its owner), and flags that this plan had none. It is built ahead of step 4's second
+piece, which still waits for 343b2, as its own part, `varka-342-floating-arith`, so that 346a can
+stack on it.
+
+- **The node.** `Fma(a, b, c)` in `VarkaVectorIR`, three operands of one floating lane (the
+  constructor refuses an integral lane and a mix), null-intolerant: its validity is the three
+  operands' AND, folded as a two-operand node's is (`Slots.planWordRef`, `Analysis.ownerOf`),
+  its pure word the AND of theirs. The emitter pushes the operands in order and calls
+  `a.fma(b, c)`, the call `VarkaOperatorCensusProbe` measures; the warm-up's double and float
+  blocks make it. The reference evaluates `Math.fma` at `DOUBLE` and `Math.fma`'s float form at
+  `FLOAT`, never the double form narrowed. Range analysis answers `UNKNOWN`, the budget weighs it
+  1 (one lane call, the register's rule), the cost model lists it as awaiting the refit with the
+  other floating nodes, and the SMT renderer refuses it as it refuses `MathUnary`.
+- **Its NaN is open everywhere.** `Math.fma` run in Java answers `Double.NaN`, the canonical
+  NaN, for any NaN (`Math.java:2393-2394` in the local `jdk-25-ga` source) and for `inf * 0`
+  (`:2404`); the instruction answers by the hardware's own rule over its own operand order, an
+  operand's NaN or the host's default NaN for `inf * 0`: HotSpot emits x86's `vfmadd231`, `c = a *
+  b + c` (`cpu/x86/x86.ad:8965-8966`, `macroAssembler_x86.cpp:1665`). So which bits a NaN answer
+  has depends on the tier even over operands that are not NaNs, and `VarkaSameAnswer` gives the node its own
+  step, `Unfixed`, open wherever it answers a NaN. A non-NaN answer is compared bit for bit:
+  IEEE's fused operation has one correctly rounded result.
+- **No compiler arm.** Nothing in Spark is an FMA, so no coverage row, family or census cell
+  moves; the node reaches a kernel only through a lowering that builds it (346a).
+- **Tests.** `VarkaEmitterFmaSuite` (JUnit 5): the single rounding, `(1 + 2^-27)(1 - 2^-27) - 1`
+  `-2^-54` through the node where the multiply and the add give `0.0`, and its float twin
+  `(1 + 2^-13)(1 - 2^-13) - 1` `-2^-26` against `0.0`; the node at both lanes and two widths each
+  against the reference over every ordered triple of seventeen operands (zeros, infinities, a
+  NaN, the extremes, a subnormal, inexact products), every null pattern of the three columns and
+  both validity fills, in four operand arrangements, one under a negation; the constructor's
+  refusals and the rendering's round trip through `VarkaCanonicalIr`; and the NaN rule, an
+  `inf * 0 + 1` row open for the FMA and closed for the multiply. `VarkaWithChildrenSuite`
+  rebuilds it, `VarkaLaneTypeSuite` emits it at `DOUBLE` and refuses it at the integral lanes,
+  `VarkaEmitterBudgetSuite` weighs it, and the registry lists (`VarkaIrFuzzSuite`,
+  `VarkaEmitCostSuite`, `VarkaRangeAnalysisSuite`) name it.
+- **Predictions**, to score when the tests run: no existing shape's bytes move
+  (`emitted_bytes.json` unchanged, the node being reachable from no compiler arm and no fuzz
+  sequence, 5.4's sequences being new ones); `VarkaEmitterFmaSuite` runs under 20 s; under `-XX:UseAVX=2` the width audit has
+  nothing to say, since no audited shape holds the node.
+- **What ran (20 November 2026, the laptop).** `build/sbt catalyst/Test/compile` passed on the
+  first try. `VarkaEmitterFmaSuite` ran twice, one run past the brief's one targeted run, since
+  the first failed on the harness: the second passed, 5 tests in 9.1 s in its own JVM, scoring the time
+  prediction (under 20 s): held. Its first run in the shared JVM failed three tests on
+  `VarkaSpeciesGuard`, the two widths of one lane in one JVM, so the class runs in a JVM of its
+  own (`@VarkaSuite(ownJvm = true)`), as `VarkaEmitterFloatingArithSuite` does. The registry
+  suites, the emitted bytes and the width audit are owed (the draft pull request lists them).
+
+### 5.4 The floating arithmetic fuzz sequences (20 November 2026)
+
+3.10's IR fuzz half, owed by step 3 (5.1, "Still owed"), on part `varka-342b-floating-fuzz`,
+stacked on 5.3's. 341's floating sequences (`fuzz_float`, `fuzz_double`) draw the leaves, the
+picks and the conditions only; their grammar, `VarkaIrGrammar.FloatingShapes`, gains this row's
+nodes behind a flag, drawn from two seeds of their own, `FLOAT_ARITH_FUZZ_SEED` and
+`DOUBLE_ARITH_FUZZ_SEED`, so that the committed sequences and their pinned bytes do not move: the
+plain draw keeps its exact random calls. With the flag a value is one of row 342's nodes four
+times in nine: `+`, `-` and `*` unchecked, the division unchecked or nulling a zero divisor,
+negation and `abs`, the square root and 5.3's FMA, at both floating lanes (the square root and
+the division at `FLOAT` too, which the IR and the reference take though the compiler builds them
+at `DOUBLE`). `VarkaIrFuzzSuite` runs each sequence against the reference, 300 draws as the
+floating sequences do, and a reach test holds each to every form over its first 2,000 draws.
+
+- **The `FAIL` division is not drawn** (decision 5); the emitter suite holds the declined batch,
+  as it does the guards' firing for the other corpora.
+- **Not yet in the bytes oracle.** `VarkaEmittedBytesSuite` pins the floating sequences' first
+  two thousand shapes; pinning these is a regeneration (`emitted_bytes.json`), owed with the
+  pull request's other generated files.
+- **The Spark fuzzer's floating productions** (3.10's other half): its grammar draws only fused
+  coverage rows, so it draws the family's 26 rows and their 11 cast forms already, `x / x2`
+  among them (5.1, the integration fixes); nothing of it is built here.
+- **What ran (20 November 2026, the laptop).** `build/sbt catalyst/Test/compile`, then three runs
+  of `VarkaIrFuzzSuite`, past the brief's one targeted run: two by accident ran the whole suite,
+  the `-z` filter reaching the parent only, and the third ran the three
+  new tests directly in one JVM (`-Dvarka.ownJvm=true` set in the catalyst project, `-z
+  arithmetic`): each sequence answered 300 of 300 draws against the reference, in 3.2 s at
+  `FLOAT` and 2.4 s at `DOUBLE`, and the reach test found every form over 2,000 draws a lane. The first whole-suite run hit the
+  child JVM's nine-minute cap, a harness limit, not a failure (`testing-and-debugging.md` on
+  `VarkaOwnJvm`); the second, given the property at the root project, was stopped once seen.
+  In the first, the child's own report shows the registry tests passing with `Fma` listed: "the
+  generator reaches every IR node type" and the long-lane one.
+
+### 5.5 Step 2's code, the census cells (20 November 2026)
+
+Step 2 (2.5, item 0.7) on part `varka-342c-census`, stacked on 5.4's: `VarkaOperatorCensusCatalog`
+gains a family, "floating arithmetic", of twelve cells, `ADD`, `SUB`, `MUL`, `DIV`, `NEG` and
+`ABS` at each floating lane, over the probe's binary loops (`bin.float`, `bin.double`) and its
+double unary loop, and a new `un.float` loop in `VarkaOperatorCensusProbe` for the float unary
+two. The laptop's census was regenerated the same day (`VARKA_CENSUS_REGEN=true build/sbt
+'catalyst/testOnly *VarkaOperatorCensusSuite'`, 200 s, its 8 tests passing): the diff adds the
+twelve cells at 128, 256 and 512 bits, all 36 intrinsic with no allocation, and moves nothing
+else but the host's JDK build string (25.0.5.0.3 to 25.0.5.1). Prediction 4.2, laptop half:
+held. The census workflow on the EPYC 7763 and the Neoverse N2 is owed, its half of 4.2 with it.
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **The FMA node is built now, as its own part, ahead of the rest of step 4.** The brief's
+   priority note puts row 346's 346a behind it, and `VARKA-346.md` 8 records the lead's
+   settlement that the node is this row's; the interval forms still wait for 343b2
+   (`VarkaKernelPlan.conversionRefusal` refuses every conversion to an integral lane).
+2. **The node's NaN is open wherever it answers one**, a `Step` of its own in `VarkaSameAnswer`,
+   rather than `Other`'s rule, which opens a node only where an operand's NaN is open and would
+   hold `inf * 0 + 1` bit for bit across tiers that disagree (5.3). Listing the causes instead (a
+   NaN operand, `inf * 0`, an infinite product meeting the opposite infinity) names the same rows,
+   since those are the only ways the operation answers a NaN.
+3. **A host without an FMA instruction is not refused.** There the Vector API computes each lane
+   by `Math.fma`, exact and slow (a `BigDecimal` product per lane); x86 hosts with AVX2 have FMA
+   in practice and aarch64 always does, and the census records `double.FMA` and `float.FMA`
+   intrinsic at every width on the laptop and the EPYC runners. Whether 346a's lowering declines
+   on such a host is 346a's decision, made with its own measurement.
+4. **The node is in no fuzz grammar.** The grammars draw no floating tree; the floating sequence
+   (3.10, still owed) draws it when it is built, on a seed of its own, so that no committed
+   sequence moves. *Corrected the same day:* 5.4's sequences, on part `varka-342b-floating-fuzz`,
+   draw it; no committed sequence draws it, which is what this decision protects.
+5. **The `FAIL` division is not fuzzed** (5.4): a draw has no reference answer for the batch a
+   live zero divisor declines, and the floating edge values draw zeros often enough that most
+   draws holding one would decline.
+6. **The square root and the division are drawn at `FLOAT` too** (5.4), though the compiler
+   builds them at `DOUBLE` only, where the narrow grammar draws only what the compiler builds at
+   its lane. The IR, the emitter and the reference take both at `FLOAT`, and a later row (the
+   float forms of 345 and 356 to 358) may build them there; a fuzzed form the compiler never
+   reaches costs draws, not correctness.
+7. **The fuzz sequences are a stacked part although both parts fit the cap together** (750 and
+   183 counted lines, and 33 for 5.5's part): the brief asks for the FMA node as its own small part, so that row 346a can
+   stack on it without the fuzz change.
 
 ## 6. Out of this row
 

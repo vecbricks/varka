@@ -346,4 +346,13 @@ instruction.
 
 ## 10. Outcome
 
-Not started.
+*22 November 2026, row 633 (built, not merged).* Step 1 for `varka-surface-benchmark.yml` alone:
+`STOCK_VERSION: 4.3.0`, the usage examples of `dev/varka_bench_surface.sh`,
+`DateSurfaceBenchmark.java` and `LadderBenchmark.java`, and the script's TIME note. The two demo
+workflows and `compiles/run.sh` are not in it, as step 1 allows: a push of them starts their runs
+through `push.paths`, and the owner runs CI by hand. They switch in their own commit with the
+release-named outputs of decision 6. 0, item 1's open point is settled without a run:
+`spark-4.3.0-bin-hadoop3.tgz.sha512` is served beside the tarball on both `dlcdn.apache.org` and
+`archive.apache.org`, in `sha512sum` format, which the download step's extraction reads.
+Decision 7's question (the 4.2.0-compiled driver on the 4.3.0 distribution) is still open; the
+first `run` dispatch answers it.

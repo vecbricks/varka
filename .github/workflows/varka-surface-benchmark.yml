@@ -77,7 +77,7 @@ on:
         default: ''
       benchmark:
         type: choice
-        description: 'Which expressions. "surface" is one entry per expression, the coverage document, whose lightest rows are memory-bandwidth-bound and so cannot show a datapath difference. "chains" composes them three and four deep until the kernel is compute-bound, which is what a 512-bit run has to measure. See VARKA-62.md 11.13. "time" and "timechains" are the same pair over the TIME table (VARKA-164.md).'
+        description: 'Which expressions. "surface" is one entry per expression, the coverage document, whose lightest rows are memory-bandwidth-bound and so cannot show a datapath difference. "chains" composes them three and four deep until the kernel is compute-bound, which is what a 512-bit run has to measure. See VARKA-62.md 11.13. "time" and "timechains" are the same pair over the TIME table (VARKA-164.md). "math" is one entry per fused DOUBLE math function (VARKA-633).'
         required: true
         default: 'surface'
         options:
@@ -86,6 +86,7 @@ on:
           - 'time'
           - 'timechains'
           - 'ladder'
+          - 'math'
       input:
         type: choice
         description: 'Where the table rows come from. "cache" is each distribution default cache (Arrow on the Varka arm). "parquet" writes the table to a Parquet file once and reads it back uncached, the path a query over a file takes; VARKA-194 asks the ladder both ways. The file name gains "-parquet".'
@@ -107,6 +108,11 @@ on:
       extra-confs:
         type: string
         description: 'Comma-separated key=value settings appended to every arm, stock and fork alike, e.g. spark.driver.extraJavaOptions=-XX:UseAVX=2,spark.sql.codegen.varka.emit.useAVX=2 for VARKA-121 (in local[1] the driver is the executor, so the JVM flag reaches the kernels). Empty appends nothing.'
+        required: false
+        default: ''
+      label-suffix:
+        type: string
+        description: 'Appended to every arm label, and so to every results file name, e.g. "-zen3" or "-zen3-128bit", so two runs of one benchmark at different widths or on different CPUs write different files. Empty appends nothing.'
         required: false
         default: ''
       vecruntime:
@@ -275,7 +281,7 @@ jobs:
       contents: write
     env:
       SPARK_LOCAL_IP: localhost
-      STOCK_VERSION: 4.2.0
+      STOCK_VERSION: 4.3.0
       # vecruntime's arm (VARKA-202): its release, the Spark release it supports, and the Hadoop
       # client that release needs on JDK 25 in place of the one it bundles.
       VECRUNTIME_VERSION: 0.0.3
@@ -366,7 +372,11 @@ jobs:
         mkdir -p ~/stock-spark && cd ~/stock-spark
         TGZ="spark-${STOCK_VERSION}-bin-hadoop3.tgz"
         BASE="https://dlcdn.apache.org/spark/spark-${STOCK_VERSION}"
-        curl -fsSLO "$BASE/$TGZ"
+        # The mirror drops a release once its successor ships; the archive keeps every one.
+        curl -fsSLO "$BASE/$TGZ" || {
+          BASE="https://archive.apache.org/dist/spark/spark-${STOCK_VERSION}"
+          curl -fsSLO "$BASE/$TGZ"
+        }
         # The checksum is the release's own, served beside it; a truncated download must
         # fail here rather than three hours later as a baseline nobody can reproduce.
         # Apache has served these in two formats over the years - `sha512sum` output, and
@@ -449,10 +459,14 @@ jobs:
         EXTRA_CONFS: ${{ inputs.extra-confs }}
         MAX_FIXED_SHARE: ${{ inputs.max-fixed-share }}
         VECRUNTIME: ${{ inputs.vecruntime }}
+        SUFFIX: ${{ inputs.label-suffix }}
       run: |
         set -euo pipefail
         STOCK="$HOME/stock-spark/spark-${STOCK_VERSION}-bin-hadoop3"
         J17="${JAVA_HOME_17_X64}"; J25="${JAVA_HOME_25_X64}"
+        # The suffix lands in a label, which the shell driver splits at `=` and `:`.
+        [[ "$SUFFIX" =~ ^[A-Za-z0-9._-]*$ ]] \
+          || { echo "::error::label-suffix may hold letters, digits, '.', '_' and '-' only"; exit 1; }
         ARGS=(--rows "$ROWS" --partitions "$PARTITIONS" --driver-memory "$DRIVER_MEMORY")
         # --force, and the reason is recorded rather than the gate weakened: the canary
         # compares this machine against dev/varka_canary/baseline-<host>.txt and exits 2
@@ -476,16 +490,16 @@ jobs:
           [ "$INPUT" = parquet ] \
             || { echo "::error::the vecruntime arms read Parquet only; dispatch with input parquet"; exit 1; }
           VR="$HOME/vecruntime-spark"
-          OTHERS=("spark-${VECRUNTIME_SPARK_VERSION}-jdk25=$VR/spark-${VECRUNTIME_SPARK_VERSION}-bin-hadoop3:$J25$OPEN"
-            "vecruntime-${VECRUNTIME_VERSION}-jdk25=$VR/vecruntime-${VECRUNTIME_VERSION}:$J25:vecruntime$MORE")
+          OTHERS=("spark-${VECRUNTIME_SPARK_VERSION}-jdk25$SUFFIX=$VR/spark-${VECRUNTIME_SPARK_VERSION}-bin-hadoop3:$J25$OPEN"
+            "vecruntime-${VECRUNTIME_VERSION}-jdk25$SUFFIX=$VR/vecruntime-${VECRUNTIME_VERSION}:$J25:vecruntime$MORE")
         fi
         # Varka last: the comparison table's ratios are the last file against the others.
         dev/varka_bench_surface.sh "${ARGS[@]}" \
-          "spark-${STOCK_VERSION}-jdk17=$STOCK:$J17$OPEN" \
-          "spark-${STOCK_VERSION}-jdk25=$STOCK:$J25$OPEN" \
+          "spark-${STOCK_VERSION}-jdk17$SUFFIX=$STOCK:$J17$OPEN" \
+          "spark-${STOCK_VERSION}-jdk25$SUFFIX=$STOCK:$J25$OPEN" \
           "${OTHERS[@]}" \
-          "varka-off-jdk25=$PWD:$J25$OPEN" \
-          "varka-jdk25=$PWD:$J25:varka$MORE"
+          "varka-off-jdk25$SUFFIX=$PWD:$J25$OPEN" \
+          "varka-jdk25$SUFFIX=$PWD:$J25:varka$MORE"
 
     # `!cancelled()` and not the default, because the step this follows fails on purpose:
     # a run whose fixed share is over the ceiling has still done every measurement, and
