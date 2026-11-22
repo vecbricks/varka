@@ -671,8 +671,8 @@ over `ln`, and to change nothing for `expm1` and `log1p` (item 0.3). The new `MA
 plant must fail the fixed vectors for every function with the domain null and move no other
 function. `VarkaMathCompilerSuite`'s fused table gains the nine functions, `log(2.0D, x)`, `log(y, x)` and
 `exp(i)`, and a constant base at or below `0.0` declines by name. Coverage gains 11 "Math
-functions" rows. `VarkaMathBaselineBenchmark` marks `cbrt`, `exp`, `log`, `log10` and
-`exp(x) * 2 + 1` `WHOLE`; 358's eight census lines wait for the regeneration (decision 5).
+functions" rows. `VarkaMathBaselineBenchmark` marks `cbrt`, `exp`, `expm1`, `log`, `log10`,
+`ln`, `log1p`, `log2`, `log(2.0, p)`, `log(c, p)`, `ln(q)` and `exp(x) * 2 + 1` `WHOLE`; 358's eight census lines wait for the regeneration (decision 5).
 
 **Run in the window**: `catalyst/Test/compile` and `sql/Test/compile`, both clean, and one
 targeted run of `VarkaMathExactSuite` and `VarkaMathCompilerSuite`: 11 tests, all passed
@@ -695,6 +695,15 @@ joins the calibration table.
 too, with the registry suites a new node owes); the IR fuzz productions; the vectors files; the
 warm-up reach and cost register entries; the runner measurement.
 
+**Rebuilt on master (22 November 2026).** 356 merged as #1567 in a different form from the
+branch 358a1 stood on, so 358a1 was rebuilt on master as branch `varka-358a-r`: the plant moves
+into `VarkaEmitOptions.FloatingFault.MATH_DOMAIN_LT`, read from the compiler's options, since
+master has no `VarkaMathFault`; the coverage rows carry master's math cells; the benchmark's
+newer sections over these functions turn `WHOLE`; `skips.tsv` gains the 11 rows under
+`validityByWidth=false` and `lanesOverride=16`. The high review found that a constant base
+whose evaluation throws failed the query at planning; it now declines. Owed: the regeneration,
+the targeted suites, the gate and every runner measurement.
+
 ### Decisions taken while the owner was away (20 November 2026), row 358
 
 1. **358a1 is stacked on 356a1, not on 345b.** The 345b branches add the bit view and `exp`'s
@@ -704,7 +713,8 @@ warm-up reach and cost register entries; the runner measurement.
 2. **The log family's null is composed from existing nodes, not the `nullAtOrBelow` field of
    open point 1 (a).** That recommendation rested on the call skipping null lanes by itself, and
    on (b) needing a new node with its own production and reference case. Neither holds as built.
-   356a1's lowering calls every lane (`emitMathLaneCall`), so the field would skip nothing. And `IfElse`, the IEEE
+   356a1's lowering calls every lane (`emitMathLaneCall`), so the field would skip
+   nothing. And `IfElse`, the IEEE
    `<=` and `NullValue` exist already, so the composition adds no node, no emitter path, no
    reference case and no shape-key field. Admission is the same at two lanes: the two-lane
    refusal is a filter root's (`VarkaKernelPlan.hostRefusal`), and a projection over a
