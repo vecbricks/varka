@@ -1269,14 +1269,20 @@ def self_test():
         f"22: BLOCKS drifted from the tracked markers: {found}",
     )
 
-    # The attributes patterns match the files git gives the attributes, and each names one.
+    # The attributes patterns match the files git gives the attributes, and each names one: a
+    # generated file, or for a rule of git's union driver alone (the skip list's) a tracked file,
+    # so that a misspelt attribute still fails here.
     tracked = subprocess.run(
         ["git", "ls-files", "-z"], cwd=root, capture_output=True, text=True
     ).stdout.split("\0")[:-1]
     by_git = git_generated(tracked, None, root) or set()
     rules = attribute_rules(lambda p: open(os.path.join(root, p), encoding="utf-8").read())
     ours = {p for p in tracked if is_generated(p, rules)}
-    unused = [g for g, rx, _ in rules if not any(rx.match(p) for p in ours)]
+    unused = [
+        g
+        for g, rx, attrs in rules
+        if not any(rx.match(p) for p in (tracked if attrs == ["merge=union"] else ours))
+    ]
     expect(
         ours == by_git - {DOCS} and not unused,
         f"22: attributes read unlike git: {sorted(ours ^ (by_git - {DOCS}))[:5]}, {unused}",
