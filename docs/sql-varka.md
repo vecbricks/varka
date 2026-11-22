@@ -1341,6 +1341,19 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `-(d9 + d9b) = d9s4` | `predicate` |  | the negation of a sum, compared at DECIMAL(12, 4) | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `try_multiply(d8, d9) IS NULL` | `predicate` |  | null only where an operand is: no product within 18 digits overflows, so TRY's null past the precision never fires | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
+#### DECIMAL values
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CASE WHEN d9 < d9b THEN d9 ELSE d9b END` | `predicate`, `condition` |  | a DECIMAL(9, 2) choice, the comparison and the blend on the long lane | not audited |
+| `if(d9 < d9b, d18, d18b)` | `predicate`, `condition` |  | a DECIMAL(18, 2) choice under a DECIMAL(9, 2) condition | not audited |
+| `coalesce(d9, d9s4)` | `condition` |  | DECIMAL(11, 4): d9 times 10^2, then the first valid operand | not audited |
+| `greatest(d18, d18b)` | `intArithmetic` |  | the null-skipping pick, of one scale | not audited |
+| `least(d9, d9s4)` | `intArithmetic` |  | the null-skipping pick at DECIMAL(11, 4), d9 carrying its rescale | not audited |
+| `-d18` | none |  | a negation, which cannot overflow: an unscaled value within 18 digits is never the long lane's minimum | not audited |
+| `abs(d18)` | none |  | a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option | not audited |
+| `try_subtract(d9, d9s4)` | none |  | DECIMAL(12, 4), row 349's difference stored by the same path: no difference within 18 digits overflows, so TRY's null never fires | not audited |
+
 #### Time arithmetic
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -1389,7 +1402,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 38 | 0 | 0 | 0 | 13 | 0 | 25 |
 | `byte` | 56 | 0 | 0 | 0 | 0 | 8 | 48 |
 | `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
-| `dec` | 77 | 1 | 42 | 10 | 0 | 0 | 24 |
+| `dec` | 85 | 1 | 50 | 10 | 0 | 0 | 24 |
 | `double` | 97 | 0 | 0 | 1 | 0 | 0 | 96 |
 | `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
