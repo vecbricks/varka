@@ -192,7 +192,177 @@ than the row path at 256 and 128 bits.
 
 ## 9. Outcome
 
-Not built.
+Started 20 November 2026, while the owner was away; steps 1 and 2 are built, steps 3 and 4 are
+owed (below).
+
+### 9.1 Step 1, the probe
+
+`VarkaPartialProjectionProbe` ran on the laptop before the change, three passes of each null
+density: run 1 at 256 and at 128 bits, then run 2 at 256 bits. Its output is
+`results/VARKA-613-probe.txt`. The laptop was shared at a one-minute load of 30 to 60 (about 40 at
+the start of run 1, about 60 at the end of run 2, the file gives each), far busier than 598's
+probe.
+
+**The control decides which passes count.** `extract(DAY FROM dt)` alone is committed at 3.9X on
+the runners, but it lost in the no-null pass of every run (0.8X, 0.9X, 0.8X), and won in every
+nulls pass (2.6X, 1.4X, 2.1X). A pass whose control loses is not measuring the kernel, so only
+the nulls passes are read. This drops c's 2.2X in run 1's no-null pass, which favours (R2), as
+well as both readings that contradict it: a at 1.3X in run 1 and b at 1.6X in run 2, each in a
+pass whose row arm read far slower than the same query at the other density (301 against 103 ms,
+506 against 289).
+
+Best times, ms, row path then varka on, the counted passes:
+
+| shape | run 1, 256 bits | run 2, 256 bits | run 1, 128 bits |
+|---|---|---|---|
+| a. the blend | 103 / 153, loss | 395 / 426, band | 305 / 394, band |
+| b. other inputs | 128 / 136, band | 289 / 351, band | 281 / 402, loss |
+| c. heavy, shared | 118 / 81, win | 328 / 296, band | (row 612's loss) |
+| d. heavy, other | 285 / 183, win | 464 / 515, band | (row 612's loss) |
+
+The 128-bit no-null pass is not read either (its control read 0.9X); there a and b read 0.8X and
+0.5X, losses for both.
+
+**The rule is (R2), residual-heavy.** (R1) declines c, which wins, and keeps b, which loses at
+128 bits, so it fails twice. (R2) declines a and b and keeps c and d, which fits every counted
+reading and the runners' committed loss of the blend at both widths. The rule is
+`VarkaPartialDecline.reason`: decline when the residual entries outnumber the fused ones, the
+entries of every kernel together, with forwarded columns counted as neither. The review round
+(9.2) weighs the entries by their operators instead of counting them.
+
+Predictions of 6.1, scored on the counted passes:
+
+1. Shape a loses at both widths: **half right**. It read 0.7X at 256 bits in run 1 and stayed in
+   the band in run 2 and at 128 bits. Shape c wins at 256 bits by 1.3x: **right** in run 1
+   (1.5X), in the band in run 2.
+2. Shape b within 10% of the row path at 256 bits: **right** in run 1 (6%), **wrong** in run 2
+   (21% slower, still inside the 1.3x band).
+3. Shape d wins at 256 bits by 1.3x: **right** in run 1 (1.6X), in the band in run 2.
+4. (R2) matches, c separates the rules: **right**.
+5. The blend at 1.0X on the runners: owed (step 4).
+
+### 9.2 Step 2, the decline
+
+Built as 3.1 says, with the reason in `VarkaPartialDecline` rather than a fusion report
+(decisions, item 1). `VarkaColumnarRule`'s post stage asks it in the
+`ColumnarToRowExec(VarkaProjectExec)` arm, which then plans Spark's `ProjectExec` over the
+child's rows (correction below), and in the `ProjectExec ... if isVarkaEligible` arm, which then leaves the projection as it is.
+The blend's class in `VarkaDayTimeIntervalBaselineBenchmark` is `NONE` at both densities.
+`VarkaDecimalBaselineQueriesSuite`'s `x9 < y9, -x38 < y38` ties one to one and stays `PARTIAL`, so
+that suite is unchanged. Only `build/sbt sql/Test/compile` was run in this window; the suites of
+step 2's done-when are owed.
+
+One quick run of `VarkaPartialDeclineSuite` passed four of its five tests. The fifth compared
+the declined plan with the plan of the shared Varka-off session, `disabledSpark`, and failed
+there: that session reads the Arrow cache as rows (`Project` over `InputAdapter`, no
+`ColumnarToRow`), while the declined plan reads it as batches. The test now asserts the declined
+plan's operators instead and has not been run since. Prediction 5 rests on the benchmark's
+varka off arm reading batches too, as its `VarkaArrowSessions` session sets the vectorized cache
+reader; the owed plan-only dry run of the baseline is where to check it.
+
+*Correction, the same day, before any further run.* That guess was wrong, and the failure was a
+finding about the code, not the test. `ApplyColumnarRulesAndInsertTransitions` inserts no to-row
+transition under a row parent when the child produces rows as well as batches
+(`ensureOutputsRowBased`), and the Arrow-cached `InMemoryTableScanExec` does both. So Spark's
+row-path plan is `Project` over the scan read as rows, in every session without Varka, the
+benchmark's varka off arm included, and the declined `ProjectExec(ColumnarToRowExec(scan))` was a
+third plan that nobody had measured. The decline now gives the projection its child's rows as the
+transition rule would (`declinedChild`): a child that produces rows itself as it is, a Varka filter
+as its to-row node (the second bug the reading found: `transformUp` does not revisit what an arm
+returns, so a compacting `VarkaFilterExec` would have stayed under the declined projection), and
+any other columnar child under a `ColumnarToRowExec`. The suite's comparison with `disabledSpark`
+is back, and a filtered shape is added. Both ran in the review round (9.5).
+
+*Review round, 22 November 2026 (`/code-review high`, three important findings).*
+
+1. **Cost beside count.** The rule counted entries, so one expensive fused entry beside two cheap
+   residual ones was declined, losing a kernel that carries most of the work. It now also weighs
+   each entry by the operators of its expression (inner nodes, not aliases or leaves), and
+   declines only when the residual entries outnumber the fused ones (every kernel) and also
+   outweigh them. Weighing alone was tried first and moved `x9 < y9, -x38 < y38` (1 to 3) to a
+   decline, which 3.1 and `VarkaDecimalBaselineQueriesSuite` say stays `PARTIAL`; requiring both
+   declines no shape the count kept. Reason for this design over IR op counts or a cost model:
+   the probe's shapes keep their verdicts (a and b decline at 3 entries of 3 operators to 1 of 1;
+   c and d keep), it needs no new API on the classification, and it is the smaller change. It is
+   still a proxy that no measurement calibrates beyond those shapes; the runner probe of step 4
+   is where to widen it. A new test keeps `abs(-dt * 3)` beside two residual extracts (2
+   entries of 2 operators to 1 of 3, which the count alone declines).
+2. **Nested projections.** `declinedChild` left an inner `VarkaProjectExec` under a plain
+   `ColumnarToRowExec`, so the inner kernel with its merge ran under a row consumer. The arm and
+   `declinedChild` now share `projectionToRows`, which asks the rule of the inner projection too.
+   A test hand-builds the blend over shape b's projection (the optimizer collapses two) and
+   asserts no Varka node is left.
+3. **The final shape was never run.** The owed suites ran; see 9.5.
+
+### 9.3 Where the plan was wrong
+
+1. 3.1's procedure has no rule for a failed control or for a shape that reads both ways in two
+   passes. The control rule above is the one this probe needed; a later probe should state it
+   before it runs.
+2. Step 3's done-when, `dev/varka_regen_generated.sh --all` leaving no diff, does not cover the
+   golden corpus, which has its own switch (`skills/working-in-this-repo.md`, the `--all`
+   section): `VARKA_GOLDEN_REGEN=true build/sbt -batch "sql/testOnly *VarkaGoldenCorpusSuite"`.
+3. 3.1's "the node's fusion report records the reason" cannot hold for a declined plan, which
+   has no Varka node (decisions, item 1).
+4. 3.1 plans "Spark's `ProjectExec` over a plain `ColumnarToRowExec` of the child", and 6.1 item 5
+   expects "its plan is Spark's". The two disagree over an Arrow-cached scan, which Spark reads as
+   rows; 9.2's correction takes item 5's side.
+
+### 9.5 Suites run
+
+On 22 November 2026 on the laptop, defaults, under the heavy lock, one JVM, after merging master
+and with the review round's changes: `dev/varka_matrix.sh --defaults --suites` over 34 suites,
+456 tests, 0 failed. They are `VarkaPartialDeclineSuite` (with the filtered shape, the
+`disabledSpark` shape comparison, the heavy-fused counter-shape and the nested declined
+projections), `VarkaDayTimeIntervalBaselineQueriesSuite`, `VarkaDecimalBaselineQueriesSuite`, every
+other `*BaselineQueriesSuite`, `VarkaEndToEndSuite`, `VarkaSparkFuzzSuite`,
+`VarkaFloatingLaneSuite`, `VarkaGoldenCorpusSuite` and the suites that name `VarkaProjectExec`,
+`VarkaColumnarToRowExec` or `PARTIAL`. The first run failed four tests, two findings:
+
+* `VarkaDecimalBaselineQueriesSuite` (three tests): the weighing-only rule declined the decimal
+  `PARTIAL` shape; fixed by requiring the count too (item 1 above).
+* `VarkaCodegenGiveUpSuite` G34: its projection (one fused date entry beside sixty `CASE WHEN`
+  entries) is declined under a row consumer by this change, whichever of count or weight is used,
+  so it has no Varka node there. The test now asserts that and runs its two measured windows
+  through a `noop` write, where the node and its merge path remain; answers are checked beside.
+
+### 9.4 Owed
+
+* Step 2's suites: done, see 9.5.
+* Step 3: the golden corpus regenerated with its own switch, then `dev/varka_regen_generated.sh
+  --all`, and both diffs read entry by entry.
+* Step 4: the owner's runner dispatch of the day-time baseline at both widths, and beside it
+  `VarkaPartialProjectionProbe` on the EPYC 7763 at both widths, which confirms (R2) on a quiet
+  machine or widens it. The blend declines under all three rules, so the row's done-when does not
+  depend on that second run.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **Where the reason lives.** A declined projection has no Varka node, so no fusion report can
+   carry the reason as 3.1 says. The rule is one Java method, `VarkaPartialDecline.reason`,
+   which returns the reason or nothing; both post-stage arms call it, the rule logs the reason at
+   DEBUG with the projection (as it logs a filter it leaves to Spark), and
+   `VarkaPartialDeclineSuite` reads the same method. Reason: it is the smallest place that both
+   the rule and a test can read, and it adds no plan node or tag that Spark's `EXPLAIN` would not
+   show anyway.
+2. **A forced residual is never declined.** `forceResidualAt` (VARKA-296) makes an entry
+   residual so that the Spark differential and the composition fuzzer run the merge path. A
+   forced residual can tip a projection's count, so under the decline a forced shape could lose
+   its Varka node, and the differential would count the force as not applied instead of checking
+   the merge. So the rule returns nothing while the option is set. Reason: the option is a fault
+   injector that no user configuration reaches, and the merge path still runs for every partial
+   projection under a columnar consumer and every one the rule keeps.
+3. **The rule is Java, the arms Scala.** The classification is a sealed `VarkaOutputSpec`
+   matched exhaustively, which is the house style for the IR (AGENTS.md, "Java code"); the rule
+   object stays Scala because it is a Catalyst rule.
+4. **The probe's passes are read by their control, and the rule is (R2).** The laptop could not
+   be made quiet in this window, and a third run under the same load would not have been
+   cleaner. 9.1 gives the control rule and the reading. (R3) was not taken: it would decline c
+   and d, which never lose past 1.3x at 256 bits in any reading. Question 10.1 is therefore moot.
+5. **The declined projection reads its child's rows as Spark would give them** (9.2's
+   correction), not through the `ColumnarToRowExec` 3.1 names. Reason: the done-when compares the
+   declined plan with the row path, and over an Arrow-cached scan the row path reads rows; a
+   to-row transition there would be a plan no session without Varka builds.
 
 ## 10. Questions for the owner
 

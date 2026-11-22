@@ -576,21 +576,24 @@ class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions with Va
       val staged = logged(stageLogger, Level.INFO)(run(disabledSpark))
       assert(staged.exists(_._2.contains("Found too long generated codes")), staged.map(_._2))
     }
-    // Varka's answer: the sixty entries decline and the date entry fuses, and the node evaluates
-    // the declined entries through a projection of Spark's, in the same class as vanilla's: under
-    // the splitter its methods stay small, and with the splitter off it is the same one method
-    // past 8000 bytes, used as vanilla's is.
+    // Varka's answer: the sixty entries decline and the date entry fuses. Under a row consumer
+    // the sixty residual entries outweigh the one fused entry, so the projection is left to Spark
+    // (VARKA-613) and its plan is vanilla's. Under a columnar consumer, a noop write, the node
+    // keeps its kernel and evaluates the declined entries through a projection of Spark's, in the
+    // same class as vanilla's: under the splitter its methods stay small, and with the splitter
+    // off it is the same one method past 8000 bytes, used as vanilla's is.
     cacheDatedStrings(varkaSpark)
     val df = varkaSpark.sql(query)
-    assert(varkaProjections(df).nonEmpty, df.queryExecution.executedPlan)
+    assert(varkaProjections(df).isEmpty, df.queryExecution.executedPlan)
     val (fused, declined) = classified(df)
     assert(fused == Set(0) && declined.size == 60, (fused, declined.keySet))
     // The expected rows are computed first, so that only the Varka query compiles in the window.
     val expected = disabledSpark.sql(query).collect().toSeq
-    val split = logged(compilerLoggers, Level.INFO)(checkAnswer(df, expected))
+    checkAnswer(df, expected)
+    val split = logged(compilerLoggers, Level.INFO)(run(varkaSpark))
     assert(jitRefused(split).isEmpty, split.map(_._2))
     withSessionConf(varkaSpark, unsplit) {
-      val whole = logged(compilerLoggers, Level.INFO)(checkAnswer(df, expected))
+      val whole = logged(compilerLoggers, Level.INFO)(run(varkaSpark))
       val refused = jitRefused(whole)
       assert(refused.exists { case (method, bytes) =>
         method.contains("SpecificUnsafeProjection") && bytes > 8000

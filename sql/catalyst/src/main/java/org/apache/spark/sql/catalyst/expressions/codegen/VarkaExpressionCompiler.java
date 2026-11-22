@@ -862,6 +862,14 @@ public final class VarkaExpressionCompiler {
   }
 
   /**
+   * The start of the reason {@link #nullTestsAlone} gives: a decline of composition, caused by
+   * the conjunct that stays on the row path, which a suite tells from a decline of the
+   * conjunct itself.
+   */
+  public static final String ONLY_NULL_TESTS =
+      "only IS NOT NULL tests would fuse while another conjunct stays on the row path";
+
+  /**
    * The fused conjuncts, each with the reason it is demoted, when every one of them is an
    * {@code IS NOT NULL} of a column and another conjunct stays on the row path; empty otherwise
    * (VARKA-598).
@@ -890,9 +898,8 @@ public final class VarkaExpressionCompiler {
       if (!specs.get(i).fused()) {
         residual = true;
       } else if (written.get(i) instanceof IsNotNull test && test.child() instanceof Attribute) {
-        demote.put(i, "only IS NOT NULL tests would fuse while another conjunct stays on the row "
-            + "path, and copying the rows out for it costs more than the tests save, so the "
-            + "filter stays whole on the row path");
+        demote.put(i, ONLY_NULL_TESTS + ", and copying the rows out for it costs more than the "
+            + "tests save, so the filter stays whole on the row path");
       } else {
         return Map.of();
       }
