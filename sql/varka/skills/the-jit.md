@@ -1341,8 +1341,9 @@ back so that it can (VARKA-557).
   read off a seed replays only at its commit, or by its rows, which the test's info line now
   names. Two rows can be one kernel (`nullif(ntz, ntz2)` and `nullif(t, t2)` emit the same
   class), so compare the dumped classes before calling a case gone.
-* **A row alone is not the row in a sample.** Alone, each of these rows settled every time; in the
-  sample, behind other long-lane kernels, they cycled through 40 to 50 compiles of `loopMasked0`
+* **A row alone is not the row in a sample.** Alone, two of these rows (`nullif(ntz, ntz2)` and
+  `nullif(t, t2)`) settled every time; in the
+  sample, behind other long-lane kernels, the three cycled through 40 to 50 compiles of `loopMasked0`
   a minute, each thrown away at a `profile_predicate` trap, and never served C2 code. The kernel
   class is fresh each history, so what carries over is the profile of the code every kernel
   inlines. Replay a tier fact in the JVM history it was read in.

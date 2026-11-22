@@ -210,8 +210,7 @@ run's command, tally, trap counts and load are in `results/VARKA-605-readings.tx
    loop `for (i = 0; i < species.loopBound(n); i += species.length())`, whose head at 205 is
    `if_icmpge 415`. That is row 383's trap: the same reason and action, on the same construct
    (`VARKA-383.md` 9.3 found `goto 241`, the back edge, at bytecode 566). The compared calls show
-   the lower tier: in `warm-same`, sanitized run 1 counted 5 cases `all C2` and 3 `all mixed`,
-   as many as it left unsettled (a count that matches, not a tier read per row).
+   the lower tier in the readings' tally lines (a tally, not a tier read per row).
    A sixfold deadline does not settle it: at `-Dvarka.fuzz.settleMillis=60000` two of the rows
    were still unsettled with 42 to 52 back-edge traps a class, about one every 1.2 s, so it is a
    cycle and not a deadline starved by load. Alone, a row's loop traps at its head (bytecode 205)
