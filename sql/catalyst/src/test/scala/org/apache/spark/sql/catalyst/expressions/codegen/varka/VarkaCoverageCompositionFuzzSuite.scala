@@ -1024,7 +1024,11 @@ class VarkaCoverageCompositionFuzzSuite
       for ((sql, plan) <- kernels) {
         tally.add(runCompiled(sql, plan, opts, settings))
       }
-      info(s"${kernels.size} of $rowCount coverage rows' kernels")
+      // A sample is named, so that a tier fact read off its tally names the rows it came from;
+      // the whole table is not.
+      val named = if (kernels.size == oneTable.size) "" else ": " +
+        kernels.map { case (sql, plan) => s"$sql (${plan.lane(opts)})" }.mkString("; ")
+      info(s"${kernels.size} of $rowCount coverage rows' kernels$named")
       if (settings.witnessed) VarkaTierWitness.get().settle()
       tally.report(settings.witnessed).asScala.foreach(info(_))
       if (settings.witnessed) {
