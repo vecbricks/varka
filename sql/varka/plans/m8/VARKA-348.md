@@ -998,7 +998,9 @@ since section 4 already holds the projected choice.
    value forms fused where it cancelled them before; `VarkaDecimalConformanceSuite` is unchanged
    in outcome, each listed operator seen declining.
 4. `VarkaAnsiFormSuite` (sql/core) reports a drift for the TIME producers' `CASE` arm, which now
-   fuses, and needs its expected-decline map trimmed.
+   fuses, and needs its expected-decline map trimmed. *Scored 22 November 2026: held in part. The
+   form runs in `VarkaCoverageHarnessSuite`; the `CASE` arm fused, but the false AND also needed a
+   repair (gate finding 5).*
 5. `emitted_bytes.json` gains the eight rows' kernels and moves no existing shape.
 6. `VarkaDecimalBaselineQueriesSuite`, and the benchmark's own plan check, find the twelve
    sections above `WHOLE` and every other section's class unchanged.
@@ -1013,8 +1015,8 @@ projection arms are an addition to it, the house's own pull request first. The g
 (`coverage.json`, `docs/sql-varka.md`, `emitted_bytes.json`, `width_audit.json`, `census.tsv`,
 `decimal_refinement.smt2`) and the runs the body lists are owed too.
 
-**Gate findings (22 November 2026).** The three items that kept the branch from opening, and what
-each turned out to be.
+**Gate findings (22 November 2026).** The items that kept the branch from opening, and what each
+turned out to be; the fifth came from CI after it opened.
 
 1. *The conformance harness had no check for a decimal store output.* `VarkaKernelChecks`'s
    decimal slot lane refused a `WidenDecimal` root. It now writes, sizes and reads such an output
@@ -1048,8 +1050,9 @@ each turned out to be.
    a typed null, and the optimizer folds `rid < 0 AND (e) = NULL` to an empty relation, so no
    kernel ever saw it; the TIME producers' old declines had hidden this. The position now compares
    a decimal with a typed zero (`VarkaAnsiForm.comparand`), and the kernel serves all ten. Not a
-   difference from Spark: Spark evaluates nothing there either. Prediction 4 is scored by it: the
-   `CASE` arm fused as predicted, and the false AND needed this repair, not a decline.
+   difference from Spark: Spark evaluates nothing there either. The decimal COALESCE position
+   still runs the value as alone does, since the optimizer drops its typed null; a non-null
+   decimal stand-in of every type is left open.
 
 ## Decisions taken while the owner was away (20 November 2026)
 

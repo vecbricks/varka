@@ -113,7 +113,10 @@ public final class VarkaAnsiForm {
    * non-null on both rows. Varka compiles a bare int column as no value, so the int CASE's other
    * arm is {@code year(d2)}; the int COALESCE keeps the bare column, and the declined list says
    * why it is not fused. A narrow CASE arm is the int guard and a narrow branch, which the
-   * compiler widens to the int lane and stores narrow (VARKA-329).
+   * compiler widens to the int lane and stores narrow (VARKA-329). A decimal's is a typed null,
+   * for want of a column of every decimal type: the optimizer drops it from a COALESCE, so that
+   * position runs the expression as Spark does alone, and folds a comparison with it, so the
+   * false AND compares with {@link #comparand} instead.
    */
   static Optional<String> standIn(DataType t, boolean caseArm) {
     if (t instanceof DateType) {
@@ -191,8 +194,9 @@ public final class VarkaAnsiForm {
   /**
    * A row's positions and their queries over {@code t}, empty where a position cannot be written
    * for the row. A projection {@code e} runs alone, in the untaken arm of
-   * {@code CASE WHEN rid < 0}, after a column in a COALESCE, and compared with a column behind
-   * {@code rid < 0}; a predicate {@code p} behind {@code rid < 0 AND} and {@code rid >= 0 OR}.
+   * {@code CASE WHEN rid < 0}, after a column in a COALESCE, and compared with its
+   * {@link #comparand} behind {@code rid < 0}; a predicate {@code p} behind {@code rid < 0 AND}
+   * and {@code rid >= 0 OR}.
    * {@code rid} is 0 and 1, so each guard decides every row and Spark never evaluates the guarded
    * side. Where the guard and the guarded side form one Varka expression, the guard is at the
    * expression's lane.
@@ -218,7 +222,7 @@ public final class VarkaAnsiForm {
           Written.projection("CASE WHEN " + guard + " < 0 THEN " + e + " ELSE " + c + " END")));
       out.put(COALESCE_TAIL, standIn(t, false).map(c ->
           Written.projection("coalesce(" + c + ", " + e + ")")));
-      // e = <column>, not e IS NOT NULL: Varka fuses no IS NOT NULL over a computed value.
+      // e = <comparand>, not e IS NOT NULL: Varka fuses no IS NOT NULL over a computed value.
       out.put(FALSE_AND, comparand(t).map(c ->
           Written.filter(guard + " < 0 AND (" + e + ") = " + c)));
     }
