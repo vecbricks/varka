@@ -181,7 +181,7 @@ public final class VarkaTwoLaneDefault128Suite {
     assumeTrue(varka != null, "not x86: the refusal does not apply");
     for (String n : List.of("", "n")) {
       String query = "SELECT p" + n + " < p2" + n + " AS a, w" + n + " < w2" + n + " AS b, l" + n
-          + " < l2" + n + " AS c FROM two_lane_default";
+          + " < l2" + n + " AS c, l" + n + " <= l2" + n + " AS d FROM two_lane_default";
       Dataset<Row> actual = varka.sql(query);
       List<String> got = sorted(actual.collectAsList());
       SparkPlan plan = actual.queryExecution().executedPlan();
@@ -194,7 +194,8 @@ public final class VarkaTwoLaneDefault128Suite {
       PartialVarkaProjection partial = (node instanceof VarkaProjectExec p
           ? p.classification() : ((VarkaColumnarToRowExec) node).classification())
           .orElseThrow(() -> new AssertionError("no classification: " + clue));
-      // The two decimal entries are the row path's, with the reason; the long one is fused.
+      // The two decimal entries are the row path's, with the reason; the two long ones are
+      // fused, so the rule that leaves a residual-heavy projection to Spark keeps this one.
       assertEquals(Set.of(0, 1), partial.declines().keySet(), clue);
       for (VarkaDecline d : partial.declines().values()) {
         assertEquals(VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON, d.reason(), clue);
