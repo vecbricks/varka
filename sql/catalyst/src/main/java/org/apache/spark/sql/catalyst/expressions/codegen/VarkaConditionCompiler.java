@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -1032,8 +1033,9 @@ final class VarkaConditionCompiler {
    * The arm of an {@code IN} over {@code value}, or {@code null} for one it leaves unclaimed: the
    * registry has to read the value's literals, which {@link VarkaTypes.Info#laneBits} does for
    * every type whose admission is a lane of its own. A decimal's literal is read instead at the
-   * value's scale ({@link #compileDecimalIn}, VARKA-348): every decimal is claimed, so that one
-   * whose common type passes 18 digits declines through the decimal compiler, naming its row.
+   * value's scale ({@link #compileDecimalIn}, VARKA-348): every decimal is claimed: one
+   * whose common type passes 18 digits is read over two words ({@link #compileWideDecimalIn}),
+   * and a rescale into it declines through the decimal compiler, naming rows 359 and 360.
    * The type is looked up once, here, and the arm reads its elements against the entry it found.
    */
   private static @Nullable Supplier<Optional<Cond>> inArm(
@@ -1062,15 +1064,16 @@ final class VarkaConditionCompiler {
   }
 
   /**
-   * A decimal {@code IN}: the value through {@link VarkaDecimalCompiler#value}, first, so that a
-   * type past the long lane declines with that compiler's reason (rows 359 and 360) before an
+   * A decimal {@code IN}: a type past the long lane goes to {@link #compileWideDecimalIn}; the
+   * value of a narrower one through {@link VarkaDecimalCompiler#value}, first, so that a rescale
+   * it cannot take declines with that compiler's reason (rows 359 and 360) before an
    * element is read, and each element as its unscaled long at the value's scale. Type coercion
    * gives the value and every element of an {@code In} one type, a column of the smaller scale
    * sitting under its rescale, so each {@code In} element is held exactly. An {@code InSet}'s
    * raw {@code Decimal}s compare with Spark's {@code Decimal} equality, by value, so one that no
    * value of the type can equal - more digits of scale than the type's, or past its precision -
    * is dropped, as false on every row, never as unknown; a list that drops to nothing declines
-   * as an empty one.
+   * as an empty one. A type wider than 18 digits is {@link #compileWideDecimalIn}'s.
    */
   private static Optional<Cond> compileDecimalIn(
       Expression value,
@@ -1080,6 +1083,9 @@ final class VarkaConditionCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
+    if (type.precision() > VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION) {
+      return compileWideDecimalIn(value, type, info, whole, inputs, literals, sink);
+    }
     sink.enterDecimal();
     try {
       Optional<VarkaVectorIR> compiled = VarkaDecimalCompiler.value(value, inputs, literals, sink)
@@ -1098,6 +1104,63 @@ final class VarkaConditionCompiler {
       sink.exitDecimal();
     }
   }
+
+  /**
+   * A decimal {@code IN} wider than 18 digits (`m8/VARKA-359.md` 2.5): the value as its two words,
+   * first, as {@link #compileDecimalIn} reads a long's, then each element as its unscaled value at
+   * the value's scale, dropped where no value of the type equals it, and the chain the balanced
+   * {@code OR} of {@code x = c} over the words, two long-table slots a literal. A null or
+   * non-constant element declines the list and an empty list declines, as for every other lane.
+   * Each leaf is three nodes where a long's is one, so the cap is half the long's,
+   * {@link #MAX_WIDE_IN}: eight values make the 31 op nodes {@code MAX_IN_LITERALS} was sized to.
+   */
+  private static Optional<Cond> compileWideDecimalIn(
+      Expression value,
+      DecimalType type,
+      VarkaTypes.Info info,
+      Expression whole,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    sink.enterDecimal();
+    try {
+      Optional<VarkaDecimalCompiler.Pair> compiled =
+          VarkaDecimalCompiler.wideInValue(value, inputs, literals, sink);
+      if (compiled.isEmpty()) {
+        return Optional.empty();
+      }
+      TreeSet<BigInteger> values = new TreeSet<>();
+      Iterator<Object> elements = inElements(whole, info.id()).iterator();
+      while (elements.hasNext()) {
+        Object element = elements.next();
+        if (!(element instanceof Decimal d)) {
+          sink.note("IN list has a null or non-literal element", whole);
+          return Optional.empty();
+        }
+        VarkaDecimalCompiler.wideUnscaledAt(d, type).ifPresent(values::add);
+        if (values.size() > MAX_WIDE_IN) {
+          sink.note("IN list longer than the fused cap of " + MAX_WIDE_IN + " for a decimal "
+              + "wider than " + VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION + " digits",
+              whole);
+          return Optional.empty();
+        }
+      }
+      if (values.isEmpty()) {
+        sink.note("IN list is empty", whole);
+        return Optional.empty();
+      }
+      List<Cond> leaves = new ArrayList<>();
+      for (BigInteger v : values) {
+        leaves.add(VarkaDecimalCompiler.equalsConstant(compiled.get(), v, sink));
+      }
+      return Optional.of(balancedOr(leaves));
+    } finally {
+      sink.exitDecimal();
+    }
+  }
+
+  /** The most values a wide decimal {@code IN} fuses ({@link #compileWideDecimalIn}). */
+  static final int MAX_WIDE_IN = VarkaNodeCompiler.MAX_IN_LITERALS / 2;
 
   /** An {@code In} element that is not a constant of the value's type, which declines the list. */
   private static final Object NOT_CONSTANT = new Object();
