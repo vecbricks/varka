@@ -957,8 +957,8 @@ final class VarkaChronoCompiler {
           VarkaVectorIR.CrossLane _, VarkaVectorIR.NullValue _,
           VarkaVectorIR.InRanges _, VarkaVectorIR.IntArith _, IntNeg _, VarkaVectorIR.ConstDivide _,
           VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
-          VarkaVectorIR.MathUnary _, VarkaVectorIR.RoundToIntegral _, VarkaVectorIR.CondValue _,
-          VarkaVectorIR.BoolOutput _, VarkaVectorIR.CanonicalFloat _,
+          VarkaVectorIR.MathUnary _, VarkaVectorIR.Fma _, VarkaVectorIR.RoundToIntegral _,
+          VarkaVectorIR.CondValue _, VarkaVectorIR.BoolOutput _, VarkaVectorIR.CanonicalFloat _,
           VarkaVectorIR.CanonicalBits _, VarkaVectorIR.HashStep _ ->
           new Rebuilt(node, false, false);
     };
