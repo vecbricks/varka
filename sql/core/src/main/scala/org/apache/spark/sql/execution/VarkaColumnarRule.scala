@@ -111,12 +111,7 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
         // A projection that fuses in part is left whole to Spark under a row consumer when its
         // residual entries outnumber its fused ones (`VarkaPartialDecline`): Spark's projection
         // over its child's rows (`declinedChild`).
-        case ColumnarToRowExec(varka: VarkaProjectExec) =>
-          partialDecline(varka.classification.toScala, varka.projectList,
-              varka.sessionEmit) match {
-            case Some(_) => ProjectExec(varka.projectList, declinedChild(varka.child))
-            case None => VarkaColumnarToRowExec(varka.projectList, varka.child, varka.sessionEmit)
-          }
+        case ColumnarToRowExec(varka: VarkaProjectExec) => projectionToRows(varka)
         case ColumnarToRowExec(varka: VarkaFilterExec) =>
           VarkaFilterColumnarToRowExec(varka.condition, varka.child,
             wholeCondition = varka.wholeCondition, sessionEmit = varka.sessionEmit)
@@ -248,6 +243,17 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
       VarkaColumnarToRowExec.emitOptions(session), session.admission).toScala
 
   /**
+   * A Varka projection under a row consumer: Spark's projection when the rule declines it, else
+   * its row node. A declined projection's own child may be a Varka projection, which the
+   * transition rule never wrapped, so [[declinedChild]] asks again there.
+   */
+  private def projectionToRows(varka: VarkaProjectExec): SparkPlan =
+    partialDecline(varka.classification.toScala, varka.projectList, varka.sessionEmit) match {
+      case Some(_) => ProjectExec(varka.projectList, declinedChild(varka.child))
+      case None => VarkaColumnarToRowExec(varka.projectList, varka.child, varka.sessionEmit)
+    }
+
+  /**
    * The rows a declined projection reads from `child`, its Varka node's columnar child, as the
    * transition rule would have given them to a row projection: a source that also produces rows
    * gives them itself, as it does for the session without Varka (an Arrow-cached scan, read as
@@ -257,6 +263,8 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
    * node is built here rather than left to that arm.
    */
   private def declinedChild(child: SparkPlan): SparkPlan = child match {
+    // A nested Varka projection is under a row consumer too, so it is asked the same question.
+    case inner: VarkaProjectExec => projectionToRows(inner)
     case filter: VarkaFilterExec =>
       VarkaFilterColumnarToRowExec(filter.condition, filter.child,
         wholeCondition = filter.wholeCondition, sessionEmit = filter.sessionEmit)
@@ -274,8 +282,8 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
       projectList: Seq[NamedExpression],
       session: VarkaSessionEmit): Option[String] = {
     val reason = partial.flatMap { p =>
-      VarkaPartialDecline.reason(p, VarkaColumnarToRowExec.emitOptions(session))
-        .toScala
+      VarkaPartialDecline.reason(p, projectList.asJava,
+        VarkaColumnarToRowExec.emitOptions(session)).toScala
     }
     reason.foreach(why => logDebug(s"Varka leaves the projection " +
       s"${projectList.map(_.sql).mkString(", ")} to Spark: it $why"))

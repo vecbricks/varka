@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution.benchmark
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.{QueryTest, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.{ColumnarToRowExec, ProjectExec, QueryExecution, SparkPlan, VarkaColumnarRule, VarkaColumnarToRowExec, VarkaFilterColumnarToRowExec, VarkaFilterExec, VarkaPartialDecline, VarkaProjectExec, VarkaSharedSessions}
 import org.apache.spark.sql.internal.SQLConf
@@ -48,6 +49,13 @@ class VarkaPartialDeclineSuite extends QueryTest with VarkaSharedSessions {
       .filter(_(0).matches("[a-d]\\..*")).map { s =>
         (s(0), s(1), s(0).startsWith("a.") || s(0).startsWith("b."))
       }
+
+  /**
+   * Beside two cheap residual extracts, one fused entry of three operators: the entries
+   * outnumber, two to one, but weigh less, 2 to 3, so the rule keeps it.
+   */
+  private val heavyFusedOneEntry = "SELECT abs(-dt * 3) AS a, extract(HOUR FROM dt) AS b, " +
+    "extract(MINUTE FROM dt) AS c FROM " + VarkaDayTimeIntervalBaselineBenchmark.VIEW
 
   private val allFused = "SELECT extract(DAY FROM dt) AS a, -dt AS b FROM " +
     VarkaDayTimeIntervalBaselineBenchmark.VIEW
@@ -150,10 +158,52 @@ class VarkaPartialDeclineSuite extends QueryTest with VarkaSharedSessions {
     }
   }
 
-  test("the decline's reason counts the entries, and only a residual-heavy projection has one",
+  test("one expensive fused entry beside two cheap residual ones keeps its kernel",
       PinsDefaults) {
     withTable {
-      for ((title, query, declines) <- shapes :+ (("all fused", allFused, false))) {
+      forEachLevel { _ =>
+        val df = varkaSpark.sql(heavyFusedOneEntry)
+        val nodes = varkaNodes(df.queryExecution.executedPlan)
+        assert(nodes.size === 1 && nodes.head.isInstanceOf[VarkaColumnarToRowExec],
+          df.queryExecution.executedPlan.treeString)
+        checkAnswer(df, spark.sql(heavyFusedOneEntry).collect().toSeq)
+      }
+    }
+  }
+
+  test("a declined projection over a declined projection leaves both to Spark", PinsDefaults) {
+    withTable {
+      // The blend over the output of shape b's projection, built by hand since the optimizer
+      // collapses two projections: both are residual-heavy, and both are under a row consumer.
+      def projection(query: String): ProjectExec = varkaSpark.sql(query).queryExecution
+        .sparkPlan.collectFirst { case p: ProjectExec => p }.get
+      val inner0 = projection(shapes(1)._2)
+      val scan = inner0.child
+      val outer0 = projection(shapes.head._2)
+      val dt = scan.output.find(_.name == "dt").get
+      val inner = ProjectExec(dt +: inner0.projectList, scan)
+      // Each query resolves its own copy of the view, so its columns are re-pointed by name.
+      val byName = inner.output.map(a => a.name -> a).toMap
+      val outer = ProjectExec(outer0.projectList.map(_.transform {
+        case a: AttributeReference if byName.contains(a.name) => byName(a.name)
+      }.asInstanceOf[NamedExpression]), inner)
+      val pre = varkaSpark.withActive(VarkaColumnarRule.preColumnarTransitions(outer))
+      assert(pre.collect { case p: VarkaProjectExec => p }.size === 2, pre.treeString)
+      val post = varkaSpark.withActive(
+        VarkaColumnarRule.postColumnarTransitions(ColumnarToRowExec(pre)))
+      assert(varkaNodes(post).isEmpty, post.treeString)
+      assert(post.isInstanceOf[ProjectExec] && post.children.head.isInstanceOf[ProjectExec],
+        post.treeString)
+      ()
+    }
+  }
+
+  test("the decline's reason weighs the entries, and only a residual-heavy projection has one",
+      PinsDefaults) {
+    withTable {
+      for ((title, query, declines) <- shapes ++
+          Seq(("all fused", allFused, false),
+            ("one heavy fused entry", heavyFusedOneEntry, false))) {
         withClue(title) {
           // The classification the rule reads, made on the plan the pre stage builds.
           val planned = varkaSpark.sql(query).queryExecution.sparkPlan
@@ -161,14 +211,15 @@ class VarkaPartialDeclineSuite extends QueryTest with VarkaSharedSessions {
           val node = pre.collectFirst { case p: VarkaProjectExec => p }
             .getOrElse(fail(s"the pre stage planned no Varka projection:\n${pre.treeString}"))
           val options = VarkaColumnarToRowExec.emitOptions(node.sessionEmit)
-          val reason = VarkaPartialDecline.reason(node.classification.get, options)
+          val reason = VarkaPartialDecline.reason(node.classification.get,
+            node.projectList.asJava, options)
           assert(reason.isPresent === declines, reason)
           if (declines) {
-            assert(reason.get.contains("residual entries outnumber its fused ones, 3 to 1"),
-              reason.get)
+            assert(reason.get.contains("outnumber and outweigh its fused ones, " +
+              "3 entries of 3 operators to 1 of 1"), reason.get)
             // A test's forced decline runs the merge path, so the rule never declines under it.
             assert(!VarkaPartialDecline.reason(node.classification.get,
-              options.withForceResidualAt(1)).isPresent)
+              node.projectList.asJava, options.withForceResidualAt(1)).isPresent)
           }
         }
       }
