@@ -82,7 +82,8 @@ public final class VarkaMathPortSuite {
   /**
    * A ported function: its expansion, its oracles ({@code StrictMath}'s method, {@code VFdlibm}'s
    * and the library's blended arm, reached by reflection since its class is package-private), its
-   * fixed vectors and the range of draw 1, the domain where its result is finite and not a limit.
+   * fixed vectors and the range of draw 1, the domain where its result is finite and not a limit
+   * and, for {@code expm1}, where {@code k} takes each of its forms ({@code |x|} up to 56 ln 2).
    */
   private record Fn(String name, BiFunction<VarkaMathPort, VarkaMathPort.Fault, VarkaVectorIR> port,
       DoubleUnaryOperator strict, UnaryOperator<DoubleVector> library, Method blended,
@@ -128,7 +129,7 @@ public final class VarkaMathPortSuite {
       VFdlibm::exp, blendedArm("Exp", "expBlended"), expFixedVectors(), -745.2, 709.8);
 
   private static final Fn EXPM1 = new Fn("expm1", (p, f) -> p.expm1(X, f), StrictMath::expm1,
-      VFdlibm::expm1, blendedArm("Expm1", "expm1Blended"), expm1FixedVectors(), -40.0, 709.8);
+      VFdlibm::expm1, blendedArm("Expm1", "expm1Blended"), expm1FixedVectors(), -38.8, 38.8);
 
   private static final List<Fn> FUNCTIONS = List.of(EXP, EXPM1);
 
@@ -334,6 +335,7 @@ public final class VarkaMathPortSuite {
   private static long[][] references(Fn fn, long[] xs, int length) {
     long[] strict = new long[length];
     long[] library = new long[length];
+    long[] blended = new long[length];
     double[] in = new double[SPECIES.length()];
     double[] out = new double[SPECIES.length()];
     for (int base = 0; base < length; base += in.length) {
@@ -351,9 +353,10 @@ public final class VarkaMathPortSuite {
       for (int j = 0; j < in.length && base + j < length; j++) {
         strict[base + j] = Double.doubleToRawLongBits(fn.strict().applyAsDouble(in[j]));
         library[base + j] = Double.doubleToRawLongBits(out[j]);
+        blended[base + j] = Double.doubleToRawLongBits(outBlended[j]);
       }
     }
-    return new long[][] {strict, library};
+    return new long[][] {strict, library, blended};
   }
 
   private static final String[] ORACLES = {"StrictMath", "VFdlibm", "the blended arm"};

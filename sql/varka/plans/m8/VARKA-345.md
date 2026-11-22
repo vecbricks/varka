@@ -1137,15 +1137,20 @@ port yet, which stays rows 357 and 358's (2.1's rule and the `mathPort` option, 
 - Paired `vfdlibm` change: branch `varka-expm1-long-words` (worktree
   `/home/max/proj/vfdlibm-345c2w`), `PROOFS.md` L15 "expm1's words in long lanes, as Varka emits
   them" and its hinge test `ProofsTest.l15LongWordsAreExpm1sInts` (every `k` from -1100 to 1100);
-  the library's code does not move, so Varka's test-scope copy and its manifest do not either.
+  the library's code does not move. Varka's test-scope oracle is `vfdlibm` 0.2.0 from Maven
+  Central (0.2.0 adds `sinh`, `cosh` and the inverse trigonometric ports and splits `expm1` into
+  a core and a rare mask; `VFdlibm.expm1` and `Expm1.expm1Blended` give the same bits), so this
+  part moves the test-scope dependency from 0.1.0 and nothing else of the build.
 
 Predictions (written before the run): the suite passes with every `expm1` lane bit-identical to
-the three oracles; `expm1`'s expansion is deeper than `exp`'s 36 and within the port cap of 64.
+the three oracles; `expm1`'s expansion is deeper than `exp`'s 36 and within the port cap of 64;
+the suite's cost on a quiet machine is under 3 times `exp`'s alone (10.2: 46.9 s), the second
+function adding its own 2^24 samples and the blended arm's call a batch.
 
-Measured (laptop, 20 November 2026, one targeted run): the suite passes, 9 tests, every `exp` and
-`expm1` lane bit-identical to the three oracles on 2^24 sampled inputs a function and on the
-fixed vectors at 2, 4 and 8 lanes and without a byte budget, NaN payloads included; each planted
-fault caught. `expm1`'s expansion is 49 deep (`exp`'s 36). Both predictions held. The run took
-about 457 seconds, against 46.9 s for `exp` alone in 10.2; the laptop was shared with other agents' JVMs
-in this window and the run was not repeated, so the suite's cost is not established by it and is
-owed a timing on an idle machine or CI.
+Measured (laptop, 22 November 2026, on master after #1609 with `vfdlibm` 0.2.0, one run): the
+suite passes, 11 tests, every `exp` and `expm1` lane bit-identical to `StrictMath` and `VFdlibm`
+and to the blended arm on 2^24 sampled inputs a function and on the fixed vectors at 2, 4 and 8
+lanes, NaN payloads included; each planted fault caught. `expm1`'s expansion is 49 deep as measured on 20 November, and the suite holds it within the port cap (`exp`'s
+36), so the first two predictions held. The earlier run of 20 November (457 s on a shared
+laptop, before the review's changes to `exp`) is not a timing; the third prediction is scored
+from the run's log in the pull request body.
