@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
@@ -64,7 +65,7 @@ public class MathsTest {
     for (Surface.Entry e : Maths.ENTRIES) {
       assertEquals(null, e.filter(), e.label());
       String q = DateSurfaceBenchmark.projectionQuery(e, DOUBLES);
-      var df = spark.sql(q);
+      Dataset<Row> df = spark.sql(q);
       assertEquals(1, df.schema().fields().length, q);
       assertEquals(DataTypes.DoubleType, df.schema().fields()[0].dataType(), q);
       assertEquals(1_000L, df.count(), q);
@@ -80,7 +81,7 @@ public class MathsTest {
         + "count(CASE WHEN x IS NULL AND u IS NULL THEN 1 END) FROM varka_doubles").first();
     assertEquals(1_000L, r.getLong(0));
     assertEquals(967L, r.getLong(1), "every 31st x is null: ids 0, 31, ..., 992");
-    assertEquals(968L, r.getLong(2), "every 31st u is null: ids 15, 46, ..., 977");
+    assertEquals(968L, r.getLong(2), "every 31st u is null: ids 15, 46, ..., 976");
     assertTrue(r.getDouble(3) >= -10.0 && r.getDouble(3) < -9.0, "x reaches near -10");
     assertTrue(r.getDouble(4) < 10.0 && r.getDouble(4) > 9.0, "x reaches near 10");
     assertTrue(r.getDouble(5) > -1.0 && r.getDouble(6) < 1.0, "u is inside (-1, 1)");

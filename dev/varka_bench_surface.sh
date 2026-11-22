@@ -194,6 +194,13 @@ case "$benchmark" in
      exit 2 ;;
 esac
 
+# The math table is measured over the cache only (VARKA-633), refused here rather than in the
+# first arm's JVM after the machine checks.
+if [ "$benchmark" = math ] && [ "$input" = parquet ]; then
+  echo "--benchmark math reads the cached varka_doubles table; drop --input parquet" >&2
+  exit 2
+fi
+
 # The --only truncation guard (VARKA-100). Checked before the machine checks below, not just
 # before the first arm: it reads the arguments and one git index entry, and a run that may
 # not legally write its file should not first spend ten seconds proving the machine is quiet.
@@ -288,7 +295,7 @@ engine_jar() {
 run_provenance=()
 if [ -n "${GITHUB_RUN_ID:-}" ]; then
   run_provenance=(--provenance
-    "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+    "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/${GITHUB_RUN_ATTEMPT:-1}")
 fi
 files=()
 for spec in "${dists[@]}"; do

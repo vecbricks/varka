@@ -471,7 +471,7 @@ public final class DateSurfaceBenchmark {
       return switch (this) {
         case TIMES -> "varka_times";
         case DOUBLES -> "varka_doubles";
-        default -> "varka_dates";
+        case ALL, DATES -> "varka_dates";
       };
     }
 
@@ -484,7 +484,7 @@ public final class DateSurfaceBenchmark {
       return switch (this) {
         case TIMES -> "t";
         case DOUBLES -> "x";
-        default -> "d";
+        case ALL, DATES -> "d";
       };
     }
 

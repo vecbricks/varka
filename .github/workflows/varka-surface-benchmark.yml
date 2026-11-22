@@ -348,7 +348,11 @@ jobs:
         mkdir -p ~/stock-spark && cd ~/stock-spark
         TGZ="spark-${STOCK_VERSION}-bin-hadoop3.tgz"
         BASE="https://dlcdn.apache.org/spark/spark-${STOCK_VERSION}"
-        curl -fsSLO "$BASE/$TGZ"
+        # The mirror drops a release once its successor ships; the archive keeps every one.
+        curl -fsSLO "$BASE/$TGZ" || {
+          BASE="https://archive.apache.org/dist/spark/spark-${STOCK_VERSION}"
+          curl -fsSLO "$BASE/$TGZ"
+        }
         # The checksum is the release's own, served beside it; a truncated download must
         # fail here rather than three hours later as a baseline nobody can reproduce.
         # Apache has served these in two formats over the years - `sha512sum` output, and

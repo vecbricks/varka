@@ -36,7 +36,7 @@ import java.util.List;
  * through the fork's own codegen over the fork's Arrow cache, and a stock user runs neither:
  * stock Spark 4.2.0 crosses HotSpot's 8000-byte limit between 48 and 52 entries where the fork
  * crosses between 52 and 54 ({@code VARKA-192.md} 9.2), and Spark's default cache is not
- * Arrow. Here every distribution the surface runs - stock 4.2.0 on two JDKs, the fork with Varka
+ * Arrow. Here every distribution the surface runs - stock 4.3.0 on two JDKs, the fork with Varka
  * off and with it on - times the same rungs over its own default cache, or over a Parquet file
  * under {@code --input parquet}, so the ratio a reader would see against the Spark they
  * download is in one table with the fork's.
