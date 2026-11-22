@@ -854,7 +854,9 @@ final class VarkaVectorWalk {
    * into the target species of the width the emission bakes. A narrow value is widened once at
    * its load and narrowed once at its store, so a conversion node over one names the lane it is
    * already emitted at and emits nothing, and any other pair is a lowering this emitter has not
-   * built: the conversions from a floating lane to an integral one are row 343's second part.
+   * built: of the conversions from a floating lane to an integral one only {@code D2I}, Java's
+   * {@code (int)} of a double, which an fdlibm port takes (`VARKA-345.md` 10.2), and the rest are
+   * row 343's second part.
    * {@code L2F} and {@code L2D} come here at level 3 alone, where x86 has AVX512DQ, the level an
    * aarch64 host resolves to as well; below it they take {@link VarkaConversionLowering}'s
    * forms.
@@ -874,6 +876,7 @@ final class VarkaVectorWalk {
         : from == Lane.LONG && to == Lane.DOUBLE ? "L2D"
         : from == Lane.FLOAT && to == Lane.DOUBLE ? "F2D"
         : from == Lane.DOUBLE && to == Lane.FLOAT ? "D2F"
+        : from == Lane.DOUBLE && to == Lane.INT ? "D2I"
         : null;
     if (op == null) {
       throw VarkaErrors.illegalArgument(
