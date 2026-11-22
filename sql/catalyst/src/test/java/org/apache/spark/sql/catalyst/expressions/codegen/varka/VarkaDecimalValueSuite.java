@@ -260,8 +260,8 @@ public final class VarkaDecimalValueSuite {
   }
 
   @Test
-  @DisplayName("the null family over a decimal past 18 digits fuses under a null test, the null "
-      + "holding no words, and as a compared value declines naming row 359, or 360 for a rescale")
+  @DisplayName("the null family over a decimal past 18 digits fuses under a null test and as a "
+      + "compared value, the null as two null words, and declines naming 360 for a rescale")
   void wideNullFamilyFusesOrDeclines() {
     // c and d are DECIMAL(20, 2), row 359's pair; nullif(a, e) compares at DECIMAL(25, 9), and
     // zeroifnull(e) and nvl(e, 0) coalesce e with the int zero's DECIMAL(10, 0) at DECIMAL(19, 9).
@@ -271,11 +271,10 @@ public final class VarkaDecimalValueSuite {
         VarkaSqlResolve.column("e", new DecimalType(16, 9)));
     // A null test reads a wide choice's validity alone, where the NULL of nullif and nullifzero
     // and a missing ELSE are never valid, so those fuse beside the comparisons and <=> of row
-    // 359's pair (VarkaDecimalPairSuite holds their answers to Spark's). A wide choice or null
-    // as a compared value is the pair's value half, row 359's part 359b, and a rescale into the
-    // wide type is row 360's.
+    // 359's pair (VarkaDecimalPairSuite holds their answers to Spark's). A wide choice as a
+    // compared value is chosen word by word, the null constant being a null in each word, and a
+    // rescale into the wide type is row 360's. An IN over columns has no constant list.
     String fused = "fused";
-    String wideValue = "a decimal wider than 18 digits is row 359's";
     record Want(String sql, String reason) { }
     for (Want w : List.of(
         new Want("nullif(c, d) IS NULL", fused),
@@ -285,12 +284,11 @@ public final class VarkaDecimalValueSuite {
         new Want("c BETWEEN d AND 1.00", fused),
         new Want("zeroifnull(e) IS NULL", fused),
         new Want("nvl(e, 0) IS NULL", fused),
-        new Want("nvl(c, d) > 0.00", wideValue),
-        new Want("zeroifnull(c) = d", wideValue),
-        new Want("nullif(c, d) <=> c", wideValue),
-        new Want("nullif(c, d) IN (c, d)", wideValue),
-        new Want("c < CAST(NULL AS DECIMAL(20, 2))",
-            "a null decimal constant wider than 18 digits as a value is row 359's"),
+        new Want("nvl(c, d) > 0.00", fused),
+        new Want("zeroifnull(c) = d", fused),
+        new Want("nullif(c, d) <=> c", fused),
+        new Want("nullif(c, d) IN (c, d)", "IN list has a null or non-literal element"),
+        new Want("c < CAST(NULL AS DECIMAL(20, 2))", fused),
         new Want("nullif(a, e) IS NULL", "rows 359 and 360's"))) {
       if (w.reason().equals(fused)) {
         compile(w.sql(), columns);

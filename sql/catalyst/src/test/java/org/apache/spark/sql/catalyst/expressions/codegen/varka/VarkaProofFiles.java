@@ -4306,7 +4306,10 @@ final class VarkaProofFiles {
    * {@code mod 2^64}. An unsigned compare is {@code Long.compareUnsigned}'s, the signed compare
    * with both sign bits flipped, which is {@code jlong.add x jlong.MIN}; each lowering over the
    * longs then equals the comparison of the values. A value within 18 digits joins a pair as its
-   * long and the sign extension {@code x >> 63}, and those words hold {@code x}.
+   * long and the sign extension {@code x >> 63}, and those words hold {@code x}. The negation's
+   * words ({@code DecimalWords.negatedLow} and {@code negatedHigh}) hold {@code -v}, the borrow
+   * stated as {@code ite(lo = 0, 1, 0)}, for every value within 38 digits, and with the borrow
+   * left out they do not; {@code abs}'s blend on the high word's sign holds {@code |v|}.
    */
   private static void decimal128Carry(StringBuilder out, String two64) {
     out.append("""
@@ -4343,6 +4346,43 @@ final class VarkaProofFiles {
     check(out, "a long and its sign extension x >> 63 are the words of the long's value",
         "unsat", List.of("(declare-const x Int)", "(assert (jlong.in x))",
             "(assert (not (= (w.val (jlong.shr x 63) (c.lo x)) x)))"));
+    decimal128Negation(out, longs, vx);
+  }
+
+  /**
+   * The negation and {@code abs} of {@code decimal128.smt2}'s carry layer: over the words of a
+   * value {@code |v| <= 10^38 - 1} as Java longs, {@code lo' = -lo} and
+   * {@code hi' = ~hi + ite(lo = 0, 1, 0)}, both wrapping, are the words of {@code -v}, so the
+   * high word never wraps; the same without the borrow is refuted; and {@code abs}, each word
+   * the negation's where {@code hi < 0} and its own elsewhere, is {@code |v|}.
+   */
+  private static void decimal128Negation(StringBuilder out, List<String> longs, String vx) {
+    BigInteger bound = BigInteger.TEN.pow(DecimalWords.MAX_PRECISION).subtract(BigInteger.ONE);
+    String within = "(assert (<= (abs " + vx + ") " + bound + "))";
+    String lo = "(jlong.neg xl)";
+    String hi = "(jlong.add (jlong.not xh) (ite (= xl 0) 1 0))";
+    String negated = "(w.val " + hi + " (c.lo " + lo + "))";
+    out.append("""
+
+        ; The negation over the words: -v = ~v + 1, so lo' = -lo and hi' = ~hi + borrow, the
+        ; borrow 1 exactly where lo = 0, both wrapping as Java's longs do. abs(v) takes each word
+        ; of -v where hi < 0 and its own word elsewhere.
+        """);
+    var body = new ArrayList<>(longs);
+    body.add(within);
+    body.add("(assert (not (= " + negated + " (- " + vx + "))))");
+    check(out, "lo' = -lo and hi' = ~hi + (lo = 0) are the words of -v for |v| <= 10^38 - 1",
+        "unsat", body);
+    var noBorrow = new ArrayList<>(longs);
+    noBorrow.add(within);
+    noBorrow.add("(assert (not (= (w.val (jlong.not xh) (c.lo " + lo + ")) (- " + vx + "))))");
+    check(out, "and without the borrow they are not", "sat", noBorrow);
+    var abs = new ArrayList<>(longs);
+    abs.add(within);
+    abs.add("(assert (not (= (w.val (ite (< xh 0) " + hi + " xh) (c.lo (ite (< xh 0) " + lo
+        + " xl))) (abs " + vx + "))))");
+    check(out, "abs over the words, blended on hi < 0, is |v| for |v| <= 10^38 - 1", "unsat",
+        abs);
   }
 
   // -----------------------------------------------------------------------------------------
