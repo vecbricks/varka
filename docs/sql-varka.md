@@ -1967,12 +1967,13 @@ attributes alone did not answer:
   child column) or residual with the compiler's decline reason - "unsupported
   expression", "CASE WHEN without an ELSE branch", "non-date column of
   type ..." - in the query's own column names. A column of a type Varka plans
-  but does not read yet names the type and the task that builds it ("a double
-  column: the DOUBLE lane is row 341's"), and the zoned `TIMESTAMP` the
+  but does not read yet names the type and the task that builds it ("a decimal
+  column: precision above 18 is row ..."), and the zoned `TIMESTAMP` the
   decision that keeps it out (VARKA-494). Since VARKA-38, a `date_add`/
   `date_sub` day offset that is neither a foldable literal nor a supported
   column gets its own reasons: "non-integer day offset column of type ..."
-  for a `ShortType`/`ByteType` column, "day offset is not a foldable literal,
+  for a column that is not an integer one (`ByteType` and `ShortType` ones
+  fuse since VARKA-329), "day offset is not a foldable literal,
   an integer column or int arithmetic" for anything else (e.g. `i % 7`, whose
   operator no arm lowers). Since VARKA-63, "checked int multiply whose operands
   do not rule out overflow" names an ANSI or TRY `*` the compile-time bound
