@@ -17002,16 +17002,16 @@
       "4" : "c74bfcc94e2af203"
     },
     "checkedLongMultiply=BOUND_ONLY over useAVX=2" : {
-      "4" : "40cf72553708bd66",
-      "16" : "cf6c033cd0d20152"
+      "4" : "726121f13f44527f",
+      "16" : "a4c63b9065b592b3"
     },
     "checkedLongMultiply=MAGNITUDE over useAVX=2" : {
-      "4" : "40cf72553708bd66",
-      "16" : "cf6c033cd0d20152"
+      "4" : "726121f13f44527f",
+      "16" : "a4c63b9065b592b3"
     },
     "checkedLongMultiply=BY_HOST over useAVX=2" : {
-      "4" : "40cf72553708bd66",
-      "16" : "cf6c033cd0d20152"
+      "4" : "726121f13f44527f",
+      "16" : "a4c63b9065b592b3"
     },
     "narrowLanes=true" : {
       "4" : "14c930007ea5ebd4",

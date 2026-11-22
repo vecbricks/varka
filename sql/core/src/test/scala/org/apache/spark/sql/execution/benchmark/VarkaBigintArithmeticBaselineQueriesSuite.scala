@@ -24,6 +24,7 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.{VarkaSessionEmit, VarkaSharedSessions}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
 /**
@@ -170,13 +171,19 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
             if (s.checksKernels) {
               VarkaSizeLadder.varkaFused(varkaSpark, s.query)
             }
-            // B's arm (VARKA-611) plans a kernel wherever a checked BIGINT operation fuses.
+            // B's arm (VARKA-611) plans a kernel wherever a checked BIGINT operation fuses, at a
+            // named emit level: the shared sessions plan at the unknown level (-1), where the
+            // kernel plan refuses the conversion B's pre-check needs, so B declines like A there.
             if (s.checkedProduct) {
               val checked = if (declines) VarkaSqlBenchmarkBase.Fusion.NONE
                 else VarkaSqlBenchmarkBase.Fusion.WHOLE
               VarkaArrowSessions.withEmitOptions(VarkaBigintArithmeticBaselineBenchmark.MAGNITUDE) {
-                val planB = varkaSpark.sql(s.query).queryExecution.executedPlan
-                assert(VarkaSqlBenchmarkBase.fusion(planB) === Optional.of(checked))
+                val unknownLevel = varkaSpark.sql(s.query).queryExecution.executedPlan
+                assert(VarkaSqlBenchmarkBase.fusion(unknownLevel) === Optional.of(s.fusion))
+                withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, "2") {
+                  val planB = varkaSpark.sql(s.query).queryExecution.executedPlan
+                  assert(VarkaSqlBenchmarkBase.fusion(planB) === Optional.of(checked))
+                }
               }
             }
           }

@@ -304,6 +304,17 @@ the long-lane suite again, every suite that lists the node types, the regenerati
 width audit under `UseAVX=2`, `VarkaBigintArithmeticBaselineQueriesSuite`, and a second
 `/code-review high` over the fix round.
 
+**Gate findings (22 November 2026).** After the rebase, `VarkaBigintArithmeticBaselineQueriesSuite`
+failed on the B arm: `l * 3, ANSI, no nulls` planned `NONE` where the suite expected `WHOLE`. The
+cause was a stale expectation, not a defect. The shared test sessions pin
+`spark.sql.codegen.varka.emit.useAVX=-1`, the unnamed default level, at which
+`guardsLongProducts` is false by design (3.2) and the kernel plan refuses the conversion, so B
+declines there exactly as A does; the benchmark's own sessions resolve the host's level (-2), a
+named one. The suite now holds both: under `MAGNITUDE` at the unnamed level the plan keeps the
+section's own class, and at level 2 it is `WHOLE` (`NONE` where the host declines two-lane
+checks). The suite passed (2 tests) on the laptop. The node, the benchmark class and its results
+files needed no change.
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **`BY_HOST` is built now, not after the readings, and is not the default.** The coordinator's
