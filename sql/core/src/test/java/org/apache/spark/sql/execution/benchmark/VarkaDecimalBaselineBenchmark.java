@@ -147,10 +147,11 @@ import org.apache.spark.sql.internal.SQLConf;
  * their sections, one of each in every density, are {@code WHOLE} too, and so are the three
  * arithmetic filters at both densities (VARKA-349). The lane pair's reading half (VARKA-359)
  * fuses whole the comparison at precision 38 and, at 38 and 20, {@code x <=> y},
- * {@code x IS NULL} and the projected {@code x < y}; its {@code -x < y} and {@code abs(x) < y}
- * filters are {@code NONE}, and so are the two filters of rows 360 and 361, whose sum and product
- * no lowering computes yet: of each, only the null tests Spark infers would fuse, and a filter
- * fusing nothing else stays whole on the row path (VARKA-598). A session that
+ * {@code x IS NULL} and the projected {@code x < y}, and its value half's conditions
+ * {@code x IN (c1, c2, c3)}, {@code -x < y} and {@code abs(x) < y} as well; the two filters of
+ * rows 360 and 361, whose sum and product no lowering computes yet, are {@code NONE}: of each,
+ * only the null tests Spark infers would fuse, and a filter fusing nothing else stays whole on
+ * the row path (VARKA-598). A session that
  * refuses a filter's condition in a kernel driven at 64 bits ({@code declinesLongConditions},
  * VARKA-503), the 128-bit companion's host by default, leaves every fused filter to the
  * row path, the lane pair's among them, since its words are on the long lane, and the projected
@@ -597,18 +598,16 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       out.add(new Section("extract(SECOND) over " + time + ", " + density,
           "SELECT extract(SECOND FROM " + t + ") AS a FROM varka_decimal", Fusion.WHOLE));
     }
-    // The lane pair's <=>, IS NULL and projected comparison fuse whole over the words
-    // (VARKA-359). Its negation, abs and IN are 359b's, so none of them fuses: of the first two
-    // only the null tests Spark infers would, and such a filter stays whole on the row path
-    // (VARKA-598), and Spark infers none from an IN. The <=> and IS NULL filters decline where
-    // the session refuses a 64-bit condition, and so does the projected comparison, a boolean
-    // output over a decimal column (VARKA-596).
+    // The lane pair's IN, <=>, IS NULL, negation, abs and projected comparison fuse whole over
+    // the words (VARKA-359). Every filter declines where the session refuses a 64-bit
+    // condition, and so does the projected comparison, a boolean output over a decimal column
+    // (VARKA-596).
     Map<ComparisonShape, Fusion> pairFusion = Map.of(
-        ComparisonShape.IN, Fusion.NONE,
+        ComparisonShape.IN, fusedFilter,
         ComparisonShape.NULL_SAFE, fusedFilter,
         ComparisonShape.IS_NULL, fusedFilter,
-        ComparisonShape.NEGATED, Fusion.NONE,
-        ComparisonShape.ABS, Fusion.NONE,
+        ComparisonShape.NEGATED, fusedFilter,
+        ComparisonShape.ABS, fusedFilter,
         ComparisonShape.VALUE, fusedFilter);
     for (Precision p : PAIR_PRECISIONS) {
       addComparisons(out, p, Optional.empty(), pairFusion::get);

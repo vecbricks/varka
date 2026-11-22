@@ -6096,6 +6096,92 @@ that kills no mutant of the code it names shows the same gap. **Done when** decl
 origins, the two cases above assert them and fail when pointed at the earlier rule, and a check
 lists each test whose named node is never reached.
 
+### Item 137. A normalisation pass before the sharing: equal work found where it is only equivalent
+
+*Added 22 November 2026 by the owner's word, from the question how far Varka's common-subexpression
+sharing sees; rewritten the same day on the review's findings.* The emitter shares a node that is
+used twice in a loop body (`Slots.bodyUses`, a `HashMap` over the IR record, whose key is record
+equality with a cached hash, `m8/VARKA-559.md` 2.2). That finds identical work and nothing that is
+only equivalent: `a + b` and `b + a` are two nodes, and so are `(a + b) + c` and `a + (b + c)`. Some
+normalisation exists, in the compilers and not as a stage. A comparison against a constant puts the
+literal on the right (`VarkaConditionCompiler.swapped`), the `IN` list sorts and deduplicates its
+elements so that the shape hash is deterministic, and `VarkaRangeAnalysis.guardColumns`, called from
+`DeclineSink`, rebuilds the IR through `VarkaVectorIR.withChildren` before emission, working from
+operand positions (`VarkaOperandPosition.restrictedOperands`, matched by instance). Spark has
+already done what its plan can: `ConstantFolding` replaces every foldable expression, except one
+that would raise inside a conditional branch, and `ReorderAssociativeOperator` reassociates integral
+`Add` and `Multiply` chains and merges their literals. Spark has no algebraic rule for the math
+functions. What a pass can still find is inside a kernel: operands the lowering put in different
+orders, and equal work the compilers introduce themselves.
+
+This item adds a pass that runs before the use count and puts equivalent nodes in one form. It is
+bound by two standing milestone-8 rules: the answer is bit-identical to Spark's, and "the emitter
+never commutes a floating `+` or `*`" (`m8/PLAN.md` 1.1 item 4 and its NaN paragraph,
+`SCOPE_STANDARD_MODE.md` 3.5; the `IntArith` documentation keeps Spark's operand order at a floating
+lane). So every rule below is stated for an integral lane, and a floating form is out unless the
+owner changes those rules and the oracle that checks them.
+
+Rule (1), *operand order for a commutative operation on an integral lane*: `ADD` and `MUL` under one
+overflow mode, the bitwise operations, `Greatest` and `Least`, and equality, children sorted into
+one order. An integral sum or product commutes exactly under every overflow mode. It does not move
+which error is raised first: under `FAIL`, `a / b + c / d` with two zero divisors reports one
+operand's context, and `AND` and `OR` short-circuit from the left, so `x <> 0 AND 1 / x > 1` guards
+its right side. So a pair is reordered only where neither child can raise, and a case that reorders
+one that can must keep the first error and the first guard, with a test for it (`m8` row 394's
+raise-order tests are the model). A floating `Greatest` and `Least` are not commutative either,
+since `greatest(-0.0, 0.0)` is `-0.0` and `greatest(0.0, -0.0)` is `0.0`, so they are left out with
+the floating `+` and `*`.
+
+Rule (2), *identities that hold in the lane*: an association of `WRAP` integer sums, where the
+wrapped result is the same. Under `FAIL` the point at which an overflow raises moves with the
+association, so a `FAIL` sum is not reassociated, and no floating association is made, since
+floating addition is not associative. Spark's `ReorderAssociativeOperator` already does this for the
+chains it sees in the plan, so the rule is scoped to what remains after it, and the spike counts how
+much that is before building it. A rewrite that Spark's plan did not make is also here, such as the
+sum of two day counts in `date_add(date_add(d, a), b)`, which item 85's probe folded to one
+`date_add(d, a + b)` under `WRAP`.
+
+Rule (3), *constant folding inside the kernel*, is narrow. Literals are of two kinds. A
+`LiteralSlot` carries no value: the value is in the literal table, and the shape key counts it, so
+folding two of them would put a value into the shape and break the sharing of one compiled shape
+between queries that differ only in their literals. Several nodes hold a value in the IR and so in
+the shape key already: the divisor and bound of `ConstDivide`, the divisor, multiplier and shift of
+`BoundedDivide`, the range ends of `GuardedRange`, the level of `TruncDate`. Rule (3) may fold only
+among the second kind, and each fold is a measured decision.
+
+Where it runs matters, and the first spike answers it. The pass sorts children by their shape key,
+but a shape key holds the first-occurrence indices of columns and literals, assigned in source order
+before any reordering, so sorting by them gives one form inside a kernel and not across queries: `(x
++ 1) + (y * 2)` and `(y * 2) + (x + 1)` still get different slot numbers. A cross-query canonical
+form needs the pass to run before slot numbering or to renumber after it, which is also item 85 step
+6 (shape-cache keys from a canonical form). It must also run in a stated place relative to
+`guardColumns`, and treat the operands that `restrictedOperands` names by position as fixed or carry
+the position with the node.
+
+How it is built is the open question, and item 85 has the design inputs: a rule engine over
+hash-consed e-classes (jegg) writes the commutative, associative and identity rules as patterns that
+carry the overflow mode, extracts the cheapest form by a cost function, and reads an interned IR
+directly (item 135). A cost function that sees one node and not its children's facts is what blocked
+item 85's steps 3 and 4, and the same holds here, since Varka's costs depend on the children (a
+scalar over slots is hoisted, a value constant for the batch is free). The simpler route is a
+fixed-order canonicalisation, but not in the IR's constructors: the records compute their `hash` in
+the compact constructor and the compilers read operands by position (a literal on the right of a
+`Compare`), so a constructor-level reorder changes `equals` and `withChildren` for every caller, the
+shrinker included. It is a separate pre-emission pass.
+
+**Done when** row 632 has said what the structural sharing costs and buys today for the one case it
+measures (`exp(x)` and `exp(x) * 2` as two outputs), which is only the first of this item's
+preconditions, so the spike also reads commuted and associated variants of the same projections; a
+spike builds rule (1) as the fixed-order pass and rules (1) and (2) as the e-graph pass; the record
+states, for the exp, log and hyperbolic ports and for the coverage table's projections, the distinct
+nodes, the method bytes and the compile time of each against the present emitter, with a line it
+must meet to go on (no node, byte or compile-time regression on any shape, and a stated minimum
+share of the corpus whose nodes or bytes fall); every answer, decline and emitted byte of a shape
+the rules do not touch is unchanged (the bytes oracle); every answer under a rule is held to its
+oracle by the sweeps and the fuzzers, with the raise-order cases above among them; and the exact
+default is stated per rule in the coverage table's verification column. It waits for rows 631 and
+632 and for item 135's spike.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads

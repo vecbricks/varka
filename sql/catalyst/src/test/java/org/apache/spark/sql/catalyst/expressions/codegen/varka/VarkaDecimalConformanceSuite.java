@@ -18,7 +18,6 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.math.BigInteger;
-import java.util.Set;
 
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DecimalType;
@@ -72,18 +71,5 @@ public final class VarkaDecimalConformanceSuite extends VarkaTypeConformance {
   @Override
   protected BigInteger[] decimalSlots() {
     return VALUES;
-  }
-
-  /**
-   * The operators the census marks fused in part for {@code dec} because the long fuses them and
-   * the pair does not: {@code IN} and the values, each a projection's output at this suite's
-   * {@code DECIMAL(30, 4)}, which is row 359's two-word store - the choices, {@code greatest},
-   * the negation and {@code abs} (row 348), and the sums and differences (row 349; the pair's
-   * are row 360's).
-   */
-  @Override
-  protected Set<String> declinesInPart() {
-    return Set.of("in", "if", "when", "coalesce", "nullif", "greatest", "negative", "abs", "+",
-        "-", "try_add", "least", "try_subtract");
   }
 }
