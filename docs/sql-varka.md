@@ -444,6 +444,11 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `bit_count(l) + 1` | `intArithmetic` |  | the narrowed count feeding int arithmetic; the sum cannot overflow, the count being at most 64 | per-lane: mask broadcast, load or store |
 | `bitmap_bucket_number(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
 | `bitmap_bit_position(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
+| `bit_get(i, 3)` | `intArithmetic` |  | a TINYINT result, the bit shifted down, masked and narrowed; a literal position past the width declines, since Spark raises on every row with a valid target | vector |
+| `bit_get(i, i)` | `intArithmetic` | `i BETWEEN 0 AND 31` | a position column is guarded by the width, which declines the batch Spark raises BIT_POSITION_RANGE on | vector |
+| `getbit(l, 63)` | `intArithmetic` |  | the alias, at the long lane | vector |
+| `bit_get(l, i)` | `intArithmetic` | `i BETWEEN 0 AND 63` | the guarded position widened to the long lane | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `bit_count(b)` | `intArithmetic` |  | 1 or 0, and null where the boolean is: the condition's value | vector |
 
 #### Choice and nulls
 
@@ -683,6 +688,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `s1 ^ s2` | `intArithmetic` |  |  | vector |
 | `~s1` | `intArithmetic` |  |  | vector |
 | `bit_count(s1)` | `intArithmetic` |  | a negative short counts its 48 high bits as well | vector |
+| `bit_get(y1, 7)` | `intArithmetic` |  | the sign bit, read from the value widened by its sign | vector |
+| `bit_get(s1, i)` | `intArithmetic` | `i BETWEEN 0 AND 15` | an int position guarded by the short's width | vector |
 
 #### TINYINT and SMALLINT widened to int
 
@@ -1393,17 +1400,17 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | rendered | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 100 | 0 | 0 | 2 | 0 | 2 | 96 |
-| `bool` | 38 | 0 | 0 | 0 | 13 | 0 | 25 |
-| `byte` | 56 | 0 | 0 | 0 | 0 | 8 | 48 |
+| `bigint` | 102 | 0 | 0 | 2 | 0 | 2 | 98 |
+| `bool` | 39 | 0 | 0 | 0 | 13 | 0 | 26 |
+| `byte` | 57 | 0 | 0 | 0 | 0 | 8 | 49 |
 | `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
 | `dec` | 85 | 1 | 42 | 12 | 0 | 0 | 30 |
 | `double` | 97 | 0 | 0 | 1 | 0 | 0 | 96 |
 | `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
-| `int` | 179 | 14 | 0 | 4 | 1 | 1 | 159 |
+| `int` | 185 | 14 | 0 | 4 | 1 | 1 | 165 |
 | `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
-| `short` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
+| `short` | 55 | 0 | 0 | 0 | 0 | 8 | 47 |
 | `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
 | `ym` | 40 | 7 | 0 | 2 | 0 | 2 | 29 |
 <!-- END generated verification counts -->
@@ -1432,7 +1439,7 @@ bitmask, never a machine word or a token of text.
 | **shape cache** | A bounded LRU of emitted classes keyed by shape, shared *across tasks*. The cost it saves is not emission - that is about 80 microseconds - but JIT warm-up: a re-defined class is a new class to HotSpot and re-pays the whole tier ladder, 13 to 50 ms per task. Reusing the loaded class is the only thing that avoids it. |
 | **literal slot** | An index into the kernel's runtime argument array where a folded constant lives. Why the IR carries no literal *values*: keeping them out is what makes the shape the identity. |
 | **selection bitmap** | A filter's output: one bit per row, set meaning the predicate is known true. An unknown row - a null under the comparison - reads as false by construction, which is SQL's `WHERE` semantics for free. |
-| **partial eligibility** | A projection qualifies when *at least one* of its entries compiles. The rest are forwarded zero-copy or left to stock Spark, and the results merge. Eligibility is per entry, not all-or-nothing. |
+| **partial eligibility** | A projection qualifies when *at least one* of its entries compiles. The rest are forwarded zero-copy or left to stock Spark, and the results merge. Eligibility is per entry, not all-or-nothing, with one exception: under a consumer that wants rows, a projection whose residual entries outnumber its fused ones is left whole to stock Spark, whose one whole-stage loop is then faster than the kernel and the per-row merge (VARKA-613). |
 | **decline** | A compile-time refusal: the compiler cannot translate an expression, or the emitter will not build a shape. Declining is a normal outcome, not an error - the query runs on stock Spark instead. |
 | **ghost fallback** | The run-time counterpart: if an emitted kernel fails on a batch, that batch is recomputed by the ordinary row engine and the query still returns the right answer. The Janino projection behind it is compiled lazily, only if some batch actually needs it. |
 | **civil-from-days** | The calendar algorithm turning a day count since the epoch into year, month and day (Neri and Schneider's, transcribed in `sql/varka/papers`). Branch-free and 31 vector operations, which is why several outputs over one date share it. |

@@ -425,7 +425,8 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     s"SELECT $cast AS r, a AS a2, b AS b2, date_add(d, i) AS f FROM ${t.name}", false)
   /** The same beside an array, which the scan then selects. */
   private val besideFusedAndArray = QueryShape((cast, t) =>
-    s"SELECT $cast AS r, date_add(d, i) AS f, size(arr) AS n FROM ${t.name}", false)
+    s"SELECT $cast AS r, date_add(d, i) AS f, date_add(d, 1) AS g, size(arr) AS n " +
+      s"FROM ${t.name}", false)
   /**
    * The cast in a conjunct the filter kernel declines, beside one it fuses: the rule splits the
    * condition into a `FilterExec` over a Varka filter, whose fallback evaluates the whole

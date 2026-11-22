@@ -612,7 +612,15 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("bit_count(l) + 1", "the narrowed count feeding int arithmetic; the sum cannot "
         + "overflow, the count being at most 64"),
       Row("bitmap_bucket_number(l)"),
-      Row("bitmap_bit_position(l)"))),
+      Row("bitmap_bit_position(l)"),
+      Row("bit_get(i, 3)", "a TINYINT result, the bit shifted down, masked and narrowed; a literal "
+        + "position past the width declines, since Spark raises on every row with a valid target"),
+      Row("bit_get(i, i)", "a position column is guarded by the width, which declines the batch "
+        + "Spark raises BIT_POSITION_RANGE on", domain = Some("i BETWEEN 0 AND 31")),
+      Row("getbit(l, 63)", "the alias, at the long lane"),
+      Row("bit_get(l, i)", "the guarded position widened to the long lane",
+        domain = Some("i BETWEEN 0 AND 63")),
+      Row("bit_count(b)", "1 or 0, and null where the boolean is: the condition's value"))),
 
     Family("Choice and nulls", predicates = false, Seq(
       Row("if(d < d2, d, d2)"),
@@ -925,7 +933,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("s1 | s2"),
       Row("s1 ^ s2"),
       Row("~s1"),
-      Row("bit_count(s1)", "a negative short counts its 48 high bits as well"))),
+      Row("bit_count(s1)", "a negative short counts its 48 high bits as well"),
+      Row("bit_get(y1, 7)", "the sign bit, read from the value widened by its sign"),
+      Row("bit_get(s1, i)", "an int position guarded by the short's width",
+        domain = Some("i BETWEEN 0 AND 15")))),
 
     // A narrow value meeting an int one (VARKA-329): Catalyst's coercion casts the narrow side
     // to int, and the cast is the column's widening load, so these are int kernels reading a
