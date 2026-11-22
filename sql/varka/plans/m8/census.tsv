@@ -187,9 +187,9 @@ shiftrightunsigned	ShiftRightUnsigned	bitwiseExpressions	in		int,bigint	int,bigi
 <<	ShiftLeft	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftleft	
 >>	ShiftRight	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftright	
 >>>	ShiftRightUnsigned	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftrightunsigned	
-bit_count	BitwiseCount	bitwiseExpressions	in		bool,byte,short,int,bigint	int	byte,short,int,bigint	bool,byte,short	plumbing	335,329,331	item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int, anywhere in a tree since 335b (20 October 2026); byte and short are the int node over their sign extension (VARKA-329), bool is row 331's	
-bit_get	BitwiseGet	bitwiseExpressions	in		byte,short,int,bigint	byte		byte,short	plumbing	335	item 32; the byte result was its blocker	
-getbit	BitwiseGet	bitwiseExpressions	in		byte,short,int,bigint	byte		byte,short	plumbing	335	alias of bit_get	
+bit_count	BitwiseCount	bitwiseExpressions	in		bool,byte,short,int,bigint	int	bool,byte,short,int,bigint	bool,byte,short	done	335,329,331	item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int, anywhere in a tree; byte and short are the int node over their sign extension (VARKA-329); bool is the condition's value, 1 or 0, over row 331's boolean leaf (335b)	
+bit_get	BitwiseGet	bitwiseExpressions	in		byte,short,int,bigint	byte	byte,short,int,bigint	byte,short	done	335	item 32; a shift, a mask and a narrowing to the byte result (335b); a position past the width raises in every mode, so a literal one declines and a column one is guarded	
+getbit	BitwiseGet	bitwiseExpressions	in		byte,short,int,bigint	byte	byte,short,int,bigint	byte,short	done	335	alias of bit_get	
 try_to_timestamp	TryToTimestampExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
 try_to_date	TryToDateExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
 try_to_time	TryToTimeExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								

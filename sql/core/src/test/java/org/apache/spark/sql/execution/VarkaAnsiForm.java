@@ -276,15 +276,18 @@ public final class VarkaAnsiForm {
         "timestampadd(QUARTER, l, ntz)", "timestampadd(YEAR, i, ntz)",
         "timestampadd(YEAR, l, ntz)", "add_months(ntz, i)", "round(i, -1)", "bround(i, -1)",
         "round(y1, -1)", "bround(y1, -1)", "round(s1, -1)", "bround(s1, -2)", "l + 1",
-        "l - l2", "dt - dt2", "dt + INTERVAL '1' DAY", "dt * 3", "-2 * dt")) {
+        "l - l2", "dt - dt2", "dt + INTERVAL '1' DAY", "dt * 3", "-2 * dt", "bit_get(i, i)",
+        "bit_get(s1, i)", "bit_get(l, i)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
-    // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
-    // choice in a long kernel, which has no lowering there (VARKA-332.md 10.1).
+    // A bigint narrowed to a narrow type, or the TINYINT bit of a bigint, as a COALESCE argument
+    // beside a narrow column: a narrow choice in a long kernel, which has no lowering there
+    // (VARKA-332.md 10.1).
     String narrowChoice = "a narrow choice beside a bigint value has no lowering in a long "
         + "kernel (VARKA-332.md 10.1)";
     for (String sql : List.of("CAST(l AS TINYINT)", "CAST(l AS SMALLINT)",
-        "try_cast(l AS TINYINT)", "try_cast(l AS SMALLINT)")) {
+        "try_cast(l AS TINYINT)", "try_cast(l AS SMALLINT)", "bit_get(l, i)",
+        "getbit(l, 63)")) {
       out.put(sql + "\t" + COALESCE_TAIL, narrowChoice);
     }
     return Map.copyOf(out);
@@ -304,6 +307,7 @@ public final class VarkaAnsiForm {
       Map.entry("DATETIME_OVERFLOW", "timestampadd(MICROSECOND, l, ntz)"),
       Map.entry("DIVIDE_BY_ZERO", "x / x2"),
       Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"),
+      Map.entry("INVALID_PARAMETER_VALUE.BIT_POSITION_RANGE", "bit_get(i, i)"),
       Map.entry("java.lang.ArithmeticException", "dt * 3"));
 
   /**

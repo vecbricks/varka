@@ -1311,6 +1311,66 @@
     "note" : "",
     "verified" : "proof: bitmap.smt2"
   }, {
+    "sql" : "bit_get(i, 3)",
+    "executable" : "bit_get(i, 3)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "a TINYINT result, the bit shifted down, masked and narrowed; a literal position past the width declines, since Spark raises on every row with a valid target",
+    "verified" : "differential"
+  }, {
+    "sql" : "bit_get(i, i)",
+    "executable" : "bit_get(i, i)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "i BETWEEN 0 AND 31",
+    "note" : "a position column is guarded by the width, which declines the batch Spark raises BIT_POSITION_RANGE on",
+    "verified" : "differential"
+  }, {
+    "sql" : "getbit(l, 63)",
+    "executable" : "getbit(l, 63)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:bigint", "BitwiseGet:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the alias, at the long lane",
+    "verified" : "differential"
+  }, {
+    "sql" : "bit_get(l, i)",
+    "executable" : "bit_get(l, i)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:bigint", "BitwiseGet:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "i BETWEEN 0 AND 63",
+    "note" : "the guarded position widened to the long lane",
+    "verified" : "differential"
+  }, {
+    "sql" : "bit_count(b)",
+    "executable" : "bit_count(b)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseCount" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseCount:bool" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "1 or 0, and null where the boolean is: the condition's value",
+    "verified" : "differential"
+  }, {
     "sql" : "if(d < d2, d, d2)",
     "executable" : "if(d < d2, d, d2)",
     "family" : "Choice and nulls",
@@ -3517,6 +3577,30 @@
     "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
     "domain" : "",
     "note" : "a negative short counts its 48 high bits as well",
+    "verified" : "differential"
+  }, {
+    "sql" : "bit_get(y1, 7)",
+    "executable" : "bit_get(y1, 7)",
+    "family" : "Bitwise on narrow columns",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:byte", "BitwiseGet:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the sign bit, read from the value widened by its sign",
+    "verified" : "differential"
+  }, {
+    "sql" : "bit_get(s1, i)",
+    "executable" : "bit_get(s1, i)",
+    "family" : "Bitwise on narrow columns",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:int", "BitwiseGet:short" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "i BETWEEN 0 AND 15",
+    "note" : "an int position guarded by the short's width",
     "verified" : "differential"
   }, {
     "sql" : "y1 < i",
@@ -9579,5 +9663,5 @@
     "note" : "a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g)",
     "verified" : "exhaustive: VarkaTimeFractionSuite, the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "
   } ],
-  "catalyst_classes_admitted" : [ "Abs", "Acos", "Add", "AddMonths", "And", "Asin", "Atan", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "Cos", "Cot", "Csc", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyDTInterval", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Sec", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sin", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "Tan", "TimestampAdd", "TimestampAddInterval", "TimestampAddYMInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
+  "catalyst_classes_admitted" : [ "Abs", "Acos", "Add", "AddMonths", "And", "Asin", "Atan", "BitwiseAnd", "BitwiseCount", "BitwiseGet", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "Cos", "Cot", "Csc", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyDTInterval", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Sec", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sin", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "Tan", "TimestampAdd", "TimestampAddInterval", "TimestampAddYMInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }
