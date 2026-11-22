@@ -1,6 +1,6 @@
 suite	kind	property	how	select	job	note
 VarkaChronoSuite	scala	varka.sweep	filter	opt-in	varka-sweeps	calendar round trips over the covered years; 1 s on the laptop
-VarkaEmitterBitwiseSuite	scala	varka.sweep	filter	opt-in	varka-sweeps	every int through ~ and bit_count; 68 s
+VarkaEmitterBitwiseSuite	scala	varka.sweep	filter	opt-in	varka-sweeps	every int through ~, bit_count, each shift and bit_get, one position each; 140 s at load 30
 VarkaEmitterChronoSuite	scala	varka.sweep	filter	opt-in	varka-sweeps	the emitted calendar and trunc kernels over their whole range; 51 s
 VarkaEmitterDivisionSuite	scala	varka.sweep	filter	opt-in	varka-sweeps	the calendar kernels under both double division forms; 106 s
 VarkaEmitterYmDivideSuite	scala	varka.sweep.long	filter	long-sweep	varka-sweeps	409 divisors over every int; its name carries no opt-in; 640 s

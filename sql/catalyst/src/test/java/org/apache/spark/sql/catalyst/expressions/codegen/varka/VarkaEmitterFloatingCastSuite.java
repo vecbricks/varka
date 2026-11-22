@@ -910,13 +910,18 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   @Test
-  @DisplayName("the plan refuses a floating source converted to an integral lane, at every level")
+  @DisplayName("the plan refuses a floating source converted to an integral lane but D2I, at "
+      + "every level")
   void conversionRefusal() {
     for (var c : List.of(convert(F, LaneType.INT), convert(F, LaneType.LONG),
-        convert(X, LaneType.INT), convert(X, LaneType.LONG))) {
+        convert(X, LaneType.LONG))) {
       var refusal = VarkaKernelPlan.of(List.of(c), VarkaMatrixRuns.BASE).refusal();
       assertTrue(refusal.isPresent(), VarkaVectorIR.canonical(c));
       assertEquals(VarkaKernelPlan.Kind.CONVERSION, refusal.get().kind());
     }
+    // D2I is an fdlibm port's int k (`VARKA-345.md` 10.2), Java's (int) on every host; no SQL
+    // cast builds it.
+    var d2i = convert(X, LaneType.INT);
+    assertTrue(VarkaKernelPlan.of(List.of(d2i), VarkaMatrixRuns.BASE).refusal().isEmpty());
   }
 }
