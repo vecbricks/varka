@@ -1495,7 +1495,9 @@ exception inside a kernel and a memory-sanitizer violation each write a reproduc
   again. Two components are not rendered on purpose: `ConstDivide`'s dividend bound (no byte
   depends on it; the parser gives a long-lane division `EXACT_DIVIDEND_BOUND`, and the round-trip
   test compares bytes to hold it to that) and `BoundedDivide`'s pair (`BoundedDivide.of` derives
-  it). A new node type fails that test until the parser has a case for it.
+  it). The round trip has no exemption list: a new record, or a new value of an enum a record
+  holds, fails it until the parser has a case for it, and a replay asserts that it rebuilt the
+  file's class byte for byte (`VarkaReplay.sameClass`).
 - **A class the verifier rejects fails in two places.** Under test the plan-time admission
   verifies the bytes it builds (`VarkaShapeCache.admit`, `verify = Utils.isTesting()`), and the
   `VerifyError` is not `NonFatal`, so it leaves `VarkaSizeAdmission` and the compiler's
