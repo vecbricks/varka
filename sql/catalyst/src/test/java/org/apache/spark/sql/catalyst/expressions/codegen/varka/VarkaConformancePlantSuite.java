@@ -85,7 +85,7 @@ public final class VarkaConformancePlantSuite {
   @Test
   @DisplayName("load, round trip, null handling and ordering each fail on a value answered wrong")
   void valueAnsweredWrong() {
-    var t = planted(new VarkaIntConformanceSuite(), VALUE);
+    VarkaTypeConformance t = planted(new VarkaIntConformanceSuite(), VALUE);
     failsOnThePlant("load", t::load);
     failsOnThePlant("round trip", t::roundTrip);
     failsOnThePlant("null handling", t::nullHandling);

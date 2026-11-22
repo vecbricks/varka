@@ -160,8 +160,8 @@ public final class VarkaCastMatrixSuite {
   void plantedLegality() throws IOException {
     // VARKA-504's planted fault: the first legal pair's ANSI answer flipped in memory.
     var file = new LinkedHashMap<>(committed());
-    var first = file.entrySet().stream().filter(e -> !e.getValue().equals(Legality.NONE))
-        .findFirst().orElseThrow();
+    Map.Entry<String, Legality> first = file.entrySet().stream()
+        .filter(e -> !e.getValue().equals(Legality.NONE)).findFirst().orElseThrow();
     Legality l = first.getValue();
     file.put(first.getKey(), new Legality(l.legacy(), !l.ansi(), l.tryCast()));
     List<String> wrong = legalityErrors(file);

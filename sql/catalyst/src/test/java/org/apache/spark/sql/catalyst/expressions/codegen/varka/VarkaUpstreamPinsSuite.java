@@ -18,7 +18,11 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import java.lang.management.ManagementFactory;
+
+import com.sun.management.HotSpotDiagnosticMXBean;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -43,10 +47,39 @@ public final class VarkaUpstreamPinsSuite {
     }
   }
 
+  /** A product flag of the running JVM, or {@code absent} when this JVM has no such flag. */
+  private static String flag(HotSpotDiagnosticMXBean bean, String name, String absent) {
+    try {
+      return bean.getVMOption(name).getValue();
+    } catch (IllegalArgumentException missing) {
+      return absent;
+    }
+  }
+
+  /**
+   * Whether this JVM drops a hot exact-arithmetic overflow's message at all: only C2's intrinsic
+   * throws the preallocated exception, and only under OmitStackTraceInFastThrow. C1 alone (a
+   * quick-only mode, or tiers stopped below 4), the interpreter ({@code -Xint}) and a JVMCI
+   * compiler such as Graal keep the message, and there the pin has nothing to pin.
+   */
+  private static boolean c2DropsHotMessages() {
+    HotSpotDiagnosticMXBean bean =
+        ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
+    boolean tiersReachC2 = !Boolean.parseBoolean(flag(bean, "TieredCompilation", "true"))
+        || Integer.parseInt(flag(bean, "TieredStopAtLevel", "4")) >= 4;
+    return Boolean.parseBoolean(flag(bean, "UseCompiler", "true"))
+        && !Boolean.parseBoolean(flag(bean, "UseJVMCICompiler", "false"))
+        && !"quick-only".equals(flag(bean, "CompilationMode", "default"))
+        && tiersReachC2
+        && Boolean.parseBoolean(flag(bean, "OmitStackTraceInFastThrow", "false"));
+  }
+
   @Test
   @DisplayName("a hot Math.addExact overflow loses its message under OmitStackTraceInFastThrow, "
       + "which VarkaMaybeThrows, VarkaExpressionHarness and VarkaAnsiForm accept")
   void hotOverflowLosesItsMessage() {
+    assumeTrue(c2DropsHotMessages(),
+        "the pin holds only under C2 with OmitStackTraceInFastThrow, which this JVM does not run");
     // Cold, the overflow carries its message, which the row engine's errors are compared on.
     assertEquals("long overflow", overflowMessage(Long.MAX_VALUE));
     // Hot, C2's intrinsic for the exact arithmetic (inline_math_mathExact) throws the JVM's
@@ -63,6 +96,6 @@ public final class VarkaUpstreamPinsSuite {
       }
     }
     assertTrue(message == null, "after " + calls + " hot overflows the message is still \""
-        + message + "\": the JVM no longer drops it (-XX:-OmitStackTraceInFastThrow?)");
+        + message + "\": C2 no longer drops it");
   }
 }

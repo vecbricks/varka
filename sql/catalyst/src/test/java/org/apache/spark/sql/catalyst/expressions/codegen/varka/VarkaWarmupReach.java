@@ -184,8 +184,8 @@ final class VarkaWarmupReach {
   /**
    * Each receiver class {@code receivers} gives a lane of {@link #LANES} that is not of that lane's
    * element type, as a line naming the lane and the class; empty when every lane's calls are
-   * credited to its own classes. The 27 October 2026 fault this guards against credited the float
-   * lane's mask calls to the double lane's classes, so the float masks' counts read as warm.
+   * credited to its own classes. The fault this guards against credits the float lane's mask
+   * calls to the double lane's classes, so the float masks' counts read as warm.
    * Taking {@code receivers} as an argument lets a test plant that fault (VARKA-504).
    */
   static List<String> laneErrors(Function<Class<?>, List<Class<?>>> receivers) {

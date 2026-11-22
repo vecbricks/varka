@@ -112,8 +112,8 @@ public final class VarkaWarmupReachSuite {
   @Test
   @DisplayName("float calls credited to the double lane's classes are named, float by float")
   void plantedFloatAsDouble() {
-    // VARKA-504's planted fault, the one of 27 October 2026: the float lane's receivers answered
-    // with the double lane's, so a float mask call was counted at a Double class.
+    // VARKA-504's planted fault: the float lane's receivers answered with the double lane's, so
+    // a float mask call was counted at a Double class.
     List<String> errors = VarkaWarmupReach.laneErrors(lane -> VarkaWarmupReach.receivers(
         lane == FloatVector.class ? DoubleVector.class : lane));
     assertFalse(errors.isEmpty(), "the planted crediting passed");
