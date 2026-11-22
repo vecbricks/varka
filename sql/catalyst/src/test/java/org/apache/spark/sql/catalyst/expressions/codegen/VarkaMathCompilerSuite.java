@@ -31,11 +31,16 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import scala.Option;
 import scala.collection.immutable.Seq;
 import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.Cast;
+import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.catalyst.expressions.Logarithm;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
@@ -94,7 +99,12 @@ public final class VarkaMathCompilerSuite {
   /** The reason {@code sql} declines with, or empty where it fuses. */
   private static Optional<String> outcome(String sql, Set<VarkaFamily> off,
       VarkaEmitOptions options) {
-    Expression e = VarkaSqlResolve.parse(sql, COLUMNS);
+    return outcome(VarkaSqlResolve.parse(sql, COLUMNS), off, options);
+  }
+
+  /** The reason the resolved expression {@code e} declines with, or empty where it fuses. */
+  private static Optional<String> outcome(Expression e, Set<VarkaFamily> off,
+      VarkaEmitOptions options) {
     Seq<NamedExpression> entries =
         CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "o"))).toSeq();
     var declines =
@@ -151,11 +161,15 @@ public final class VarkaMathCompilerSuite {
   @Test
   @DisplayName("a log with a constant base whose evaluation fails declines rather than throws")
   void failingConstantBaseDeclines() {
-    // Under ANSI the cast raises, which the optimizer leaves to the row engine; without ANSI it
-    // is a null base. Either way the compile declines and the row engine answers.
-    String why = reason("log(CAST('abc' AS DOUBLE), x)", Set.of(), VarkaMatrixRuns.BASE);
-    assertTrue(why.contains("a log base whose evaluation fails")
-        || why.contains("a log with a null base"), why);
+    // Spark's ConstantFolding leaves such a base unfolded only in a conditional branch, where
+    // no row may reach it; outside one the query fails at planning before the compiler runs.
+    // The expression is built, not parsed: the SQL helper folds a string cast to double itself,
+    // and so would raise first. The cast is ANSI whatever the configuration says.
+    Expression base = new Cast(Literal.create("abc", DataTypes.StringType),
+        DataTypes.DoubleType, Option.empty(), EvalMode.ANSI());
+    String why = outcome(new Logarithm(base, COLUMNS.apply(0)), Set.of(), VarkaMatrixRuns.BASE)
+        .orElseThrow(() -> new AssertionError("a failing log base fused"));
+    assertTrue(why.contains("a log base whose evaluation fails"), why);
   }
 
   @Test
