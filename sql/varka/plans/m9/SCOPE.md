@@ -6187,7 +6187,7 @@ default is stated per rule in the coverage table's verification column. It waits
 The mid-course review of milestone 8 (`m8/PLAN.md` 12) set the rule that a finding moving no
 census cell goes to this catalogue (12.3). On 23 November 2026 the owner applied it to the open
 rows: a row stays in milestone 8 if it blocks the close or serves the milestone's goal, the new
-types and their casts and math; the 42 rows below do neither and moved here, on the precedent of
+types and their casts and math; the 41 rows below do neither and moved here, on the precedent of
 items 15, 39 and 81: text and task numbers unchanged, each row still in `m8/PLAN.md` with a note
 at its head, and each row's own plan file moved beside this catalogue, as `VARKA-64.md` and
 `VARKA-73.md` were, with a note at its head. None is ordered against this catalogue's spine; each
@@ -6240,7 +6240,6 @@ weekly matrix; removing it is carried here.
 | 625 | A push check for an option change | the row | CI or tooling work: it moves no census cell and serves no new type |
 | 627 | One benchmark slug per CPU | the row | CI or tooling work: it moves no census cell and serves no new type |
 | 637 | A pull request's option matrix stops a red run early | `VARKA-637.md` | CI or tooling work: it moves no census cell and serves no new type |
-| 638 | The arm sweep on vecbricks/varka's runners | `VARKA-638.md` | CI or tooling work: it moves no census cell and serves no new type |
 | 642 | An emit option declared in one place | `VARKA-642.md` | CI or tooling work: it moves no census cell and serves no new type |
 
 Two findings of rows marked done the same day come here too, since neither moves a census cell:

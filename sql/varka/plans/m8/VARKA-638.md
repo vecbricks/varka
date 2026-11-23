@@ -1,8 +1,9 @@
 # VARKA-638: the arm sweep runs on vecbricks/varka's runners, not on the laptop
 
-*Moved to milestone 9 on 23 November 2026 with row 638 (`SCOPE.md` item 138). A bare
-`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
-unless that plan moved too (`SCOPE.md` item 138).*
+*Moved to milestone 9 on 23 November 2026 with row 638 (`m9/SCOPE.md` item 138), and returned to
+m8 by the owner on 23 November 2026: the local gate's sweep is the throughput limit. Rows 637 and
+522 stay in milestone 9, so their plans are `m9/VARKA-637.md` and `m9/VARKA-522.md`; row 638
+still waits on row 637's step 1 (section 7).*
 
 ## 1. Where this came from
 
@@ -12,7 +13,7 @@ sweep: every suite the branch adds or changes, under every configuration
 (`dev/varka_matrix.sh --all -j 4 --suites <changed>`). It was added after three red matrices of
 22 November (#1617, #1619, #1625) failed on configurations nobody had run locally. Of the three,
 #1617 and #1625 failed in suites they changed, which a sweep catches; #1619 failed in a suite it
-did not change, which no sweep of changed suites runs (`VARKA-637.md` 2). Four
+did not change, which no sweep of changed suites runs (`m9/VARKA-637.md` 2). Four
 branches' sweeps of 22 November took 12 to 58 minutes on the laptop
 (`results/VARKA-638-sweep-sizes.txt`), each holding one of the laptop's few sbt slots, so
 branches queue behind one another. vecbricks/varka has 20 Free-plan runners, idle on 22 November
@@ -66,10 +67,10 @@ On vecbricks/varka the build job's guard admits only `workflow_dispatch` events 
 `stage=sweep`, a `pr` and a `sha`. It refuses `schedule` there, which today's guard admits only
 there, so the Sunday cron cannot start the full matrix once the workflow is enabled. The owner
 left the workflow disabled there so that nothing starts a matrix on 20 slots by accident
-(`VARKA-522.md` 7 question 3). The guard keeps that reason, but the workflow has to be enabled
+(`m9/VARKA-522.md` 7 question 3). The guard keeps that reason, but the workflow has to be enabled
 for dispatches. That is question 1 of 6, and the enable waits until the guard has merged (7).
 *22 November 2026, by the owner's word:* yes, the workflow is re-enabled on vecbricks/varka for
-sweep runs only, once this guard has merged (`VARKA-522.md` 7 question 3 carries the note).
+sweep runs only, once this guard has merged (`m9/VARKA-522.md` 7 question 3 carries the note).
 
 ### 3.2 What it records
 
@@ -199,7 +200,7 @@ add its 20 slots to the fork's 40? Read from `results/VARKA-637-pr-matrix-scope.
 * **The token-free alternative.** vecbricks/varka runs work that needs no Build: this row's
   sweep, or the weekly full matrix on master. The weekly is the opposite of row 522's direction,
   which moves the weekly to the fork, so it is the owner's call. This plan does not move the
-  weekly; it adds only a dated note to `VARKA-522.md` 7 question 3, the enable for sweeps.
+  weekly; it adds only a dated note to `m9/VARKA-522.md` 7 question 3, the enable for sweeps.
 * **Verdict.** Not a row now. Row 637's first stage would have stopped 8 of the window's 12 red
   runs, which used 10,011 bin-minutes, a ceiling on its saving; its optional tiers would save
   about a seventh more; and row 638 moves the sweep onto vecbricks/varka. If after them the
