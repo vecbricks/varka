@@ -23,34 +23,92 @@
 # time, and one job merges their runs and reports, the declining check comparing every
 # configuration's fused batches with the defaults' (dev/varka_matrix_bins.py). A bin that frees a
 # slot hands it to the next, so a slow runner holds back only its own bin. A pull request runs one
-# configuration in its varka-scoped jobs; this runs all of them once a week and on dispatch. See
+# configuration in its varka-scoped jobs; this runs all of them on dispatch. See
 # dev/varka_matrix.sh.
+#
+# A dispatch with `pr` and `sha` tests that pull request's head instead of the dispatched ref, so
+# vecbricks/varka's runners can take a pull request's matrix beside the fork's (MaxGekk/spark):
+# there the workflow runs only such dispatches, at most 16 bins at a time by default, and compiles
+# the test classes itself, since the fork's Build artifacts need a token it lacks.
 name: Varka option matrix
+run-name: >-
+  ${{ inputs.pr != '' && format('Varka option matrix of #{0} at {1}', inputs.pr, inputs.sha)
+  || 'Varka option matrix' }}
 
 on:
   schedule:
     # Sunday 03:00 UTC, after the weekly full Spark matrix has started and before Monday's
-    # pull requests.
+    # pull requests. The build job's guard refuses it on both repositories until row 522
+    # (m9/VARKA-522.md) gives the weekly run a home.
     - cron: '0 3 * * 0'
   workflow_dispatch:
+    inputs:
+      pr:
+        description: 'A pull request number of vecbricks/varka: the run tests its head, the sha input, instead of the dispatched ref. Blank for the dispatched ref, which vecbricks/varka refuses.'
+        required: false
+        default: ''
+      sha:
+        description: 'With pr: the head commit of the pull request, all 40 hex digits. The build job fails when refs/pull/<pr>/head is another commit.'
+        required: false
+        default: ''
+      slots:
+        description: 'At most this many bins at once. Blank for 16 on vecbricks/varka, which leaves its benchmarks two of its 20 runners, and 38 elsewhere.'
+        required: false
+        default: ''
+
+# Read-only: with `pr` the jobs build and run a pull request's code. `actions: read` lets the
+# build job read the Build runs and artifacts it reuses. report-failure keeps a wider block.
+permissions:
+  contents: read
+  actions: read
+
+env:
+  # The repository whose pull requests `pr` names, also on the fork, whose own pull requests are
+  # apache/spark's.
+  VARKA_BASE_REPO: vecbricks/varka
 
 jobs:
   build:
     name: "Option matrix: build and plan"
-    # Never on apache/spark, whose tree has no Varka. The Sunday schedule runs on vecbricks/varka
-    # only: the fork's master follows this project's (varka-fork-sync.yml) and carries this file,
-    # and a schedule there does nothing. A dispatch runs on either repository. The jobs after
-    # this one need it, so they are skipped with it.
+    # Never on apache/spark, whose tree has no Varka. The Sunday schedule runs nowhere: the fork's
+    # master follows this project's (varka-fork-sync.yml) and a schedule there does nothing, and
+    # vecbricks/varka, which has 20 runners and no Build to reuse, runs only pull request
+    # dispatches, with `pr` and `sha`. The fork runs any dispatch. The jobs after this one need
+    # it, so they are skipped with it.
     if: >-
-      github.repository != 'apache/spark'
-      && (github.event_name != 'schedule' || github.repository == 'vecbricks/varka')
+      github.repository != 'apache/spark' && github.event_name == 'workflow_dispatch'
+      && (github.repository != 'vecbricks/varka' || (inputs.pr != '' && inputs.sha != ''))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
       bins: ${{ steps.plan.outputs.bins }}
     steps:
+    # The name of the run says which commit it tests, so the head must still be that commit.
+    - name: Check the inputs
+      env:
+        PR: ${{ inputs.pr }}
+        SHA: ${{ inputs.sha }}
+        SLOTS: ${{ inputs.slots }}
+      run: |
+        if [ -n "$SLOTS" ] && ! [[ "$SLOTS" =~ ^[1-9][0-9]?$ && "$SLOTS" -le 38 ]]; then
+          echo "::error::slots must be a number from 1 to 38, not '$SLOTS'"; exit 1
+        fi
+        [ -n "$PR$SHA" ] || exit 0
+        if ! [[ "$PR" =~ ^[1-9][0-9]*$ && "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::pr must be a number and sha 40 hex digits, not '$PR' and '$SHA'"; exit 1
+        fi
+        head=$(git ls-remote "https://github.com/$VARKA_BASE_REPO.git" "refs/pull/$PR/head" |
+          cut -f1)
+        if [ "$head" != "$SHA" ]; then
+          echo "::error::refs/pull/$PR/head of $VARKA_BASE_REPO is ${head:-missing}, not $SHA"
+          exit 1
+        fi
     - name: Checkout
       uses: actions/checkout@v6
+      with:
+        repository: ${{ inputs.pr != '' && env.VARKA_BASE_REPO || github.repository }}
+        ref: ${{ inputs.pr != '' && inputs.sha || '' }}
+        persist-credentials: false
     - name: Cache SBT and Maven
       uses: actions/cache@v4
       with:
@@ -80,12 +138,19 @@ jobs:
     # classes of its commit: this takes that archive, waiting for it while the Build may still
     # upload it, and compiles them itself only when no Build of the commit will
     # (dev/varka_matrix_reuse.py), whose `missing` output says why. Any failure of the lookup or
-    # the download leaves the compile.
+    # the download leaves the compile. A run with `pr` compiles: its Build is the fork's, whose
+    # artifacts this job's token has not been shown to download.
     - name: Find the Build's test classes
       id: reuse
       env:
         GH_TOKEN: ${{ github.token }}
+        PR: ${{ inputs.pr }}
       run: |
+        if [ -n "$PR" ]; then
+          printf 'run=\nmissing=pr\nreason=%s\n' "a run of pull request #$PR reuses no Build" \
+            >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
         ./dev/varka_matrix_reuse.py "$GITHUB_REPOSITORY" "$GITHUB_SHA" >> "$GITHUB_OUTPUT" ||
           printf 'run=\nmissing=error\n' >> "$GITHUB_OUTPUT"
     - name: Download the Build's test classes
@@ -168,6 +233,8 @@ jobs:
             why="$REUSE_REASON; wait for it, then dispatch this again"
           elif [ "$REUSE_MISSING" = admit ]; then
             why="$REUSE_REASON; dispatch the matrix after the Build finishes"
+          elif [ "$REUSE_MISSING" = pr ]; then
+            why="$REUSE_REASON"
           elif [ "$REUSE_MISSING" = none ]; then
             why="$REUSE_REASON: a change that builds neither catalyst nor sql, a Build held by"
             why+=" ci-hold, or no Build yet; dispatch this again once the Build's Varka jobs"
@@ -253,11 +320,12 @@ jobs:
         if-no-files-found: ignore
         retention-days: 30
 
-  # The matrix's own bins take 30 slots and the platform bins (VARKA-505: the defaults under
-  # `isa=avx2`, `isa=w128` and `isa=arm`, dev/varka_matrix_bins.py PLATFORMS) 8 more, which is the
-  # fork's 40 less the build and report jobs; a bin's `runner` is its job's. One job holds both,
-  # so max-parallel is the sum; the planner lists the platform bins first, so they start at once
-  # and the matrix's bins take the other slots. A run has about a hundred bin jobs, 11 of them
+  # On the fork the matrix's own bins take 30 slots and the platform bins (VARKA-505: the defaults
+  # under `isa=avx2`, `isa=w128` and `isa=arm`, dev/varka_matrix_bins.py PLATFORMS) 8 more, which
+  # is the fork's 40 less the build and report jobs; a bin's `runner` is its job's. One job holds
+  # both, so max-parallel is the sum; the planner lists the platform bins first, so they start at
+  # once and the matrix's bins take the other slots. On vecbricks/varka all bins share 16 slots,
+  # the `slots` input, of its 20. A run has about a hundred bin jobs, 11 of them
   # platform bins (7 on x86, 4 on Arm) in run 42187218199, which took 39 minutes. A push chain's
   # job ceiling is 40 less the platform bins' 11, and the rows that run beside a matrix wait for
   # it.
@@ -268,7 +336,9 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 38
+      max-parallel: >-
+        ${{ fromJSON(inputs.slots != '' && inputs.slots
+        || (github.repository == 'vecbricks/varka' && '16' || '38')) }}
       matrix: ${{ fromJSON(needs.build.outputs.bins) }}
     steps:
     # The run's wall time is its slowest bin's, so a setup step that stalls holds back the whole
@@ -280,10 +350,18 @@ jobs:
       uses: actions/checkout@v6
       timeout-minutes: 3
       continue-on-error: true
+      with:
+        repository: ${{ inputs.pr != '' && env.VARKA_BASE_REPO || github.repository }}
+        ref: ${{ inputs.pr != '' && inputs.sha || '' }}
+        persist-credentials: false
     - name: Checkout, again
       if: steps.checkout.outcome != 'success'
       uses: actions/checkout@v6
       timeout-minutes: 5
+      with:
+        repository: ${{ inputs.pr != '' && env.VARKA_BASE_REPO || github.repository }}
+        ref: ${{ inputs.pr != '' && inputs.sha || '' }}
+        persist-credentials: false
     - name: Install Java 25
       id: java
       uses: actions/setup-java@v5
@@ -425,6 +503,10 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v6
+      with:
+        repository: ${{ inputs.pr != '' && env.VARKA_BASE_REPO || github.repository }}
+        ref: ${{ inputs.pr != '' && inputs.sha || '' }}
+        persist-credentials: false
     - name: Download every bin's runs
       uses: actions/download-artifact@v4
       with:

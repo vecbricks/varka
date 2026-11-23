@@ -213,6 +213,15 @@ add its 20 slots to the fork's 40? Read from `results/VARKA-637-pr-matrix-scope.
   stored as a vecbricks/varka secret. The second reverses row 525's choice, which only the owner
   can make.
 
+*23 November 2026, by the owner's word:* the verdict is overtaken. About 380 matrix jobs waited on
+the fork at midday while vecbricks/varka's runners were mostly idle, so whole pull request
+matrices may run there too. The workflow now takes `pr`, `sha` and `slots` (3.1's names, without
+`stage`). On vecbricks/varka it admits only a dispatch with `pr` and `sha` and refuses the Sunday
+schedule, which is 3.1's guard without the sweep clause. It compiles for itself, with no reach
+record, and runs at most 16 bins at once. The download probe above is still the way to get the
+fork's classes. Which repository takes a matrix is decided outside the repository, by the
+dispatcher in `~/varka-ops`. This row's sweep adds `stage` and the sweep plan on top.
+
 ## 9. Done when
 
 A pull request's arm sweep runs on vecbricks/varka's runners from its head and is timed against
