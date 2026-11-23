@@ -47,7 +47,9 @@ trait VarkaSparkDifferential extends QueryTest with VarkaSharedSessions with Var
    * statistics leave NaN out (SPARK-58482), so a filter that a NaN row passes, `NOT (x < 1.5D)`,
    * prunes that row's batch on both sides: the two engines agree, and the check that the pivot
    * row is selected fails on Spark's answer, not Varka's. Every other case keeps the pruning, so
-   * a stored reproducer replays under the settings it was found under.
+   * a stored reproducer replays under the settings it was found under. `VarkaFloatingLaneSuite`
+   * pins the pruning (its SPARK-58482 test), and `VarkaSparkFuzzSuite` shows the pivot check
+   * failing on it ("a NaN pivot row ...").
    */
   private def withFloatingPruningOff[T](sqls: Seq[String])(body: => T): T =
     if (!sqls.exists(floatingColumn.findFirstIn(_).isDefined)) body

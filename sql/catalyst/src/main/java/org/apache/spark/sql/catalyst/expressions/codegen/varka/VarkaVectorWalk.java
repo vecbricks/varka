@@ -59,6 +59,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Dec
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedProduct;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
@@ -260,6 +261,7 @@ final class VarkaVectorWalk {
       }
       case IntArith n -> emitIntArith(cb, n, dense, analysis, s, computed);
       case IntNeg n -> emitIntNeg(cb, n, dense, analysis, s, computed);
+      case GuardedProduct n -> emitGuardedProduct(cb, n, dense, analysis, s, computed);
       case ConstDivide n ->
           VarkaDivisionLowering.emitConstDivide(cb, n, dense, analysis, s, computed);
       case BoundedDivide n -> {
@@ -1021,6 +1023,41 @@ final class VarkaVectorWalk {
       }
       cb.invokevirtual(Lane.INT.vector, "withLane", INT_WITH_LANE);
     }
+  }
+
+  /**
+   * A {@link GuardedProduct}: the wrapping long product, and its magnitude pre-check folded into
+   * the batch's condemning accumulator as a {@code FAIL} overflow's is. Nothing is parked: the
+   * product is computed off a {@code dup2} of the operands and sunk under them with
+   * {@code dup_x2}, and the operands are then converted where they lie. The magnitude is the
+   * double product's bits with the sign cleared, compared as a long with {@code 2^62}'s bits,
+   * which orders as the doubles do for every non-negative double up to the infinity, and keeps
+   * the mask on the driving long lane; a product of two converted longs is never NaN.
+   */
+  private static void emitGuardedProduct(CodeBuilder cb, GuardedProduct n, boolean dense,
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed) {
+    Lane lane = Lane.LONG;
+    emitValue(cb, n.left(), dense, analysis, s, computed);
+    emitValue(cb, n.right(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    cb.dup2();                                                       // [a, b, a, b]
+    cb.invokevirtual(lane.vector, "mul", lane.lanewiseVV);           // [a, b, r]
+    cb.dup_x2();                                                     // [r, a, b, r]
+    cb.pop();                                                        // [r, a, b]
+    if (!dense && s.ownWord.contains(n)) {
+      emitAndWord(cb, s, s.wordRef.get(n), s.wordRef.get(n.left()), s.wordRef.get(n.right()));
+    }
+    VarkaConversionLowering.emitExactL2D(cb, analysis);              // [r, a, db]
+    cb.swap();                                                       // [r, db, a]
+    VarkaConversionLowering.emitExactL2D(cb, analysis);              // [r, db, da]
+    cb.invokevirtual(Lane.DOUBLE.vector, "mul", Lane.DOUBLE.lanewiseVV);
+    cb.invokevirtual(VECTOR, "reinterpretAsLongs", REINTERPRET_L);
+    cb.loadConstant(Long.MAX_VALUE);
+    cb.invokevirtual(lane.vector, "and", lane.lanewiseVI);           // [r, |p| bits]
+    cb.getstatic(VECTOR_OPERATORS, "GE", VO_COMPARISON);
+    lane.pushScalar(cb, Double.doubleToRawLongBits(GuardedProduct.BOUND));
+    cb.invokevirtual(lane.vector, "compare", lane.compareVI);        // [r, trips]
+    emitOverflowMask(cb, Overflow.FAIL, n, dense, analysis, s);      // [r]
   }
 
   /**

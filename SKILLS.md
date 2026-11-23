@@ -200,6 +200,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [With the intrinsics off C2 takes twenty seconds a loop method, and an epilogue's compile 337 MB](sql/varka/skills/the-jit.md#with-the-intrinsics-off-c2-takes-twenty-seconds-a-loop-method-and-an-epilogues-compile-337-mb)
 * [With the trap limits raised, a masked loop traps thousands of times and still reads as settled](sql/varka/skills/the-jit.md#with-the-trap-limits-raised-a-masked-loop-traps-thousands-of-times-and-still-reads-as-settled)
 * [A kernel warmed after other kernels can stay allocating, and the template prewarm guards only the int lane](sql/varka/skills/the-jit.md#a-kernel-warmed-after-other-kernels-can-stay-allocating-and-the-template-prewarm-guards-only-the-int-lane)
+* [A back-edge `profile_predicate` cycle is C2's loop nest over `long` range checks](sql/varka/skills/the-jit.md#a-back-edge-profile_predicate-cycle-is-c2s-loop-nest-over-long-range-checks)
 * [Which tier served a call: the code list at the call's edges, JFR's events inside it](sql/varka/skills/the-jit.md#which-tier-served-a-call-the-code-list-at-the-calls-edges-jfrs-events-inside-it)
 * [Why a warmed kernel still allocates: C2 sums class-check traps over the whole compile](sql/varka/skills/the-jit.md#why-a-warmed-kernel-still-allocates-c2-sums-class-check-traps-over-the-whole-compile)
 * [A template warm-up run after the templates' first compile deoptimises them, and a wide kernel sums one decompile past C2's cutoff](sql/varka/skills/the-jit.md#a-template-warm-up-run-after-the-templates-first-compile-deoptimises-them-and-a-wide-kernel-sums-one-decompile-past-c2s-cutoff)
@@ -211,6 +212,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [An overflowing `Math.*Exact` loses its message once its site has trapped enough](sql/varka/skills/the-jit.md#an-overflowing-mathexact-loses-its-message-once-its-site-has-trapped-enough)
 * [Which NaN an operation over two NaNs returns depends on the tier](sql/varka/skills/the-jit.md#which-nan-an-operation-over-two-nans-returns-depends-on-the-tier)
 * [A long-lane kernel unsettled in the compiled test is row 383's back-edge trap, not the sanitizer](sql/varka/skills/the-jit.md#a-long-lane-kernel-unsettled-in-the-compiled-test-is-row-383s-back-edge-trap-not-the-sanitizer)
+* [A compiler directive's inline list binds only the compiles its match names as their root](sql/varka/skills/the-jit.md#a-compiler-directives-inline-list-binds-only-the-compiles-its-match-names-as-their-root)
 
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)
 * [Vector API on HotSpot, Measured (JDK 25, x86-64)](sql/varka/skills/vector-api-and-width.md#vector-api-on-hotspot-measured-jdk-25-x86-64)
@@ -249,5 +251,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [The fork's CI queue is a job inside the Build, and the check sync rides the push](sql/varka/skills/working-in-this-repo.md#the-forks-ci-queue-is-a-job-inside-the-build-and-the-check-sync-rides-the-push)
 * [GitHub Actions facts the CI queue cost a run each to learn](sql/varka/skills/working-in-this-repo.md#github-actions-facts-the-ci-queue-cost-a-run-each-to-learn)
 * [`varka_regen_generated.sh --all` does not regenerate the golden corpus](sql/varka/skills/working-in-this-repo.md#varka_regen_generatedsh---all-does-not-regenerate-the-golden-corpus)
+* [The pre-commit hook refuses a census claim that `coverage.json` cannot show yet](sql/varka/skills/working-in-this-repo.md#the-pre-commit-hook-refuses-a-census-claim-that-coveragejson-cannot-show-yet)
+* [The quote check reads a plan section numbered 10.1x as a measurement](sql/varka/skills/working-in-this-repo.md#the-quote-check-reads-a-plan-section-numbered-101x-as-a-measurement)
 
 <!-- END generated contents -->

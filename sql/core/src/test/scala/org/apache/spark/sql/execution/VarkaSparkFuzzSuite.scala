@@ -32,6 +32,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaCatalystGra
   VarkaShapeCache, VarkaTypeId}
 import org.apache.spark.sql.catalyst.plans.logical.Filter
 import org.apache.spark.sql.execution.VarkaSparkFuzz._
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * Random compositions of the coverage table's rows over random data, run with Varka off and on,
@@ -205,6 +206,8 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     var nestedErrored = 0
     var nestedFailed = 0
     val pins = new Pins
+    // The counters are the suite's, so this test's share is what they gained during it.
+    val (comparedBefore, fusedBefore) = (compared, fused)
     val range = onlyIteration.map(k => k to k).getOrElse(0 until iterations)
     for (it <- range if failures.size < maxFailures) {
       val c = rectify(draw(rows, seed, it))
@@ -238,6 +241,11 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     info(s"  compared again because a query raised: $comparedAgain, $again; of them, " +
       s"$twoPartitionsOnly differed at two partitions only")
     errorCensus.foreach(l => info(s"  raised: $l"))
+    // A run that compared nothing, or fused nothing, would pass with no case checked. A replay
+    // of one iteration may fuse nothing, so only a run of several is held to the second.
+    val (ownCompared, ownFused) = (compared - comparedBefore, fused - fusedBefore)
+    assert(ownCompared > 0 && (ownFused > 0 || range.size == 1),
+      s"this test compared $ownCompared, fused $ownFused")
     // A warning, not a failure: which conditions a bounded run meets moves with the coverage
     // table, and a failure here would blame a pull request that only added a row (VARKA-319.md 5).
     unusedExpectedErrors.foreach(e => info(s"  expected error never raised in this run: $e"))
@@ -605,6 +613,37 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     val withPivot = c.copy(data = data, pivot = Some(data(5)))
     val kept = shrink(withPivot, "values differ", _ => Some("values differ"))
     assert(kept.data.contains(data(5)) && kept.data.size == 1, kept.data)
+  }
+
+  test("a NaN pivot row whose batch Spark's cache prunes on both sides is reported as missing " +
+      "(SPARK-58482), not passed as two engines agreeing") {
+    // VARKA-504's planted fault. The cache's statistics leave NaN out, so with its pruning on a
+    // one-row batch of NaN is dropped from a filter that NaN passes, on both engines alike: the
+    // comparison of the two sees no difference, and only the pivot check can tell that neither
+    // read the row. The fuzzer runs a floating case with the pruning off for this reason. The
+    // plant calls the two checks directly, not through `checkOnce`, so it does not show that
+    // `checkOnce` still asks for the pivot.
+    val view = "varka_nan_pivot"
+    val query = s"SELECT x FROM $view WHERE NOT (x < 1.5D)"
+    Seq(spark, varkaSpark).foreach { session =>
+      session.range(1).selectExpr("CAST('NaN' AS DOUBLE) AS x").createOrReplaceTempView(view)
+      session.catalog.cacheTable(view)
+    }
+    try {
+      val alone = outcome(spark, s"SELECT x FROM $view")
+      def check(prune: Boolean): (Option[String], Option[String]) =
+        withBothConf(SQLConf.IN_MEMORY_PARTITION_PRUNING.key, prune.toString) {
+          val (off, on) = (outcome(spark, query), outcome(varkaSpark, query))
+          (difference(off, on), pivotMissing(off, on, alone))
+        }
+      assert(check(prune = false) == ((None, None)))
+      assert(check(prune = true) == ((None, Some("pivot row not selected by Varka"))))
+    } finally {
+      Seq(spark, varkaSpark).foreach { session =>
+        session.catalog.uncacheTable(view)
+        session.catalog.dropTempView(view)
+      }
+    }
   }
 
   test("a reproducer with a forced output parses back to what was rendered") {

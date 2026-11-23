@@ -65,11 +65,13 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     // one of them the defaults' (VarkaEmittedBytesSuite holds the bytes to that); and level 3
     // left out though it admits the BIGINT conversions the defaults' unknown level declines.
     // useAVX=2 runs again under each kept arm of the AVX2 conversions, the one level where
-    // wideConversionForm, roundToOddByShifts and narrowConversionForm are read.
+    // wideConversionForm, roundToOddByShifts and narrowConversionForm are read, and under each
+    // kept arm of checkedLongMultiply, which the AVX2 level reads too.
     val levels = VarkaMatrix.configurations.filter(_.startsWith("useAVX="))
     assert(levels === Seq("useAVX=2", "useAVX=3", "useAVX=2,wideConversionForm=SPLIT",
       "useAVX=2,wideConversionForm=MAGIC", "useAVX=2,roundToOddByShifts=true",
-      "useAVX=2,narrowConversionForm=WINDOWED", "useAVX=2,narrowConversionForm=SCALAR"))
+      "useAVX=2,narrowConversionForm=WINDOWED", "useAVX=2,narrowConversionForm=SCALAR",
+      "useAVX=2,checkedLongMultiply=MAGNITUDE", "useAVX=2,checkedLongMultiply=BY_HOST"))
     val configs = VarkaMatrix.configurations
     assert(configs.distinct === configs)
     assert(configs.map(VarkaMatrix.parse).map(VarkaMatrixRuns.emissionKey).distinct.size ===
@@ -168,6 +170,7 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(VarkaMatrixRuns.changesC2("narrowHalfSpecies=true"))
     assert(!VarkaMatrixRuns.changesC2("narrowGroupStore=COMBINED"))
     assert(VarkaMatrixRuns.changesC2("lanesOverride=4,narrowGroupStore=COMBINED"))
+    assert(VarkaMatrixRuns.changesC2("uncountedMainLoop=true"))
     assert(VarkaMatrixRuns.changesC2("cse=false,lanesOverride=16"))
     assert(!VarkaMatrixRuns.changesC2("cse=false"))
     assert(!VarkaMatrixRuns.changesC2(

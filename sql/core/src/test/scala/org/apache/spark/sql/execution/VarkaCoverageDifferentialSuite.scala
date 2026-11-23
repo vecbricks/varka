@@ -223,7 +223,7 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
    * may also plan over the uncached rows, which prunes nothing, so the two answers would
    * differ on a fact about the cache, not about either engine. The wrap is not a workaround
    * for a lost cache: with both sides cached they would agree on the pruned answer and leave
-   * the NaN row untested.
+   * the NaN row untested. `VarkaFloatingLaneSuite`'s SPARK-58482 test pins the pruning.
    */
   private def withFloatingPruningOff[T](row: CoverageRow)(body: => T): T =
     if (floatingColumn.findFirstIn(row.executable).isEmpty) body
