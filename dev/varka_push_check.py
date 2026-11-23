@@ -224,10 +224,10 @@ def registry_suites(repo):
     return suites_in(repo, registry_paths(repo))
 
 
-# What a registry the grep finds must say of a record, read as text (comments dropped) so that
+# What a registry of registry_paths must say of a record, read as text (comments dropped) so that
 # no JVM is needed: a pattern over the suite and the files it draws from, {n} the record's name.
-# None marks a registry that names no record, enumerating them reflectively; a registry missing
-# here is reported as unchecked, which the JVM run covers. One line a registry.
+# None marks a registry that names no record, enumerating them reflectively (or a grep match that
+# is not of nodes); a registry missing here is reported as unchecked, which the JVM run covers.
 BUILT = r"new (?:VarkaVectorIR\.)?{n}\(|\b{n}\.of\("
 TEST_JAVA = "sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/"
 REGISTRIES = {
@@ -239,13 +239,15 @@ REGISTRIES = {
     "VarkaEmitCostSuite": ("feature or awaiting-refit entry", r'"{n}["/]', ("EmitCostFit",)),
     "VarkaSmtNodesSuite": (
         "template arm or REFUSED entry",
-        r"entry\({n}\.class|\bcase {n} (?!_)\w+|\bcase {n}\(",
+        # an arm of its own that does not throw refused(), which reads REFUSED
+        r"entry\({n}\.class|\bcase {n}(?:\(| \w+ *(?:when\b|->(?! *throw refused\()))",
         ("SmtNodes",),
     ),
-    # Only the arms of admissible's match count: the suite's other matches name some nodes too.
+    # Only admissible's arms count, to the end of its body: the suite's other matches name some
+    # nodes too.
     "VarkaRangeAnalysisSuite": (
         "admissible arm (x: {n})",
-        r"(?s)def admissible\((?:(?!\n  \S).)*?\b\w+: {n}\b",
+        r"(?sm)^( *)(?:\w+ )*def admissible\((?:(?!\n\1\S).)*?\b\w+: {n}\b",
         (),
     ),
     "VarkaVectorIRSharingSuite": None,
@@ -255,8 +257,8 @@ REGISTRIES = {
 
 
 def registry_findings(repo, names):
-    """(findings, notes): the registries the grep finds that do not name a record of names, and
-    those this check cannot read."""
+    """(findings, notes): the registries of registry_paths that do not name a record of names,
+    and those this check cannot read."""
     found, notes = [], []
     for path in registry_paths(repo):
         suite = os.path.basename(path).split(".")[0]
@@ -728,20 +730,24 @@ class SelfTest(unittest.TestCase):
         t, s = "sql/catalyst/src/test/scala/a/", TEST_JAVA + "VarkaSmtNodes.java"
         ra = "  def leafRole = n match {\n    case _: Mix =>\n  }\n  private def admissible(\n"
         ra += "    case x: Not => go(x.child())\n    case y: Year => y.days()\n  }\n"
+        ra += "  def later = n match {\n    case _: Fold =>\n  }\n"
         repo = FakeRepo(
             {},
             {
                 TEST_JAVA + "VarkaSmtNodesSuite.java": "getPermittedSubclasses",
-                s: "entry(Year.class, R)\ncase Not n -> no(n);\ncase Year _, Mix _ -> refused",
+                s: "entry(Year.class, R)\ncase Not _ -> no();\ncase Year _, Mix _ -> refused\n"
+                "case Fold f -> throw refused(f);",
                 t + "VarkaRangeAnalysisSuite.scala": ra,
             },
         )
-        found, notes = registry_findings(repo, ["Not", "Year", "Mix"])
+        found, notes = registry_findings(repo, ["Not", "Year", "Mix", "Fold"])
         self.assertCountEqual(
             [f.split("/")[-1] for f in found],
             [
                 "VarkaSmtNodesSuite.java names Mix in no template arm or REFUSED entry",
+                "VarkaSmtNodesSuite.java names Fold in no template arm or REFUSED entry",
                 "VarkaRangeAnalysisSuite.scala names Mix in no admissible arm (x: Mix)",
+                "VarkaRangeAnalysisSuite.scala names Fold in no admissible arm (x: Fold)",
             ],
         )
         self.assertEqual(notes, [])
