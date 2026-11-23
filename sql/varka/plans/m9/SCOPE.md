@@ -6198,6 +6198,10 @@ balances (`m8/PLAN.md` row 493). The shard code it merged (#1023: `dev/varka_mat
 `sql/varka/matrix/seconds.tsv` and `dev/varka_matrix.sh --shard`) stays in the tree unused by the
 weekly matrix; removing it is carried here.
 
+*Corrected 23 November 2026:* this item first listed 42 rows. Row 638 was among them, and the
+owner returned it to milestone 8 the same day, since the local gate's sweep is the throughput
+limit; it now waits there on row 637's step 1, which stays here.
+
 | task | what it is | where its design is | why it left milestone 8 |
 | ---: | :--- | :--- | :--- |
 | 404 | The int-lane reference arm's rate follows the tiered JIT | `VARKA-404.md` | a JIT reading of one benchmark arm on the int lane, not a new type |
