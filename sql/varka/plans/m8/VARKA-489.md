@@ -353,6 +353,15 @@ from a new node: no line of `VarkaEmitBudget`, `VarkaEmitCost`, `VarkaOperandPos
    `VarkaIrGrammar.boundsOf`, `VarkaReference` and `VarkaGuardSpecs`.
 4. Price its cost feature in `VarkaEmitCostTable` as `VarkaEmitCostSuite` says, and give the node
    a row in `VarkaEmitterBudgetSuite`'s register.
+5. Give it the other per-node test fixtures. Each holds a sample or a reference walk of the node,
+   not a property of it, so `props()` cannot stand in for them: a draw in `VarkaIrGrammar` (read
+   by `VarkaWithChildrenSuite` and `VarkaIrFuzzSuite`) or an entry in those suites' undrawn and
+   unbuilt lists, an instance recipe in `VarkaLaneTypeSuite`, a round trip in
+   `VarkaReproductionSuite`, an encoding or a `REFUSED` entry in `VarkaSmtNodes` (for
+   `VarkaSmtNodesSuite`), and an arm in `VarkaRangeAnalysisSuite.admissible`. R1 of
+   `dev/varka_push_check.py` checks each of these and step 4's two as text for the record's name,
+   without a JVM and before the regen in `pre-pr.sh`, and runs every suite that enumerates node
+   types.
 
 A branch written before 489b or 489c rebases by deleting its arms from `weightOf`, `kindOf`,
 `admits`, `restrictedOperands`, `inputOrdinal`, `longNarrowReader`, `isNarrowRing`, `ownerOf`,
@@ -369,3 +378,17 @@ in a scratch tree at 489b's first commit: it first found `MathUnary`'s weight st
 per-lane calls weigh 16), then, fixed, **97536 distinct nodes of 61 record types** agreed, with
 **7850 analyses** and 336564 word entries. Master's options overload of `weightOf` (row 600's
 `L2F` forms) stays in `VarkaEmitBudget`, reading the descriptor for every other node.
+
+**Scope check, 23 November 2026.** Against the day's four failures from a new IR node: the stale
+`MathUnary` weight in 489a's own descriptor was drift between two copies, which 489b ends by
+deleting the switch (the equivalence suite caught it meanwhile, and after 489c the
+`VarkaEmitterBudgetSuite` register catches a wrongly stated weight). The registry suites that
+lacked `IntDivide` (30a1) and `InterleaveDecimal` (359b, 359c) hold per-node test fixtures, not
+node properties, so the descriptor cannot generate them; review caught them before any push, and
+`VarkaRangeAnalysisSuite`'s match the compiler, at a gate's regen. The row's scope stays as
+planned, three parts; the recipe for adding a node gains the test fixtures (step 5). Since #1687,
+R1 of `dev/varka_push_check.py` also reads `VarkaSmtNodes` and `VarkaRangeAnalysisSuite.admissible`
+and runs before the regen, so those two misses now fail in seconds. Because 489a merges master
+cleanly over a changed switch arm, every restack runs the equivalence suite and the budget and
+cost suites at 489b's tip before 489a's gate. The owner held the row on 23 November until the
+open pull requests merge, since it touches many files they touch.
