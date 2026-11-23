@@ -9,9 +9,11 @@ All three ran on an AMD EPYC 7763 runner. The after files' four literal sections
 #1597 spliced into sql/core/benchmarks/VarkaFloatingBaselineBenchmark-jdk25-runner-epyc7763-
 results.txt (256 bits); the 128-bit file on master holds an earlier run's (44847298623).
 
-== 256 bits, before and after (dev/varka_bench_diff.py --all BEFORE AFTER)
-   The literal rows are the change. Every other row is code #1443 did not change, so its
-   movement is the noise between the two runs.
+== 256 bits, before and after: the full output of
+   dev/varka_bench_diff.py --all literal-baseline-256bit-results.txt literal-specialised-256bit-results.txt
+   The flat 3% threshold applies (no band file for this family). The literal rows are the
+   change. The two runs are not a pair: eleven days apart, on different commits, JDK builds
+   and runner kernels, so the other rows' movement is not only run-to-run noise either.
 
 -- moved by at least 3% --
 case                                                                                                       before      after    change
@@ -59,6 +61,26 @@ case                                                                            
 [FLOAT choice, one row in ten null over 2000000 Arrow-cached rows] varka on                                            163.3      162.3     -0.6%
 [FLOAT comparison with a literal, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)        47.6       46.7     -1.9%
 
+new only: [DOUBLE x % w, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)
+new only: [DOUBLE x % w, no nulls over 2000000 Arrow-cached rows] varka on
+new only: [DOUBLE x % 2.5, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)
+new only: [DOUBLE x % 2.5, no nulls over 2000000 Arrow-cached rows] varka on
+new only: [DOUBLE pmod(x, w), no nulls over 2000000 Arrow-cached rows] spark row path (varka off)
+new only: [DOUBLE pmod(x, w), no nulls over 2000000 Arrow-cached rows] varka on
+new only: [DOUBLE cast to DECIMAL(10, 2), no nulls over 2000000 Arrow-cached rows] spark row path (varka off)
+new only: [DOUBLE cast to DECIMAL(10, 2), no nulls over 2000000 Arrow-cached rows] varka on
+new only: [FLOAT f % wf, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)
+new only: [FLOAT f % wf, no nulls over 2000000 Arrow-cached rows] varka on
+new only: [DOUBLE x % w, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)
+new only: [DOUBLE x % w, one row in ten null over 2000000 Arrow-cached rows] varka on
+new only: [DOUBLE x % 2.5, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)
+new only: [DOUBLE x % 2.5, one row in ten null over 2000000 Arrow-cached rows] varka on
+new only: [DOUBLE pmod(x, w), one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)
+new only: [DOUBLE pmod(x, w), one row in ten null over 2000000 Arrow-cached rows] varka on
+new only: [DOUBLE cast to DECIMAL(10, 2), one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)
+new only: [DOUBLE cast to DECIMAL(10, 2), one row in ten null over 2000000 Arrow-cached rows] varka on
+new only: [FLOAT f % wf, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)
+new only: [FLOAT f % wf, one row in ten null over 2000000 Arrow-cached rows] varka on
 
 == 128 bits, after only (grep -A3 on the literal sections of the 128-bit file)
    No 128-bit run of the baseline exists. The two DOUBLE literal sections are NONE at 128 bits
