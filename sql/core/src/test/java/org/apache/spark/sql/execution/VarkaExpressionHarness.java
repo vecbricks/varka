@@ -95,6 +95,9 @@ public final class VarkaExpressionHarness {
      */
     public final List<String> readPath = new ArrayList<>();
 
+    /** Each of {@link #findings} that is Spark's two projections disagreeing, not the kernel. */
+    public final List<String> sparkDisagreements = new ArrayList<>();
+
     /** Under {@link Options#rowPath}, each error the row path raised out of a declined batch. */
     public final List<RuntimeException> rowPathErrors = new ArrayList<>();
 
@@ -230,9 +233,11 @@ public final class VarkaExpressionHarness {
           : b.error() == null && sameRow(a.row(), b.row(), types,
               o -> unfixedNaN(bound.get(o), rows.get(row))) == null;
       if (!agree) {
-        outcome.findings.add(context + ", row " + i + ": Spark's interpreted and generated "
+        String finding = context + ", row " + i + ": Spark's interpreted and generated "
             + "projections disagree (" + describe(a, types) + " against " + describe(b, types)
-            + "); the row is not compared");
+            + "); the row is not compared";
+        outcome.findings.add(finding);
+        outcome.sparkDisagreements.add(finding);
         out.add(null);
       } else {
         out.add(b);

@@ -33,17 +33,20 @@ enough bytes, say). Otherwise they are the suite's seconds under the defaults ti
 configuration's weight over the defaults (`sql/varka/matrix/seconds.tsv`): the suite's seconds
 from `sql/varka/matrix/suite-seconds.tsv` where a suite is listed there (each suite's median over
 the configurations), from the pull-request jobs' `sql/varka/ci/suite-times.tsv` otherwise, and
-for a suite neither file lists the median, so a new suite is placed as an ordinary one. `times`
-writes both measured files from a fanned-out run's JUnit reports.
+for a suite neither file lists the median, so a new suite is placed as an ordinary one. A suite
+a configuration's reach record lets only some tests of run is a part run, weighed by default by
+the share of its whole run; `--part-weight part-seconds` weighs it by its measured seconds where
+`sql/varka/matrix/config-suite-part-seconds.tsv` lists the pair (VARKA-617, decision 9). `times`
+writes the measured files from a fanned-out run's JUnit reports.
 
   dev/varka_matrix_bins.py plan --configurations FILE --suites MODULE=FILE... \\
-      [--target SECONDS] > bins.json          # the job matrix, {"include": [...]}
-  dev/varka_matrix_bins.py times [--reach FILE] [--per-configuration FILE] JUNIT_DIR... \\
-      > suite-seconds.tsv
+      [--target SECONDS] [--part-weight share|part-seconds|alone] > bins.json  # {"include": [...]}
+  dev/varka_matrix_bins.py times [--reach FILE] [--per-configuration FILE] [--part-runs FILE] \\
+      JUNIT_DIR... > suite-seconds.tsv
   dev/varka_matrix_bins.py select --base DIR --pr DIR --configurations FILE \\
       (--changed FILE | --trees OLD NEW) [--reach FILE --reach-out FILE] > units.tsv
   dev/varka_matrix_bins.py replay RUN_DIR --jobs JOBS --suites MODULE=FILE... [--reach FILE] \\
-      [--plan-from REF] [--pairs FILE] [--suite-seconds FILE]
+      [--plan-from REF] [--pairs FILE] [--suite-seconds FILE] [--part-seconds FILE]
   dev/varka_matrix_bins.py --selftest
 
 Each bin's `units` is one line a JVM, `configuration|module|suite,suite,...`, the suites as
@@ -79,6 +82,18 @@ SUITE_TIMES = "sql/varka/ci/suite-times.tsv"
 SUITE_SECONDS = "sql/varka/matrix/suite-seconds.tsv"
 CONFIG_SUITE_SECONDS = "sql/varka/matrix/config-suite-seconds.tsv"
 CONFIG_WEIGHTS = "sql/varka/matrix/seconds.tsv"
+# A configuration's part runs of a suite, where its reach record let only some tests through
+# (VARKA-617), and the suites whose part runs are planned as units of their own.
+PART_SECONDS = "sql/varka/matrix/config-suite-part-seconds.tsv"
+PART_ALONE = "sql/varka/matrix/part-alone.tsv"
+# How `units` weighs a suite a configuration runs part of: `share`, its whole run times the share
+# of its tests the record lets through; `part-seconds`, its measured part run where
+# PART_SECONDS lists the pair and its share otherwise; `alone`, a suite PART_ALONE lists in a
+# unit of its own at its whole run, every other suite by its share. A part run measured at a
+# smaller share than today's weighs no less than its share (`units`). `share` stays the default:
+# nothing in CI refreshes PART_SECONDS yet, and a stale default would drift on every plan.
+PART_WEIGHTS = ("share", "part-seconds", "alone")
+PART_WEIGHT = "share"
 DEFAULTS = "defaults"
 # A runner JVM's start and its first Spark session, before any suite's own time.
 JVM_START = 20.0
@@ -151,6 +166,22 @@ def read_config_seconds(path):
             continue
         config, suite, seconds = line.split("\t")[:3]
         out[(run_dir(config), suite)] = float(seconds)
+    return out
+
+
+def read_part_seconds(path):
+    """`configuration<TAB>suite<TAB>seconds<TAB>share` lines (`write_part_seconds`) as
+    {(run directory, suite): (seconds, share)}, `#` comments and blank lines aside; empty for a
+    missing file."""
+    out = {}
+    p = Path(path)
+    if not p.exists():
+        return out
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        config, suite, seconds, share = line.split("\t")[:4]
+        out[(run_dir(config), suite)] = (float(seconds), float(share))
     return out
 
 
@@ -298,15 +329,20 @@ def units(
     reach=None,
     config_seconds=None,
     platforms=(),
+    part_weight=PART_WEIGHT,
+    part_seconds=None,
+    part_alone=(),
 ):
     """Every (configuration, module, suites, seconds) JVM the matrix runs, the defaults first. A
     suite's whole run under a configuration takes its measured seconds there (`config_seconds`,
     keyed by the configuration's run directory) or else its weight times the configuration's
     factor. A suite whose tests a configuration's record leaves all to the defaults is not run
-    under it, and one it runs some tests of weighs that share of its whole run, a tenth at least,
-    for its set-up."""
+    under it, and one it runs some tests of weighs as `part_weight` says (PART_WEIGHTS): by
+    default that share of its whole run, a tenth at least, for its set-up."""
     fill = statistics.median(config_weights.values()) if config_weights else 1.0
     config_seconds = config_seconds or {}
+    part_seconds = part_seconds or {}
+    apart = set(part_alone) if part_weight == "alone" else set()
     out = []
     for config in [DEFAULTS] + list(configurations) + list(platforms):
         platform = config in platforms
@@ -324,7 +360,17 @@ def units(
                 if whole is None:
                     whole = weight(name) * factor
                 seconds = whole * max(share, 0.1)
-                if alone:
+                part = part_seconds.get((directory, name))
+                if share < 1.0 and part_weight == "part-seconds" and part is not None:
+                    measured, at = part
+                    # A record that lets more of the suite's tests through than the one the pair
+                    # was measured under, at the file's three decimals, weighs no less than its
+                    # share.
+                    seconds = measured if round(share, 3) <= at else max(measured, seconds)
+                elif share < 1.0 and name in apart:
+                    # Its time follows the cases it drew, not the share of its tests that ran.
+                    seconds = whole
+                if alone or name in apart:
                     out.append((config, module, [name], JVM_START + seconds))
                 else:
                     shared.append((name, seconds))
@@ -371,6 +417,9 @@ def plan(
     reach=None,
     config_seconds=None,
     platforms=(),
+    part_weight=PART_WEIGHT,
+    part_seconds=None,
+    part_alone=(),
 ):
     """The job matrix. The platform configurations named in `platforms` (keys of PLATFORMS) are
     packed apart from the others, one group of bins for each runner and ahead of the matrix's own
@@ -378,7 +427,17 @@ def plan(
     carries its JVM flags as a fourth field."""
     weight = suite_weight(suite_seconds, suite_times)
     all_units = units(
-        configurations, suites, weight, config_weights, lane, reach, config_seconds, platforms
+        configurations,
+        suites,
+        weight,
+        config_weights,
+        lane,
+        reach,
+        config_seconds,
+        platforms,
+        part_weight,
+        part_seconds,
+        part_alone,
     )
     # The platforms' bins come first, so that they start at once and hold their slots while the
     # matrix's own bins fill the rest.
@@ -416,14 +475,11 @@ def over_cap(out, target, cap=MATRIX_CAP):
     )
 
 
-def whole_runs(junit_dirs, reach=None):
-    """Each suite's seconds under each configuration that ran every test of it, the defaults
-    among them, as {(run directory, suite): seconds}, from JUnit reports under
-    `<dir>/<configuration>/<module>-.../junit`. With the run's reach record, a configuration
-    that ran only the tests the record let through is left out: its time is a share of the
-    suite's, and the planner applies that share to the weight itself (`units`), so counting it
-    here too would shrink the weight twice (VARKA-508). The directories are one run's: a suite's
-    seconds under a configuration add up over them."""
+def run_seconds(junit_dirs, reach=None):
+    """Each suite's seconds under each configuration, with the share of its tests the run's reach
+    record let the configuration run, as {(run directory, suite): (seconds, share)}, from JUnit
+    reports under `<dir>/<configuration>/<module>-.../junit`. The directories are one run's: a
+    suite's seconds under a configuration add up over them."""
     # A run directory names a combined configuration with `_` for its commas (`run_dir`), and the
     # record names it whole: the record's own names are mapped to their directories to match.
     named = {run_dir(c): c for c in reach[0]} if reach is not None else {}
@@ -439,13 +495,31 @@ def whole_runs(junit_dirs, reach=None):
             if not name or not seconds:
                 continue
             config = xml.parent.parent.parent.name
-            key = (name.group(1).rsplit(".", 1)[-1], config)
+            key = (config, name.group(1).rsplit(".", 1)[-1])
             per_config[key] = per_config.get(key, 0.0) + float(seconds.group(1))
     return {
-        (config, suite): seconds
-        for (suite, config), seconds in per_config.items()
-        if reach_share(reach, named.get(config, config), suite) == 1.0
+        (config, suite): (seconds, reach_share(reach, named.get(config, config), suite))
+        for (config, suite), seconds in per_config.items()
     }
+
+
+def whole_runs(junit_dirs, reach=None):
+    """Each suite's seconds under each configuration that ran every test of it, the defaults
+    among them, as {(run directory, suite): seconds} (`run_seconds`). With the run's reach
+    record, a configuration that ran only the tests the record let through is left out: its time
+    is a share of the suite's, and the planner applies that share to the weight itself (`units`),
+    so counting it here too would shrink the weight twice (VARKA-508)."""
+    runs = run_seconds(junit_dirs, reach)
+    return {key: seconds for key, (seconds, share) in runs.items() if share == 1.0}
+
+
+def part_runs(junit_dirs, reach=None):
+    """Each suite's seconds under each configuration that ran only some of its tests, as
+    {(run directory, suite): (seconds, share)} (`run_seconds`): the part runs `whole_runs` leaves
+    out, which `units` reads under `--part-weight part-seconds`. None without a reach record,
+    under which every configuration runs every test."""
+    runs = run_seconds(junit_dirs, reach)
+    return {key: got for key, got in runs.items() if 0.0 < got[1] < 1.0}
 
 
 def times(junit_dirs, reach=None):
@@ -654,20 +728,23 @@ def replay(
     target=480.0,
     reach=None,
     slots=None,
+    part_weights=(PART_WEIGHT,),
 ):
     """The run's measured bin phase beside its replays. `bins` and `jobs` are the run's
     (`read_bin_runs`, `read_bin_jobs`), `suites` its modules' suites as `plan` takes them and
     `planner` the files the replanned cut reads: (suite seconds, PR suite times, configuration
-    weights, configuration pair seconds). Each replay starts the jobs in the plan's order on the
-    run's slots, each after the run's median wait for a runner.
+    weights, configuration pair seconds, part-run seconds, suites planned apart). Each replay
+    starts the jobs in the plan's order on the run's slots, each after the run's median wait for
+    a runner.
 
     * `jobs as run` times the run's own jobs at their measured lengths: the slot model alone.
     * `as run` times the run's own bins, each its measured set-up and upload plus its units
       at their measured seconds on two lanes in the order they ran: the bin model too.
     * `replanned` cuts the run's configurations and suites afresh with `planner`, and times each
       unit at the run's measured JUnit seconds of its suites plus the run's median JVM overhead
-      (a unit's seconds less its suites'), each bin at the run's median set-up and upload. A
-      suite the run has no seconds for under a configuration counts as none and is counted."""
+      (a unit's seconds less its suites'), each bin at the run's median set-up and upload, once
+      for each way of weighing a part run in `part_weights`. A suite the run has no seconds for
+      under a configuration counts as none and is counted."""
     measured, run_slots, wait = run_shape(jobs)
     slots = slots or run_slots
     order = sorted(jobs)
@@ -685,29 +762,30 @@ def replay(
                 pairs[(run_dir(config), suite)] = pairs.get((run_dir(config), suite), 0.0) + s
     configs = sorted({u[1] for us in bins.values() for u in us} - {DEFAULTS} - set(PLATFORMS))
     platforms = tuple(p for p in PLATFORMS if any(u[1] == p for us in bins.values() for u in us))
-    suite_seconds, suite_times, config_weights, config_seconds = planner
-    cut = plan(
-        configs,
-        suites,
-        suite_seconds,
-        suite_times,
-        config_weights,
-        target,
-        reach,
-        config_seconds,
-        platforms,
-    )["include"]
-    missing = 0
-    lanes_plan = []
-    for b in cut:
-        seconds = []
-        for line in b["units"].split("\n"):
-            config, _, names = line.split("|")[:3]
-            got = [pairs.get((run_dir(config), s)) for s in names.split(",")]
-            missing += sum(g is None for g in got)
-            seconds.append(jvm + sum(g or 0.0 for g in got))
-        lanes_plan.append(lanes_time(seconds))
-    replanned = phase_time([setup + s for s in lanes_plan], slots, wait)
+    replanned, lanes_plan, missing = {}, {}, {}
+    for weighing in part_weights:
+        cut = plan(
+            configs,
+            suites,
+            *planner[:3],
+            target,
+            reach,
+            planner[3],
+            platforms,
+            weighing,
+            *planner[4:],
+        )["include"]
+        missing[weighing] = 0
+        lanes_plan[weighing] = []
+        for b in cut:
+            seconds = []
+            for line in b["units"].split("\n"):
+                config, _, names = line.split("|")[:3]
+                got = [pairs.get((run_dir(config), s)) for s in names.split(",")]
+                missing[weighing] += sum(g is None for g in got)
+                seconds.append(jvm + sum(g or 0.0 for g in got))
+            lanes_plan[weighing].append(lanes_time(seconds))
+        replanned[weighing] = phase_time([setup + s for s in lanes_plan[weighing]], slots, wait)
     return {
         "measured": measured,
         "slots": slots,
@@ -742,13 +820,14 @@ def replay_inputs(run, jobs_path):
     return bins, jobs, unfinished_units(run)
 
 
-def planner_files(ref=None, pairs=None, suite_seconds=None, repo=None):
+def planner_files(ref=None, pairs=None, suite_seconds=None, part_seconds=None, repo=None):
     """The files the planner reads, at git revision `ref` of the repository `repo` (this one by
-    default) or as the working tree has them, with `pairs` and `suite_seconds` read from the
-    files given instead. A file the revision lacks reads as empty, as a missing file does; a ref
-    that is no commit, any other failure of git, and a given file that does not exist are
-    refused, since each would otherwise plan by fill values alone and look like an answer."""
-    for given in (pairs, suite_seconds):
+    default) or as the working tree has them, with `pairs`, `suite_seconds` and `part_seconds`
+    read from the files given instead. A file the revision lacks reads as empty, as a missing
+    file does; a ref that is no commit, any other failure of git, and a given file that does not
+    exist are refused, since each would otherwise plan by fill values alone and look like an
+    answer."""
+    for given in (pairs, suite_seconds, part_seconds):
         if given is not None and not Path(given).is_file():
             raise SystemExit(f"replay: no file {given}")
     repo = repo or Path(__file__).resolve().parent.parent
@@ -781,6 +860,8 @@ def planner_files(ref=None, pairs=None, suite_seconds=None, repo=None):
             read_tsv(at(SUITE_TIMES)),
             read_tsv(at(CONFIG_WEIGHTS)),
             read_config_seconds(pairs or at(CONFIG_SUITE_SECONDS)),
+            read_part_seconds(part_seconds or at(PART_SECONDS)),
+            read_names(at(PART_ALONE)),
         )
 
 
@@ -795,19 +876,29 @@ def replay_lines(got, over=600.0, unfinished=()):
             f" {sum(s > over for s in seconds)} over {over:.0f} s"
         )
 
-    return [
+    head = [
         f"slots {got['slots']}, a runner's median wait {got['wait']:.0f} s",
         f"a bin job's median set-up and upload {got['setup']:.0f} s,"
         f" a JVM's median overhead {got['jvm']:.1f} s",
-        f"measured bin phase   {got['measured'] / 60:6.1f} min",
-        f"jobs as run          {got['jobs as run'] / 60:6.1f} min",
-        f"as run               {got['as run'] / 60:6.1f} min   {bins(got['bins as run'])}",
-        f"replanned            {got['replanned'] / 60:6.1f} min   {bins(got['bins replanned'])}",
-        f"pairs the run has no seconds for: {got['missing pairs']};"
-        f" bin jobs with no artifact: {', '.join(got['no artifact']) or 'none'}",
-        f"units with a run.log but no seconds, left out of as run: {len(unfinished)}"
-        + "".join(f"\n  {u}" for u in unfinished),
+        f"measured bin phase       {got['measured'] / 60:6.1f} min",
+        f"jobs as run              {got['jobs as run'] / 60:6.1f} min",
+        f"as run                   {got['as run'] / 60:6.1f} min   {bins(got['bins as run'])}",
     ]
+    replanned = [
+        f"replanned, {w:13} {got['replanned'][w] / 60:6.1f} min   {bins(got['bins replanned'][w])}"
+        for w in got["replanned"]
+    ]
+    missing = ", ".join(f"{w} {n}" for w, n in got["missing pairs"].items())
+    return (
+        head
+        + replanned
+        + [
+            f"pairs the run has no seconds for: {missing}",
+            f"bin jobs with no artifact: {', '.join(got['no artifact']) or 'none'}",
+            f"units with a run.log but no seconds, left out of as run: {len(unfinished)}"
+            + "".join(f"\n  {u}" for u in unfinished),
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1044,6 +1135,29 @@ def write_config_seconds(path, seconds, runs=None, header=None):
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_part_seconds(path, runs, header=None):
+    """The file of part runs, `part_runs`' {(run directory, suite): (seconds, share)}, one line a
+    pair with the share of the suite's tests the configuration ran, as `read_part_seconds` reads
+    it."""
+    lines = header or [
+        "# configuration\tsuite\tseconds\tshare: a suite's seconds under a configuration that",
+        "# ran only some of its tests, as dev/varka_matrix_bins.py times --part-runs computes them",
+    ]
+    for (config, suite), (seconds, share) in sorted(runs.items()):
+        lines.append(f"{config}\t{suite}\t{seconds:.1f}\t{share:.3f}")
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def read_names(path):
+    """A file's names, one a line, `#` comments and blank lines aside; empty for a missing file."""
+    p = Path(path)
+    if not p.exists():
+        return ()
+    lines = p.read_text(encoding="utf-8").splitlines()
+    names = (line.strip() for line in lines)
+    return tuple(name for name in names if name and not name.startswith("#"))
+
+
 # A record's format line, which every record a test writes by hand starts with.
 FORMAT_LINE = "#\tformat\t" + REACH_FORMAT + "\n"
 
@@ -1196,6 +1310,69 @@ class SelfTest(unittest.TestCase):
             # The planner reads the comma configuration back by its run directory.
             self.assertEqual(read_config_seconds(out)[(run_dir("w=4,v=5"), "B")], 30.0)
             self.assertEqual(read_config_seconds(out), got)
+            # The part run whole_runs leaves out is the one part_runs keeps, with its share.
+            parts = part_runs([Path(root, "runs")], read_reach(f))
+            self.assertEqual(parts, {("x=1", "A"): (20.0, 0.5)})
+            out = Path(root, "config-suite-part-seconds.tsv")
+            write_part_seconds(out, parts)
+            self.assertEqual(read_part_seconds(out), {("x=1", "A"): (20.0, 0.5)})
+            # Without a record every configuration ran every test, and no run is a part run.
+            self.assertEqual(part_runs([Path(root, "runs")]), {})
+
+    def _part_reach(self):
+        with tempfile.TemporaryDirectory() as root:
+            f = Path(root, "reach.tsv")
+            lines = ["#\tcovers\tx=1;y=2"] + [
+                f"F\tt{i}\t{'x=1' if i < 2 else '-'}" for i in range(10)
+            ]
+            lines += ["G\tone\tx=1", "G\ttwo\t-", "F\t*\t-"]
+            f.write_text(FORMAT_LINE + "\n".join(lines) + "\n", encoding="utf-8")
+            return read_reach(f)
+
+    def test_part_seconds_weigh_a_listed_part_run_and_only_a_part_run(self):
+        # x=1 runs two of F's ten tests and one of G's two; the defaults run both whole.
+        suites = [("sql", [("F", True), ("G", True)])]
+        reach = self._part_reach()
+        measured = {("x=1", "F"): (150.0, 0.2), ("defaults", "F"): (160.0, 0.2)}
+        args = (["x=1"], suites, lambda s: 200.0, {}, 480.0, reach, None, ())
+
+        def ran(*more):
+            return {(u[0], u[2][0]): u[3] - JVM_START for u in units(*args, *more)}
+
+        share = ran("share", measured)
+        self.assertEqual(share[("x=1", "F")], 40.0)
+        got = ran("part-seconds", measured)
+        # The listed part run weighs its measured seconds, an unlisted one its share.
+        self.assertEqual(got[("x=1", "F")], 150.0)
+        self.assertEqual(got[("x=1", "G")], 100.0)
+        # A pair lighter than its share weighs its measured seconds at the share it was measured
+        # at, and its share when today's record lets more of the suite through.
+        light = ran("part-seconds", {**measured, ("x=1", "G"): (10.0, 0.5)})
+        self.assertEqual(light[("x=1", "G")], 10.0)
+        light = ran("part-seconds", {**measured, ("x=1", "G"): (10.0, 0.25)})
+        self.assertEqual(light[("x=1", "G")], 100.0)
+        # A pair of the part file is never read for a whole run, as the defaults run F, or as
+        # every configuration runs every test without a record.
+        self.assertEqual(got[("defaults", "F")], 200.0)
+        bare = units(
+            ["x=1"], suites, lambda s: 200.0, {}, 480.0, None, None, (), "part-seconds", measured
+        )
+        self.assertEqual({u[3] - JVM_START for u in bare if u[0] == "x=1"}, {200.0})
+
+    def test_a_suite_planned_apart_is_a_unit_of_its_own_at_its_whole_run(self):
+        suites = [("sql", [("F", False), ("G", False), ("H", False)])]
+        reach = self._part_reach()
+        args = (["x=1"], suites, lambda s: 200.0, {}, 480.0, reach, None, ())
+        got = units(*args, "alone", None, ("F",))
+        groups = {(u[0], tuple(u[2])): u[3] - JVM_START for u in got}
+        # F runs alone under every configuration that runs it, at its whole run, and the other
+        # suites share their JVMs as before; G under x=1 still weighs its share.
+        self.assertEqual(groups[("defaults", ("F",))], 200.0)
+        self.assertEqual(groups[("x=1", ("F",))], 200.0)
+        self.assertEqual(groups[("x=1", ("G", "H"))], 300.0)
+        # Under any other weighing the list is not read.
+        shared = units(*args, "share", None, ("F",))
+        self.assertNotIn(("x=1", ["F"]), [(u[0], u[2]) for u in shared])
 
     def test_a_measured_configuration_weighs_its_own_seconds(self):
         suites = [("sql", [("A", True), ("B", True)])]
@@ -1634,7 +1811,7 @@ class SelfTest(unittest.TestCase):
             (leaf / "run.log").write_text("killed\n", encoding="utf-8")
             bins, jobs, unfinished = replay_inputs(root, Path(root, "jobs.jsonl"))
             self.assertEqual(unfinished, ["b000-u1/x=1/sql-b000-1"])
-            got = replay(bins, jobs, [("sql", [("A", True)])], ({}, {}, {}, {}), 480.0)
+            got = replay(bins, jobs, [("sql", [("A", True)])], ({}, {}, {}, {}, {}, ()), 480.0)
             lines = replay_lines(got, unfinished=unfinished)
             self.assertIn("left out of as run: 1\n  b000-u1/x=1/sql-b000-1", lines[-1])
             with tempfile.TemporaryDirectory() as empty:
@@ -1667,7 +1844,7 @@ class SelfTest(unittest.TestCase):
                     "b003": (0, 694, None, None, 1294),
                 },
             )
-        got = replay(bins, jobs, [("sql", [("A", True)])], ({}, {}, {}, {}), 480.0)
+        got = replay(bins, jobs, [("sql", [("A", True)])], ({}, {}, {}, {}, {}, ()), 480.0)
         self.assertEqual(got["setup"], 33.0)
 
     def test_the_planner_files_refuse_a_ref_that_is_no_commit_and_a_missing_file(self):
@@ -1680,13 +1857,39 @@ class SelfTest(unittest.TestCase):
             subprocess.run([*git, "-C", repo, "commit", "-q", "-m", "x"], check=True)
             got = planner_files("HEAD", repo=Path(repo))
             # A file the revision lacks reads as empty, as a missing file does.
-            self.assertEqual(got, ({"A": 12.0}, {}, {}, {}))
+            self.assertEqual(got, ({"A": 12.0}, {}, {}, {}, {}, ()))
             with self.assertRaisesRegex(SystemExit, "--plan-from HEAD~1 is no commit"):
                 planner_files("HEAD~1", repo=Path(repo))
             with self.assertRaisesRegex(SystemExit, "no file"):
                 planner_files("HEAD", pairs=Path(repo, "nope.tsv"), repo=Path(repo))
             with self.assertRaisesRegex(SystemExit, "no file"):
                 planner_files(suite_seconds=Path(repo, "nope.tsv"), repo=Path(repo))
+            with self.assertRaisesRegex(SystemExit, "no file"):
+                planner_files(part_seconds=Path(repo, "nope.tsv"), repo=Path(repo))
+
+    def test_plan_weighs_a_part_run_by_its_share_by_default(self):
+        # The default must stay `share` until CI refreshes the part file (VARKA-617 decision 9).
+        self.assertEqual(PART_WEIGHT, "share")
+        parsed = []
+        real = plan
+
+        def spy(*a):
+            parsed.append(a[9])
+            return real(*a)
+
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "configurations").write_text("", encoding="utf-8")
+            Path(root, "sql").write_text("p.A\n", encoding="utf-8")
+            argv = ["plan", "--configurations", str(Path(root, "configurations"))]
+            argv += ["--suites", f"sql={Path(root, 'sql')}"]
+            globals()["plan"] = spy
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        self.assertEqual(main(argv), 0)
+            finally:
+                globals()["plan"] = real
+        self.assertEqual(parsed, ["share"])
 
     def test_plan_refuses_a_matrix_past_the_cap(self):
         # A lane of 10 s is shorter than any unit, so each suite run alone takes a bin.
@@ -1721,7 +1924,9 @@ class SelfTest(unittest.TestCase):
                 {"b000": (0, 2, 32, 52, 55), "b001": (0, 57, 87, 97, 100)},
             )
         self.assertEqual([u[4] for u in bins["b000"]], [10.0, 20.0])
-        got = replay(bins, jobs, [("sql", [("A", True), ("B", True)])], ({}, {}, {}, {}), 480.0)
+        got = replay(
+            bins, jobs, [("sql", [("A", True), ("B", True)])], ({}, {}, {}, {}, {}, ()), 480.0
+        )
         self.assertEqual((got["slots"], got["wait"], got["setup"], got["jvm"]), (1, 2.0, 33.0, 1.0))
         self.assertEqual(got["measured"], 98.0)
         # Every term of the model is taken from the run, so neither replay may drop one.
@@ -1751,12 +1956,12 @@ class SelfTest(unittest.TestCase):
             bins, jobs = self._run(root, bins, jobs)
             pairs = whole_runs([root])
         self.assertEqual(pairs[("x=1", "A")], 200.0)
-        got = replay(bins, jobs, suites, ({}, {}, {}, pairs), 300.0)
+        got = replay(bins, jobs, suites, ({}, {}, {}, pairs, {}, ()), 300.0)
         # The planner cut by the seconds the run measured is the run's own cut, timed alike.
         self.assertEqual(got["jvm"], JVM_START)
-        self.assertEqual(got["missing pairs"], 0)
-        self.assertEqual(got["bins replanned"], got["bins as run"])
-        self.assertEqual(got["replanned"], got["as run"])
+        self.assertEqual(got["missing pairs"][PART_WEIGHT], 0)
+        self.assertEqual(got["bins replanned"][PART_WEIGHT], got["bins as run"])
+        self.assertEqual(got["replanned"][PART_WEIGHT], got["as run"])
         self.assertEqual(got["as run"], got["measured"])
 
 
@@ -1835,10 +2040,11 @@ def replay_main(args):
         bins,
         jobs,
         suites,
-        planner_files(args.plan_from, args.pairs, args.suite_seconds),
+        planner_files(args.plan_from, args.pairs, args.suite_seconds, args.part_seconds),
         args.target,
         read_reach(args.reach) if args.reach else None,
         args.slots,
+        PART_WEIGHTS,
     )
     print("\n".join(replay_lines(got, unfinished=unfinished)))
     return 0
@@ -1869,6 +2075,7 @@ def main(argv):
         + ", ".join(PLATFORMS)
         + ") in bins of their own",
     )
+    p.add_argument("--part-weight", choices=PART_WEIGHTS, default=PART_WEIGHT)
     t = sub.add_parser("times")
     t.add_argument("dirs", nargs="+")
     t.add_argument("--reach", help="the run's record: only whole runs of a suite count")
@@ -1876,6 +2083,11 @@ def main(argv):
         "--per-configuration",
         metavar="FILE",
         help="also write each suite's whole runs under each configuration to FILE",
+    )
+    t.add_argument(
+        "--part-runs",
+        metavar="FILE",
+        help="also write each suite's part runs under each configuration to FILE",
     )
     s = sub.add_parser("select")
     s.add_argument("--base", required=True, help="master's VarkaTestUse record (a directory)")
@@ -1894,6 +2106,7 @@ def main(argv):
     r.add_argument("--plan-from", metavar="REF", help="the planner's files at this revision")
     r.add_argument("--pairs", help="a config-suite-seconds.tsv to plan by, a run's own say")
     r.add_argument("--suite-seconds", help="a suite-seconds.tsv to plan by")
+    r.add_argument("--part-seconds", help="a config-suite-part-seconds.tsv to plan by")
     r.add_argument("--target", type=float, default=480.0)
     r.add_argument("--slots", type=int, help="the slots, the most jobs the run ran at once if not")
     args = parser.parse_args(argv)
@@ -1907,6 +2120,13 @@ def main(argv):
             print(f"{name}\t{seconds:.1f}")
         if args.per_configuration:
             write_config_seconds(args.per_configuration, whole_runs(args.dirs, reach))
+        if args.part_runs:
+            parts = part_runs(args.dirs, reach)
+            if not parts:
+                # A run with no usable record ran no part run: keep the file it would empty.
+                print(f"times: no part run found; {args.part_runs} left as it is", file=sys.stderr)
+            else:
+                write_part_seconds(args.part_runs, parts)
         return 0
     configurations = [
         c.strip()
@@ -1927,6 +2147,10 @@ def main(argv):
         read_reach(args.reach) if args.reach else None,
         read_config_seconds(CONFIG_SUITE_SECONDS),
         tuple(PLATFORMS) if args.platforms else (),
+        args.part_weight,
+        # Each read only by the weighing that uses it, so the default plan reads no part file.
+        read_part_seconds(PART_SECONDS) if args.part_weight == "part-seconds" else {},
+        read_names(PART_ALONE) if args.part_weight == "alone" else (),
     )
     why = over_cap(out, args.target)
     if why is not None:

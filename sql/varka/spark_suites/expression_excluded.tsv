@@ -1,0 +1,8 @@
+# The exclusions of Spark's expression suites run under Varka (VARKA-368; see VarkaSuiteCheck).
+# Tab separated: test name as ScalaTest prints it, suite (the Varka subclass), kind, reason. Kinds:
+# read-path - Spark's answer over the rows read back from Arrow differs from its answer over the fixture's.
+# lift - Spark answers the lifted expression, its literals columns, differently from the suite's.
+# spark - Spark's interpreted and generated projections disagree, so the row is not compared.
+# A listed test whose findings are all of its kind is cancelled with the reason; one that finds nothing
+# fails as a stale line. A finding of the kernel's is never listed: it fails its test.
+test	suite	kind	reason

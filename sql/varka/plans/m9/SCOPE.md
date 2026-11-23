@@ -6182,6 +6182,75 @@ oracle by the sweeps and the fuzzers, with the raise-order cases above among the
 default is stated per rule in the coverage table's verification column. It waits for rows 631 and
 632 and for item 135's spike.
 
+### Item 138. Moved from milestone 8 on 23 November 2026
+
+The mid-course review of milestone 8 (`m8/PLAN.md` 12) set the rule that a finding moving no
+census cell goes to this catalogue (12.3). On 23 November 2026 the owner applied it to the open
+rows: a row stays in milestone 8 if it blocks the close or serves the milestone's goal, the new
+types and their casts and math; the 42 rows below do neither and moved here, on the precedent of
+items 15, 39 and 81: text and task numbers unchanged, each row still in `m8/PLAN.md` with a note
+at its head, and each row's own plan file moved beside this catalogue, as `VARKA-64.md` and
+`VARKA-73.md` were, with a note at its head. None is ordered against this catalogue's spine; each
+re-enters with its own argument, and the reason it left is the start of that argument.
+
+Row 493, read the same day, was withdrawn instead: row 507's bins replaced the shards it
+balances (`m8/PLAN.md` row 493). The shard code it merged (#1023: `dev/varka_matrix_shards.py`,
+`sql/varka/matrix/seconds.tsv` and `dev/varka_matrix.sh --shard`) stays in the tree unused by the
+weekly matrix; removing it is carried here.
+
+| task | what it is | where its design is | why it left milestone 8 |
+| ---: | :--- | :--- | :--- |
+| 404 | The int-lane reference arm's rate follows the tiered JIT | `VARKA-404.md` | a JIT reading of one benchmark arm on the int lane, not a new type |
+| 430 | A kernel warmed inside the sanitizer's window deoptimizes outside one | `VARKA-430.md` A | a sanitizer profile fix that matters only under `sanitizeMemory` |
+| 431 | `NullSafeEqual` in the IR fuzz grammar and the cost model | `VARKA-431.md` | fuzzer reach over shapes that fuse already: it moves no census cell |
+| 432 | Mixed-lane `BitOp` and `BitCount` draws | `VARKA-431.md` | fuzzer reach over shapes that fuse already: it moves no census cell |
+| 433 | The composition fuzzer reads two literal tables | `VARKA-433.md` | fuzzer reach over shapes that fuse already: it moves no census cell |
+| 434 | `cast(l AS int) + i` at 128 bits: the epilogue's long mask | `VARKA-434.md` A | an epilogue speed-up over the existing int and long lanes, not a new type |
+| 435 | The mask-count test read from `VarkaEmitTrace` | `VARKA-434.md` B | a test that goes with 434 |
+| 436 | `p IS TRUE` and the guard under a null test | `VARKA-436.md` | a filter guard rule measured over a date column, not a new type |
+| 437 | The sanitizer window's scan of every range | `VARKA-430.md` B | a sanitizer probe that goes with 430 |
+| 472 | Matrix premises declared and enforced | `VARKA-472.md` | harness work on the existing lanes: it moves no census cell and serves no new type |
+| 483 | The Varka-scoped CI jobs split by suites | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 491 | Selects without the long-to-mask round trip on AVX2 | `VARKA-491.md` | the fix merged; only its cost on both instruction sets is left, a measurement on no new type |
+| 507 | The option matrix in 25 minutes | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 508 | A pull request's matrix reruns only what it moves | the row | CI or tooling work: it moves no census cell and serves no new type; step 2 is parked on `fork/attic/varka-508-split-units` |
+| 511 | A post for Spark application developers on testing below the session | `VARKA-511.md` | a side post, not the milestone post (355) |
+| 512 | A plan's number is checked against the results file it cites | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 513 | No bin waits on a slow setup step | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 515 | A Markdown change to the docs builds the site, not the API docs | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 516 | The Build's Varka jobs split by their suites' current times | `VARKA-516.md` | CI or tooling work: it moves no census cell and serves no new type |
+| 517 | The fuzz suites skip each composition a configuration does not move | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 518 | The catalyst suites recorded and skipped by the tests a configuration moves | `VARKA-518.md` | CI or tooling work: it moves no census cell and serves no new type; its code is parked on `fork/attic/varka-518-catalyst-reach` |
+| 520 | A Varka pull request's Build compiles only what it changed | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 522 | The weekly option matrix on the fork | `VARKA-522.md` | CI or tooling work: it moves no census cell and serves no new type |
+| 525 | The fork's master follows Varka's and keeps the caches | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 526 | The harness skips an expression a configuration does not change | the row | harness work on the existing lanes: it moves no census cell and serves no new type |
+| 527 | Spark's answers computed once, at the defaults | the row | harness work on the existing lanes: it moves no census cell and serves no new type |
+| 528 | The harness plans each query once a run | the row | harness work on the existing lanes: it moves no census cell and serves no new type |
+| 529 | A new session-checking suite is flagged toward the harness | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 530 | Every CI failure and flake in one ledger | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 531 | The fork's master runs a full option matrix after every merge | `VARKA-531.md` | CI or tooling work: it moves no census cell and serves no new type |
+| 532 | The kernel checker defines each kernel once | the row | harness work on the existing lanes: it moves no census cell and serves no new type |
+| 537 | The exhaustive sweeps on CI, and a sweep filter proven to select | `VARKA-537.md` | CI or tooling work: it moves no census cell and serves no new type; most of it is done through row 573 |
+| 539 | An emission outside every reach window warns | `VARKA-539.md` | CI or tooling work: it moves no census cell and serves no new type |
+| 546 | Generated files that concurrent pull requests do not hand-merge | `VARKA-546.md` | CI or tooling work: it moves no census cell and serves no new type; merged as #1293, question 1 went to row 547 |
+| 547 | Each row records the options that change its emitted code | `VARKA-547.md` | CI or tooling work: it moves no census cell and serves no new type |
+| 561 | A fuzzer that draws deep, shared trees | the row | fuzzer reach over shapes that fuse already: it moves no census cell |
+| 590 | A pull request's Build tests it merged with Varka's master | `VARKA-590.md` | CI or tooling work: it moves no census cell and serves no new type |
+| 625 | A push check for an option change | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 627 | One benchmark slug per CPU | the row | CI or tooling work: it moves no census cell and serves no new type |
+| 637 | A pull request's option matrix stops a red run early | `VARKA-637.md` | CI or tooling work: it moves no census cell and serves no new type |
+| 638 | The arm sweep on vecbricks/varka's runners | `VARKA-638.md` | CI or tooling work: it moves no census cell and serves no new type |
+| 642 | An emit option declared in one place | `VARKA-642.md` | CI or tooling work: it moves no census cell and serves no new type |
+
+Two findings of rows marked done the same day come here too, since neither moves a census cell:
+
+* **Row 406's late tier-4 request.** The fix of row 407 removed the slow cells, but why a slow
+  arm's tier-4 request came 37 s late is not read (`m8/results/VARKA-406-slow-mode.txt`).
+* **Row 563's owed follow-up row.** The push check's third-round review listed gaps in R1, R2
+  and the hook, and open point 2 asks for a source stamp in each generated file's header
+  (`m8/VARKA-563.md` 4).
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads

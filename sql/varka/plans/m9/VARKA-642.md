@@ -1,5 +1,9 @@
 # VARKA-642: Declare an emit option in one place, so parallel option rows stop conflicting
 
+*Moved to milestone 9 on 23 November 2026 with row 642 (`SCOPE.md` item 138). A bare
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
+unless that plan moved too (`SCOPE.md` item 138).*
+
 ## 1. Where this came from
 
 On 22 and 23 November 2026, four pull requests built in parallel each added one emit option, and
