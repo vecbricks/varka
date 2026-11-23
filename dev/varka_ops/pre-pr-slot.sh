@@ -21,11 +21,14 @@
 # JVMs, and one run's arm sweep at -j 2 holds about 4. Each waiter wakes at a random offset so two
 # do not take the last slot at once.
 # 23 Nov 2026: every regen runs the width audit, whose 600 s probes time out beside other gates
-# (348, 504, 358a, the skips PR). So gates run one at a time (PRE_PR_SLOTS=1) and the parallelism
-# moves inside a gate: its arm sweep runs at -j PRE_PR_J (5, for 24 cores).
+# (348, 504, 358a, the skips PR). So gates ran one at a time (PRE_PR_SLOTS=1) and the parallelism
+# moved inside a gate: its arm sweep runs at -j PRE_PR_J (5, for 24 cores).
+# 23 Nov 2026, later: a two-slot trial (601's gate beside 612's) had no probe timeout, and the
+# sweep now runs only the configurations a branch is likely to break (pre-pr.sh), so two gates run
+# at once (PRE_PR_SLOTS=2). pre-pr.sh gives the audit's probes 2400 s each beside another gate.
 set -u
 . "$(dirname "$0")/common.sh"
-SLOTS=${PRE_PR_SLOTS:-1}; MIN_GB=${PRE_PR_MIN_GB:-20}; J=${PRE_PR_J:-5}
+SLOTS=${PRE_PR_SLOTS:-2}; MIN_GB=${PRE_PR_MIN_GB:-20}; J=${PRE_PR_J:-5}
 [ $# -ge 1 ] || { echo "usage: pre-pr-slot.sh <worktree> [pre-pr.sh args]"; exit 2; }
 w=$(ops_worktree "$1"); shift; n=$(basename "$w")
 # one gate per worktree: a second waiter for the same worktree exits at once (22 Nov: 617 was
@@ -44,8 +47,11 @@ fi
 # A light gate (23 Nov 2026): a branch that changes no input of the generated files and no test
 # suite runs no regen and no arm sweep, only extra-gate and the push check, so it starts at once
 # beside a heavy gate instead of waiting for the slot. An exclusive gate still holds it back.
+# Committed benchmark results (sql/<module>/benchmarks/*.txt) count as light too: results-only
+# branches waited behind code gates. pre-pr.sh still calls the regen for them; for sql/core's and
+# sql/catalyst's results dev/varka_regen_inputs.py skips its JVM steps, so no width audit runs.
 base=$(git -C "$w" merge-base HEAD origin/master 2>/dev/null)
-heavy=$(ops_regen_inputs "$w"
+heavy=$(ops_regen_inputs "$w" | grep -vE '^sql/[a-z]+/benchmarks/[^/]+\.txt$'
   git -C "$w" diff --name-only --no-renames "$base" HEAD 2>/dev/null \
     | grep -E 'Suite\.(scala|java)$')
 if [ -n "$base" ] && [ -z "$heavy" ] && [ ! -e "$X" ]; then
