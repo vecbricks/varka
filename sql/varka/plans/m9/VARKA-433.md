@@ -1,7 +1,8 @@
 # VARKA-433: The compiled check runs a long-lane kernel with int literals
 
 *Moved to milestone 9 on 23 November 2026 with row 433 (`SCOPE.md` item 138). A bare
-`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`.*
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
+unless that plan moved too (`SCOPE.md` item 138).*
 
 *Row 433 of `m8/PLAN.md`, found by row 336 on 21 October 2026.*
 
