@@ -524,6 +524,9 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        a decrement for the arm; true, the arm kept to be measured against it, by part 343b1's
  *        arithmetic shift, which AVX2 has no 64-bit instruction for, and its four steps. Both
  *        give {@code (float) v} ({@code round_to_odd.smt2}). No other shape reads it.
+ * @param narrowConversionForm the form of {@code L2F} where {@link #convertsFallBack()} holds:
+ *        see {@link NarrowConversionForm}. {@code roundToOddByShifts} picks the steps of its
+ *        rounding to odd wherever that form is emitted. No other shape reads it.
  * @param mathUlpContract whether a math function may take the Vector API's library operator,
  *        within its contracted bound of Spark's answer, where its binding on this host has a
  *        contract entry ({@code spark.sql.codegen.varka.math.ulpContract.enabled},
@@ -620,6 +623,7 @@ public record VarkaEmitOptions(
     DecimalStore decimalStore,
     WideConversionForm wideConversionForm,
     boolean roundToOddByShifts,
+    NarrowConversionForm narrowConversionForm,
     boolean mathUlpContract,
     NarrowGroupStore narrowGroupStore,
     FloatingFault floatingFault,
@@ -708,6 +712,18 @@ public record VarkaEmitOptions(
    * is unmeasured.
    */
   public enum CheckedLongMultiply { BOUND_ONLY, MAGNITUDE, BY_HOST }
+
+  /**
+   * The AVX2 forms of {@code L2F} ({@code VarkaConversionLowering}, VARKA-600), each Java's
+   * {@code (float) v} on every long. {@link #ROUND_TO_ODD}, the default, rounds the magnitude to
+   * odd at the bit {@code 2^12} and converts that exact double, with no branch and no mask.
+   * {@link #WINDOWED} tests each lane group for {@code -2^51 <= v < 2^51} by a shift and an OR
+   * reduction, a scalar with no mask, and inside it takes the bounded magic and one {@code D2F};
+   * a group with a lane outside takes the rounding to odd. {@link #SCALAR} converts the lanes one
+   * at a time by Java's own cast, a lane read and a lane insert each. The two the default does
+   * not take are arms kept to be measured against it.
+   */
+  public enum NarrowConversionForm { ROUND_TO_ODD, WINDOWED, SCALAR }
 
   /** The two {@code trunc(date, ...)} lowerings; see {@link #truncDate}. */
   public enum TruncDateForm { SUBTRACT, RECOMPOSE }
@@ -891,9 +907,8 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
           false, false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
-          false, NarrowGroupStore.MASKED, FloatingFault.NONE, IntervalFault.NONE,
-          VarkaEmitBudget.AUTO_CHAIN_DEPTH,
-          CheckedLongMultiply.BOUND_ONLY);
+          NarrowConversionForm.ROUND_TO_ODD, false, NarrowGroupStore.MASKED, FloatingFault.NONE,
+          IntervalFault.NONE, VarkaEmitBudget.AUTO_CHAIN_DEPTH, CheckedLongMultiply.BOUND_ONLY);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -932,6 +947,9 @@ public record VarkaEmitOptions(
     }
     if (wideConversionForm == null) {
       throw VarkaErrors.illegalArgument("wideConversionForm must not be null");
+    }
+    if (narrowConversionForm == null) {
+      throw VarkaErrors.illegalArgument("narrowConversionForm must not be null");
     }
     if (narrowGroupStore == null) {
       throw VarkaErrors.illegalArgument("narrowGroupStore must not be null");
@@ -1023,6 +1041,7 @@ public record VarkaEmitOptions(
       b.decimalStore = decimalStore;
       b.wideConversionForm = wideConversionForm;
       b.roundToOddByShifts = roundToOddByShifts;
+      b.narrowConversionForm = narrowConversionForm;
       b.mathUlpContract = mathUlpContract;
       b.narrowGroupStore = narrowGroupStore;
       b.floatingFault = floatingFault;
@@ -1088,6 +1107,7 @@ public record VarkaEmitOptions(
     private DecimalStore decimalStore;
     private WideConversionForm wideConversionForm;
     private boolean roundToOddByShifts;
+    private NarrowConversionForm narrowConversionForm;
     private boolean mathUlpContract;
     private NarrowGroupStore narrowGroupStore;
     private FloatingFault floatingFault;
@@ -1368,6 +1388,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder narrowConversionForm(NarrowConversionForm form) {
+      this.narrowConversionForm = form;
+      return this;
+    }
+
     public Builder mathUlpContract(boolean contract) {
       this.mathUlpContract = contract;
       return this;
@@ -1412,7 +1437,8 @@ public record VarkaEmitOptions(
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
           misdescribeDataBytes, fromLongMasks, maskFromWord, decimalAbsLanewise, dropDecimalBound,
-          decimalStore, wideConversionForm, roundToOddByShifts, mathUlpContract,
+          decimalStore, wideConversionForm, roundToOddByShifts, narrowConversionForm,
+          mathUlpContract,
           narrowGroupStore,
           floatingFault, intervalFault, maxChainDepth, checkedLongMultiply);
     }
@@ -1640,6 +1666,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withRoundToOddByShifts(boolean byShifts) {
     return toBuilder().roundToOddByShifts(byShifts).build();
+  }
+
+  public VarkaEmitOptions withNarrowConversionForm(NarrowConversionForm form) {
+    return toBuilder().narrowConversionForm(form).build();
   }
 
   /**

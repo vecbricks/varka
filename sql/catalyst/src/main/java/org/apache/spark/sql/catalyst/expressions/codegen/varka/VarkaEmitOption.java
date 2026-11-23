@@ -34,6 +34,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.DecimalStore;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.Division;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.FloorMod7;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowGroupStore;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.TruncDateForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.WideConversionForm;
@@ -621,6 +622,14 @@ public sealed interface VarkaEmitOption
           VarkaEmitOptions::roundToOddByShifts, Builder::roundToOddByShifts,
           new FlagTag("roundToOddByShifts", true), new Subject(o -> o.withUseAVX(2)),
           Optional.of(ConvertLane.class)),
+      // A machine choice of L2F's AVX2 forms (VARKA-600): whether a window test, a scalar cast
+      // per lane or the rounding to odd is fastest depends on the host and on its width, so the
+      // losing arms stay behind the option. Read by a long's ConvertLane below level 3 alone, so
+      // it runs over useAVX=2. Its tag keeps the default rendering empty.
+      new Choice<>("narrowConversionForm", Reason.MACHINE, NarrowConversionForm.class,
+          NarrowConversionForm.ROUND_TO_ODD, VarkaEmitOptions::narrowConversionForm,
+          Builder::narrowConversionForm, new ChoiceTag("narrowConversionForm="),
+          Optional.of(ConvertLane.class), new Subject(o -> o.withUseAVX(2))),
       // The math family's opt-in mode (VARKA-345.md 2.6), a session setting laid over the base
       // options as useAVX is. Its tag keeps the default's rendering empty.
       new Flag("mathUlpContract", Reason.CONTRACT, false,
