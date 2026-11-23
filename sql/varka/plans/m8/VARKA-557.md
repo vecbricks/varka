@@ -2,7 +2,8 @@
 
 *Planned 3 November 2026 on `varka-556-557-plan`. The owner's decision of the same day: nightly,
 not the option matrix. Nothing below is built, and nothing is dispatched without the owner's word
-(his rule since 2 November 2026).*
+(his rule since 2 November 2026).* *Corrected after step 4: steps 1 to 4 are built and run
+(8, 8.5).*
 
 ## 1. Where this came from
 
@@ -143,7 +144,9 @@ issue are its own:
 3. **Write the workflow** and the names check; `actionlint` and the workflow's dry listing.
 4. **The planted fault on CI**, on the owner's word: the workflow dispatched on the scratch branch
    of step 1 fails in `masked-interpreted` and `masked-c1`; dispatched on master with #1313 merged,
-   it passes. Both runs cited in the outcome.
+   it passes. Both runs cited in the outcome. *Corrected after the run (8.5):* it failed in all
+   four configurations, as it should; naming only the two `masked-` ones came from what step 1 had
+   tried.
 
 ## 4. Size
 
@@ -189,7 +192,8 @@ Not on row 556: the planted fault (the tolerance reverted) fails under 556's sha
 ## 8. Outcome of steps 1 to 3 (3 November 2026, branch `varka-557-tier-split`)
 
 Steps 1 to 3 are built; step 4, the planted fault on CI, waits for the owner's word. The trial's
-runs are in `results/VARKA-557-trial.txt`.
+runs are in `results/VARKA-557-trial.txt`. *Corrected after step 4:* it ran on 4 and 5 November
+2026 (8.5).
 
 ### 8.1 Step 1: the configurations reproduce the known case, 3 of 3 each
 
@@ -346,6 +350,28 @@ run the warm-up off, so it touches only the tests that turn it on.
   off its weight (`--check-weights`), so step 4's first nights test the 2.2.
 - **The `-z` filter** (9.2) is in `PLAN.md`'s debt register, under the test tooling.
 
+### 8.5 Step 4: the planted fault on CI (4 and 5 November 2026)
+
+**The prediction scored.** 3.4 and 9.3 said the scratch branch fails in `masked-interpreted` and
+`masked-c1`. *Corrected after the run:* it fails in all four configurations, as it should: each
+holds one body at the interpreter or C1 while the other runs C2 code, and the both-bodies check
+compares a null-free batch's two outputs whichever side is held, so the NaN `x + x2` returns
+differs in either direction. Step 1 had tried only the two `masked-` configurations on the
+scratch branch (`results/VARKA-557-trial.txt`), which is why only those two were named.
+
+**The fault.** Fork run 41801790240 (4 November 2026) built `varka-557-scratch` at cd01d8093e3,
+#1332 plus one commit that drops #1313's NaN acceptance from `compareBodies`. It failed
+`try_add(x, x2)` and five to eight other Floating arithmetic rows in the first share of each
+configuration ("disagree on output 0 at row 7 of a null-free batch of 10"), where the laptop's
+untiered run of the earlier scratch commit 237acb87bf6, the same fault over master 96d26da9cf0,
+passed them (`def-scratch` in the trial file). Its second share
+failed only `VarkaEvaluatorComponentsSuite`'s test of #1313's acceptance, which calls
+`compareBodies` directly and fails at any tier, so it is not evidence of the split.
+
+**Master passes.** vecbricks/varka run 42012586656 (5 November 2026, the nightly at 58ab38ab93a,
+which contains #1332): all eight configuration jobs green. It is a scheduled run, not a dispatch;
+it runs the same workflow on master, so it stands in for the dispatch 3.4 asked for.
+
 ## 9. Open points for the lead
 
 1. *Settled by the review (8.4): the committed weights.* **The split inside a job.** `--split 2` has
@@ -359,4 +385,5 @@ run the warm-up off, so it touches only the tests that turn it on.
    its branch (this branch plus one commit dropping #1313's acceptance from `compareBodies`, local
    only) should fail in `masked-interpreted` and `masked-c1`, and with this branch pass. GitHub
    dispatches only a workflow its default branch has, so the run needs the file there first, or
-   a push of both branches and a dispatch by `--ref`.
+   a push of both branches and a dispatch by `--ref`. *Done (8.5):* it failed in all four
+   configurations, not only the two named here, and master passes.

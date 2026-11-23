@@ -1748,6 +1748,9 @@ def main():
         if failed or args.self_test:
             return 1 if failed else 0
     out, errors = build()
+    # A census that read no registry or no curated row would agree with an empty committed file.
+    if not any(r[3] == "in" for r in out):
+        errors.append("no entry is in scope: the census read nothing")
     errors += cast_errors(coverage_index(), casts_fused())
     suite_errors, suite_warnings = suites_errors(casts_suites(), fused_forms(), casts_fused())
     errors += suite_errors
