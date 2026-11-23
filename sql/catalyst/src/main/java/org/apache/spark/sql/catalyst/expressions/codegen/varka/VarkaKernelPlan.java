@@ -646,7 +646,8 @@ public final class VarkaKernelPlan {
    * AVX512DQ; at the unknown level ({@link VarkaEmitOptions#levelUnknown()}), the defaults' and an
    * unset session's, which may be such a host, {@code convertShape} would run as the Vector API's
    * Java loop and the entry declines. A floating source converted to an
-   * integral lane waits for part 343b2, at every level. A boolean whose condition compares longs
+   * integral lane waits for part 343b2, at every level, but {@code D2I}, which an fdlibm port
+   * takes for its int {@code k}. A boolean whose condition compares longs
    * is not a conversion from a long: the compiler narrows its one or zero to the int lane first.
    *
    * <p>The test reads the options' {@code UseAVX} level and not the CPU: the level is part of
@@ -670,7 +671,11 @@ public final class VarkaKernelPlan {
         continue;
       }
       if (node instanceof ConvertLane c) {
-        if (!c.target().isFloating()) {
+        // D2I alone of the conversions to an integral lane: Java's (int) of a double, which the
+        // JDK's convertShape answers on every host and an fdlibm port takes for its int k
+        // (`VARKA-345.md` 10.2); no compiler arm builds it for a SQL cast yet.
+        boolean d2i = c.child().laneType() == LaneType.DOUBLE && c.target() == LaneType.INT;
+        if (!c.target().isFloating() && !d2i) {
           return Optional.of(new Refusal(Kind.CONVERSION, "a conversion from "
               + c.child().laneType() + " to " + c.target() + " is not built yet (row 343)"));
         }
@@ -815,9 +820,9 @@ public final class VarkaKernelPlan {
           WidenLane _, VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _,
           VarkaVectorIR.DateDiff _, IntArith _, VarkaVectorIR.IntNeg _,
           VarkaVectorIR.ConstDivide _, VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _,
-          VarkaVectorIR.BitCount _, VarkaVectorIR.MathUnary _, VarkaVectorIR.RoundToIntegral _,
-          VarkaVectorIR.CanonicalFloat _, VarkaVectorIR.CanonicalBits _,
-          VarkaVectorIR.HashStep _, VarkaVectorIR.IfElse _,
+          VarkaVectorIR.BitCount _, VarkaVectorIR.MathUnary _, VarkaVectorIR.Fma _,
+          VarkaVectorIR.RoundToIntegral _, VarkaVectorIR.CanonicalFloat _,
+          VarkaVectorIR.CanonicalBits _, VarkaVectorIR.HashStep _, VarkaVectorIR.IfElse _,
           VarkaVectorIR.CondValue _, VarkaVectorIR.Greatest _, VarkaVectorIR.Least _,
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _,
           VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _,
@@ -870,8 +875,8 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _,
           IntArith _, VarkaVectorIR.IntNeg _, VarkaVectorIR.ConstDivide _,
           VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
-          VarkaVectorIR.MathUnary _, VarkaVectorIR.RoundToIntegral _, VarkaVectorIR.IfElse _,
-          VarkaVectorIR.CanonicalFloat _, VarkaVectorIR.CanonicalBits _,
+          VarkaVectorIR.MathUnary _, VarkaVectorIR.Fma _, VarkaVectorIR.RoundToIntegral _,
+          VarkaVectorIR.IfElse _, VarkaVectorIR.CanonicalFloat _, VarkaVectorIR.CanonicalBits _,
           VarkaVectorIR.HashStep _, VarkaVectorIR.CondValue _,
           VarkaVectorIR.Greatest _,
           VarkaVectorIR.Least _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,

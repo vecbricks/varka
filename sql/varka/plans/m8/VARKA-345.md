@@ -995,6 +995,111 @@ hook, the vector files' format under `sql/varka/math/`, question 2's classificat
 `--asm` half of 3.1, 3.3, 3.7, the `mathPort` option, the branch measurement of 2.4, and the
 port's speed on the runners.
 
+- `exp` on the frame, node for node `vfdlibm`'s `Exp.expBlended`: every branch computed in every
+  lane and blended, so no lane is finished by a call; the C's three planted faults of
+  `vfdlibm` (`exp.dropCorrection`, `constantOffByOneUlp`, `thresholdMoved`) as a package-private
+  `Fault` argument, so the production expansion has none.
+- `D2I` admitted: `VarkaKernelPlan.conversionRefusal` lets `DOUBLE` to `INT` through, alone of
+  the conversions to an integral lane, and `emitShapeConversion` lowers it as `convertShape`
+  part 0, Java's `(int)` on every host (343's item 0: x86 fixes NaN to 0 and saturates, aarch64's
+  `fcvtzs` does the same). No compiler arm builds it for a SQL cast, so no SQL answer moves.
+- `VarkaEmitBudget.PORT_MAX_CHAIN_DEPTH`, 64, the auto value of `maxChainDepth` for a tree that
+  holds a port, beside the int lane's 64 and the others' 16 (`chainDepthCap`, row 629): `exp`'s
+  expansion is 36 deep (its polynomial alone ten), over the double, long and int lanes, so the
+  first run declined it as "chain deeper than MAX_CHAIN_DEPTH=16". A tree holds a port exactly
+  when it holds a `ReinterpretLane`, which only the ports build, so no fuzz draw and no SQL shape
+  reads the new branch, and a non-port tree keeps its cap. An explicit `maxChainDepth` still wins
+  on a port, as on every tree. The stop is measured below. No op cap of the port's own: `exp`
+  holds 68 distinct ops, over `MAX_FUSED_NODES` (64), which binds only where
+  `methodByteBudget` is 0 (an option matrix arm), so the port is declined there, cleanly and by
+  the op cap's name, and runs the row engine; the default byte budget measures its size instead.
+- The oracle path: `io.github.vecbricks:vfdlibm:0.1.0`, from Maven Central, as a test-scope
+  dependency of `sql/catalyst`. `javap` on the jar shows `VFdlibm.exp(DoubleVector)` and
+  `exp(DoubleVector, VectorMask<Double>)` public, which is all the suite calls; `Exp`, `Lanes`
+  and `Faults` are package-private and not needed (below). No source copy, manifest or sync
+  script.
+- `VarkaMathPortSuite` gains 2.3's tests 1 and 2 for `exp`: the sampled differential over the
+  four draws (2^24 inputs), and the fixed vectors (each threshold of `e_exp.c` in both signs with
+  its 64 neighbours each way, the subnormal scale-back's start, SLEEF's special values and eight
+  NaN patterns, 4136 inputs) at 2, 4 and 8 lanes over four null patterns and four lengths, each
+  lane against `StrictMath.exp` and `VFdlibm.exp` by raw bits; the reference evaluator over the
+  port's tree; `D2I` alone against Java's `(int)` at three widths; each planted fault caught; the
+  constants' words; and the depth against the caps.
+
+**Why the port is bit-identical to `StrictMath.exp`** (an informal argument, held by the suite).
+`StrictMath.exp` on JDK 25 is `FdLibm.Exp`, a Java translation of fdlibm 5.3's `e_exp.c`, whose
+every step is one IEEE-754 double operation, correctly rounded, with no fused multiply-add and
+no extended precision. `VarkaMathPort.exp` performs the same sequence of operations on the same
+operands in every lane, and a vector add, subtract, multiply or divide on a double lane is that
+IEEE operation, so a lane that follows the C's path computes the C's value bit for bit. The
+only place the port differs from the C is control flow: the C branches, the port computes every
+branch in every lane and blends, so the claim to prove is that each lane's blended value is the
+value of the branch the C takes, which holds because (1) the reduction runs for every lane with
+`k = 0` for a lane the C does not reduce (`kArg` is blended to `0.0`), where `t = +0`,
+`hi = x - 0*ln2HI = x` and `lo = +0`, so the far-reduction formulas return the C's near-band
+and tiny-band inputs unchanged (`vfdlibm`'s lemmas L1 and L2); (2) the C's tests on the high word `hx` of `|x|` are compares of `|x|`'s bits against the
+constant word shifted left 32, which order the doubles as `hx` does at a word's boundary, NaN
+lanes included (L3); (3) the tiny
+lanes return `one + x` by the last-but-two blend, and `halF[xsb]` is `0.5` with `x`'s sign bit
+(L4, L5); (4) the later blends overwrite the earlier ones in the C's order of precedence (the
+subnormal scale-back, the tiny lanes, the overflow and underflow lanes, and the non-finite lanes
+last), so the last blend a lane satisfies is the C's `return`. The two integer steps are exact:
+`D2I` is Java's `(int)`, the C's `(int)`, and the exponent add is an integer add on the raw
+bits. `vfdlibm`'s `PROOFS.md` carries lemmas L1 to L5 in full. Beyond the argument, the suite
+holds the emitted kernel to `StrictMath.exp` and to `VFdlibm.exp` by raw bits on 2^24 sampled
+inputs and every threshold of `e_exp.c` with its neighbours, and each planted fault of the three
+the C admits is seen.
+
+**Measured (laptop, 21 November 2026).** The suite passes, every `exp` lane bit-identical to
+`StrictMath.exp` and `VFdlibm.exp`, NaN payloads included. The cap's real stop: `exp` is 36
+levels deep; layering adds over it, the compiler's mirror admits 28 more, a stop at 64, and the
+65th is declined by the emitter; at that depth the largest emitted method is 2070 bytes of the
+8000-byte budget, so the depth cap and not the byte budget is what stops a port. At
+`methodByteBudget` 0 the 68 ops decline it by `MAX_FUSED_NODES=64`. The emitted port's speed
+against `LANE_CALL` of `StrictMath.exp` (section 5 item 4, done-when) is not measured: the
+`LANE_CALL` lowering is row 356's, and the runners are the coordinator's to dispatch. Owed: that
+pair on the EPYC runners at 256 and 128 bits once 356 merges. No `vfdlibm` issue was found to
+file; the blended arm choice (decision 1) depends on none.
+
+**Decisions taken while the owner was away (20 November 2026).**
+
+1. *Which of `vfdlibm`'s two `exp` arms the port emits.* The blended one. `VFdlibm.exp` finishes
+   its rare lanes (the filter and the subnormal scale-back) by a per-lane `StrictMath.exp`, which
+   in Varka's IR is the `LANE_CALL` lowering; that lowering is row 356's (PR #1567, unmerged), so
+   a finish arm now would build a second one beside it. The blended arm needs no call and is
+   proven the same in `vfdlibm`'s `PROOFS.md`. The finish arm is the measured alternative the
+   port gains once `LANE_CALL` is on master (2.4's rule decides between them per host).
+2. *The test path to `vfdlibm`* (rebuilt 21 November 2026 on the owner's directive that the
+   library is the reference and the test oracle, never a kernel's dependency). The first build
+   copied the library's sources into the test tree, for want of a published artifact; the
+   library is on Maven Central as 0.1.0, and its public `VFdlibm.exp` is all a test needs, so
+   the test dependency replaces the copy, its manifest, its sync script and their RAT, checkstyle
+   and import-root exemptions. The cost is that the suite no longer calls the package-private
+   `Exp.expBlended` or reads its `Faults`; the port's own `Fault` enum plants the three faults,
+   and `VFdlibm.exp` and `StrictMath.exp` are the two oracles.
+3. *No vfdlibm change.* The port follows the merged `Exp.expBlended`, so nothing in `vfdlibm`
+   moves and no paired `vfdlibm` branch is opened for this part; the pairing holds for `exp`
+   through `vfdlibm` #6, #17 and #22, which 0.1.0 carries.
+4. *Two compares differ in form from the library's, not in mask.* The IR's floating compares
+   are Spark's ordering or `IEEE_EQ`, `IEEE_LT` and `IEEE_LE`; the library's `x > O_THRESHOLD` is
+   written `O_THRESHOLD < x` and its `IS_NAN` test `!(x == x)`, IEEE identities with the same
+   lane masks, NaN lanes included, so no proof is owed.
+5. *A depth cap for ports, as the auto value's third arm*, rather than a higher
+   `MAX_CHAIN_DEPTH` or a depth that counts only arithmetic: raising the shared cap would change
+   which fuzz draws fit and which compiler folds are needed, moving committed sequences, and a
+   port-specific count would add a second notion of depth beside `height`; the auto arm reaches
+   no shape that existed before, and an explicit `maxChainDepth` still wins.
+6. *No `MathForm` field and no `mathPort` option yet.* A `PORT` node is expanded by the compiler
+   into ordinary nodes, so its form is in the shape key through the expanded tree, and an emit
+   option that no compiler arm reads would only add a matrix configuration emitting the
+   defaults' bytes (the reading 345a1 took for `mathUlpContract`). Both land with the first
+   function that fuses with a `PORT` arm, `exp` in row 358, where the compiler chooses the form.
+
+**Left of section 5 items 3 and 4.** The `LANE_CALL` and `LIBRARY` lowerings and the dead-lane
+blend (356 builds `LANE_CALL` on its branch), `MathBinary`, the test hook, the vector files'
+format under `sql/varka/math/`, question 2's classification (3.8), the `--asm` half of 3.1, 3.3,
+3.7, the `mathPort` option, the branch measurement of 2.4, and the port's speed on the runners.
+
 *Corrected 21 November 2026 (review of this part): the frame's tests run each helper over the
 double and long views at the base lane count and over null lanes at two and four lanes; the
 `FLOAT` and `INT` views are lowered and registered, and no kernel runs them yet.*

@@ -378,6 +378,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new MathUnary(MathFn.SQRT, dc), 1, 0, VarkaMatrix.base),
       // A per-lane call weighs its larger form, an extract and an insert of each of eight lanes.
       (new MathUnary(MathFn.SIN, dc), 1, 0, VarkaMatrix.base.withLanesOverride(8)),
+      (new Fma(dc, dc, dc), 1, 0, VarkaMatrix.base),
       (new RoundToIntegral(RoundMode.RINT, dc), 1, 0, VarkaMatrix.base),
       // An operand that is never a NaN, or already the canonical one, takes no NaN blend.
       (new RoundToIntegral(RoundMode.RINT, new ConvertLane(c, LaneType.DOUBLE)), 1, 0,
@@ -697,22 +698,30 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     }
   }
 
-  test("a bigint conversion to a floating lane weighs its AVX2 form, the larger of its forms",
-      PinsDefaults) {
+  test("a bigint conversion to a floating lane weighs its AVX2 form: the largest for a double, " +
+      "the emitted one for a float", PinsDefaults) {
     // One convertShape at level 3, and below it VarkaConversionLowering's form, whose calls the
-    // weight counts: L2D's largest, part 343b1's split, since the budget cannot ask which form
-    // emits; the XOR split and the bounded L2D, three calls and its guard's two compares, are
-    // smaller, and both L2F forms emit the same count.
+    // weight counts. For L2D that is the largest of its forms, part 343b1's split, since the
+    // budget does not ask which emits; the XOR split and the bounded L2D, three calls and its
+    // guard's two compares, are smaller. For L2F it is the form the emission takes: the default,
+    // the rounding to odd, at its 24 calls, so that a kernel's grouping does not move without an
+    // option set, and the windowed form at its 31, since its method holds both its arms. Both
+    // steps of the rounding to odd emit the same count, and the scalar form two calls a lane and
+    // its zero vector.
+    import VarkaEmitOptions.NarrowConversionForm
     import VarkaEmitOptions.WideConversionForm._
     def ops(target: LaneType, options: VarkaEmitOptions): Int = vectorOps(emitMulti(
       Seq(new ConvertLane(new ColumnRef(0, LaneType.LONG), target)), 1, 0, options)._2)
     def form(target: LaneType, options: VarkaEmitOptions): Int =
       ops(target, options) - ops(target, VarkaMatrix.base.withUseAVX(3)) + 1
     val avx2 = VarkaMatrix.base.withUseAVX(2).withRoundToOddByShifts(false)
+      .withNarrowConversionForm(NarrowConversionForm.ROUND_TO_ODD)
+    val windowed = avx2.withNarrowConversionForm(NarrowConversionForm.WINDOWED)
     for ((target, options) <- Seq(LaneType.DOUBLE -> avx2.withWideConversionForm(SPLIT),
+        LaneType.FLOAT -> windowed, LaneType.FLOAT -> windowed.withRoundToOddByShifts(true),
         LaneType.FLOAT -> avx2, LaneType.FLOAT -> avx2.withRoundToOddByShifts(true))) {
       val weight = VarkaEmitBudget.weightOf(new ConvertLane(new ColumnRef(0, LaneType.LONG),
-        target))
+        target), options, options.narrowConversionForm())
       val emits = form(target, options)
       assert(weight === emits, s"$target weighs $weight and its AVX2 form emits $emits lane ops")
     }
@@ -720,6 +729,43 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     assert(xorSplit === VarkaConversionLowering.XOR_SPLIT_CALLS, s"the XOR split emits $xorSplit")
     val magic = form(LaneType.DOUBLE, avx2.withWideConversionForm(MAGIC))
     assert(magic === 5 && magic < xorSplit, s"the magic emits $magic")
+    for (shifts <- Seq(false, true)) {
+      val odd = form(LaneType.FLOAT, avx2.withRoundToOddByShifts(shifts))
+      assert(odd === VarkaConversionLowering.ODD_CALLS, s"the rounding to odd emits $odd")
+    }
+    val longConversion = new ConvertLane(new ColumnRef(0, LaneType.LONG), LaneType.FLOAT)
+    assert(VarkaEmitBudget.weightOf(longConversion) === VarkaConversionLowering.ODD_CALLS)
+    val defaults = VarkaEmitOptions.DEFAULTS.withUseAVX(2)
+    assert(VarkaEmitBudget.weightOf(longConversion, defaults, defaults.narrowConversionForm()) ===
+      VarkaConversionLowering.ODD_CALLS, "the default options weigh the rounding to odd's calls")
+    for (lanes <- Seq(2, 4, 8)) {
+      val scalar = form(LaneType.FLOAT, avx2.withNarrowConversionForm(NarrowConversionForm.SCALAR)
+        .withLanesOverride(lanes)) - form(LaneType.FLOAT, avx2.withLanesOverride(lanes)) +
+        VarkaConversionLowering.ODD_CALLS
+      assert(scalar === VarkaConversionLowering.scalarCalls(lanes),
+        s"the scalar form emits $scalar at $lanes long lanes")
+    }
+  }
+
+  test("a scalar bigint conversion to float with no baked long lane count weighs the rounding " +
+      "to odd it emits", PinsDefaults) {
+    // The scalar form reads each long lane at a constant index, so with no baked long lane count
+    // the lowering emits the rounding to odd instead (VarkaConversionLowering.narrowForm). The
+    // grouping must weigh that form's 24 calls, not the scalar form's 17 at eight lanes, or a
+    // group goes over its budget unseen. Both routes to no baked count are taken: validity by
+    // width off, and a lane override with no long species.
+    val scalar = VarkaMatrix.base.withUseAVX(2)
+      .withNarrowConversionForm(VarkaEmitOptions.NarrowConversionForm.SCALAR)
+    val conversion = new ConvertLane(new ColumnRef(0, LaneType.LONG), LaneType.FLOAT)
+    def ops(options: VarkaEmitOptions): Int =
+      vectorOps(emitMulti(Seq(conversion), 1, 0, options)._2)
+    for (options <- Seq(scalar.withValidityByWidth(false), scalar.withLanesOverride(16))) {
+      val emits = ops(options) - ops(options.withUseAVX(3)) + 1
+      assert(emits === VarkaConversionLowering.ODD_CALLS, s"the unbaked scalar form emits $emits")
+      val weight = VarkaLoopEmitter.runsForTest(java.util.List.of(conversion), options)
+        .get(0).get(0).ops()
+      assert(weight === emits, s"the conversion weighs $weight and emits $emits lane ops")
+    }
   }
 
   test("int-lane divisions over four columns take a loop method each, and a subtraction from " +

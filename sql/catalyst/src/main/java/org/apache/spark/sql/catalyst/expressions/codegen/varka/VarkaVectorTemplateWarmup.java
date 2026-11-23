@@ -800,11 +800,12 @@ final class VarkaVectorTemplateWarmup {
         for (Comparison op : FLOATING_COMPARISONS) {
           acc += x.compare(op, y).toLong();
         }
-        // The floating arithmetic's own calls (VARKA-342): abs, the square root and the
-        // division's zero test against a scalar, beside the operators above.
+        // The floating arithmetic's own calls (VARKA-342): abs, the square root, the fused
+        // multiply-add and the division's zero test against a scalar, beside the operators
+        // above.
         acc += (long) (x.lanewise(VectorOperators.ABS).lane(0)
-            + x.lanewise(VectorOperators.SQRT).lane(0)) + y.compare(VectorOperators.EQ, 0.0)
-            .toLong();
+            + x.lanewise(VectorOperators.SQRT).lane(0) + x.fma(y, x).lane(0))
+            + y.compare(VectorOperators.EQ, 0.0).toLong();
         // The rounding's calls (VARKA-344): the compare against the scalar 2^52, and the sign
         // bit taken from one lane view and or-ed into another.
         acc += x.compare(VectorOperators.LT, 0x1.0p52).toLong()
@@ -842,9 +843,10 @@ final class VarkaVectorTemplateWarmup {
           acc += x.compare(op, y).toLong();
         }
         // The floating arithmetic at the FLOAT lane (VARKA-342): the three operators,
-        // negation and abs.
+        // negation, abs and the fused multiply-add.
         acc += (long) (x.add(y).lane(0) + x.sub(y).lane(0) + x.mul(y).lane(0)
-            + x.lanewise(VectorOperators.NEG).lane(0) + x.lanewise(VectorOperators.ABS).lane(0));
+            + x.lanewise(VectorOperators.NEG).lane(0) + x.lanewise(VectorOperators.ABS).lane(0)
+            + x.fma(y, x).lane(0));
         // The canonicalisation's calls (VARKA-337): the add of a scalar zero and the blend of
         // the scalar NaN under the NaN test; the double block above has both forms already.
         acc += (long) x.add(0.0f).blend(Float.NaN, x.test(VectorOperators.IS_NAN)).lane(0);

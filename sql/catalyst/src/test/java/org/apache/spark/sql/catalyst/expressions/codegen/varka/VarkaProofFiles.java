@@ -3290,6 +3290,8 @@ final class VarkaProofFiles {
   private static final int RTO_SMALL_BITS = VarkaConversionLowering.SMALL_BITS;
   /** The bounded magic's window, {@code |v| <= 2^51}. */
   private static final long RTO_MAGIC_WINDOW = VarkaConversionLowering.MAGIC_WINDOW;
+  /** The windowed L2F's test, {@code (v + 2^51) >>> RTO_WINDOW_SHIFT} (VARKA-600). */
+  private static final int RTO_WINDOW_SHIFT = VarkaConversionLowering.WINDOW_SHIFT;
   /** The forms' double constants and the reinterpretation, restated after each reset. */
   private static final String RTO_DEFS = "(define-fun rto.M () Float64 ((_ to_fp 11 53) "
       + bv64(Double.doubleToRawLongBits(RTO_MAGIC)) + "))\n"
@@ -3405,6 +3407,10 @@ final class VarkaProofFiles {
         ;                 t = m ^ ((m ^ t12) & sel), t12 where big and m elsewhere
         ;                 p = (bits(0x1p52) | (v & Long.MIN_VALUE)) + (sel & (12 << 52))
         ;                 d = bitsToDouble(t | p) - bitsToDouble(p), f = (float) d
+        ;   L2F, windowed w = (v + 2^51) >>> 52, OR-ed over the group's lanes; where it is 0,
+        ;     (VARKA-600) f = (float) (bitsToDouble(v + MB) - M), and the L2F form above
+        ;                 elsewhere. The scalar L2F form is Java's own l2f per lane and needs
+        ;                 no check.
         ;
         ; These are the operations VarkaConversionLowering emits, from its constants; the L2F form
         ; has no mask, since C2 on x86 lowers none at two 64-bit lanes. p is 2^52 below 2^52, where
@@ -3446,6 +3452,12 @@ final class VarkaProofFiles {
         ; negated float, all by the symmetry of rounding to nearest. That k >= 2 is the theorem's
         ; bound, and not slack in it, is shown on the top binade: rounding to odd at 26 bits then
         ; to nearest at 24 is one rounding, at 25 bits it is not.
+        ;
+        ; The windowed form's two claims: a lane's test is 0 exactly where -2^51 <= v < 2^51, and
+        ; there the magic's double, exact, rounded once to a float is (float) v. An OR over the
+        ; lanes is 0 exactly where every lane's is, so a group takes the magic only when every
+        ; lane is inside. Its sat check: with the test one bit wider, (v + 2^52) >>> 53, it
+        ; admits a v whose float the magic gets wrong.
         ;
         ; The sat checks: the domain admits Long.MIN_VALUE; the split with MB or the low word's
         ; magic one higher, or a shift of 31, is wrong; the magic is wrong one past its window at
@@ -3532,6 +3544,20 @@ final class VarkaProofFiles {
     fresh(out, "l2d magic: at -(2^51 + 1) it is not", "sat", List.of(v,
         "(assert (= v " + bv64(-RTO_MAGIC_WINDOW - 1) + "))",
         "(assert (not (= " + magic + " " + toDouble + ")))"));
+
+    String toFloat = "((_ to_fp 8 24) RNE v)";
+    fresh(out, "l2f windowed: (v + 2^51) >>> " + RTO_WINDOW_SHIFT + " is 0 exactly where -2^51"
+        + " <= v < 2^51, for every long", "unsat", List.of(v, "(assert (not (= (= "
+            + windowTest(RTO_MAGIC_WINDOW, RTO_WINDOW_SHIFT) + " " + bv64(0) + ") (and (bvsge v "
+            + bv64(-RTO_MAGIC_WINDOW) + ") (bvslt v " + bv64(RTO_MAGIC_WINDOW) + ")))))"));
+    fresh(out, "l2f windowed: where the test is 0 the magic rounded to a float is (float) v",
+        "unsat", List.of(v, "(assert (= " + windowTest(RTO_MAGIC_WINDOW, RTO_WINDOW_SHIFT) + " "
+            + bv64(0) + "))", "(assert (not (= ((_ to_fp 8 24) RNE " + magic + ") " + toFloat
+            + ")))"));
+    fresh(out, "l2f windowed: with the test one bit wider the magic's float is not (float) v",
+        "sat", List.of(v, "(assert (= " + windowTest(2 * RTO_MAGIC_WINDOW, RTO_WINDOW_SHIFT + 1)
+            + " " + bv64(0) + "))", "(assert (not (= ((_ to_fp 8 24) RNE " + magic + ") "
+            + toFloat + ")))"));
 
     String s = "(bvashr v " + bv64(63) + ")";
     String mOfV = "(bvsub (bvxor v " + s + ") " + s + ")";
@@ -3655,6 +3681,11 @@ final class VarkaProofFiles {
   /** A double constant as an SMT-LIB {@code Float64}, from its bits. */
   private static String toFp(double x) {
     return "((_ to_fp 11 53) " + bv64(Double.doubleToRawLongBits(x)) + ")";
+  }
+
+  /** The windowed L2F's test over {@code v}: {@code (v + bias) >>> shift}. */
+  private static String windowTest(long bias, int shift) {
+    return "(bvlshr (bvadd v " + bv64(bias) + ") " + bv64(shift) + ")";
   }
 
   /** {@code 2^52} as an integer, the small arm's bound and the low part's offset. */
