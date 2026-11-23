@@ -246,6 +246,83 @@ The CI plan path's output is unchanged for valid input: `plan` as the workflow c
 without `--platforms` and with run 43642146943's reach record, writes the same JSON and summary
 line before and after.
 
+### 11.5 Step 4, the part runs and variants A and B (pull request 2)
+
+Built on `varka-617b-part-runs`, first stacked on pull request 1's branch and rebuilt on master
+after pull request 1 merged as #1632.
+
+* `run_seconds` reads each (configuration, suite)'s JUnit seconds with its share under the run's
+  reach record; `whole_runs` keeps the share-1 pairs as before and the new `part_runs` the
+  pairs strictly between 0 and 1.
+* `times --part-runs FILE` writes them to their own file,
+  `sql/varka/matrix/config-suite-part-seconds.tsv`, with the share each was measured at. A part
+  pair sits in a file of its own so that no reader can take it for a whole run and apply the
+  share to it a second time. The committed file holds 43642146943's 565 part runs, 36 of them
+  `VarkaSparkFuzzSuite`'s; 44485292430 had no reach record and ran none.
+* `plan --part-weight share|part-seconds|alone`, threaded through `units`: `share` is the
+  weighing before this step, `part-seconds` is variant A, and `alone` is variant B with its
+  list in `sql/varka/matrix/part-alone.tsv`. A part-run pair is read only where the
+  configuration's share is under 1, so a run with no reach record, or the defaults, never reads
+  one.
+* `replay` prints the replanned figure under all three, side by side.
+
+Before choosing, the premise was checked: the 3 bins over 600 s on 43642146943's own pairs come
+from part runs, and of the 4,967 s those part runs ran past their plan, `VarkaSparkFuzzSuite`
+holds 3,257 s, two thirds. The rest is spread over other suites, led by
+`VarkaGoldenCorpusSuite` (401 s). This is why B's single-entry list leaves a bin over 600 s that
+A does not.
+
+**Prediction 3, scored: right.** On this branch's files, 43642146943 replanned has 4 bins over
+600 s under `share`, 0 under A and 1 under B. Its longest bin falls from 752 s to 585 s under A
+and to 605 s under B, both by more than a minute. A is in sample, because its part seconds are
+this run's own. B's replay charges a new JVM the run's median overhead of 1.4 s. A cold JVM with
+a Spark session may cost more than that, which would weigh against B.
+
+**Prediction 4, scored: wrong.** Over a master run's configurations and suites (44485292430's,
+with no reach record and so no part run under any weighing), the planner cuts 216 bins on the
+fresh pairs against 190 on October's, 13.7 per cent more, past the 10 per cent predicted. The
+October file under-weighed the suites: the fresh one weighs that cut at 101711 s against 89557.
+That run took 45.6 minutes with 26 bins over 600 s, and its replay on the fresh file takes 38.0
+with none. More bins, but a shorter phase.
+
+**The default, by 3.3's rule: `part-seconds` (A).** It has fewer bins over 600 s on this
+branch's files (0 against B's 1), and the tie at 0 on the run's own files goes to A as well. B
+stays as `--part-weight alone`, with its list, by the house rule for losing options.
+
+**Out of sample, run 43655530012.** This run is not in any committed file. It is the other
+fresh 14 November run that section 1 names, with its own reach record, and its part runs weigh
+43642146943's seconds on this branch's files. The replay cuts its 155 bins back as its build
+job planned them. On this branch's files it leaves 7 bins over 600 s under `share`, 1 under A
+and 1 under B, with the longest bin at 695 s, 625 s and 624 s. A still wins by 3.3's
+tie rule, and it beats `share` out of sample: the tail falls from 7 bins to 1, and the longest
+bin by 70 s. Decision 7 below rests on this. "as run" is 32.0 minutes against the measured
+32.3, so the model holds on a third run.
+
+Section 10's three conditions now hold on the branch under `--part-weight part-seconds`; with
+`share` the default (decision 9), the default path reaches them only with decision 8's refresh. The
+committed file holds the 14 November run. Its replay on its own pairs is 30.4 minutes against the
+measured 34.4 (31.0 on the committed two-run file). `VarkaSparkFuzzSuite`'s part runs carry their
+own seconds in `config-suite-part-seconds.tsv`. Still owed: this pull request's review and merge
+(the first merged as #1632), and step 5's dispatch on master. A master dispatch reads a reach record
+only when a Build of the same commit has left one (`dev/varka_matrix_reuse.py`); 44485292430 found
+none. Without a record, step 5 scores the pair file alone, because every configuration runs every
+test and no part run is weighed. A's own out-of-sample score in CI then waits for the first matrix
+that has a reach record, a pull request's.
+
+**The default is `share`, after all (23 November 2026, decision 9).** 3.3's rule picked A, but
+nothing in CI refreshes the part file (decision 8), so A ships as the opt-in `--part-weight
+part-seconds` and `share` stays the default.
+
+**The CI path after the rebuild on master (23 November 2026).** `plan` as the workflow calls it,
+with no `--part-weight`, on 43642146943's and 44485292430's configurations and master's suites, with
+and without `--platforms`, with no reach record and with either 14 November reach record: the JSON
+and the summary line are byte for byte master's in all twelve cases, and the default reads no part
+file. Under `--part-weight part-seconds` the cut changes on purpose, as above: 4 bins more (186 to
+190 with the platforms on 43642146943's configurations, 191 to 195 on 44485292430's) and about 1,900
+planned seconds more, every bin still at most 480 s. The largest cut, no record with the platforms,
+stays at 227 bins, 29 under the cap of 256. `times` as the report job calls it writes the same two
+files and the same messages as master on all three runs' artifacts.
+
 ## 12. Decisions taken while the owner was away (20 November 2026)
 
 1. **Section 9's question: both runs.** The committed file holds 43642146943 and 44485292430, as
@@ -263,3 +340,40 @@ line before and after.
    `dev/varka_matrix.sh --list-suites` (no build, sources only), since no artifact keeps them.
 5. **`--plan-from REF` takes `--pairs` and `--suite-seconds` beside it.** A run's own pairs are
    its report artifact's files, not a revision, so the two files can be named directly.
+6. **"Keeps more bins under 600 s" is read as "fewer bins over 600 s".** A larger cut can have
+   more bins under 600 s and still more over. The rule is about the tail, so it is the count
+   over 600 s that is compared.
+7. **A uses a part-run pair only where the configuration's share is under 1, whatever share it
+   was measured at.** Scaling the pair by the ratio of shares would bring back the linear model
+   that fails for this suite, whose part runs took 78.5 to 225.0 s at shares of 0.034 to 0.345.
+   Ignoring the pair when the shares differ would leave A almost never applying, since every
+   pull request's reach record differs. Section 7's risk 1 is answered by the share-1 rule: a
+   run with no reach record never reads a part pair.
+   Rechecked on 23 November 2026, after the rebuild on master: under 43655530012's reach record,
+   5 of the pairs whose share grew matter, all `VarkaSparkFuzzSuite`'s. The run measured them
+   at 101, 100, 80, 203 and 126 s; the file gives 125, 93, 99, 87 and 126, and scaling by the
+   ratio of shares 312, 189, 138, 122 and 140. The file is nearer in four of five, so the ratio
+   scaling stays rejected. The high review of the rebuilt branch then named the case this check
+   could not see: a suite whose time does follow its share, measured at a small share and run
+   at a large one, as a pull request's record can ask. So a pair whose share today, at the
+   file's three decimals, is above the one it was measured at now weighs no less than its share
+   (`read_part_seconds` keeps the share). Under 43655530012's record that raises 8 of 22 such
+   pairs, by 7.3 s in all, none of the fuzz pairs, since each measured part run exceeds its
+   share weighing. A floor for every pair was tried first and lost: on 43642146943 it left 1
+   bin over 600 s and the longest at 605 s, against 0 and 585 s, and on 43655530012 the longest
+   at 653 s against 625 s. The share-aware form reproduces every step-4 replay of section 11 but
+   one figure, 0.1 minutes (`results/VARKA-617-replay.txt`).
+8. **The report job is unchanged, as section 3.4 says.** So it does not yet write
+   `config-suite-part-seconds.tsv` beside the other two. The file is refreshed as this row
+   refreshed it, with `times --reach ... --part-runs` over a run's downloaded bin artifacts.
+   Adding `--part-runs` to the report job's "Suite seconds" step is a two-line follow-up for
+   the owner to approve, since it changes the workflow; row 617's "left:" names it, so it is
+   tracked until the owner decides.
+9. **`share` stays the default; A is an option (the lead's settlement, 23 November 2026).** A
+   whole-run pair's fit does not depend on the pull request, but a part pair's does: it was measured
+   at one record's shares, and each pull request's record gives others, so an unrefreshed part file
+   drifts from every new record with no sign. The flip to A goes with the refresh workflow of
+   decision 8, on the owner's approval, and two replays decide it first: whether A shrinks the 23 to
+   29 minute bins of b098, or those were slow runners; and what a pair missing from the file weighs
+   on a pull request's record (it falls back to its share, so a fresh suite or configuration is
+   weighed as now).

@@ -135,7 +135,7 @@ public final class VarkaSuiteCheckSuite {
     VarkaSuiteCheck.check(suite, new Cast(Literal.create(1L << 40, DataTypes.LongType),
         DataTypes.IntegerType, Option.empty(), EvalMode.LEGACY()), InternalRow.empty(), false,
         VarkaSuiteCheck.Expect.VALUE);
-    VarkaSuiteCheck.Decision d = VarkaSuiteCheck.endTest(suite, "fused");
+    VarkaSuiteCheck.Decision d = VarkaSuiteCheck.endTest(suite, "fused", true);
     assertEquals(VarkaSuiteCheck.Action.PASS, d.action(), d.message());
     String summary = VarkaSuiteCheck.summary(suite);
     assertTrue(summary.endsWith(" 1 fused, 1 answered by a kernel"),
@@ -156,7 +156,7 @@ public final class VarkaSuiteCheckSuite {
     VarkaSuiteCheck.beginTest("VarkaSuiteCheckSuite", "planted");
     VarkaSuiteCheck.check("VarkaSuiteCheckSuite", add, InternalRow.empty(), false,
         VarkaSuiteCheck.Expect.VALUE);
-    VarkaSuiteCheck.Decision d = VarkaSuiteCheck.endTest("VarkaSuiteCheckSuite", "planted");
+    VarkaSuiteCheck.Decision d = VarkaSuiteCheck.endTest("VarkaSuiteCheckSuite", "planted", true);
     assertEquals(VarkaSuiteCheck.Action.FAIL, d.action(), d.message());
     assertTrue(d.message().contains("[varka]")
         && d.message().contains("the kernel answered a row Spark raises"), d.message());
