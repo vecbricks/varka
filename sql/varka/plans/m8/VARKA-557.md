@@ -143,7 +143,8 @@ issue are its own:
 3. **Write the workflow** and the names check; `actionlint` and the workflow's dry listing.
 4. **The planted fault on CI**, on the owner's word: the workflow dispatched on the scratch branch
    of step 1 fails in `masked-interpreted` and `masked-c1`; dispatched on master with #1313 merged,
-   it passes. Both runs cited in the outcome.
+   it passes. Both runs cited in the outcome. *Corrected after the run (8.5):* it failed in all
+   four configurations, as it should; "the masked ones" came only from what step 1 had tried.
 
 ## 4. Size
 
@@ -346,6 +347,26 @@ run the warm-up off, so it touches only the tests that turn it on.
   off its weight (`--check-weights`), so step 4's first nights test the 2.2.
 - **The `-z` filter** (9.2) is in `PLAN.md`'s debt register, under the test tooling.
 
+### 8.5 Step 4: the planted fault on CI (4 and 5 November 2026)
+
+**The prediction scored.** 3.4 and 9.3 said the scratch branch fails in `masked-interpreted` and
+`masked-c1`. *Corrected after the run:* it fails in all four configurations, as it should: each
+holds one body at the interpreter or C1 while the other runs C2 code, and the both-bodies check
+compares a null-free batch's two outputs whichever side is held, so the NaN `x + x2` returns
+differs in either direction. Step 1 had tried only the two `masked-` configurations on the
+scratch branch (`results/VARKA-557-trial.txt`), which is where "the masked ones" came from.
+
+**The fault.** Fork run 41801790240 (4 November 2026) built `varka-557-scratch` at cd01d8093e3,
+#1332 plus one commit that drops #1313's NaN acceptance from `compareBodies`. It failed
+`try_add(x, x2)` and five to eight other Floating arithmetic rows in the first share of each
+configuration ("disagree on output 0 at row 7 of a null-free batch of 10"), where the laptop's
+untiered run of the same branch passed them (`def-scratch` in the trial file). Its second share
+failed only `VarkaEvaluatorComponentsSuite`'s test of #1313's acceptance, which calls
+`compareBodies` directly and fails at any tier, so it is not evidence of the split.
+
+**Master passes.** vecbricks/varka run 42012586656 (5 November 2026, the nightly at 58ab38ab93a,
+which contains #1332): all eight configuration jobs green.
+
 ## 9. Open points for the lead
 
 1. *Settled by the review (8.4): the committed weights.* **The split inside a job.** `--split 2` has
@@ -359,4 +380,5 @@ run the warm-up off, so it touches only the tests that turn it on.
    its branch (this branch plus one commit dropping #1313's acceptance from `compareBodies`, local
    only) should fail in `masked-interpreted` and `masked-c1`, and with this branch pass. GitHub
    dispatches only a workflow its default branch has, so the run needs the file there first, or
-   a push of both branches and a dispatch by `--ref`.
+   a push of both branches and a dispatch by `--ref`. *Done (8.5):* it failed in all four
+   configurations, not only the two named here, and master passes.
