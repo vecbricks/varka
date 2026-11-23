@@ -22,7 +22,8 @@ import scala.jdk.OptionConverters._
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeSeq, BindReferences, Expression, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.{PartialVarkaProjection, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.codegen.{PartialVarkaProjection, VarkaExpressionCompiler,
+  VarkaOutputSpec}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.adaptive.{QueryStageExec, TableCacheQueryStageExec}
 import org.apache.spark.sql.execution.columnar.{ArrowCachedBatchSerializer, InMemoryTableScanExec}
@@ -231,9 +232,22 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
   // The compiler is the single eligibility oracle: a projection is fused exactly when
   // at least one entry compiles to the vector IR - nested chains, shared subtrees and
   // predication included - with bare columns forwarded and the rest evaluated per row.
+  // A projection whose kernel would compute apart two expressions Spark's subexpression
+  // elimination gives one value is left to Spark ([[VarkaSharedOrderDecline]]).
   private def isVarkaEligible(
       projectList: Seq[NamedExpression], childOutput: Seq[Attribute]): Boolean =
-    compilePartial(projectList, childOutput, VarkaSessionEmit.of(SQLConf.get)).isDefined
+    compilePartial(projectList, childOutput, VarkaSessionEmit.of(SQLConf.get)).exists {
+      partial =>
+        val fused = partial.specs.asScala.map {
+          case _: VarkaOutputSpec.FusedOutput | _: VarkaOutputSpec.KernelOutput => true
+          case _ => false
+        }
+        val reason = VarkaSharedOrderDecline.reason(
+          projectList.map(e => e: Expression).asJava, fused.map(b => b: java.lang.Boolean).asJava)
+        reason.ifPresent(why => logDebug(s"Varka leaves the projection " +
+          s"${projectList.map(_.sql).mkString(", ")} to Spark: it $why"))
+        reason.isEmpty
+    }
 
   private def compilePartial(
       projectList: Seq[NamedExpression],

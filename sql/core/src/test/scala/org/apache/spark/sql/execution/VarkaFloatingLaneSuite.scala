@@ -134,6 +134,21 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     StructField("d2", DateType), StructField("x1", DoubleType), StructField("x2", DoubleType),
     StructField("f1", FloatType), StructField("f2", FloatType)))
 
+  /**
+   * Three columns of each kind whose sums and products round differently by grouping: 0.1, 0.2,
+   * 0.3 sums to 0.6000000000000001 as (a + b) + c and to 0.6 as a + (b + c). For the operators
+   * Spark's subexpression elimination groups by a re-associated form (VARKA-341).
+   */
+  private val association = "varka_float_assoc"
+
+  private val associationSchema = StructType(Seq("x1", "x2", "x3").map(StructField(_, DoubleType))
+    ++ Seq("f1", "f2", "f3").map(StructField(_, FloatType)))
+
+  private def associationRows: Seq[Row] = Seq(
+    Row(0.1, 0.2, 0.3, 0.1f, 0.2f, 0.3f), Row(1.0, 1e-16, 1e-16, 1.0f, 6e-8f, 6e-8f),
+    Row(0.7, 0.1, 0.3, 0.7f, 0.1f, 0.3f), Row(1.1, 1.3, 1.7, 1.1f, 1.3f, 1.7f),
+    Row(1e16, 1.0, -1e16, 1e8f, 1.0f, -1e8f))
+
   /** Every fixture's name, the payload one included. */
   private val names: Seq[String] = fixtures.map(_._1) :+ payloads
 
@@ -145,6 +160,9 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     session.createDataFrame(payloadRows.asJava, payloadSchema)
       .createOrReplaceTempView(payloads)
     session.catalog.cacheTable(payloads)
+    session.createDataFrame(associationRows.asJava, associationSchema)
+      .createOrReplaceTempView(association)
+    session.catalog.cacheTable(association)
   }
 
   override protected def beforeAll(): Unit = {
@@ -169,7 +187,7 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
    * kernel would never see the rows it is tested on. The test below that names SPARK-58482 pins
    * the pruning, so this wrap retires with it.
    */
-  private def checkFused(query: String): Unit = names.foreach { fixture =>
+  private def checkFused(query: String, on: Seq[String] = names): Unit = on.foreach { fixture =>
     val q = query.replace("$t", fixture)
     withBothConf(SQLConf.IN_MEMORY_PARTITION_PRUNING.key, "false") {
       val actual = varkaSpark.sql(q)
@@ -227,6 +245,24 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
         checkAnswer(actual, expected)
         checkRowLevel(actual, expected)
         assertKernelsRan(plan)
+      }
+    }
+  }
+
+  /**
+   * One query on every fixture, or on `on`: no Varka node, and the row engine's answer bit for
+   * bit (VARKA-341, where Varka leaves an operator to Spark for Spark's shared value).
+   */
+  private def checkLeftToSpark(query: String, on: Seq[String] = names): Unit =
+      on.foreach { fixture =>
+    val q = query.replace("$t", fixture)
+    withBothConf(SQLConf.IN_MEMORY_PARTITION_PRUNING.key, "false") {
+      val actual = varkaSpark.sql(q)
+      val expected = expectedSql(q, actual)
+      withClue(s"$fixture: $q") {
+        // The answer first, so that a kernel left in place fails on the bits it gets wrong.
+        assert(bits(actual).sortBy(_.toString) === bits(expected).sortBy(_.toString))
+        assertNotFused(actual.queryExecution.executedPlan)
       }
     }
   }
@@ -324,28 +360,88 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
         checkFused(s"SELECT $expr AS v FROM $$t")
       }
     }
-    // Both orders of greatest and least in one projection. Spark canonicalises the two with
-    // their children sorted, so greatest(a, b) and greatest(b, a) are one expression to the
-    // subexpression elimination of a whole-stage projection, while each answers on its own
-    // without whole-stage codegen; the orders differ on -0.0 against 0.0 and on two NaNs of
-    // different payloads, which the pairs and payloads fixtures hold. Varka must answer as the
-    // row engine does under each setting (VARKA-341.md 9, from READING_COMET.md 4).
-    // KNOWN WRONG ANSWER, ignored until fixed: a reproducer, found 23 November 2026. With
-    // whole-stage codegen on, Spark answers gs and ls with g's and l's bits on (-0.0, 0.0) and
-    // (0.0, -0.0); Varka evaluates each order on its own and answers the other zero. Enable
-    // this test with the fix (VARKA-341, READING_COMET.md 4 case 4).
-    // varka-session-lint: allow the common subexpression elimination of Spark's whole-stage
-    // projection, seen only through a session's plan
-    ignore(s"$kind: greatest and least with both operand orders in one projection fuse and " +
-        "match the row engine bit for bit, whole-stage codegen on and off") {
+    // Both orders of an order-dependent expression in one operator (VARKA-341). Spark's
+    // subexpression elimination, on by default, groups expressions by their canonical forms,
+    // which sort greatest's and least's children and flatten and sort a chain of + or *, and
+    // gives every member the first one's value, whole-stage codegen on or off. The members differ
+    // on -0.0 against 0.0, on two NaN payloads and, for + and *, on ordinary values, so Varka
+    // leaves such an operator to Spark (`VarkaSharedOrderDecline`); with the elimination off,
+    // Spark evaluates each member and Varka fuses them.
+    val c = if (kind == "DOUBLE") "x3" else "f3"
+    val bothOrders = s"SELECT greatest($a, $b) AS g, greatest($b, $a) AS gs, " +
+      s"least($a, $b) AS l, least($b, $a) AS ls FROM $$t"
+    val associations = s"SELECT ($a + $b) + $c AS s1, $a + ($b + $c) AS s2, " +
+      s"($a * $b) * $c AS p1, $a * ($b * $c) AS p2 FROM $$t"
+    // varka-session-lint: allow the subexpression elimination of Spark's projection, seen
+    // only through a session's plan, whole-stage codegen on and off
+    test(s"$kind: greatest and least with both operand orders in one projection are left to " +
+        "Spark and answer as Spark does bit for bit, whole-stage codegen on and off") {
       for (wholeStage <- Seq("true", "false")) {
         withBothConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, wholeStage) {
           withClue(s"wholeStage=$wholeStage: ") {
-            checkFused(s"SELECT greatest($a, $b) AS g, greatest($b, $a) AS gs, " +
-              s"least($a, $b) AS l, least($b, $a) AS ls FROM $$t")
+            checkLeftToSpark(bothOrders)
+            checkLeftToSpark(s"SELECT greatest($a, $b) + 1 AS g1, greatest($b, $a) * 2 AS gs2 " +
+              "FROM $t")
           }
         }
       }
+    }
+    // varka-session-lint: allow the subexpression elimination of Spark's projection, seen
+    // only through a session's plan, whole-stage codegen on and off
+    test(s"$kind: (a + b) + c beside a + (b + c), and the same for *, are left to Spark and " +
+        "answer Spark's shared value on ordinary values, whole-stage codegen on and off") {
+      for (wholeStage <- Seq("true", "false")) {
+        withBothConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, wholeStage) {
+          withClue(s"wholeStage=$wholeStage: ") {
+            checkLeftToSpark(associations, Seq(association))
+          }
+        }
+      }
+      // Spark gives both sums the first one's value, which is not the second association's
+      // own: on 0.1, 0.2, 0.3 for DOUBLE, and on 1.1, 1.3, 1.7 for FLOAT, whose sums of 0.1,
+      // 0.2, 0.3 round alike.
+      val (lo, hi) = if (kind == "DOUBLE") (0.05, 0.15) else (1.05, 1.15)
+      val row = spark.sql(associations.replace("$t", association) +
+        s" WHERE $a BETWEEN $lo AND $hi").collect().toSeq
+      assert(row.size === 1)
+      val Seq(s1, s2) = Seq(0, 1).map(i => row.head.get(i))
+      assert(s1 === s2)
+      if (kind == "DOUBLE") {
+        assert(s1 === (0.1 + 0.2) + 0.3)
+        assert(s1 != 0.1 + (0.2 + 0.3))
+      } else {
+        assert(s1 === (1.1f + 1.3f) + 1.7f)
+        assert(s1 != 1.1f + (1.3f + 1.7f))
+      }
+    }
+    // A filter is not left to Spark: measured on 23 November 2026, Spark's filter evaluates
+    // greatest(a, b) and greatest(b, a) each on its own, elimination on or off, whole-stage
+    // codegen on or off, so the kernel's rows are Spark's. Not under ANSI, where the division by
+    // a zero raises; without it, 1 / -0.0 is -Infinity.
+    // varka-session-lint: allow a filter's subexpression elimination, seen only through a
+    // session's plan
+    test(s"$kind: a filter that reads both orders of greatest through a sign-sensitive " +
+        "division fuses and keeps Spark's rows, ANSI off") {
+      withAnsi(false) {
+        checkFused(s"SELECT $a, $b FROM $$t " +
+          s"WHERE 1.0D / greatest($a, $b) < 0 AND 1.0D / greatest($b, $a) < 0")
+      }
+    }
+    // varka-session-lint: allow the subexpression elimination setting, seen only through a
+    // session's plan
+    test(s"$kind: with subexpression elimination off, both orders and both associations fuse " +
+        "and match Spark bit for bit") {
+      withBothConf(SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key, "false") {
+        checkFused(bothOrders)
+        checkFused(associations, Seq(association))
+      }
+    }
+    // varka-session-lint: allow the decline's reach, read in the plan
+    test(s"$kind: one operand order, used more than once, still fuses") {
+      checkFused(s"SELECT greatest($a, $b) AS g, greatest($a, $b) * 2 AS g2, " +
+        s"least($b, $a) AS l, least($b, $a) + 1 AS l1 FROM $$t")
+      checkFused(s"SELECT ($a + $b) + $c AS s1, (($a + $b) + $c) * 2 AS s2, " +
+        s"$a * ($b * $c) AS p FROM $$t", Seq(association))
     }
   }
 
