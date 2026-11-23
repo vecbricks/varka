@@ -163,7 +163,8 @@ object VarkaMaybeThrows {
    * field, or a message both carry, still has to agree. What this can hide is two conditionless
    * `ArithmeticException`s of different causes where the JVM erased one's message; Spark gives
    * its other arithmetic errors a condition, such as `DIVIDE_BY_ZERO`, and those stay compared
-   * in full, as does every subclass.
+   * in full, as does every subclass. `VarkaUpstreamPinsSuite` pins the dropped message, so this
+   * allowance retires with it.
    */
   private def sameError(s: Raised, v: Raised): Boolean = s == v ||
     (s.exceptionClass == classOf[ArithmeticException].getName &&
