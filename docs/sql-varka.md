@@ -284,19 +284,19 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 
 | Type | Lanes | Entries | Fused | In part | Left, by need | Declined | Coverage rows |
 | :--- | :--- | ---: | ---: | ---: | :--- | ---: | :--- |
-| `BooleanType` (`bool`) | bitmap | 41 | 29 | 2 | plumbing 4, semantics 6 | 0 | 43 |
-| `ByteType` (`byte`) | BYTE, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 60 |
-| `ShortType` (`short`) | SHORT, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 58 |
-| `IntegerType` (`int`) | INT | 90 | 65 | 2 | plumbing 4, semantics 19 | 0 | 136 |
-| `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 97 |
-| `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 66 |
-| `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 86 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 9 | plumbing 12, semantics 43 | 3 | 87: 62 to precision 18, 25 at precision 19 to 38 |
-| `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 109 |
-| `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 77 |
-| `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 49 |
-| `YearMonthIntervalType` (`ym`) | INT | 55 | 36 | 3 | plumbing 3, semantics 13 | 0 | 39 |
-| `DayTimeIntervalType` (`dt`) | LONG | 57 | 34 | 2 | plumbing 5, semantics 16 | 0 | 35 |
+| `BooleanType` (`bool`) | bitmap | 41 | 31 | 2 | plumbing 4, semantics 4 | 0 | 43 |
+| `ByteType` (`byte`) | BYTE, INT | 75 | 54 | 2 | plumbing 4, semantics 15 | 0 | 60 |
+| `ShortType` (`short`) | SHORT, INT | 75 | 54 | 2 | plumbing 4, semantics 15 | 0 | 58 |
+| `IntegerType` (`int`) | INT | 90 | 67 | 2 | plumbing 4, semantics 17 | 0 | 136 |
+| `LongType` (`bigint`) | LONG | 85 | 62 | 2 | plumbing 5, semantics 16 | 0 | 97 |
+| `FloatType` (`float`) | FLOAT | 66 | 38 | 2 | plumbing 5, semantics 21 | 0 | 66 |
+| `DoubleType` (`double`) | DOUBLE | 102 | 56 | 2 | plumbing 4, semantics 22, ulp 18 | 0 | 86 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 11 | plumbing 12, semantics 41 | 3 | 87: 62 to precision 18, 25 at precision 19 to 38 |
+| `DateType` (`date`) | INT | 63 | 51 | 1 | plumbing 1, semantics 10 | 0 | 109 |
+| `TimestampNTZType` (`ntz`) | LONG | 54 | 51 | 0 | plumbing 1, semantics 2 | 0 | 77 |
+| `TimeType` (`time`) | LONG | 49 | 36 | 3 | plumbing 1, semantics 9 | 0 | 49 |
+| `YearMonthIntervalType` (`ym`) | INT | 55 | 38 | 3 | plumbing 3, semantics 11 | 0 | 39 |
+| `DayTimeIntervalType` (`dt`) | LONG | 57 | 36 | 2 | plumbing 5, semantics 14 | 0 | 35 |
 
 #### By family
 
@@ -309,7 +309,7 @@ One row per section of Spark's function registry, and per family of the operator
 | math | 59 | 17 | 33 | 0 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
 | bitwise | 13 | 13 | 13 | 0 |  |  |
 | datetime | 41 | 27 | 36 | 0 | byte, short, int, bigint, float, double, dec, ntz, time, ym, dt | 103, 329, 339, 340, 343, 351 |
-| hash | 2 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 337, 359, 368 |
+| hash | 2 | 0 | 2 | 2 | dec | 337, 359, 368 |
 | conversion | 11 | 1 | 10 | 3 | bool, byte, short, int, bigint, float, double, dec, date, time, ym, dt | 28, 332, 338, 340, 343, 350, 364, 365, 366, 368 |
 | misc | 2 | 2 | 2 | 0 |  |  |
 | conversion, no registry entry | 1 | 0 | 1 | 1 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 332, 343, 350, 364, 365, 366, 368 |
@@ -1369,7 +1369,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
 | `hash(i)` | `hash` |  | Murmur3's hashInt, its seed 42 | vector |
-| `xxhash64(i)` | `hash` |  | XXH64's hashInt of the int zero-extended in the long lane | per-lane: blend, mask broadcast, mask test |
+| `xxhash64(i)` | `hash` |  | XXH64's hashInt: the int widened to the long lane, its low 32 bits hashed | per-lane: blend, mask broadcast, mask test |
 | `hash(l)` | `hash` |  | Murmur3's hashLong: the low int, then the high one, in the int lane of the long kernel | per-lane: mask broadcast, load or store |
 | `xxhash64(l)` | `hash` |  | XXH64's hashLong | per-lane: blend, mask broadcast |
 | `hash(b)` | `integralCast`, `hash` |  | a boolean is the int 1 or 0 | vector |

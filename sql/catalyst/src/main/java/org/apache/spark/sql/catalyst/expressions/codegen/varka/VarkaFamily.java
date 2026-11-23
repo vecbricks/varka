@@ -110,8 +110,8 @@ public enum VarkaFamily {
   HASH("hash", "hash", "hash and xxhash64 over boolean, tinyint, smallint, int, bigint, float,"
       + " double, date, timestamp_ntz, time, the interval types and a decimal of precision 18 or"
       + " less, Spark's seed folded through the children and a null child skipped; a float or"
-      + " double child is canonicalised by the floating arithmetic family, whose switch it asks"
-      + " too");
+      + " double child is canonicalised by the floating arithmetic family and a boolean child cast"
+      + " to int by the integral cast family, whose switches it asks too");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";

@@ -1475,7 +1475,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // each child's word Spark's per-type rule, a null child skipped, so no answer is null.
     Family("Hash", predicates = false, Seq(
       Row("hash(i)", "Murmur3's hashInt, its seed 42"),
-      Row("xxhash64(i)", "XXH64's hashInt of the int zero-extended in the long lane"),
+      Row("xxhash64(i)",
+        "XXH64's hashInt: the int widened to the long lane, its low 32 bits hashed"),
       Row("hash(l)", "Murmur3's hashLong: the low int, then the high one, in the int lane of "
         + "the long kernel"),
       Row("xxhash64(l)", "XXH64's hashLong"),

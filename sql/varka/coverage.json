@@ -7932,7 +7932,7 @@
     "operands" : [ "XxHash64:int" ],
     "switches" : [ "spark.sql.codegen.varka.family.hash.enabled" ],
     "domain" : "",
-    "note" : "XXH64's hashInt of the int zero-extended in the long lane",
+    "note" : "XXH64's hashInt: the int widened to the long lane, its low 32 bits hashed",
     "verified" : "differential"
   }, {
     "sql" : "hash(l)",

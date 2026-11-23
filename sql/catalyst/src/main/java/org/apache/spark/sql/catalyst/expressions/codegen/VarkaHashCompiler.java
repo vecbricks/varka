@@ -211,9 +211,15 @@ final class VarkaHashCompiler {
   static Set<VarkaFamily> childFamilies(Expression e) {
     var out = EnumSet.noneOf(VarkaFamily.class);
     for (Expression child : CollectionConverters.asJava(e.children())) {
+      // A null child is skipped by the fold, and a boolean literal's cast folds to a slot, so
+      // neither builds a node of another family.
+      if (child.dataType() instanceof NullType
+          || (child instanceof Literal l && l.value() == null)) {
+        continue;
+      }
       if (child.dataType() instanceof FloatType || child.dataType() instanceof DoubleType) {
         out.add(VarkaFamily.FLOATING_ARITHMETIC);
-      } else if (child.dataType() instanceof BooleanType) {
+      } else if (child.dataType() instanceof BooleanType && !(child instanceof Literal)) {
         out.add(VarkaFamily.INTEGRAL_CAST);
       }
     }
