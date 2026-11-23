@@ -6,11 +6,11 @@ VarkaCastWithAnsiOffSuite	bigint	-	BIGINT	VARCHAR(10)	legacy	declined	unsupporte
 VarkaCastWithAnsiOffSuite	bigint	bigint	BIGINT	BIGINT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	bigint	bool	BIGINT	BOOLEAN	legacy	fused	
 VarkaCastWithAnsiOffSuite	bigint	byte	BIGINT	TINYINT	legacy	fused	
-VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(10,0)	legacy	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(2,0)	legacy	declined	a decimal(2,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(10,0)	legacy	declined	a cast from bigint to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(2,0)	legacy	declined	a cast from bigint to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(3,0)	legacy	declined	a decimal(3,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(3,1)	legacy	declined	a decimal(3,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(3,0)	legacy	declined	a cast from bigint to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(3,1)	legacy	declined	a cast from bigint to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	bigint	double	BIGINT	DOUBLE	legacy	declined	a BIGINT conversion to DOUBLE at an unknown emit level, which may be a host's without AVX512DQ (row 343)
 VarkaCastWithAnsiOffSuite	bigint	dt	BIGINT	INTERVAL DAY	legacy	declined	unsupported expression
@@ -27,7 +27,7 @@ VarkaCastWithAnsiOffSuite	byte	-	TINYINT	TIMESTAMP	legacy	declined	unsupported e
 VarkaCastWithAnsiOffSuite	byte	bigint	TINYINT	BIGINT	legacy	fused	
 VarkaCastWithAnsiOffSuite	byte	bool	TINYINT	BOOLEAN	legacy	fused	
 VarkaCastWithAnsiOffSuite	byte	byte	TINYINT	TINYINT	legacy	declined	unsupported expression
-VarkaCastWithAnsiOffSuite	byte	dec	TINYINT	DECIMAL(10,0)	legacy	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	byte	dec	TINYINT	DECIMAL(10,0)	legacy	declined	a cast from tinyint to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	byte	dec	TINYINT	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	byte	dec	TINYINT	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	byte	double	TINYINT	DOUBLE	legacy	fused	
@@ -46,8 +46,8 @@ VarkaCastWithAnsiOffSuite	date	bigint	DATE	BIGINT	legacy	declined	unsupported ex
 VarkaCastWithAnsiOffSuite	date	bool	DATE	BOOLEAN	legacy	declined	unsupported predicate
 VarkaCastWithAnsiOffSuite	date	byte	DATE	TINYINT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	date	date	DATE	DATE	legacy	fused	
-VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(10,0)	legacy	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(10,2)	legacy	declined	a decimal(10,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(10,0)	legacy	declined	a cast from date to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(10,2)	legacy	declined	a cast from date to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	date	double	DATE	DOUBLE	legacy	declined	a cast of DATE to a floating type, always null (row 343)
@@ -76,32 +76,32 @@ VarkaCastWithAnsiOffSuite	dec	byte	DECIMAL(10,0)	TINYINT	legacy	declined	unsuppo
 VarkaCastWithAnsiOffSuite	dec	byte	DECIMAL(2,1)	TINYINT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	dec	byte	DECIMAL(20,5)	TINYINT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	dec	byte	DECIMAL(38,18)	TINYINT	legacy	declined	unsupported expression
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(10,0)	DECIMAL(10,0)	legacy	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(10,0)	DECIMAL(10,0)	legacy	fused	
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(10,0)	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(10,0)	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(20,5)	DECIMAL(10,0)	legacy	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(20,5)	DECIMAL(10,0)	legacy	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(20,5)	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(20,5)	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,0)	DECIMAL(1,-2)	legacy	declined	a decimal(1,-2) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,0)	DECIMAL(2,-1)	legacy	declined	a decimal(2,-1) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,0)	DECIMAL(2,-2)	legacy	declined	a decimal(2,-2) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,0)	DECIMAL(3,-1)	legacy	declined	a decimal(3,-1) output: a negative scale is declined everywhere (the milestone plan's 2.8)
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,0)	DECIMAL(3,0)	legacy	declined	a decimal(3,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,2)	DECIMAL(1,0)	legacy	declined	a decimal(1,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,2)	DECIMAL(3,1)	legacy	declined	a decimal(3,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(38,18)	DECIMAL(10,0)	legacy	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,0)	DECIMAL(3,0)	legacy	fused	
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,2)	DECIMAL(1,0)	legacy	declined	a decimal cast that lowers the scale or the integral digits rounds or can overflow, and is row 350's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,2)	DECIMAL(3,1)	legacy	declined	a decimal cast that lowers the scale or the integral digits rounds or can overflow, and is row 350's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(38,18)	DECIMAL(10,0)	legacy	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(38,18)	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(38,18)	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(1,-2)	legacy	declined	a decimal(1,-2) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(2,-1)	legacy	declined	a decimal(2,-1) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(2,-2)	legacy	declined	a decimal(2,-2) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(3,-1)	legacy	declined	a decimal(3,-1) output: a negative scale is declined everywhere (the milestone plan's 2.8)
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(3,0)	legacy	declined	a decimal(3,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(3,0)	legacy	declined	a decimal cast that lowers the scale or the integral digits rounds or can overflow, and is row 350's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(4,0)	legacy	declined	a decimal(4,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,2)	DECIMAL(3,1)	legacy	declined	a decimal(3,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,2)	DECIMAL(3,2)	legacy	declined	a decimal(3,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(5,2)	DECIMAL(3,2)	legacy	declined	a decimal(3,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(4,0)	legacy	fused	
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,2)	DECIMAL(3,1)	legacy	declined	a decimal cast that lowers the scale or the integral digits rounds or can overflow, and is row 350's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,2)	DECIMAL(3,2)	legacy	declined	a decimal cast that lowers the scale or the integral digits rounds or can overflow, and is row 350's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(5,2)	DECIMAL(3,2)	legacy	declined	a decimal cast that lowers the scale or the integral digits rounds or can overflow, and is row 350's
 VarkaCastWithAnsiOffSuite	dec	double	DECIMAL(10,0)	DOUBLE	legacy	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
 VarkaCastWithAnsiOffSuite	dec	double	DECIMAL(2,1)	DOUBLE	legacy	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
 VarkaCastWithAnsiOffSuite	dec	double	DECIMAL(20,5)	DOUBLE	legacy	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
@@ -135,15 +135,15 @@ VarkaCastWithAnsiOffSuite	double	-	DOUBLE	VARCHAR(10)	legacy	declined	a cast fro
 VarkaCastWithAnsiOffSuite	double	bigint	DOUBLE	BIGINT	legacy	declined	a cast from a floating type (row 343's second part)
 VarkaCastWithAnsiOffSuite	double	bool	DOUBLE	BOOLEAN	legacy	fused	
 VarkaCastWithAnsiOffSuite	double	byte	DOUBLE	TINYINT	legacy	declined	a cast from a floating type (row 343's second part)
-VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(1,0)	legacy	declined	a decimal(1,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(10,0)	legacy	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(2,0)	legacy	declined	a decimal(2,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(2,1)	legacy	declined	a decimal(2,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(1,0)	legacy	declined	a cast from double to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(10,0)	legacy	declined	a cast from double to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(2,0)	legacy	declined	a cast from double to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(2,1)	legacy	declined	a cast from double to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(3,1)	legacy	declined	a decimal(3,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(3,2)	legacy	declined	a decimal(3,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(3,1)	legacy	declined	a cast from double to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(3,2)	legacy	declined	a cast from double to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(4,2)	legacy	declined	a decimal(4,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(4,2)	legacy	declined	a cast from double to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	double	double	DOUBLE	DOUBLE	legacy	fused	
 VarkaCastWithAnsiOffSuite	double	float	DOUBLE	FLOAT	legacy	fused	
 VarkaCastWithAnsiOffSuite	double	int	DOUBLE	INT	legacy	declined	a cast from a floating type (row 343's second part)
@@ -179,13 +179,13 @@ VarkaCastWithAnsiOffSuite	dt	byte	INTERVAL HOUR TO SECOND	TINYINT	legacy	decline
 VarkaCastWithAnsiOffSuite	dt	byte	INTERVAL MINUTE	TINYINT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	dt	byte	INTERVAL MINUTE TO SECOND	TINYINT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	dt	byte	INTERVAL SECOND	TINYINT	legacy	declined	unsupported expression
-VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL DAY	DECIMAL(10,3)	ansi	declined	a decimal(10,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL DAY TO SECOND	DECIMAL(10,6)	ansi	declined	a decimal(10,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL HOUR	DECIMAL(10,1)	ansi	declined	a decimal(10,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL HOUR TO SECOND	DECIMAL(18,6)	ansi	declined	a decimal(18,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL MINUTE	DECIMAL(8,2)	ansi	declined	a decimal(8,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL SECOND	DECIMAL(10,3)	ansi	declined	a decimal(10,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL SECOND	DECIMAL(6,0)	ansi	declined	a decimal(6,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL DAY	DECIMAL(10,3)	ansi	declined	a cast from interval day to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL DAY TO SECOND	DECIMAL(10,6)	ansi	declined	a cast from interval day to second to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL HOUR	DECIMAL(10,1)	ansi	declined	a cast from interval hour to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL HOUR TO SECOND	DECIMAL(18,6)	ansi	declined	a cast from interval hour to second to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL MINUTE	DECIMAL(8,2)	ansi	declined	a cast from interval minute to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL SECOND	DECIMAL(10,3)	ansi	declined	a cast from interval second to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	dt	dec	INTERVAL SECOND	DECIMAL(6,0)	ansi	declined	a cast from interval second to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	dt	dt	INTERVAL DAY	INTERVAL DAY	legacy	declined	day-time interval narrowed to a coarser end field, which truncates
 VarkaCastWithAnsiOffSuite	dt	dt	INTERVAL DAY TO HOUR	INTERVAL DAY TO HOUR	legacy	declined	day-time interval narrowed to a coarser end field, which truncates
 VarkaCastWithAnsiOffSuite	dt	dt	INTERVAL DAY TO MINUTE	INTERVAL DAY TO MINUTE	legacy	declined	day-time interval narrowed to a coarser end field, which truncates
@@ -230,8 +230,8 @@ VarkaCastWithAnsiOffSuite	float	-	FLOAT	TIMESTAMP	legacy	declined	a cast from a 
 VarkaCastWithAnsiOffSuite	float	bigint	FLOAT	BIGINT	legacy	declined	a cast from a floating type (row 343's second part)
 VarkaCastWithAnsiOffSuite	float	bool	FLOAT	BOOLEAN	legacy	fused	
 VarkaCastWithAnsiOffSuite	float	byte	FLOAT	TINYINT	legacy	declined	a cast from a floating type (row 343's second part)
-VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(10,0)	legacy	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(2,1)	legacy	declined	a decimal(2,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(10,0)	legacy	declined	a cast from float to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(2,1)	legacy	declined	a cast from float to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	float	double	FLOAT	DOUBLE	legacy	fused	
@@ -245,11 +245,11 @@ VarkaCastWithAnsiOffSuite	int	-	INT	VARCHAR(10)	legacy	declined	unsupported expr
 VarkaCastWithAnsiOffSuite	int	bigint	INT	BIGINT	legacy	fused	
 VarkaCastWithAnsiOffSuite	int	bool	INT	BOOLEAN	legacy	fused	
 VarkaCastWithAnsiOffSuite	int	byte	INT	TINYINT	legacy	fused	
-VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(10,0)	legacy	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(2,0)	legacy	declined	a decimal(2,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(10,0)	legacy	declined	a cast from int to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(2,0)	legacy	declined	a cast from int to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(3,0)	legacy	declined	a decimal(3,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(3,1)	legacy	declined	a decimal(3,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(3,0)	legacy	declined	a cast from int to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(3,1)	legacy	declined	a cast from int to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	int	double	INT	DOUBLE	legacy	fused	
 VarkaCastWithAnsiOffSuite	int	dt	INT	INTERVAL DAY	legacy	declined	unsupported expression
@@ -286,7 +286,7 @@ VarkaCastWithAnsiOffSuite	short	-	SMALLINT	TIMESTAMP	legacy	declined	unsupported
 VarkaCastWithAnsiOffSuite	short	bigint	SMALLINT	BIGINT	legacy	fused	
 VarkaCastWithAnsiOffSuite	short	bool	SMALLINT	BOOLEAN	legacy	fused	
 VarkaCastWithAnsiOffSuite	short	byte	SMALLINT	TINYINT	legacy	fused	
-VarkaCastWithAnsiOffSuite	short	dec	SMALLINT	DECIMAL(10,0)	legacy	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	short	dec	SMALLINT	DECIMAL(10,0)	legacy	declined	a cast from smallint to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	short	dec	SMALLINT	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	short	dec	SMALLINT	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOffSuite	short	double	SMALLINT	DOUBLE	legacy	fused	
@@ -304,17 +304,17 @@ VarkaCastWithAnsiOffSuite	time	bigint	TIME(6)	BIGINT	legacy	declined	unsupported
 VarkaCastWithAnsiOffSuite	time	bigint	TIME(9)	BIGINT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	time	byte	TIME(1)	TINYINT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	time	byte	TIME(6)	TINYINT	legacy	declined	unsupported expression
-VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(1,0)	ansi	declined	a decimal(1,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(10,5)	ansi	declined	a decimal(10,5) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(11,6)	ansi	declined	a decimal(11,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(14,9)	ansi	declined	a decimal(14,9) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(2,0)	legacy	declined	a decimal(2,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(2,1)	ansi	declined	a decimal(2,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(5,0)	ansi	declined	a decimal(5,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(6,1)	ansi	declined	a decimal(6,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(7,2)	ansi	declined	a decimal(7,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(8,3)	ansi	declined	a decimal(8,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(9,4)	ansi	declined	a decimal(9,4) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(1,0)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(10,5)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(11,6)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(14,9)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(2,0)	legacy	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(2,1)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(5,0)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(6,1)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(7,2)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(8,3)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	time	dec	TIME(6)	DECIMAL(9,4)	ansi	declined	a cast from time(6) to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	time	int	TIME(0)	INT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	time	int	TIME(1)	INT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	time	int	TIME(2)	INT	legacy	declined	unsupported expression
@@ -346,9 +346,9 @@ VarkaCastWithAnsiOffSuite	ym	bigint	INTERVAL YEAR TO MONTH	BIGINT	legacy	decline
 VarkaCastWithAnsiOffSuite	ym	byte	INTERVAL MONTH	TINYINT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	ym	byte	INTERVAL YEAR	TINYINT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	ym	byte	INTERVAL YEAR TO MONTH	TINYINT	legacy	declined	unsupported expression
-VarkaCastWithAnsiOffSuite	ym	dec	INTERVAL MONTH	DECIMAL(8,0)	ansi	declined	a decimal(8,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	ym	dec	INTERVAL YEAR	DECIMAL(5,2)	ansi	declined	a decimal(5,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOffSuite	ym	dec	INTERVAL YEAR TO MONTH	DECIMAL(8,3)	ansi	declined	a decimal(8,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOffSuite	ym	dec	INTERVAL MONTH	DECIMAL(8,0)	ansi	declined	a cast from interval month to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	ym	dec	INTERVAL YEAR	DECIMAL(5,2)	ansi	declined	a cast from interval year to a decimal is row 350's
+VarkaCastWithAnsiOffSuite	ym	dec	INTERVAL YEAR TO MONTH	DECIMAL(8,3)	ansi	declined	a cast from interval year to month to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	ym	int	INTERVAL MONTH	INT	legacy	fused	
 VarkaCastWithAnsiOffSuite	ym	int	INTERVAL YEAR	INT	legacy	fused	
 VarkaCastWithAnsiOffSuite	ym	int	INTERVAL YEAR TO MONTH	INT	legacy	declined	unsupported expression
@@ -364,9 +364,9 @@ VarkaCastWithAnsiOnSuite	bigint	-	BIGINT	VARCHAR(10)	ansi	declined	unsupported e
 VarkaCastWithAnsiOnSuite	bigint	bigint	BIGINT	BIGINT	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	bigint	bool	BIGINT	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	bigint	byte	BIGINT	TINYINT	ansi	fused	
-VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(10,0)	ansi	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(10,0)	ansi	declined	a cast from bigint to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(3,0)	ansi	declined	a decimal(3,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(3,0)	ansi	declined	a cast from bigint to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	bigint	double	BIGINT	DOUBLE	ansi	declined	a BIGINT conversion to DOUBLE at an unknown emit level, which may be a host's without AVX512DQ (row 343)
 VarkaCastWithAnsiOnSuite	bigint	float	BIGINT	FLOAT	ansi	declined	a BIGINT conversion to FLOAT at an unknown emit level, which may be a host's without AVX512DQ (row 343)
@@ -376,7 +376,7 @@ VarkaCastWithAnsiOnSuite	byte	-	TINYINT	STRING	ansi	declined	unsupported express
 VarkaCastWithAnsiOnSuite	byte	bigint	TINYINT	BIGINT	ansi	fused	
 VarkaCastWithAnsiOnSuite	byte	bool	TINYINT	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	byte	byte	TINYINT	TINYINT	ansi	declined	unsupported expression
-VarkaCastWithAnsiOnSuite	byte	dec	TINYINT	DECIMAL(10,0)	ansi	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	byte	dec	TINYINT	DECIMAL(10,0)	ansi	declined	a cast from tinyint to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	byte	dec	TINYINT	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	byte	dec	TINYINT	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	byte	double	TINYINT	DOUBLE	ansi	fused	
@@ -415,16 +415,16 @@ VarkaCastWithAnsiOnSuite	dec	byte	DECIMAL(2,1)	TINYINT	ansi	declined	unsupported
 VarkaCastWithAnsiOnSuite	dec	byte	DECIMAL(20,5)	TINYINT	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	dec	byte	DECIMAL(3,0)	TINYINT	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	dec	byte	DECIMAL(38,18)	TINYINT	ansi	declined	unsupported expression
-VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(10,0)	DECIMAL(10,0)	ansi	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(10,0)	DECIMAL(10,0)	ansi	fused	
 VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(10,0)	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(10,0)	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(20,5)	DECIMAL(10,0)	ansi	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(20,5)	DECIMAL(10,0)	ansi	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
 VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(20,5)	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(20,5)	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(38,18)	DECIMAL(10,0)	ansi	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(38,18)	DECIMAL(10,0)	ansi	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
 VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(38,18)	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(38,18)	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(5,2)	DECIMAL(3,2)	ansi	declined	a decimal(3,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(5,2)	DECIMAL(3,2)	ansi	declined	a decimal cast that lowers the scale or the integral digits rounds or can overflow, and is row 350's
 VarkaCastWithAnsiOnSuite	dec	double	DECIMAL(10,0)	DOUBLE	ansi	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
 VarkaCastWithAnsiOnSuite	dec	double	DECIMAL(2,1)	DOUBLE	ansi	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
 VarkaCastWithAnsiOnSuite	dec	double	DECIMAL(20,5)	DOUBLE	ansi	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
@@ -462,9 +462,9 @@ VarkaCastWithAnsiOnSuite	double	-	DOUBLE	VARCHAR(10)	ansi	declined	a cast from a
 VarkaCastWithAnsiOnSuite	double	bigint	DOUBLE	BIGINT	ansi	declined	a cast from a floating type (row 343's second part)
 VarkaCastWithAnsiOnSuite	double	bool	DOUBLE	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	double	byte	DOUBLE	TINYINT	ansi	declined	a cast from a floating type (row 343's second part)
-VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(10,0)	ansi	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(10,0)	ansi	declined	a cast from double to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(3,2)	ansi	declined	a decimal(3,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(3,2)	ansi	declined	a cast from double to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	double	double	DOUBLE	DOUBLE	ansi	fused	
 VarkaCastWithAnsiOnSuite	double	float	DOUBLE	FLOAT	ansi	fused	
@@ -480,13 +480,13 @@ VarkaCastWithAnsiOnSuite	dt	-	INTERVAL HOUR TO SECOND	STRING	ansi	declined	unsup
 VarkaCastWithAnsiOnSuite	dt	-	INTERVAL MINUTE	STRING	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	dt	-	INTERVAL MINUTE TO SECOND	STRING	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	dt	-	INTERVAL SECOND	STRING	ansi	declined	unsupported expression
-VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL DAY	DECIMAL(10,3)	ansi	declined	a decimal(10,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL DAY TO SECOND	DECIMAL(10,6)	ansi	declined	a decimal(10,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL HOUR	DECIMAL(10,1)	ansi	declined	a decimal(10,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL HOUR TO SECOND	DECIMAL(18,6)	ansi	declined	a decimal(18,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL MINUTE	DECIMAL(8,2)	ansi	declined	a decimal(8,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL SECOND	DECIMAL(10,3)	ansi	declined	a decimal(10,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL SECOND	DECIMAL(6,0)	ansi	declined	a decimal(6,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL DAY	DECIMAL(10,3)	ansi	declined	a cast from interval day to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL DAY TO SECOND	DECIMAL(10,6)	ansi	declined	a cast from interval day to second to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL HOUR	DECIMAL(10,1)	ansi	declined	a cast from interval hour to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL HOUR TO SECOND	DECIMAL(18,6)	ansi	declined	a cast from interval hour to second to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL MINUTE	DECIMAL(8,2)	ansi	declined	a cast from interval minute to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL SECOND	DECIMAL(10,3)	ansi	declined	a cast from interval second to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	dt	dec	INTERVAL SECOND	DECIMAL(6,0)	ansi	declined	a cast from interval second to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	dt	dt	INTERVAL DAY	INTERVAL DAY	ansi	declined	day-time interval narrowed to a coarser end field, which truncates
 VarkaCastWithAnsiOnSuite	dt	dt	INTERVAL DAY TO HOUR	INTERVAL DAY TO HOUR	ansi	declined	day-time interval narrowed to a coarser end field, which truncates
 VarkaCastWithAnsiOnSuite	dt	dt	INTERVAL DAY TO MINUTE	INTERVAL DAY TO MINUTE	ansi	declined	day-time interval narrowed to a coarser end field, which truncates
@@ -511,7 +511,7 @@ VarkaCastWithAnsiOnSuite	float	-	FLOAT	TIMESTAMP	ansi	declined	a cast from a flo
 VarkaCastWithAnsiOnSuite	float	bigint	FLOAT	BIGINT	ansi	declined	a cast from a floating type (row 343's second part)
 VarkaCastWithAnsiOnSuite	float	bool	FLOAT	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	float	byte	FLOAT	TINYINT	ansi	declined	a cast from a floating type (row 343's second part)
-VarkaCastWithAnsiOnSuite	float	dec	FLOAT	DECIMAL(10,0)	ansi	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	float	dec	FLOAT	DECIMAL(10,0)	ansi	declined	a cast from float to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	float	dec	FLOAT	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	float	dec	FLOAT	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	float	double	FLOAT	DOUBLE	ansi	fused	
@@ -524,9 +524,9 @@ VarkaCastWithAnsiOnSuite	int	-	INT	VARCHAR(10)	ansi	declined	unsupported express
 VarkaCastWithAnsiOnSuite	int	bigint	INT	BIGINT	ansi	fused	
 VarkaCastWithAnsiOnSuite	int	bool	INT	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	int	byte	INT	TINYINT	ansi	fused	
-VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(10,0)	ansi	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(10,0)	ansi	declined	a cast from int to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(3,0)	ansi	declined	a decimal(3,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(3,0)	ansi	declined	a cast from int to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	int	double	INT	DOUBLE	ansi	fused	
 VarkaCastWithAnsiOnSuite	int	float	INT	FLOAT	ansi	fused	
@@ -556,7 +556,7 @@ VarkaCastWithAnsiOnSuite	short	-	SMALLINT	STRING	ansi	declined	unsupported expre
 VarkaCastWithAnsiOnSuite	short	bigint	SMALLINT	BIGINT	ansi	fused	
 VarkaCastWithAnsiOnSuite	short	bool	SMALLINT	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	short	byte	SMALLINT	TINYINT	ansi	fused	
-VarkaCastWithAnsiOnSuite	short	dec	SMALLINT	DECIMAL(10,0)	ansi	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	short	dec	SMALLINT	DECIMAL(10,0)	ansi	declined	a cast from smallint to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	short	dec	SMALLINT	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	short	dec	SMALLINT	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaCastWithAnsiOnSuite	short	double	SMALLINT	DOUBLE	ansi	fused	
@@ -574,16 +574,16 @@ VarkaCastWithAnsiOnSuite	time	bigint	TIME(6)	BIGINT	ansi	declined	unsupported ex
 VarkaCastWithAnsiOnSuite	time	bigint	TIME(9)	BIGINT	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	time	byte	TIME(4)	TINYINT	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	time	byte	TIME(6)	TINYINT	ansi	declined	unsupported expression
-VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(1,0)	ansi	declined	a decimal(1,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(10,5)	ansi	declined	a decimal(10,5) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(11,6)	ansi	declined	a decimal(11,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(14,9)	ansi	declined	a decimal(14,9) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(2,1)	ansi	declined	a decimal(2,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(5,0)	ansi	declined	a decimal(5,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(6,1)	ansi	declined	a decimal(6,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(7,2)	ansi	declined	a decimal(7,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(8,3)	ansi	declined	a decimal(8,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(9,4)	ansi	declined	a decimal(9,4) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(1,0)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(10,5)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(11,6)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(14,9)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(2,1)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(5,0)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(6,1)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(7,2)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(8,3)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	time	dec	TIME(6)	DECIMAL(9,4)	ansi	declined	a cast from time(6) to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	time	int	TIME(0)	INT	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	time	int	TIME(1)	INT	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	time	int	TIME(2)	INT	ansi	declined	unsupported expression
@@ -608,9 +608,9 @@ VarkaCastWithAnsiOnSuite	time	time	TIME(9)	TIME(9)	ansi	fused
 VarkaCastWithAnsiOnSuite	ym	-	INTERVAL MONTH	STRING	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	ym	-	INTERVAL YEAR	STRING	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	ym	-	INTERVAL YEAR TO MONTH	STRING	ansi	declined	unsupported expression
-VarkaCastWithAnsiOnSuite	ym	dec	INTERVAL MONTH	DECIMAL(8,0)	ansi	declined	a decimal(8,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	ym	dec	INTERVAL YEAR	DECIMAL(5,2)	ansi	declined	a decimal(5,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaCastWithAnsiOnSuite	ym	dec	INTERVAL YEAR TO MONTH	DECIMAL(8,3)	ansi	declined	a decimal(8,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaCastWithAnsiOnSuite	ym	dec	INTERVAL MONTH	DECIMAL(8,0)	ansi	declined	a cast from interval month to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	ym	dec	INTERVAL YEAR	DECIMAL(5,2)	ansi	declined	a cast from interval year to a decimal is row 350's
+VarkaCastWithAnsiOnSuite	ym	dec	INTERVAL YEAR TO MONTH	DECIMAL(8,3)	ansi	declined	a cast from interval year to month to a decimal is row 350's
 VarkaCastWithAnsiOnSuite	ym	ym	INTERVAL MONTH	INTERVAL MONTH	ansi	fused	
 VarkaCastWithAnsiOnSuite	ym	ym	INTERVAL YEAR	INTERVAL YEAR	ansi	fused	
 VarkaCastWithAnsiOnSuite	ym	ym	INTERVAL YEAR TO MONTH	INTERVAL YEAR TO MONTH	ansi	fused	
@@ -620,9 +620,9 @@ VarkaTryCastSuite	bigint	-	BIGINT	VARCHAR(10)	try	declined	unsupported expressio
 VarkaTryCastSuite	bigint	bigint	BIGINT	BIGINT	try	declined	unsupported expression
 VarkaTryCastSuite	bigint	bool	BIGINT	BOOLEAN	try	fused	
 VarkaTryCastSuite	bigint	byte	BIGINT	TINYINT	try	fused	
-VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(10,0)	try	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(10,0)	try	declined	a cast from bigint to a decimal is row 350's
 VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(3,0)	try	declined	a decimal(3,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(3,0)	try	declined	a cast from bigint to a decimal is row 350's
 VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	bigint	double	BIGINT	DOUBLE	try	declined	a BIGINT conversion to DOUBLE at an unknown emit level, which may be a host's without AVX512DQ (row 343)
 VarkaTryCastSuite	bigint	float	BIGINT	FLOAT	try	declined	a BIGINT conversion to FLOAT at an unknown emit level, which may be a host's without AVX512DQ (row 343)
@@ -632,7 +632,7 @@ VarkaTryCastSuite	byte	-	TINYINT	STRING	try	declined	unsupported expression
 VarkaTryCastSuite	byte	bigint	TINYINT	BIGINT	try	fused	
 VarkaTryCastSuite	byte	bool	TINYINT	BOOLEAN	try	fused	
 VarkaTryCastSuite	byte	byte	TINYINT	TINYINT	try	declined	unsupported expression
-VarkaTryCastSuite	byte	dec	TINYINT	DECIMAL(10,0)	try	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	byte	dec	TINYINT	DECIMAL(10,0)	try	declined	a cast from tinyint to a decimal is row 350's
 VarkaTryCastSuite	byte	dec	TINYINT	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	byte	dec	TINYINT	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	byte	double	TINYINT	DOUBLE	try	fused	
@@ -671,16 +671,16 @@ VarkaTryCastSuite	dec	byte	DECIMAL(2,1)	TINYINT	try	declined	unsupported express
 VarkaTryCastSuite	dec	byte	DECIMAL(20,5)	TINYINT	try	declined	unsupported expression
 VarkaTryCastSuite	dec	byte	DECIMAL(3,0)	TINYINT	try	declined	unsupported expression
 VarkaTryCastSuite	dec	byte	DECIMAL(38,18)	TINYINT	try	declined	unsupported expression
-VarkaTryCastSuite	dec	dec	DECIMAL(10,0)	DECIMAL(10,0)	try	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	dec	dec	DECIMAL(10,0)	DECIMAL(10,0)	try	fused	
 VarkaTryCastSuite	dec	dec	DECIMAL(10,0)	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	dec	dec	DECIMAL(10,0)	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	dec	dec	DECIMAL(20,5)	DECIMAL(10,0)	try	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	dec	dec	DECIMAL(20,5)	DECIMAL(10,0)	try	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
 VarkaTryCastSuite	dec	dec	DECIMAL(20,5)	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	dec	dec	DECIMAL(20,5)	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	dec	dec	DECIMAL(38,18)	DECIMAL(10,0)	try	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	dec	dec	DECIMAL(38,18)	DECIMAL(10,0)	try	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
 VarkaTryCastSuite	dec	dec	DECIMAL(38,18)	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	dec	dec	DECIMAL(38,18)	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	dec	dec	DECIMAL(5,2)	DECIMAL(3,2)	try	declined	a decimal(3,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	dec	dec	DECIMAL(5,2)	DECIMAL(3,2)	try	declined	a decimal cast that lowers the scale or the integral digits rounds or can overflow, and is row 350's
 VarkaTryCastSuite	dec	double	DECIMAL(10,0)	DOUBLE	try	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
 VarkaTryCastSuite	dec	double	DECIMAL(2,1)	DOUBLE	try	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
 VarkaTryCastSuite	dec	double	DECIMAL(20,5)	DOUBLE	try	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
@@ -718,9 +718,9 @@ VarkaTryCastSuite	double	-	DOUBLE	VARCHAR(10)	try	declined	a cast from a floatin
 VarkaTryCastSuite	double	bigint	DOUBLE	BIGINT	try	declined	a cast from a floating type (row 343's second part)
 VarkaTryCastSuite	double	bool	DOUBLE	BOOLEAN	try	fused	
 VarkaTryCastSuite	double	byte	DOUBLE	TINYINT	try	declined	a cast from a floating type (row 343's second part)
-VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(10,0)	try	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(10,0)	try	declined	a cast from double to a decimal is row 350's
 VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(3,2)	try	declined	a decimal(3,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(3,2)	try	declined	a cast from double to a decimal is row 350's
 VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	double	double	DOUBLE	DOUBLE	try	fused	
 VarkaTryCastSuite	double	float	DOUBLE	FLOAT	try	fused	
@@ -737,13 +737,13 @@ VarkaTryCastSuite	dt	-	INTERVAL HOUR TO SECOND	STRING	try	declined	unsupported e
 VarkaTryCastSuite	dt	-	INTERVAL MINUTE	STRING	try	declined	unsupported expression
 VarkaTryCastSuite	dt	-	INTERVAL MINUTE TO SECOND	STRING	try	declined	unsupported expression
 VarkaTryCastSuite	dt	-	INTERVAL SECOND	STRING	try	declined	unsupported expression
-VarkaTryCastSuite	dt	dec	INTERVAL DAY	DECIMAL(10,3)	ansi	declined	a decimal(10,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	dt	dec	INTERVAL DAY TO SECOND	DECIMAL(10,6)	ansi	declined	a decimal(10,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	dt	dec	INTERVAL HOUR	DECIMAL(10,1)	ansi	declined	a decimal(10,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	dt	dec	INTERVAL HOUR TO SECOND	DECIMAL(18,6)	ansi	declined	a decimal(18,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	dt	dec	INTERVAL MINUTE	DECIMAL(8,2)	ansi	declined	a decimal(8,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	dt	dec	INTERVAL SECOND	DECIMAL(10,3)	ansi	declined	a decimal(10,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	dt	dec	INTERVAL SECOND	DECIMAL(6,0)	ansi	declined	a decimal(6,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	dt	dec	INTERVAL DAY	DECIMAL(10,3)	ansi	declined	a cast from interval day to a decimal is row 350's
+VarkaTryCastSuite	dt	dec	INTERVAL DAY TO SECOND	DECIMAL(10,6)	ansi	declined	a cast from interval day to second to a decimal is row 350's
+VarkaTryCastSuite	dt	dec	INTERVAL HOUR	DECIMAL(10,1)	ansi	declined	a cast from interval hour to a decimal is row 350's
+VarkaTryCastSuite	dt	dec	INTERVAL HOUR TO SECOND	DECIMAL(18,6)	ansi	declined	a cast from interval hour to second to a decimal is row 350's
+VarkaTryCastSuite	dt	dec	INTERVAL MINUTE	DECIMAL(8,2)	ansi	declined	a cast from interval minute to a decimal is row 350's
+VarkaTryCastSuite	dt	dec	INTERVAL SECOND	DECIMAL(10,3)	ansi	declined	a cast from interval second to a decimal is row 350's
+VarkaTryCastSuite	dt	dec	INTERVAL SECOND	DECIMAL(6,0)	ansi	declined	a cast from interval second to a decimal is row 350's
 VarkaTryCastSuite	dt	dt	INTERVAL DAY	INTERVAL DAY	try	declined	day-time interval narrowed to a coarser end field, which truncates
 VarkaTryCastSuite	dt	dt	INTERVAL DAY TO HOUR	INTERVAL DAY TO HOUR	try	declined	day-time interval narrowed to a coarser end field, which truncates
 VarkaTryCastSuite	dt	dt	INTERVAL DAY TO MINUTE	INTERVAL DAY TO MINUTE	try	declined	day-time interval narrowed to a coarser end field, which truncates
@@ -768,7 +768,7 @@ VarkaTryCastSuite	float	-	FLOAT	TIMESTAMP	try	declined	a cast from a floating ty
 VarkaTryCastSuite	float	bigint	FLOAT	BIGINT	try	declined	a cast from a floating type (row 343's second part)
 VarkaTryCastSuite	float	bool	FLOAT	BOOLEAN	try	fused	
 VarkaTryCastSuite	float	byte	FLOAT	TINYINT	try	declined	a cast from a floating type (row 343's second part)
-VarkaTryCastSuite	float	dec	FLOAT	DECIMAL(10,0)	try	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	float	dec	FLOAT	DECIMAL(10,0)	try	declined	a cast from float to a decimal is row 350's
 VarkaTryCastSuite	float	dec	FLOAT	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	float	dec	FLOAT	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	float	double	FLOAT	DOUBLE	try	fused	
@@ -781,9 +781,9 @@ VarkaTryCastSuite	int	-	INT	VARCHAR(10)	try	declined	unsupported expression
 VarkaTryCastSuite	int	bigint	INT	BIGINT	try	fused	
 VarkaTryCastSuite	int	bool	INT	BOOLEAN	try	fused	
 VarkaTryCastSuite	int	byte	INT	TINYINT	try	fused	
-VarkaTryCastSuite	int	dec	INT	DECIMAL(10,0)	try	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	int	dec	INT	DECIMAL(10,0)	try	declined	a cast from int to a decimal is row 350's
 VarkaTryCastSuite	int	dec	INT	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	int	dec	INT	DECIMAL(3,0)	try	declined	a decimal(3,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	int	dec	INT	DECIMAL(3,0)	try	declined	a cast from int to a decimal is row 350's
 VarkaTryCastSuite	int	dec	INT	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	int	double	INT	DOUBLE	try	fused	
 VarkaTryCastSuite	int	float	INT	FLOAT	try	fused	
@@ -813,7 +813,7 @@ VarkaTryCastSuite	short	-	SMALLINT	STRING	try	declined	unsupported expression
 VarkaTryCastSuite	short	bigint	SMALLINT	BIGINT	try	fused	
 VarkaTryCastSuite	short	bool	SMALLINT	BOOLEAN	try	fused	
 VarkaTryCastSuite	short	byte	SMALLINT	TINYINT	try	fused	
-VarkaTryCastSuite	short	dec	SMALLINT	DECIMAL(10,0)	try	declined	a decimal(10,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	short	dec	SMALLINT	DECIMAL(10,0)	try	declined	a cast from smallint to a decimal is row 350's
 VarkaTryCastSuite	short	dec	SMALLINT	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	short	dec	SMALLINT	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
 VarkaTryCastSuite	short	double	SMALLINT	DOUBLE	try	fused	
@@ -831,17 +831,17 @@ VarkaTryCastSuite	time	bigint	TIME(6)	BIGINT	try	declined	unsupported expression
 VarkaTryCastSuite	time	bigint	TIME(9)	BIGINT	try	declined	unsupported expression
 VarkaTryCastSuite	time	byte	TIME(4)	TINYINT	try	declined	unsupported expression
 VarkaTryCastSuite	time	byte	TIME(6)	TINYINT	try	declined	unsupported expression
-VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(1,0)	ansi	declined	a decimal(1,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(10,5)	ansi	declined	a decimal(10,5) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(11,6)	ansi	declined	a decimal(11,6) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(14,9)	ansi	declined	a decimal(14,9) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(2,0)	try	declined	a decimal(2,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(2,1)	ansi	declined	a decimal(2,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(5,0)	ansi	declined	a decimal(5,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(6,1)	ansi	declined	a decimal(6,1) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(7,2)	ansi	declined	a decimal(7,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(8,3)	ansi	declined	a decimal(8,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(9,4)	ansi	declined	a decimal(9,4) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(1,0)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(10,5)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(11,6)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(14,9)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(2,0)	try	declined	a cast from time(6) to a decimal is row 350's
+VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(2,1)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(5,0)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(6,1)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(7,2)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(8,3)	ansi	declined	a cast from time(6) to a decimal is row 350's
+VarkaTryCastSuite	time	dec	TIME(6)	DECIMAL(9,4)	ansi	declined	a cast from time(6) to a decimal is row 350's
 VarkaTryCastSuite	time	int	TIME(0)	INT	try	declined	unsupported expression
 VarkaTryCastSuite	time	int	TIME(1)	INT	try	declined	unsupported expression
 VarkaTryCastSuite	time	int	TIME(2)	INT	try	declined	unsupported expression
@@ -867,9 +867,9 @@ VarkaTryCastSuite	ym	-	INTERVAL MONTH	STRING	try	declined	unsupported expression
 VarkaTryCastSuite	ym	-	INTERVAL YEAR	STRING	try	declined	unsupported expression
 VarkaTryCastSuite	ym	-	INTERVAL YEAR TO MONTH	STRING	ansi	declined	unsupported expression
 VarkaTryCastSuite	ym	-	INTERVAL YEAR TO MONTH	STRING	try	declined	unsupported expression
-VarkaTryCastSuite	ym	dec	INTERVAL MONTH	DECIMAL(8,0)	ansi	declined	a decimal(8,0) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	ym	dec	INTERVAL YEAR	DECIMAL(5,2)	ansi	declined	a decimal(5,2) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
-VarkaTryCastSuite	ym	dec	INTERVAL YEAR TO MONTH	DECIMAL(8,3)	ansi	declined	a decimal(8,3) value as a projection's output: the decimal store writes it, and the values it admits are the TIME functions time_to_seconds and extract(SECOND ...); the others are row 348's
+VarkaTryCastSuite	ym	dec	INTERVAL MONTH	DECIMAL(8,0)	ansi	declined	a cast from interval month to a decimal is row 350's
+VarkaTryCastSuite	ym	dec	INTERVAL YEAR	DECIMAL(5,2)	ansi	declined	a cast from interval year to a decimal is row 350's
+VarkaTryCastSuite	ym	dec	INTERVAL YEAR TO MONTH	DECIMAL(8,3)	ansi	declined	a cast from interval year to month to a decimal is row 350's
 VarkaTryCastSuite	ym	ym	INTERVAL MONTH	INTERVAL MONTH	try	fused	
 VarkaTryCastSuite	ym	ym	INTERVAL YEAR	INTERVAL YEAR	try	fused	
 VarkaTryCastSuite	ym	ym	INTERVAL YEAR TO MONTH	INTERVAL YEAR TO MONTH	try	fused	
