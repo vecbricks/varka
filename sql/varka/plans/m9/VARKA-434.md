@@ -1,5 +1,9 @@
 # VARKA-434: A long column's epilogue load at two long lanes without a long mask (rows 434 and 435)
 
+*Moved to milestone 9 on 23 November 2026 with rows 434 and 435 (`SCOPE.md` item 138). A bare
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
+unless that plan moved too (`SCOPE.md` item 138).*
+
 *Rows 434 and 435 of `m8/PLAN.md` share this file. Both come from the 21 October 2026 review of
 row 403, and both are about the epilogue's bounds mask and `Slots.epilogueReadsMask`. Row 434
 changes which epilogue reads need the long mask. Row 435 changes how the tests count the masks

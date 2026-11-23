@@ -21,7 +21,9 @@ import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.temporal.IsoFields;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -953,6 +955,12 @@ public final class VarkaReference {
   private static final class MixedRow {
     private final List<Long> values = new ArrayList<>();
     private final List<Boolean> nulls = new ArrayList<>();
+    /**
+     * Each node's flattened form, by identity: a tree shares its subtrees, and without this a
+     * conversion under a shared node is answered again at every path to it, which for a math
+     * port's nested bit views is exponential in their depth.
+     */
+    private final Map<VarkaVectorIR, VarkaVectorIR> flattened = new IdentityHashMap<>();
 
     MixedRow(long[] row, boolean[] isNull) {
       for (int c = 0; c < row.length; c++) {
@@ -963,6 +971,15 @@ public final class VarkaReference {
 
     /** {@code node} with every conversion replaced by a column holding its answer. */
     VarkaVectorIR flatten(VarkaVectorIR node, int[] intLits, long[] longLits) {
+      VarkaVectorIR known = flattened.get(node);
+      if (known == null) {
+        known = flattenOnce(node, intLits, longLits);
+        flattened.put(node, known);
+      }
+      return known;
+    }
+
+    private VarkaVectorIR flattenOnce(VarkaVectorIR node, int[] intLits, long[] longLits) {
       if (node instanceof WidenLane w) {
         // Exact: the child's value, which `mixedValue` already sign-extends, at the target's lane
         // (the int lane for a narrow column under a null test, the long lane for an int).

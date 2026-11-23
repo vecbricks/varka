@@ -121,8 +121,8 @@ import org.apache.spark.sql.types.DecimalType;
  * lowers the scale or the integral digits, or one from an integral type (row 350); a negative
  * scale (the milestone plan's 2.8); and every operator no arm here claims yet.
  *
- * <p>A decimal-valued output root is compiled by {@link #output}, which the projection's root
- * binding calls, and admitted by {@link #outputRoot}.
+ * <p>A decimal-valued output root is any {@link #value}, compiled by {@link #output}, which the
+ * projection's root binding calls, and admitted by {@link #outputRoot}.
  */
 final class VarkaDecimalCompiler {
 
@@ -208,6 +208,12 @@ final class VarkaDecimalCompiler {
     return switch (e) {
       case BoundReference br -> column(br, type, inputs, sink);
       case Cast c -> cast(c, type, inputs, literals, sink);
+      // The two decimal-valued TIME functions (VARKA-157 2.3), under the TIME family's switch,
+      // which this path never reaches through compileNode: each is within its precision for
+      // every time of day.
+      case StaticInvoke si when VarkaTimeCompiler.isDecimalProducer(si) ->
+          VarkaNodeCompiler.inFamily(VarkaFamily.TIME,
+              () -> VarkaTimeCompiler.decimalProducer(si, inputs, literals, sink), si, sink);
       // Neither can fail or leave the precision, |-u| = |u| (VARKA-348 0.5), so both wrap: the
       // one overflowing long, Long.MIN_VALUE, is outside every decimal's bound.
       case UnaryMinus m -> value(m.child(), inputs, literals, sink)
@@ -886,13 +892,11 @@ final class VarkaDecimalCompiler {
   }
 
   /**
-   * A decimal-valued output root, or empty with the reason noted (`VARKA-157.md` 2.1): the
-   * output's type is asked first, so a precision above 18 or a negative scale declines naming its
-   * row at plan time, whatever the expression; then the value is compiled and wrapped by
-   * {@link #outputRoot}. The producers today are the two decimal-valued {@code TIME} functions
-   * ({@code VarkaTimeCompiler.decimalProducer}); every other decimal value as an output declines
-   * naming row 348, whose values ({@link #value}) reach this method's {@link #widened} when its
-   * part 348b admits them.
+   * A decimal-valued output root, or empty with the reason noted (`VARKA-157.md` 2.1,
+   * `VARKA-348.md` 2.4): the output's type is asked first, so a precision above 18 or a negative
+   * scale declines naming its row at plan time, whatever the expression; then the value is
+   * compiled by {@link #value}, as under a comparison, and wrapped by {@link #widened}. Every
+   * form {@link #value} builds is within its type's precision, so the store needs no check.
    */
   static Optional<VarkaVectorIR> output(Expression e, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
@@ -901,29 +905,27 @@ final class VarkaDecimalCompiler {
     if (refused.isPresent()) {
       return sink.decline(refused.get(), e);
     }
-    if (e instanceof StaticInvoke si && VarkaTimeCompiler.isDecimalProducer(si)) {
-      // The producers are the TIME family's nodes, and this path never passes through
-      // compileNode, so it asks the family's switch and notes the family itself.
-      return VarkaNodeCompiler.inFamily(VarkaFamily.TIME, () ->
-          VarkaTimeCompiler.decimalProducer(si, inputs, literals, sink)
-              .flatMap(v -> widened(e, v, sink)), e, sink);
+    // Bracketed as a comparison's operands are, so the choice conditions it keeps are dropped
+    // before the entry's tables can be rolled back to its marks.
+    sink.enterDecimal();
+    try {
+      return value(e, inputs, literals, sink).flatMap(v -> widened(e, v, sink));
+    } finally {
+      sink.exitDecimal();
     }
-    return sink.decline("a " + type.simpleString() + " value as a projection's output: the "
-        + "decimal store writes it, and the values it admits are the TIME functions "
-        + "time_to_seconds and extract(SECOND ...); the others are row 348's", e);
   }
 
   /**
    * The output root of a compiled decimal {@code value} of {@code whole}: at the output type's
-   * scale, which every producer builds, and then {@link #outputRoot}. A value at another scale is
-   * a producer's error, not a decline.
+   * scale, which every producer builds, and then {@link #outputRoot}. A value at another scale, or
+   * of a wider precision, declines with its types named: the store does not rescale.
    */
   private static Optional<VarkaVectorIR> widened(Expression whole, Scaled value,
       DeclineSink sink) {
     DecimalType type = (DecimalType) whole.dataType();
     if (value.type().scale() != type.scale() || value.type().precision() > type.precision()) {
-      throw VarkaErrors.illegalState("a decimal output of " + type.simpleString()
-          + " over a value of " + value.type().simpleString() + ": " + whole);
+      return sink.decline("a decimal output of " + type.simpleString() + " over a value of "
+          + value.type().simpleString() + ", which the store does not rescale", whole);
     }
     return outputRoot(whole, value.unscaled(), sink);
   }
