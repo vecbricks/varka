@@ -108,8 +108,8 @@ by dispatch with `pr` and `sha` (`m8/VARKA-638.md` 8). The build job now admits 
 `workflow_dispatch`, so it refuses the schedule on both repositories, and this row's turn admits
 the schedule on the fork alone.
 
-`report-failure`'s condition (`:481`) turns with it, or a failed weekly on the fork would report
-to nobody, and its comment at `:476-477` ("where issues are on") turns with it. Turning it
+`report-failure`'s condition (its `if:`) turns with it, or a failed weekly on the fork would
+report to nobody, and its comment ("where issues are on") turns with it. Turning it
 alone is not enough, since issues are off on the fork (item 5). The action would then fail its
 calls, put the report on the job summary and fail the job, which only someone reading the run
 would see (**[I]**: the action's text describes that path for GitHub being unreachable; the plan

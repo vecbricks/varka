@@ -831,7 +831,8 @@ cancel the case there instead (`assume`, as the unread-locals month-once case do
 green result does not claim a coverage it lacks. Tag the whole test `PinsDefaults` only when
 nothing else of it is worth running under a configuration.
 The dispatched option matrix runs every configuration and a pull request's scoped run only the one
-its diff names, so a test added with a feature is first run under the others a day later: run the
+its diff names, so a test added with a feature first runs under the others in that pull request's
+dispatched matrix, and after the merge in none until VARKA-522 brings back a weekly run: run the
 new suites under all of `--list` before merging a test that emits.
 The whole matrix over just those suites is one command and no longer than a lane run:
 `dev/varka_matrix.sh --all --module catalyst --suites <the new suites> -j 4` ran 25 suites under

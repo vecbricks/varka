@@ -187,10 +187,11 @@ which reads every line and flags a test named twice.
 A Varka pull request's Build runs
 the suites at the defaults only: its option configurations are checked by the
 `varka-option-matrix` workflow, which runs all of them, dispatched on its branch
-on the fork or with `pr` and `sha` on vecbricks/varka. There a configuration
+on the fork or with `pr` and `sha` on vecbricks/varka. On the fork a configuration
 runs a SQL test only where the Build of the same commit recorded that it moves
 something the test compiled or emitted (`VarkaTestReach`); a test the record
-lacks, or one `skips.tsv` names under the configuration, still runs. An option
+lacks, or one `skips.tsv` names under the configuration, still runs. A run on
+vecbricks/varka reuses no Build, so it has no record and runs every test. An option
 read anywhere but the compiler and the emitter - by an evaluator as it runs, say -
 changes answers no record sees, so its configuration goes in
 `VarkaTestReach.FULL`, with the reason, and runs every test.
