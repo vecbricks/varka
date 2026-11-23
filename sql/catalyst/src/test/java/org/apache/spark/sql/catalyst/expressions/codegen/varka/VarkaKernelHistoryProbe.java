@@ -48,7 +48,9 @@ import org.apache.spark.util.Utils;
  * JVM per class.
  *
  * <p>The history is {@code N} kernels of the IR fuzz grammar ({@link VarkaIrGrammar}), the int
- * and the long lane in turn, each emitted under {@link VarkaEmitOptions#DEFAULTS} and warmed by
+ * and the long lane in turn, each emitted under {@link VarkaMatrixRuns#BASE} - the defaults, or
+ * the configuration {@code -Dvarka.matrix.config} names, which is how a reading compares an arm
+ * such as {@code uncountedMainLoop=true} ({@code VARKA-383.md} 9.5) - and warmed by
  * production's warm-up worker ({@link VarkaKernelWarmup}), one after another, its C1 exclusion
  * and its Vector API template prewarm included unless the JVM turned them off. So the history is
  * the one a production JVM runs, at one vector species: no draw carries a lanes override, since a
@@ -247,7 +249,7 @@ public final class VarkaKernelHistoryProbe {
    */
   static VarkaShapeEntry emit(VarkaShapeCacheImpl cache, Subject s, String label) {
     var key = new VarkaShapeKey(s.roots(), s.numInputs(), s.numLiterals(),
-        VarkaEmitOptions.DEFAULTS, true);
+        VarkaMatrixRuns.BASE, true);
     return cache.getOrEmit(Utils.getContextOrSparkClassLoader(), key, label).entry();
   }
 

@@ -671,12 +671,11 @@ public final class VarkaKernelChecks {
   public static int runLoadedDecimal(String context, VarkaFusedKernel kernel,
       List<VarkaVectorIR> roots, int numInputs, long[] lits, int[] intLits, LongBatch batch,
       BigInteger[] values, boolean declineAllowed, SparkAnswers spark, CallHook hook) {
-    // The slot lane writes long outputs alone: a decimal store, a narrowing root and a kernel
-    // of both lanes need the long lane's handling of them, which it does not carry yet.
-    if (holdsBothLanes(roots) || roots.stream().anyMatch(r -> r instanceof WidenDecimal
-        || r instanceof NarrowLane)) {
-      throw new IllegalArgumentException(context + ": the decimal slot lane checks long and "
-          + "condition outputs only, not " + roots);
+    // The slot lane writes long and decimal-store outputs and conditions: a narrowing root and a
+    // kernel of both lanes need the long lane's handling of them, which it does not carry yet.
+    if (holdsBothLanes(roots) || roots.stream().anyMatch(r -> r instanceof NarrowLane)) {
+      throw new IllegalArgumentException(context + ": the decimal slot lane checks long, "
+          + "decimal-store and condition outputs only, not " + roots);
     }
     return runLoaded(context, kernel, roots, numInputs,
         new DecimalSlotLane(batch, lits, intLits, values, numInputs, new IdentityHashMap<>()),
@@ -1210,10 +1209,24 @@ public final class VarkaKernelChecks {
       return VarkaReference.longCond((Cond) asColumns(cond), words(row), twice(isNull), lits);
     }
 
+    @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
+      return root instanceof WidenDecimal ? DECIMAL_SLOT : stride();
+    }
+
+    @Override public void putOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane,
+        MemorySegment d, int i, long v) {
+      if (root instanceof WidenDecimal) {
+        putSlot(d, i, v);
+      } else {
+        put(d, i, v);
+      }
+    }
+
     @Override public long got(MemorySegment out, int i, VarkaVectorIR root,
         VarkaVectorIR.LaneType rootLane) {
-      // runLoadedDecimal refuses a narrowing root, so every output is a long a row.
-      return out.get(ValueLayout.JAVA_LONG, i * 8L);
+      // runLoadedDecimal refuses a narrowing root, so an output is a decimal slot or a long.
+      return root instanceof WidenDecimal ? slot(out, i)
+          : out.get(ValueLayout.JAVA_LONG, i * 8L);
     }
   }
 

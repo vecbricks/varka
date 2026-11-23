@@ -105,6 +105,16 @@ on:
         description: 'Pair mode: the base. Blank for the merge base of the head with vecbricks/varka master; HEAD pairs the head with itself (an A/A run, the runner''s own spread); a commit SHA; or a branch of vecbricks/varka.'
         required: false
         default: ''
+      history:
+        type: string
+        description: 'Kernel-history mode (VARKA-383): the arguments of dev/varka_kernel_history.sh, run on each of num-splits runners as shards with distinct forks, the class, tpcds, pair and create-commit inputs not applying; extra-java-options reach every fork as --jvm. Must name --forks (each shard''s count) and must not name --fork-base (the workflow sets it); --jvms 1 --cpus <the runner''s vCPUs> come first, so a later --jvms or --cpus wins. Blank for the benchmarks.'
+        required: false
+        default: ''
+      history-bits:
+        type: string
+        description: 'Kernel-history mode: the vector width a shard must run on, 256 or 512 (C2''s MaxVectorSize of 32 or 64 bytes, under extra-java-options); a shard on another machine fails before the build, and rerunning the failed jobs draws another. Blank for any: the merged reading then keys each host case by the bits its forks printed.'
+        required: false
+        default: ''
 
 # Read-only by default: with `pr` the jobs build and run a pull request's code. Only the harness
 # job, whose create-commit pushes the results to the dispatched branch, may write.
@@ -214,7 +224,7 @@ jobs:
   # Any TPC-DS related updates on this job need to be applied to tpcds-1g job of build_and_test.yml as well
   tpcds-1g-gen:
     name: "Generate an TPC-DS dataset with SF=1"
-    if: needs.matrix-gen.outputs.tpcds == 'true' && !inputs.pair
+    if: needs.matrix-gen.outputs.tpcds == 'true' && !inputs.pair && inputs.history == ''
     needs: matrix-gen
     runs-on: ubuntu-latest
     env:
@@ -268,7 +278,7 @@ jobs:
 
   benchmark:
     name: "Run benchmarks: ${{ matrix.class.name }} (JDK ${{ inputs.jdk }}, Scala ${{ inputs.scala }}, ${{ matrix.split }} out of ${{ inputs.num-splits }} splits)"
-    if: always() && !inputs.pair && needs.matrix-gen.result == 'success'
+    if: always() && !inputs.pair && inputs.history == '' && needs.matrix-gen.result == 'success'
     needs: [matrix-gen, tpcds-1g-gen]
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     permissions:
@@ -376,10 +386,16 @@ jobs:
         # Varka benchmark run without it finds no kernels and refuses to time its Varka arm. It
         # also needs the incubating Vector API opened, through extra-java-options:
         # "--add-modules jdk.incubator.vector".
+        # vfdlibm, the vector fdlibm library, is a test-scope dependency of catalyst that sbt
+        # resolves into the coursier cache, and VarkaMathPortBenchmark times it, so it is named
+        # beside the other test dependencies: at the version the measured pom pins, since a
+        # restored cache can also hold an older one.
+        VFDLIBM_VERSION="$(sed -n '/<artifactId>vfdlibm<\/artifactId>/{n;s/.*<version>\(.*\)<\/version>.*/\1/p}' sql/catalyst/pom.xml)"
+        VFDLIBM_VERSION="${VFDLIBM_VERSION:-none}"
         bin/spark-submit \
           --driver-memory 6g --class org.apache.spark.benchmark.Benchmarks \
           "${EXTRA_ARGS[@]}" \
-          --jars "`find . -name '*-SNAPSHOT-tests.jar' -o -name '*avro*-SNAPSHOT.jar' -o -name 'spark-*kafka-0-10*-SNAPSHOT.jar' -o -name 'varka-engine_*-SNAPSHOT.jar' | paste -sd ',' -`,`find ~/.cache/coursier -name 'curator-test-*.jar'`,`find ~/.cache/coursier \( -name 'kafka*.jar' -o -name 'metrics-core-2.2.0.jar' -o -name 'jopt-simple-*.jar' -o -name 'scala-java8-compat_*.jar' -o -name 'scala-logging_*.jar' -o -name 'jackson-dataformat-csv-*.jar' -o -name 'commons-pool2-*.jar' \) ! -name '*-sources.jar' ! -name '*-javadoc.jar' | paste -sd ',' -`" \
+          --jars "`find . -name '*-SNAPSHOT-tests.jar' -o -name '*avro*-SNAPSHOT.jar' -o -name 'spark-*kafka-0-10*-SNAPSHOT.jar' -o -name 'varka-engine_*-SNAPSHOT.jar' | paste -sd ',' -`,`find ~/.cache/coursier -name 'curator-test-*.jar'`,`find ~/.cache/coursier \( -name 'kafka*.jar' -o -name 'metrics-core-2.2.0.jar' -o -name 'jopt-simple-*.jar' -o -name 'scala-java8-compat_*.jar' -o -name 'scala-logging_*.jar' -o -name 'jackson-dataformat-csv-*.jar' -o -name 'commons-pool2-*.jar' -o -name "vfdlibm-$VFDLIBM_VERSION.jar" \) ! -name '*-sources.jar' ! -name '*-javadoc.jar' | paste -sd ',' -`" \
           "`find . -name 'spark-core*-SNAPSHOT-tests.jar'`" \
           "$BENCHMARK_CLASS"
         # Keep the committed sections the run was not asked to replace (VARKA-256): a run on
@@ -473,7 +489,7 @@ jobs:
   # six-hour job cap: a class whose single run takes over about fifty minutes on a runner does not.
   pair:
     name: "Benchmark pair: ${{ matrix.class.name }}"
-    if: inputs.pair
+    if: inputs.pair && inputs.history == ''
     needs: matrix-gen
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: 355
@@ -625,3 +641,161 @@ jobs:
         name: benchmark-pair-${{ matrix.class.slug }}
         path: target/pair
         if-no-files-found: ignore
+
+  # The kernel-history mode (VARKA-383 3.1): dev/varka_kernel_history.sh on num-splits runners,
+  # shard k running forks (k - 1) * --forks onwards, so the shards' logs merge into one run whose
+  # forks each draw a seed of their own. The shard runs one JVM on all the runner's vCPUs unless
+  # `history` says otherwise. The launcher builds catalyst's test classes itself
+  # (dev/varka_matrix.sh).
+  kernel-history:
+    name: "Kernel history: shard ${{ matrix.split }} of ${{ inputs.num-splits }}"
+    if: inputs.history != ''
+    needs: matrix-gen
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        split: ${{ fromJSON(needs.matrix-gen.outputs.matrix) }}
+    env:
+      SPARK_LOCAL_IP: localhost
+      HISTORY: ${{ inputs.history }}
+      HISTORY_BITS: ${{ inputs.history-bits }}
+      EXTRA_JAVA_OPTIONS: ${{ inputs.extra-java-options }}
+      SPLIT: ${{ matrix.split }}
+    steps:
+    - name: Checkout Spark repository
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ inputs.pr != '' && env.VARKA_BASE_REPO || github.repository }}
+        ref: ${{ inputs.pr != '' && format('refs/pull/{0}/head', inputs.pr) || '' }}
+        persist-credentials: false
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
+      with:
+        java-version: '25'
+        coursier: cache
+    # Before the build, so a shard on the wrong machine costs a minute: C2's widest vector here.
+    - name: Check the vector width
+      shell: bash
+      run: |
+        # The forks' own options, so that -XX:MaxVectorSize in extra-java-options counts; read
+        # as words, never glob-expanded, since a CompileCommand pattern can hold a `*`.
+        read -r -a jvm <<< "$EXTRA_JAVA_OPTIONS"
+        bytes="$(java "${jvm[@]}" -XX:+PrintFlagsFinal -version 2>/dev/null \
+          | awk '$2 == "MaxVectorSize" { print $4 }')"
+        echo "CPU: $(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //'); MaxVectorSize $bytes"
+        case "$HISTORY_BITS" in
+          '') ;;
+          256|512)
+            if [ "$bytes" != "$((HISTORY_BITS / 8))" ]; then
+              echo "::error::a ${HISTORY_BITS}-bit shard drew a machine of $((bytes * 8)) bits;" \
+                "rerun the failed jobs for another"
+              exit 1
+            fi ;;
+          *) echo "::error::history-bits must be 256, 512 or blank, not '$HISTORY_BITS'"
+             exit 1 ;;
+        esac
+    - name: Run the shard
+      shell: bash
+      run: |
+        read -r -a args <<< "$HISTORY"
+        # Shard k's forks start at (k - 1) * --forks, so the count must be the dispatch's own,
+        # not the launcher's default, and --fork-base is the workflow's alone: a wrong base
+        # overlaps two shards' logs, which share names and of which the merge keeps one.
+        forks=""
+        for ((i = 0; i < ${#args[@]}; i++)); do
+          case "${args[$i]}" in
+            --forks) forks="${args[$((i + 1))]:-}" ;;
+            --fork-base)
+              echo "::error::history must not name --fork-base; the workflow sets each shard's"
+              exit 1 ;;
+          esac
+        done
+        if ! [[ "$forks" =~ ^[1-9][0-9]*$ ]]; then
+          echo "::error::history must name --forks, each shard's fork count, not '${forks}'"
+          exit 1
+        fi
+        # Read as words, not split unquoted, so that no word is glob-expanded.
+        read -r -a opts <<< "$EXTRA_JAVA_OPTIONS"
+        jvm=()
+        for opt in "${opts[@]}"; do jvm+=(--jvm "$opt"); done
+        mkdir -p target/kernel-history
+        cpu="$(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //')"
+        echo "$cpu" > "target/kernel-history/cpu-$SPLIT.txt"
+        # With `pr`, the launcher is the pull request's own, since it builds that tree; one cut
+        # before --fork-base existed would fail every shard on its usage line, so say so first.
+        if ! grep -q -- '--fork-base' dev/varka_kernel_history.sh; then
+          echo "::error::this checkout's dev/varka_kernel_history.sh has no --fork-base;" \
+            "merge the base branch into the pull request first"
+          exit 1
+        fi
+        # A guard that fails the launcher must not lose the shard's renamed logs: the merged
+        # reading takes one summary and one provenance file per shard, by name.
+        status=0
+        # One JVM on every vCPU first, so that the launcher's defaults (two JVMs of three cores)
+        # never pin a slot past the runner's last vCPU; a --jvms or --cpus in history wins.
+        dev/varka_kernel_history.sh --jvms 1 --cpus "$(nproc)" "${args[@]}" "${jvm[@]}" \
+          --fork-base "$(( (SPLIT - 1) * forks ))" --out target/kernel-history || status=$?
+        for f in provenance summary; do
+          [ -f "target/kernel-history/$f.txt" ] \
+            && mv "target/kernel-history/$f.txt" "target/kernel-history/$f-$SPLIT.txt"
+        done
+        exit "$status"
+    - name: Upload the shard's logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: kernel-history-shard-${{ matrix.split }}
+        path: |
+          target/kernel-history/*.log
+          target/kernel-history/*.exit
+          target/kernel-history/*.txt
+        if-no-files-found: ignore
+
+  # The shards' logs in one directory, read as one run: the reader groups forks by their case.
+  kernel-history-report:
+    name: "Kernel history: the merged reading"
+    if: always() && inputs.history != '' && needs.kernel-history.result != 'skipped'
+    needs: kernel-history
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Spark repository
+      uses: actions/checkout@v7
+      with:
+        sparse-checkout: dev
+        persist-credentials: false
+    - name: Download the shards' logs
+      uses: actions/download-artifact@v8
+      with:
+        pattern: kernel-history-shard-*
+        merge-multiple: true
+        path: merged
+    - name: Read the merged run
+      shell: bash
+      env:
+        HISTORY: ${{ inputs.history }}
+      run: |
+        # The shards' own --guard and --max-slow, so the merged verdict fails the job as a
+        # shard's does, after the summary is written.
+        read -r -a args <<< "$HISTORY"
+        reader=(python3 dev/varka_kernel_history.py --dir merged)
+        for ((i = 0; i < ${#args[@]}; i++)); do
+          case "${args[$i]}" in
+            --guard) reader+=(--guard) ;;
+            --max-slow) reader+=(--max-slow "${args[$((i + 1))]}") ;;
+          esac
+        done
+        status=0
+        { echo "CPUs by shard:"; for f in merged/cpu-*.txt; do echo "  $f: $(cat "$f")"; done
+          "${reader[@]}"; } > merged/summary.txt 2>&1 || status=$?
+        cat merged/summary.txt
+        { echo '### Kernel history'; echo; echo '```'; cat merged/summary.txt; echo '```'; } \
+          >> "$GITHUB_STEP_SUMMARY"
+        exit "$status"
+    - name: Upload the merged reading
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: kernel-history-merged
+        path: merged

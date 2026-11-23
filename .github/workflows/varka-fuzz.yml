@@ -380,12 +380,69 @@ jobs:
         ./dev/varka_prove.sh --self-test --solver both
         ./dev/varka_prove.sh --nightly-only
 
+  cast-suites:
+    name: Spark's cast suites under Varka
+    # Spark's CastWithAnsiOffSuite, CastWithAnsiOnSuite and TryCastSuite with each check also run
+    # through the Varka evaluator, its literals lifted into columns (VARKA-368). The Build runs
+    # their fixed-value checks; this job adds the random properties, at a hundred draws each,
+    # rewrites the per-form record they keep and fails when it moved from the committed one,
+    # and holds the record to the cast matrix through the census.
+    # As the fuzz job: the schedule on vecbricks/varka only, a dispatch on either repository.
+    if: >-
+      github.repository != 'apache/spark'
+      && (github.event_name != 'schedule' || github.repository == 'vecbricks/varka')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+    - name: Cache SBT and Maven
+      uses: actions/cache@v4
+      with:
+        path: |
+          build/apache-maven-*
+          build/*.jar
+          ~/.sbt
+        key: build-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
+        restore-keys: |
+          build-
+    - name: Cache Coursier local repository
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/coursier
+        key: varka-fuzz-coursier-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
+        restore-keys: |
+          varka-fuzz-coursier-
+    - name: Install Java 25
+      uses: actions/setup-java@v5
+      with:
+        distribution: zulu
+        java-version: '25'
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
+    - name: Record the CPU and the vector width
+      uses: ./.github/actions/record-runner-platform
+      with:
+        dir: target/cast-suites
+    - name: Run the three suites, the random properties included
+      env:
+        SPARK_LOCAL_IP: 127.0.0.1
+        VARKA_SUITES_REGEN: 'true'
+      run: |
+        ./build/sbt -Phive -batch "project sql" \
+          'set Test/javaOptions ++= Seq("-Dvarka.suites.random=true", "-Dvarka.suites.minSuccessful=100")' \
+          'testOnly *VarkaCastWithAnsiOffSuite *VarkaCastWithAnsiOnSuite *VarkaTryCastSuite'
+    - name: Hold the record to the committed one and to the matrix
+      run: |
+        git diff --exit-code -- sql/varka/plans/m8/casts_suites.tsv
+        python3 dev/varka_census.py --check
+
   report-failure:
     name: Report a failed run
     # Only a scheduled run, since a person who dispatches one sees its result; only on the
     # project's own repository, where issues are on; and when a job failed or was cancelled.
     # The script lists every failed, timed-out or cancelled job, a cancelled one with a note.
-    needs: [fuzz, series, proofs]
+    needs: [fuzz, series, proofs, cast-suites]
     if: >-
       always() && github.event_name == 'schedule' && github.repository == 'vecbricks/varka'
       && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
