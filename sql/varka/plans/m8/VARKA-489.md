@@ -248,6 +248,22 @@ favours, and each can be reversed in review.
    489b's equivalence suite reads it.
 6. **The cost kind is built with `getClass().getSimpleName()`**, the expression `kindOf` uses,
    rather than a literal record name, so the key cannot drift from the class's name.
+7. **`planWordRef` and `propagate` were not compared directly** with the descriptor, though 3.2
+   names both: `planWordRef` runs only inside `Slots.plan`, whose arguments a test would have to
+   rebuild from a body plan, and `propagate` only from the liveness queue. Both are folds of the
+   same rule as `ownerOf` (the old arms' own comments said "case for case"), which the suite did
+   compare, and the emitter suites exercise both; their direct check is owed to CI's run of
+   those suites.
+8. **Master moved under the branch during the window**: `6821ea3318b` (#1566, VARKA-337) added a
+   57th record, `CanonicalFloat`, with arms in every switch this row removes. The branches are
+   left on `6ac76f86cb3` and not rebased in the window, since a rebase needs a compile behind the
+   shared lock that the window could not promise. The rebase is the migration recipe below:
+   delete its arms, and give it `props()` of `NEVER`, `STRICT`, weight 3, cost kind
+   `CanonicalFloat/<lane>` (`getClass().getSimpleName() + '/' + laneType()`), `FILLS_NOTHING`,
+   `RESTRICTS_NOTHING` and `LongNarrowReader.NONE`, which is what its master arms say.
+9. **Prediction 2's calibration row is owed**: the two suite times were read from one laptop run
+   beside other agents' JVMs, and `dev/varka_calibration.py --add-row` wants the run's estimate
+   and ratio, which a CI run should give.
 
 ## Done when
 
@@ -284,7 +300,12 @@ real analysis of each shape under both values of `checkIntOverflow`. One run
 - **97510 distinct nodes of all 56 record types** agree on `weightOf`, `kindOf`, `admits` for
   every position, `restrictedOperands`, `inputOrdinal` and `longNarrowReader`; **7850 analyses**
   (of 8000; 150 the analysis refuses, which the suite skips) agree on `isNarrowRing` for every
-  node and on the word owner and the pure word for **336564 entries**. Prediction 1 holds: no
+  node and on the word owner and the pure word for **336564 entries**. The analysis half drew
+  its shapes only, and the record types it covered were not tallied; by a grep of
+  `VarkaIrGrammar` for constructors, the grammars never build `DecimalWord`, `BoundedDivide`,
+  `MathUnary`, `RoundToIntegral`, `CondConst`, `BoolCompare`, `CondIf`, `BoolNullSafeEq` or
+  `BoolOutput` (helpers may), so their word rules are unverified by this run and owed to the
+  emitter suites that build them. Prediction 1 holds: no
   disagreement on any of the 56 types, so no `props()` needed a fix.
 - **Times:** the equivalence suite 8.6 s and `VarkaNodePropsSuite` 0.27 s, as JUnit reports
   them. Prediction 2 holds for both (under 60 s and under 5 s).
@@ -295,6 +316,47 @@ The second commit makes `weightOf`, `kindOf`, `admits`, `restrictedOperands`, `i
 checks and the hand-built corpus from the equivalence suite, which keeps only the word rules for
 489c. Compiled; the byte oracles, the fusion dump (prediction 3) and the scoped suites are owed
 to CI, since a pass now reads the descriptor.
+
+**489c, 20 November 2026** (branch `varka-489c-word-rules`, stacked on 489b). `Analysis.ownerOf`
+and `Analysis.pureOf` and `Slots.planWordRef` fold the node's `validity` over
+`VarkaVectorIR.childrenOf`, `andOwner` folds the operands' owners instead of taking two named
+ones, and `Slots.propagate` demands every operand that is not a condition. The equivalence suite
+is deleted: its word-rule checks passed over 336564 entries in 489b's run before any rule moved.
+`assertWordAlgebraAgrees` still compares the slot reference with the owner and the pure word on
+every emission, but the three now fold the same `validity`, so it can no longer catch a wrong
+`Validity`; that guard is now the emitter matrices' and the IR fuzzer's validity answers, owed
+to CI. `VarkaLoopEmitter.analyze` is private
+again. Compiled; the run of the emitter suites that exercises the folds is owed to CI.
+
+Prediction 4, checked by listing what a new record now touches, read from the code rather than
+from a new node: no line of `VarkaEmitBudget`, `VarkaEmitCost`, `VarkaOperandPosition` or
+`VarkaKernelPlan`'s long-lane reader, and no line of `ownerOf`, `pureOf`, `planWordRef` or
+`propagate`; its word rule is one `Validity`. It holds.
+
+### Adding a node, after 489c
+
+1. Write the record in `VarkaVectorIR` and add it to the `permits` list (or `Cond`'s or
+   `Chrono`'s).
+2. Implement `props()` in the record: its `Ring` (`NEVER` unless reduction modulo a narrow width
+   commutes with it; `PICK` for a blend; `Arith(mode)` for narrow ring arithmetic whose check the
+   options may drop), its `Validity` (`Input` for a leaf reading a column's word, `ALL_TRUE` for a
+   literal, `STRICT` where a null operand makes a null, `SKIPS_NULL` for an OR of the operands'
+   words, `OWN` for a word computed from values, `NO_WORD` for a condition), its weight in lane
+   operations with the comment that counts them, its cost feature (the record name and whatever
+   chooses its lowering), its restricted positions (`FILLS_NOTHING` and `RESTRICTS_NOTHING` unless
+   it is or has a day offset, month count, weekday or level) and its `LongNarrowReader`.
+3. Add its arms to the switches the compiler then names: the structural ones in `VarkaVectorIR`
+   (`laneType`, `childrenOf`, `withChildren`, both canonical forms, the narrow walks),
+   `Analysis.collectRefusals` and `Analysis.analyze`, `Slots.visit`, the emission walk in
+   `VarkaVectorWalk`, `VarkaKernelPlan.longNarrowRole`, `VarkaRangeAnalysis`, and in the tests
+   `VarkaIrGrammar.boundsOf`, `VarkaReference` and `VarkaGuardSpecs`.
+4. Price its cost feature in `VarkaEmitCostTable` as `VarkaEmitCostSuite` says, and give the node
+   a row in `VarkaEmitterBudgetSuite`'s register.
+
+A branch written before 489b or 489c rebases by deleting its arms from `weightOf`, `kindOf`,
+`admits`, `restrictedOperands`, `inputOrdinal`, `longNarrowReader`, `isNarrowRing`, `ownerOf`,
+`pureOf`, `planWordRef` and `propagate`, and moving each arm's answer into its record's `props()`;
+the compiler then names every record still missing one.
 
 **Rebased onto master, 23 November 2026** (`f3b97c0b503`). Master had added five records since
 the build, `ReinterpretLane`, `Fma`, `CanonicalFloat`, `CanonicalBits` and `HashStep`, each given

@@ -111,7 +111,8 @@ public record VarkaNodeProps(Ring ring, Validity validity, int weight, String co
   /**
    * How a node's validity word is made: the one rule that the analysis's word owners
    * ({@code Analysis.ownerOf}), its pure word algebra ({@code Analysis.pureOf}) and the slot
-   * planner's word references ({@code Slots.planWordRef}) each apply to the node. Folded over
+   * planner's word references ({@code Slots.planWordRef}) all fold, so the three agree by
+   * construction. Folded over
    * the node's operands in {@code VarkaVectorIR.childrenOf} order, a {@link Strict} word is the
    * AND of the operands' words (a unary node's is its operand's), a {@link SkipsNull} word their
    * OR, computed in a slot of the node's own, an {@link Own} word the node's own slot,
