@@ -223,6 +223,12 @@ here with its reason.
    says. For the two `TIMESTAMP_NTZ` baselines this changes their documented behaviour: their
    `varkaFused` call failed such a section with the property set to `false` too. Their class
    docs now say what the shared check does; the PR body says so.
+6. **The decimal baseline's two `IS NULL` filter sections over the columns with no null are
+   dropped** rather than kept under a weaker check (9.2): they time an empty scan on both arms,
+   and the plan's risk 2 says the fix for a section no batch reaches is the table, not the check.
+   Turning the scan's batch pruning off for them would keep the labels but change what both arms
+   of a committed baseline time, a decision for the owner; dropping them leaves every remaining
+   section's numbers as committed.
 
 ## 9. Outcome
 
@@ -242,7 +248,29 @@ here with its reason.
   suite in its new test); the decimal suite has the planted test, "a WHOLE section whose batches
   fall back fails the kernel check".
 
-### 9.2 What is left
+### 9.2 What the one targeted run found, and prediction 1 scored
+
+One run, `sql/testOnly *BaselineQueriesSuite` filtered to the twelve fuse-check tests and the
+planted test (13 tests, 39 s of tests): twelve passed, the planted test among them, and the
+decimal suite's fuse check failed on its first `WHOLE` section of the kind, `DECIMAL(38, 10) IS
+NULL filter, no nulls`: its one Varka node, a `VarkaFilterColumnarToRow`, ran 0 kernel batches and
+handed 0 to another path. No batch reached it: the in-memory scan prunes a cached batch by its
+statistics, and an `IS NULL` filter over a column whose batches hold no null keeps none. The
+committed runner results show it, both arms of the section and of its `DECIMAL(20, 2)` twin at
+the same time and the same 178 M rows a second, an empty scan, where the same filter with one row
+in ten null runs at 14.7x. So these two sections have timed nothing since they were added; the
+kernel check's "at least one kernel batch" rule caught them, as risk 2 foresaw.
+
+**Prediction 1 is wrong**, then, though not in the way it guarded against: no section fell back,
+but two `WHOLE` sections timed an empty scan. Fixed in the table of sections, as the prediction's
+rule says: the decimal baseline builds the `IS NULL` filter at the density with nulls only (124
+sections, from 126; 164 from 166 after master's #1572 and #1610), and the failure message now gives each node's input batches too, so a node
+no batch reached reads apart from one whose batches went elsewhere. Committed results named for a
+rerun: `VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and its `-128bit`
+companion, which still hold the two dropped sections. The other eleven suites' `WHOLE` sections
+all passed on the run (the decimal suite's later sections were re-run after the fix; 9.3).
+
+### 9.3 What is left
 
 - The twelve baseline dry runs at 256 and 128 bits of section 5 (24 runs), with prediction 3.
 - The full `*BaselineQueriesSuite` run of section 8 on CI, with prediction 2.

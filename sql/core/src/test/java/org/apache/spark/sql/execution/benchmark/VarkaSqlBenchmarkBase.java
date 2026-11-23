@@ -643,14 +643,20 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
           fallbacks += p.metrics().apply(name).value();
         }
       }
-      nodes.add(new NodeRun(p.nodeName(), p.metrics().apply("numVarkaBatches").value(),
+      long inputs = p.metrics().contains("numInputBatches")
+          ? p.metrics().apply("numInputBatches").value() : -1L;
+      nodes.add(new NodeRun(p.nodeName(), inputs, p.metrics().apply("numVarkaBatches").value(),
           fallbacks));
     }
     return new KernelRun(List.copyOf(nodes));
   }
 
-  /** One Varka node's kernel batches and the batches it handed to another path. */
-  private record NodeRun(String name, long batches, long fallbacks) {}
+  /**
+   * One Varka node's input batches, -1 where it has no such counter, its kernel batches and the
+   * batches it handed to another path. The input count tells a node no batch reached, as when the
+   * scan below prunes every cached batch, from one whose batches went elsewhere.
+   */
+  private record NodeRun(String name, long inputs, long batches, long fallbacks) {}
 
   /** What a section's Varka nodes ran in one execution, read by {@link #kernelRun}. */
   private record KernelRun(List<NodeRun> nodes) {
@@ -675,8 +681,8 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
       }
       var out = new ArrayList<String>();
       for (NodeRun node : nodes) {
-        out.add(node.name() + " ran " + node.batches() + " kernel batches and handed "
-            + node.fallbacks() + " to another path");
+        out.add(node.name() + " read " + node.inputs() + " batches, ran " + node.batches()
+            + " kernel batches and handed " + node.fallbacks() + " to another path");
       }
       return nodes.size() + " Varka nodes: " + String.join("; ", out);
     }

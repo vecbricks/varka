@@ -103,7 +103,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       assert(schema.map(f => f.name -> f.dataType) === expected)
 
       val sections = VarkaDecimalBaselineBenchmark.sections(false).asScala
-      assert(sections.size === 166)
+      assert(sections.size === 164)
       // The result type of each shape, as Spark's decimal rules give it: the chain widens at each
       // node and is capped at 38, and the cast is the one the precision names. The time sections
       // are time_to_seconds, DECIMAL(14, 6), and the seconds with their fraction, DECIMAL(8, 6).

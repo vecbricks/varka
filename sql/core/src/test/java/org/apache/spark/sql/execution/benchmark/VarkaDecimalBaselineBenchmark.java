@@ -787,7 +787,10 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * c2, c3)}, {@code x <=> y}, {@code -x < y} and {@code abs(x) < y} as filters, and {@code x <
    * y} as a value, with one more shape. Given {@code rescaled}, the column at another scale, the
    * first section is {@code x < w} over it as a filter; without it, the third is {@code x IS
-   * NULL} as a filter, the lane pair's order. {@code fusion} gives each shape's class.
+   * NULL} as a filter, the lane pair's order, at the density with nulls only: over the column
+   * with none, the in-memory scan prunes every cached batch of that filter by its null count, so
+   * no batch reaches either arm's filter and the section would time an empty scan.
+   * {@code fusion} gives each shape's class.
    */
   private static void addComparisons(List<Section> out, Precision p,
       Optional<OperandColumn> rescaled, Function<ComparisonShape, Fusion> fusion) {
@@ -804,6 +807,11 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String tail = ", " + d.words();
       String filter = "SELECT " + x + " FROM varka_decimal WHERE ";
       for (ComparisonShape shape : shapes) {
+        // Over a column with no null the in-memory scan prunes every cached batch of an IS NULL
+        // filter by its null count, so the section would time an empty scan on both arms.
+        if (shape == ComparisonShape.IS_NULL && d == Density.NO_NULLS) {
+          continue;
+        }
         Fusion expected = Objects.requireNonNull(fusion.apply(shape),
             () -> p.type() + " has no fusion class for " + shape);
         out.add(switch (shape) {
