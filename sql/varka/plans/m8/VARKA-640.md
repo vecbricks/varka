@@ -35,6 +35,7 @@ differ by width, read from the emitted lane count, applies (row 600's plan, `VAR
 The two runs stand as the only readings of the three forms at both widths. Each width has one
 run, where `VARKA-600.md` 6 asks for two compared by minimums, and both are on one CPU model.
 So nothing here is decided yet. The check rejects a default chosen from these two runs alone.
+The re-runs of 23 November 2026 are listed in section 5.
 
 ## 3. What this row decides, beside row 600
 
