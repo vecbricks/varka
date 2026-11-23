@@ -1,5 +1,9 @@
 # VARKA-637: a pull request's option matrix stops a red run early, then runs what its diff can move
 
+*Moved to milestone 9 on 23 November 2026 with row 637 (`SCOPE.md` item 138). A bare
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
+unless that plan moved too (`SCOPE.md` item 138).*
+
 ## 1. Where this came from
 
 Row 637 of `PLAN.md`, added on 22 November 2026 by the owner's word, from the day's option matrices.

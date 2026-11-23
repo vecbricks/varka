@@ -1150,8 +1150,54 @@ function adding its own 2^24 samples and the blended arm's call a batch.
 Measured (laptop, 22 November 2026, on master after #1609 with `vfdlibm` 0.2.0, one run): the
 suite passes, 11 tests, every `exp` and `expm1` lane bit-identical to `StrictMath` and `VFdlibm`
 and to the blended arm on 2^24 sampled inputs a function and on the fixed vectors at 2, 4 and 8
-lanes, NaN payloads included; each planted fault caught. `expm1`'s expansion is 49 deep as measured on 20 November, and the suite holds it within the port cap (`exp`'s
+lanes, NaN payloads included; each planted fault caught. `expm1`'s expansion is 49 deep as measured on 20 November, and the suite holds it within the port cap of 64 (`exp`'s depth is
 36), so the first two predictions held. The earlier run of 20 November (457 s on a shared
 laptop, before the review's changes to `exp`) is not a timing; the third prediction held in one run (86.5 s, under the 141 s limit) and failed in the
 next (175.1 s, the laptop shared), so the suite's cost is not established and is owed a timing
 on an idle machine or the runners.
+
+**345c2, `log` and `log10` (branch `varka-345d-log-r`, on master after #1629).**
+
+- `VarkaMathPort.log`, node for node `Log.logBlended`: the library already holds e_log.c's words
+  in long lanes (its L8), takes `dk` without `L2D` (L7) and tests the common and subnormal lanes
+  by one biased compare (L9), so the port is the library's form with no departure. The common
+  path is `VarkaMathPort.logCore`, `Log.logCore`'s nodes.
+- `VarkaMathPort.log10`, node for node `Log10.log10Blended` with the C's words in long lanes: `hx`
+  by a logical shift, `i` as `k`'s sign bit, `y = (double)(k+i)` by L7 where the library writes
+  `I2D`, and the rare tests on the scaled lane's raw bits; its `log` of the rescaled lane is
+  `logCore`. The library's fourth planted fault for log10 (the subnormal bound one high word
+  down) is the new `Fault.SUBNORMAL_THRESHOLD_MOVED`, and each ported function now names the
+  faults it is built with.
+- `VarkaMathPortSuite` lists both, with the fixed vectors of e_log.c's words (the band of
+  `i > 0`, the `sqrt(2)` split, the `|f| < 2^-20` words around 1 and 0.5, the subnormal and
+  non-finite bounds) shared by the two, and their constants' words. The constants are written
+  with the shortest digits of their bits, as 345c1's are, so Error Prone's
+  `FloatingPointLiteralPrecision` passes; the suite checks each one's words.
+- Paired `vfdlibm` change: branch `varka-log10-long-words-r` (worktree
+  `/home/max/proj/vfdlibm-345d2w`, on `vfdlibm` main after #143), `PROOFS.md` L17 "log10's words
+  in long lanes, as Varka emits them" and its hinge tests in `ProofsTest`; the library's code
+  does not move. `log` needs none.
+
+Predictions (written before the run of 20 November): every `log` and `log10` lane bit-identical
+to the three oracles; both expansions within the port cap of 64, `log10`'s the deepest of the
+four.
+
+Found while building 345c2, and fixed in it: `VarkaReference.mixedValue`, the reference evaluator
+the suite runs over each port's tree, flattened the tree's conversions and bit views again at
+every path to a shared node, so its cost was exponential in their nesting. `exp`'s tree took
+seconds and `expm1`'s most of a run of about 457 seconds on 20 November (which the laptop's load
+was first blamed for); `log10`'s tree passed the watchdog's ten minutes on its first rows. The
+flattening is now memoized by node identity per row (`MixedRow.flatten`), which changes no
+answer. On the old stack (20 November, 9 tests) the whole suite at the default 2^24 samples a
+function ran in 113.4 s in its own JVM, every lane of the four ports bit-identical to the three
+oracles, with depths 36 (`exp`), 49 (`expm1`), 40 (`log`) and 54 (`log10`).
+
+Measured (laptop, 23 November 2026, on #1629's head with `vfdlibm` 0.2.0, one run in its own JVM):
+the suite passes, 11 tests, every `log` and `log10` lane bit-identical to `StrictMath`, `VFdlibm`
+and the blended arm on 2^24 sampled inputs a function and on the fixed vectors at 2, 4 and 8
+lanes, NaN payloads included; each planted fault caught, `log10`'s fourth among them; every
+port within the port cap of 64. Both predictions held. The suite took 43.2 s with all four
+ports, under 345c1's 86.5 s and 175.1 s for two: the memoized flattening is most of 345c1's cost.
+The suites that also run the reference evaluator (`VarkaEmitterMixedLaneSuite`,
+`VarkaEmitterNarrowSuite`, `VarkaSameAnswerContractSuite`, `VarkaEmitterBoolSuite`) pass beside
+it: 71 tests, one cancelled by its own switch.

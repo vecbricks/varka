@@ -1,5 +1,9 @@
 # VARKA-516: the Build's Varka jobs, balanced to the suite that sets them
 
+*Moved to milestone 9 on 23 November 2026 with row 516 (`SCOPE.md` item 138). A bare
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
+unless that plan moved too (`SCOPE.md` item 138).*
+
 *Written 30 October 2026, a rework of row 516's plan for the Build's catalyst jobs (step 3). The
 data are six Varka-scoped Builds of MaxGekk/spark, read through the Actions API and the jobs'
 JUnit artifacts, in `m8/results/VARKA-516-shards.txt`; every number below is from that file,

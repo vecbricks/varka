@@ -156,7 +156,10 @@ import org.apache.spark.sql.internal.SQLConf;
  * VARKA-503), the 128-bit companion's host by default, leaves every fused filter to the
  * row path, the lane pair's among them, since its words are on the long lane, and the projected
  * {@code x < y} sections too, a boolean output over a decimal column (VARKA-596), so they are
- * {@code NONE} there; the time producers stay {@code WHOLE}.
+ * {@code NONE} there; the time producers stay {@code WHOLE}. The decimal store writes every 64-bit
+ * decimal value (VARKA-348b), so the choice at precisions 9 and 18, the cast from 9 to
+ * {@code DECIMAL(18, 4)} and the three arithmetic projections at precision 9 are {@code WHOLE}
+ * as well, in either session, since a value root is no condition.
  * Every other section is {@code NONE}. A row that fuses more of a section sets its new class,
  * so that its fusion cannot turn a baseline section into a fused one unnoticed, and the results
  * file notes the class of each section that fuses.
@@ -574,11 +577,16 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
             Fusion.NONE));
         String castTo = p.castTo().orElseThrow(() -> new IllegalStateException(p.type()
             + " has no cast type, so its cast section has nothing to cast to"));
+        // A decimal value within 18 digits is an output through the decimal store (VARKA-348b),
+        // a value root and no condition, so it fuses whole in either session: the choice at
+        // precisions 9 and 18, and the cast from 9 to DECIMAL(18, 4), which only rescales.
+        boolean longLane = p.precision() <= 18;
         out.add(new Section(type + " cast to " + castTo + ", " + density,
-            "SELECT CAST(" + x + " AS " + castTo + ") AS a FROM varka_decimal", Fusion.NONE));
+            "SELECT CAST(" + x + " AS " + castTo + ") AS a FROM varka_decimal",
+            p.precision() == 9 ? Fusion.WHOLE : Fusion.NONE));
         out.add(new Section(type + " choice, " + density,
             "SELECT CASE WHEN " + x + " < " + y + " THEN " + x + " ELSE " + y
-                + " END AS a FROM varka_decimal", Fusion.NONE));
+                + " END AS a FROM varka_decimal", longLane ? Fusion.WHOLE : Fusion.NONE));
       }
     }
     for (Density d : Density.values()) {
@@ -628,8 +636,9 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = d.words();
       String type = p9.type();
       String from = " FROM varka_decimal WHERE ";
-      // The three filters fuse whole, the arithmetic under the comparison (VARKA-349); the
-      // projections run on the row path, since no lowering writes a decimal output yet.
+      // The three filters fuse whole, the arithmetic under the comparison (VARKA-349), and so
+      // do the three projections, each value written by the decimal store (VARKA-348b), in
+      // either session, since a value root is no condition.
       out.add(new Section(type + " x + y < z filter, " + density,
           "SELECT " + x + from + x + " + " + y + " < " + z, fusedFilter));
       out.add(new Section(type + " x - w > 0 filter, w at another scale, " + density,
@@ -637,11 +646,11 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       out.add(new Section(type + " x8 * y < z filter, x8 a DECIMAL(8, 2), " + density,
           "SELECT " + x + from + x8 + " * " + y + " < " + z, fusedFilter));
       out.add(new Section(type + " x + y as a value, " + density,
-          "SELECT " + x + " + " + y + " AS a FROM varka_decimal", Fusion.NONE));
+          "SELECT " + x + " + " + y + " AS a FROM varka_decimal", Fusion.WHOLE));
       out.add(new Section(type + " x - w as a value, w at another scale, " + density,
-          "SELECT " + x + " - " + w + " AS a FROM varka_decimal", Fusion.NONE));
+          "SELECT " + x + " - " + w + " AS a FROM varka_decimal", Fusion.WHOLE));
       out.add(new Section(type + " x8 * y as a value, x8 a DECIMAL(8, 2), " + density,
-          "SELECT " + x8 + " * " + y + " AS a FROM varka_decimal", Fusion.NONE));
+          "SELECT " + x8 + " * " + y + " AS a FROM varka_decimal", Fusion.WHOLE));
     }
     // The remainders by a column (VARKA-577): no decimal remainder fuses at any precision.
     for (Precision p : REMAINDER_PRECISIONS) {

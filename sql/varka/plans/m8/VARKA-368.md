@@ -160,8 +160,9 @@ recorded `unresolved`. A `BoundReference` over a real input row becomes a column
 row's value at its ordinal (item 0.2's four hash checks).
 
 The fixture is `VarkaHarnessPlans.Fixture(columns, rows)` with the lifted columns, an int `rid`
-column numbering the rows, and `LiftedRows` (17) equal rows, so the kernel runs a full lane group
-and its epilogue at every width; one row would never fill a lane. `VarkaLiteralLiftSuite` holds
+column numbering the rows, and `LIFTED_ROWS` equal rows, one more than the host's byte lanes (33
+at 256 bits, 65 at 512), so every kernel runs a full lane group and its epilogue; one row would
+never fill a lane. `VarkaLiteralLiftSuite` holds
 the golden suite's lift to the same count (`VarkaLiteralLiftSuite.scala:53`).
 
 ### 2.3 Each check through the harness
@@ -490,6 +491,8 @@ three, against item 0.10's 52.8 s for all four unchanged suites together; the Bu
 `casts_suites.tsv` holds 874 lines, 808 distinct (form, form, mode) keys across the three suites,
 647 of them between two census types; 188 lines fused, 686 declined, none unresolved.
 
+**The reviews' fix rounds** (three `/code-review high` runs, one per part after the split) added, beyond what the decisions list: `casts_suites.tsv` under the generated-file merge driver (`merge=varka-generated`, keyed by its first six columns) with a regeneration step in `dev/varka_regen_generated.sh` after `casts_fused.tsv`; a check a value check already ran is not run again, which stops `TryCastSuite`'s error checks, routed through `checkEvaluation`, running the harness twice; and the record counts a test towards completeness only when its body returned.
+
 **The one finding.** `CastWithAnsiOffSuite`'s `SPARK-36924` test casts the extremes of every
 day-time interval form to `BIGINT` with ANSI off, and the kernel declined each such batch with
 `STATUS_VALUE_RANGE` although Spark answers every row: the cast's unit division is a
@@ -513,6 +516,30 @@ range is a cast row's question, not this one's.
    the bare casts of a lifted expression. The list holds nine lines, the interval declines.
 3. "Nothing is listed in the exclusions after the first run but read-path entries, if any":
    **right**; nothing is listed, and no `read-path`, `lift` or `spark` finding arose.
+
+## What was built of 368b, 20 November 2026 (local, not run)
+
+On a third stacked branch, `varka-368b-census-suites`, built after the owner's order of 07:30 CET
+to implement first and leave tests and CI for later, so nothing here has run beyond a compile and
+`VarkaSuiteCheckSuite`:
+
+- `dev/varka_census.py` reads `casts_suites.tsv` and holds it to the matrix in `--check`
+  (`suites_errors`, with doctests on fixtures): a form `casts_fused.tsv` calls fused, declined in
+  the record in that mode, is an error; a form outside the matrix declined in a mode where the
+  pair's `fused_forms` is "all" is an error, a form cast to itself excepted, since the analyzer
+  removes it; a form fused in the record and declined in the matrix is a warning. On the
+  committed record all three are empty.
+- The nightly: a `cast-suites` job in `varka-fuzz.yml` (row 537 is still planned, so this row
+  builds the scheduled sql job), in `report-failure`'s `needs`, and a `castsuites` step in
+  `dev/varka_nightly.sh` (`--skip-castsuites`): the three suites with
+  `-Dvarka.suites.random=true` and `-Dvarka.suites.minSuccessful=100`, which `VarkaSuiteArm` now
+  reads into ScalaCheck's configuration, the record regenerated and required unchanged
+  (`git diff --exit-code`), then the census check.
+- The docs bullet in `docs/sql-varka.md`.
+
+Left of 368b: the `suites` column of `casts.tsv` (it regenerates the census's files, held under
+the order), the suite weights in `sql/varka/ci/suite-times.tsv` (they need the first CI run), and
+every run the nightly job and step make, owed. Left of the row: 368c, the hash half, after row 337.
 
 ## Decisions taken while the owner was away (20 November 2026)
 
@@ -578,7 +605,13 @@ the lead's "17 rows a literal", fill a full lane group only at int or wider lane
 bits the suites run its epilogue alone and never its loop. The proposal is 65 rows (the widest
 group plus one) in all three places that hold the count: `VarkaSuiteCheck.LIFTED_ROWS`,
 `VarkaArrowSource.LiftedRows` and the golden suite's lift (`VarkaLiteralLiftSuite.scala:53`).
-Nothing changes until the owner decides.
+Master's two places keep 17 until the owner decides. *Measured in 368b, 23 November 2026:* a probe planned
+every narrow cast at 512 and 256 bits under `lanesOverride` 0, 2, 4, 8 and 16; only the byte- or
+short-lane kernels (`TINYINT`, `SMALLINT` to and from `BOOLEAN`) step past 16 rows - 64 or 32
+bytes, 32 or 16 shorts - because no species above 16 lanes is baked; at 17 rows the byte
+kernels' loop never ran at either width, nor the short ones' at 512. 368b sets `VarkaSuiteCheck.LIFTED_ROWS` to the host's byte lanes
+plus one; `VarkaArrowSource.LiftedRows` and `VarkaLiteralLiftSuite` keep 17, a plan row of
+their own.
 
 ## 10. Outcome
 
