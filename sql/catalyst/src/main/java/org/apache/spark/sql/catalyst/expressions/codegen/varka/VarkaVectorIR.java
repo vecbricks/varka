@@ -1524,8 +1524,8 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      // It declines, never nulls: its word is the operands' AND. The weight: two multiplies, the
-      // sign's AND, the compare, two AVX2 long conversions and one call the budget recount found.
+      // The weight: the two multiplies, the sign's AND, the compare, and the two long conversions
+      // at the larger AVX2 form, as a long ConvertLane's, plus one call the budget recount found.
       return new VarkaNodeProps(NEVER, STRICT, 5 + 2 * VarkaConversionLowering.XOR_SPLIT_CALLS,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
