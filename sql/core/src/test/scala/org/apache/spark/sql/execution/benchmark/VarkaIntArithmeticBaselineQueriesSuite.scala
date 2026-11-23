@@ -99,6 +99,9 @@ class VarkaIntArithmeticBaselineQueriesSuite extends QueryTest with VarkaSharedS
       assert(kept > 0 && kept < rows)
       assert(r.getLong(9) === rows / 10)
       val keptNull = r.getLong(10)
+      // Some null rows would pass the filter, so the null density's filter section tests that
+      // they are dropped.
+      assert(keptNull > 0 && keptNull < r.getLong(9))
 
       val sections = VarkaIntArithmeticBaselineBenchmark.sections(false).asScala.toSeq
       // Six sections at each of the two null densities, every one left to the row path but the
