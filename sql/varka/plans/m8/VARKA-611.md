@@ -248,7 +248,123 @@ run: item 2.3 settles it.
 
 ## 9. Outcome
 
-*To be written when the work lands.*
+### 9.1 What step 2 built (20 November 2026, while the owner was away)
+
+Built on `varka-611-guarded-product` against master `767dcddce50`, local only.
+
+- **The node.** `VarkaVectorIR.GuardedProduct(left, right)`, long lane only, no mode; it renders
+  as `(guardedMul a b)`, with `BOUND = 2^62` and `trips(a, b)`, the Java form of the kernel's
+  test that the reference side reads. Every exhaustive switch over the IR names it (the
+  compiler found them: `Analysis`, `Slots`, `VarkaKernelPlan`'s two long-narrow switches,
+  `VarkaEmitCost`, `VarkaEmitBudget`, `VarkaRangeAnalysis`, `VarkaSameAnswer`,
+  `VarkaOperandPosition`, `VarkaChronoCompiler`, and the test tree's reference, guard specs,
+  canonical parser, word census, SMT refusals and grammar).
+- **The lowering** (`VarkaVectorWalk.emitGuardedProduct`) parks nothing: the long `MUL` is taken
+  off a `dup2` and sunk under the operands with `dup_x2`, the operands are converted where they
+  lie, multiplied as doubles, and the magnitude is the product's bits with the sign cleared
+  (`AND Long.MAX_VALUE`) compared as a long `GE` with `2^62`'s bits. That replaces 3.1's `ABS`
+  and double compare by one `AND` and a long compare: the same lanes for every non-negative
+  double up to the infinity, and the mask is on the driving long lane, so the guard collect
+  needs no mask cast. The conversion is `VarkaConversionLowering.emitExactL2D`: one
+  `convertShape` at level 3, `XOR_SPLIT` below it whatever `wideConversionForm` says.
+- **The refusal.** The node registers `INT_OVERFLOW` unconditionally (not behind
+  `checkIntOverflow`: the compiler admits the multiply on its strength, as a range guard's), so
+  a tripped batch returns `STATUS_INT_OVERFLOW` and the row engine raises or nulls.
+- **The option.** `VarkaEmitOptions.checkedLongMultiply`, `BOUND_ONLY` (default) | `MAGNITUDE` |
+  `BY_HOST`, reason `MACHINE`, tag `checkedLongMultiply=`, subject level 2;
+  `guardsLongProducts(x86)` resolves it. The projection compile's `DeclineSink` reads it
+  (`VarkaNodeCompiler.guardsProduct`), and `twoLaneChecked` names the node as `FAIL`.
+- **The kernel plan.** `conversionRefusal` refuses a `GuardedProduct` at the unknown level with
+  `Kind.CONVERSION` and `GUARDED_PRODUCT_UNKNOWN_LEVEL`.
+- **The fuzzer.** A draw of its own, `drawGuardedProductShape` on
+  `GUARDED_PRODUCT_FUZZ_SEED`: there `LongShapes`' multiply arm builds the node half the time
+  where the product's bound may leave the long. `VarkaIrFuzzSuite` runs it at levels 2 and 3 in
+  turn, holding each body's status to `VarkaGuardSpecs`' verdict (its arm for the node is
+  `trips`) and an answered batch to the reference. Where 5.3 had the node join the committed
+  long corpus, the review found two reasons against: that corpus is emitted at the unknown
+  level, where the kernel plan refuses the node, so the bytes oracle, the cost corpus and the
+  budget suites would meet a refusal; and the extra draw would move every committed
+  `fuzz_long` block. On its own seed, no committed shape moves.
+- **The benchmark.** `VarkaBigintArithmeticBaselineBenchmark`'s three checked products take a
+  third arm, `varka on, B (checkedLongMultiply=MAGNITUDE)`, checked to plan a kernel where a
+  checked `BIGINT` operation fuses on the host, and one section prices B's decline,
+  `l * m, ANSI, products near 2^62, no nulls`, over two new columns `nb` and `nm` whose
+  products lie in `[1.01 * 2^62, 1.95 * 2^62]`. The queries suite runs the new section and
+  checks the B arm's plan class. Not run here: the readings are the runners'.
+
+Not run in this window, and owed (8 step 3): the benchmark on the Xeon 8573C (AVX512DQ, level
+3, question 1) and on the EPYC 7763 (level 2, the B arm, question 2), owner-dispatched; then 6.1's
+predictions are scored, the default per host is chosen by prediction 4's rule, and `VARKA-104.md`
+9 records the choice.
+
+**Tests in this window.** `VarkaEmitterLongLaneSuite` passed (13), before the review's fixes;
+`VarkaIrFuzzSuite` passed after them (42, 2 canceled), its guarded draw over 300 iterations
+included; catalyst and sql/core test sources compile. Owed under the owner's order of 07:30 CET:
+the long-lane suite again, every suite that lists the node types, the regeneration with the
+width audit under `UseAVX=2`, `VarkaBigintArithmeticBaselineQueriesSuite`, and a second
+`/code-review high` over the fix round.
+
+**Gate findings (22 November 2026).** After the rebase, `VarkaBigintArithmeticBaselineQueriesSuite`
+failed on the B arm: `l * 3, ANSI, no nulls` planned `NONE` where the suite expected `WHOLE`. The
+cause was a stale expectation, not a defect. The shared test sessions pin
+`spark.sql.codegen.varka.emit.useAVX=-1`, the unnamed default level, at which
+`guardsLongProducts` is false by design (3.2) and the kernel plan refuses the conversion, so B
+declines there exactly as A does; the benchmark's own sessions resolve the host's level (-2), a
+named one. The suite now holds both: under `MAGNITUDE` at the unnamed level the plan keeps the
+section's own class, and at level 2 it is `WHOLE` (`NONE` where the host declines two-lane
+checks). The suite passed (2 tests) on the laptop. The node, the benchmark class and its results
+files needed no change.
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **`BY_HOST` is built now, not after the readings, and is not the default.** The coordinator's
+   brief named the choice; 3.2 makes it the default only once 6.1's rule chooses. It resolves to
+   B on x86 at levels 2 and 3 (`GUARDED_PRODUCT_LEVELS`), the levels predictions 1 and 2 expect
+   B to win at, and to A elsewhere; the default stays `BOUND_ONLY`, so no session changes. When
+   the readings land, the set is narrowed to the levels the rule chose and the default flips in
+   that commit, or `BY_HOST` is removed if B is dropped.
+2. **At the unknown level the compiler keeps A's decline reason.** 5.4 asked for the
+   `CONVERSION` reason from the compiler; the compiler never builds the node there
+   (`guardsLongProducts` is false), so the multiply declines as A does, with A's reason, and the
+   `CONVERSION` refusal comes from the kernel plan for a node that reaches it another way. One
+   reason per cause: the compiler's says the multiply was not built, the plan's says the node
+   cannot run.
+3. **Projections only.** The filter compile (`compilePredicate`) builds its sink without the
+   options and keeps A: a checked product in a filter's condition is not one of 6's sections and
+   would add a conversion to the two-lane condition refusal's ground.
+4. **The magnitude as bits, not `ABS` and a double compare** (9.1), and **`INT_OVERFLOW`, not a new
+   refusal reason**: a new status bit would touch the evaluator's reason table for no reader
+   that distinguishes the two.
+5. **Checks in `VarkaEmitterLongLaneSuite` for 5.1, 5.2, 5.4 and 5.5,** including the compiled
+   arms, which compile Catalyst expressions there rather than in `VarkaExpressionCompilerSuite`,
+   so the arms' IR and their batches of 1, 3 and 4,096 rows sit in one test.
+
+### 9.2 Reverted (23 November 2026)
+
+#1626 (squash commit `c4b0475d86e`) was reverted on 23 November 2026 (#1688) at the owner's
+word, so that master is green before row 489. Row 611 must be redesigned before it lands again.
+The code that 9.1 and the decisions above describe is no longer on master; they stay as the
+record of what was built.
+
+- **The pin covered none of its code.** Its three option arms,
+  `checkedLongMultiply=BOUND_ONLY`, `MAGNITUDE` and `BY_HOST` over `useAVX=2`, emit the same
+  bytes as `useAVX=2` on every pinned shape. On `c4b0475d86e`, `sql/varka/emitted_bytes.json`
+  has 27 option arms and 11 distinct digests, and 14 arms carry `useAVX=2`'s digests, including
+  `useAVX=2` itself. So the pin paid for three full emission passes and caught no change to the
+  guarded product. The redesign must add a pinned shape whose bytes the guarded product changes.
+- **The pin test had no headroom on AVX2 runners.** `VarkaEmittedBytesSuite`'s pin test took
+  511 to 551 s on AVX2-only runners before #1626, against a 600 s cap. After #1626 it is about
+  615 to 650 s, an extrapolation since the red runs stop at the cap. Master run 45256702183
+  failed 3 of 3 attempts, all on EPYC 7763s. A new machine option with a non-default subject
+  must not land until the pin test is split or cached. The split is branch
+  `varka-emitted-bytes-budget`, not yet a pull request.
+- **The default per host belongs to row 648** (fuse where faster, else decline). Row 648's plan
+  is on branch `varka-rows-fuzz-confs-faster`, not yet on master.
+- **Keep two parts in the redesign.** The conformance register's fix
+  (`VarkaTypeConformance.guardsProduct`: a form a non-default option fuses is held to the
+  reference, not reported as drift) and the check that holds each batch's status to the guards'
+  verdict (`guardVerdict`), not to where Spark raises, while still requiring a decline wherever
+  Spark raises.
 
 ## 10. Questions for the owner
 
