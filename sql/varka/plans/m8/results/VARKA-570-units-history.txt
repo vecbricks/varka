@@ -1,0 +1,55 @@
+VARKA-570 step 1: the option-matrix bins' units-step minutes, 20 November 2026.
+Source: the Actions jobs API (repos/MaxGekk/spark/actions/runs/<run>/jobs?filter=all), every job
+named 'Option matrix: bNNN' of every attempt, its step "Run this bin's units" from started_at to
+completed_at, so the setup steps are left out. x86 is ubuntu-latest, arm is ubuntu-24.04-arm (the
+isa=arm platform bins). Read on the laptop with gh by
+  dev/varka_matrix_stragglers.py history --repo MaxGekk/spark <the 20 runs of results/VARKA-570-bin-times.txt>
+at 10:00 UTC, while DEADLINE_FLOOR_SECONDS was 3 * 480, so "past the floor" below is past
+24 minutes; the floor was then raised to 4 * 480 = 32 minutes (VARKA-570.md 6.2). Run
+43645907563 answered HTTP errors; the other 19, of which the admission check's read had 13,
+answered.
+
+bins' units-step minutes; bins past 24 (bin#attempt minutes conclusion)
+run           kind  bins  median  longest  past the floor
+42995163793   x86    150     7.0     16.1  -
+42995163793   arm      4     7.8     10.4  -
+43110513436   x86    150     6.4     24.1  b092#1 24.1 success
+43110513436   arm      4     7.5     10.3  -
+43129478084   x86    145     6.7     15.6  -
+43129478084   arm      4     7.4     10.1  -
+43144454117   x86    150     6.8     18.7  -
+43144454117   arm      4     7.2     10.2  -
+43171990888   x86    150     6.5     20.2  -
+43171990888   arm      4     7.1     10.4  -
+43180161093   x86    151     6.7     15.8  -
+43180161093   arm      4     7.4     10.5  -
+43451663202   x86    151     7.0     16.3  -
+43451663202   arm      4     7.4     10.7  -
+43484155824   x86    182     6.9     15.2  -
+43484155824   arm      4     7.4     10.5  -
+43504150236   x86    151     6.3     15.1  -
+43504150236   arm      4     7.5     10.4  -
+43533941181   x86    151     6.0     24.3  b092#1 24.3 success
+43533941181   arm      4     7.3     10.6  -
+43597177147   x86    152     6.2     16.9  -
+43597177147   arm      4     7.6     10.8  -
+43636282980   x86    151     6.1     16.4  -
+43636282980   arm      4     7.2     10.7  -
+43642146943   x86    151     6.8     15.0  -
+43642146943   arm      4     8.2     10.3  -
+43645907563   no jobs returned (HTTPError)
+43655530012   x86    151     6.4     14.9  -
+43655530012   arm      4     7.3     10.7  -
+43690478822   x86    155     6.5     22.2  -
+43690478822   arm      4     7.8     10.4  -
+44141461002   x86    155     6.4     23.4  -
+44141461002   arm      4     7.7     10.7  -
+44159650039   x86    155     6.3     15.9  -
+44159650039   arm      4     7.6     10.9  -
+44179178461   x86    186     6.7     16.6  -
+44179178461   arm      4     7.9     10.6  -
+44485292430   x86    186     7.4     19.1  -
+44485292430   arm      4     7.5     10.6  -
+
+x86: 2973 bins in 19 runs; medians 6.0 to 7.4, longest 14.9 to 24.3
+arm: 76 bins in 19 runs; medians 7.1 to 8.2, longest 10.1 to 10.9
