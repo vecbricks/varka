@@ -1159,6 +1159,15 @@ public final class VarkaOperatorCensusProbe {
     }
   }
 
+  /** The bimorphic cell's control: its call site with the 128-bit int species alone. */
+  static void op_planted_one128() {
+    for (int i = 0; i + IntVector.SPECIES_128.length() <= ROWS;
+        i += IntVector.SPECIES_128.length()) {
+      IntVector v = IntVector.fromArray(IntVector.SPECIES_128, IA, i);
+      v.lanewise(VectorOperators.ADD, v).intoArray(IO, i);
+    }
+  }
+
   static void op_planted_box() {
     for (int i = 0; i < ROWS; i += IS.length()) {
       SINK = IntVector.fromArray(IS, IA, i);
@@ -1250,6 +1259,7 @@ public final class VarkaOperatorCensusProbe {
         case "two.mixed" -> op_two_mixed();
         case "planted.box" -> op_planted_box();
         case "planted.bimorphic" -> op_planted_bimorphic();
+        case "planted.one128" -> op_planted_one128();
         default -> throw new IllegalArgumentException("no loop named " + loop);
       }
     }

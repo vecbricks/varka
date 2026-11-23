@@ -496,8 +496,9 @@ public final class VarkaOperatorCensusSuite {
     Assumptions.assumeTrue(bytes >= 32, "a host of " + bytes * 8 + " bits prefers one of the two");
     Reading reading = fork("planted.bimorphic", bytes);
     assertTrue(reading.bimorphic(), () -> "two species at one call site read as one: " + reading);
-    // The planted fallback's loop, the long add at the preferred species alone, as the control.
-    Reading control = fork("planted.fallback", bytes);
+    // The control is the same call site with the 128-bit species alone: one species that is not
+    // the preferred one, so the tell reads two species and not one off the host's width.
+    Reading control = fork("planted.one128", bytes);
     assertFalse(control.bimorphic(), () -> "one species read as two: " + control);
   }
 
