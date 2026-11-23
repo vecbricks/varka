@@ -141,6 +141,10 @@ public final class VarkaNodePropsSuite {
         case Validity.AllTrue _ -> assertEquals(0, children.length, at);
         case Validity.NoWord _ -> assertTrue(n instanceof Cond, at);
         case Validity.Own _ -> assertFalse(n instanceof Cond, at);
+        case Validity.Operand op -> {
+          assertTrue(op.index() < children.length, at);
+          assertFalse(children[op.index()] instanceof Cond, at);
+        }
       }
     }
     assertTrue(nodes.size() > 1000, "drew only " + nodes.size() + " distinct nodes");
