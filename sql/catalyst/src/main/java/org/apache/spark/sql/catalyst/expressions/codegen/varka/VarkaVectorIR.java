@@ -1522,6 +1522,14 @@ public sealed interface VarkaVectorIR
     }
     @Override public int hashCode() { return hash; }
 
+    @Override
+    public VarkaNodeProps props() {
+      // It declines, never nulls: its word is the operands' AND. The weight: two multiplies, the
+      // sign's AND, the compare, two AVX2 long conversions and one call the budget recount found.
+      return new VarkaNodeProps(NEVER, STRICT, 5 + 2 * VarkaConversionLowering.XOR_SPLIT_CALLS,
+          getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
+    }
+
     /** Whether the pre-check trips on {@code a * b}: the reference's twin of the kernel's test. */
     public static boolean trips(long a, long b) {
       return Math.abs((double) a * (double) b) >= BOUND;
