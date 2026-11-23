@@ -27,9 +27,10 @@
 # --owed mode lists the entries of the merge in progress or committed, and of a squash merge,
 # cherry-pick, revert or rebase uncommitted or stopped, never an aborted one's (the comment
 # above its owed_live says how, and what it cannot see). This script turns those files
-# into steps and runs them in the order the files read each other: types.tsv, fuzz/types.tsv and
-# casts_fused.tsv, then coverage.json and the docs blocks where owed, the width audit (it reads
-# coverage.json), the bytes file (likewise), coverage again after an audit that ran (the docs
+# into steps and runs them in the order the files read each other: types.tsv, fuzz/types.tsv,
+# casts_fused.tsv and casts_suites.tsv (whose suites read it), then coverage.json and the docs
+# blocks where owed, the width audit (it reads coverage.json), the bytes file (likewise),
+# coverage again after an audit that ran (the docs
 # read the width audit, and nothing else of coverage's reads the other two), and last the
 # census, which reads them all, rewrites the docs' support table and costs a second; a merge
 # that owed that block alone owes the census, never docs/sql-varka.md, and so no coverage run
@@ -89,6 +90,9 @@ want sql/varka/fuzz/types.tsv && {
   envs+=(VARKA_FUZZ_TYPES_REGEN=true); steps+=("catalyst/testOnly *VarkaFuzzTypesSuite"); }
 want sql/varka/plans/m8/casts_fused.tsv && {
   envs+=(VARKA_CASTS_REGEN=true); steps+=("catalyst/testOnly *VarkaCastMatrixSuite"); }
+want sql/varka/plans/m8/casts_suites.tsv && {
+  envs+=(VARKA_SUITES_REGEN=true)
+  steps+=("sql/testOnly *VarkaCastWithAnsiOffSuite *VarkaCastWithAnsiOnSuite *VarkaTryCastSuite"); }
 audit=0; bytes=0
 want sql/varka/width_audit.json && audit=1
 want sql/varka/emitted_bytes.json && bytes=1

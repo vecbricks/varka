@@ -2586,6 +2586,19 @@ exist.
   it was written must still serve one. It needs a JVM of its own, since it
   fixes the process-wide cache serializer, never writes golden files, and
   runs in `dev/varka_nightly.sh`.
+* **Spark's cast suites** (`VarkaCastWithAnsiOffSuite`,
+  `VarkaCastWithAnsiOnSuite`, `VarkaTryCastSuite`) are Spark's
+  `CastWithAnsiOffSuite`, `CastWithAnsiOnSuite` and `TryCastSuite` with each
+  check run a second time through the Varka evaluator once Spark's own has
+  passed: every literal of a type a kernel reads becomes a column of equal rows,
+  one more than the host's byte lanes, written into Arrow batches, a fused check's answers are held to
+  Spark's over the rows read back from Arrow, and a declined batch's error
+  must reach the caller as Spark raised it. Each bare cast's compile verdict
+  per form and mode is recorded in `sql/varka/plans/m8/casts_suites.tsv`,
+  which `dev/varka_census.py --check` holds to the cast matrix;
+  `sql/varka/spark_suites/expression_excluded.tsv` and
+  `expression_declines.tsv` list the tests and the batch declines that are
+  not the kernel's fault. The random properties run through Varka nightly.
 * **Metaspace proof** (`VarkaGeneratedClassLoaderSuite`,
   `VarkaShapeCacheSuite`) verifies with weak references that a released
   loader is collected, that a batch of 1000 loaders is fully collected, and -

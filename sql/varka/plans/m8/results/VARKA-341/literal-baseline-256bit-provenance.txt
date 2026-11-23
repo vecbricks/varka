@@ -1,0 +1,11 @@
+benchmark:   *.VarkaFloatingBaselineBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/MaxGekk/spark/actions/runs/42668162110
+commit:      59121b36e73 (varka-341-literal-baseline of MaxGekk/spark)
+date:        2026-11-10T07:04:04Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=<none>
+jdk:         OpenJDK Runtime Environment Zulu25.38+109-CA (build 25.0.5.0.3+1-LTS)
+kernel:      7.0.0-1017-azure
+cpu:         AMD EPYC 7763 64-Core Processor
+datapath:    45.0 / 90.0 / 89.9 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.00 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)
