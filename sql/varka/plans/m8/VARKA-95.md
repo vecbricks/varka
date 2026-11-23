@@ -489,12 +489,10 @@ not made; the queries suite plans each section under both settings of the two-la
 laptop's width, and every section is on the int lane, whose classes no width moves. The planted
 faults of build sheet 3 were not run.
 
-*Corrected 23 November 2026, the two notes of that date above and in the decisions below:* "95a is
-superseded" and "row 30 fuses `%` by a literal itself (30a4)" are premature. 30a4 is local, not yet
-a pull request, so it will supersede 95a when it merges, and until then 95a stays owed by this row.
-The build sheet's `%` shapes (`i % 16`, `try_mod(i, 7)`, `try_mod(i, 16)`, the filter
-`i % 16 = 0`) are baseline sections only, and #1660 built none of them; as fused targets they are
-row 30's (`VARKA-30.md` 2.4 and its boundary with this row).
+*Noted 23 November 2026, to the two notes of that date above and in the decisions below:* 30a4,
+row 30's constant-divisor part (`VARKA-30.md` 2.4), is local and not yet a pull request. Row 30 owns
+`i % 16` and the filter `i % 16 = 0` (its 2.4) and `try_mod(i, k)` (its 2.2), their baseline
+sections included; #1660 built none of them.
 
 ## Decisions taken while the owner was away (20 November 2026)
 
