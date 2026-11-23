@@ -54,6 +54,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedProduct;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
@@ -192,6 +193,15 @@ public final class VarkaIrGrammar {
    * reference evaluator; nothing pins its bytes.
    */
   public static final long UNSIGNED_FUZZ_SEED = 20261101L;
+
+  /**
+   * The seed of {@link #drawGuardedProductShape}, a sequence of its own for the reason
+   * {@link #NARROW_FUZZ_SEED} gives: the guarded product (VARKA-611) drawn into the long corpus
+   * would move its committed blocks, and that corpus is emitted at the unknown level, where the
+   * kernel plan refuses the node. {@code VarkaIrFuzzSuite} runs it at levels 2 and 3 against the
+   * reference evaluator and {@link VarkaGuardSpecs}; nothing pins its bytes.
+   */
+  public static final long GUARDED_PRODUCT_FUZZ_SEED = 20261120L;
 
   /**
    * The seeds of the narrow sequences, {@code fuzz_byte} and {@code fuzz_short}
@@ -402,6 +412,7 @@ public final class VarkaIrGrammar {
           ? over(n.left(), n.right(), VarkaIrGrammar::satMul)
           : over(n.left(), n.right(), VarkaIrGrammar::satAdd);
       case IntNeg n -> boundsOf(n.child());
+      case GuardedProduct n -> over(n.left(), n.right(), VarkaIrGrammar::satMul);
       case ConstDivide n -> over(n.child(), v -> v / Math.abs(n.divisor()));
       case BoundedDivide n ->
           new Bounds((long) ((n.bound() - 1) / n.divisor()), guard(n.child()));
@@ -1515,13 +1526,21 @@ public final class VarkaIrGrammar {
     return drawLongShape(rnd, false, true);
   }
 
+  /**
+   * {@link #drawLongShape}'s twin whose multiplies may be guarded products where their bound may
+   * leave the long (VARKA-611), drawn in {@link #GUARDED_PRODUCT_FUZZ_SEED}'s sequence.
+   */
+  public static DrawnLong drawGuardedProductShape(Random rnd) {
+    return drawLaneShape(rnd, LaneType.LONG, false, false, true);
+  }
+
   private static DrawnLong drawLongShape(Random rnd, boolean nullingGuards) {
     return drawLongShape(rnd, nullingGuards, false);
   }
 
   private static DrawnLong drawLongShape(Random rnd, boolean nullingGuards,
       boolean unsignedCompares) {
-    return drawLaneShape(rnd, LaneType.LONG, nullingGuards, unsignedCompares);
+    return drawLaneShape(rnd, LaneType.LONG, nullingGuards, unsignedCompares, false);
   }
 
   /**
@@ -1533,15 +1552,15 @@ public final class VarkaIrGrammar {
     if (!lane.isNarrow()) {
       throw new IllegalArgumentException("not a narrow lane: " + lane);
     }
-    return drawLaneShape(rnd, lane, false, false);
+    return drawLaneShape(rnd, lane, false, false, false);
   }
 
   private static DrawnLong drawLaneShape(Random rnd, LaneType lane, boolean nullingGuards,
-      boolean unsignedCompares) {
+      boolean unsignedCompares, boolean guardedProducts) {
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
     var shapes = new LongShapes(rnd, numInputs, numLiterals, nullingGuards, unsignedCompares,
-        lane);
+        lane, guardedProducts);
     int depth = 1 + rnd.nextInt(4);
     List<VarkaVectorIR> roots;
     if (rnd.nextInt(5) == 0) {
@@ -1794,6 +1813,7 @@ public final class VarkaIrGrammar {
     private final int numLiterals;
     private final boolean nullingGuards;
     private final boolean unsignedCompares;
+    private final boolean guardedProducts;
     private final LaneType lane;
     private final long literalBound;
     private int budget = 20;
@@ -1814,11 +1834,13 @@ public final class VarkaIrGrammar {
      */
     public LongShapes(Random rnd, int numInputs, int numLiterals, boolean nullingGuards,
         boolean unsignedCompares) {
-      this(rnd, numInputs, numLiterals, nullingGuards, unsignedCompares, LaneType.LONG);
+      this(rnd, numInputs, numLiterals, nullingGuards, unsignedCompares, LaneType.LONG, false);
     }
 
+    /** With {@code guardedProducts}, a multiply that may leave the long is guarded at times. */
     private LongShapes(Random rnd, int numInputs, int numLiterals, boolean nullingGuards,
-        boolean unsignedCompares, LaneType lane) {
+        boolean unsignedCompares, LaneType lane, boolean guardedProducts) {
+      this.guardedProducts = guardedProducts;
       this.rnd = rnd;
       this.numInputs = numInputs;
       this.numLiterals = numLiterals;
@@ -1883,6 +1905,14 @@ public final class VarkaIrGrammar {
           Gen a = value(depth - 1);
           Gen b = value(depth - 1);
           long productBound = satMul(a.bound(), b.bound());
+          // In the guarded draw alone, where the product may leave the long, half the time the
+          // guarded product, option B of the checked multiply (VARKA-611), whose declines the
+          // suite holds to VarkaGuardSpecs' double test; its bound stays the saturated one. The
+          // flag is tested first, so the other draws take no extra number from `rnd`.
+          if (guardedProducts && lane == LaneType.LONG && overflows(productBound)
+              && rnd.nextBoolean()) {
+            return new Gen(new GuardedProduct(a.node(), b.node()), productBound);
+          }
           Overflow mode = lane.isNarrow() && !overflows(productBound) ? anyMode() : Overflow.WRAP;
           return new Gen(new IntArith(IntOp.MUL, mode, a.node(), b.node()), productBound);
         }

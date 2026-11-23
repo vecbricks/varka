@@ -437,10 +437,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    */
   private def drawLong(iteration: Int, drawSeed: Long = longSeed,
       base: VarkaEmitOptions = VarkaMatrix.base, nulling: Boolean = false,
-      decimal: Boolean = false, unsigned: Boolean = false): VarkaFuzzCase = {
+      decimal: Boolean = false, unsigned: Boolean = false,
+      guarded: Boolean = false): VarkaFuzzCase = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
     val drawn =
       if (decimal) VarkaIrGrammar.drawDecimalShape(rnd)
+      else if (guarded) VarkaIrGrammar.drawGuardedProductShape(rnd)
       else if (nulling) VarkaIrGrammar.drawNullingLongShape(rnd)
       else if (unsigned) VarkaIrGrammar.drawUnsignedLongShape(rnd)
       else VarkaIrGrammar.drawLongShape(rnd)
@@ -1218,7 +1220,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // test after it asserts its reach.
     // The reinterpretation (VARKA-345) is a floating node too, built by the fdlibm ports alone;
     // `VarkaMathPortSuite` holds it and the port it serves to the reference and to StrictMath.
-    val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
+    // The guarded product (VARKA-611) is a long-lane node, drawn by the guarded draw alone, on
+    // its own seed and at a named level: the guarded-product test below runs it and asserts it
+    // was drawn.
+    val missing = permitted -- seen - "GuardedProduct" - "NarrowLane" - "WidenLane" -
+      "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
       "BoolOutput" - "DecimalColumn" - "DecimalWord" - "NullValue" - "WidenDecimal" - "MathUnary" -
       "Fma" - "RoundToIntegral" - "CanonicalFloat" - "HashStep" - "CanonicalBits" -
@@ -1239,7 +1245,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    */
   private val outOfTheLongCorpora = Set("NullSafeEqual", "BoolColumn", "CondConst",
     "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue", "BoolOutput", "WidenDecimal",
-    "NullValue")
+    "NullValue", "GuardedProduct")
 
   test("the long-lane generator reaches every node type that admits 64-bit lanes") {
     // The same assertion for the second corpus, against the set the IR itself defines: a node
@@ -2344,6 +2350,57 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
         armReplaced
       }
     assert(shown, "no decimal draw of 64 with an untaken long-lane arm had a mutant replace it")
+  }
+
+  // The guarded product (VARKA-611): its own draw at the long lane, at levels 2 and 3 in turn,
+  // whose conversions lower. A batch may decline here, so each body's status is held to
+  // VarkaGuardSpecs' verdict over the case's rows (its double test for the node), and an
+  // answered batch to the reference evaluator.
+  private val guardedSeed = sys.props.get("varka.fuzz.seed").map(_.toLong)
+    .getOrElse(VarkaIrGrammar.GUARDED_PRODUCT_FUZZ_SEED)
+
+  test(s"random long-lane IR trees with guarded products decline where the guard specs say and " +
+      s"match the reference evaluator elsewhere (seed $guardedSeed, $iterations iterations)") {
+    val ks = only.map(Seq(_)).getOrElse(0 until iterations)
+    var guardedDrawn = 0
+    var declined = 0
+    for (k <- ks) {
+      val drawn = drawLong(k, guardedSeed, guarded = true)
+      val c = drawn.withOptions(drawn.options.withUseAVX(if (k % 2 == 0) 2 else 3)
+        .withExactRefusalStatus(true))
+      if (c.roots.asScala.exists(r => VarkaVectorIR.canonical(r).contains("(guardedMul"))) {
+        guardedDrawn += 1
+      }
+      if (VarkaKernelPlan.refusalOf(c.roots, c.options).isEmpty) {
+        val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzGuarded" +
+          classCounter.addAndGet(1)
+        emitOrSkip(c.label, c.options)(o => VarkaLoopEmitter.emitTraced(
+            className, c.roots, c.numInputs, c.lits.length, o, randomTrace)).foreach { bytes =>
+          val status = VarkaKernelChecks.runAndCompareLongStatus(c.label, className, bytes,
+            c.roots, c.numInputs, c.lits,
+            new VarkaKernelChecks.LongBatch(c.length, c.nulls, c.data, c.forceMasked), true)
+          // The status is the first body's where it declined, else the other body's (the same
+          // values with no nulls, or the masked body forced), so each is held to its own rows.
+          val rows = Array.tabulate(c.length, c.numInputs)((r, col) => c.data()(col)(r))
+          def verdictOver(nullsByColumn: Array[Array[Boolean]]): VarkaGuardSpecs.Verdict =
+            VarkaGuardSpecs.verdict(c.roots, c.numInputs, c.lits, c.options, true, rows,
+              Array.tabulate(c.length, c.numInputs)((r, col) => nullsByColumn(col)(r)),
+              java.util.List.of())
+          val own = verdictOver(c.nulls())
+          val other = VarkaKernelChecks.otherBody(c.numInputs, c.length, c.nulls(),
+            c.forceMasked).map[VarkaGuardSpecs.Verdict](o => verdictOver(o.nulls()))
+          assert(own.admits(status) ||
+            (own.admits(0) && other.map[Boolean](_.admits(status)).orElse(false)),
+            s"${c.label}: status $status against $own, the other body $other")
+          if (status != 0) declined += 1
+        }
+      }
+    }
+    if (only.isEmpty) {
+      assert(guardedDrawn > 0, "the guarded draw drew no guarded product")
+      assert(declined > 0, "no guarded draw declined a batch")
+    }
+    reportSkipped()
   }
 
   // The unsigned compares (VARKA-359): their own draw at the long lane, run against the

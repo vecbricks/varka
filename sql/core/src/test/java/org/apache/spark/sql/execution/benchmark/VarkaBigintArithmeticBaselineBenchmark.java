@@ -22,6 +22,7 @@ import java.util.Map;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.execution.VarkaSessionEmit;
 import org.apache.spark.sql.internal.SQLConf;
 
@@ -49,6 +50,12 @@ import org.apache.spark.sql.internal.SQLConf;
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
  * session with it. A section listed as {@code NONE} plans no Varka node, so both its arms are the
  * row path and should tie.
+ *
+ * <p>The checked products over a column have a third arm, {@code varka on, B
+ * (checkedLongMultiply=MAGNITUDE)}: option B of the checked multiply, the guarded product
+ * (VARKA-611), where {@code varka on} is option A, the decline. One more section,
+ * {@code l * m, ANSI, products near 2^62}, holds products past B's bound on every row, so B
+ * declines every batch after its kernel pass and the section prices that decline.
  *
  * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
  * each section's plan on the Varka session against the section's {@link Fusion} class, and fails
@@ -110,7 +117,23 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
     boolean checksKernels() {
       return fusion == Fusion.WHOLE && !query.contains(" WHERE ");
     }
+
+    /**
+     * Whether the section is a checked product over a column, which option A declines and
+     * option B builds as a guarded product (VARKA-611): timed with a third arm, B's.
+     */
+    boolean checkedProduct() {
+      return title.startsWith("l * 3, ANSI") || title.startsWith("l * m, ANSI")
+          || title.startsWith("try_multiply(l, m)");
+    }
   }
+
+  /**
+   * Option B of the checked {@code BIGINT} multiply (`VARKA-611.md` 6): the session's options with
+   * {@code checkedLongMultiply=MAGNITUDE}, the session's level laid over them as for any run.
+   */
+  static final VarkaEmitOptions MAGNITUDE = VarkaEmitOptions.DEFAULTS.withCheckedLongMultiply(
+      VarkaEmitOptions.CheckedLongMultiply.MAGNITUDE);
 
   /**
    * The table: {@code l}, {@code l2} and {@code m} {@code BIGINT}s with no null, {@code l_n}
@@ -128,6 +151,10 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
    *       long's edges.</li>
    *   <li>{@code m} is inside {@code [-3000, 3000]}, a factor whose product with {@code l} is
    *       below {@code 2^61} in magnitude, as is {@code l * 3}.</li>
+   *   <li>{@code nb} and {@code nm}, for the one section that prices B's decline: {@code nb} in
+   *       {@code [2^41, 1.5 * 2^41)} and {@code nm} in {@code [1.01 * 2^21, 1.3 * 2^21]}, so
+   *       every product lies in {@code [1.01 * 2^62, 1.95 * 2^62]}: past B's bound on every
+   *       row, and below {@code 2^63}, so nothing overflows.</li>
    *   <li>{@code i} is an {@code INT}, {@code hash(id, 3)}, over the whole int range, and
    *       {@code i_n} its values with the same rows null as {@code l_n}. Widened to a
    *       {@code BIGINT} it is a bounded long leaf: {@code CAST(i AS BIGINT) + 1} and
@@ -142,11 +169,14 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
         select l, l2, m,
                case when id %% 10 = 1 then null else l end as l_n,
                i,
-               case when id %% 10 = 1 then null else i end as i_n
+               case when id %% 10 = 1 then null else i end as i_n,
+               nb, nm
         from (select id,
                      shiftright(xxhash64(id), cast(14 + id %% 50 as int)) as l,
                      shiftright(xxhash64(id, 1), cast(14 + id %% 47 as int)) as l2,
                      cast(pmod(hash(id, 2), 6001) - 3000 as bigint) as m,
+                     2199023255552 + pmod(xxhash64(id, 4), 1099511627776) as nb,
+                     cast(2118124 + pmod(hash(id, 5), 608173) as bigint) as nm,
                      hash(id, 3) as i
               from range(0, %d))""".formatted(rows);
   }
@@ -224,6 +254,10 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
       out.add(new Section("l ^ l2, control, fuses today" + density,
           "SELECT " + l + " ^ l2" + from, ansi, Fusion.WHOLE));
     }
+    // B's decline (`VARKA-611.md` 6, `VARKA-104.md` 7 risk 3): every product past 2^62, so under
+    // B every batch pays a kernel pass and then the row path; under A it declines at planning.
+    out.add(new Section("l * m, ANSI, products near 2^62, no nulls",
+        "SELECT nb * nm AS a FROM " + VIEW, ansi, Fusion.NONE));
     return out;
   }
 
@@ -246,11 +280,18 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
           VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
       // Each section fuses as its class lists it, and a WHOLE projection runs every batch as a
       // kernel.
+      Fusion checked = VarkaSessionEmit.of(varka.sessionState().conf())
+          .declineTwoLaneConditions() ? Fusion.NONE : Fusion.WHOLE;
       for (Section s : sections) {
         withConf(varka, s.conf(), () -> {
           requireBaseline(varka, s.title(), s.query(), s.fusion());
           if (s.checksKernels()) {
             VarkaSizeLadder.varkaFused(varka, s.query());
+          }
+          // B's arm plans a kernel wherever a checked BIGINT operation fuses on this host.
+          if (s.checkedProduct()) {
+            withEmitOptions(MAGNITUDE,
+                () -> requireBaseline(varka, s.title() + ", B", s.query(), checked));
           }
         });
       }
@@ -262,6 +303,10 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
                   .timed().build();
               benchmark.addCase("spark row path (varka off)", i -> noop(baseline.sql(s.query())));
               benchmark.addCase("varka on", i -> noop(varka.sql(s.query())));
+              if (s.checkedProduct()) {
+                benchmark.addCase("varka on, B (checkedLongMultiply=MAGNITUDE)",
+                    i -> withEmitOptions(MAGNITUDE, () -> noop(varka.sql(s.query()))));
+              }
               runCases(benchmark);
             })));
       }
