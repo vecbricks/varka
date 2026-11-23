@@ -20,7 +20,7 @@
 # is the only failure), post the matrix run's link on the PR and keep the comment's state current
 # (matrix-link.sh). A failure only in the assembly gate (runner DNS) waits up to 3 h for its rerun.
 # Writes its verdict to $VARKA_OPS_HOME/logs/<out>; exits 0 once the matrix is dispatched, 1 if
-# the Build failed otherwise. Started by start-waiter.sh.
+# the Build failed otherwise or the dispatch failed. Started by start-waiter.sh.
 set -u
 . "$(dirname "$0")/common.sh"
 [ $# -ge 3 ] || { echo "usage: matrix-after-build-link.sh <build-run> <branch> <out> [--size-ok]"
@@ -28,16 +28,21 @@ set -u
 ops_fork
 R=$1; B=$2; O=$OPS/logs/$3; SIZE_OK=${4:-}; t0=$(date +%s)
 dispatch() {
-  gh workflow run varka-option-matrix.yml -R "$FORK" --ref "$B" >> "$O" 2>&1; rc=$?
+  local out rc url
+  out=$(gh workflow run varka-option-matrix.yml -R "$FORK" --ref "$B" 2>&1); rc=$?
+  echo "$out" >> "$O"
   echo "$(date +%H:%M) $B $1, matrix dispatched rc=$rc" >> "$O"
-  url=$(grep -o "https://github.com/$FORK/actions/runs/[0-9]*" "$O" | tail -1)
+  [ $rc = 0 ] || return 1
+  # the link comes from this dispatch's own output, never from an earlier run in the log
+  url=$(echo "$out" | grep -o "https://github.com/$FORK/actions/runs/[0-9]*" | tail -1)
   [ -n "$url" ] && "$OPS_DIR/matrix-link.sh" "$B" "$url" >> "$O" 2>&1
+  return 0
 }
 while :; do
   s=$(gh run view "$R" -R "$FORK" --json status,conclusion \
     --jq '"\(.status) \(.conclusion)"' 2>/dev/null)
   case "$s" in
-    completed\ success) dispatch "build ok"; exit 0;;
+    completed\ success) dispatch "build ok"; exit;;
     completed*)
       f=$(gh run view "$R" -R "$FORK" --json jobs \
         --jq '[.jobs[]|select(.conclusion=="failure")|.name]|join(",")' 2>/dev/null)
@@ -49,7 +54,7 @@ while :; do
           --jq '.jobs[]|select(.conclusion=="failure")|.steps[]|select(.conclusion=="failure")|.name' \
           2>/dev/null | sort -u)
         if echo "$steps" | grep -qi size && [ "$(echo "$steps" | wc -l)" = 1 ]; then
-          dispatch "only the size step failed"; exit 0
+          dispatch "only the size step failed"; exit
         fi
       fi
       echo "$(date +%H:%M) $B build $s failed=[$f], no matrix" >> "$O"; exit 1;;

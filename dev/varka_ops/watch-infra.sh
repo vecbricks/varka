@@ -50,12 +50,14 @@ while :; do
       echo "$run" >> "$seen"
       jobs=$(gh run view "$run" --repo "$FORK" --json jobs \
         -q '.jobs[]|select(.conclusion=="failure")|"\(.databaseId)|\(.name)"')
-      all=1; names=""
+      all=1; names=""; classified=0
       while IFS='|' read -r jid jn; do
         [ -n "$jid" ] || continue
         case "$jn" in *report*) continue;; esac   # a matrix report fails because a bin failed
-        infra_job "$jid" || all=0; names="$names; $jn"
+        infra_job "$jid" || all=0; names="$names; $jn"; classified=$((classified + 1))
       done <<< "$jobs"
+      # no classified job (only a report failed, or the jobs could not be read) is no infra proof
+      [ $classified = 0 ] && all=0
       if [ $all = 1 ]; then
         if gh run rerun "$run" --repo "$FORK" --failed >/dev/null 2>&1; then
           echo "INFRA #$pr run $run: reran failed jobs:${names}"

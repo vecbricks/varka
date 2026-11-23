@@ -12,7 +12,8 @@ These add to `sql/varka/AGENTS.md`. The tools are listed in `INDEX.md` and the f
 - **Never `git push` by hand.** Use `open-pr.sh`, `push-ci.sh` or `push-no-ci.sh`; they check
   both stamps and push to the fork remote only.
 - **One gate at a time.** The width audit's 600 s probes time out beside another gate, so leave
-  `PRE_PR_SLOTS` at 1, and use `PRE_PR_EXCLUSIVE=1` for a gate that must run alone.
+  `PRE_PR_SLOTS` at 1, and use `PRE_PR_EXCLUSIVE=1` for a gate that must run alone. A light
+  gate (no generated-file input, no suite) starts at once; do not force it through the queue.
 - **The regen skip is mechanical.** It applies only when every changed file is tooling, CI,
   plans, benchmarks or prose (`README.md`); do not skip a regeneration by hand.
 - **Kill only recorded PIDs.** Never `pkill` or `killall`; `start-waiter.sh` keeps the pid.

@@ -31,7 +31,9 @@ arguments.
 **One gate at a time.** `PRE_PR_SLOTS` defaults to 1, because the width audit that every
 regeneration runs has 600 s probes, which time out beside another gate (348, 504 and 358a did on
 22-23 November). The parallelism lives inside a gate: its arm sweep runs at `-j PRE_PR_J`.
-A second waiter for the same worktree exits at once with status 3. `PRE_PR_EXCLUSIVE=1` raises a
+A light gate - a branch that changes no input of the generated files and no test suite, so it
+runs no regeneration and no sweep - starts at once beside a heavy one, unless an exclusive gate
+is marked. A second waiter for the same worktree exits at once with status 3. `PRE_PR_EXCLUSIVE=1` raises a
 marker that stops every other waiter from starting, waits for the running gates to finish, and
 runs alone at `-j 4`.
 

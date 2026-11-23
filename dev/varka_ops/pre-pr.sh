@@ -67,11 +67,8 @@ fi
 
 # A branch whose own changes touch no input of the generated files cannot leave them stale
 # (master's are kept current at each merge), so its regen, whose width audit alone can take an
-# hour on a laptop, is skipped (23 Nov 2026). Inputs are everything but tooling, CI, plans, bench
-# and prose; the generator scripts and the generated docs table always count as inputs.
-own=$(git diff --name-only --no-renames "$(git merge-base HEAD origin/master)" HEAD)
-inputs=$(echo "$own" | grep -vE '^(\.github/|sql/varka/(plans|bench|matrix|skills|ci)/)|^dev/.*\.(py|sh|tsv|json)$|\.md$'
-         echo "$own" | grep -E '^dev/(varka_regen_generated\.sh|varka_generated_merge\.py|varka_census\.py|varka_coverage[a-z_]*\.py)$|^docs/sql-varka\.md$')
+# hour on a laptop, is skipped (23 Nov 2026); ops_regen_inputs in common.sh says what an input is.
+inputs=$(ops_regen_inputs "$w")
 if [ -z "$inputs" ] && [ "${PRE_PR_FORCE_REGEN:-0}" != 1 ]; then
   say "regen skipped: the branch changes no input of the generated files" \
     "(PRE_PR_FORCE_REGEN=1 forces it)"

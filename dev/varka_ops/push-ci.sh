@@ -28,7 +28,8 @@ h=$(git -C "$W" rev-parse HEAD) || exit 1
 [ "$(cat "$OPS/stamps/$n" 2>/dev/null)" = "$h" ] \
   || { echo "$b: no pre-pr.sh pass on ${h:0:11}, not pushed"; exit 1; }
 "$OPS_DIR/review-covers.sh" "$W" || { echo "$b: not pushed"; exit 1; }
-git -C "$W" push -q "$FORK_REMOTE" HEAD:"$b" 2>&1 | tail -1 || exit 1
+out=$(git -C "$W" push -q "$FORK_REMOTE" HEAD:"$b" 2>&1) \
+  || { echo "$out" | tail -1; echo "$b: push failed, not pushed"; exit 1; }
 id=
 for _ in 1 2 3 4 5 6; do sleep 20
   id=$(gh run list --repo "$FORK" --branch "$b" --limit 5 --json databaseId,name,headSha \

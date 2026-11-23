@@ -41,6 +41,17 @@ if [ "${PRE_PR_EXCLUSIVE:-0}" = 1 ]; then
   while [ "$(ops_running pre-pr.sh)" -gt 0 ]; do sleep 15; done
   "$OPS_DIR/pre-pr.sh" "$w" -j 4 "$@"; exit $?
 fi
+# A light gate (23 Nov 2026): a branch that changes no input of the generated files and no test
+# suite runs no regen and no arm sweep, only extra-gate and the push check, so it starts at once
+# beside a heavy gate instead of waiting for the slot. An exclusive gate still holds it back.
+base=$(git -C "$w" merge-base HEAD origin/master 2>/dev/null)
+heavy=$(ops_regen_inputs "$w"
+  git -C "$w" diff --name-only --no-renames "$base" HEAD 2>/dev/null \
+    | grep -E 'Suite\.(scala|java)$')
+if [ -n "$base" ] && [ -z "$heavy" ] && [ ! -e "$X" ]; then
+  echo "pre-pr-slot: $n is a light gate (no regen, no sweep); starting at once"
+  exec "$OPS_DIR/pre-pr.sh" "$w" -j "$J" "$@"
+fi
 sleep $((RANDOM % 20))
 while :; do
   running=$(ops_running pre-pr.sh)
