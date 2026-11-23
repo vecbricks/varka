@@ -194,15 +194,30 @@ public final class VarkaDecimalInSuite {
   }
 
   @Test
-  @DisplayName("a common type past 18 digits declines naming row 359, and 360 where the value is "
-      + "rescaled into it")
-  void wideCommonTypeDeclines() {
+  @DisplayName("a common type past 18 digits fuses over the value's two words, and declines "
+      + "naming rows 359 and 360 where the value is rescaled into it")
+  void wideCommonType() {
     List<Attribute> eighteen = columns(new DecimalType(18, 0));
     String rescaled = decline(VarkaSqlResolve.parse("a IN (0.5, 1)", seq(eighteen)), eighteen);
     assertTrue(rescaled.contains("359") && rescaled.contains("360"), rescaled);
     List<Attribute> twenty = columns(new DecimalType(20, 2));
-    String wide = decline(VarkaSqlResolve.parse("a IN (0.50, 1.00)", seq(twenty)), twenty);
-    assertTrue(wide.contains("359"), wide);
+    assertEquals("fused",
+        decline(VarkaSqlResolve.parse("a IN (0.50, 1.00)", seq(twenty)), twenty));
+    // An InSet's Decimal no value of the type equals is dropped, as below 19 digits: 0.125 has a
+    // third digit of scale and 10^18 is past twenty digits at scale 2. A null element declines.
+    var a = twenty.get(0);
+    assertEquals("fused", decline(new InSet(a, scalaSet(Decimal.apply("0.50"),
+        Decimal.apply("0.125"), Decimal.apply("1000000000000000000.00"))), twenty));
+    assertEquals("IN list is empty", decline(new InSet(a, scalaSet(Decimal.apply("0.125"))),
+        twenty));
+    // Each wide leaf is three nodes, so the cap is eight values, half a long's.
+    String eight = "a IN (1.00, 2.00, 3.00, 4.00, 5.00, 6.00, 7.00, 8.00)";
+    assertEquals("fused", decline(VarkaSqlResolve.parse(eight, seq(twenty)), twenty));
+    String nine = eight.replace(")", ", 9.00)");
+    assertTrue(decline(VarkaSqlResolve.parse(nine, seq(twenty)), twenty)
+        .startsWith("IN list longer than the fused cap of 8"), nine);
+    assertEquals("IN list has a null or non-literal element",
+        decline(VarkaSqlResolve.parse("a IN (0.50, NULL)", seq(twenty)), twenty));
   }
 
   @Test

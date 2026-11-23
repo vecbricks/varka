@@ -110,3 +110,38 @@ One pull request of about 30 counted lines.
 A dispatch of a Varka class skips the TPC-DS generation by default, `benchmarking.md` says so,
 and a dispatch with no flags runs, with the third condition already met on master since
 `b90e6799220`.
+
+## 11. What was built (20 November 2026)
+
+Steps 1 and 2 of section 8, in one branch, `varka-571-bench-no-tpcds`.
+
+* **Step 1.** `matrix-gen` writes a fourth output, `tpcds`. Its matcher expands each `{a,b}`
+  (innermost first, so nested braces expand too) and takes the last `.`-segment of every
+  alternative; the output is `false` only when each of them starts with `Varka`. The data job
+  gains `needs: matrix-gen` and the condition of 3.1, the benchmark job's cache step reads the same
+  output, and the `generate-tpcds` description says a Varka-only list skips the data. `actionlint`
+  reports no error of its own; its 20 shellcheck notes are the same 20 that master's file gets,
+  all in the unchanged `run` blocks (legacy backticks, unquoted `$(...)`). The step's Python, taken
+  from the workflow file and run locally, gives the six answers of section 5 and four more:
+  `{VarkaA,TPCDSQuery}Benchmark` and `*Varka*` give `true`, a package glob ending in `.Varka*` and
+  the space-separated `VarkaA VarkaB` give `false`.
+* **Step 2.** `benchmarking.md` gains a section, "A dispatch of Varka classes only skips the
+  TPC-DS data job", and `SKILLS.md` its entry; `dev/varka_toc.py --check` passes. The Arm section
+  is unchanged and still true: setting `generate-tpcds` to false there is now redundant for a
+  Varka class and still needed for a Spark one.
+* **Step 3 is owed**: the dispatch waits for the owner's word, so prediction 1 is unscored.
+
+**Where the plan was silent.** The data's cache key hashes `benchmark.yml` itself, so this change,
+like any edit of the file, misses the cache once: the first dispatch after the merge that keeps the
+data (a Spark class, or `*`) builds tpcds-kit and generates the data again. That costs one run's
+wait and nothing else, and a Varka-only dispatch never looks the key up.
+
+## 12. Decisions taken while the owner was away (20 November 2026)
+
+1. **Question 1, narrow or close: narrowed**, as section 9 recommends and the plan is built on.
+   The reason is the plan's: benchmarks are dispatched several times a week, and a wait that has
+   to be remembered away is the trap of 4 November. The change is about 25 counted lines, so if
+   the owner would rather close the row, the branch is dropped without cost to anything else.
+2. **The skill paragraph is a section of its own**, not a sentence in the dispatch bullet of
+   "Regenerate the section you changed": a reader asking why a dispatch had no TPC-DS data finds it in the
+   `SKILLS.md` index by its title, which is what the plan's done-when for step 2 checks.

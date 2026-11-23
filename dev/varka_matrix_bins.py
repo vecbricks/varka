@@ -42,10 +42,17 @@ writes both measured files from a fanned-out run's JUnit reports.
       > suite-seconds.tsv
   dev/varka_matrix_bins.py select --base DIR --pr DIR --configurations FILE \\
       (--changed FILE | --trees OLD NEW) [--reach FILE --reach-out FILE] > units.tsv
+  dev/varka_matrix_bins.py replay RUN_DIR --jobs JOBS --suites MODULE=FILE... [--reach FILE] \\
+      [--plan-from REF] [--pairs FILE] [--suite-seconds FILE]
   dev/varka_matrix_bins.py --selftest
 
 Each bin's `units` is one line a JVM, `configuration|module|suite,suite,...`, the suites as
 simple names, which the bin's job hands to `dev/varka_matrix.sh --suites`.
+
+`replay` (VARKA-617) reads one run's downloaded bin artifacts and its jobs from the Actions API
+and prints its measured bin phase beside the phase replayed from its own bins and from the bins
+the planner cuts now, each unit at the seconds the run measured, so that the planner is checked
+against its own run rather than against another run's bin count and slots.
 
 `select` (VARKA-508) compares master's `VarkaTestUse` record with a pull request's and prints
 the (configuration, suite, test) units the pull request's matrix reruns, one
@@ -55,13 +62,17 @@ the same selection as a reach record, which `plan --reach` and the configuration
 """
 
 import argparse
+import contextlib
 import hashlib
+import io
 import json
 import re
 import statistics
+import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 SUITE_TIMES = "sql/varka/ci/suite-times.tsv"
@@ -92,14 +103,19 @@ LANES = 2
 # The platform configurations (VARKA-505): the Varka suites at the defaults under a fixed
 # instruction set, whatever the pool's machine is. Each is (runner, JVM flags). A platform changes
 # what C2 does with the same bytes, so none of them is cut by the reach record, and a run takes
-# the defaults' seconds. The matrix's own bins run on `ubuntu-latest`; a platform's runs go in bins
-# of their own, in the order below.
+# its own measured seconds where the pair file has them, else the defaults'. The matrix's own bins
+# run on `ubuntu-latest`; a platform's runs go in bins of their own, in the order below.
 RUNNER = "ubuntu-latest"
 PLATFORMS = {
     "isa=avx2": (RUNNER, "-XX:UseAVX=2 -XX:MaxVectorSize=32"),
     "isa=w128": (RUNNER, "-XX:MaxVectorSize=16"),
     "isa=arm": ("ubuntu-24.04-arm", ""),
 }
+
+# The most jobs a GitHub Actions matrix may hold. The bins, the platforms' among them, are one
+# job's matrix, so `plan` refuses a cut of more bins than this rather than hand the workflow a
+# matrix GitHub rejects.
+MATRIX_CAP = 256
 
 
 def read_tsv(path):
@@ -389,6 +405,17 @@ def plan(
     return {"include": include}
 
 
+def over_cap(out, target, cap=MATRIX_CAP):
+    """Why the job matrix `out` cannot run, or None: more bins than a matrix may hold."""
+    count = len(out["include"])
+    if count <= cap:
+        return None
+    return (
+        f"{count} bins at a {target:.0f} s lane, over GitHub's cap of {cap} jobs a matrix; raise"
+        f" --target until the cut fits, or run fewer configurations"
+    )
+
+
 def whole_runs(junit_dirs, reach=None):
     """Each suite's seconds under each configuration that ran every test of it, the defaults
     among them, as {(run directory, suite): seconds}, from JUnit reports under
@@ -432,6 +459,355 @@ def times(junit_dirs, reach=None):
             continue  # a platform's runner (Arm) would skew the median; `units` times it by itself
         runs.setdefault(suite, []).append(seconds)
     return {suite: statistics.median(seconds) for suite, seconds in runs.items()}
+
+
+# ---------------------------------------------------------------------------------------------
+# Replay: a run's bin phase as it ran and as the planner would cut it now (VARKA-617)
+# ---------------------------------------------------------------------------------------------
+
+# A bin job's name in the Actions API, which carries the planner's bin.
+BIN_JOB = re.compile(r"Option matrix: (b\d{3})")
+RUN_STEP = "Run this bin's units"
+
+
+def junit_suites(leaf):
+    """{suite: seconds} of one JVM's directory, from its JUnit reports' `<testsuite>` tags."""
+    out = {}
+    for xml in sorted(Path(leaf, "junit").glob("TEST-*.xml")):
+        head = xml.read_text(encoding="utf-8", errors="replace")[:4000]
+        tag = re.search(r"<testsuite\b[^>]*>", head)
+        if not tag:
+            continue
+        name = re.search(r'\bname="([^"]+)"', tag.group(0))
+        seconds = re.search(r'\btime="([0-9.]+)"', tag.group(0))
+        if name and seconds:
+            suite = name.group(1).rsplit(".", 1)[-1]
+            out[suite] = out.get(suite, 0.0) + float(seconds.group(1))
+    return out
+
+
+def read_bin_runs(root):
+    """One run's bins from its downloaded bin artifacts under `root` (`gh run download` puts each
+    in a directory of its own, the report job merges them; both layouts are read): for each bin,
+    its units in the order the bin's job started them, each (k, configuration, module, {suite:
+    JUnit seconds}, measured seconds). A unit's seconds are its JVM's wall time, which
+    `dev/varka_matrix.sh` writes beside its reports."""
+    found = {}
+    for seconds in Path(root).glob("**/b[0-9][0-9][0-9]-u*/runs/*/*/seconds"):
+        leaf = seconds.parent
+        unit = leaf.parent.parent.parent.name
+        bin_name, k = unit.split("-u", 1)
+        if not k.isdigit():
+            continue
+        named = leaf.parent / "name"
+        config = named.read_text(encoding="utf-8").strip() if named.exists() else leaf.parent.name
+        module = leaf.name.split("-", 1)[0]
+        key = (bin_name, int(k))
+        _, _, _, suites, total = found.get(key, (0, config, module, {}, 0.0))
+        for suite, s in junit_suites(leaf).items():
+            suites[suite] = suites.get(suite, 0.0) + s
+        found[key] = (int(k), config, module, suites, total + float(seconds.read_text().strip()))
+    out = {}
+    for (bin_name, _), unit in sorted(found.items()):
+        out.setdefault(bin_name, []).append(unit)
+    return out
+
+
+def unfinished_units(root):
+    """The JVMs under `root` that left a `run.log` but no `seconds`, as `b003-u2/config/module`:
+    `dev/varka_matrix.sh` writes `seconds` once a JVM exits, failed or not, so these are the
+    units a cancel or the job's timeout killed, which `read_bin_runs` cannot time."""
+    out = set()
+    for log in Path(root).glob("**/b[0-9][0-9][0-9]-u*/runs/*/*/run.log"):
+        leaf = log.parent
+        if not (leaf / "seconds").exists():
+            out.add(f"{leaf.parent.parent.parent.name}/{leaf.parent.name}/{leaf.name}")
+    return sorted(out)
+
+
+def epoch(stamp):
+    """An Actions API time stamp, `2026-11-14T21:20:38Z`, as seconds."""
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+
+
+def json_jobs(text):
+    """The jobs in a saved jobs listing: one job a line (`--jq '.jobs[]'`), the API's pages
+    (`{"total_count": N, "jobs": [...]}`) one after another as `--paginate` prints them, compact
+    or pretty-printed, or a list of either."""
+    decoder = json.JSONDecoder()
+    values, at = [], 0
+    while True:
+        while at < len(text) and text[at].isspace():
+            at += 1
+        if at == len(text):
+            break
+        value, at = decoder.raw_decode(text, at)
+        values.append(value)
+    jobs = []
+    while values:
+        value = values.pop(0)
+        if isinstance(value, list):
+            values[:0] = value
+        elif isinstance(value, dict) and isinstance(value.get("jobs"), list):
+            jobs.extend(value["jobs"])
+        elif isinstance(value, dict):
+            jobs.append(value)
+    return jobs
+
+
+def read_bin_jobs(path):
+    """The run's bin jobs from the Actions API's jobs of a run, saved by `gh api
+    .../actions/runs/RUN/jobs?filter=all --paginate`, with or without `--jq '.jobs[]'`
+    (`json_jobs`): for each bin its last attempt's created, started and completed times and its
+    units step's start and end, as seconds. Bins whose last attempts differ, after a re-run of
+    some jobs, are refused: the run's phase and slots would span both attempts."""
+    try:
+        jobs = json_jobs(Path(path).read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"replay: {path} is no saved jobs listing: {e}") from None
+    out = {}
+    for job in jobs:
+        m = BIN_JOB.fullmatch(job.get("name", ""))
+        if not m or not job.get("started_at") or not job.get("completed_at"):
+            continue
+        attempt = job.get("run_attempt", 1)
+        if m.group(1) in out and out[m.group(1)]["attempt"] > attempt:
+            continue
+        step = next((s for s in job.get("steps", []) if s["name"] == RUN_STEP), None)
+        ran = step is not None and step.get("started_at") and step.get("completed_at")
+        out[m.group(1)] = {
+            "attempt": attempt,
+            "created": epoch(job["created_at"]),
+            "started": epoch(job["started_at"]),
+            "completed": epoch(job["completed_at"]),
+            "run_start": epoch(step["started_at"]) if ran else None,
+            "run_end": epoch(step["completed_at"]) if ran else None,
+        }
+    attempts = {}
+    for b, job in sorted(out.items()):
+        attempts.setdefault(job["attempt"], []).append(b)
+    if len(attempts) > 1:
+        kept = "; ".join(
+            f"attempt {a}: {len(bs)} bins, {', '.join(bs[:4])}{', ...' if len(bs) > 4 else ''}"
+            for a, bs in sorted(attempts.items())
+        )
+        raise SystemExit(
+            f"replay: the bin jobs in {path} come from more than one attempt ({kept}), so their"
+            " phase and slots would span them; replay a run none of whose jobs was re-run"
+        )
+    return out
+
+
+def lanes_time(seconds, lanes=LANES):
+    """The wall time of units run in this order on `lanes` lanes, each started as a lane frees,
+    as a bin's job runs them (`wait -n` on its two JVMs)."""
+    free = [0.0] * lanes
+    for s in seconds:
+        k = min(range(lanes), key=lambda i: free[i])
+        free[k] += s
+    return max(free)
+
+
+def phase_time(durations, slots, wait):
+    """The bin phase of jobs started in this order on `slots` slots, each waiting `wait` seconds
+    for a runner once its slot is free: the first job's start to the last job's end."""
+    if not durations:
+        return 0.0
+    free = [0.0] * slots
+    end = 0.0
+    for d in durations:
+        k = min(range(slots), key=lambda i: free[i])
+        free[k] += wait + d
+        end = max(end, free[k])
+    return end - wait
+
+
+def run_shape(jobs):
+    """A run's measured bin phase, its slots (the most bin jobs it ran at once, max-parallel where
+    the run filled it) and its median wait for a runner once a slot was free: a job's start less
+    the end that freed its slot, its creation for the first wave, as every bin job is created when
+    the build ends and waits for a slot of `max-parallel` first."""
+    starts = sorted(j["started"] for j in jobs.values())
+    ends = sorted(j["completed"] for j in jobs.values())
+    events = sorted([(s, 1) for s in starts] + [(e, -1) for e in ends])
+    running = slots = 0
+    for _, d in events:
+        running += d
+        slots = max(slots, running)
+    created = sorted(j["created"] for j in jobs.values())
+    waits = [starts[i] - (created[i] if i < slots else ends[i - slots]) for i in range(len(starts))]
+    return ends[-1] - starts[0], slots, statistics.median(waits)
+
+
+def job_overhead(job):
+    """A bin job's seconds outside its units step: the set-up before it and the upload after."""
+    if job["run_start"] is None:
+        return job["completed"] - job["started"]
+    return (job["run_start"] - job["started"]) + (job["completed"] - job["run_end"])
+
+
+def replay(
+    bins,
+    jobs,
+    suites,
+    planner,
+    target=480.0,
+    reach=None,
+    slots=None,
+):
+    """The run's measured bin phase beside its replays. `bins` and `jobs` are the run's
+    (`read_bin_runs`, `read_bin_jobs`), `suites` its modules' suites as `plan` takes them and
+    `planner` the files the replanned cut reads: (suite seconds, PR suite times, configuration
+    weights, configuration pair seconds). Each replay starts the jobs in the plan's order on the
+    run's slots, each after the run's median wait for a runner.
+
+    * `jobs as run` times the run's own jobs at their measured lengths: the slot model alone.
+    * `as run` times the run's own bins, each its measured set-up and upload plus its units
+      at their measured seconds on two lanes in the order they ran: the bin model too.
+    * `replanned` cuts the run's configurations and suites afresh with `planner`, and times each
+      unit at the run's measured JUnit seconds of its suites plus the run's median JVM overhead
+      (a unit's seconds less its suites'), each bin at the run's median set-up and upload. A
+      suite the run has no seconds for under a configuration counts as none and is counted."""
+    measured, run_slots, wait = run_shape(jobs)
+    slots = slots or run_slots
+    order = sorted(jobs)
+    as_jobs = phase_time([jobs[b]["completed"] - jobs[b]["started"] for b in order], slots, wait)
+    lanes_run = {b: lanes_time([u[4] for u in bins.get(b, [])]) for b in order}
+    as_run = phase_time([job_overhead(jobs[b]) + lanes_run[b] for b in order], slots, wait)
+    jvm = statistics.median(u[4] - sum(u[3].values()) for us in bins.values() for u in us)
+    # Over the jobs that reached their units step: one that stopped short counts its whole length
+    # as overhead, which is not a replanned bin's set-up (`replay_inputs` makes sure one did).
+    setup = statistics.median(job_overhead(j) for j in jobs.values() if j["run_start"] is not None)
+    pairs = {}
+    for us in bins.values():
+        for _, config, _, ran, _ in us:
+            for suite, s in ran.items():
+                pairs[(run_dir(config), suite)] = pairs.get((run_dir(config), suite), 0.0) + s
+    configs = sorted({u[1] for us in bins.values() for u in us} - {DEFAULTS} - set(PLATFORMS))
+    platforms = tuple(p for p in PLATFORMS if any(u[1] == p for us in bins.values() for u in us))
+    suite_seconds, suite_times, config_weights, config_seconds = planner
+    cut = plan(
+        configs,
+        suites,
+        suite_seconds,
+        suite_times,
+        config_weights,
+        target,
+        reach,
+        config_seconds,
+        platforms,
+    )["include"]
+    missing = 0
+    lanes_plan = []
+    for b in cut:
+        seconds = []
+        for line in b["units"].split("\n"):
+            config, _, names = line.split("|")[:3]
+            got = [pairs.get((run_dir(config), s)) for s in names.split(",")]
+            missing += sum(g is None for g in got)
+            seconds.append(jvm + sum(g or 0.0 for g in got))
+        lanes_plan.append(lanes_time(seconds))
+    replanned = phase_time([setup + s for s in lanes_plan], slots, wait)
+    return {
+        "measured": measured,
+        "slots": slots,
+        "wait": wait,
+        "setup": setup,
+        "jvm": jvm,
+        "jobs as run": as_jobs,
+        "as run": as_run,
+        "replanned": replanned,
+        "bins as run": [lanes_run[b] for b in order],
+        "bins replanned": lanes_plan,
+        "missing pairs": missing,
+        "no artifact": sorted(set(order) - set(bins)),
+    }
+
+
+def replay_inputs(run, jobs_path):
+    """`replay`'s run: its bins (`read_bin_runs`), its bin jobs (`read_bin_jobs`) and the units a
+    cancel or a timeout left untimed (`unfinished_units`). Inputs that match nothing, a wrong
+    directory or another run's jobs, are refused with what was found where."""
+    bins, jobs = read_bin_runs(run), read_bin_jobs(jobs_path)
+    found = (
+        f"{len(jobs)} bin jobs in {jobs_path}, {sum(map(len, bins.values()))} timed units"
+        f" of {len(bins)} bins under {run}"
+    )
+    if not jobs or not bins:
+        raise SystemExit(f"replay: nothing to replay: {found}")
+    if not set(jobs) & set(bins):
+        raise SystemExit(f"replay: no bin job has units, so the two are not one run's: {found}")
+    if all(j["run_start"] is None for j in jobs.values()):
+        raise SystemExit(f"replay: no bin job reached its step {RUN_STEP!r}: {found}")
+    return bins, jobs, unfinished_units(run)
+
+
+def planner_files(ref=None, pairs=None, suite_seconds=None, repo=None):
+    """The files the planner reads, at git revision `ref` of the repository `repo` (this one by
+    default) or as the working tree has them, with `pairs` and `suite_seconds` read from the
+    files given instead. A file the revision lacks reads as empty, as a missing file does; a ref
+    that is no commit, any other failure of git, and a given file that does not exist are
+    refused, since each would otherwise plan by fill values alone and look like an answer."""
+    for given in (pairs, suite_seconds):
+        if given is not None and not Path(given).is_file():
+            raise SystemExit(f"replay: no file {given}")
+    repo = repo or Path(__file__).resolve().parent.parent
+
+    def git(*argv):
+        return subprocess.run(["git", *argv], cwd=repo, capture_output=True, text=True, check=False)
+
+    if ref is not None:
+        checked = git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+        if checked.returncode != 0:
+            raise SystemExit(f"replay: --plan-from {ref} is no commit in {repo}")
+        ref = checked.stdout.strip()
+    with tempfile.TemporaryDirectory() as tmp:
+
+        def at(path):
+            if ref is None:
+                return path
+            f = Path(tmp, Path(path).name)
+            if git("cat-file", "-e", f"{ref}:{path}").returncode != 0:
+                f.write_text("", encoding="utf-8")
+                return f
+            shown = git("show", f"{ref}:{path}")
+            if shown.returncode != 0:
+                raise SystemExit(f"replay: git show {ref}:{path} failed: {shown.stderr.strip()}")
+            f.write_text(shown.stdout, encoding="utf-8")
+            return f
+
+        return (
+            read_tsv(suite_seconds or at(SUITE_SECONDS)),
+            read_tsv(at(SUITE_TIMES)),
+            read_tsv(at(CONFIG_WEIGHTS)),
+            read_config_seconds(pairs or at(CONFIG_SUITE_SECONDS)),
+        )
+
+
+def replay_lines(got, over=600.0, unfinished=()):
+    """`replay`'s result as the lines `replay` prints, minutes for phases and seconds for bins,
+    with the units a cancel or a timeout left untimed (`unfinished_units`), which "as run"
+    leaves out."""
+
+    def bins(seconds):
+        return (
+            f"{len(seconds)} bins, the longest {max(seconds, default=0):.0f} s,"
+            f" {sum(s > over for s in seconds)} over {over:.0f} s"
+        )
+
+    return [
+        f"slots {got['slots']}, a runner's median wait {got['wait']:.0f} s",
+        f"a bin job's median set-up and upload {got['setup']:.0f} s,"
+        f" a JVM's median overhead {got['jvm']:.1f} s",
+        f"measured bin phase   {got['measured'] / 60:6.1f} min",
+        f"jobs as run          {got['jobs as run'] / 60:6.1f} min",
+        f"as run               {got['as run'] / 60:6.1f} min   {bins(got['bins as run'])}",
+        f"replanned            {got['replanned'] / 60:6.1f} min   {bins(got['bins replanned'])}",
+        f"pairs the run has no seconds for: {got['missing pairs']};"
+        f" bin jobs with no artifact: {', '.join(got['no artifact']) or 'none'}",
+        f"units with a run.log but no seconds, left out of as run: {len(unfinished)}"
+        + "".join(f"\n  {u}" for u in unfinished),
+    ]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1154,6 +1530,235 @@ class SelfTest(unittest.TestCase):
             got = tree_diff(Path(root, "a"), Path(root, "b"))
         self.assertEqual(got, ["classes/p/B.class", "classes/p/C.class", "classes/p/D.class"])
 
+    # -- replay (VARKA-617) ---------------------------------------------------------------------
+
+    @staticmethod
+    def _stamp(t):
+        return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def _run(self, root, bins, jobs):
+        """A run's downloaded bin artifacts, `bins` as {bin: [(config, module, {suite: JUnit
+        seconds}, seconds)]} in the order the job ran them, and its jobs file, `jobs` as {bin:
+        (created, started, units step start, units step end, completed)}."""
+        for b, us in bins.items():
+            for k, (config, module, suites, seconds) in enumerate(us):
+                runs = Path(root, f"varka-option-matrix-{b}", f"{b}-u{k}", "runs", run_dir(config))
+                leaf = runs / f"{module}-{b}-{k}"
+                (leaf / "junit").mkdir(parents=True)
+                (runs / "name").write_text(config + "\n", encoding="utf-8")
+                (leaf / "seconds").write_text(f"{seconds:.0f}\n", encoding="utf-8")
+                for suite, t in suites.items():
+                    xml = f'<testsuite name="p.{suite}" tests="1" time="{t}">\n</testsuite>\n'
+                    (leaf / "junit" / f"TEST-p.{suite}.xml").write_text(xml, encoding="utf-8")
+        f = Path(root, "jobs.jsonl")
+        f.write_text("".join(json.dumps(j) + "\n" for j in self._jobs(jobs)), encoding="utf-8")
+        return read_bin_runs(root), read_bin_jobs(f)
+
+    def _jobs(self, jobs, attempt=1):
+        """`jobs` as the API's job objects, a job that is not a bin's last; a job whose units
+        step times are None never reached that step."""
+        out = []
+        for b, (created, started, run_start, run_end, completed) in jobs.items():
+            step = {"name": "Set up job", "started_at": None, "completed_at": None}
+            if run_start is not None:
+                step = {
+                    "name": RUN_STEP,
+                    "started_at": self._stamp(run_start),
+                    "completed_at": self._stamp(run_end),
+                }
+            out.append(
+                {
+                    "name": f"Option matrix: {b}",
+                    "run_attempt": attempt,
+                    "created_at": self._stamp(created),
+                    "started_at": self._stamp(started),
+                    "completed_at": self._stamp(completed),
+                    "steps": [step],
+                }
+            )
+        # A job that is not a bin's is read past.
+        out.append({"name": "Option matrix: build and plan", "started_at": "x"})
+        return out
+
+    def test_the_jobs_file_reads_in_each_form_the_api_saves(self):
+        jobs = self._jobs({"b000": (0, 2, 32, 52, 55), "b001": (0, 57, 87, 97, 100)})
+        page = {"total_count": len(jobs), "jobs": jobs}
+        forms = {
+            "lines": "".join(json.dumps(j) + "\n" for j in jobs),
+            "one page": json.dumps(page),
+            "pretty": json.dumps(page, indent=2),
+            "pages": json.dumps({"total_count": 3, "jobs": jobs[:1]})
+            + json.dumps({"total_count": 3, "jobs": jobs[1:]}),
+            "slurped": json.dumps([page]),
+        }
+        with tempfile.TemporaryDirectory() as root:
+            got = {}
+            for name, text in forms.items():
+                f = Path(root, name)
+                f.write_text(text, encoding="utf-8")
+                got[name] = read_bin_jobs(f)
+            f.write_text("1 bins, the longest 480 s\n", encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "is no saved jobs listing"):
+                read_bin_jobs(f)
+        self.assertEqual(sorted(got["lines"]), ["b000", "b001"])
+        for name in forms:
+            self.assertEqual(got[name], got["lines"], name)
+
+    def test_bin_jobs_of_two_attempts_are_refused(self):
+        jobs = self._jobs({"b000": (0, 2, 32, 52, 55)}) + self._jobs(
+            {"b001": (0, 57, 87, 97, 100)}, attempt=2
+        )
+        with tempfile.TemporaryDirectory() as root:
+            f = Path(root, "jobs.jsonl")
+            f.write_text("".join(json.dumps(j) + "\n" for j in jobs), encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "attempt 1: 1 bins, b000; attempt 2"):
+                read_bin_jobs(f)
+            # A bin re-run whole keeps its last attempt alone.
+            f.write_text(
+                "".join(
+                    json.dumps(j) + "\n" for j in jobs + self._jobs({"b000": (0, 1, 2, 3, 4)}, 2)
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual({j["attempt"] for j in read_bin_jobs(f).values()}, {2})
+
+    def test_a_unit_a_cancel_killed_is_reported_and_inputs_that_match_nothing_refused(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._run(
+                root,
+                {"b000": [("x=1", "sql", {"A": 9.0}, 10)]},
+                {"b000": (0, 2, 32, 52, 55), "b001": (0, 57, 87, 97, 100)},
+            )
+            leaf = Path(root, "varka-option-matrix-b000", "b000-u1", "runs", "x=1", "sql-b000-1")
+            leaf.mkdir(parents=True)
+            (leaf / "run.log").write_text("killed\n", encoding="utf-8")
+            bins, jobs, unfinished = replay_inputs(root, Path(root, "jobs.jsonl"))
+            self.assertEqual(unfinished, ["b000-u1/x=1/sql-b000-1"])
+            got = replay(bins, jobs, [("sql", [("A", True)])], ({}, {}, {}, {}), 480.0)
+            lines = replay_lines(got, unfinished=unfinished)
+            self.assertIn("left out of as run: 1\n  b000-u1/x=1/sql-b000-1", lines[-1])
+            with tempfile.TemporaryDirectory() as empty:
+                with self.assertRaisesRegex(SystemExit, "0 timed units of 0 bins under"):
+                    replay_inputs(empty, Path(root, "jobs.jsonl"))
+            other = Path(root, "other.jsonl")
+            text = "".join(json.dumps(j) + "\n" for j in self._jobs({"b007": (0, 1, 2, 3, 4)}))
+            other.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "not one run's: 1 bin jobs in"):
+                replay_inputs(root, other)
+            text = "".join(json.dumps(j) + "\n" for j in self._jobs({"b000": (0, 1, None, 0, 4)}))
+            other.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "reached its step"):
+                replay_inputs(root, other)
+
+    def test_a_bin_job_that_stopped_short_stays_out_of_the_median_set_up(self):
+        # b002 failed before its units step after 600 s; the set-up and upload of the two jobs that
+        # ran their units are 33 s each, and stay the median however many jobs stop short.
+        with tempfile.TemporaryDirectory() as root:
+            bins, jobs = self._run(
+                root,
+                {
+                    "b000": [("x=1", "sql", {"A": 9.0}, 10)],
+                    "b001": [("x=1", "sql", {"A": 9.0}, 10)],
+                },
+                {
+                    "b000": (0, 2, 32, 42, 45),
+                    "b001": (0, 47, 77, 87, 90),
+                    "b002": (0, 92, None, None, 692),
+                    "b003": (0, 694, None, None, 1294),
+                },
+            )
+        got = replay(bins, jobs, [("sql", [("A", True)])], ({}, {}, {}, {}), 480.0)
+        self.assertEqual(got["setup"], 33.0)
+
+    def test_the_planner_files_refuse_a_ref_that_is_no_commit_and_a_missing_file(self):
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        with tempfile.TemporaryDirectory() as repo:
+            subprocess.run(["git", "init", "-q", repo], check=True)
+            Path(repo, SUITE_SECONDS).parent.mkdir(parents=True)
+            Path(repo, SUITE_SECONDS).write_text("A\t12.0\n", encoding="utf-8")
+            subprocess.run([*git, "-C", repo, "add", "-A"], check=True)
+            subprocess.run([*git, "-C", repo, "commit", "-q", "-m", "x"], check=True)
+            got = planner_files("HEAD", repo=Path(repo))
+            # A file the revision lacks reads as empty, as a missing file does.
+            self.assertEqual(got, ({"A": 12.0}, {}, {}, {}))
+            with self.assertRaisesRegex(SystemExit, "--plan-from HEAD~1 is no commit"):
+                planner_files("HEAD~1", repo=Path(repo))
+            with self.assertRaisesRegex(SystemExit, "no file"):
+                planner_files("HEAD", pairs=Path(repo, "nope.tsv"), repo=Path(repo))
+            with self.assertRaisesRegex(SystemExit, "no file"):
+                planner_files(suite_seconds=Path(repo, "nope.tsv"), repo=Path(repo))
+
+    def test_plan_refuses_a_matrix_past_the_cap(self):
+        # A lane of 10 s is shorter than any unit, so each suite run alone takes a bin.
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "configurations").write_text("", encoding="utf-8")
+            for count in (MATRIX_CAP, MATRIX_CAP + 1):
+                suites = "".join(f"@own p.S{i}\n" for i in range(count))
+                Path(root, "sql").write_text(suites, encoding="utf-8")
+                argv = ["plan", "--configurations", str(Path(root, "configurations"))]
+                argv += ["--suites", f"sql={Path(root, 'sql')}", "--target", "10"]
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = main(argv)
+                if count == MATRIX_CAP:
+                    self.assertEqual(code, 0)
+                    self.assertEqual(len(json.loads(out.getvalue())["include"]), MATRIX_CAP)
+                else:
+                    self.assertEqual((code, out.getvalue()), (1, ""))
+                    self.assertIn(f"::error::varka_matrix_bins plan: {count} bins", err.getvalue())
+                    self.assertIn("raise --target", err.getvalue())
+
+    def test_as_run_replays_a_run_to_its_measured_phase(self):
+        # One slot, each job 30 s of set-up and 3 of upload around its units, 2 s of wait for a
+        # runner: b000's units of 10 and 20 s take 20 s on two lanes, b001's three of 5 s take 10.
+        with tempfile.TemporaryDirectory() as root:
+            bins, jobs = self._run(
+                root,
+                {
+                    "b000": [("x=1", "sql", {"A": 9.0}, 10), ("defaults", "sql", {"B": 19.0}, 20)],
+                    "b001": [("x=1", "catalyst", {"C": 4.0}, 5)] * 3,
+                },
+                {"b000": (0, 2, 32, 52, 55), "b001": (0, 57, 87, 97, 100)},
+            )
+        self.assertEqual([u[4] for u in bins["b000"]], [10.0, 20.0])
+        got = replay(bins, jobs, [("sql", [("A", True), ("B", True)])], ({}, {}, {}, {}), 480.0)
+        self.assertEqual((got["slots"], got["wait"], got["setup"], got["jvm"]), (1, 2.0, 33.0, 1.0))
+        self.assertEqual(got["measured"], 98.0)
+        # Every term of the model is taken from the run, so neither replay may drop one.
+        self.assertEqual(got["jobs as run"], 98.0)
+        self.assertEqual(got["as run"], 98.0)
+        self.assertEqual(got["bins as run"], [20.0, 10.0])
+
+    def test_replanned_on_a_runs_own_pairs_cuts_the_runs_own_bins(self):
+        suites = [("sql", [("A", True), ("B", False), ("C", False)])]
+        weights = {"x=1": 2.0}
+        cut = plan(["x=1"], suites, {"A": 100.0, "B": 40.0, "C": 60.0}, {}, weights, 300.0)
+        cut = cut["include"]
+        self.assertEqual(len(cut), 2)
+        whole = {"A": 100.0, "B": 40.0, "C": 60.0}
+        bins, jobs = {}, {}
+        for i, b in enumerate(cut):
+            us = []
+            for line in b["units"].split("\n"):
+                config, module, names = line.split("|")
+                factor = 2.0 if config == "x=1" else 1.0
+                ran = {s: whole[s] * factor for s in names.split(",")}
+                us.append((config, module, ran, JVM_START + sum(ran.values())))
+            bins[b["bin"]] = us
+            lanes = lanes_time([u[3] for u in us])
+            jobs[b["bin"]] = (0, 1 + i, 31 + i, 31 + i + lanes, 34 + i + lanes)
+        with tempfile.TemporaryDirectory() as root:
+            bins, jobs = self._run(root, bins, jobs)
+            pairs = whole_runs([root])
+        self.assertEqual(pairs[("x=1", "A")], 200.0)
+        got = replay(bins, jobs, suites, ({}, {}, {}, pairs), 300.0)
+        # The planner cut by the seconds the run measured is the run's own cut, timed alike.
+        self.assertEqual(got["jvm"], JVM_START)
+        self.assertEqual(got["missing pairs"], 0)
+        self.assertEqual(got["bins replanned"], got["bins as run"])
+        self.assertEqual(got["replanned"], got["as run"])
+        self.assertEqual(got["as run"], got["measured"])
+
 
 def reach_record(selected, pr, reach=None):
     """The selection as a `VarkaTestReach` record, which `plan --reach` and a configuration's JVM
@@ -1220,6 +1825,25 @@ def select_main(args):
     return 0
 
 
+def replay_main(args):
+    suites = []
+    for entry in args.suites:
+        module, path = entry.split("=", 1)
+        suites.append((module, read_suites(path)))
+    bins, jobs, unfinished = replay_inputs(args.run, args.jobs)
+    got = replay(
+        bins,
+        jobs,
+        suites,
+        planner_files(args.plan_from, args.pairs, args.suite_seconds),
+        args.target,
+        read_reach(args.reach) if args.reach else None,
+        args.slots,
+    )
+    print("\n".join(replay_lines(got, unfinished=unfinished)))
+    return 0
+
+
 def main(argv):
     if argv[:1] == ["--selftest"]:
         result = unittest.main(argv=[sys.argv[0]], exit=False, verbosity=0).result
@@ -1262,7 +1886,19 @@ def main(argv):
     changes.add_argument("--trees", nargs=2, metavar=("OLD", "NEW"), help="two class trees")
     s.add_argument("--reach", help="the pull request's VarkaTestReach record, for --reach-out")
     s.add_argument("--reach-out", help="write the selection as a reach record the matrix reads")
+    r = sub.add_parser("replay")
+    r.add_argument("run", help="the run's bin artifacts, downloaded (gh run download)")
+    r.add_argument("--jobs", required=True, help="the run's jobs from the Actions API, saved")
+    r.add_argument("--suites", action="append", required=True, metavar="MODULE=FILE")
+    r.add_argument("--reach", help="the run's reach record, its artifact varka-option-matrix-reach")
+    r.add_argument("--plan-from", metavar="REF", help="the planner's files at this revision")
+    r.add_argument("--pairs", help="a config-suite-seconds.tsv to plan by, a run's own say")
+    r.add_argument("--suite-seconds", help="a suite-seconds.tsv to plan by")
+    r.add_argument("--target", type=float, default=480.0)
+    r.add_argument("--slots", type=int, help="the slots, the most jobs the run ran at once if not")
     args = parser.parse_args(argv)
+    if args.cmd == "replay":
+        return replay_main(args)
     if args.cmd == "select":
         return select_main(args)
     if args.cmd == "times":
@@ -1292,6 +1928,11 @@ def main(argv):
         read_config_seconds(CONFIG_SUITE_SECONDS),
         tuple(PLATFORMS) if args.platforms else (),
     )
+    why = over_cap(out, args.target)
+    if why is not None:
+        # The workflow prints this file when the step fails, so the annotation shows.
+        print(f"::error::varka_matrix_bins plan: {why}", file=sys.stderr)
+        return 1
     json.dump(out, sys.stdout)
     print()
     total = sum(b["seconds"] for b in out["include"])

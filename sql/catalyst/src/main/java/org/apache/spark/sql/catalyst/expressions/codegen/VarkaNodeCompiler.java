@@ -31,6 +31,7 @@ import org.apache.spark.sql.catalyst.expressions.BinaryArithmetic;
 import org.apache.spark.sql.catalyst.expressions.BitmapExpressionUtils;
 import org.apache.spark.sql.catalyst.expressions.BitwiseAnd;
 import org.apache.spark.sql.catalyst.expressions.BitwiseCount;
+import org.apache.spark.sql.catalyst.expressions.BitwiseGet;
 import org.apache.spark.sql.catalyst.expressions.BitwiseNot;
 import org.apache.spark.sql.catalyst.expressions.BitwiseOr;
 import org.apache.spark.sql.catalyst.expressions.BitwiseXor;
@@ -97,6 +98,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Bit
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
@@ -728,6 +731,12 @@ final class VarkaNodeCompiler {
       // the popcount, at an output root and under another node alike.
       case BitwiseCount c when isLong(c.child()) -> () -> longOperand(c.child(), inputs, literals,
           sink).map(x -> new VarkaVectorIR.NarrowLane(new BitCount(x)));
+      // `bit_count` of a boolean is 1 or 0, null where the boolean is: the value of the
+      // condition, which is what `CAST(b AS INT)` is.
+      case BitwiseCount c when DataTypes.BooleanType.equals(c.child().dataType()) ->
+          () -> boolCount(c, inputs, literals, sink);
+      // `bit_get` and its alias `getbit`, a TINYINT result at every target type.
+      case BitwiseGet g -> () -> bitGet(g, inputs, literals, sink);
       case StaticInvoke si when isBitmap(si) -> () -> bitmap(si, inputs, literals, sink);
       default -> null;
     };
@@ -821,6 +830,90 @@ final class VarkaNodeCompiler {
     }
     return intOperand(count, inputs, literals, sink)
         .map(c -> new BitOp(op, x.get(), new WidenLane(c)));
+  }
+
+  /**
+   * {@code bit_count} of a {@code BOOLEAN}: Spark's {@code b ? 1 : 0}, null where {@code b} is,
+   * which is {@link CondValue} of the condition at the int lane. A condition of boolean leaves
+   * alone reads no value and so is read at the int lane wherever it was compiled; any other is
+   * taken as a value on its operands' lane - a narrow one lifted to the int lane first, a long
+   * one narrowed after, a 0 or a 1 either way. A floating condition has no value node.
+   */
+  private static Optional<VarkaVectorIR> boolCount(
+      BitwiseCount c, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    Optional<Cond> compiled = VarkaConditionCompiler.compileCond(c.child(), inputs, literals,
+        sink);
+    if (compiled.isEmpty()) {
+      return Optional.empty();
+    }
+    Cond cond = compiled.get();
+    if (cond.laneType().isFloating()) {
+      return sink.decline("bit_count of a condition on the " + cond.laneType() + " lane", c);
+    }
+    Optional<Cond> relaned = VarkaIntegralCastCompiler.onLane(cond, LaneType.INT);
+    if (relaned.isPresent()) {
+      return Optional.of(new CondValue(relaned.get(), LaneType.INT));
+    }
+    Cond lifted = VarkaConditionCompiler.onIntLane(cond);
+    VarkaVectorIR value = new CondValue(lifted, lifted.laneType());
+    return Optional.of(lifted.laneType() == LaneType.INT ? value : new NarrowLane(value));
+  }
+
+  /**
+   * {@code bit_get(x, pos)}: Spark's {@code (byte) (((long) x >> pos) & 1)}, after a check that
+   * raises {@code BIT_POSITION_RANGE} unless {@code pos} is in {@code [0, w)}, {@code w} the
+   * width of {@code x}'s type, in every evaluation mode. The shift and the mask run at the int
+   * lane for a {@code TINYINT}, {@code SMALLINT} or {@code INT} target - a narrow one widened by
+   * its sign, whose bits below {@code w} are its own - and at the long lane for a
+   * {@code BIGINT}, and the 0 or 1 is narrowed to the byte Spark types it as.
+   *
+   * <p>A literal position outside the range declines, since every valid row raises on it. Any
+   * other position is guarded by {@code [0, w - 1]}, which declines a batch holding a live lane
+   * outside it so that the row engine raises Spark's error on the row; under the guard the
+   * vector shift's count mask (five bits at the int lane, six at the long) is never reached.
+   * The guard reads the position's own validity, so a batch whose out-of-range position sits on
+   * a row with a null target declines too, where Spark answers null: the row engine then
+   * answers that row, at a declined batch's cost.
+   */
+  private static Optional<VarkaVectorIR> bitGet(
+      BitwiseGet g, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    Expression target = g.left();
+    Optional<LaneType> targetLane = isInt(target) || isLong(target) || isNarrow(target)
+        ? VarkaTypes.lane(target.dataType()) : Optional.empty();
+    if (targetLane.isEmpty()) {
+      return sink.decline("bit_get of a " + target.dataType().simpleString(), g);
+    }
+    boolean wide = targetLane.get() == LaneType.LONG;
+    int width = target.dataType().defaultSize() * Byte.SIZE;
+    Integer fixed = g.right() instanceof Literal l && l.value() instanceof Integer p ? p : null;
+    if (fixed != null && (fixed < 0 || fixed >= width)) {
+      return sink.decline("bit_get position " + fixed + " outside [0, " + width
+          + "), which Spark raises on", g);
+    }
+    Optional<VarkaVectorIR> value = switch (targetLane.get()) {
+      case LONG -> longOperand(target, inputs, literals, sink);
+      case INT -> intOperand(target, inputs, literals, sink);
+      case BYTE, SHORT -> narrowOperand(target, targetLane.get(), inputs, literals, sink)
+          .map(x -> (VarkaVectorIR) new WidenLane(x, LaneType.INT));
+      case FLOAT, DOUBLE -> throw VarkaErrors.illegalState("a floating bit_get target");
+    };
+    if (value.isEmpty()) {
+      return value;
+    }
+    Optional<VarkaVectorIR> count;
+    if (fixed != null) {
+      count = Optional.of(wide ? sink.longSlot(fixed.longValue()) : intSlot(fixed, literals));
+    } else {
+      count = intOperand(g.right(), inputs, literals, sink).map(c -> {
+        VarkaVectorIR guarded = new GuardedRange(c, 0, width - 1);
+        return wide ? new WidenLane(guarded) : guarded;
+      });
+    }
+    return count.map(k -> {
+      VarkaVectorIR one = wide ? sink.longSlot(1L) : intSlot(1, literals);
+      VarkaVectorIR bit = new BitOp(BitOpKind.AND, new BitOp(BitOpKind.SHR, value.get(), k), one);
+      return new NarrowLane(bit, LaneType.BYTE);
+    });
   }
 
   /** Whether {@code si} is the replacement of {@code bitmap_bucket_number} or its sibling. */

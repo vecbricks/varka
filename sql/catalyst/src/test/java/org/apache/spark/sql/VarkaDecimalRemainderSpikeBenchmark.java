@@ -61,6 +61,7 @@ import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorShuffle;
 import jdk.incubator.vector.VectorSpecies;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDecimalRemainderOps;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport;
 
 /**
@@ -94,6 +95,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestS
  * bit arithmetic on 0/1 lanes, and the {@link Access} other than {@code SHUFFLE} reads the low
  * and the high words with no de-interleave, by a gather, by scalar loads inserted into lanes, from
  * a column in the split layout, or from 64-row blocks transposed into it by scalar moves.
+ * The out-of-line F arm is VARKA-604's: the engine's {@link VarkaDecimalRemainderOps}, F behind a
+ * transpose of 64 rows at a time into a reused split block, each step a method of its own, over
+ * the slots as a kernel finds them; its vector code compiles in that class's {@code loop64}, so
+ * the harness reads that method where it reads a spike loop's.
  *
  * <p>Every loop is checked against {@code BigInteger} before it is timed and again in compiled
  * code after its drive (the edge rows are at {@link #row}), and each arm is driven to level-4
@@ -362,6 +367,16 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
   static void loopPmodFT(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
       int n) {
     bodyF(x, y, out, words, n, true, Access.BLOCK);
+  }
+
+  static void loopRemainderFX(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    VarkaDecimalRemainderOps.remainder(x.address(), y.address(), out.address(), words, n, false);
+  }
+
+  static void loopPmodFX(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    VarkaDecimalRemainderOps.remainder(x.address(), y.address(), out.address(), words, n, true);
   }
 
   static void loopRemainderD(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
@@ -936,7 +951,9 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
     FG("gathered F", Layout.HEAP),
     FI("inserted F", Layout.SLOTS),
     FS("split F", Layout.SPLIT),
-    FT("transposed F", Layout.SLOTS);
+    FT("transposed F", Layout.SLOTS),
+    // VARKA-604's arm: the engine's helper, its transpose out of line, its block reused.
+    FX("out-of-line F", Layout.SLOTS);
 
     final String title;
     final Layout layout;
@@ -957,7 +974,26 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
     String label() {
       return op.title + ", " + form.title;
     }
+
+    /** The class whose method holds the arm's vector code, which C2 compiles and the run reads. */
+    String unitClass() {
+      return form == Form.FX ? VarkaDecimalRemainderOps.class.getName()
+          : VarkaDecimalRemainderSpikeBenchmark.class.getName();
+    }
+
+    /** That method: the arm's own loop, or the helper's 64-row loop for the out-of-line arm. */
+    String unitMethod() {
+      return form == Form.FX ? OPS_LOOP : method;
+    }
+
+    /** Whether the unit must have a form's body forced inline, as every spike loop has. */
+    boolean inlinesABody() {
+      return form != Form.FX;
+    }
   }
+
+  /** The helper's 64-row loop, the out-of-line arm's compile unit. */
+  static final String OPS_LOOP = "loop64";
 
   /** The name of the static method a method reference to one of this class's loops names. */
   private static String methodOf(Loop loop) {
@@ -985,6 +1021,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
         new Arm(Op.REMAINDER, Form.FI, VarkaDecimalRemainderSpikeBenchmark::loopRemainderFI),
         new Arm(Op.REMAINDER, Form.FS, VarkaDecimalRemainderSpikeBenchmark::loopRemainderFS),
         new Arm(Op.REMAINDER, Form.FT, VarkaDecimalRemainderSpikeBenchmark::loopRemainderFT),
+        new Arm(Op.REMAINDER, Form.FX, VarkaDecimalRemainderSpikeBenchmark::loopRemainderFX),
         new Arm(Op.PMOD, Form.E, VarkaDecimalRemainderSpikeBenchmark::loopPmodE),
         new Arm(Op.PMOD, Form.D, VarkaDecimalRemainderSpikeBenchmark::loopPmodD),
         new Arm(Op.PMOD, Form.B, VarkaDecimalRemainderSpikeBenchmark::loopPmodB),
@@ -996,7 +1033,8 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
         new Arm(Op.PMOD, Form.FG, VarkaDecimalRemainderSpikeBenchmark::loopPmodFG),
         new Arm(Op.PMOD, Form.FI, VarkaDecimalRemainderSpikeBenchmark::loopPmodFI),
         new Arm(Op.PMOD, Form.FS, VarkaDecimalRemainderSpikeBenchmark::loopPmodFS),
-        new Arm(Op.PMOD, Form.FT, VarkaDecimalRemainderSpikeBenchmark::loopPmodFT));
+        new Arm(Op.PMOD, Form.FT, VarkaDecimalRemainderSpikeBenchmark::loopPmodFT),
+        new Arm(Op.PMOD, Form.FX, VarkaDecimalRemainderSpikeBenchmark::loopPmodFX));
   }
 
   // ---------------------------------------------------------------------------------------
@@ -1260,9 +1298,9 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
    * vectors {@link #fallbacks} passes over, also reads as 4: at the rungs past L2 a drive is four
    * calls or one, and a loop whose method code was made not entrant there may be timed in it.
    */
-  private static int levelInUse(String method) {
+  private static int levelInUse(String owner, String method) {
     try {
-      String prefix = VarkaDecimalRemainderSpikeBenchmark.class.getName() + "." + method + "(";
+      String prefix = owner + "." + method + "(";
       int level = 0;
       for (String line : String.valueOf(codeList()).split("\\R")) {
         // "<id> <tier> <state> <class>.<method><descriptor> [<addresses>]"; state 0 is in use.
@@ -1352,7 +1390,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
       long took = System.nanoTime() - start;
       drives++;
       boolean idle = VarkaEmitterTestSupport.awaitC2Idle(IDLE_WAIT_MILLIS);
-      int level = levelInUse(arm.method());
+      int level = levelInUse(arm.unitClass(), arm.unitMethod());
       boolean steady = previous > 0 && Math.abs(took - previous) <= previous * STEADY_FRACTION;
       if (drives >= MIN_WARM_DRIVES && idle && steady && level == 4) {
         System.out.println(name + " settled after " + drives + " drives, level " + level);
@@ -1392,6 +1430,8 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
     }
     command.addAll(List.of("-XX:+UnlockDiagnosticVMOptions", "-Xbatch", "-XX:+PrintCompilation",
         "-XX:CompileCommand=quiet", "-XX:CompileCommand=PrintInlining," + name + "::loop*",
+        "-XX:CompileCommand=PrintInlining," + VarkaDecimalRemainderOps.class.getName() + "::"
+            + OPS_LOOP,
         "-cp", childClassPath(), IntrinsicProbe.class.getName(),
         arm.method()));
     Path log = null;
@@ -1408,7 +1448,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
       require(child.exitValue() == 0, "the intrinsic check of " + arm.method() + " failed (exit "
           + child.exitValue() + "); its last lines:\n"
           + String.join("\n", lines.subList(Math.max(0, lines.size() - 20), lines.size())));
-      return fallbacks(lines, arm.method());
+      return fallbacks(lines, arm.unitClass(), arm.unitMethod(), arm.inlinesABody());
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     } catch (InterruptedException e) {
@@ -1472,6 +1512,15 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
    * sites, the check throws, since an empty answer would prove nothing.
    */
   static List<String> fallbacks(List<String> lines, String method) {
+    return fallbacks(lines, VarkaDecimalRemainderSpikeBenchmark.class.getName(), method, true);
+  }
+
+  /**
+   * {@link #fallbacks(List, String)} for a method of {@code owner}, which with {@code body} false
+   * holds its vector code itself rather than in a body forced inline, so no body site is looked
+   * for: the out-of-line arm's {@link VarkaDecimalRemainderOps} loop.
+   */
+  static List<String> fallbacks(List<String> lines, String owner, String method, boolean body) {
     String name = VarkaDecimalRemainderSpikeBenchmark.class.getName();
     List<String> last = null;
     List<String> current = null;
@@ -1482,7 +1531,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
     for (String line : lines) {
       Matcher m = COMPILE.matcher(line);
       boolean record = m.find();
-      boolean ours = record && m.group(3).equals(name + "::" + method)
+      boolean ours = record && m.group(3).equals(owner + "::" + method)
           && m.group(2).equals("4") && !m.group(1).contains("%");
       if (line.contains("made not entrant")) {
         continue;
@@ -1519,7 +1568,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
       }
     }
     require(last != null, "the intrinsic check found no level-4 compile of " + method);
-    require(inlined, "the intrinsic check found the body not inlined into " + method
+    require(inlined || !body, "the intrinsic check found the body not inlined into " + method
         + "'s compile");
     return last;
   }

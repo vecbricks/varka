@@ -1286,3 +1286,26 @@ audit's constructions show it: `PrintIntrinsics` refuses two calls in `l < l2` a
 and fourteen in `d9 < d9b`. So at two long lanes, judge a decimal kernel by its load before its
 operator. A shape that reads one decimal column pays the fallback's load whatever it computes,
 and only a heavier row-path cost, such as `BigDecimal` arithmetic, can hide it.
+
+## A lane read, a lane insert and a long OR reduction lower at two long lanes on AVX2
+
+Masks at two 64-bit lanes have no lowering on x86 (`VARKA-503.md` 1), and VARKA-600 needed to
+know whether the mask-free calls it builds on are lowered there too. A JDK-only model
+(`plans/m8/results/VARKA-600/NarrowL2F600.java`) answered it under `-XX:UseAVX=2` at
+`MaxVectorSize` 16 and 32. `LongVector.reduceLanes(OR)`, `LongVector.lane(k)` and
+`FloatVector.withLane(k, f)` at a constant index compile to the `reductionCoerced`, `extract` and
+`insert` intrinsics at both widths. So a window test that ORs a shifted vector to one scalar long
+is a mask-free way to ask "is every lane in range" at two long lanes. A compare to a mask is the
+one that falls back there.
+
+Two cautions about how this was read:
+
+* **A tiered run's `PrintIntrinsics` lines cannot be attributed.** The first runs printed
+  `failed to inline (intrinsic)` lines, one `reductionCoerced` among them. They came from other
+  compiles, interleaved by the compiler threads. With `-XX:-TieredCompilation` and
+  `-XX:CompileCommand=compileonly` on the methods under test, every line belongs to those
+  methods. Then the run's timings mean nothing, since everything else runs interpreted.
+* **`withLane` on a branch C2 has no profile for can stay a virtual call.** At 128 bits the
+  model's rarely taken branch read `FloatVector::withLane (0 bytes) failed to inline: virtual
+  call`, while the same call in a hot loop was the `insert` intrinsic. So a lane insert is
+  intrinsic only where C2 knows the receiver's exact class.

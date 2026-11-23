@@ -17,6 +17,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -25,6 +26,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import jdk.incubator.vector.DoubleVector;
+import jdk.incubator.vector.FloatVector;
 
 import com.sun.management.HotSpotDiagnosticMXBean;
 import org.junit.jupiter.api.DisplayName;
@@ -93,6 +97,28 @@ public final class VarkaWarmupReachSuite {
         VarkaWarmupReach.warmupCounts(Set.of(planted)), VarkaWarmupReach.OLD_MARK);
     assertTrue(under.stream().anyMatch(l -> l.startsWith(target + ": 0 calls")),
         "the planted omission of " + target + " is not named: " + under);
+  }
+
+  @Test
+  @DisplayName("every lane type of the IR is read, and its calls are credited to its own classes")
+  void everyLaneCreditedToItself() {
+    // Completeness: a lane the reach left out would have no call of its kernels counted.
+    assertEquals(VarkaVectorIR.LaneType.values().length, VarkaWarmupReach.LANES.size(),
+        "the reach reads " + VarkaWarmupReach.LANES);
+    List<String> errors = VarkaWarmupReach.laneErrors(VarkaWarmupReach::receivers);
+    assertTrue(errors.isEmpty(), String.join("\n  ", errors));
+  }
+
+  @Test
+  @DisplayName("float calls credited to the double lane's classes are named, float by float")
+  void plantedFloatAsDouble() {
+    // VARKA-504's planted fault: the float lane's receivers answered with the double lane's, so
+    // a float mask call was counted at a Double class.
+    List<String> errors = VarkaWarmupReach.laneErrors(lane -> VarkaWarmupReach.receivers(
+        lane == FloatVector.class ? DoubleVector.class : lane));
+    assertFalse(errors.isEmpty(), "the planted crediting passed");
+    assertTrue(errors.stream().allMatch(e -> e.startsWith("FloatVector: credited to Double")),
+        String.join("\n  ", errors));
   }
 
   @Test

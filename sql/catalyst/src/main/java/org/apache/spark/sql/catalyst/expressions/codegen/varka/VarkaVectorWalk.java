@@ -71,6 +71,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lea
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathFn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Fma;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
@@ -274,6 +275,7 @@ final class VarkaVectorWalk {
       case BitOp n -> emitBitOp(cb, n, dense, analysis, s, computed);
       case BitCount n -> emitBitCount(cb, n, dense, analysis, s, computed);
       case MathUnary n -> emitMathUnary(cb, n, dense, analysis, s, computed);
+      case Fma n -> emitFma(cb, n, dense, analysis, s, computed);
       case RoundToIntegral n ->
           VarkaRoundingLowering.emitRint(cb, n, dense, analysis, s, computed);
       case CanonicalFloat n -> emitCanonicalFloat(cb, n, dense, analysis, s, computed);
@@ -854,7 +856,9 @@ final class VarkaVectorWalk {
    * into the target species of the width the emission bakes. A narrow value is widened once at
    * its load and narrowed once at its store, so a conversion node over one names the lane it is
    * already emitted at and emits nothing, and any other pair is a lowering this emitter has not
-   * built: the conversions from a floating lane to an integral one are row 343's second part.
+   * built: of the conversions from a floating lane to an integral one only {@code D2I}, Java's
+   * {@code (int)} of a double, which an fdlibm port takes (`VARKA-345.md` 10.2), and the rest are
+   * row 343's second part.
    * {@code L2F} and {@code L2D} come here at level 3 alone, where x86 has AVX512DQ, the level an
    * aarch64 host resolves to as well; below it they take {@link VarkaConversionLowering}'s
    * forms.
@@ -874,6 +878,7 @@ final class VarkaVectorWalk {
         : from == Lane.LONG && to == Lane.DOUBLE ? "L2D"
         : from == Lane.FLOAT && to == Lane.DOUBLE ? "F2D"
         : from == Lane.DOUBLE && to == Lane.FLOAT ? "D2F"
+        : from == Lane.DOUBLE && to == Lane.INT ? "D2I"
         : null;
     if (op == null) {
       throw VarkaErrors.illegalArgument(
@@ -1216,6 +1221,28 @@ final class VarkaVectorWalk {
     };
     cb.getstatic(VECTOR_OPERATORS, operator, VO_UNARY);
     cb.invokevirtual(lane.vector, "lanewise", MethodTypeDesc.of(lane.vector, VO_UNARY));
+  }
+
+  /**
+   * {@code Fma}: {@code a.fma(b, c)}, the operands pushed in their order, one rounding. In the
+   * masked body a node that owns its word stores the three operands' AND.
+   */
+  private static void emitFma(CodeBuilder cb, Fma n, boolean dense, Analysis analysis, Slots s,
+      Set<VarkaVectorIR> computed) {
+    emitValue(cb, n.a(), dense, analysis, s, computed);
+    emitValue(cb, n.b(), dense, analysis, s, computed);
+    emitValue(cb, n.c(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    Lane lane = analysis.laneOf(n);
+    cb.invokevirtual(lane.vector, "fma", MethodTypeDesc.of(lane.vector, VECTOR, VECTOR));
+    if (!dense && s.ownWord.contains(n)) {
+      loadWord(cb, s, s.wordRef.get(n.a()));
+      loadWord(cb, s, s.wordRef.get(n.b()));
+      cb.land();
+      loadWord(cb, s, s.wordRef.get(n.c()));
+      cb.land();
+      storeWord(cb, s, s.wordRef.get(n));
+    }
   }
 
   /**

@@ -865,10 +865,35 @@ needs first:
 
 The benchmark jobs run on `ubuntu-latest` unless the dispatch names a `runner`. Name
 `ubuntu-24.04-arm` for GitHub's Arm pool, a Neoverse N2 with 128-bit vectors only, and set
-`expected-cpu` to `Neoverse-N2` and `generate-tpcds` to false (the TPC-DS data job stays on
-`ubuntu-latest`). `dev/varka_datapath.sh` reads the model from `lscpu` there, since an aarch64
+`expected-cpu` to `Neoverse-N2` and, for a Spark class, `generate-tpcds` to false (the TPC-DS
+data job stays on `ubuntu-latest`; a Varka class skips it by default). `dev/varka_datapath.sh` reads the model from `lscpu` there, since an aarch64
 `/proc/cpuinfo` has no `model name`, and does not run the width probe, whose 128/256/512 comparison
 has nothing to measure on a 128-bit core; the summary then reads `n/a` for the lanes, the control
 and the ratio. A result from the Arm runner is comparable only with another from it, and an x86
 result only with one from its own pinned CPU (the EPYC 7763 rule is unchanged).
 
+## A probe pass whose fused control loses is not read
+
+VARKA-613. On a laptop shared at a load of 30 to 60, `VarkaPartialProjectionProbe`'s no-null pass
+read its control, `extract(DAY FROM dt)` alone, at 0.8X to 0.9X in all three runs, against 3.9X on
+the runners, while every nulls pass read it a win. The two readings that contradicted the rule
+finally chosen both sat in those passes, each with a row arm far slower than the same query at the
+other density. So a probe carries a control that fuses whole, the rule for which passes count is
+written before the run (a pass counts only where its control reads as the runners read it), and a
+shape is read only across the passes that count. The same task found that an Arrow-cached
+`InMemoryTableScanExec` under a row parent gets no `ColumnarToRow`: it produces rows as well as
+batches, so `ensureOutputsRowBased` leaves it alone, and Spark's row path reads that cache as rows.
+A plan meant to be "Spark's" over such a scan is the projection directly over it.
+
+## A dispatch of Varka classes only skips the TPC-DS data job
+
+`benchmark.yml`'s benchmark jobs wait for the TPC-DS data job, which took 8.6 to 13.1 minutes and
+one more runner in three Varka dispatches of November 2026 (`plans/m8/VARKA-571.md` 2), and no
+Varka benchmark reads that data: the two that name TPC-DS build `modified-q3`'s filter over a
+synthetic column. So `matrix-gen` skips the data job when every class in the list is a Varka
+one - each alternative of a glob's `{a,b}` has a last segment starting with `Varka`, as in
+`VarkaDecimalBaselineBenchmark`, `*.VarkaDecimalBaselineBenchmark` or `{VarkaA,VarkaB}Benchmark` -
+with no flag to remember. `*`, any Spark class, and a list mixing one in keep the data, and
+`generate-tpcds=false` still turns it off for any list. A Varka benchmark that comes to read
+`SPARK_TPCDS_DATA` breaks the rule: it would run without the data and fail at its first read, so
+dispatch it beside a Spark class that needs the data, or teach `matrix-gen`'s matcher its name.

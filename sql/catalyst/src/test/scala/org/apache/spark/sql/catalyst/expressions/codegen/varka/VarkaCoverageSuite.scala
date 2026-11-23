@@ -26,7 +26,7 @@ import scala.util.Try
 import com.fasterxml.jackson.databind.ObjectMapper
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, And, Attribute, AttributeReference, Cast, DateAdd, Expression, ExtractANSIIntervalMonths, Greatest, InheritAnalysisRules, InSet, LastDay, Literal, NamedExpression, Rand}
+import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, And, Attribute, AttributeReference, Cast, Coalesce, DateAdd, Expression, ExtractANSIIntervalMonths, GreaterThan, Greatest, InheritAnalysisRules, InSet, LastDay, Literal, NamedExpression, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate,
   CompiledVarkaProjection, PartialVarkaProjection, VarkaConjunctSpec, VarkaDecline,
   VarkaExpressionCompiler, VarkaOutputSpec}
@@ -612,7 +612,15 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("bit_count(l) + 1", "the narrowed count feeding int arithmetic; the sum cannot "
         + "overflow, the count being at most 64"),
       Row("bitmap_bucket_number(l)"),
-      Row("bitmap_bit_position(l)"))),
+      Row("bitmap_bit_position(l)"),
+      Row("bit_get(i, 3)", "a TINYINT result, the bit shifted down, masked and narrowed; a literal "
+        + "position past the width declines, since Spark raises on every row with a valid target"),
+      Row("bit_get(i, i)", "a position column is guarded by the width, which declines the batch "
+        + "Spark raises BIT_POSITION_RANGE on", domain = Some("i BETWEEN 0 AND 31")),
+      Row("getbit(l, 63)", "the alias, at the long lane"),
+      Row("bit_get(l, i)", "the guarded position widened to the long lane",
+        domain = Some("i BETWEEN 0 AND 63")),
+      Row("bit_count(b)", "1 or 0, and null where the boolean is: the condition's value"))),
 
     Family("Choice and nulls", predicates = false, Seq(
       Row("if(d < d2, d, d2)"),
@@ -925,7 +933,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("s1 | s2"),
       Row("s1 ^ s2"),
       Row("~s1"),
-      Row("bit_count(s1)", "a negative short counts its 48 high bits as well"))),
+      Row("bit_count(s1)", "a negative short counts its 48 high bits as well"),
+      Row("bit_get(y1, 7)", "the sign bit, read from the value widened by its sign"),
+      Row("bit_get(s1, i)", "an int position guarded by the short's width",
+        domain = Some("i BETWEEN 0 AND 15")))),
 
     // A narrow value meeting an int one (VARKA-329): Catalyst's coercion casts the narrow side
     // to int, and the cast is the column's widening load, so these are int kernels reading a
@@ -1611,7 +1622,18 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("IF(d18 > 0.00, d38, d38b) IS NULL", "a choice or a pick of wide values is null only "
         + "where its leaves are, so the test reads no word of the value"),
       Row("coalesce(d38, d19) IS NULL"),
-      Row("greatest(d38, d38b) IS NOT NULL"))),
+      Row("greatest(d38, d38b) IS NOT NULL"),
+      Row("d38 IN (1.00, 12345678901234567890, -0.50)", "the OR of the equalities, each "
+        + "literal's two words in two slots of the long table"),
+      Row("-d38 < d38b", "lo' = -lo and hi' = ~hi + (lo = 0): the borrow is the only carry, "
+        + "and Spark negates a wide value exactly"),
+      Row("abs(d38) >= d38b", "each word of -d38 where the high word is negative"),
+      Row("IF(d18 > 0.00, d38, d19) < d38b", "the choice on each word under one condition"),
+      Row("CASE WHEN d38 < 0.00 THEN d38b END <=> d38", "a missing ELSE is a null in each word"),
+      Row("coalesce(d38, d19) = d38b"),
+      Row("greatest(d38, d38b) > 0.00", "keeps the running pick where the next operand is null "
+        + "or where both are valid and the pick is not smaller, once per word"),
+      Row("least(d38, d19) <= 0.00"))),
 
     // Decimal +, - and * whose result stays within 18 digits (VARKA-349), under a comparison:
     // a sum or difference is one long add or subtract of the operands rescaled to the result's
@@ -1683,8 +1705,12 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     row.built.getOrElse(VarkaSqlResolve.resolve(
       org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parseExpression(row.sql), columns))
 
-  test("every documented expression compiles to a fused kernel") {
-    val failures = families.flatMap { family =>
+  /**
+   * Each row of `checked` the compiler does not fuse whole, as a line naming its family, its SQL
+   * and the decline's reason: the check of the test below, which a planted row fails (VARKA-504).
+   */
+  private def declinedRows(checked: Seq[Family]): Seq[String] =
+    checked.flatMap { family =>
       family.rows.flatMap { row =>
         val expr = expressionOf(row)
         // The decline reason comes from the partial compile, which records one per entry. A
@@ -1712,6 +1738,12 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         reason.map(r => s"${family.title}: ${row.sql}  ->  $r")
       }
     }
+
+  test("every documented expression compiles to a fused kernel") {
+    val checked = families.map(_.rows.size).sum
+    // A table that lost its rows would pass with nothing to decline.
+    assert(checked > 100, s"only $checked rows checked")
+    val failures = declinedRows(families)
     assert(failures.isEmpty,
       "documented as covered, but the compiler declines:\n  " + failures.mkString("\n  "))
   }
@@ -1953,17 +1985,61 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       "the compiler has no HoursOfTime arm - it matches the StaticInvoke its replacement is")
   }
 
-  test("the table documents every expression the compiler admits") {
-    val documented = families.flatMap(_.rows).flatMap { row =>
+  /**
+   * The classes of `admitted` that no row of `documenting` builds a node of, sorted. A row
+   * documents the class of each node it builds and no other: a node of a subclass does not
+   * document its superclass, so an arm the compiler matches by a superclass needs a row whose
+   * node is of that class itself (VARKA-504's planted fault).
+   */
+  private def undocumentedArms(admitted: Set[String], documenting: Seq[Family]): Seq[String] = {
+    val documented = documenting.flatMap(_.rows).flatMap { row =>
       expressionOf(row).collect { case e: Expression => e.getClass.getSimpleName }
     }.toSet
-    val missing =
-      (admittedByCompiler -- infrastructure -- matchedOnlyToDecline.keySet -- documented)
-        .toSeq.sorted
+    (admitted -- infrastructure -- matchedOnlyToDecline.keySet -- documented).toSeq.sorted
+  }
+
+  test("the table documents every expression the compiler admits") {
+    val missing = undocumentedArms(admittedByCompiler, families)
     assert(missing.isEmpty,
       "VarkaExpressionCompiler matches on these, and no row in the coverage table exercises\n" +
         "them - add a row to VarkaCoverageSuite and regenerate the table:\n  " +
         missing.mkString(", "))
+  }
+
+  test("a row of a subclass's node does not document a superclass arm, and a row the compiler " +
+      "declines is named with its reason") {
+    // The planted faults of VARKA-504. A coverage rule let a subclass row cover a superclass
+    // arm: `Add` is a `BinaryOperator`, and an arm matched on that class stays undocumented by a
+    // row of `i + 1`.
+    val adding = Seq(Family("Planted", predicates = false, Seq(Row("i + 1"))))
+    assert(undocumentedArms(Set("Add", "BinaryOperator"), adding) == Seq("BinaryOperator"))
+    // A value row that stops fusing: `rand` is nondeterministic, which no kernel computes.
+    val values = Family("Planted values", predicates = false, Seq(Row("i + 1"),
+      Row("rand(1)", built = Some(Rand(Literal(1L))))))
+    // A predicate is fused only when each of its conjuncts is. The condition is deterministic,
+    // so the compiler splits it: `coalesce(i, 0) > 0` fuses, and the month of a year-month
+    // interval, a TINYINT no kernel computes (matchedOnlyToDecline), stays residual. The fused
+    // conjunct is never NULL, so the order rule keeps it ahead of the residual one. A check that
+    // took one fused conjunct for the whole predicate would pass this row.
+    val months = GreaterThan(ExtractANSIIntervalMonths(ym), Literal(0.toByte))
+    val split = And(GreaterThan(Coalesce(Seq(i, Literal(0))), Literal(0)), months)
+    val specs = VarkaExpressionCompiler.explainPredicate(split, columns,
+      VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).asScala
+    assert(specs.map(_.fused) == Seq(true, false), "the planted predicate no longer splits: " +
+      specs.map(s => s"${s.fused} ${s.decline.toScala.map(_.reason)}").mkString("; "))
+    val predicates = Family("Planted predicates", predicates = true, Seq(Row("i > 0"),
+      Row("coalesce(i, 0) > 0 AND extract(MONTH FROM ym) > 0", built = Some(split))))
+    val declined = declinedRows(Seq(values, predicates))
+    // `split` drops trailing empty strings, so the reason is the text after the arrow.
+    val arrow = "  ->  "
+    assert(declined.map(r => r.substring(0, r.indexOf(arrow).max(0))) ==
+      Seq("Planted values: rand(1)",
+        "Planted predicates: coalesce(i, 0) > 0 AND extract(MONTH FROM ym) > 0"),
+      declined)
+    def namesReason(r: String): Boolean =
+      r.indexOf(arrow) >= 0 && r.substring(r.indexOf(arrow) + arrow.length).trim.nonEmpty
+    assert(!namesReason("Planted values: rand(1)" + arrow), "an empty reason passed")
+    assert(declined.forall(namesReason), declined)
   }
 
   test("docs/sql-varka.md carries the generated coverage table and family switches") {
@@ -2245,6 +2321,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "IF(d18 > 0.00, d38, d38b) IS NULL", "coalesce(d38, d19) IS NULL",
     "greatest(d38, d38b) IS NOT NULL")
 
+  // The pair's value half (VARKA-359b): the negation and abs words are proven in the carry
+  // layer of decimal128.smt2; the choices, picks and IN, which also read validity, are checked
+  // by the differential suites.
+  private val pairValues = Seq(
+    "d38 IN (1.00, 12345678901234567890, -0.50)", "IF(d18 > 0.00, d38, d19) < d38b",
+    "CASE WHEN d38 < 0.00 THEN d38b END <=> d38", "coalesce(d38, d19) = d38b",
+    "greatest(d38, d38b) > 0.00", "least(d38, d19) <= 0.00")
+
   // VarkaEmitterNarrowSuite's byte square sweeps every TINYINT pair through the comparisons and
   // the picks, but over values only, with no null row, and its IN is a range set where the rows
   // build an equality chain and a hash set; so the TINYINT rows stay differential here.
@@ -2350,7 +2434,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // The product of two columns, which the printer refuses (VARKA-506.md 2.4), keeps its
     // hand-written refinement.
     "d8 * d9 <= d9b" -> Refined("d8 * d9 <= d9b")) ++
-    pairNulls.map(_ -> Differential)
+    pairNulls.map(_ -> Differential) ++
+    pairValues.map(_ -> Differential)
 
   private def verifiedOf(family: Family, row: Row): Verified =
     rowVerified.getOrElse(row.sql, familyVerified.getOrElse(family.title, Differential))

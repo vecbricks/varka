@@ -158,7 +158,8 @@ public final class VarkaDomains {
    * The fixture the guarded rows' partitions are cut from: for every guard the table's rows
    * carry, its bound and one past it on both sides, in the column the guard reads. {@code i} at
    * the int extremes and one in from each, at the day-interval limit, at the month range and at
-   * the months of {@code make_date}; {@code d} of year 9999 beside the {@code i} that takes
+   * the months of {@code make_date}, and at the ends of the positions {@code bit_get} reads;
+   * {@code d} of year 9999 beside the {@code i} that takes
    * {@code year(d) + i} to the int's top and one past, and {@code d} at the column bound's ends
    * and one past each (VARKA-379), and at the days a DATE converts to TIMESTAMP_NTZ without
    * overflow and one past each; the TIMESTAMP_NTZ values a day inside those days, {@code ntz}
@@ -189,6 +190,12 @@ public final class VarkaDomains {
     ints.addAll(around(-dayLimit, dayLimit));
     ints.addAll(around(minMonths, maxMonths));
     ints.addAll(around(1, 12));
+    // The positions bit_get admits at a SMALLINT, an INT and a BIGINT and one past each end: -1
+    // and 0, then each last position and the width.
+    ints.addAll(List.of(-1L, 0L));
+    for (long width : List.of(16L, 32L, 64L)) {
+      ints.addAll(List.of(width - 1, width));
+    }
     var rows = new ArrayList<String>();
     ints.forEach(i -> rows.add(row("i", Long.toString(i))));
     // A bigint at the narrow types' bounds and one past each, the casts' guards (VARKA-332).
