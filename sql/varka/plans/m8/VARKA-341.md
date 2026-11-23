@@ -369,3 +369,42 @@ grammar's floating sequence, in one pull request after a baseline one.*
   the IEEE ones by Java's operators, and `VarkaEmittedBytesSuite` pins their first two thousand
   shapes. The fuzz descriptor marks both types present, and `dev/varka_new_lane.py` owes only
   the benchmark at the floating lanes.
+
+*23 November 2026, the added test of both operand orders in one projection (`READING_COMET.md` 4
+case 4).*
+
+- **What Spark does, measured on the laptop.** `SELECT greatest(a, b), greatest(b, a), least(a, b),
+  least(b, a)` over `(-0.0, 0.0)`, both kinds, Varka off, in six cells: whole-stage codegen on and
+  off, `spark.sql.subexpressionElimination.enabled` on and off, and whole-stage off under the
+  interpreted factory mode. With the elimination on, every cell gives both columns the first
+  member's bits (`-0.0` for `g` and `gs` on `(-0.0, 0.0)`); with it off, every cell gives each its
+  own (`gs` is `0.0`). The setting decides, not whole-stage codegen: section 4 of
+  `READING_COMET.md` read the codegen-off answer as the second member's, which holds only with the
+  elimination off. Swapping the columns swaps the shared value; `greatest(a, b) + 1` beside
+  `greatest(b, a) * 2` shares the inner `greatest`; the pair split across a `CASE`'s `THEN` and
+  `ELSE` is never shared, since a use only inside a branch is not counted. Two NaN payloads behave
+  as the zeros do.
+- **Not only `greatest` and `least`.** `Add` and `Multiply` canonicalise by flattening a chain and
+  sorting its operands, so `(a + b) + c` beside `a + (b + c)` is one group too, and on ordinary
+  values Spark answers both with the first one's value: `0.6000000000000001` on `0.1, 0.2, 0.3`,
+  where the second association alone is `0.6`. The comparisons, `AND`, `OR`, `IN` and the bitwise
+  operators also reorder, but their answers do not depend on the order.
+- **What Varka did.** The kernel computed each member as written, in every cell, so it matched
+  Spark only with the elimination off: a wrong answer against Spark's default, not one of Spark's
+  own disagreements (row 541 does not cover it).
+- **The decline.** `VarkaSharedOrderDecline`, asked by `VarkaColumnarRule`'s eligibility test,
+  builds Spark's groups over the projection list with `EquivalentExpressions` and leaves the
+  projection to Spark when the elimination is on and a group holds two members that are not the
+  same expression, one with a floating `greatest`, `least`, `+` or `*`, and one in an entry the
+  kernel computes. A filter is not asked: the same pair read through `1 / greatest(a, b) < 0 AND
+  1 / greatest(b, a) < 0` was measured to be evaluated member by member by Spark in all four
+  cells, and the kernel matches it. Sharing the value instead is row 645.
+- **The payload fixture.** It carried only canonical NaNs: `parallelize` ships boxed values
+  through Java serialization, whose `writeDouble` stores `doubleToLongBits`. It is now built from
+  a local list, and the suite passes over the real payloads.
+- **Tests** (`VarkaFloatingLaneSuite`, both kinds): both orders, and the nested form, are left to
+  Spark and answer its bits, whole-stage codegen on and off; both associations of `+` and `*`
+  likewise, with Spark's shared value checked on `0.1, 0.2, 0.3` (`DOUBLE`) and `1.1, 1.3, 1.7`
+  (`FLOAT`); the filter fuses and keeps Spark's rows; with the elimination off all of them fuse
+  and match; one order used twice still fuses. With the decline removed, the projection tests
+  fail on the bits.
