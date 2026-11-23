@@ -63,10 +63,15 @@ MAIN_TREES = ("sql/catalyst/src/main", "sql/core/src/main", "sql/varka/engine/sr
 MODULES = {"sql/catalyst/": "catalyst", "sql/core/": "sql"}
 IR_FILE = "sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/"
 IR_FILE += "VarkaVectorIR.java"
-# A suite that enumerates node types says so in one of these words; the three named suites walk
-# every node type too, whatever words they use.
+# A suite that enumerates node types says so in one of these words; the named suites walk or
+# match every node type too, whatever words they use.
 REGISTRY_PATTERN = "getPermittedSubclasses|concreteNodeTypes|a node type was added|never drew"
-REGISTRY_NAMED = ("VarkaEmitCostSuite", "VarkaIrFuzzSuite", "VarkaVectorIRSharingSuite")
+REGISTRY_NAMED = (
+    "VarkaEmitCostSuite",
+    "VarkaIrFuzzSuite",
+    "VarkaVectorIRSharingSuite",
+    "VarkaRangeAnalysisSuite",
+)
 REASON_PLACES = TEST_TREES + ("sql/varka/coverage.json", "docs")
 GENERATED_SUITES = (
     "VarkaCoverageSuite",
@@ -206,12 +211,17 @@ def suites_in(repo, paths, rev="HEAD"):
     return found
 
 
-def registry_suites(repo):
+def registry_paths(repo):
+    """The test files that enumerate node types: the grep's and the named suites'."""
     paths = repo.files(REGISTRY_PATTERN, TEST_TREES, fixed=False)
     named = [
         p for p in repo.tracked(TEST_TREES) if os.path.basename(p).split(".")[0] in REGISTRY_NAMED
     ]
-    return suites_in(repo, sorted(set(paths) | set(named)))
+    return sorted(set(paths) | set(named))
+
+
+def registry_suites(repo):
+    return suites_in(repo, registry_paths(repo))
 
 
 # What a registry the grep finds must say of a record, read as text (comments dropped) so that
@@ -227,7 +237,20 @@ REGISTRIES = {
     "VarkaEmitterBudgetSuite": ("register row", BUILT, ()),
     "VarkaReproductionSuite": ("round trip", BUILT, ()),
     "VarkaEmitCostSuite": ("feature or awaiting-refit entry", r'"{n}["/]', ("EmitCostFit",)),
+    "VarkaSmtNodesSuite": (
+        "template arm or REFUSED entry",
+        r"entry\({n}\.class|\bcase {n} (?!_)\w+|\bcase {n}\(",
+        ("SmtNodes",),
+    ),
+    # Only the arms of admissible's match count: the suite's other matches name some nodes too.
+    "VarkaRangeAnalysisSuite": (
+        "admissible arm (x: {n})",
+        r"(?s)def admissible\((?:(?!\n  \S).)*?\b\w+: {n}\b",
+        (),
+    ),
     "VarkaVectorIRSharingSuite": None,
+    "VarkaLaneFuzz": None,
+    "VarkaFuzzTypesSuite": None,  # its "never drew" is of a type's edge values, not of nodes
 }
 
 
@@ -235,7 +258,7 @@ def registry_findings(repo, names):
     """(findings, notes): the registries the grep finds that do not name a record of names, and
     those this check cannot read."""
     found, notes = [], []
-    for path in repo.files(REGISTRY_PATTERN, TEST_TREES, fixed=False):
+    for path in registry_paths(repo):
         suite = os.path.basename(path).split(".")[0]
         if suite not in REGISTRIES:
             notes.append(f"{path} enumerates node types unread here; unchecked, the JVM run is")
@@ -698,6 +721,30 @@ class SelfTest(unittest.TestCase):
         )
         self.assertEqual(len(notes), 1)
         self.assertIn("VarkaNewSuite.scala enumerates node types unread here", notes[0])
+
+    def test_r1_reads_the_smt_refusals_and_the_range_suites_admissible_arms(self):
+        # 23 Nov 2026: a record in the refused arm but not REFUSED, and one in another match of
+        # VarkaRangeAnalysisSuite but not admissible's, each passed the text check before.
+        t, s = "sql/catalyst/src/test/scala/a/", TEST_JAVA + "VarkaSmtNodes.java"
+        ra = "  def leafRole = n match {\n    case _: Mix =>\n  }\n  private def admissible(\n"
+        ra += "    case x: Not => go(x.child())\n    case y: Year => y.days()\n  }\n"
+        repo = FakeRepo(
+            {},
+            {
+                TEST_JAVA + "VarkaSmtNodesSuite.java": "getPermittedSubclasses",
+                s: "entry(Year.class, R)\ncase Not n -> no(n);\ncase Year _, Mix _ -> refused",
+                t + "VarkaRangeAnalysisSuite.scala": ra,
+            },
+        )
+        found, notes = registry_findings(repo, ["Not", "Year", "Mix"])
+        self.assertCountEqual(
+            [f.split("/")[-1] for f in found],
+            [
+                "VarkaSmtNodesSuite.java names Mix in no template arm or REFUSED entry",
+                "VarkaRangeAnalysisSuite.scala names Mix in no admissible arm (x: Mix)",
+            ],
+        )
+        self.assertEqual(notes, [])
 
     def topic(self, d):
         """A repository whose master and topic both changed g.json, at either end, topic
