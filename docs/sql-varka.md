@@ -2577,8 +2577,8 @@ exist.
   `VarkaCastWithAnsiOnSuite`, `VarkaTryCastSuite`) are Spark's
   `CastWithAnsiOffSuite`, `CastWithAnsiOnSuite` and `TryCastSuite` with each
   check run a second time through the Varka evaluator once Spark's own has
-  passed: every literal of a type a kernel reads becomes a column of seventeen
-  equal rows written into Arrow batches, a fused check's answers are held to
+  passed: every literal of a type a kernel reads becomes a column of equal rows,
+  one more than the host's byte lanes, written into Arrow batches, a fused check's answers are held to
   Spark's over the rows read back from Arrow, and a declined batch's error
   must reach the caller as Spark raised it. Each bare cast's compile verdict
   per form and mode is recorded in `sql/varka/plans/m8/casts_suites.tsv`,

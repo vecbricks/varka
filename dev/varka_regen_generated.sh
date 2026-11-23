@@ -28,8 +28,9 @@
 # cherry-pick, revert or rebase uncommitted or stopped, never an aborted one's (the comment
 # above its owed_live says how, and what it cannot see). This script turns those files
 # into steps and runs them in the order the files read each other: types.tsv, fuzz/types.tsv,
-# casts_fused.tsv and casts_suites.tsv (whose suites read it), then coverage.json and the docs blocks where owed, the width audit (it reads
-# coverage.json), the bytes file (likewise), coverage again after an audit that ran (the docs
+# casts_fused.tsv and casts_suites.tsv (whose suites read it), then coverage.json and the docs
+# blocks where owed, the width audit (it reads coverage.json), the bytes file (likewise),
+# coverage again after an audit that ran (the docs
 # read the width audit, and nothing else of coverage's reads the other two), and last the
 # census, which reads them all, rewrites the docs' support table and costs a second; a merge
 # that owed that block alone owes the census, never docs/sql-varka.md, and so no coverage run

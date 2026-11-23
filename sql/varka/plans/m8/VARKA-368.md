@@ -605,7 +605,7 @@ the lead's "17 rows a literal", fill a full lane group only at int or wider lane
 bits the suites run its epilogue alone and never its loop. The proposal is 65 rows (the widest
 group plus one) in all three places that hold the count: `VarkaSuiteCheck.LIFTED_ROWS`,
 `VarkaArrowSource.LiftedRows` and the golden suite's lift (`VarkaLiteralLiftSuite.scala:53`).
-Nothing changes until the owner decides. *Measured in 368b, 23 November 2026:* a probe planned
+Master's two places keep 17 until the owner decides. *Measured in 368b, 23 November 2026:* a probe planned
 every narrow cast at 512 and 256 bits under `lanesOverride` 0, 2, 4, 8 and 16; only the byte- or
 short-lane kernels (`TINYINT`, `SMALLINT` to and from `BOOLEAN`) step past 16 rows - 64 or 32
 bytes, 32 or 16 shorts - because no species above 16 lanes is baked; at 17 rows the byte

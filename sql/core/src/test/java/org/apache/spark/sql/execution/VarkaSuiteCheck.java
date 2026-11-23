@@ -253,7 +253,7 @@ public final class VarkaSuiteCheck {
     return new Verdict(fused, reasons);
   }
 
-  private static String clean(String reason) {
+  static String clean(String reason) {
     return reason.replaceAll("#\\d+", "").replace('\t', ' ').replace('\n', ' ');
   }
 

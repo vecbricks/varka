@@ -113,7 +113,7 @@ public final class VarkaSuiteRecord {
     Set<String> found = KEYS.computeIfAbsent(suite, s -> new TreeMap<>(VarkaSuiteRecord::byKey))
         .computeIfAbsent(key, k -> new TreeSet<>());
     if (unresolved != null) {
-      found.add("unresolved\t" + unresolved);
+      found.add("unresolved\t" + VarkaSuiteCheck.clean(unresolved));
     } else if (verdict.fused()) {
       found.add("fused\t");
     } else {
@@ -246,7 +246,7 @@ public final class VarkaSuiteRecord {
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
-    } else if (!committed.equals(mine)) {
+    } else if (!sorted(committed).equals(sorted(mine))) {
       var moved = new ArrayList<String>();
       for (String l : mine) {
         if (!committed.contains(l)) {
@@ -261,6 +261,13 @@ public final class VarkaSuiteRecord {
       problems.add(RECORD + "'s lines of " + suite + " moved:\n  "
           + String.join("\n  ", moved) + "\nRegenerate it with\n  " + REGEN);
     }
+  }
+
+  /** A sorted copy: a text merge may leave the committed lines out of order, which is no move. */
+  private static List<String> sorted(List<String> lines) {
+    var out = new ArrayList<String>(lines);
+    out.sort(null);
+    return out;
   }
 
   // ---------------------------------------------------------------------------------------------

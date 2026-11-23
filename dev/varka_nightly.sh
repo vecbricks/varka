@@ -162,7 +162,8 @@ if [ "$castsuites" -eq 1 ]; then
     "set Test/javaOptions ++= Seq(\"-Dvarka.suites.random=true\", \"-Dvarka.suites.minSuccessful=100\")" \
     'testOnly *VarkaCastWithAnsiOffSuite *VarkaCastWithAnsiOnSuite *VarkaTryCastSuite'
   run_step castsuites-record bash -c \
-    'git diff --exit-code -- sql/varka/plans/m8/casts_suites.tsv && python3 dev/varka_census.py --check'
+    'git diff --exit-code -- sql/varka/plans/m8/casts_suites.tsv \
+      && python3 dev/varka_census.py --check'
 fi
 # Spark's golden files through the Arrow source with Varka on, in a JVM of its own; a failure not
 # on sql/varka/spark_suites/excluded.tsv is rerun with Varka off and named Varka's or the harness's.
