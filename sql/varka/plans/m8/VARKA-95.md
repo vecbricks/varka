@@ -471,20 +471,21 @@ request and row 95 builds no second copy.
 (Written when the work lands.)
 
 **The baseline, its multiply half** (19 November 2026): `VarkaIntArithmeticBaselineBenchmark`
-(sql/core, Java) and `VarkaIntArithmeticBaselineQueriesSuite`, as the build sheet's 1.2 and 1.5
-give them, with #1486 merged: six sections a density, twelve in all, every one `NONE` but the
-LEGACY control `i * j`, `WHOLE`, the filter `i * j > 0` included (VARKA-598 leaves it to Spark
-whole). The `%` half of the baseline, the five sections of the build sheet's 1.3 in row 30's
+(sql/core, Java) and `VarkaIntArithmeticBaselineQueriesSuite`, as the build sheet's 1.2 and 1.5 give
+them, with #1486 merged: six sections a density, twelve in all, every one `NONE` but the LEGACY
+control `i * j`, `WHOLE`, the filter `i * j > 0` included (VARKA-598 leaves it to Spark whole). The
+`%` half of the baseline, the five sections of the build sheet's 1.3 in row 30's
 `VarkaIntegralDivisionBaselineBenchmark`, is not built: that class was row 30's baseline, which had
-not merged (premise 1 of the build sheet was 0, its stop rule 7.1). *23 November 2026:* it merged
-as #1570 with `i % 7` and the column forms timed, and row 30's part 30a4 builds the constant forms
-of a literal divisor that 95a would have built, so 95a is superseded and the `%` half stays row
-30's. The EPYC 7763 results at 256 and
-128 bits are owed by the owner's dispatch, of this class only: build sheet 9's dispatch of the
-division class waits for that class. The build sheet's dry run (4.3) was not made; the queries
-suite plans each section under both settings of the two-lane refusal at the laptop's width, and
-every section is on the int lane, whose classes no width moves. The planted faults of build sheet
-3 were not run.
+not merged (premise 1 of the build sheet was 0, its stop rule 7.1). *23 November 2026:* it merged as
+#1570 with `i % 7` and the column forms timed, and row 30's part 30a4 builds the constant forms of a
+literal divisor that 95a would have built, so 95a is superseded and the `%` half stays row 30's. The
+EPYC 7763 results at 256 and 128 bits are owed by the owner's dispatch, of this class only: build
+sheet 9's dispatch of the division class waits for that class. *23 November 2026:* both landed and
+are committed (the runner results below). Section 4's six predictions are of the fused kernels and
+the bytes oracle, none of the baseline, so they are scored when the kernel lands. The build sheet's
+dry run (4.3) was not made; the queries suite plans each section under both settings of the two-lane
+refusal at the laptop's width, and every section is on the int lane, whose classes no width moves.
+The planted faults of build sheet 3 were not run.
 
 ## Decisions taken while the owner was away (20 November 2026)
 
@@ -828,3 +829,14 @@ artifacts whole (`-jdk25-runner-epyc7763[-128bit]-results.txt` and provenance, u
 `sql/core/benchmarks/`), and replace the division class's two files and provenance whole: its
 row 30 sections are re-measured on the same unchanged code, and its notes stay complete. If #1486
 merges after this, it must list both classes' `NULL_TESTS` sections as `NONE` too.
+
+### Runner results (23 November 2026)
+
+`VarkaIntArithmeticBaselineBenchmark` ran on the GitHub runners through `benchmark.yml` with
+`pr=1660` and `create-commit=false`; the files are committed as the runs wrote them, and each CPU
+is the one its provenance names:
+
+| run | file label | extra JVM options | CPU | commit measured |
+| ---: | :--- | :--- | :--- | :--- |
+| 45152524903 | `runner-epyc7763` | `<none>` | AMD EPYC 7763 64-Core Processor | `fd667f924bb` |
+| 45152539860 | `runner-epyc7763-128bit` | `-XX:MaxVectorSize=16` | AMD EPYC 7763 64-Core Processor | `fd667f924bb` |
