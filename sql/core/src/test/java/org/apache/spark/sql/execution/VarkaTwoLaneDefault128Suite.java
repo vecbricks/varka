@@ -260,12 +260,17 @@ public final class VarkaTwoLaneDefault128Suite {
   void longLaneChecksDecline() {
     // The checked day-time arms ran slower than the row path at two lanes (VARKA-612); the TIME
     // and TIMESTAMP_NTZ arms build the same long-lane checks. The blend makes long masks too but
-    // no check, and still wins there, so it keeps the node and its EXPLAIN.
+    // no check, and still wins there, so it keeps the node and its EXPLAIN. Four blends stand
+    // beside the four declined arms, so the rule that leaves a projection whose residual entries
+    // outnumber its fused ones to Spark (VARKA-613) keeps this one.
     assumeTrue(varka != null, "not x86: the refusal does not apply");
     for (String n : List.of("", "n")) {
-      String query = "SELECT dt" + n + " + dt2 AS a, abs(dt" + n + ") AS b, t" + n
-          + " + dts AS c, ntz" + n + " + dt AS e, CASE WHEN dt" + n + " > dt2 THEN dt" + n
-          + " ELSE dt2 END AS f FROM two_lane_checks";
+      String dt = "dt" + n;
+      String query = "SELECT " + dt + " + dt2 AS a, abs(" + dt + ") AS b, t" + n
+          + " + dts AS c, ntz" + n + " + dt AS e, CASE WHEN " + dt + " > dt2 THEN " + dt
+          + " ELSE dt2 END AS f, CASE WHEN " + dt + " < dt2 THEN " + dt + " ELSE dt2 END AS g, "
+          + "CASE WHEN dt2 > " + dt + " THEN dt2 ELSE " + dt + " END AS h, CASE WHEN dt2 < " + dt
+          + " THEN dt2 ELSE " + dt + " END AS i FROM two_lane_checks";
       Dataset<Row> actual = varka.sql(query);
       List<String> got = sorted(actual.collectAsList());
       SparkPlan plan = actual.queryExecution().executedPlan();
@@ -282,7 +287,9 @@ public final class VarkaTwoLaneDefault128Suite {
       for (VarkaDecline d : partial.declines().values()) {
         assertEquals(VarkaKernelPlan.TWO_LANE_CHECK_REASON, d.reason(), clue);
       }
-      assertTrue(partial.specs().get(4) instanceof VarkaOutputSpec.FusedOutput, clue);
+      for (int fused = 4; fused < 8; fused++) {
+        assertTrue(partial.specs().get(fused) instanceof VarkaOutputSpec.FusedOutput, clue);
+      }
       String explained = actual.queryExecution().explainString(FormattedMode$.MODULE$);
       assertTrue(explained.contains(VarkaKernelPlan.TWO_LANE_CHECK_REASON), explained);
       SQLMetric batches = node.metrics().get("numVarkaBatches").get();

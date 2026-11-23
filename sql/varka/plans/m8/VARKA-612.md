@@ -265,6 +265,15 @@ on the `DOUBLE` lane), the month shift of a `TIMESTAMP_NTZ` (its guard is on the
 math, rounding, floating, floating-cast and boolean-output baselines. This reading is the
 prediction the owed runs of those suites score; the census file is its exhaustive form.
 
+*23 November 2026, review:* the walk also refuses shapes no baseline here times, each a
+`GuardedRange` or checked node over a `LONG` child: the ANSI and try narrowing casts of a
+`BIGINT` (`CAST(l AS INT)`), `d - d2` over dates, `CAST(d AS TIMESTAMP_NTZ)` and
+`timestampadd(MONTH, <bigint>, ntz)`. None was measured fused at two lanes, so a 128-bit
+measurement of them is owed with the baselines above, and the owner may narrow the walk to the
+measured families instead. Decision 2 below is also corrected: a `DOUBLE` division by a computed
+divisor is an `IntArith(DIV, FAIL or NULL)` on the `DOUBLE` lane, which the walk admits; it is
+kept because the committed 128-bit results read `x / y` at 1.0X to 1.1X, at parity.
+
 ## Decisions taken while the owner was away (20 November 2026)
 
 1. **Question 10.1: the tree check.** Taken as recommended (3.1), because the brief has the plan's
