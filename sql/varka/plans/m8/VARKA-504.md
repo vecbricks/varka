@@ -359,19 +359,24 @@ still needed; it would not catch `checkOnce` dropping its pivot check. Driving a
 - The plants of a changed option arm and of a skipped coverage row.
 
 **Predictions.** P1 holds for every plant of both parts: each passed unweakened and failed on
-its weakened check. P2 holds on one check: the Spark fuzzer's main test passed whatever it
-compared, and its first count read the suite's totals, which other tests also raise. P3 holds:
+its weakened check. P2 holds on two checks: `checkDifferential` did not look at cached reads
+at all, so row 501's fault passed it (found by the review); and the Spark fuzzer's main test
+passed whatever it compared, and its first count read the suite's totals, which other tests also
+raise. P3 holds:
 each sql plant took under 10 s, and the census's planted fork, with its control,
 is the costliest at two JVM starts.
 
 ### 10.4 Review of part 2 (23 November 2026)
 
-`/code-review high` on the branch found two important findings and three nits; four are fixed.
+`/code-review high` on the branch found two important findings and three nits; three are fixed.
 
 - **Important.** The cache plant called `sameCacheReads` directly, and `checkDifferential`
   never called it, so a comparison of an uncached row-engine plan with Varka's cached one
   passed. `checkDifferential` now calls it, and the plant goes through `checkDifferential`.
-  `VarkaDifferentialSuite` passed whole with it: 34 tests.
+  `VarkaDifferentialSuite` passed whole with it: 34 tests. The call leaves `mustRead` off, where
+  the review proposed it on: it rejects two plans that read different cached tables, but a
+  comparison where both sides lost the cache still passes. Turning it on needs every one of the
+  18 callers' queries to read a cached table, which was not checked.
 - **Important.** The census plant's control ran the preferred species, so it did not show that
   one non-preferred species alone leaves the tell quiet. The control is now that loop,
   `planted.one128`; it stayed quiet at 512 bits and the plant passed.
