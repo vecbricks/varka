@@ -62,7 +62,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Dec
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedProduct;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.HashStep;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
@@ -341,9 +340,7 @@ final class Analysis {
      * behind {@link VarkaEmitOptions#checkIntOverflow}. The arithmetic parks its operands and
      * result in {@link Slots#intArithTmp}, and {@code emitIntNeg} reads its operand back with
      * {@code dup}, so it parks nothing here. A NULL-mode node checks too, but narrows its own word
-     * instead of refusing the batch, so it has no reason. A {@link GuardedProduct} refuses with
-     * it unconditionally, in every mode, where its pre-check trips ({@code |a * b| >= 2^62} in
-     * doubles, row 611): a batch it declines may hold no overflow.
+     * instead of refusing the batch, so it has no reason.
      */
     INT_OVERFLOW(Family.CHECKED, false, VarkaFusedKernel.STATUS_INT_OVERFLOW),
     /**
@@ -954,8 +951,6 @@ final class Analysis {
             refuse(node, Refusal.INT_OVERFLOW);
           }
         }
-        // Unconditional, as a range guard is: the compiler admits the multiply on its strength.
-        case GuardedProduct n -> refuse(node, Refusal.INT_OVERFLOW);
         case GuardedDay n -> refuse(node, Refusal.DAY_RANGE);
         // A NULL guard nulls the lanes outside its bounds, as a NULL IntArith does, and like it
         // declines nothing.
@@ -1102,7 +1097,7 @@ final class Analysis {
       // narrow AND, OR or XOR does, a compare or a shift right does not - instead of falling
       // into "not ring" and leaving an unreduced int value for its readers.
       case ColumnRef _, DecimalColumn _, DecimalWord _, LiteralSlot _, WidenLane _,
-          NarrowLane _, ConvertLane _, ReinterpretLane _, GuardedProduct _,
+          NarrowLane _, ConvertLane _, ReinterpretLane _,
           WidenDecimal _, AddDays _, SubDays _, AddMonths _, MakeDate _, GuardedDay _,
           GuardedRange _, NextDay _,
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
@@ -1453,7 +1448,6 @@ final class Analysis {
           ? new WordOwner.Own(node)
           : andOwner(node, n.left(), n.right());
       case IntNeg n -> wordOwner.get(n.child());
-      case GuardedProduct n -> andOwner(node, n.left(), n.right());
       case ConstDivide n -> wordOwner.get(n.child());
       case BoundedDivide n -> wordOwner.get(n.child());
       case BitOp n -> andOwner(node, n.left(), n.right());
@@ -1531,7 +1525,6 @@ final class Analysis {
           ? null
           : andExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case IntNeg n -> pureWord.get(n.child());
-      case GuardedProduct n -> andExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case ConstDivide n -> pureWord.get(n.child());
       case BoundedDivide n -> pureWord.get(n.child());
       case BitOp n -> andExpr(pureWord.get(n.left()), pureWord.get(n.right()));
@@ -1832,8 +1825,6 @@ final class Analysis {
         }
         analyzeOp(node, false, n.child());
       }
-      // It declines a batch and never nulls a lane, so a null operand nulls the product alone.
-      case GuardedProduct n -> analyzeOp(node, false, n.left(), n.right());
       // The bounded division: exact by its constructor over the bound the caller proved,
       // and like the constant division it neither overflows nor nulls a lane.
       case BoundedDivide n -> analyzeOp(node, false, n.child());
