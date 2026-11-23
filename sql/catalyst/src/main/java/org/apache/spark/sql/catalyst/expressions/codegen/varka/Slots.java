@@ -1379,6 +1379,11 @@ final class Slots {
       w.walk.add(root);
       if (!(root instanceof Cond) && analysis.served[o] == null) {
         w.demand(analysis.wordOwner.get(root));
+        // A pair store's per-group write reads its high word's word too
+        // (VarkaBodyEmitter.emitRootValidityOr).
+        if (root instanceof InterleaveDecimal pair) {
+          w.demand(analysis.wordOwner.get(pair.hi()));
+        }
       }
     }
     w.run();

@@ -448,6 +448,11 @@ public final class VarkaDecimalPairSuite {
    * its unscaled value at the output's scale.
    */
   private static void checkStored(String sql, DecimalType ta, DecimalType tb) {
+    checkStored(sql, ta, tb, VarkaMatrixRuns.BASE);
+  }
+
+  private static void checkStored(String sql, DecimalType ta, DecimalType tb,
+      VarkaEmitOptions options) {
     List<Attribute> columns =
         List.of(VarkaSqlResolve.column("a", ta), VarkaSqlResolve.column("b", tb));
     Expression e = VarkaSqlResolve.parse(sql, seq(columns));
@@ -455,7 +460,7 @@ public final class VarkaDecimalPairSuite {
     assertTrue(type.precision() > 18, () -> sql + " is not wide: " + type);
     NamedExpression entry = VarkaSqlResolve.named(e, "c");
     CompiledVarkaProjection p = VarkaExpressionCompiler.compile(
-        CollectionConverters.asScala(List.of(entry)).toSeq(), seq(columns), VarkaMatrixRuns.BASE)
+        CollectionConverters.asScala(List.of(entry)).toSeq(), seq(columns), options)
         .orElseThrow(() -> new AssertionError(sql + " does not fuse as an output"));
     Expression bound = VarkaSqlResolve.bind(VarkaSqlResolve.replaced(e), seq(columns));
     for (List<Row> rows : List.of(rows(ta, tb), denseRows(ta, tb))) {
@@ -497,6 +502,21 @@ public final class VarkaDecimalPairSuite {
     var nineteen = new DecimalType(19, 2);
     checkStored("abs(a)", nineteen, nineteen);
     checkStored("IF(a < b, -a, b)", new DecimalType(18, 2), wide);
+  }
+
+  @Test
+  @DisplayName("with the bitmap validity pass off, a pair store's per-group validity reads both "
+      + "words, so a choice's high-word blend is no dead word (validityOrFirst either way)")
+  void storedValuesWithoutTheBitmapPass() {
+    var wide = new DecimalType(38, 2);
+    for (boolean first : new boolean[] {false, true}) {
+      VarkaEmitOptions options = VarkaMatrixRuns.BASE.toBuilder().validityByBitmap(false)
+          .denseValidityOnce(false).validityOrFirst(first).build();
+      for (String sql : List.of("IF(a < b, a, b)", "CASE WHEN a > 0 THEN a END",
+          "coalesce(a, b)", "greatest(a, b)", "-b")) {
+        checkStored(sql, wide, wide, options);
+      }
+    }
   }
 
   @Test

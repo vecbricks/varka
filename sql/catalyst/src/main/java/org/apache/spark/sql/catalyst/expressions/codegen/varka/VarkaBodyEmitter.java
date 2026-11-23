@@ -1715,6 +1715,11 @@ final class VarkaBodyEmitter {
    * rejects.
    */
   private static boolean wordKnownBeforeCompute(Analysis analysis, Slots s, VarkaVectorIR root) {
+    // A pair store's validity reads both words' (emitRootValidityOr), so both must be known.
+    if (root instanceof InterleaveDecimal pair
+        && !wordKnownBeforeCompute(analysis, s, pair.hi())) {
+      return false;
+    }
     int ref = s.wordRef.get(root);
     if (ref == WORD_ALL_TRUE) {
       return true;
@@ -1735,6 +1740,15 @@ final class VarkaBodyEmitter {
         cb.loadConstant(-1L);
       } else {
         loadWord(cb, s, s.wordRef.get(root));
+        // A pair store's two words are valid on the same rows, and each may own a word (a
+        // choice's blend per word): both are read, so neither is computed for nothing.
+        if (root instanceof InterleaveDecimal pair) {
+          int hi = s.wordRef.get(pair.hi());
+          if (hi != s.wordRef.get(root)) {
+            loadWord(cb, s, hi);
+            cb.land();
+          }
+        }
       }
     });
   }
