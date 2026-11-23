@@ -1,11 +1,11 @@
 benchmark:   *.VarkaTimestampNtzBaselineBenchmark
 where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
-run:         https://github.com/MaxGekk/spark/actions/runs/40402132470
-commit:      b96cf8ca779 (varka-377-ntz of MaxGekk/spark)
-date:        2026-10-26T21:26:14Z
+run:         https://github.com/vecbricks/varka/actions/runs/45125841833
+commit:      241125b2f37 (master of vecbricks/varka)
+date:        2026-11-23T10:25:16Z
 inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=-XX:MaxVectorSize=16
-jdk:         OpenJDK Runtime Environment Zulu25.38+107-CA (build 25.0.5+8-LTS)
-kernel:      6.17.0-1022-azure
+jdk:         OpenJDK Runtime Environment Zulu25.38+201-CA (build 25.0.5.1+2-LTS)
+kernel:      7.0.0-1020-azure
 cpu:         AMD EPYC 7763 64-Core Processor
-datapath:    44.9 / 90.2 / 90.2 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.01 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
+datapath:    45.0 / 90.5 / 90.5 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.01 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
 pinned to:   none (the runner is not pinned)
