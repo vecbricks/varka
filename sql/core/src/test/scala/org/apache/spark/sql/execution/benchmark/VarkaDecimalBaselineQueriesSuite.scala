@@ -150,9 +150,10 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // whole where the session takes a 64-bit kernel's masks, the rest stay on the row path.
       for (declines <- Seq(false, true)) {
         val casts = VarkaDecimalBaselineBenchmark.sections(declines).asScala.drop(126)
-        // A cast between decimals is a decimal output, written by the decimal store (348b).
+        // A cast between decimals is a decimal output, written by the decimal store (348b); the
+        // BIGINT column's CAST(l AS DECIMAL(18, 2)) is not, so the titles name the decimal x.
         val fused = Seq(" AS BIGINT)", " AS INT)", " AS SMALLINT)", "filter CAST(x AS BOOLEAN)",
-          " AS DECIMAL(9, 0))", " AS DECIMAL(18, 2))")
+          "CAST(x AS DECIMAL(9, 0))", "CAST(x AS DECIMAL(18, 2))")
         for (s <- casts) {
           val expected =
             if (!declines && fused.exists(t => s.title.contains(t))) {
