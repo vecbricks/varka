@@ -99,6 +99,11 @@ old behaviour is the bug. This follows row 541, which changed the fallback witho
 * Row 386 (planned) edits the same method for SPARK-60315's ordering; whichever lands second
   rebases on the other (the row's own note).
 * SPARK-61197 itself: Varka follows Spark's uncompiled behaviour, whichever it is.
+* The residual `FilterExec` above a Varka filter (found by the high review, 23 November 2026, not
+  reproduced): it evaluates the residual conjuncts' fold, so with codegen off and elimination on
+  an AND of that fold that is common can be evaluated ahead of its first operand where Spark's
+  tree would not, the same SPARK-61197 mismatch on the residual side. Out of this row: it needs
+  a residual whose AND is common, which `residualMissesElimination` does not look for.
 
 ### 3.3 Registered op counts
 
@@ -265,14 +270,14 @@ Predictions (section 6.1):
    **owed** (step 1 not run; decision 3).
 2. After it, all cells agree: **owed** (the run below stopped at the shape check).
 3. Test time under 4 s: **owed**, and the evidence so far is against it: the failed run took
-   15.1 s to reach its shape check, before any of the eight cells. Part of that is the suite's
+   about 15 s to reach its shape check, before any of the eight cells. Part of that is the suite's
    session start and the cached tables' first build, which a rerun measures apart.
 4. Plan strings move only for a filter not over a scan whose tree is not its fold: **owed**
    (step 4); by decision 2's reading, no filter planned at the default configuration moves.
 
 
 The run, 20 November 2026, after the change: `build/sbt 'sql/testOnly *VarkaDifferentialSuite --
--z "falls back on Spark"'` failed, in 15.1 s, at the shape check, as designed for a vacuous
+-z "falls back on Spark"'` failed, in about 15 s, at the shape check, as designed for a vacuous
 shape. The control passed first: with codegen off and elimination on, Spark's filter over the
 scan answered `[2]`. Then Spark's physical `FilterExec` condition was its own left fold: with
 only `PushDownPredicates` excluded, the filter had still been pushed into both children of the
@@ -280,3 +285,15 @@ union as `pushDown.reduceLeft(And)`, by `PushPredicateThroughNonJoin` in `SparkO
 "Extract UDFs" batch. The test now excludes that rule as well. The run's log is kept at
 `target/varka-608/run608.log` in the worktree. It compiles, and has not been run
 again: the window allowed one run. Whether the shape now holds, and the cells, are owed.
+
+**The runs of 23 November 2026, after the high review** (on the branch merged with master at
+`f3b97c0b503`). The review asked that the test also check the Varka filter's fallback condition,
+so it now asserts that `wholeCondition` is Spark's tree (compared as SQL text, since the two
+sessions number their attributes apart); its title drops "with codegen off", since every cell
+runs. `build/sbt 'sql/testOnly *VarkaDifferentialSuite -- -z "falls back on Spark"'` passed: the
+shape held, the control answered, and the eight cells agreed (about 10 s by sbt's report, session
+start included). Run again with `VarkaColumnarRule.scala` and `VarkaFilterExec.scala` set back to the
+merge base, it failed at the new check, the Varka filter carrying no `wholeCondition` (`None`), so
+the test fails without the fix. Prediction 1, which reads the elimination-on cell before the fix,
+stays owed: that run stops at the earlier check. The planted-fault run (step 3) is owed.
+

@@ -1132,8 +1132,8 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
 
   // varka-session-lint: allow the fallback's evaluation order, read against Spark's uncompiled
   // filter of the same tree, which only a session plans
-  test("with codegen off, a filter with no residual conjunct falls back on Spark's condition " +
-      "tree, not its conjuncts' fold") {
+  test("a filter with no residual conjunct falls back on Spark's condition tree, not its " +
+      "conjuncts' fold") {
     import org.apache.spark.sql.catalyst.expressions.{And, Expression}
     import org.apache.spark.sql.catalyst.optimizer.{PushDownPredicates,
       PushPredicateThroughNonJoin}
@@ -1181,10 +1181,16 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
             s"Spark's filter condition is its own left fold, so the test shows nothing: $tree\n" +
               sparkPlan.treeString)
           val varkaPlan = varkaSpark.sql(overUnion).queryExecution.executedPlan
-          assert(collectFirst(varkaPlan) { case f: VarkaFilterExecBase => f }.isDefined &&
-            collectFirst(varkaPlan) { case f: FilterExec => f }.isEmpty,
+          val varkaFilter = collectFirst(varkaPlan) { case f: VarkaFilterExecBase => f }
+          val rowFilter = collectFirst(varkaPlan) { case f: FilterExec => f }
+          assert(varkaFilter.isDefined && rowFilter.isEmpty,
             s"expected one Varka filter and no FilterExec:\n${varkaPlan.treeString}\n" +
               s"Spark's condition: $tree")
+          // The fallback carries the same tree, so the cells below read the fix and not a fold.
+          // The two sessions number their attributes apart, so the trees compare as SQL text.
+          assert(varkaFilter.get.wholeCondition.map(_.sql).contains(tree.sql),
+            s"the Varka filter's fallback condition is not Spark's tree $tree: " +
+              varkaFilter.get.wholeCondition)
           for (elimination <- Seq(true, false)) {
             withBothConf(SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key, elimination.toString) {
               val (onSpark, plans) = checkFourCells(overUnion)
