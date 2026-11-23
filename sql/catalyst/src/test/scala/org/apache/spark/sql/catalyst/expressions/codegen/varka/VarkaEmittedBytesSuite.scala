@@ -773,15 +773,21 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
           "fuzz_float", "fuzz_double")
         sequences.foreach { sequence =>
           val bb = Option(b.get(sequence)).map(_.get("blocks")).orNull
-          val ab = a.get(sequence).get("blocks")
-          ab.elements().asScala.zipWithIndex.foreach { case (n, k) =>
-            if (bb == null || bb.size <= k || bb.get(k).asText() != n.asText()) {
-              moved += s"lanes $lanes: $sequence block $k (shapes ${k * blockSize} to " +
-                s"${(k + 1) * blockSize - 1})"
+          // A pinning test copies the committed lanes in place of its own, which may lack a
+          // sequence this list names; the committed file then holds it nowhere either.
+          val ab = Option(a.get(sequence)).map(_.get("blocks")).orNull
+          if (ab == null) {
+            moved += s"lanes $lanes: no $sequence section"
+          } else {
+            ab.elements().asScala.zipWithIndex.foreach { case (n, k) =>
+              if (bb == null || bb.size <= k || bb.get(k).asText() != n.asText()) {
+                moved += s"lanes $lanes: $sequence block $k (shapes ${k * blockSize} to " +
+                  s"${(k + 1) * blockSize - 1})"
+              }
             }
-          }
-          if (bb != null && bb.size > ab.size) {
-            moved += s"lanes $lanes: ${bb.size - ab.size} committed $sequence block(s) gone"
+            if (bb != null && bb.size > ab.size) {
+              moved += s"lanes $lanes: ${bb.size - ab.size} committed $sequence block(s) gone"
+            }
           }
         }
       }
@@ -824,16 +830,12 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
     moved.result()
   }
 
-  // ---------------------------------------------------------------------------------------
-  // The pinning tests
-  // ---------------------------------------------------------------------------------------
-
   /**
    * The tests the option arms' digests are pinned in, consecutive shares of `pinnedDigests`.
    * The arms are most of the oracle's work - about fifty digests, each over some thirty
-   * thousand shapes, against two passes over the defaults - and in one test with the defaults
-   * they ran 334 s on a fast runner and past the watchdog's ten minutes on a slower one. A share
-   * is a sixth of that work; when the arms outgrow it, raise the count rather than the cap.
+   * thousand shapes, against two passes over the defaults - so they are split from the defaults'
+   * test and among themselves, each share well under the watchdog's cap on a slow runner. When
+   * a share's time nears the cap, raise the count rather than the cap.
    */
   private val armParts = 6
 
@@ -873,7 +875,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
   }
 
-  test("sql/varka/emitted_bytes.json pins what the emitter produces for every shape") {
+  test("sql/varka/emitted_bytes.json pins what the emitter produces for every shape at the " +
+      "defaults") {
     // The defaults, shape by shape at both widths, with the option arms taken from the committed
     // file; the arm tests below compute those. A regeneration computes and writes everything.
     // A table read as empty would render, and could pin, no coverage row at all.
