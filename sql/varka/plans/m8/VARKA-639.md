@@ -1,4 +1,4 @@
-# VARKA-639: Varka's sbt jobs restore their dependency caches and fall back to a Maven Central mirror
+# VARKA-639: Varka's sbt jobs restore their dependency caches and boot sbt from a Maven Central mirror first
 
 Row 639 of `PLAN.md`. Added on 22 November 2026 on the owner's question "why don't we use mirrors
 or caches?".
@@ -110,7 +110,7 @@ Cache keys:
 ### 3.2 The mirror
 
 `sql/varka/ci/sbt-repositories` holds the launcher's default list, copied from
-`sbt-launch-1.13.0.jar`, with one line added second, after `maven-central`:
+`sbt-launch-1.13.0.jar`, with one line added first, before `maven-central`:
 
 ```
 gcs-maven-central-mirror: https://maven-central.storage-download.googleapis.com/maven2/
@@ -126,24 +126,28 @@ What the file reaches, as the runs of section 9 show:
 
 * The launcher's download of sbt and Scala, the step that failed in #1625's Build.
 * The BOM lookups that the sbt-bom plugin makes while the build loads (`Resolving
-  NormalizedArtifact(...)` in the log): with Maven Central dead, these were the five lookups refused
-  at the dead URL, and they then resolved.
-* Not the meta-build's plugins. With `maven-central` replaced by a dead URL, no plugin lookup tried
-  that URL, and the plugins came from repo1.maven.org. They are covered by the restored Coursier
+  NormalizedArtifact(...)` in the log): with a dead URL in the list, these were the five lookups
+  refused at it, and they then resolved from the next entry.
+* Not the meta-build's plugins. With a dead URL in place of `maven-central`, no plugin lookup
+  tried it, and the plugins came from repo1.maven.org. They are covered by the restored Coursier
   cache only.
 * Not Spark's projects. `SparkBuild.scala` sets their `externalResolvers` itself, mirror first.
 
-The fallback works per module, not per file. The launcher resolves through Coursier, which looks a
+The order works per module, not per file. The launcher resolves through Coursier, which looks a
 module's pom up in each repository in turn but fetches the jar from the repository that served the
-pom. A 429 on a pom falls through to the mirror, as #1625's would have. A 429 on a jar whose pom
-Maven Central has just served does not. Putting the mirror first would cover both, as
-`SparkBuild.scala` does for the projects, but it would make the mirror the launcher's primary
-source; the order here keeps Maven Central first, as asked.
+pom. With the mirror first, as `SparkBuild.scala` orders the projects' resolvers, the launcher
+reaches repo1.maven.org only for a module whose pom the mirror failed to serve, so a 429 from
+repo1.maven.org can no longer fail the boot on a pom or on a jar. A mirror error on a pom falls
+through to Maven Central; a mirror error on a jar whose pom the mirror served does not.
+
+*Corrected 23 November 2026.* This section first put the mirror second, after Maven Central, as
+the brief asked. The review found that order leaves a 429 on a jar uncovered when Maven Central
+has served its pom, and the owner chose the mirror first.
 
 **What resolves cannot change.**
 
-* The mirror serves the same files as Maven Central. It is consulted only after Maven Central has
-  failed for a module.
+* The mirror serves the same files as Maven Central, so either repository yields the same bytes
+  for a module.
 * Every version that is resolved is pinned (section 2).
 * `sbt.override.build.repos` stays off, so no build's own resolver list is replaced.
 * The checks are unchanged. The launcher checks `sha1,md5` and Coursier checks SHA-1, each
@@ -178,7 +182,7 @@ source; the order here keeps Maven Central first, as asked.
 
 | file | what |
 |---|---|
-| `sql/varka/ci/sbt-repositories` | the launcher's repositories, with the mirror second |
+| `sql/varka/ci/sbt-repositories` | the launcher's repositories, with the mirror first |
 | `.github/workflows/build_and_test.yml` | the assembly gate's two restores; the copy step in `varka-asm`, `varka-matrix-classes`, `varka-scoped` |
 | `.github/workflows/varka-{fuzz,mutation,option-matrix,sweeps,tier-split,width-audit}.yml` | the copy step in each sbt job |
 | `.github/workflows/varka-surface-benchmark.yml` | the two `~/.m2` restores and the copy step in the build |
@@ -190,8 +194,9 @@ source; the order here keeps Maven Central first, as asked.
 * **The file as written.** `build/sbt -Dsbt.repository.config=sql/varka/ci/sbt-repositories about`
   runs with a scratch boot directory, Ivy home and Coursier cache. It shows that the launcher
   parses the file and boots sbt from it.
-* **The fallback.** The same run with `maven-central` replaced by a dead URL
-  (`http://127.0.0.1:9/maven2/`) has to boot sbt 1.13.0 and load the build from the mirror.
+* **The fallback.** The same run with the mirror replaced by a dead URL
+  (`http://127.0.0.1:9/maven2/`) has to boot sbt 1.13.0 and load the build from Maven Central,
+  and with `maven-central` replaced by it, from the mirror.
 * **After the merge.** The first Build's assembly gate shows both restores hitting.
 
 The results of these runs are in section 9.
@@ -205,10 +210,11 @@ cache restores and drops the downloads.
 
 1. **A cache entry can grow.** A job that saves `~/.sbt` now also saves the 2 KB file. Only Varka
    jobs restore those entries, and each one writes the file again.
-2. **A 429 on a jar alone still fails the boot**, as 3.2 says. The restored `~/.sbt` holds the
+2. **A mirror error on a jar still fails the boot**, as 3.2 says. The restored `~/.sbt` holds the
    boot directory, so a job whose `build-` restore hits does not download sbt at all.
 3. **The mirror can lag behind Maven Central.** A version published minutes ago could be missing
-   from it. It is consulted only after Maven Central has failed, and every version is pinned.
+   from it; its pom is then not found there and the lookup falls through to Maven Central. Every
+   version is pinned.
 
 ## 8. Sequencing
 
@@ -231,8 +237,8 @@ it, its list did not). Each ran `build/sbt -batch about` from the worktree with
 | Central dead | the same, `maven-central` replaced by `http://127.0.0.1:9/maven2/` | exit 0 in 126 s, "This is sbt 1.13.0" | the Google mirror | repo1.maven.org |
 
 The second run logged five refused connections to the dead URL, all for BOM jars that the sbt-bom
-plugin looks up while the build loads, and none for a plugin. So the launcher parses the file, its `#` comments
-included, and falls through to the mirror when Maven Central refuses.
+plugin looks up while the build loads, and none for a plugin. So the launcher parses the file, its
+`#` comments included, and falls through to the mirror when Maven Central refuses.
 
 A third run shows what a `build-` hit gives. It reused the first run's boot directory, as a restored
 `~/.sbt` holds it, with an empty Coursier cache and a repositories file whose only entry is the dead
@@ -242,6 +248,22 @@ show this, since the Varka jobs send sbt's output to files.
 
 The workflows: PyYAML parses every changed file, and `actionlint` reports the same 62 findings
 before and after the change, none on a changed line.
+
+### 9.1 The mirror first, 23 November 2026
+
+The owner moved the mirror ahead of `maven-central` after the review's jar finding (3.2). The same
+runs, repeated on the new list with fresh scratch folders:
+
+| run | file | result | `[launcher] getting` lines | sbt 1.13.0 and scala-library 2.12.21 came from |
+|---|---|---|---|---|
+| as written | `sql/varka/ci/sbt-repositories` | exit 0 in 81 s, "This is sbt 1.13.0" | 2 | the Google mirror |
+| mirror dead | the mirror's line replaced by `http://127.0.0.1:9/maven2/` | exit 0 in 52 s | 2 | repo1.maven.org |
+| Central dead | `maven-central` replaced by the same URL | exit 0 in 57 s | 2 | the Google mirror |
+| boot folder only | the first run's boot folder, the dead URL as the only repository | exit 0 | 0 | nothing downloaded |
+
+Each dead-URL run logged five refused connections, all for the sbt-bom plugin's BOM lookups, which
+then resolved from the next entry. The plugins came from repo1.maven.org in every run, as 3.2
+says.
 
 Left for the row: the first Build after the merge, whose assembly gate should restore both
 entries.
