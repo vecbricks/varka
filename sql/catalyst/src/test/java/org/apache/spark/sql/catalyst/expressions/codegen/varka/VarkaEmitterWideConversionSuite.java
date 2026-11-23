@@ -28,6 +28,7 @@ import java.util.Random;
 import java.util.function.IntPredicate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.WideConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
@@ -40,15 +41,22 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
  * The AVX2 forms of {@code BIGINT} to {@code DOUBLE} and {@code FLOAT} ({@link
  * VarkaConversionLowering}) emitted at {@code useAVX=2} and held bit for bit to Java's casts
  * through the reference: plain vector arithmetic, so any x86 host runs them. Every arm of
- * {@code wideConversionForm} and {@code roundToOddByShifts}, the bounded one's decline, and
- * 3.4's named failing case.
+ * {@code wideConversionForm}, {@code roundToOddByShifts} and {@code narrowConversionForm}, the
+ * bounded one's decline, the windowed one's groups across its window, and 3.4's named failing
+ * case.
  */
 @VarkaSuite(ownJvm = true)
 public final class VarkaEmitterWideConversionSuite {
 
   private static final ColumnRef L = new ColumnRef(0, LaneType.LONG);
   private static final VarkaEmitOptions AVX2 = VarkaMatrixRuns.BASE.withUseAVX(2)
-      .withWideConversionForm(WideConversionForm.XOR_SPLIT).withRoundToOddByShifts(false);
+      .withWideConversionForm(WideConversionForm.XOR_SPLIT).withRoundToOddByShifts(false)
+      .withNarrowConversionForm(NarrowConversionForm.ROUND_TO_ODD);
+  /** The two other L2F forms (VARKA-600). */
+  private static final VarkaEmitOptions WINDOWED =
+      AVX2.withNarrowConversionForm(NarrowConversionForm.WINDOWED);
+  private static final VarkaEmitOptions SCALAR =
+      AVX2.withNarrowConversionForm(NarrowConversionForm.SCALAR);
   /** Part 343b1's forms of both conversions, the arms VARKA-583 keeps. */
   private static final VarkaEmitOptions SHIFTS =
       AVX2.withWideConversionForm(WideConversionForm.SPLIT).withRoundToOddByShifts(true);
@@ -142,6 +150,53 @@ public final class VarkaEmitterWideConversionSuite {
   }
 
   @Test
+  @DisplayName("a bigint to FLOAT by the window test and by a scalar cast per lane, at its cells, "
+      + "every width and both bodies")
+  void windowedAndScalarCells() {
+    checkCells("cast(l AS float)", convert(LaneType.FLOAT), WINDOWED, CELLS);
+    checkCells("cast(l AS float)", convert(LaneType.FLOAT), WINDOWED.withRoundToOddByShifts(true),
+        CELLS);
+    checkCells("cast(l AS float)", convert(LaneType.FLOAT), WINDOWED, WINDOW);
+    checkCells("cast(l AS float)", convert(LaneType.FLOAT), SCALAR, CELLS);
+  }
+
+  /**
+   * One lane outside the window among lanes inside it, at every row of a batch two groups and a
+   * ragged remainder long, so it falls at every lane index of a group and in the epilogue: a form
+   * that took the bounded magic for a group with only some lanes inside rounds the outside one
+   * wrong. The window's own edges, {@code 2^51 - 1} and {@code -2^51}, are inside and take the
+   * magic; {@code 2^51} and {@code -2^51 - 1} are the first lanes outside.
+   */
+  @Test
+  @DisplayName("the window test sends a group with one lane outside 2^51 to the rounding to odd, "
+      + "at every lane of a group and in the epilogue")
+  void windowedStraddles() {
+    long w = VarkaConversionLowering.MAGIC_WINDOW;
+    // Inside, near the edges, where the magic and a wrong arm differ least.
+    long[] inside = {w - 1, -w, (1L << 24) + 1, -((1L << 24) + 3), w - 3};
+    // Outside: the first lanes past either edge, and values whose float the magic misrounds.
+    long[] outside = {w, -w - 1, (1L << 53) + (1L << 29) + 1, Long.MIN_VALUE, Long.MAX_VALUE,
+        -((1L << 52) + (1L << 28) + 1)};
+    VarkaVectorIR root = convert(LaneType.FLOAT);
+    for (VarkaEmitOptions forms : List.of(WINDOWED, WINDOWED.withRoundToOddByShifts(true))) {
+      for (int lanes : WIDE_LANES) {
+        int length = 2 * lanes + lanes / 2 + 1;
+        for (long out : outside) {
+          for (int at = 0; at < length; at++) {
+            var nulls = new boolean[1][length];
+            var values = new long[1][length];
+            for (int i = 0; i < length; i++) {
+              values[0][i] = i == at ? out : inside[i % inside.length];
+            }
+            check("cast(l AS float), " + out + " at row " + at, root, forms, lanes,
+                new VarkaKernelChecks.LongBatch(length, nulls, values, true));
+          }
+        }
+      }
+    }
+  }
+
+  @Test
   @DisplayName("a bigint to DOUBLE by the bounded magic inside its window, beside a float one")
   void magicCells() {
     var magic = AVX2.withWideConversionForm(WideConversionForm.MAGIC);
@@ -152,6 +207,8 @@ public final class VarkaEmitterWideConversionSuite {
     checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, magic, WINDOW);
     checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, AVX2, CELLS);
     checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, SHIFTS, CELLS);
+    checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, WINDOWED, CELLS);
+    checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, SCALAR, CELLS);
   }
 
   @Test
@@ -217,9 +274,15 @@ public final class VarkaEmitterWideConversionSuite {
           check("cast(l AS double)", convert(LaneType.DOUBLE), forms, lanes, data);
           check("cast(l AS float)", convert(LaneType.FLOAT), forms, lanes, data);
         }
+        for (VarkaEmitOptions forms : List.of(WINDOWED, SCALAR)) {
+          check("cast(l AS float)", convert(LaneType.FLOAT), forms, lanes, data);
+        }
       }
       for (int offset = 0; offset < inWindow.length; offset += rows) {
         check("cast(l AS double)", convert(LaneType.DOUBLE), magic, lanes,
+            batch(rows, 0, inWindow, offset));
+        // Groups inside the window but for 2^51 itself, so mostly the windowed form's magic arm.
+        check("cast(l AS float)", convert(LaneType.FLOAT), WINDOWED, lanes,
             batch(rows, 0, inWindow, offset));
       }
     }
@@ -262,10 +325,14 @@ public final class VarkaEmitterWideConversionSuite {
   void formsHoldNoConversion() {
     for (LaneType target : List.of(LaneType.DOUBLE, LaneType.FLOAT)) {
       String op = target == LaneType.DOUBLE ? "L2D" : "L2F";
-      for (int level : new int[] {0, 2, VarkaEmitOptions.AVX512_LEVEL}) {
-        String text = new String(VarkaEmitterFixtures.emit(List.of(convert(target)), 1, 0,
-            AVX2.withUseAVX(level).withLanesOverride(4)).bytes(), StandardCharsets.ISO_8859_1);
-        assertEquals(level == VarkaEmitOptions.AVX512_LEVEL, text.contains(op), op + " " + level);
+      for (VarkaEmitOptions forms : List.of(AVX2, WINDOWED, SCALAR)) {
+        for (int level : new int[] {0, 2, VarkaEmitOptions.AVX512_LEVEL}) {
+          String text = new String(VarkaEmitterFixtures.emit(List.of(convert(target)), 1, 0,
+              forms.withUseAVX(level).withLanesOverride(4)).bytes(),
+              StandardCharsets.ISO_8859_1);
+          assertEquals(level == VarkaEmitOptions.AVX512_LEVEL, text.contains(op),
+              op + " " + level + " under " + forms.canonical());
+        }
       }
     }
   }
