@@ -222,7 +222,8 @@ The tell is `VarkaOperatorCensusSuite`'s (the operator census, `VARKA-347.md`), 
 `dev/varka_census.py`'s, and its matcher already has a string-level plant ("the second-species
 tell matches a species class and not a shared superclass"). The live case - a loop whose one
 call chain meets two species, read from C2's printer in a forked JVM - is not built: it is a
-JVM-forking probe cell, out of this window's cheap-checks rule, and owed to part 2.
+JVM-forking probe cell, out of this window's cheap-checks rule, and owed to part 2 (built
+there, 10.3).
 
 **Run in this window.** One targeted run, `catalyst/testOnly *VarkaConformancePlantSuite
 *VarkaUpstreamPinsSuite`: 4 of 4 passed (the plant suite in its own JVM, 6.8 s; the pin 0.05 s,
@@ -249,6 +250,14 @@ missed its fault so far, and the rest are owed. P3 is not scored: the suites' ti
    fusion plant and the bytes plant use the committed file as the "fresh" side, so they run in
    milliseconds instead of probing every cast or emitting every shape; the comparison they plant
    into is the same code the real tests call.
+5. **The fuzzer's SPARK-58482 plant lands in the pivot check** (10.3), not in a new count of
+   batches that reached the kernel as 2.1 item 6 put it: the pivot check already fails a case
+   whose pivot row neither engine read, which is the vacuous pass, and a batch count would need
+   a new metric through the exec nodes for the same verdict.
+6. **The warm-up reach's plant targets the lane mapping, not the counting.** 2.1 item 7 put the
+   plant in the reach's own path (`targets`, `underMark`). The 27 October fault lived in the
+   receivers each lane maps to, so the plant is on `laneErrors` over `receivers`, a check of its
+   own beside the reach; the counting path keeps its existing plant, `plantedOmission`.
 
 ### 10.2 Review of #1634 at `2e8a71502f3` (22 November 2026)
 
@@ -272,3 +281,81 @@ Checked by hand on the laptop. The plant test passed; it also asserts that a row
 reason fails the reason check. With `declinedRows`' `forall(_.fused)` weakened to
 `exists(_.fused)` (a scratch edit, reverted), the plant failed, naming only the `rand(1)` row.
 The pin passed under the default JVM and was skipped under `-XX:TieredStopAtLevel=1`.
+
+### 10.3 Part 2, built 20 November 2026 and run 23 November 2026 (branch `varka-504b-sql-plants-r`)
+
+- **Differential** (`VarkaDifferentialSuite`): `checkDifferential` takes an optional
+  `expectedQuery` for the row engine, and a test plants a wrong answer (`date_add(d, 8)`
+  against `date_add(d, 7)`) on the fused path and on the vanilla one; both must fail on
+  `checkAnswer`. The same test plants row 501's fault: the row engine's plan over the table
+  with its cache dropped, against Varka's cached plan, must fail `sameCacheReads`.
+- **SPARK-58482 pinned** (`VarkaFloatingLaneSuite`): a cached one-row batch of NaN, filtered by
+  `NOT (x < 1.5D)`, keeps its row with the cache's pruning off and loses it with the pruning
+  on. If Spark fixes the statistics, the test fails, and the pruning-off workarounds in this
+  suite, `VarkaSparkDifferential` and `VarkaCoverageDifferentialSuite` retire with it.
+- **Spark fuzzer, SPARK-58482** (`VarkaSparkFuzzSuite`): a cached one-row NaN view on both
+  sessions, filtered by `NOT (x < 1.5D)`. With the pruning off the engines agree and the pivot
+  row is selected; with it on they still agree (no difference), and the fuzzer's pivot check,
+  `pivotMissing`, must report the row missing. That is the vacuous pass of 2.1 item 6, caught
+  by the check the fuzzer already runs on every pivot case rather than by a new batch count.
+- **Operator census, the second-species tell's live case** (`VarkaOperatorCensusProbe`,
+  `VarkaOperatorCensusCatalog`, `VarkaOperatorCensusSuite`): a planted cell,
+  `planted.bimorphic`, whose one `lanewise` call site meets the 128-bit and the 64-bit int
+  species alternately, so C2 inlines it for both receiver classes and its printer says "callee
+  changed to" the second. The suite forks it at the host's width and requires the tell, with the
+  planted fallback's one-species loop as the control. It is assumed away below 256 bits, where
+  one of the two would be the preferred species. It ran at 512 bits and the tell tripped.
+- **The workaround sites name their pins** (the row's last clause): `checkFused` in
+  `VarkaFloatingLaneSuite`, both `withFloatingPruningOff`, `VarkaMaybeThrows.sameError`,
+  `VarkaExpressionHarness.sameError`, `VarkaAnsiForm.isExactLongOverflow` and the messageless
+  test of `VarkaFilterRaiseOrderSuite` each point at the test that pins their upstream behaviour.
+- **Positive counts (2.4)** added where a check could run over nothing: the bytes oracle's pin
+  asserts more than 100 coverage rows reach it, `dev/varka_census.py --check` fails when no
+  entry is in scope, and the Spark fuzzer's main test asserts that it compared and fused
+  something itself (fused only for a run of more than one iteration, so a one-iteration replay
+  still works). The fuzzer's counters belong to the suite, so the test reads what they gained
+  during it, not their totals. `VarkaCoverageDifferentialSuite` already asserts it read at least
+  57 rows.
+
+**Each plant against a weakened check** (section 3; scratch edits, reverted, on the laptop at
+512 bits, 23 November 2026). Every plant failed, and each on its own assertion:
+
+- Wrong answer, fused: `checkDifferential`'s fused `checkAnswer` calls replaced by a
+  `collect()`; the plant failed at its fused `intercept`, no failure thrown.
+- Wrong answer, vanilla: the unfused `checkAnswer` alone replaced the same way; the plant
+  failed at its unfused `intercept`.
+- Cached against uncached: `sameCacheReads`' comparison of the two plans' cached reads made
+  true; the plant failed at its cache `intercept`.
+- Fuzzer pivot: `pivotMissing` made to return `None`; the plant failed, `(None, None)` for the
+  expected `(None, Some("pivot row not selected by Varka"))`.
+- SPARK-58482 pin: the pruned run forced to the pruning off, as if Spark had fixed it; the pin
+  failed with its "SPARK-58482 looks fixed" message.
+- Second-species tell: the reading's `bimorphic` forced false, and the plant failed on the
+  bimorphic cell; forced true, and it failed on the control. No other census test failed with
+  it forced false, as the census asserts only the tell's absence.
+- Census count: `--check` over a build with every in-scope entry dropped (a Python scratch
+  patch) failed with "no entry is in scope".
+
+A first wrong-answer mutation that dropped `checkAnswer` without running the query failed on
+`assertKernelsRan` instead; the plant's check that the failure says "Results do not match"
+caught that it was the wrong failure, so the mutation was redone to run the query.
+
+**What the part 2 plants cover, and what they do not.** The fuzzer plant calls the fuzzer's
+`difference` and `pivotMissing` on a hand-built NaN case; it does not go through
+`disagreement` and `checkOnce`, which wrap a floating case in the pruning-off workaround. So it
+shows that the pivot check catches the pruned pivot, and with the pin, that the workaround is
+still needed; it would not catch `checkOnce` dropping its pivot check. Driving a case through
+`checkOnce` with the workaround off needs a seam in `VarkaSparkDifferential`, not built.
+
+**Left of the plan, not built.**
+- 2.2's "differential suites over every coverage row" as a completeness assertion: the
+  coverage differential asserts a floor (57 rows), not that it runs every row of
+  `coverage.json`; the conformance contracts' "every Lane" holds through the census's
+  `conformance_errors`, which fails a landed type with no suite and no owing row.
+- The plants of a changed option arm and of a skipped coverage row.
+
+**Predictions.** P1 holds for every plant of both parts: each passed unweakened and failed on
+its weakened check. P2 holds on one check: the Spark fuzzer's main test passed whatever it
+compared, and its first count read the suite's totals, which other tests also raise. P3 holds:
+each sql plant took under 10 s, and the census's planted fork, with its control,
+is the costliest at two JVM starts.
