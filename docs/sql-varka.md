@@ -482,7 +482,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `date_sub(d, 5)` | `calendar` |  |  | vector |
 | `d + CAST(i AS INTERVAL DAY)` | `calendar`, `interval` | `i BETWEEN -106751991 AND 106751991` | the day-interval spelling of a column offset; past the bound the cast itself throws in every mode, so the batch declines and the row engine raises | vector |
 | `datediff(d2, d)` | `calendar` |  |  | vector |
-| `d2 - d` | `calendar` | `CAST(unix_date(d2) AS BIGINT) - unix_date(d) BETWEEN -106751991 AND 106751991` | a day-time interval in microseconds, not datediff's day count; Spark raises where the int day count overflows or its product overflows a long, in every mode, so the batch declines and the row engine raises. The legacy CalendarInterval result is not fused | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `d2 - d` | `calendar` | `CAST(unix_date(d2) AS BIGINT) - unix_date(d) BETWEEN -106751991 AND 106751991` | a day-time interval in microseconds, not datediff's day count; Spark raises where the int day count overflows or its product overflows a long, in every mode, so the batch declines and the row engine raises. The legacy CalendarInterval result is not fused | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
 | `unix_date(d)` | `calendar` |  |  | vector |
 | `date_from_unix_date(unix_date(d))` | `calendar` |  |  | vector |
 
@@ -537,14 +537,14 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `dt + dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_add(dt, dt2) IS NOT NULL)` | a sum past the long raises in every mode, so its batch declines and the row engine raises | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `dt - dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_subtract(dt, dt2) IS NOT NULL)` | the difference, exact in every mode as the sum is | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `-dt` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | negateExact raises on the least interval alone | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `abs(dt)` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | the checked negation under a blend; Spark raises on the least interval in every mode, with ARITHMETIC_OVERFLOW rather than the interval condition | per-lane: compare to mask, mask logic, blend, mask broadcast, mask test, mask cast |
-| `dt + INTERVAL '1' DAY` | `interval` | `if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)` | the literal, cast to the column's unit and folded, takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `dt * 3` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `-2 * dt` | `interval` | `if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)` | the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `extract(DAY FROM dt)` | `interval` |  | Java's truncating division by a day, exact over every long and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset | vector |
+| `dt + dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_add(dt, dt2) IS NOT NULL)` | a sum past the long raises in every mode, so its batch declines and the row engine raises | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `dt - dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_subtract(dt, dt2) IS NOT NULL)` | the difference, exact in every mode as the sum is | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `-dt` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | negateExact raises on the least interval alone | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `abs(dt)` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | the checked negation under a blend; Spark raises on the least interval in every mode, with ARITHMETIC_OVERFLOW rather than the interval condition | per-lane: compare to mask, mask logic, blend, mask broadcast, mask test, mask cast, other, load or store |
+| `dt + INTERVAL '1' DAY` | `interval` | `if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)` | the literal, cast to the column's unit and folded, takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `dt * 3` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `-2 * dt` | `interval` | `if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)` | the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `extract(DAY FROM dt)` | `interval` |  | Java's truncating division by a day, exact over every long and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 
 #### Integer arithmetic
 
@@ -587,7 +587,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `l + l2` | `intArithmetic` | `if(l IS NULL OR l2 IS NULL, NULL, try_add(l, l2) IS NOT NULL)` | checked under ANSI at 64 bits; the legacy mode wraps as Spark does | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 | `l - l2` | `intArithmetic` | `if(l IS NULL OR l2 IS NULL, NULL, try_subtract(l, l2) IS NOT NULL)` | checked subtraction at 64 bits | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 | `l + 1` | `intArithmetic` | `l < 9223372036854775807` | a literal does not bound a bigint column, so the check stays | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
-| `CAST(i AS BIGINT) * 1000L` | `intArithmetic` |  | a widened int times a literal cannot leave the long, so the multiply fuses with no check; `l * 3` over a bigint column declines | per-lane: mask broadcast, mask test |
+| `CAST(i AS BIGINT) * 1000L` | `intArithmetic` |  | a widened int times a literal cannot leave the long, so the multiply fuses with no check; `l * 3` over a bigint column declines | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `-l` | `intArithmetic` | `l > -9223372036854775808` | negation raises on Long.MinValue only | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 | `abs(l)` | `intArithmetic` | `l > -9223372036854775808` | `abs(Long.MinValue)` is out of range, and wraps back to itself in the legacy mode | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 | `try_add(l, l2)` | `intArithmetic` |  | an overflowing lane is null, so the kernel declines nothing | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
@@ -605,23 +605,23 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `shiftright(i, i)` | `intArithmetic` |  | a column count, masked the same way | vector |
 | `i >>> 28` | `intArithmetic` |  |  | vector |
 | `bit_count(i)` | `intArithmetic` |  | the bits of the value widened to a bigint, so a negative int counts its 32 high bits as well | vector |
-| `l & l2` | `intArithmetic` |  |  | vector |
-| `l \| 5000000000` | `intArithmetic` |  |  | vector |
-| `l ^ l2` | `intArithmetic` |  |  | vector |
-| `~l` | `intArithmetic` |  |  | vector |
-| `l << 3` | `intArithmetic` |  |  | vector |
-| `shiftleft(l, i)` | `intArithmetic` |  | a column count is widened to the long lane and masked to its low six bits as Java's `<<` does, so a count of 64 or -1 is as in the row engine | per-lane: mask broadcast, load or store, mask test |
-| `shiftright(l, i ^ 5)` | `intArithmetic` |  | the count may be any int expression | per-lane: mask broadcast, load or store, mask test |
-| `l >> 40` | `intArithmetic` |  |  | vector |
-| `shiftrightunsigned(l, 63)` | `intArithmetic` |  |  | vector |
-| `bit_count(l)` | `intArithmetic` |  | a count computed in the long lane and narrowed to the int Spark types it as | vector |
-| `bit_count(l) + 1` | `intArithmetic` |  | the narrowed count feeding int arithmetic; the sum cannot overflow, the count being at most 64 | per-lane: mask broadcast, load or store |
-| `bitmap_bucket_number(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
-| `bitmap_bit_position(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
+| `l & l2` | `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `l \| 5000000000` | `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `l ^ l2` | `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `~l` | `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `l << 3` | `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `shiftleft(l, i)` | `intArithmetic` |  | a column count is widened to the long lane and masked to its low six bits as Java's `<<` does, so a count of 64 or -1 is as in the row engine | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `shiftright(l, i ^ 5)` | `intArithmetic` |  | the count may be any int expression | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `l >> 40` | `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `shiftrightunsigned(l, 63)` | `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `bit_count(l)` | `intArithmetic` |  | a count computed in the long lane and narrowed to the int Spark types it as | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `bit_count(l) + 1` | `intArithmetic` |  | the narrowed count feeding int arithmetic; the sum cannot overflow, the count being at most 64 | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `bitmap_bucket_number(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `bitmap_bit_position(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast, other, mask logic, load or store, mask test |
 | `bit_get(i, 3)` | `intArithmetic` |  | a TINYINT result, the bit shifted down, masked and narrowed; a literal position past the width declines, since Spark raises on every row with a valid target | vector |
 | `bit_get(i, i)` | `intArithmetic` | `i BETWEEN 0 AND 31` | a position column is guarded by the width, which declines the batch Spark raises BIT_POSITION_RANGE on | vector |
-| `getbit(l, 63)` | `intArithmetic` |  | the alias, at the long lane | vector |
-| `bit_get(l, i)` | `intArithmetic` | `i BETWEEN 0 AND 63` | the guarded position widened to the long lane | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `getbit(l, 63)` | `intArithmetic` |  | the alias, at the long lane | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `bit_get(l, i)` | `intArithmetic` | `i BETWEEN 0 AND 63` | the guarded position widened to the long lane | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
 | `bit_count(b)` | `intArithmetic` |  | 1 or 0, and null where the boolean is: the condition's value | vector |
 
 #### Choice and nulls
@@ -769,20 +769,20 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
 | `IF(b, d, d2)` | `condition` |  | the int lane | vector |
-| `IF(b, l, l2)` | `condition` |  | the leaf is lifted to the long lane of the values | per-lane: blend, mask broadcast |
-| `CASE WHEN b THEN l ELSE l2 END` | `condition` |  | likewise, per branch | per-lane: blend, mask broadcast |
+| `IF(b, l, l2)` | `condition` |  | the leaf is lifted to the long lane of the values | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CASE WHEN b THEN l ELSE l2 END` | `condition` |  | likewise, per branch | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 
 #### Boolean outputs
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
 | `d2 > d` | `predicate` |  | a date comparison as a column, on the int lane; `d < d2` as an output | vector |
-| `l2 > l` | `predicate` |  | the long lane's comparison as a column | per-lane: compare to mask, mask cast |
+| `l2 > l` | `predicate` |  | the long lane's comparison as a column | per-lane: compare to mask, mask cast, mask broadcast, other, mask logic, load or store, mask test |
 | `y2 > y1` | `predicate` |  | the byte lane's, at the narrow lane where every value is narrow | vector |
 | `NOT b2` | `predicate` |  | a boolean column negated: the pair swapped and written as two bitmaps | vector |
 | `b AND b2` | `predicate` |  | a connective: false where either is false, even beside an unknown | vector |
 | `(d < d2) OR b` | `predicate` |  | a comparison beside a boolean column on the lane they share | vector |
-| `l2 <=> l` | `predicate` |  | null-safe equality is never unknown, so its validity is all ones | per-lane: compare to mask, mask cast |
+| `l2 <=> l` | `predicate` |  | null-safe equality is never unknown, so its validity is all ones | per-lane: compare to mask, mask cast, mask broadcast, other, mask logic, load or store, mask test |
 | `CASE WHEN b THEN b2 END` | `predicate` |  | no ELSE: a null constant where b is not true, so the kernel is masked-only | vector |
 
 #### TINYINT columns
@@ -891,37 +891,37 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `CAST(i AS BIGINT)` | `intArithmetic` |  | a sign extension, exact in every mode | per-lane: mask broadcast, mask test |
-| `CAST(time_to_millis(t) AS INT)` | `time`, `intArithmetic` | `time_to_millis(t) BETWEEN -2147483648 AND 2147483647` | a bigint narrowed to an int: under ANSI a value past the int range declines and the row engine raises CAST_OVERFLOW, and the legacy mode keeps the low 32 bits, as Spark does; a day's milliseconds always fit | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `greatest(i, l)` | `intArithmetic` |  | type coercion widens the int, and the pick is the long lane's | per-lane: blend, mask broadcast, load or store, mask test |
-| `CASE WHEN i < l THEN i ELSE l END` | `predicate`, `condition`, `intArithmetic` |  | the widened int in a condition and in a branch of a long-valued conditional | per-lane: compare to mask, blend, mask cast, mask broadcast, load or store, mask test |
+| `CAST(i AS BIGINT)` | `intArithmetic` |  | a sign extension, exact in every mode | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `CAST(time_to_millis(t) AS INT)` | `time`, `intArithmetic` | `time_to_millis(t) BETWEEN -2147483648 AND 2147483647` | a bigint narrowed to an int: under ANSI a value past the int range declines and the row engine raises CAST_OVERFLOW, and the legacy mode keeps the low 32 bits, as Spark does; a day's milliseconds always fit | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `greatest(i, l)` | `intArithmetic` |  | type coercion widens the int, and the pick is the long lane's | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CASE WHEN i < l THEN i ELSE l END` | `predicate`, `condition`, `intArithmetic` |  | the widened int in a condition and in a branch of a long-valued conditional | per-lane: compare to mask, blend, mask cast, mask broadcast, other, mask logic, load or store, mask test |
 
 #### Integral casts
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
 | `CAST(y1 AS SMALLINT)` | `integralCast` |  | a sign extension at the int lane, no instruction; every byte value in the exhaustive suite | vector |
-| `CAST(y1 AS BIGINT)` | `integralCast` |  | the byte column loaded at the long width, widened in the int species and converted with I2L; exhaustive | per-lane: mask broadcast, mask test |
-| `CAST(s1 AS BIGINT)` | `integralCast` |  | the short twin; exhaustive | per-lane: mask broadcast, mask test |
+| `CAST(y1 AS BIGINT)` | `integralCast` |  | the byte column loaded at the long width, widened in the int species and converted with I2L; exhaustive | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `CAST(s1 AS BIGINT)` | `integralCast` |  | the short twin; exhaustive | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `CAST(s1 AS TINYINT)` | `integralCast` | `s1 BETWEEN -128 AND 127` | the low byte under the legacy mode; under ANSI a value past the byte range declines and the row engine raises CAST_OVERFLOW; exhaustive | vector |
 | `CAST(i AS TINYINT)` | `integralCast` | `i BETWEEN -128 AND 127` | the int narrowed at its store; checked under ANSI; the wrap and the range compare proven in casts.smt2 | vector |
 | `CAST(i AS SMALLINT)` | `integralCast` | `i BETWEEN -32768 AND 32767` | the short twin; casts.smt2 | vector |
-| `CAST(l AS TINYINT)` | `integralCast` | `l BETWEEN -128 AND 127` | the bigint narrowed at its store, L2I and the byte store; checked under ANSI; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `CAST(l AS SMALLINT)` | `integralCast` | `l BETWEEN -32768 AND 32767` | the short twin; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `CAST(l AS TINYINT)` | `integralCast` | `l BETWEEN -128 AND 127` | the bigint narrowed at its store, L2I and the byte store; checked under ANSI; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `CAST(l AS SMALLINT)` | `integralCast` | `l BETWEEN -32768 AND 32767` | the short twin; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
 | `CAST(b AS TINYINT)` | `integralCast` |  | 1 where true, 0 where false, null where null, in the byte lane under the native arm; every leaf state in the exhaustive suite | vector |
 | `CAST(b AS SMALLINT)` | `integralCast` |  | the short twin; exhaustive | vector |
 | `CAST(b AS INT)` | `integralCast` |  | the int lane; exhaustive | vector |
-| `CAST(b AS BIGINT)` | `integralCast` |  | the long lane; exhaustive | per-lane: masked operation, mask broadcast |
+| `CAST(b AS BIGINT)` | `integralCast` |  | the long lane; exhaustive | per-lane: masked operation, mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `try_cast(s1 AS TINYINT)` | `integralCast` |  | a nulling range guard: null where the short does not fit the byte, no declined batch; exhaustive | vector |
 | `try_cast(i AS TINYINT)` | `integralCast` |  | the int's nulling guard over the byte range; differential | vector |
 | `try_cast(i AS SMALLINT)` | `integralCast` |  | the short twin; differential | vector |
-| `try_cast(l AS TINYINT)` | `integralCast` |  | the bigint's nulling guard, L2I and the byte store; differential | per-lane: compare to mask, mask logic, mask cast |
-| `try_cast(l AS SMALLINT)` | `integralCast` |  | the short twin; differential | per-lane: compare to mask, mask logic, mask cast, mask broadcast, load or store |
-| `try_cast(l AS INT)` | `intArithmetic` |  | the bigint's nulling guard over the int range; differential | per-lane: compare to mask, mask logic, mask cast |
-| `greatest(y1, l)` | `intArithmetic`, `integralCast` |  | type coercion widens the byte, loaded at the long width, to meet the bigint; differential | per-lane: blend, mask broadcast, load or store, mask test |
+| `try_cast(l AS TINYINT)` | `integralCast` |  | the bigint's nulling guard, L2I and the byte store; differential | per-lane: compare to mask, mask logic, mask cast, mask broadcast, other, load or store, mask test |
+| `try_cast(l AS SMALLINT)` | `integralCast` |  | the short twin; differential | per-lane: compare to mask, mask logic, mask cast, mask broadcast, other, load or store, mask test |
+| `try_cast(l AS INT)` | `intArithmetic` |  | the bigint's nulling guard over the int range; differential | per-lane: compare to mask, mask logic, mask cast, mask broadcast, other, load or store, mask test |
+| `greatest(y1, l)` | `intArithmetic`, `integralCast` |  | type coercion widens the byte, loaded at the long width, to meet the bigint; differential | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 | `CAST(i + 1 AS TINYINT)` | `intArithmetic`, `integralCast` | `i BETWEEN -129 AND 126` | a computed int narrowed, the add checked under ANSI as any int add is; differential | vector |
 | `CAST(i < 5 AS TINYINT)` | `predicate`, `integralCast` |  | a comparison's value at the int lane, narrowed: a 0 or a 1 needs no wrap; differential | vector |
-| `CAST(dt AS BIGINT)` | `time` | `dt BETWEEN INTERVAL '-52124 23:53:47.370495' DAY TO SECOND AND INTERVAL '52124 23:53:47.370495' DAY TO SECOND` | the whole seconds of a DAY TO SECOND interval: a truncating division by 10^6 under a guard of 2^52 microseconds, past which the row engine divides; the DAY end is exact over every long | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `CAST(dt AS BIGINT)` | `time` | `dt BETWEEN INTERVAL '-52124 23:53:47.370495' DAY TO SECOND AND INTERVAL '52124 23:53:47.370495' DAY TO SECOND` | the whole seconds of a DAY TO SECOND interval: a truncating division by 10^6 under a guard of 2^52 microseconds, past which the row engine divides; the DAY end is exact over every long | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
 
 #### Integral cast predicates
 
@@ -949,23 +949,23 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `greatest(l, l2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
-| `least(l, 5000000000)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
-| `CASE WHEN l < l2 THEN l ELSE l2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
-| `if(l IS NULL, l2, l)` | `predicate`, `condition` |  |  | per-lane: mask broadcast, mask logic, blend |
-| `if(y1 IS NULL, l, l2)` | `predicate`, `condition` |  | a byte column read for its validity alone, which joins the bigint kernel: the word is a bit per row at every lane (VARKA-480) | per-lane: mask broadcast, mask logic, blend |
-| `if(s1 IS NULL, l, l2)` | `predicate`, `condition` |  | the short twin | per-lane: mask broadcast, mask logic, blend |
-| `greatest(t, t2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
-| `CASE WHEN dt > INTERVAL '0' SECOND THEN dt ELSE dt2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
-| `coalesce(l, l2)` | `condition` |  |  | per-lane: blend, mask broadcast |
-| `least(t, t2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
-| `CASE WHEN t < t2 THEN t ELSE t2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
-| `if(t < t2, t, t2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
-| `coalesce(t, t2)` | `condition` |  |  | per-lane: blend, mask broadcast |
-| `greatest(dt, dt2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
-| `least(dt, dt2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
-| `if(dt < dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
-| `coalesce(dt, dt2)` | `condition` |  |  | per-lane: blend, mask broadcast |
+| `greatest(l, l2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `least(l, 5000000000)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CASE WHEN l < l2 THEN l ELSE l2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `if(l IS NULL, l2, l)` | `predicate`, `condition` |  |  | per-lane: mask broadcast, mask logic, blend, other, load or store, compare to mask, mask test |
+| `if(y1 IS NULL, l, l2)` | `predicate`, `condition` |  | a byte column read for its validity alone, which joins the bigint kernel: the word is a bit per row at every lane (VARKA-480) | per-lane: mask broadcast, mask logic, blend, other, load or store, compare to mask, mask test |
+| `if(s1 IS NULL, l, l2)` | `predicate`, `condition` |  | the short twin | per-lane: mask broadcast, mask logic, blend, other, load or store, compare to mask, mask test |
+| `greatest(t, t2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CASE WHEN dt > INTERVAL '0' SECOND THEN dt ELSE dt2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `coalesce(l, l2)` | `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `least(t, t2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CASE WHEN t < t2 THEN t ELSE t2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `if(t < t2, t, t2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `coalesce(t, t2)` | `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `greatest(dt, dt2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `least(dt, dt2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `if(dt < dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `coalesce(dt, dt2)` | `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 
 #### Choice and nulls on every type
 
@@ -996,25 +996,25 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CASE WHEN d < d2 THEN ym END` | `predicate`, `condition` |  |  | vector |
 | `nullif(ym, INTERVAL '1-2' YEAR TO MONTH)` | `predicate`, `condition` |  |  | vector |
 | `nvl2(d, ym, INTERVAL '0-1' YEAR TO MONTH)` | `predicate`, `condition` |  |  | vector |
-| `CASE WHEN l < l2 THEN l END` | `predicate`, `condition` |  | the missing ELSE is the null of the long lane | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `if(d < d2, l, NULL)` | `predicate`, `condition` |  | a date condition lifted to the long lane beside the null | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store, mask test |
-| `nullif(l, l2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `nullifzero(l)` | `predicate`, `condition`, `intArithmetic` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store, mask test |
-| `zeroifnull(l)` | `condition`, `intArithmetic` |  |  | per-lane: blend, mask broadcast, load or store, mask test |
-| `nvl2(l2, l, l2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
-| `greatest(l, -9223372036854775808L)` | `intArithmetic` |  | the bigint minimum beside a null | per-lane: blend, mask broadcast |
-| `least(l, 9223372036854775807L)` | `intArithmetic` |  | the bigint maximum beside a null | per-lane: blend, mask broadcast |
-| `greatest(l, NULL, -9223372036854775808L)` | `intArithmetic` |  | the null leaf of the long lane beside the bigint minimum | per-lane: blend, mask broadcast |
-| `CASE WHEN t < t2 THEN t END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `nullif(t, t2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `nvl2(t2, t, t2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
-| `greatest(t, TIME '00:00:00')` | `intArithmetic` |  | the first TIME beside a null | per-lane: blend, mask broadcast |
-| `least(t, TIME '23:59:59.999999')` | `intArithmetic` |  | the last TIME beside a null | per-lane: blend, mask broadcast |
-| `least(t, NULL)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
-| `CASE WHEN dt < dt2 THEN dt END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `nullif(dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `nvl2(dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
-| `greatest(dt, NULL)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
+| `CASE WHEN l < l2 THEN l END` | `predicate`, `condition` |  | the missing ELSE is the null of the long lane | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `if(d < d2, l, NULL)` | `predicate`, `condition` |  | a date condition lifted to the long lane beside the null | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `nullif(l, l2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `nullifzero(l)` | `predicate`, `condition`, `intArithmetic` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `zeroifnull(l)` | `condition`, `intArithmetic` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `nvl2(l2, l, l2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `greatest(l, -9223372036854775808L)` | `intArithmetic` |  | the bigint minimum beside a null | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `least(l, 9223372036854775807L)` | `intArithmetic` |  | the bigint maximum beside a null | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `greatest(l, NULL, -9223372036854775808L)` | `intArithmetic` |  | the null leaf of the long lane beside the bigint minimum | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CASE WHEN t < t2 THEN t END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `nullif(t, t2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `nvl2(t2, t, t2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `greatest(t, TIME '00:00:00')` | `intArithmetic` |  | the first TIME beside a null | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `least(t, TIME '23:59:59.999999')` | `intArithmetic` |  | the last TIME beside a null | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `least(t, NULL)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CASE WHEN dt < dt2 THEN dt END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `nullif(dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `nvl2(dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `greatest(dt, NULL)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 
 #### BETWEEN on every type
 
@@ -1049,71 +1049,71 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `greatest(ntz, ntz2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
-| `least(ntz, ntz2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
-| `CASE WHEN ntz < ntz2 THEN ntz ELSE ntz2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
-| `if(ntz IS NULL, ntz2, ntz)` | `predicate`, `condition` |  |  | per-lane: mask broadcast, mask logic, blend |
-| `coalesce(ntz, ntz2)` | `condition` |  |  | per-lane: blend, mask broadcast |
-| `CAST(d AS TIMESTAMP_NTZ)` | `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991` | Spark multiplies with multiplyExact in every mode, so a day past the bound raises under LEGACY and ANSI and is null under TRY, on the row engine the guard sends its batch to | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `CAST(ntz AS DATE)` | `intArithmetic` |  | cannot fail: every quotient is a day an int holds | vector |
+| `greatest(ntz, ntz2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `least(ntz, ntz2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CASE WHEN ntz < ntz2 THEN ntz ELSE ntz2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `if(ntz IS NULL, ntz2, ntz)` | `predicate`, `condition` |  |  | per-lane: mask broadcast, mask logic, blend, other, load or store, compare to mask, mask test |
+| `coalesce(ntz, ntz2)` | `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CAST(d AS TIMESTAMP_NTZ)` | `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991` | Spark multiplies with multiplyExact in every mode, so a day past the bound raises under LEGACY and ANSI and is null under TRY, on the row engine the guard sends its batch to | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `CAST(ntz AS DATE)` | `intArithmetic` |  | cannot fail: every quotient is a day an int holds | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 
 #### TIMESTAMP_NTZ arithmetic
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `ntz - ntz2` | `time` | `if(ntz IS NULL OR ntz2 IS NULL, NULL, try_subtract(ntz, ntz2) IS NOT NULL)` | a day-time interval in microseconds; a difference past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `ntz2 - d` | `time`, `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991 AND if(ntz2 IS NULL OR d IS NULL, NULL, try_subtract(ntz2, d) IS NOT NULL)` | type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the cast's day guard, then subtracts it | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
-| `ntz + dt` | `time` | `if(ntz IS NULL OR dt IS NULL, NULL, try_add(ntz, dt) IS NOT NULL)` | a value past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `ntz - dt` | `interval`, `time` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `ntz + INTERVAL '1' DAY` | `time` | `if(ntz IS NULL, NULL, try_add(ntz, INTERVAL '1' DAY) IS NOT NULL)` | a literal interval takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `timestampadd(MICROSECOND, l, ntz)` | `time` | `if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '0.000001' SECOND, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `timestampadd(SECOND, i, ntz)` | `time`, `intArithmetic` | `if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' SECOND, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
-| `timestampadd(HOUR, i, ntz)` | `time`, `intArithmetic` | `if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' HOUR, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
-| `timestampadd(HOUR, l, ntz)` | `time` | `l BETWEEN -2562047788 AND 2562047788 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' HOUR, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `timestampadd(DAY, i, ntz)` | `time`, `intArithmetic` | `i BETWEEN -106751991 AND 106751991 AND if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' DAY, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
-| `timestampadd(DAY, l, ntz)` | `time` | `l BETWEEN -106751991 AND 106751991 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' DAY, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `timestampadd(WEEK, i, ntz)` | `time`, `intArithmetic` | `i BETWEEN -15250284 AND 15250284 AND if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '7' DAY, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
-| `timestampadd(WEEK, l, ntz)` | `time` | `l BETWEEN -15250284 AND 15250284 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '7' DAY, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `ntz + ym` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND ym BETWEEN INTERVAL '-2048-0' YEAR TO MONTH AND INTERVAL '2047-0' YEAR TO MONTH` | the date moved by add_months and the time of day kept | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `ntz - ym` | `calendar`, `interval` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND ym BETWEEN INTERVAL '-2047-0' YEAR TO MONTH AND INTERVAL '2048-0' YEAR TO MONTH` | the negated count under the range, so the bounds change sides | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `ntz + INTERVAL '1' MONTH` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `timestampadd(MONTH, i, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -24576 AND 24564` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `timestampadd(MONTH, l, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -24576 AND 24564` |  | per-lane: mask logic, compare to mask, mask broadcast, mask test, load or store |
-| `timestampadd(QUARTER, i, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -8192 AND 8188` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `timestampadd(QUARTER, l, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -8192 AND 8188` |  | per-lane: mask logic, compare to mask, mask broadcast, mask test, load or store |
-| `timestampadd(YEAR, i, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -2048 AND 2047` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `timestampadd(YEAR, l, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -2048 AND 2047` |  | per-lane: mask logic, compare to mask, mask broadcast, mask test, load or store |
+| `ntz - ntz2` | `time` | `if(ntz IS NULL OR ntz2 IS NULL, NULL, try_subtract(ntz, ntz2) IS NOT NULL)` | a day-time interval in microseconds; a difference past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `ntz2 - d` | `time`, `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991 AND if(ntz2 IS NULL OR d IS NULL, NULL, try_subtract(ntz2, d) IS NOT NULL)` | type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the cast's day guard, then subtracts it | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `ntz + dt` | `time` | `if(ntz IS NULL OR dt IS NULL, NULL, try_add(ntz, dt) IS NOT NULL)` | a value past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `ntz - dt` | `interval`, `time` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `ntz + INTERVAL '1' DAY` | `time` | `if(ntz IS NULL, NULL, try_add(ntz, INTERVAL '1' DAY) IS NOT NULL)` | a literal interval takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `timestampadd(MICROSECOND, l, ntz)` | `time` | `if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '0.000001' SECOND, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `timestampadd(SECOND, i, ntz)` | `time`, `intArithmetic` | `if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' SECOND, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `timestampadd(HOUR, i, ntz)` | `time`, `intArithmetic` | `if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' HOUR, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `timestampadd(HOUR, l, ntz)` | `time` | `l BETWEEN -2562047788 AND 2562047788 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' HOUR, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `timestampadd(DAY, i, ntz)` | `time`, `intArithmetic` | `i BETWEEN -106751991 AND 106751991 AND if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' DAY, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `timestampadd(DAY, l, ntz)` | `time` | `l BETWEEN -106751991 AND 106751991 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' DAY, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `timestampadd(WEEK, i, ntz)` | `time`, `intArithmetic` | `i BETWEEN -15250284 AND 15250284 AND if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '7' DAY, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `timestampadd(WEEK, l, ntz)` | `time` | `l BETWEEN -15250284 AND 15250284 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '7' DAY, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `ntz + ym` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND ym BETWEEN INTERVAL '-2048-0' YEAR TO MONTH AND INTERVAL '2047-0' YEAR TO MONTH` | the date moved by add_months and the time of day kept | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `ntz - ym` | `calendar`, `interval` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND ym BETWEEN INTERVAL '-2047-0' YEAR TO MONTH AND INTERVAL '2048-0' YEAR TO MONTH` | the negated count under the range, so the bounds change sides | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `ntz + INTERVAL '1' MONTH` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `timestampadd(MONTH, i, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -24576 AND 24564` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `timestampadd(MONTH, l, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -24576 AND 24564` |  | per-lane: mask logic, compare to mask, mask broadcast, mask test, other, load or store |
+| `timestampadd(QUARTER, i, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -8192 AND 8188` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `timestampadd(QUARTER, l, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -8192 AND 8188` |  | per-lane: mask logic, compare to mask, mask broadcast, mask test, other, load or store |
+| `timestampadd(YEAR, i, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -2048 AND 2047` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `timestampadd(YEAR, l, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -2048 AND 2047` |  | per-lane: mask logic, compare to mask, mask broadcast, mask test, other, load or store |
 
 #### TIMESTAMP_NTZ fields
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `year(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | the date of the count, held to the calendar lowering's range | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `month(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `day(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `quarter(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `dayofyear(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `weekofyear(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | the Thursday shift needs the guard's floor to leave room | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `extract(YEAROFWEEK FROM ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `last_day(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `trunc(ntz, 'YEAR')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | a year back is the room the guard's floor leaves | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `trunc(ntz, 'MONTH')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `trunc(ntz, 'QUARTER')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `dayofweek(ntz)` | `calendar`, `intArithmetic` |  | exact over every day, so no guard | per-lane: mask broadcast, load or store |
-| `weekday(ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
-| `extract(DAYOFWEEK_ISO FROM ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
-| `next_day(ntz, 'MONDAY')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
-| `trunc(ntz, 'WEEK')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
-| `add_months(ntz, i)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -24576 AND 24564` | the guarded date moved by a column month count | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `hour(ntz)` | `time` |  | the microsecond of the day divided; never guarded | vector |
-| `minute(ntz)` | `time` |  |  | vector |
-| `second(ntz)` | `time` |  | the whole second, an int; the fraction of `extract(SECOND ...)` is a decimal | vector |
-| `CAST(ntz AS TIME(6))` | `time` |  | the nanosecond of the day, a multiple of a thousand | vector |
-| `CAST(ntz AS TIME(3))` | `time` |  | truncated to milliseconds: a quotient and a product | vector |
-| `CAST(ntz AS TIME(0))` | `time` |  |  | vector |
-| `make_timestamp_ntz(d, t)` | `time` | `unix_date(d) BETWEEN -106751991 AND 106751991 AND if(d IS NULL OR t IS NULL, NULL, try_make_timestamp_ntz(d, t) IS NOT NULL)` | the date guarded to the days whose midnight is a long, as the cast of a date is | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
-| `make_timestamp_ntz(DATE'2021-06-01', t)` | `time` | `if(t IS NULL, NULL, try_make_timestamp_ntz(DATE'2021-06-01', t) IS NOT NULL)` | a literal date is checked when the kernel is compiled and takes a slot, so every date shares one kernel | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
-| `CAST(t AS TIMESTAMP_NTZ)` | `time` | `if(t IS NULL, NULL, try_make_timestamp_ntz(current_date(), t) IS NOT NULL)` | the query's current date at the time of day: the optimizer rewrites the cast to make_timestamp_ntz of the date literal | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `year(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | the date of the count, held to the calendar lowering's range | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `month(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `day(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `quarter(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `dayofyear(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `weekofyear(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | the Thursday shift needs the guard's floor to leave room | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `extract(YEAROFWEEK FROM ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `last_day(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `trunc(ntz, 'YEAR')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | a year back is the room the guard's floor leaves | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `trunc(ntz, 'MONTH')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `trunc(ntz, 'QUARTER')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `dayofweek(ntz)` | `calendar`, `intArithmetic` |  | exact over every day, so no guard | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `weekday(ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `extract(DAYOFWEEK_ISO FROM ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `next_day(ntz, 'MONDAY')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `trunc(ntz, 'WEEK')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `add_months(ntz, i)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -24576 AND 24564` | the guarded date moved by a column month count | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `hour(ntz)` | `time` |  | the microsecond of the day divided; never guarded | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `minute(ntz)` | `time` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `second(ntz)` | `time` |  | the whole second, an int; the fraction of `extract(SECOND ...)` is a decimal | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CAST(ntz AS TIME(6))` | `time` |  | the nanosecond of the day, a multiple of a thousand | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CAST(ntz AS TIME(3))` | `time` |  | truncated to milliseconds: a quotient and a product | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CAST(ntz AS TIME(0))` | `time` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `make_timestamp_ntz(d, t)` | `time` | `unix_date(d) BETWEEN -106751991 AND 106751991 AND if(d IS NULL OR t IS NULL, NULL, try_make_timestamp_ntz(d, t) IS NOT NULL)` | the date guarded to the days whose midnight is a long, as the cast of a date is | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `make_timestamp_ntz(DATE'2021-06-01', t)` | `time` | `if(t IS NULL, NULL, try_make_timestamp_ntz(DATE'2021-06-01', t) IS NOT NULL)` | a literal date is checked when the kernel is compiled and takes a slot, so every date shares one kernel | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `CAST(t AS TIMESTAMP_NTZ)` | `time` | `if(t IS NULL, NULL, try_make_timestamp_ntz(current_date(), t) IS NOT NULL)` | the query's current date at the time of day: the optimizer rewrites the cast to make_timestamp_ntz of the date literal | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
 
 #### TIMESTAMP_NTZ fields in a condition
 
@@ -1128,14 +1128,14 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `nvl(x, x2)` | `condition` |  | rewritten to coalesce(x, x2) | per-lane: blend, mask broadcast |
-| `ifnull(x, x2)` | `condition` |  |  | per-lane: blend, mask broadcast |
-| `nvl2(x, x2, x)` | `predicate`, `condition` |  | rewritten to if(x IS NOT NULL, x2, x) | per-lane: blend, mask broadcast |
-| `nullif(x, x2)` | `predicate`, `condition` |  | rewritten to if(x = x2, NULL, x): NaN equals NaN and -0.0 equals 0.0, and the null is the lane's zero with its validity clear, so the kernel is masked-only | per-lane: compare to mask, mask cast, mask logic, blend, mask broadcast |
-| `CASE WHEN x < x2 THEN x END` | `predicate`, `condition` |  | the missing ELSE is the null of the floating lane | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
-| `if(x IS NULL, x2, NULL)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
-| `nullifzero(x)` | `predicate`, `condition`, `floatingCast` |  | rewritten to if(x = 0, NULL, x): -0.0 is zero, NaN is not | per-lane: compare to mask, mask cast, mask logic, blend, mask broadcast, load or store, mask test |
-| `zeroifnull(x)` | `condition`, `floatingCast` |  | rewritten to coalesce(x, 0) | per-lane: blend, mask broadcast, load or store, mask test |
+| `nvl(x, x2)` | `condition` |  | rewritten to coalesce(x, x2) | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `ifnull(x, x2)` | `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `nvl2(x, x2, x)` | `predicate`, `condition` |  | rewritten to if(x IS NOT NULL, x2, x) | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `nullif(x, x2)` | `predicate`, `condition` |  | rewritten to if(x = x2, NULL, x): NaN equals NaN and -0.0 equals 0.0, and the null is the lane's zero with its validity clear, so the kernel is masked-only | per-lane: compare to mask, mask cast, mask logic, blend, mask broadcast, other, load or store, mask test |
+| `CASE WHEN x < x2 THEN x END` | `predicate`, `condition` |  | the missing ELSE is the null of the floating lane | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend, other, load or store, mask test |
+| `if(x IS NULL, x2, NULL)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `nullifzero(x)` | `predicate`, `condition`, `floatingCast` |  | rewritten to if(x = 0, NULL, x): -0.0 is zero, NaN is not | per-lane: compare to mask, mask cast, mask logic, blend, mask broadcast, other, load or store, mask test |
+| `zeroifnull(x)` | `condition`, `floatingCast` |  | rewritten to coalesce(x, 0) | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 | `nvl(f, f2)` | `condition` |  | rewritten to coalesce(f, f2) | vector |
 | `ifnull(f, f2)` | `condition` |  |  | vector |
 | `nvl2(f, f2, f)` | `predicate`, `condition` |  | rewritten to if(f IS NOT NULL, f2, f) | vector |
@@ -1157,11 +1157,11 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `nvl(ntz, ntz2)` | `condition` |  |  | per-lane: blend, mask broadcast |
-| `ifnull(ntz, ntz2)` | `condition` |  |  | per-lane: blend, mask broadcast |
-| `nvl2(ntz, ntz2, ntz)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
-| `nullif(ntz, ntz2)` | `predicate`, `condition` |  | the long lane's null: the NTZ is its microseconds | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `CASE WHEN ntz < ntz2 THEN ntz END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `nvl(ntz, ntz2)` | `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `ifnull(ntz, ntz2)` | `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `nvl2(ntz, ntz2, ntz)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `nullif(ntz, ntz2)` | `predicate`, `condition` |  | the long lane's null: the NTZ is its microseconds | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `CASE WHEN ntz < ntz2 THEN ntz END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
 
 #### Null family predicates on TIMESTAMP_NTZ columns
 
@@ -1244,12 +1244,12 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `greatest(x, x2)` | `intArithmetic` |  | Spark's order, the first of two equal operands kept | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
-| `least(x, x2)` | `intArithmetic` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
-| `nanvl(x, x2)` | `condition` |  | an IF over isnan, null where the first operand is | per-lane: compare to mask, mask broadcast, mask logic, blend, mask cast |
-| `CASE WHEN x < x2 THEN x ELSE x2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
-| `if(x IS NULL, x2, x)` | `predicate`, `condition` |  |  | per-lane: mask broadcast, mask logic, blend |
-| `coalesce(x, x2)` | `condition` |  |  | per-lane: blend, mask broadcast |
+| `greatest(x, x2)` | `intArithmetic` |  | Spark's order, the first of two equal operands kept | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend, other, load or store, mask test |
+| `least(x, x2)` | `intArithmetic` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend, other, load or store, mask test |
+| `nanvl(x, x2)` | `condition` |  | an IF over isnan, null where the first operand is | per-lane: compare to mask, mask broadcast, mask logic, blend, mask cast, other, load or store, mask test |
+| `CASE WHEN x < x2 THEN x ELSE x2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend, other, load or store, mask test |
+| `if(x IS NULL, x2, x)` | `predicate`, `condition` |  |  | per-lane: mask broadcast, mask logic, blend, other, load or store, compare to mask, mask test |
+| `coalesce(x, x2)` | `condition` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 
 #### FLOAT columns
 
@@ -1292,26 +1292,26 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `x + x2` | `floatingArithmetic` |  | the IEEE sum in every mode: an infinity or a NaN is an answer | vector |
-| `x - x2` | `floatingArithmetic` |  |  | vector |
-| `x * x2` | `floatingArithmetic` |  | no multiply and add is contracted into an FMA | vector |
-| `x / x2` | `floatingArithmetic` | `CASE WHEN x IS NOT NULL THEN x2 <> 0.0D END` | a zero divisor of either sign raises under ANSI, so the batch declines and the row engine raises; the legacy mode and try_divide answer null | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `x / 3.0D` | `floatingArithmetic` |  | a non-zero literal divisor has no zero test | vector |
-| `1.5D - x` | `floatingArithmetic` |  | a literal on the left | vector |
-| `try_divide(x, x2)` | `floatingArithmetic` |  | the legacy division: null on a zero divisor in every mode | per-lane: compare to mask, mask cast |
-| `try_add(x, x2)` | `floatingArithmetic` |  | the same sum: a floating sum has no overflow | vector |
-| `try_multiply(x, x2)` | `floatingArithmetic` |  | the same product | vector |
+| `x + x2` | `floatingArithmetic` |  | the IEEE sum in every mode: an infinity or a NaN is an answer | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `x - x2` | `floatingArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `x * x2` | `floatingArithmetic` |  | no multiply and add is contracted into an FMA | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `x / x2` | `floatingArithmetic` | `CASE WHEN x IS NOT NULL THEN x2 <> 0.0D END` | a zero divisor of either sign raises under ANSI, so the batch declines and the row engine raises; the legacy mode and try_divide answer null | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `x / 3.0D` | `floatingArithmetic` |  | a non-zero literal divisor has no zero test | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `1.5D - x` | `floatingArithmetic` |  | a literal on the left | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `try_divide(x, x2)` | `floatingArithmetic` |  | the legacy division: null on a zero divisor in every mode | per-lane: compare to mask, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `try_add(x, x2)` | `floatingArithmetic` |  | the same sum: a floating sum has no overflow | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `try_multiply(x, x2)` | `floatingArithmetic` |  | the same product | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 | `try_subtract(f, f2)` | `floatingArithmetic` |  | the same difference | vector |
-| `try_subtract(x, x2)` | `floatingArithmetic` |  |  | vector |
+| `try_subtract(x, x2)` | `floatingArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 | `try_add(f, f2)` | `floatingArithmetic` |  |  | vector |
 | `try_multiply(f, f2)` | `floatingArithmetic` |  |  | vector |
-| `(x + x2) * x2 - x` | `floatingArithmetic` |  | the floating baseline's chain | vector |
-| `-x` | `floatingArithmetic` |  | the sign bit flipped, a NaN's payload kept | vector |
-| `abs(x)` | `floatingArithmetic` |  | the sign bit cleared, a NaN's payload kept | vector |
-| `sqrt(x)` | `floatingArithmetic` |  | IEEE's correctly rounded square root, Math.sqrt's bits | vector |
-| `signum(x)` | `floatingArithmetic` |  | both zeros and NaN answer themselves, as Math.signum does | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
-| `degrees(x)` | `floatingArithmetic` |  | one multiply by Math.toDegrees(1.0), which is the JDK's own formula | vector |
-| `radians(x)` | `floatingArithmetic` |  | one multiply by Math.toRadians(1.0) | vector |
+| `(x + x2) * x2 - x` | `floatingArithmetic` |  | the floating baseline's chain | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `-x` | `floatingArithmetic` |  | the sign bit flipped, a NaN's payload kept | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `abs(x)` | `floatingArithmetic` |  | the sign bit cleared, a NaN's payload kept | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `sqrt(x)` | `floatingArithmetic` |  | IEEE's correctly rounded square root, Math.sqrt's bits | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `signum(x)` | `floatingArithmetic` |  | both zeros and NaN answer themselves, as Math.signum does | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend, other, load or store, mask test |
+| `degrees(x)` | `floatingArithmetic` |  | one multiply by Math.toDegrees(1.0), which is the JDK's own formula | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `radians(x)` | `floatingArithmetic` |  | one multiply by Math.toRadians(1.0) | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 | `f + f2` | `floatingArithmetic` |  | the float sum, rounded once | vector |
 | `f - f2` | `floatingArithmetic` |  |  | vector |
 | `f * f2` | `floatingArithmetic` |  |  | vector |
@@ -1323,34 +1323,34 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `y1 / i` | `floatingArithmetic`, `floatingCast` | `CASE WHEN y1 IS NOT NULL THEN i <> 0 END` | both operands cast to double, then the double division; a zero divisor of the cast raises under ANSI and is null under the legacy mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `s1 / i` | `floatingArithmetic`, `floatingCast` | `CASE WHEN s1 IS NOT NULL THEN i <> 0 END` | a short over an int, each converted exactly | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `x / i` | `floatingArithmetic`, `floatingCast` | `CASE WHEN x IS NOT NULL THEN i <> 0 END` | the int divisor cast beside the double dividend | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
-| `f / f2` | `floatingArithmetic`, `floatingCast` | `CASE WHEN f IS NOT NULL THEN f2 <> 0.0F END` | both floats widened exactly: Spark divides floats as doubles | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `try_divide(i, y1)` | `floatingArithmetic`, `floatingCast` |  | the legacy division over the casts: null on a zero divisor | per-lane: compare to mask, mask cast, mask broadcast, mask test |
-| `sqrt(i)` | `floatingArithmetic`, `floatingCast` |  | the int converted exactly, then the square root | per-lane: mask broadcast, mask test |
-| `signum(i)` | `floatingArithmetic`, `floatingCast` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend, mask test |
-| `degrees(i)` | `floatingArithmetic`, `floatingCast` |  |  | per-lane: mask broadcast, mask test |
-| `sqrt(f)` | `floatingArithmetic`, `floatingCast` |  | the float widened exactly, then the double square root | per-lane: mask broadcast, mask test |
-| `signum(f)` | `floatingArithmetic`, `floatingCast` |  | a float NaN widened keeps its payload, which signum returns | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend, mask test |
-| `radians(s1)` | `floatingArithmetic`, `floatingCast` |  |  | per-lane: mask broadcast, mask test |
-| `signum(ym)` | `floatingArithmetic` |  | the months' sign as a double: (m > 0) - (m < 0) on the int lane, then I2D, so a zero is +0.0 and a null null | per-lane: mask broadcast, mask test |
-| `signum(dt)` | `floatingArithmetic` |  | the microseconds' sign on the long lane, narrowed to the int lane, then I2D: no conversion from a long | per-lane: compare to mask, masked operation, mask cast, mask broadcast, load or store, mask test |
+| `y1 / i` | `floatingArithmetic`, `floatingCast` | `CASE WHEN y1 IS NOT NULL THEN i <> 0 END` | both operands cast to double, then the double division; a zero divisor of the cast raises under ANSI and is null under the legacy mode | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `s1 / i` | `floatingArithmetic`, `floatingCast` | `CASE WHEN s1 IS NOT NULL THEN i <> 0 END` | a short over an int, each converted exactly | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `x / i` | `floatingArithmetic`, `floatingCast` | `CASE WHEN x IS NOT NULL THEN i <> 0 END` | the int divisor cast beside the double dividend | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `f / f2` | `floatingArithmetic`, `floatingCast` | `CASE WHEN f IS NOT NULL THEN f2 <> 0.0F END` | both floats widened exactly: Spark divides floats as doubles | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `try_divide(i, y1)` | `floatingArithmetic`, `floatingCast` |  | the legacy division over the casts: null on a zero divisor | per-lane: compare to mask, mask cast, mask broadcast, other, mask logic, mask test, load or store |
+| `sqrt(i)` | `floatingArithmetic`, `floatingCast` |  | the int converted exactly, then the square root | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `signum(i)` | `floatingArithmetic`, `floatingCast` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend, other, mask test, load or store |
+| `degrees(i)` | `floatingArithmetic`, `floatingCast` |  |  | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `sqrt(f)` | `floatingArithmetic`, `floatingCast` |  | the float widened exactly, then the double square root | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `signum(f)` | `floatingArithmetic`, `floatingCast` |  | a float NaN widened keeps its payload, which signum returns | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend, other, mask test, load or store |
+| `radians(s1)` | `floatingArithmetic`, `floatingCast` |  |  | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `signum(ym)` | `floatingArithmetic` |  | the months' sign as a double: (m > 0) - (m < 0) on the int lane, then I2D, so a zero is +0.0 and a null null | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `signum(dt)` | `floatingArithmetic` |  | the microseconds' sign on the long lane, narrowed to the int lane, then I2D: no conversion from a long | per-lane: compare to mask, masked operation, mask cast, mask broadcast, other, mask logic, load or store, mask test |
 
 #### Rounding
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `rint(x)` | `rounding` |  | the nearest integer, a tie to the even one, the sign kept on a zero, the canonical NaN for every NaN | per-lane: compare to mask, blend |
-| `floor(l)` | `rounding` |  | the identity over a bigint, in every mode | vector |
-| `ceil(l)` | `rounding` |  |  | vector |
-| `ceiling(l)` | `rounding` |  | ceil by another name | vector |
-| `floor(i)` | `rounding` |  | FLOOR(CAST(i AS DOUBLE)): the int widened to a bigint, exact in every mode, with no conversion to a double | per-lane: mask broadcast, mask test |
-| `ceil(i)` | `rounding` |  |  | per-lane: mask broadcast, mask test |
+| `rint(x)` | `rounding` |  | the nearest integer, a tie to the even one, the sign kept on a zero, the canonical NaN for every NaN | per-lane: compare to mask, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `floor(l)` | `rounding` |  | the identity over a bigint, in every mode | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `ceil(l)` | `rounding` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `ceiling(l)` | `rounding` |  | ceil by another name | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `floor(i)` | `rounding` |  | FLOOR(CAST(i AS DOUBLE)): the int widened to a bigint, exact in every mode, with no conversion to a double | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `ceil(i)` | `rounding` |  |  | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `round(i, 0)` | `rounding` |  | a scale of 0 or more is the identity | vector |
-| `round(l, 0)` | `rounding` |  |  | vector |
-| `bround(l, 0)` | `rounding` |  |  | vector |
-| `truncate(l, 0)` | `rounding` |  |  | vector |
+| `round(l, 0)` | `rounding` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `bround(l, 0)` | `rounding` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `truncate(l, 0)` | `rounding` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 | `round(i, -1)` | `rounding` | `i BETWEEN -2147483644 AND 2147483644` | HALF_UP to a multiple of ten; under ANSI a value whose rounding leaves the int raises, so its batch declines | vector |
 | `round(i, -2)` | `rounding` |  | no int overflows at this scale, so ANSI has no guard | vector |
 | `bround(i, -1)` | `rounding` | `i BETWEEN -2147483645 AND 2147483645` | HALF_EVEN: a tie goes to the even multiple | vector |
@@ -1368,17 +1368,17 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | Form | 128-bit lanes |
 |---|---|---|---|---|---|
-| `sin(x)` | `math` |  | exact: a per-lane Math.sin call, the host's answer as Spark's | exact: per-lane Math call | vector |
-| `cos(x)` | `math` |  | exact: a per-lane Math.cos call | exact: per-lane Math call | vector |
-| `tan(x)` | `math` |  | exact: a per-lane Math.tan call | exact: per-lane Math call | vector |
-| `asin(x)` | `math` |  | exact: a per-lane StrictMath.asin call, which Math.asin delegates to | exact: per-lane StrictMath call | vector |
-| `acos(x)` | `math` |  | exact: a per-lane StrictMath.acos call | exact: per-lane StrictMath call | vector |
-| `atan(x)` | `math` |  | exact: a per-lane StrictMath.atan call | exact: per-lane StrictMath call | vector |
-| `sec(x)` | `math` |  | 1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null | exact: per-lane Math call | vector |
-| `csc(x)` | `math` |  | 1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf | exact: per-lane Math call | vector |
-| `cot(x)` | `math` |  | 1 / Math.tan(x) | exact: per-lane Math call | vector |
-| `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | exact: per-lane Math call | vector |
-| `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | exact: per-lane Math call | per-lane: mask broadcast, mask test |
+| `sin(x)` | `math` |  | exact: a per-lane Math.sin call, the host's answer as Spark's | exact: per-lane Math call | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `cos(x)` | `math` |  | exact: a per-lane Math.cos call | exact: per-lane Math call | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `tan(x)` | `math` |  | exact: a per-lane Math.tan call | exact: per-lane Math call | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `asin(x)` | `math` |  | exact: a per-lane StrictMath.asin call, which Math.asin delegates to | exact: per-lane StrictMath call | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `acos(x)` | `math` |  | exact: a per-lane StrictMath.acos call | exact: per-lane StrictMath call | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `atan(x)` | `math` |  | exact: a per-lane StrictMath.atan call | exact: per-lane StrictMath call | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `sec(x)` | `math` |  | 1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null | exact: per-lane Math call | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `csc(x)` | `math` |  | 1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf | exact: per-lane Math call | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `cot(x)` | `math` |  | 1 / Math.tan(x) | exact: per-lane Math call | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | exact: per-lane Math call | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | exact: per-lane Math call | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 
 #### Math functions as conditions
 
@@ -1390,7 +1390,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `CAST(x AS BOOLEAN)` | `predicate` |  | x != 0: a NaN is true and both zeros false, as a BOOLEAN output | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
+| `CAST(x AS BOOLEAN)` | `predicate` |  | x != 0: a NaN is true and both zeros false, as a BOOLEAN output | per-lane: compare to mask, mask cast, mask logic, mask broadcast, other, load or store, mask test |
 | `CAST(f AS BOOLEAN)` | `predicate` |  |  | vector |
 
 #### Floating casts to BOOLEAN as conditions
@@ -1407,30 +1407,30 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(i AS FLOAT)` | `floatingCast` |  | rounded once to nearest, ties to even, as the JVM converts | vector |
 | `try_cast(i AS FLOAT)` | `floatingCast` |  | the same rounding: a cast to a floating type never fails | vector |
 | `CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)` | `intArithmetic`, `floatingCast` |  | a product of two widened bytes | vector |
-| `CAST(i AS DOUBLE)` | `floatingCast` |  | exact: an int's 32 bits fit the double's 53 | per-lane: mask broadcast, mask test |
+| `CAST(i AS DOUBLE)` | `floatingCast` |  | exact: an int's 32 bits fit the double's 53 | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `CAST(y1 AS FLOAT)` | `floatingCast` |  | the byte widened at its load, then converted, exact | vector |
 | `CAST(s1 AS FLOAT)` | `floatingCast` |  | the short twin | vector |
-| `CAST(y1 AS DOUBLE)` | `floatingCast` |  | the byte loaded as a bigint kernel loads it, into the low half of the int species, then converted | per-lane: mask broadcast, mask test |
-| `CAST(s1 AS DOUBLE)` | `floatingCast` |  | the short twin | per-lane: mask broadcast, mask test |
-| `CAST(f AS DOUBLE)` | `floatingCast` |  | exact, a NaN's payload and both zeros kept | per-lane: mask broadcast, mask test |
-| `CAST(x AS FLOAT)` | `floatingCast` |  | rounded once; past the float range an infinity, never an error | per-lane: mask broadcast, load or store |
-| `CAST(b AS DOUBLE)` | `floatingCast` |  | 1.0 or 0.0, and null where the boolean is | per-lane: mask broadcast, mask test |
+| `CAST(y1 AS DOUBLE)` | `floatingCast` |  | the byte loaded as a bigint kernel loads it, into the low half of the int species, then converted | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `CAST(s1 AS DOUBLE)` | `floatingCast` |  | the short twin | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `CAST(f AS DOUBLE)` | `floatingCast` |  | exact, a NaN's payload and both zeros kept | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `CAST(x AS FLOAT)` | `floatingCast` |  | rounded once; past the float range an infinity, never an error | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CAST(b AS DOUBLE)` | `floatingCast` |  | 1.0 or 0.0, and null where the boolean is | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `CAST(b AS FLOAT)` | `floatingCast` |  |  | vector |
-| `CAST(i > 3 AS DOUBLE)` | `predicate`, `floatingCast` |  | a condition as its one or zero, then converted | per-lane: mask broadcast, mask test |
-| `CAST(l > 5 AS DOUBLE)` | `predicate`, `intArithmetic`, `floatingCast` |  | a long one or zero, narrowed to the int lane, then I2D | per-lane: compare to mask, masked operation, mask cast, mask broadcast, load or store, mask test |
-| `CAST(l > 5 AS FLOAT)` | `predicate`, `intArithmetic`, `floatingCast` |  | the float twin: a float value in a kernel of the long lane | per-lane: compare to mask, masked operation, mask cast, mask broadcast, load or store |
-| `x + i` | `floatingArithmetic`, `floatingCast` |  | type coercion casts the int to a double beside the double column | per-lane: mask broadcast, load or store, mask test |
-| `f * i` | `floatingArithmetic`, `floatingCast` |  | the int cast to a float beside the float column, at one lane count | per-lane: mask broadcast, mask test |
-| `f + x` | `floatingArithmetic`, `floatingCast` |  | the float widened exactly to meet the double | per-lane: mask broadcast, load or store, mask test |
-| `i / 2.0D` | `floatingArithmetic`, `floatingCast` |  | an int division is a double division over its cast | per-lane: mask broadcast, mask test |
-| `CAST(CAST(l AS INT) AS FLOAT)` | `intArithmetic`, `floatingCast` | `l BETWEEN -2147483648 AND 2147483647` | the bigint narrowed to INT, checked under ANSI, then I2F, a float value in a long kernel | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `CAST(i > 3 AS DOUBLE)` | `predicate`, `floatingCast` |  | a condition as its one or zero, then converted | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `CAST(l > 5 AS DOUBLE)` | `predicate`, `intArithmetic`, `floatingCast` |  | a long one or zero, narrowed to the int lane, then I2D | per-lane: compare to mask, masked operation, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `CAST(l > 5 AS FLOAT)` | `predicate`, `intArithmetic`, `floatingCast` |  | the float twin: a float value in a kernel of the long lane | per-lane: compare to mask, masked operation, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `x + i` | `floatingArithmetic`, `floatingCast` |  | type coercion casts the int to a double beside the double column | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `f * i` | `floatingArithmetic`, `floatingCast` |  | the int cast to a float beside the float column, at one lane count | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `f + x` | `floatingArithmetic`, `floatingCast` |  | the float widened exactly to meet the double | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `i / 2.0D` | `floatingArithmetic`, `floatingCast` |  | an int division is a double division over its cast | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `CAST(CAST(l AS INT) AS FLOAT)` | `intArithmetic`, `floatingCast` | `l BETWEEN -2147483648 AND 2147483647` | the bigint narrowed to INT, checked under ANSI, then I2F, a float value in a long kernel | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
 | `CASE WHEN f > 1.5F THEN i END` | `predicate`, `condition` |  | the float condition crossed to the int values' lane | vector |
-| `IF(i > 3, x, x2)` | `predicate`, `condition` |  | the int condition crossed up to the double values by its word | per-lane: blend, mask broadcast, load or store, mask test |
-| `CASE WHEN x > 1.5D THEN i END` | `predicate`, `condition` |  | a 64-bit mask's word read by the int species | per-lane: compare to mask, mask cast, mask broadcast, load or store |
-| `IF(l > 5, f, f2)` | `predicate`, `condition`, `intArithmetic` |  | the long condition crossed down to the float values by its word | per-lane: compare to mask, mask cast, mask broadcast, load or store |
-| `IF(b, x, x2)` | `condition` |  | the boolean column relabelled to the double values' lane | per-lane: blend, mask broadcast |
+| `IF(i > 3, x, x2)` | `predicate`, `condition` |  | the int condition crossed up to the double values by its word | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `CASE WHEN x > 1.5D THEN i END` | `predicate`, `condition` |  | a 64-bit mask's word read by the int species | per-lane: compare to mask, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `IF(l > 5, f, f2)` | `predicate`, `condition`, `intArithmetic` |  | the long condition crossed down to the float values by its word | per-lane: compare to mask, mask cast, mask broadcast, other, mask logic, load or store, mask test |
+| `IF(b, x, x2)` | `condition` |  | the boolean column relabelled to the double values' lane | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 | `CASE WHEN b THEN f ELSE f2 END` | `condition` |  | the float twin | vector |
-| `IF(NOT (x > 1.5D OR f > 1.5F), i, 7)` | `predicate`, `condition` |  | NOT and OR at the double lane, then down | per-lane: compare to mask, mask broadcast, mask logic, mask cast, load or store |
+| `IF(NOT (x > 1.5D OR f > 1.5F), i, 7)` | `predicate`, `condition` |  | NOT and OR at the double lane, then down | per-lane: compare to mask, mask broadcast, mask logic, mask cast, other, load or store, mask test |
 | `CASE WHEN f > 1.5F AND i > 3 THEN i END` | `predicate`, `condition` |  | a mixed AND at the int lane, as a guard | vector |
 | `CAST((f > 1.5F AND i > 3) AS INT)` | `predicate`, `integralCast` |  | the mixed AND as its one or zero | vector |
 
@@ -1534,40 +1534,40 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `CASE WHEN d9 < d9b THEN d9 ELSE d9b END` | `predicate`, `condition` |  | a DECIMAL(9, 2) choice, the comparison and the blend on the long lane | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
-| `if(d9 < d9b, d18, d18b)` | `predicate`, `condition` |  | a DECIMAL(18, 2) choice under a DECIMAL(9, 2) condition | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
-| `coalesce(d9, d9s4)` | `condition` |  | DECIMAL(11, 4): d9 times 10^2, then the first valid operand | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
-| `greatest(d18, d18b)` | `intArithmetic` |  | the null-skipping pick, of one scale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
-| `least(d9, d9s4)` | `intArithmetic` |  | the null-skipping pick at DECIMAL(11, 4), d9 carrying its rescale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
-| `-d18` | none |  | a negation, which cannot overflow: an unscaled value within 18 digits is never the long lane's minimum | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
-| `abs(d18)` | none |  | a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
-| `try_subtract(d9, d9s4)` | none |  | DECIMAL(12, 4), row 349's difference stored by the same path: no difference within 18 digits overflows, so TRY's null never fires | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `CASE WHEN d9 < d9b THEN d9 ELSE d9b END` | `predicate`, `condition` |  | a DECIMAL(9, 2) choice, the comparison and the blend on the long lane | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
+| `if(d9 < d9b, d18, d18b)` | `predicate`, `condition` |  | a DECIMAL(18, 2) choice under a DECIMAL(9, 2) condition | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
+| `coalesce(d9, d9s4)` | `condition` |  | DECIMAL(11, 4): d9 times 10^2, then the first valid operand | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
+| `greatest(d18, d18b)` | `intArithmetic` |  | the null-skipping pick, of one scale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
+| `least(d9, d9s4)` | `intArithmetic` |  | the null-skipping pick at DECIMAL(11, 4), d9 carrying its rescale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
+| `-d18` | none |  | a negation, which cannot overflow: an unscaled value within 18 digits is never the long lane's minimum | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
+| `abs(d18)` | none |  | a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
+| `try_subtract(d9, d9s4)` | none |  | DECIMAL(12, 4), row 349's difference stored by the same path: no difference within 18 digits overflows, so TRY's null never fires | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
 
 #### Time arithmetic
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `t - t2` | `time` |  | a day-time interval, the nanosecond difference divided by a thousand | vector |
-| `time_diff('HOUR', t, t2)` | `time` |  | the unit is a literal; a column of units would need a kernel per distinct value | vector |
-| `time_diff('microsecond', t2, t)` | `time` |  | units are read case-insensitively, as DateTimeUtils reads them | vector |
-| `time_trunc('MINUTE', t)` | `time` |  |  | vector |
-| `time_trunc('MILLISECOND', t2)` | `time` |  |  | vector |
-| `hour(t)` | `time` |  | an int computed in the 64-bit lane and narrowed at the kernel's store; under another expression it narrows where it is | vector |
-| `hour(t) + 1` | `time`, `intArithmetic` | `hour(t) < 2147483647` | the extract narrowed inside the tree, under an int add checked under ANSI; the check cannot fire, since an hour is at most 23 | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `minute(t2)` | `time` |  |  | vector |
-| `second(t)` | `time` |  |  | vector |
-| `time_to_millis(t)` | `time` |  |  | vector |
-| `time_to_micros(t2)` | `time` |  |  | vector |
-| `time_from_millis(time_to_millis(t2))` | `time` | `time_to_millis(t2) BETWEEN 0 AND 86399999` | the count is guarded to the day's worth of its unit, where the multiply is exact; a count outside declines the batch and the row engine raises Spark's error, as for t + dt - so the count here is one that is inside the day by construction | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `time_from_micros(time_to_micros(t))` | `time` | `time_to_micros(t) BETWEEN 0 AND 86399999999` | the same guard over the microsecond count | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `t + INTERVAL '0 00:00:00' DAY TO SECOND` | `time` | `time_to_micros(t) + 0 BETWEEN 0 AND 86399999999` | a zero interval on purpose: this fixture reaches both ends of the day, so any other constant crosses midnight on some row, where Spark raises an error rather than a value. The sum is still guarded to the day - the domain adds the interval's microseconds, 0 here, to the time's; the crossing case, and a column interval, are VarkaTimeArithmeticSuite's | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `t - t2` | `time` |  | a day-time interval, the nanosecond difference divided by a thousand | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `time_diff('HOUR', t, t2)` | `time` |  | the unit is a literal; a column of units would need a kernel per distinct value | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `time_diff('microsecond', t2, t)` | `time` |  | units are read case-insensitively, as DateTimeUtils reads them | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `time_trunc('MINUTE', t)` | `time` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `time_trunc('MILLISECOND', t2)` | `time` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `hour(t)` | `time` |  | an int computed in the 64-bit lane and narrowed at the kernel's store; under another expression it narrows where it is | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `hour(t) + 1` | `time`, `intArithmetic` | `hour(t) < 2147483647` | the extract narrowed inside the tree, under an int add checked under ANSI; the check cannot fire, since an hour is at most 23 | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `minute(t2)` | `time` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `second(t)` | `time` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `time_to_millis(t)` | `time` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `time_to_micros(t2)` | `time` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `time_from_millis(time_to_millis(t2))` | `time` | `time_to_millis(t2) BETWEEN 0 AND 86399999` | the count is guarded to the day's worth of its unit, where the multiply is exact; a count outside declines the batch and the row engine raises Spark's error, as for t + dt - so the count here is one that is inside the day by construction | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `time_from_micros(time_to_micros(t))` | `time` | `time_to_micros(t) BETWEEN 0 AND 86399999999` | the same guard over the microsecond count | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
+| `t + INTERVAL '0 00:00:00' DAY TO SECOND` | `time` | `time_to_micros(t) + 0 BETWEEN 0 AND 86399999999` | a zero interval on purpose: this fixture reaches both ends of the day, so any other constant crosses midnight on some row, where Spark raises an error rather than a value. The sum is still guarded to the day - the domain adds the interval's microseconds, 0 here, to the time's; the crossing case, and a column interval, are VarkaTimeArithmeticSuite's | per-lane: compare to mask, mask logic, mask broadcast, mask test, other, load or store |
 
 #### TIME decimal outputs
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `time_to_seconds(t)` | `time` |  | a DECIMAL(14, 6), (n + 500) / 1000: the exact quotient by 10^9 rounded half up to six digits, written as the low word and its sign extension | per-lane: compare to mask, mask cast, other, blend |
-| `extract(SECOND FROM t)` | `time` |  | a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g) | per-lane: compare to mask, mask cast, other, blend |
+| `time_to_seconds(t)` | `time` |  | a DECIMAL(14, 6), (n + 500) / 1000: the exact quotient by 10^9 rounded half up to six digits, written as the low word and its sign extension | per-lane: compare to mask, mask cast, other, blend, mask broadcast, mask logic, load or store, mask test |
+| `extract(SECOND FROM t)` | `time` |  | a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g) | per-lane: compare to mask, mask cast, other, blend, mask broadcast, mask logic, load or store, mask test |
 
 <!-- END generated coverage table -->
 
