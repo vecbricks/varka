@@ -247,6 +247,12 @@ if [ "${1:-}" = "--selftest" ]; then
     echo "varka_precommit selftest: dev/varka_push_check.py --self-test failed"
     fails=$((fails + 1))
   fi
+  # The regeneration's skip decision (VARKA-626) rides here as well.
+  if ! out="$(python3 dev/varka_regen_inputs.py --selftest 2>&1)"; then
+    echo "$out"
+    echo "varka_precommit selftest: dev/varka_regen_inputs.py --selftest failed"
+    fails=$((fails + 1))
+  fi
   if [ "$fails" -eq 0 ]; then echo "varka_precommit selftest: ok"; fi
   exit "$fails"
 fi
@@ -572,10 +578,11 @@ fi
 
 # Milestone 8 counts its progress in the census and the cast matrix, rendered from the registry,
 # the coverage table and a curated half (VARKA-328): a change to any input that leaves the committed
-# files stale moves the milestone's headline without anyone seeing it. The catalogue check fails
-# while a plan still cites a path the scope catalogue moved away from.
+# files stale moves the milestone's headline without anyone seeing it. The docs file holds the
+# census's support table (VARKA-353), so a hand edit of that block fails here. The catalogue check
+# fails while a plan still cites a path the scope catalogue moved away from.
 census_inputs='^(dev/varka_census\.py|dev/varka_catalogue_move\.sh|sql/varka/coverage\.json'
-census_inputs+='|sql/varka/types\.tsv'
+census_inputs+='|sql/varka/types\.tsv|docs/sql-varka\.md'
 census_inputs+='|sql/varka/plans/.*'
 census_inputs+='|sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka'
 census_inputs+='/Varka[A-Za-z]*Conformance(Suite)?\.java'

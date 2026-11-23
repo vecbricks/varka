@@ -2310,16 +2310,16 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val (p0, p1) = (new ColumnRef(0), new ColumnRef(1))
     assert(picks.outputs.asScala.toSeq === Seq(new IRGreatest(p0, nullInt),
       new IRLeast(new IRLeast(nullInt, p1), nullInt)))
-    // A decimal choice past 18 digits has no null value as a compared value, and declines
-    // naming the wide row's value half; its null test fuses to the choice's validity, the
-    // branch's constant always valid and the missing ELSE never (VARKA-578). An int is still no
-    // date: a date choice over a cast of an int column declines rather than reading it.
+    // A decimal choice past 18 digits fuses as a compared value, its missing ELSE a null in
+    // each word (VARKA-359); its null test fuses to the choice's validity, the branch's
+    // constant always valid and the missing ELSE never (VARKA-578). An int is still no date: a
+    // date choice over a cast of an int column declines rather than reading it.
     val wideCase = CaseWhen(Seq((lt, Literal.create(Decimal(1), DecimalType(20, 6)))), None)
     val wideZero = Literal.create(Decimal(0), DecimalType(20, 6))
     val partial = VarkaExpressionCompiler.compilePartial(
       Seq(out(GreaterThan(wideCase, wideZero)), out(If(lt, Cast(i, DateType), d)),
         out(DateAdd(d, Literal(1))), out(IsNull(wideCase))), childOutput).get
-    assert(partial.declines.asScala(0).reason.contains("row 359's"))
+    assert(!partial.declines.containsKey(0))
     assert(!partial.declines.containsKey(3))
     val wideNull = VarkaExpressionCompiler.compile(Seq(out(IsNull(wideCase))), childOutput).get
     val wideLt = new Compare(CompareOp.LT, new WidenLane(c0), new WidenLane(c1))
@@ -2416,12 +2416,21 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         childOutput).get.specs.asScala.toSeq ===
       Seq(new FusedOutput(0), new FusedOutput(1), new FusedOutput(2)))
     // The depth budget is mirrored the same way: a 17-deep chain compiled fine before task
-    // 20 and then failed at emission.
-    val deep = out((0 until 17).foldLeft[Expression](d)((e, k) => DateAdd(e, Literal(k + 1))))
-    val deepPartial = VarkaExpressionCompiler.compilePartial(
-      Seq(deep, out(DateAdd(d, Literal(1)))), childOutput).get
+    // 20 and then failed at emission. A date chain is a tree of the int lane alone, whose
+    // default cap is 64 (VARKA-629), so the chain is refused under a cap of 16, and under the
+    // default at 65 and not at 64.
+    def chainOf(depth: Int): NamedExpression =
+      out((0 until depth).foldLeft[Expression](d)((e, k) => DateAdd(e, Literal(k + 1))))
+    def partialOf(depth: Int, options: VarkaEmitOptions): PartialVarkaProjection =
+      VarkaExpressionCompiler.compilePartial(
+        Seq(chainOf(depth), out(DateAdd(d, Literal(1)))), childOutput, options).get
+    val sixteen = VarkaEmitOptions.DEFAULTS.withMaxChainDepth(16)
+    val deepPartial = partialOf(17, sixteen)
     assert(deepPartial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)))
     assert(deepPartial.declines.asScala(0).reason === "exceeds the emitter's fused budget")
+    assert(partialOf(64, VarkaEmitOptions.DEFAULTS).specs.asScala.head.isInstanceOf[FusedOutput])
+    assert(partialOf(65, VarkaEmitOptions.DEFAULTS).specs.asScala.head ===
+      VarkaOutputSpec.RESIDUAL)
     // The input-column budget is mirrored too: 33 shallow datediff entries over 66 distinct
     // columns are only 33 ops at height 1, but 66 kernel inputs - the 33rd entry (the one
     // that pushes past 64 columns) demotes instead of blowing up at emission.
@@ -2678,13 +2687,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("the balanced AND fold keeps many conjuncts inside the depth budget") {
-    // 20 distinct comparisons: a left fold would be 21 deep and trip MAX_CHAIN_DEPTH = 16;
-    // the balanced fold is ceil(log2 20) + 2 deep and every conjunct fuses.
+    // 20 distinct comparisons: a left fold would be 21 deep and trip a cap of 16, which the int
+    // lane's own 64 would not (VARKA-629), so the cap is set to 16; the balanced fold is
+    // ceil(log2 20) + 2 deep and every conjunct fuses.
     val condition = (1 to 20)
       .map(k => GreaterThan(d, Literal(k, DateType)): Expression)
       .reduceLeft(org.apache.spark.sql.catalyst.expressions.And(_, _))
     val predicate = VarkaExpressionCompiler.compilePredicate(condition, childOutput,
-      VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).get
+      VarkaEmitOptions.DEFAULTS.withMaxChainDepth(16),
+      VarkaAdmission.NO_HOST_REFUSAL).get
     assert(predicate.specs.size === 20)
     assert(predicate.specs.asScala.forall(_.fused))
   }
@@ -3889,6 +3900,76 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         s"replaced=$replaced")
       assert(position.longLiterals.asScala.toSeq === Seq(0L, 1L, 32767L))
     }
+  }
+
+  test("bit_get compiles to a shift, a mask and a narrowing to TINYINT at every target type, " +
+      "the position guarded unless it is a literal in range") {
+    import org.apache.spark.sql.catalyst.expressions.BitwiseGet
+    import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{BitOp,
+      BitOpKind}
+    def bit(x: VarkaVectorIR, k: VarkaVectorIR, one: VarkaVectorIR): VarkaVectorIR =
+      new NarrowLane(new BitOp(BitOpKind.AND, new BitOp(BitOpKind.SHR, x, k), one),
+        LaneType.BYTE)
+    // A literal position in range is a literal count: 3, then the mask's 1.
+    val fixed = VarkaExpressionCompiler.compile(Seq(out(BitwiseGet(i, Literal(3)))),
+      childOutput).get
+    assert(fixed.outputs.asScala.toSeq ===
+      Seq(bit(new ColumnRef(0), new LiteralSlot(0), new LiteralSlot(1))))
+    assert(fixed.literals.asScala.toSeq === Seq(3, 1))
+    assert(fixed.outputTypes.asScala.toSeq === Seq(ByteType))
+    // A column position is guarded by the target's width, at the int lane for an int and for
+    // a narrow target widened by its sign.
+    val column = VarkaExpressionCompiler.compile(Seq(out(BitwiseGet(i, sh2)),
+      out(BitwiseGet(by, sh2)), out(BitwiseGet(sh, Literal(15)))), intPairOutput).get
+    assert(column.outputs.asScala.toSeq === Seq(
+      bit(new ColumnRef(0), new GuardedRange(new ColumnRef(1), 0, 31), new LiteralSlot(0)),
+      bit(new WidenLane(new ColumnRef(2, LaneType.BYTE), LaneType.INT),
+        new GuardedRange(new ColumnRef(1), 0, 7), new LiteralSlot(0)),
+      bit(new WidenLane(new ColumnRef(3, LaneType.SHORT), LaneType.INT), new LiteralSlot(1),
+        new LiteralSlot(0))))
+    assert(column.literals.asScala.toSeq === Seq(1, 15))
+    // A bigint target shifts at the long lane, by a long literal or by the guarded position
+    // widened, and the bit is narrowed to the byte from there.
+    val long = VarkaExpressionCompiler.compile(Seq(out(BitwiseGet(l, i)),
+      out(BitwiseGet(l, Literal(63)))), withLong).get
+    assert(long.outputs.asScala.toSeq === Seq(
+      bit(longCol, new WidenLane(new GuardedRange(new ColumnRef(1), 0, 63)), longSlot(0)),
+      bit(longCol, longSlot(1), longSlot(0))))
+    assert(long.longLiterals.asScala.toSeq === Seq(1L, 63L))
+    assert(long.outputTypes.asScala.toSeq === Seq(ByteType, ByteType))
+    // A literal position outside the target's width is one Spark raises on for every valid row.
+    for ((target, pos, width) <- Seq((i, 32, 32), (i, -1, 32), (by, 8, 8), (sh, 16, 16))) {
+      assert(declineReason(BitwiseGet(target, Literal(pos)), intPairOutput) ===
+        s"bit_get position $pos outside [0, $width), which Spark raises on")
+    }
+    assert(declineReason(BitwiseGet(l, Literal(64)), withLong) ===
+      "bit_get position 64 outside [0, 64), which Spark raises on")
+  }
+
+  test("bit_count of a boolean is the condition's value at the int lane") {
+    import org.apache.spark.sql.catalyst.expressions.BitwiseCount
+    import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{BoolColumn,
+      CondValue}
+    val b = AttributeReference("b", BooleanType)()
+    val columns = childOutput ++ Seq(l, l2, b)
+    val counted = VarkaExpressionCompiler.compile(Seq(out(BitwiseCount(b)),
+      out(BitwiseCount(LessThan(i, Literal(3))))), columns).get
+    // The boolean column reads no value, so it is read at the int lane; the comparison is on its
+    // operands' lane, which is the int one. Inputs by first use: b, then i.
+    assert(counted.outputs.asScala.toSeq === Seq(
+      new CondValue(new BoolColumn(0, LaneType.INT), LaneType.INT),
+      new CondValue(new Compare(CompareOp.LT, new ColumnRef(1), new LiteralSlot(0)),
+        LaneType.INT)))
+    assert(counted.outputTypes.asScala.toSeq === Seq(IntegerType, IntegerType))
+    // A long comparison is valued at its lane and narrowed to the int bit_count returns.
+    val long = VarkaExpressionCompiler.compile(Seq(out(BitwiseCount(LessThan(l, l2)))),
+      columns).get
+    assert(long.outputs.asScala.toSeq === Seq(new NarrowLane(new CondValue(
+      new Compare(CompareOp.LT, longCol, longCol2), LaneType.LONG))))
+    // A narrow comparison is lifted to the int lane first.
+    val narrow = VarkaExpressionCompiler.compile(
+      Seq(out(BitwiseCount(LessThan(by, Literal(3.toByte))))), columns).get
+    assert(narrow.outputs.get(0).laneType() === LaneType.INT)
   }
 
   test("the two-lane host refuses a DOUBLE conjunct as it does a long one (VARKA-503)") {

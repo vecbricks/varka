@@ -65,7 +65,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathFn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Fma;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -218,6 +221,14 @@ public final class VarkaIrGrammar {
    * one seed.
    */
   public static final long CANONICAL_FUZZ_SEED = 20261120L;
+
+  /**
+   * The seeds of the floating arithmetic sequences ({@link #drawFloatingArithShape}): the
+   * floating sequences' trees with the arithmetic of VARKA-342 drawn among them, on seeds of
+   * their own so that {@code fuzz_float} and {@code fuzz_double} do not move (`VARKA-342.md` 5.4).
+   */
+  public static final long FLOAT_ARITH_FUZZ_SEED = 20261122L;
+  public static final long DOUBLE_ARITH_FUZZ_SEED = 20261123L;
 
   // The generator's magnitude bounds saturate rather than wrap, in *every* arm that combines
   // two of them - `boundsOf` and the generator alike. Four nested multiplies of a column's own
@@ -399,6 +410,7 @@ public final class VarkaIrGrammar {
       case BitCount n -> new Bounds(Long.SIZE, guard(n.child()));
       // The grammar draws no floating tree, whose values have no integer bound.
       case MathUnary n -> throw new IllegalArgumentException("a floating node: " + n);
+      case Fma n -> throw new IllegalArgumentException("a floating node: " + n);
       case RoundToIntegral n -> throw new IllegalArgumentException("a floating node: " + n);
       case CanonicalFloat n -> throw new IllegalArgumentException("a floating node: " + n);
       case VarkaVectorIR.CanonicalBits n -> throw new IllegalArgumentException(
@@ -428,6 +440,7 @@ public final class VarkaIrGrammar {
       case WidenLane n -> boundsOf(n.child());
       // The grammar draws no floating tree outside its own conversion production.
       case ConvertLane n -> throw new IllegalArgumentException("a floating node: " + n);
+      case ReinterpretLane n -> throw new IllegalArgumentException("a floating node: " + n);
       case NarrowLane n -> {
         Bounds b = boundsOf(n.child());
         yield new Bounds(b.value() <= Integer.MAX_VALUE ? b.value() : 1L << 31, b.guarded());
@@ -1550,17 +1563,30 @@ public final class VarkaIrGrammar {
    * {@link FloatingShapes}, or a condition root (a filter) one time in five.
    */
   public static DrawnLong drawFloatingLaneShape(Random rnd, LaneType lane) {
-    return drawFloating(rnd, lane, false);
+    return drawFloating(rnd, lane, false, false);
   }
 
-  /** The floating draw, a value a canonicalisation one time in four with {@code canonical}. */
-  private static DrawnLong drawFloating(Random rnd, LaneType lane, boolean canonical) {
+  /**
+   * Shape {@code k} of a floating arithmetic sequence, {@link #FLOAT_ARITH_FUZZ_SEED}'s at
+   * {@code FLOAT} and {@link #DOUBLE_ARITH_FUZZ_SEED}'s at {@code DOUBLE}:
+   * {@link #drawFloatingLaneShape}'s roots with {@link FloatingShapes#arithmetic} drawn too.
+   */
+  public static DrawnLong drawFloatingArithShape(Random rnd, LaneType lane) {
+    return drawFloating(rnd, lane, false, true);
+  }
+
+  /**
+   * The floating draw: a value a canonicalisation one time in four with {@code canonical}, and
+   * row 342's arithmetic among the nodes with {@code arithmetic}.
+   */
+  private static DrawnLong drawFloating(Random rnd, LaneType lane, boolean canonical,
+      boolean arithmetic) {
     if (!lane.isFloating()) {
       throw new IllegalArgumentException("not a floating lane: " + lane);
     }
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
-    var shapes = new FloatingShapes(rnd, lane, numInputs, numLiterals, canonical);
+    var shapes = new FloatingShapes(rnd, lane, numInputs, numLiterals, canonical, arithmetic);
     int depth = 1 + rnd.nextInt(4);
     if (rnd.nextInt(5) == 0) {
       return new DrawnLong(List.of(shapes.cond(depth)), numInputs, numLiterals);
@@ -1580,15 +1606,16 @@ public final class VarkaIrGrammar {
    * {@link CanonicalFloat#of} collapses into one node. From {@link #CANONICAL_FUZZ_SEED}.
    */
   public static DrawnLong drawCanonicalShape(Random rnd, LaneType lane) {
-    return drawFloating(rnd, lane, true);
+    return drawFloating(rnd, lane, true, false);
   }
 
   /**
    * The generator at a floating lane, over the forms the floating lanes order and choose with
    * (VARKA-341): the leaves, the choice, {@code greatest} and {@code least}, and the conditions -
    * every comparison in Spark's order and the three IEEE ones a compare against a literal is
-   * specialised into, {@code <=>}, the null test and the connectives. The arithmetic, the casts
-   * and the rounding are rows 342 to 344's, and not drawn. Nothing here can overflow or checks a
+   * specialised into, {@code <=>}, the null test and the connectives. With {@code arithmetic}
+   * set it draws row 342's nodes too ({@link #arithmetic}); the casts and the rounding are rows
+   * 343 and 344's, and not drawn. Nothing here can overflow or checks a
    * bound, so the grammar carries none: a cell or a literal is any value of the type, and the
    * value source's edges put NaNs of several payloads and both signs, both zeros, the
    * infinities, the extremes and the smallest subnormal among them.
@@ -1604,19 +1631,22 @@ public final class VarkaIrGrammar {
     private final int numLiterals;
     /** Whether a value is a canonicalisation one time in four; off in the pinned sequences. */
     private final boolean canonical;
+    /** Whether the sequence draws row 342's arithmetic too; off in the pinned sequences. */
+    private final boolean arithmetic;
     private int budget = 20;
 
     FloatingShapes(Random rnd, LaneType lane, int numInputs, int numLiterals) {
-      this(rnd, lane, numInputs, numLiterals, false);
+      this(rnd, lane, numInputs, numLiterals, false, false);
     }
 
     FloatingShapes(Random rnd, LaneType lane, int numInputs, int numLiterals,
-        boolean canonical) {
+        boolean canonical, boolean arithmetic) {
       this.rnd = rnd;
       this.lane = lane;
       this.numInputs = numInputs;
       this.numLiterals = numLiterals;
       this.canonical = canonical;
+      this.arithmetic = arithmetic;
     }
 
     private VarkaVectorIR leaf() {
@@ -1631,15 +1661,37 @@ public final class VarkaIrGrammar {
         return leaf();
       }
       budget -= 1;
-      // The coin is drawn only with the flag, so the pinned sequences draw what they always drew.
+      // The coins are drawn only with their flags, so the pinned sequences draw what they always
+      // drew.
       if (canonical && rnd.nextInt(4) == 0) {
         return CanonicalFloat.of(value(depth - 1));
       }
-      return switch (rnd.nextInt(5)) {
+      int pick = rnd.nextInt(arithmetic ? 9 : 5);
+      return switch (pick) {
         case 0 -> new Greatest(value(depth - 1), value(depth - 1));
         case 1 -> new Least(value(depth - 1), value(depth - 1));
         case 2, 3 -> new IfElse(cond(depth - 1), value(depth - 1), value(depth - 1));
-        default -> leaf();
+        case 4 -> leaf();
+        default -> arithmetic(depth);
+      };
+    }
+
+    /**
+     * Row 342's nodes at the lane: {@code +}, {@code -}, {@code *} and the division, unchecked
+     * or nulling a zero divisor (the {@code FAIL} division declines the batch on one, which a
+     * draw has no reference answer for; `VarkaEmitterFloatingArithSuite` holds it), negation and
+     * {@code abs}, the square root and the fused multiply-add. Operands keep their order: no
+     * rewrite is ever valid at a floating lane.
+     */
+    private VarkaVectorIR arithmetic(int depth) {
+      return switch (rnd.nextInt(6)) {
+        case 0, 1 -> new IntArith(List.of(IntOp.ADD, IntOp.SUB, IntOp.MUL).get(rnd.nextInt(3)),
+            Overflow.WRAP, value(depth - 1), value(depth - 1));
+        case 2 -> new IntArith(IntOp.DIV, rnd.nextBoolean() ? Overflow.WRAP : Overflow.NULL,
+            value(depth - 1), value(depth - 1));
+        case 3 -> new IntNeg(Overflow.WRAP, value(depth - 1), rnd.nextBoolean());
+        case 4 -> new MathUnary(MathFn.SQRT, value(depth - 1));
+        default -> new Fma(value(depth - 1), value(depth - 1), value(depth - 1));
       };
     }
 

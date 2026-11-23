@@ -1311,6 +1311,66 @@
     "note" : "",
     "verified" : "proof: bitmap.smt2"
   }, {
+    "sql" : "bit_get(i, 3)",
+    "executable" : "bit_get(i, 3)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "a TINYINT result, the bit shifted down, masked and narrowed; a literal position past the width declines, since Spark raises on every row with a valid target",
+    "verified" : "differential"
+  }, {
+    "sql" : "bit_get(i, i)",
+    "executable" : "bit_get(i, i)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "i BETWEEN 0 AND 31",
+    "note" : "a position column is guarded by the width, which declines the batch Spark raises BIT_POSITION_RANGE on",
+    "verified" : "differential"
+  }, {
+    "sql" : "getbit(l, 63)",
+    "executable" : "getbit(l, 63)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:bigint", "BitwiseGet:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the alias, at the long lane",
+    "verified" : "differential"
+  }, {
+    "sql" : "bit_get(l, i)",
+    "executable" : "bit_get(l, i)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:bigint", "BitwiseGet:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "i BETWEEN 0 AND 63",
+    "note" : "the guarded position widened to the long lane",
+    "verified" : "differential"
+  }, {
+    "sql" : "bit_count(b)",
+    "executable" : "bit_count(b)",
+    "family" : "Bitwise and shifts",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseCount" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseCount:bool" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "1 or 0, and null where the boolean is: the condition's value",
+    "verified" : "differential"
+  }, {
     "sql" : "if(d < d2, d, d2)",
     "executable" : "if(d < d2, d, d2)",
     "family" : "Choice and nulls",
@@ -3517,6 +3577,30 @@
     "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
     "domain" : "",
     "note" : "a negative short counts its 48 high bits as well",
+    "verified" : "differential"
+  }, {
+    "sql" : "bit_get(y1, 7)",
+    "executable" : "bit_get(y1, 7)",
+    "family" : "Bitwise on narrow columns",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:byte", "BitwiseGet:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the sign bit, read from the value widened by its sign",
+    "verified" : "differential"
+  }, {
+    "sql" : "bit_get(s1, i)",
+    "executable" : "bit_get(s1, i)",
+    "family" : "Bitwise on narrow columns",
+    "form" : "projection",
+    "catalyst" : [ "BitwiseGet" ],
+    "casts" : [ ],
+    "operands" : [ "BitwiseGet:int", "BitwiseGet:short" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "i BETWEEN 0 AND 15",
+    "note" : "an int position guarded by the short's width",
     "verified" : "differential"
   }, {
     "sql" : "y1 < i",
@@ -7837,7 +7921,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane Math.sin call, the host's answer as Spark's",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "cos(x)",
     "executable" : "cos(x)",
@@ -7849,7 +7934,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane Math.cos call",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "tan(x)",
     "executable" : "tan(x)",
@@ -7861,7 +7947,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane Math.tan call",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "asin(x)",
     "executable" : "asin(x)",
@@ -7873,7 +7960,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane StrictMath.asin call, which Math.asin delegates to",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane StrictMath call"
   }, {
     "sql" : "acos(x)",
     "executable" : "acos(x)",
@@ -7885,7 +7973,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane StrictMath.acos call",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane StrictMath call"
   }, {
     "sql" : "atan(x)",
     "executable" : "atan(x)",
@@ -7897,7 +7986,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "exact: a per-lane StrictMath.atan call",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane StrictMath call"
   }, {
     "sql" : "sec(x)",
     "executable" : "sec(x)",
@@ -7909,7 +7999,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "csc(x)",
     "executable" : "csc(x)",
@@ -7921,7 +8012,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "cot(x)",
     "executable" : "cot(x)",
@@ -7933,7 +8025,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "1 / Math.tan(x)",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "sin(x) * 2.0D + cos(x2)",
     "executable" : "sin(x) * 2.0D + cos(x2)",
@@ -7945,7 +8038,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.floatingArithmetic.enabled", "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "the arithmetic around the calls in the kernel",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "sin(i)",
     "executable" : "sin(i)",
@@ -7957,7 +8051,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.floatingCast.enabled", "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "the int converted exactly, then the call",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "sin(x) < 0.5D",
     "executable" : "sin(x) < 0.5D",
@@ -7969,7 +8064,8 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.math.enabled" ],
     "domain" : "",
     "note" : "the call, then the floating compare in Spark's order",
-    "verified" : "differential"
+    "verified" : "differential",
+    "math_form" : "exact: per-lane Math call"
   }, {
     "sql" : "CAST(x AS BOOLEAN)",
     "executable" : "CAST(x AS BOOLEAN)",
@@ -9063,6 +9159,102 @@
     "note" : "",
     "verified" : "differential"
   }, {
+    "sql" : "d38 IN (1.00, 12345678901234567890, -0.50)",
+    "executable" : "d38 IN (1.00, 12345678901234567890, -0.50)",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "In" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "In:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the OR of the equalities, each literal's two words in two slots of the long table",
+    "verified" : "differential"
+  }, {
+    "sql" : "-d38 < d38b",
+    "executable" : "-d38 < d38b",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "LessThan", "UnaryMinus" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:dec", "UnaryMinus:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "lo' = -lo and hi' = ~hi + (lo = 0): the borrow is the only carry, and Spark negates a wide value exactly",
+    "verified" : "proof: decimal128.smt2"
+  }, {
+    "sql" : "abs(d38) >= d38b",
+    "executable" : "abs(d38) >= d38b",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "Abs", "GreaterThanOrEqual" ],
+    "casts" : [ ],
+    "operands" : [ "Abs:dec", "GreaterThanOrEqual:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "each word of -d38 where the high word is negative",
+    "verified" : "proof: decimal128.smt2"
+  }, {
+    "sql" : "IF(d18 > 0.00, d38, d19) < d38b",
+    "executable" : "IF(d18 > 0.00, d38, d19) < d38b",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "GreaterThan", "If", "LessThan" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "GreaterThan:dec", "If:dec", "LessThan:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "the choice on each word under one condition",
+    "verified" : "differential"
+  }, {
+    "sql" : "CASE WHEN d38 < 0.00 THEN d38b END <=> d38",
+    "executable" : "CASE WHEN d38 < 0.00 THEN d38b END <=> d38",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "CaseWhen", "Cast", "EqualNullSafe", "LessThan" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "CaseWhen:dec", "Cast:dec", "EqualNullSafe:dec", "LessThan:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "a missing ELSE is a null in each word",
+    "verified" : "differential"
+  }, {
+    "sql" : "coalesce(d38, d19) = d38b",
+    "executable" : "coalesce(d38, d19) = d38b",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "Coalesce", "EqualTo" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "Coalesce:dec", "EqualTo:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "greatest(d38, d38b) > 0.00",
+    "executable" : "greatest(d38, d38b) > 0.00",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "GreaterThan", "Greatest" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "GreaterThan:dec", "Greatest:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "keeps the running pick where the next operand is null or where both are valid and the pick is not smaller, once per word",
+    "verified" : "differential"
+  }, {
+    "sql" : "least(d38, d19) <= 0.00",
+    "executable" : "least(d38, d19) <= 0.00",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "Least", "LessThanOrEqual" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "Least:dec", "LessThanOrEqual:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "differential"
+  }, {
     "sql" : "d9 + d9b < d18",
     "executable" : "d9 + d9b < d18",
     "family" : "DECIMAL arithmetic",
@@ -9375,5 +9567,5 @@
     "note" : "a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g)",
     "verified" : "exhaustive: VarkaTimeFractionSuite, the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "
   } ],
-  "catalyst_classes_admitted" : [ "Abs", "Acos", "Add", "AddMonths", "And", "Asin", "Atan", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "Cos", "Cot", "Csc", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyDTInterval", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Sec", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sin", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "Tan", "TimestampAdd", "TimestampAddInterval", "TimestampAddYMInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
+  "catalyst_classes_admitted" : [ "Abs", "Acos", "Add", "AddMonths", "And", "Asin", "Atan", "BitwiseAnd", "BitwiseCount", "BitwiseGet", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "Cos", "Cot", "Csc", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyDTInterval", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Sec", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sin", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "Tan", "TimestampAdd", "TimestampAddInterval", "TimestampAddYMInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }

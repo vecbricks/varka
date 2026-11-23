@@ -162,6 +162,8 @@ public final class VarkaWordCensus {
           absorb);
       case BitCount x -> pure(x.child(), coalesce, absorb);
       case MathUnary x -> pure(x.child(), coalesce, absorb);
+      case Fma x -> andW(andW(pure(x.a(), coalesce, absorb), pure(x.b(), coalesce, absorb),
+          absorb), pure(x.c(), coalesce, absorb), absorb);
       case RoundToIntegral x -> pure(x.child(), coalesce, absorb);
       case CanonicalFloat x -> pure(x.child(), coalesce, absorb);
       case CanonicalBits x -> pure(x.child(), coalesce, absorb);
@@ -189,7 +191,7 @@ public final class VarkaWordCensus {
           : null;
       case MakeDate _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, Cond _,
           CondValue _, VarkaVectorIR.NullValue _, BoolOutput _, GuardedDay _, GuardedRange _,
-          WidenLane _, NarrowLane _, ConvertLane _, WidenDecimal _ -> null;
+          WidenLane _, NarrowLane _, ConvertLane _, ReinterpretLane _, WidenDecimal _ -> null;
     };
   }
 

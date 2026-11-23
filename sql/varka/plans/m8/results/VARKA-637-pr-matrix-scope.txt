@@ -1,0 +1,231 @@
+# What a pull request's option matrix runs, and what its diff could have let it skip (VARKA-637,
+# VARKA-638), read on 22 November 2026 at about 22:00 CET.
+
+## Source
+
+Every workflow_dispatch run of varka-option-matrix.yml on MaxGekk/spark created from 15 November
+2026 00:00 UTC to the reading, from the Actions API (runs, then each run's jobs with
+filter=latest). 62 dispatches; 3 have no jobs listed (the jobs API returned none) and one is the
+master run 44485292430, so 58 are pull request branches (one, 45029680160, was cancelled
+after its build job). Three were still running at the reading,
+so their bin-minutes are partial.
+
+Columns: bins, the bin jobs listed; bin-min, the summed minutes of the bin jobs that ran (start
+to completion, cancelled and skipped jobs left out); longest, the longest such bin in minutes;
+wall, the run's first job creation to its last job completion in minutes; wait, the median bin
+job's minutes from creation to start, which is the queue for the fork's 40 slots. The jobs API's
+filter=latest gives each job's latest attempt, so a run whose bins were re-run carries the re-run
+attempt's times against the first attempt's creation: 44882879917 (356-trig) was re-run
+(run_started_at 08:48 against created_at 08:01 UTC), its median wait came out negative, and it is
+shown as n/a; its bin-min is the re-run attempt's. The master run 44485292430, left out of the
+totals, read 193 jobs, 191 bins, 1,457 bin-min, longest 19.6, wall 60, wait 18.2; it ran without
+a reach record.
+
+## Tier of each run's diff
+
+The diff is the head against its merge base with vecbricks/varka's master as it stood when the
+run was created (the last first-parent master commit before created_at). The tiers are a
+first-match draft of the rules VARKA-637.md 3.2 designs:
+
+  suites   only test suites (*Suite.scala or *Suite.java under sql/catalyst or sql/core src/test),
+           with documents, tooling or benchmarks beside them
+  none     documents: *.md, sql/varka/plans, skills, papers, figures, the benchmark results and
+           provenance files, workflows other than the option matrix's
+  tooling  dev/ scripts other than the matrix's own
+  matrix   the matrix's own: dev/varka_matrix*, varka-option-matrix.yml, sql/varka/matrix/*.tsv
+           but skips.tsv
+  all      anything else: main code, test classes that are not suites, generated data files,
+           unknown paths
+
+A run takes the widest tier any of its paths has. The draft is coarser than VARKA-637.md 3.2 as
+reviewed: it puts docs/sql-varka.md under none, which VarkaCoverageSuite reads, so the
+353-support-table-r run (tooling here) would be a suites run of VarkaCoverageSuite under 3.2,
+and its dev/ scripts would add the suites that name them; among the other 7 narrower runs no
+changed document, figure or workflow is one a suite reads (their dev/ scripts were not checked
+against the test sources), and the totals stand.
+
+| tier | runs | bin-min | share of bin-min |
+|---|---:|---:|---:|
+| all | 50 | 57,734 | 85.4% |
+| suites | 6 | 7,504 | 11.1% |
+| tooling | 1 | 1,402 | 2.1% |
+| matrix | 1 | 972 | 1.4% |
+| total | 58 | 67,612 | |
+
+Of the 50 "all" runs, 46 change main code and 4 change only shared test classes and other files
+(502-ir-replay-file, 615-width-audit-admission, 477-junit-parameterized, and skips-union-merge,
+whose sql/varka/.gitattributes no rule lists). The 46 main-code runs change one to seventeen
+main files each; nearly every
+one touches a file every kernel's compile runs (Analysis, Slots, VarkaEmitBudget, VarkaEmitOption
+or VarkaEmitOptions, VarkaVectorIR, VarkaKernelPlan, VarkaNodeCompiler, VarkaExpressionCompiler,
+VarkaBodyEmitter, VarkaLoopEmitter). Of the 73 entries of VarkaEmitOption.TABLE, 4 name a node
+kind whose emission alone reads them (readOnlyBy: ConvertLane twice, DecimalColumn,
+WidenDecimal). The main classes that name those node kinds (a grep of sql/catalyst/src/main on
+the branch's base) are the core list above plus the compilers that build them
+(VarkaFloatingCompiler, VarkaFloatingCastCompiler, VarkaMathPort, VarkaDecimalCompiler,
+VarkaConditionCompiler, VarkaTimeCompiler, DecimalWords), each of which serves other node kinds
+too, and two lowerings, VarkaConversionLowering and VarkaRoundingLowering. The two runs that
+change VarkaConversionLowering (600-bigint-float-avx2-r, 611-guarded-product-r) also change files
+on the core list; 359-decimal128-lane-pair changes DecimalWords, VarkaConditionCompiler and
+VarkaDecimalCompiler, which serve every decimal node, not one kind.
+
+The six "suites" runs' changed suites, as a share of the summed suite seconds in
+sql/varka/matrix/suite-seconds.tsv (141 suites, 2,058 s): 605-nullif-ntz-sanitizer-r,
+VarkaCoverageCompositionFuzzSuite, 7.6%; 340-ntz-fields, VarkaTimestampNtzCastSuite, 0.9%;
+626-regen-speed, VarkaWidthAuditSuite, 630-depth-measure, VarkaVectorIRSharingSuite, and
+30-integral-division (two runs), VarkaIntegralDivisionBaselineQueriesSuite, none listed (the
+first is left out of the matrix; the other two had no measured seconds in the file).
+
+## By result
+
+| result | runs | bin-min |
+|---|---:|---:|
+| success | 34 | 43,516 |
+| failure | 12 | 14,924 |
+| cancelled | 9 | 5,747 |
+| running | 3 | 3,425 |
+
+The 58 runs came from 37 branches; 12 branches were dispatched more than once (356-trig seven
+times, 603b four, cov-int-unary and depth-cap-measure three, eight branches twice).
+
+## Stage one scored against the 12 red runs (read 22 November 2026 at about 23:55 CET)
+
+The question: would VARKA-637.md 3.1's first stage have held a red bin of each red run? Stage
+one is the suites the pull request's diff adds or changes (a suite file in the diff, not a suite
+reached through a changed helper), under every configuration the run's bins plan, plus the units
+of the bins that failed in the branch's last red run. The failing tests and configurations are
+each run's report job log (the `*** FAILED ***` lines); each test was found in the head's test
+sources with `git grep -F`, and the diff is the head against the merge base of the table below.
+Every failing configuration is a line of the build's `configurations` list, which the bins and
+`dev/varka_matrix.sh --all` both read, so stage one plans it. 44882879917 is read from the jobs
+of its first attempt, which `filter=latest` lists for its red bin and report; its second
+attempt's job list returned HTTP 502 three times.
+
+run          branch (PR)                       red bins  failing suite: config          stage one
+45046518805  600-bigint-float-avx2-r (#1625)   b064      VarkaDifferentialHarnessSuite  stops
+                                                         (changed): useAVX=2,
+                                                         wideConversionForm=MAGIC
+45009252877  613-partial-projection (#1619)    b044      VarkaFloatingLaneSuite (not    misses
+                                                         changed): severalKernels=false
+45003017229  335-bit-get (#1617)               b012,     VarkaEmitterBitwiseSuite       stops
+                                               b023,     (changed): validityByWidth=
+                                               b123      false; also VarkaCoverage-
+                                                         HarnessSuite and VarkaCoverage-
+                                                         DifferentialSuite (not changed):
+                                                         validityByWidth=false,
+                                                         lanesOverride=16
+44953252336  345b2-exp-on-master               b160      VarkaMathPortSuite (changed):  stops
+                                                         cse=false
+44882879917  356-trig                          b060      VarkaGroupingBoundSuite (not   misses
+                                                         changed): driverOutputTable=
+                                                         false
+44834265511  cov-int-unary                     b027      VarkaCoverageHarnessSuite (not misses
+                                                         changed): checkIntOverflow=false
+44741487426  356-trig                          b156      VarkaMathExactSuite (changed): stops
+                                                         validityByWidth=false
+44663505883  386-filter-null-then-raise        b047      VarkaDifferentialSuite         stops
+                                                         (changed): checkIntOverflow=false
+44663244734  603f-review                       b074,     VarkaEmitterNarrowArithSuite   stops
+                                               b090      (changed): groupBudget=64, =800
+44159650039  603b                              b099      VarkaEmitterNarrowArithSuite   stops
+                                                         (changed): validityByWidth=false
+44141461002  603b                              b053      VarkaEmitterNarrowArithSuite   stops
+                                                         (changed): validityByWidth=false
+43690478822  603b                              b061      VarkaCoverageCompositionFuzz-  misses
+                                                         Suite (not changed): lanesOverride
+                                                         =4,narrowGroupStore=COMBINED
+
+| stage one | red runs | their bin-min |
+|---|---:|---:|
+| holds a red bin, so it stops the run | 8 | 10,011 |
+| holds none: the run failed only in suites its PR did not change | 4 | 4,913 |
+| total | 12 | 14,924 |
+
+* All four misses change main code, and the main change failed a suite the branch did not
+  touch. The failed-run rule adds none: 603b's 43690478822 and 613's 45009252877 are their
+  branches' first dispatches, cov-int-unary's one earlier run (44827399601) was cancelled, not
+  red, and 356-trig's last red run before 44882879917, 44741487426, failed bin b156, whose units
+  are validityByWidth=false alone and hold no VarkaGroupingBoundSuite. The rule's only hits are
+  603b's 44141461002 and 44159650039, which their changed suite stops anyway. Read as the last
+  run with any failed bin, whatever its conclusion (VARKA-637.md 3.1), the rule still adds
+  none: 356-trig's cancelled 44818547486 had one red bin, b035, which failed downloading the
+  classpath before any unit ran and holds no VarkaGroupingBoundSuite, and cov-int-unary's
+  cancelled 44827399601 had no red bin.
+* 335-bit-get's run stops on its changed suite, but its other red tests, in two coverage suites
+  it did not change, would show only in the next run's second stage.
+* 10,011 bin-minutes is a ceiling, not a saving: each stopped run still pays the build job and
+  its own stage-one bins, which this reading did not price. The two largest laptop sweeps of
+  22 November were 219 and 228 JVM-minutes (results/VARKA-638-sweep-sizes.txt).
+* Outside the 12: #1626 (611-guarded-product-r, 45060620623, cancelled, so not counted) had red
+  bin b030 before the cancel, in VarkaExpressionCompilerSuite, which its PR did not change
+  (useAVX=2,checkedLongMultiply=BY_HOST and =MAGNITUDE). Stage one would have missed it too.
+  The branch's fix then changed that suite, so its next run's stage one would hold it.
+
+## Shape
+
+A completed run (46) has a median of 171 bin jobs and 1,275 bin-minutes; no bin took more than
+32.2 minutes. 1,275 bin-minutes on the 38 bin slots is a floor of 34 minutes of bins. On 22
+November 14 dispatches used 16,103 bin-minutes, three of them (617-matrix-planner-check-r,
+353-support-table-r, 605-nullif-ntz-sanitizer-r) 3,721, 23%.
+
+## The runs
+
+run          branch                      result     tier     bins  bin-min  longest  wall  wait
+45061408127  skips-union-merge           running    all      174   930      15.9     150   57.4
+45060620623  611-guarded-product-r       cancelled  all      178   1070     28.4     148   61.6
+45060442549  342c-census-r               running    all      176   1093     22.7     161   70.8
+45060246559  617-matrix-planner-check-r  cancelled  matrix   194   972      13.7     153   63.9
+45058286930  353-support-table-r         running    tooling  205   1402     19.1     183   55.2
+45046518805  600-bigint-float-avx2-r     failure    all      178   1387     32.2     77    34.9
+45029680160  383-profile-predicate-r     cancelled  all      1     0        0.0      1     0.0
+45023435545  604-decimal-remainder-f-r   success    all      173   1305     18.1     116   74.2
+45019774322  613-partial-projection      success    all      173   1338     29.8     153   86.7
+45017980114  335-bit-get                 success    all      174   1334     16.4     172   103.3
+45014204596  605-nullif-ntz-sanitizer-r  success    suites   172   1347     23.5     185   88.9
+45013534970  345b2-exp-on-master         success    all      172   1342     28.4     152   32.9
+45009252877  613-partial-projection      failure    all      172   1274     23.6     48    17.9
+45003017229  335-bit-get                 failure    all      174   1309     18.2     68    36.0
+44997955603  fuzz-conjunct-order         success    all      173   1319     25.5     64    29.2
+44965594023  340-ntz-fields              success    suites   172   1309     29.1     108   69.6
+44964612543  359-decimal128-lane-pair    success    all      172   1301     18.5     119   77.1
+44961659346  502-ir-replay-file          success    all      172   1277     21.8     109   30.4
+44953252336  345b2-exp-on-master         failure    all      172   1342     27.4     70    32.0
+44942318779  615-width-audit-admission   success    all      171   1302     30.2     81    41.1
+44941538747  345b-on-345a2               success    all      172   1324     27.9     79    37.7
+44935397305  629-auto-chain-cap          success    all      171   1287     20.8     74    32.9
+44926227103  345a2-on-master             success    all      171   1303     18.0     67    39.8
+44925573089  626-regen-speed             success    suites   171   1309     27.6     70    29.2
+44912821531  630-depth-measure           success    suites   171   1300     17.9     40    16.0
+44903689463  630-dag-parser              success    all      171   1304     22.4     57    30.6
+44902111221  630-lift-memo               success    all      171   1293     18.9     54    16.9
+44893721544  356-trig                    success    all      171   1318     20.7     47    19.4
+44891212201  630-linear-equals           success    all      170   1276     20.4     44    16.9
+44882879917  356-trig                    failure    all      171   1233     18.4     55    n/a
+44877758025  630-linear-canonical        success    all      169   1258     18.1     61    18.5
+44852634122  cov-int-unary               success    all      169   1274     17.4     64    34.7
+44851815315  356-trig                    success    all      170   1257     17.2     64    24.4
+44838304187  356-trig                    success    all      168   1266     16.4     51    25.3
+44834265511  cov-int-unary               failure    all      167   1268     18.2     56    18.8
+44829659183  depth-cap-measure           success    all      169   1249     17.8     47    18.1
+44827399601  cov-int-unary               cancelled  all      167   32       8.1      11    0.0
+44821849987  depth-cap-measure           cancelled  all      169   77       12.1     25    5.9
+44818547486  356-trig                    cancelled  all      168   434      18.4     46    4.0
+44811998883  30-integral-division        cancelled  suites   161   1012     17.0     36    11.3
+44792709646  depth-cap-measure           success    all      168   1223     27.2     47    15.2
+44749801924  30-integral-division        success    suites   161   1227     26.2     48    14.2
+44741487426  356-trig                    failure    all      162   1218     20.0     60    34.6
+44739335563  375-mask-from-long-arm      success    all      165   1263     18.4     59    15.2
+44706556660  337-float-normalize         success    all      161   1215     19.3     41    14.2
+44696243575  386-filter-null-then-raise  success    all      160   1174     16.0     74    46.0
+44684484818  337-float-normalize         cancelled  all      161   974      15.0     134   79.7
+44683892034  356-trig                    cancelled  all      161   1176     15.7     159   93.0
+44683177019  603f-review                 success    all      160   1187     21.1     157   85.5
+44682949765  375-mask-from-long-arm      success    all      164   1192     16.1     152   69.3
+44663505883  386-filter-null-then-raise  failure    all      160   1190     16.5     96    52.1
+44663244734  603f-review                 failure    all      160   1193     14.5     87    35.7
+44649325572  548b                        success    all      160   1184     16.0     95    59.1
+44648792550  477-junit-parameterized     success    all      160   1219     21.4     94    51.1
+44179178461  603b                        success    all      191   1440     17.4     59    17.9
+44159650039  603b                        failure    all      160   1183     16.5     51    13.2
+44141461002  603b                        failure    all      160   1189     24.5     56    13.1
+43690478822  603b                        failure    all      160   1138     22.6     43    12.6

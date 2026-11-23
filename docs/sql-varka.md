@@ -46,10 +46,16 @@ serves filters: an eligible predicate becomes a mask kernel whose single
 output is the selection bitmap, and the batch is compacted - or its rows
 skipped at the row boundary - by that mask.
 
-Varka reads three Spark types, and they are the three that are int32 both in
-Spark and in the Arrow cache: `DateType` (stored as `INT` days since epoch),
-`IntegerType`, and `YearMonthIntervalType` in every unit (VARKA-67), whose value
-is a count of months whether it is spelled `INTERVAL YEAR`, `INTERVAL MONTH` or
+Varka reads thirteen Spark types: `BooleanType` as a bitmap; `ByteType` and
+`ShortType` on lanes of their own width; `IntegerType`, `DateType` and
+`YearMonthIntervalType` on 32-bit lanes; `LongType`, `TimestampNTZType`, `TimeType`
+and `DayTimeIntervalType` on 64-bit lanes; `FloatType` and `DoubleType` on floating
+lanes; and `DecimalType` to precision 38, as an unscaled long to precision 18 and a
+pair of longs above it. *What fuses, by type* below says how much of each fuses.
+The rest of this section describes the date family, which began over the three
+types that are int32 both in Spark and in the Arrow cache: `DateType` (stored as
+`INT` days since epoch), `IntegerType`, and `YearMonthIntervalType` in every unit
+(VARKA-67), whose value is a count of months whether it is spelled `INTERVAL YEAR`, `INTERVAL MONTH` or
 `INTERVAL YEAR TO MONTH`. An interval column reaches the same lanes as a date
 one; where it may appear is decided by Spark's own typing, so it fuses in
 `d + ym`, in the ordered comparisons and `IN`, and in the same-typed
@@ -80,8 +86,8 @@ residual, having no null-on-overflow lowering.
 
 The supported expression surface, then, over those columns and day offsets that
 are a foldable integer literal, an
-`IntegerType` column (VARKA-38; a `ShortType`/`ByteType` offset column still
-declines) or int arithmetic over those (VARKA-63), including that column
+`IntegerType` column (VARKA-38; a `ByteType` or `ShortType` one fuses too, as
+`date_add(d, y1)` shows) or int arithmetic over those (VARKA-63), including that column
 spelled as a day interval,
 `d + CAST(i AS INTERVAL DAY)` and `d - CAST(i AS INTERVAL DAY)` (VARKA-56; a
 literal interval folds to `date_add` before planning). The cast throws past
@@ -226,8 +232,8 @@ becomes timestamp arithmetic) decline:
   column holding a day outside 0001..9999 can carry a bound that is not true of
   it. A checked multiply whose operands carry no such bound declines: an
   int32 lane has no cheap overflow test for `*`, so it stays on the row engine
-  rather than wrapping silently. `DIV`, `%` and the float and long types are
-  not lowered.
+  rather than wrapping silently. `DIV` and `%` are not lowered; the 64-bit,
+  narrow and floating arithmetic are families of their own (What fuses, by type).
 * Common subtrees shared *across* outputs are computed once per lane group
   (DAG-CSE), which no per-row engine can keep in a vector register.
 
@@ -235,20 +241,187 @@ A projection does not have to be fully eligible: eligible entries fuse,
 untouched input columns are forwarded zero-copy, and the remaining entries run
 the standard row path per row, merged with the kernel outputs (VARKA-12).
 
-Explicitly out of scope are `CalendarInterval` (a struct of months, days and
-microseconds), `DayTimeIntervalType` (int64 microseconds), strings, decimals and
-nested/complex types. Day offsets are int32, whether a literal, a column or
+Out of scope, by the owner's decision of 14 October 2026, are `STRING` and every
+cast to or from it, `TIMESTAMP` with the local time zone, and decimal division;
+`CalendarInterval` (a struct of months, days and microseconds) and nested types
+have no representation. Day offsets are int32, whether a literal, a column or
 arithmetic over them.
 
 Varka is designed as a drop-in, zero-risk replacement: every Varka path falls
 back to the standard row engine on any failure, so results are always correct.
 
+## What fuses, by type
+
+The tables below answer, per Spark type and per family of functions, how much of Spark's scalar
+surface fuses today. They are read from the census of Spark's function registry over the thirteen
+types (`sql/varka/plans/m8/census.tsv`), which lists every function and operator whose inputs and
+result can all be one of those types, and from the coverage table of the next section, one row
+per fused spelling. An entry absent from the census is out of scope with a recorded reason: a
+`STRING`, a nested type, an aggregate or a nondeterministic function, say.
+
+**Math functions are exact by default.** Today Varka fuses nine math functions, `sin`, `cos`,
+`tan`, `sec`, `csc`, `cot`, `asin`, `acos` and `atan`; the others (`exp`, `log`, `pow`, `atan2`,
+the hyperbolic functions and the rest of the family) decline to the row engine until their ports
+land. Every math function Varka fuses returns Spark's answer bit for bit. Spark computes `exp`,
+`log`, `pow` and their neighbours with `StrictMath`, fdlibm's answer on every host, and `sin`,
+`cos`, `tan`, `tanh` and `cbrt` with `Math`, which Java specifies only to within one ulp of the
+exact result: their last bit is the host JVM's choice inside that bound, and the default
+reproduces that choice rather than relying on the bound. `spark.sql.codegen.varka.math.ulpContract.enabled`, off by default,
+lets a function compute with the JDK's vector math library where the function's bound is
+contracted for the host's library: faster, and within that many representable doubles of Spark's
+answer instead of equal to it. A value computed so and then grouped, joined on, sorted or written
+as a partition key above the kernel can land on the other side of a threshold from Spark's
+answer, so the mode is for a consumer that tolerates it. No function has a contracted bound yet,
+so none computes under the contract and the setting changes no plan today: each function
+reads *exact; no contract*.
+
+<!-- BEGIN generated support table -->
+Written by `dev/varka_census.py` from the census (`sql/varka/plans/m8/census.tsv`, `sql/varka/plans/m8/casts.tsv`), the compiler's cast probe (`sql/varka/plans/m8/casts_fused.tsv`) and `sql/varka/coverage.json`; regenerate it with `python3 dev/varka_census.py`, and `python3 dev/varka_census.py --check` fails while it is stale.
+
+#### By type
+
+An entry is a function or operator of the census; a type counts *fused* for it only when every form of the entry over that type fuses, and *in part* when some form does. *Left, by need* is the rest by what fusing it takes (`plumbing`, a compiler arm and IR on lanes that exist; `semantics`, Spark's overflow, NaN, rounding or scale rules; `ulp`, a math function exact to Spark's answer); the family table names the plan rows that owe them. *Declined* are the entries the owner's decision keeps off the type. *Coverage rows* are the rows of the coverage table below that read a column of the type; a row reading decimals of both bands counts at 19 to 38, whose lane pair it needs.
+
+| Type | Lanes | Entries | Fused | In part | Left, by need | Declined | Coverage rows |
+| :--- | :--- | ---: | ---: | ---: | :--- | ---: | :--- |
+| `BooleanType` (`bool`) | bitmap | 41 | 29 | 2 | plumbing 4, semantics 6 | 0 | 40 |
+| `ByteType` (`byte`) | BYTE, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 57 |
+| `ShortType` (`short`) | SHORT, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 55 |
+| `IntegerType` (`int`) | INT | 90 | 65 | 2 | plumbing 4, semantics 19 | 0 | 128 |
+| `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
+| `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
+| `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 82 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 9 | plumbing 12, semantics 43 | 3 | 85: 60 to precision 18, 25 at precision 19 to 38 |
+| `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
+| `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
+| `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
+| `YearMonthIntervalType` (`ym`) | INT | 55 | 36 | 3 | plumbing 3, semantics 13 | 0 | 37 |
+| `DayTimeIntervalType` (`dt`) | LONG | 57 | 34 | 2 | plumbing 5, semantics 16 | 0 | 33 |
+
+#### By family
+
+One row per section of Spark's function registry, and per family of the operators the parser builds with no registry entry: its entries in scope, those fused for every type they admit, those fused for at least one, those fused in part for some type, the types still owed and the plan rows the unfinished entries name.
+
+| Family | Entries | Every type | Some type | In part | Types owed | Rows |
+| :--- | ---: | ---: | ---: | ---: | :--- | :--- |
+| conditional | 11 | 1 | 11 | 1 | float, dec | 329, 331, 338, 341, 348, 359 |
+| predicate | 16 | 6 | 15 | 8 | bool, dec | 27, 329, 331, 336, 338, 341, 347, 348, 359, 497 |
+| math | 59 | 17 | 33 | 0 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
+| bitwise | 13 | 13 | 13 | 0 |  |  |
+| datetime | 41 | 27 | 36 | 0 | byte, short, int, bigint, float, double, dec, ntz, time, ym, dt | 103, 329, 339, 340, 343, 351 |
+| hash | 2 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 337, 359, 368 |
+| conversion | 11 | 1 | 10 | 3 | bool, byte, short, int, bigint, float, double, dec, date, time, ym, dt | 28, 332, 338, 340, 343, 350, 364, 365, 366, 368 |
+| misc | 2 | 2 | 2 | 0 |  |  |
+| conversion, no registry entry | 1 | 0 | 1 | 1 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 332, 343, 350, 364, 365, 366, 368 |
+| predicate, no registry entry | 1 | 0 | 1 | 0 | bool, dec | 329, 341, 348, 359, 497 |
+| datetime, no registry entry | 9 | 8 | 8 | 0 | date | 39 |
+| interval, no registry entry | 10 | 2 | 4 | 0 | byte, short, int, bigint, float, double, dec, ym, dt | 89, 103, 157, 329, 342, 361, 363 |
+| internals, no registry entry | 4 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 330, 333, 337, 342 |
+
+#### Math functions
+
+The math functions that do not fuse yet, by the plan row that fuses them (the ones that fuse today are named above and compute Spark's answer exactly): what each will return by default once fused, and the bound it will compute to with `spark.sql.codegen.varka.math.ulpContract.enabled` true, which the host library's contract (row 367) states.
+
+| Functions | Row | Fused for | By default | Under the ulp contract |
+| :--- | :--- | :--- | :--- | :--- |
+| `atan2` | 356 | none | Spark's, bit for bit | exact; no contract |
+| `acosh`, `asinh`, `atanh`, `cosh`, `sinh`, `tanh` | 357 | none | Spark's, bit for bit | exact; no contract |
+| `cbrt`, `exp`, `expm1`, `hypot`, `log`, `log10`, `log1p`, `log2`, `ln`, `pow`, `power` | 358 | none | Spark's, bit for bit | exact; no contract |
+
+#### Casts by mode
+
+One matrix per evaluation mode, rows the source type and columns the target, each cell by that mode's own legality: blank where the mode rejects the cast, `=` for an identity the analyzer removes, `context` where the cast fuses only inside another operator, as a coverage row (compiled under ANSI) shows, and otherwise how many of the probe's forms (interval unit pairs, decimal precisions and scales) fuse. LEGACY is the mode with `spark.sql.ansi.enabled` false, ANSI with it true, and TRY is `try_cast`.
+
+<details markdown="1">
+<summary>LEGACY</summary>
+
+| from \ to | `bool` | `byte` | `short` | `int` | `bigint` | `float` | `double` | `dec` | `date` | `ntz` | `time` | `ym` | `dt` |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `bool` | = | fused | fused | fused | fused | fused | fused | declined |  |  |  |  |  |
+| `byte` | fused | = | fused | fused | fused | fused | fused | declined |  |  |  | declined | declined |
+| `short` | fused | fused | = | fused | fused | fused | fused | declined |  |  |  | declined | declined |
+| `int` | fused | fused | fused | = | fused | fused | fused | declined |  |  |  | fused | declined |
+| `bigint` | fused | fused | fused | fused | = | declined | declined | declined |  |  |  | declined | declined |
+| `float` | fused | declined | declined | declined | declined | = | fused | declined |  |  |  |  |  |
+| `double` | fused | declined | declined | declined | declined | fused | = | declined |  |  |  |  |  |
+| `dec` | declined | declined | declined | declined | declined | declined | declined | declined |  |  |  | declined | declined |
+| `date` | declined | declined | declined | declined | declined | declined | declined | declined | = | fused |  |  |  |
+| `ntz` |  |  |  |  |  |  |  |  | fused | = | fused |  |  |
+| `time` |  | declined | declined | declined | declined |  |  | declined |  | fused | 3 of 6 |  |  |
+| `ym` |  | declined | declined | 2 of 3 | declined |  |  | declined |  |  |  | fused |  |
+| `dt` |  | declined | declined | declined | fused |  |  | declined |  |  |  |  | 36 of 90 |
+
+
+* `time` to `time` (relabel or truncation), 3 of 6 forms; declined: TIME(3) to TIME(0); TIME(6) to TIME(0); TIME(6) to TIME(3)
+* `ym` to `int` (unit division), 2 of 3 forms; declined: INTERVAL YEAR TO MONTH to INT
+* `dt` to `dt` (relabel or unit narrowing), 36 of 90 forms; declined: INTERVAL DAY to INTERVAL DAY TO HOUR; INTERVAL DAY to INTERVAL DAY TO MINUTE; INTERVAL DAY to INTERVAL HOUR; INTERVAL DAY to INTERVAL HOUR TO MINUTE; INTERVAL DAY to INTERVAL MINUTE; INTERVAL DAY TO HOUR to INTERVAL DAY; INTERVAL DAY TO HOUR to INTERVAL DAY TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL HOUR; INTERVAL DAY TO HOUR to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL MINUTE; INTERVAL DAY TO MINUTE to INTERVAL DAY; INTERVAL DAY TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO MINUTE to INTERVAL MINUTE; INTERVAL DAY TO SECOND to INTERVAL DAY; INTERVAL DAY TO SECOND to INTERVAL DAY TO HOUR; INTERVAL DAY TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL HOUR; INTERVAL DAY TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL MINUTE; INTERVAL HOUR to INTERVAL DAY; INTERVAL HOUR to INTERVAL DAY TO HOUR; INTERVAL HOUR to INTERVAL DAY TO MINUTE; INTERVAL HOUR to INTERVAL HOUR TO MINUTE; INTERVAL HOUR to INTERVAL MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL DAY; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL HOUR; INTERVAL HOUR TO MINUTE to INTERVAL MINUTE; INTERVAL HOUR TO SECOND to INTERVAL DAY; INTERVAL HOUR TO SECOND to INTERVAL DAY TO HOUR; INTERVAL HOUR TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL HOUR; INTERVAL HOUR TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL MINUTE; INTERVAL MINUTE to INTERVAL DAY; INTERVAL MINUTE to INTERVAL DAY TO HOUR; INTERVAL MINUTE to INTERVAL DAY TO MINUTE; INTERVAL MINUTE to INTERVAL HOUR; INTERVAL MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL DAY; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO HOUR; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL HOUR; INTERVAL MINUTE TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL MINUTE; INTERVAL SECOND to INTERVAL DAY; INTERVAL SECOND to INTERVAL DAY TO HOUR; INTERVAL SECOND to INTERVAL DAY TO MINUTE; INTERVAL SECOND to INTERVAL HOUR; INTERVAL SECOND to INTERVAL HOUR TO MINUTE; INTERVAL SECOND to INTERVAL MINUTE
+
+
+</details>
+
+<details markdown="1">
+<summary>ANSI</summary>
+
+| from \ to | `bool` | `byte` | `short` | `int` | `bigint` | `float` | `double` | `dec` | `date` | `ntz` | `time` | `ym` | `dt` |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `bool` | = | fused | fused | fused | fused | fused | fused | declined |  |  |  |  |  |
+| `byte` | fused | = | fused | fused | fused | fused | fused | declined |  |  |  | declined | declined |
+| `short` | fused | fused | = | fused | fused | fused | fused | declined |  |  |  | declined | declined |
+| `int` | fused | fused | fused | = | fused | fused | fused | declined |  |  |  | fused | context |
+| `bigint` | fused | fused | fused | fused | = | declined | declined | declined |  |  |  | declined | declined |
+| `float` | fused | declined | declined | declined | declined | = | fused | declined |  |  |  |  |  |
+| `double` | fused | declined | declined | declined | declined | fused | = | declined |  |  |  |  |  |
+| `dec` | declined | declined | declined | declined | declined | declined | declined | context |  |  |  | declined | declined |
+| `date` |  |  |  |  |  |  |  |  | = | fused |  |  |  |
+| `ntz` |  |  |  |  |  |  |  |  | fused | = | fused |  |  |
+| `time` |  | declined | declined | declined | declined |  |  | declined |  | fused | 3 of 6 |  |  |
+| `ym` |  | declined | declined | 2 of 3 | declined |  |  | declined |  |  |  | fused |  |
+| `dt` |  | declined | declined | declined | fused |  |  | declined |  |  |  |  | 36 of 90 |
+
+
+* `time` to `time` (relabel or truncation), 3 of 6 forms; declined: TIME(3) to TIME(0); TIME(6) to TIME(0); TIME(6) to TIME(3)
+* `ym` to `int` (unit division), 2 of 3 forms; declined: INTERVAL YEAR TO MONTH to INT
+* `dt` to `dt` (relabel or unit narrowing), 36 of 90 forms; declined: INTERVAL DAY to INTERVAL DAY TO HOUR; INTERVAL DAY to INTERVAL DAY TO MINUTE; INTERVAL DAY to INTERVAL HOUR; INTERVAL DAY to INTERVAL HOUR TO MINUTE; INTERVAL DAY to INTERVAL MINUTE; INTERVAL DAY TO HOUR to INTERVAL DAY; INTERVAL DAY TO HOUR to INTERVAL DAY TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL HOUR; INTERVAL DAY TO HOUR to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL MINUTE; INTERVAL DAY TO MINUTE to INTERVAL DAY; INTERVAL DAY TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO MINUTE to INTERVAL MINUTE; INTERVAL DAY TO SECOND to INTERVAL DAY; INTERVAL DAY TO SECOND to INTERVAL DAY TO HOUR; INTERVAL DAY TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL HOUR; INTERVAL DAY TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL MINUTE; INTERVAL HOUR to INTERVAL DAY; INTERVAL HOUR to INTERVAL DAY TO HOUR; INTERVAL HOUR to INTERVAL DAY TO MINUTE; INTERVAL HOUR to INTERVAL HOUR TO MINUTE; INTERVAL HOUR to INTERVAL MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL DAY; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL HOUR; INTERVAL HOUR TO MINUTE to INTERVAL MINUTE; INTERVAL HOUR TO SECOND to INTERVAL DAY; INTERVAL HOUR TO SECOND to INTERVAL DAY TO HOUR; INTERVAL HOUR TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL HOUR; INTERVAL HOUR TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL MINUTE; INTERVAL MINUTE to INTERVAL DAY; INTERVAL MINUTE to INTERVAL DAY TO HOUR; INTERVAL MINUTE to INTERVAL DAY TO MINUTE; INTERVAL MINUTE to INTERVAL HOUR; INTERVAL MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL DAY; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO HOUR; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL HOUR; INTERVAL MINUTE TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL MINUTE; INTERVAL SECOND to INTERVAL DAY; INTERVAL SECOND to INTERVAL DAY TO HOUR; INTERVAL SECOND to INTERVAL DAY TO MINUTE; INTERVAL SECOND to INTERVAL HOUR; INTERVAL SECOND to INTERVAL HOUR TO MINUTE; INTERVAL SECOND to INTERVAL MINUTE
+
+
+</details>
+
+<details markdown="1">
+<summary>TRY</summary>
+
+| from \ to | `bool` | `byte` | `short` | `int` | `bigint` | `float` | `double` | `dec` | `date` | `ntz` | `time` | `ym` | `dt` |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `bool` | = | fused | fused | fused | fused | fused | fused | declined |  |  |  |  |  |
+| `byte` | fused | = | fused | fused | fused | fused | fused | declined |  |  |  | declined | declined |
+| `short` | fused | fused | = | fused | fused | fused | fused | declined |  |  |  | declined | declined |
+| `int` | fused | fused | fused | = | fused | fused | fused | declined |  |  |  | fused | declined |
+| `bigint` | fused | fused | fused | fused | = | declined | declined | declined |  |  |  | declined | declined |
+| `float` | fused | declined | declined | declined | declined | = | fused | declined |  |  |  |  |  |
+| `double` | fused | declined | declined | declined | declined | fused | = | declined |  |  |  |  |  |
+| `dec` | declined | declined | declined | declined | declined | declined | declined | declined |  |  |  | declined | declined |
+| `date` |  |  |  |  |  |  |  |  | = | fused |  |  |  |
+| `ntz` |  |  |  |  |  |  |  |  | fused | = | fused |  |  |
+| `time` |  | declined | declined | declined | declined |  |  | declined |  | fused | 3 of 6 |  |  |
+| `ym` |  | declined | declined | 2 of 3 | declined |  |  | declined |  |  |  | fused |  |
+| `dt` |  | declined | declined | declined | fused |  |  | declined |  |  |  |  | 36 of 90 |
+
+
+* `time` to `time` (relabel or truncation), 3 of 6 forms; declined: TIME(3) to TIME(0); TIME(6) to TIME(0); TIME(6) to TIME(3)
+* `ym` to `int` (unit division), 2 of 3 forms; declined: INTERVAL YEAR TO MONTH to INT
+* `dt` to `dt` (relabel or unit narrowing), 36 of 90 forms; declined: INTERVAL DAY to INTERVAL DAY TO HOUR; INTERVAL DAY to INTERVAL DAY TO MINUTE; INTERVAL DAY to INTERVAL HOUR; INTERVAL DAY to INTERVAL HOUR TO MINUTE; INTERVAL DAY to INTERVAL MINUTE; INTERVAL DAY TO HOUR to INTERVAL DAY; INTERVAL DAY TO HOUR to INTERVAL DAY TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL HOUR; INTERVAL DAY TO HOUR to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL MINUTE; INTERVAL DAY TO MINUTE to INTERVAL DAY; INTERVAL DAY TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO MINUTE to INTERVAL MINUTE; INTERVAL DAY TO SECOND to INTERVAL DAY; INTERVAL DAY TO SECOND to INTERVAL DAY TO HOUR; INTERVAL DAY TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL HOUR; INTERVAL DAY TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL MINUTE; INTERVAL HOUR to INTERVAL DAY; INTERVAL HOUR to INTERVAL DAY TO HOUR; INTERVAL HOUR to INTERVAL DAY TO MINUTE; INTERVAL HOUR to INTERVAL HOUR TO MINUTE; INTERVAL HOUR to INTERVAL MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL DAY; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL HOUR; INTERVAL HOUR TO MINUTE to INTERVAL MINUTE; INTERVAL HOUR TO SECOND to INTERVAL DAY; INTERVAL HOUR TO SECOND to INTERVAL DAY TO HOUR; INTERVAL HOUR TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL HOUR; INTERVAL HOUR TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL MINUTE; INTERVAL MINUTE to INTERVAL DAY; INTERVAL MINUTE to INTERVAL DAY TO HOUR; INTERVAL MINUTE to INTERVAL DAY TO MINUTE; INTERVAL MINUTE to INTERVAL HOUR; INTERVAL MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL DAY; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO HOUR; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL HOUR; INTERVAL MINUTE TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL MINUTE; INTERVAL SECOND to INTERVAL DAY; INTERVAL SECOND to INTERVAL DAY TO HOUR; INTERVAL SECOND to INTERVAL DAY TO MINUTE; INTERVAL SECOND to INTERVAL HOUR; INTERVAL SECOND to INTERVAL HOUR TO MINUTE; INTERVAL SECOND to INTERVAL MINUTE
+
+
+</details>
+<!-- END generated support table -->
+
 ## Expression coverage
 
 One row per expression the compiler fuses, in the spelling you would write it,
-over the columns of the benchmark's `varka_dates` table: `d` and `d2` are dates,
-`i` an int, and `ymm`, `ymy` and `ym` year-month intervals of the three unit
-ranges. The Overview above states the conditions in prose; this is the list to
+over the columns `sql/varka/coverage.json` lists with their types: `d` and `d2`
+are dates, `i` an int, and `ymm`, `ymy` and `ym` year-month intervals of the
+three unit ranges, and each other type has one or two columns of its own (`l` a
+bigint, `x` a double, `ntz` a TIMESTAMP_NTZ, `d9` to `d38` decimals named by
+their precision, and so on). The Overview above states the conditions in prose; this is the list to
 scan when the question is simply whether an expression is covered.
 
 Anything absent declines and runs on Spark's row engine. A decline is a normal
@@ -257,8 +430,9 @@ projection is unaffected.
 
 Two things are worth stating before the list, because they decide several
 rows and are invisible in the spelling. Every comparison and null test fuses
-over each of the six types, a bare `IntegerType` column included (`i > 0`, as
-`year(d) = 2021` does), and `IN` over dates and year-month intervals. A null
+over each of the thirteen types, a bare `IntegerType` column included (`i > 0`,
+as `year(d) = 2021` does), over `DECIMAL` for the forms *What fuses, by type*
+counts in part, and `IN` over every type but `BOOLEAN`. A null
 test fuses over a predicate as well as over a column, as a filter and as the
 condition of a CASE: `(d = d2) IS NULL` is the predicate's unknown rows, read
 off the masks it already computes. Spark's default optimizer
@@ -444,6 +618,11 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `bit_count(l) + 1` | `intArithmetic` |  | the narrowed count feeding int arithmetic; the sum cannot overflow, the count being at most 64 | per-lane: mask broadcast, load or store |
 | `bitmap_bucket_number(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
 | `bitmap_bit_position(l)` | `intArithmetic` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
+| `bit_get(i, 3)` | `intArithmetic` |  | a TINYINT result, the bit shifted down, masked and narrowed; a literal position past the width declines, since Spark raises on every row with a valid target | vector |
+| `bit_get(i, i)` | `intArithmetic` | `i BETWEEN 0 AND 31` | a position column is guarded by the width, which declines the batch Spark raises BIT_POSITION_RANGE on | vector |
+| `getbit(l, 63)` | `intArithmetic` |  | the alias, at the long lane | vector |
+| `bit_get(l, i)` | `intArithmetic` | `i BETWEEN 0 AND 63` | the guarded position widened to the long lane | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `bit_count(b)` | `intArithmetic` |  | 1 or 0, and null where the boolean is: the condition's value | vector |
 
 #### Choice and nulls
 
@@ -683,6 +862,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `s1 ^ s2` | `intArithmetic` |  |  | vector |
 | `~s1` | `intArithmetic` |  |  | vector |
 | `bit_count(s1)` | `intArithmetic` |  | a negative short counts its 48 high bits as well | vector |
+| `bit_get(y1, 7)` | `intArithmetic` |  | the sign bit, read from the value widened by its sign | vector |
+| `bit_get(s1, i)` | `intArithmetic` | `i BETWEEN 0 AND 15` | an int position guarded by the short's width | vector |
 
 #### TINYINT and SMALLINT widened to int
 
@@ -1185,25 +1366,25 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 #### Math functions
 
-| Expression | Switches | Domain | Notes | 128-bit lanes |
-|---|---|---|---|---|
-| `sin(x)` | `math` |  | exact: a per-lane Math.sin call, the host's answer as Spark's | vector |
-| `cos(x)` | `math` |  | exact: a per-lane Math.cos call | vector |
-| `tan(x)` | `math` |  | exact: a per-lane Math.tan call | vector |
-| `asin(x)` | `math` |  | exact: a per-lane StrictMath.asin call, which Math.asin delegates to | vector |
-| `acos(x)` | `math` |  | exact: a per-lane StrictMath.acos call | vector |
-| `atan(x)` | `math` |  | exact: a per-lane StrictMath.atan call | vector |
-| `sec(x)` | `math` |  | 1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null | vector |
-| `csc(x)` | `math` |  | 1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf | vector |
-| `cot(x)` | `math` |  | 1 / Math.tan(x) | vector |
-| `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | vector |
-| `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | per-lane: mask broadcast, mask test |
+| Expression | Switches | Domain | Notes | Form | 128-bit lanes |
+|---|---|---|---|---|---|
+| `sin(x)` | `math` |  | exact: a per-lane Math.sin call, the host's answer as Spark's | exact: per-lane Math call | vector |
+| `cos(x)` | `math` |  | exact: a per-lane Math.cos call | exact: per-lane Math call | vector |
+| `tan(x)` | `math` |  | exact: a per-lane Math.tan call | exact: per-lane Math call | vector |
+| `asin(x)` | `math` |  | exact: a per-lane StrictMath.asin call, which Math.asin delegates to | exact: per-lane StrictMath call | vector |
+| `acos(x)` | `math` |  | exact: a per-lane StrictMath.acos call | exact: per-lane StrictMath call | vector |
+| `atan(x)` | `math` |  | exact: a per-lane StrictMath.atan call | exact: per-lane StrictMath call | vector |
+| `sec(x)` | `math` |  | 1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null | exact: per-lane Math call | vector |
+| `csc(x)` | `math` |  | 1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf | exact: per-lane Math call | vector |
+| `cot(x)` | `math` |  | 1 / Math.tan(x) | exact: per-lane Math call | vector |
+| `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | exact: per-lane Math call | vector |
+| `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | exact: per-lane Math call | per-lane: mask broadcast, mask test |
 
 #### Math functions as conditions
 
-| Predicate | Switches | Domain | Notes | 128-bit lanes |
-|---|---|---|---|---|
-| `sin(x) < 0.5D` | `predicate`, `math` |  | the call, then the floating compare in Spark's order | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| Predicate | Switches | Domain | Notes | Form | 128-bit lanes |
+|---|---|---|---|---|---|
+| `sin(x) < 0.5D` | `predicate`, `math` |  | the call, then the floating compare in Spark's order | exact: per-lane Math call | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### Floating casts to BOOLEAN
 
@@ -1325,6 +1506,14 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `IF(d18 > 0.00, d38, d38b) IS NULL` | `predicate`, `condition` |  | a choice or a pick of wide values is null only where its leaves are, so the test reads no word of the value | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `coalesce(d38, d19) IS NULL` | `predicate`, `condition` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `greatest(d38, d38b) IS NOT NULL` | `predicate`, `intArithmetic` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d38 IN (1.00, 12345678901234567890, -0.50)` | `predicate` |  | the OR of the equalities, each literal's two words in two slots of the long table | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `-d38 < d38b` | `predicate` |  | lo' = -lo and hi' = ~hi + (lo = 0): the borrow is the only carry, and Spark negates a wide value exactly | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `abs(d38) >= d38b` | `predicate` |  | each word of -d38 where the high word is negative | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `IF(d18 > 0.00, d38, d19) < d38b` | `predicate`, `condition` |  | the choice on each word under one condition | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CASE WHEN d38 < 0.00 THEN d38b END <=> d38` | `predicate`, `condition` |  | a missing ELSE is a null in each word | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `coalesce(d38, d19) = d38b` | `predicate`, `condition` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `greatest(d38, d38b) > 0.00` | `predicate`, `intArithmetic` |  | keeps the running pick where the next operand is null or where both are valid and the pick is not smaller, once per word | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `least(d38, d19) <= 0.00` | `predicate`, `intArithmetic` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### DECIMAL arithmetic
 
@@ -1385,17 +1574,17 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | rendered | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 100 | 0 | 0 | 2 | 0 | 2 | 96 |
-| `bool` | 38 | 0 | 0 | 0 | 13 | 0 | 25 |
-| `byte` | 56 | 0 | 0 | 0 | 0 | 8 | 48 |
+| `bigint` | 102 | 0 | 0 | 2 | 0 | 2 | 98 |
+| `bool` | 39 | 0 | 0 | 0 | 13 | 0 | 26 |
+| `byte` | 57 | 0 | 0 | 0 | 0 | 8 | 49 |
 | `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
-| `dec` | 77 | 1 | 42 | 10 | 0 | 0 | 24 |
+| `dec` | 85 | 1 | 42 | 12 | 0 | 0 | 30 |
 | `double` | 97 | 0 | 0 | 1 | 0 | 0 | 96 |
 | `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
-| `int` | 179 | 14 | 0 | 4 | 1 | 1 | 159 |
+| `int` | 185 | 14 | 0 | 4 | 1 | 1 | 165 |
 | `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
-| `short` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
+| `short` | 55 | 0 | 0 | 0 | 0 | 8 | 47 |
 | `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
 | `ym` | 40 | 7 | 0 | 2 | 0 | 2 | 29 |
 <!-- END generated verification counts -->
@@ -1424,7 +1613,7 @@ bitmask, never a machine word or a token of text.
 | **shape cache** | A bounded LRU of emitted classes keyed by shape, shared *across tasks*. The cost it saves is not emission - that is about 80 microseconds - but JIT warm-up: a re-defined class is a new class to HotSpot and re-pays the whole tier ladder, 13 to 50 ms per task. Reusing the loaded class is the only thing that avoids it. |
 | **literal slot** | An index into the kernel's runtime argument array where a folded constant lives. Why the IR carries no literal *values*: keeping them out is what makes the shape the identity. |
 | **selection bitmap** | A filter's output: one bit per row, set meaning the predicate is known true. An unknown row - a null under the comparison - reads as false by construction, which is SQL's `WHERE` semantics for free. |
-| **partial eligibility** | A projection qualifies when *at least one* of its entries compiles. The rest are forwarded zero-copy or left to stock Spark, and the results merge. Eligibility is per entry, not all-or-nothing. |
+| **partial eligibility** | A projection qualifies when *at least one* of its entries compiles. The rest are forwarded zero-copy or left to stock Spark, and the results merge. Eligibility is per entry, not all-or-nothing, with one exception: under a consumer that wants rows, a projection whose residual entries outnumber its fused ones is left whole to stock Spark, whose one whole-stage loop is then faster than the kernel and the per-row merge (VARKA-613). |
 | **decline** | A compile-time refusal: the compiler cannot translate an expression, or the emitter will not build a shape. Declining is a normal outcome, not an error - the query runs on stock Spark instead. |
 | **ghost fallback** | The run-time counterpart: if an emitted kernel fails on a batch, that batch is recomputed by the ordinary row engine and the query still returns the right answer. The Janino projection behind it is compiled lazily, only if some batch actually needs it. |
 | **civil-from-days** | The calendar algorithm turning a day count since the epoch into year, month and day (Neri and Schneider's, transcribed in `sql/varka/papers`). Branch-free and 31 vector operations, which is why several outputs over one date share it. |
@@ -1785,12 +1974,13 @@ attributes alone did not answer:
   child column) or residual with the compiler's decline reason - "unsupported
   expression", "CASE WHEN without an ELSE branch", "non-date column of
   type ..." - in the query's own column names. A column of a type Varka plans
-  but does not read yet names the type and the task that builds it ("a double
-  column: the DOUBLE lane is row 341's"), and the zoned `TIMESTAMP` the
+  but does not read yet names the type and the task that builds it ("a decimal
+  column: precision above 18 is row ..."), and the zoned `TIMESTAMP` the
   decision that keeps it out (VARKA-494). Since VARKA-38, a `date_add`/
   `date_sub` day offset that is neither a foldable literal nor a supported
   column gets its own reasons: "non-integer day offset column of type ..."
-  for a `ShortType`/`ByteType` column, "day offset is not a foldable literal,
+  for a column that is not an integer one (`ByteType` and `ShortType` ones
+  fuse since VARKA-329), "day offset is not a foldable literal,
   an integer column or int arithmetic" for anything else (e.g. `i % 7`, whose
   operator no arm lowers). Since VARKA-63, "checked int multiply whose operands
   do not rule out overflow" names an ANSI or TRY `*` the compile-time bound
@@ -2253,6 +2443,7 @@ cast) have no switch. The coverage table's *Switches* column names each row's.
 | `spark.sql.codegen.varka.emit.useAVX` | `-2` | The `-XX:UseAVX` level the emitter lowers for where a lowering depends on it (VARKA-121): `3` or above takes a 64-bit division through double lanes, `2` the magic-number form, because the converts do not become instructions without AVX512DQ. `-2` resolves it from the driver's JVM (VARKA-538): level `2` where HotSpot's feature list lacks AVX512DQ and the preferred `LongVector` species, which `-XX:MaxVectorSize` caps, is at least 256 bits wide (on the EPYC 7763 the magic form was ten to twenty times faster at 256 bits and about half as fast at 128), `3` on an x86 host whose list holds AVX512DQ and on an aarch64 host, whose matcher lowers both 64-bit conversions to instructions (VARKA-584), the emitter's default otherwise or where the list cannot be read (it needs `--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED`, which Spark's module options carry); the driver's host decides for the whole plan, and on a mixed cluster both forms are correct. `-1` leaves the emitter's own default, which is deliberately not the host's level so the shape hashes and the committed bytes describe no one machine; the Varka test sessions pin it. An explicit level wins over the host, and the level is part of the shape hash, so a session at a level emits and caches its own classes. |
 | `spark.sql.codegen.varka.cache.maxEntries` | `100` | Static (VARKA-18). Capacity of the JVM-wide cache of loaded fused-kernel classes, keyed on the kernel's structural shape; the least recently used class is released on eviction, bounding Metaspace by this size. `0` restores the per-task emit-and-unload lifecycle. |
 | `spark.sql.codegen.varka.warmup.enabled` | `true` | VARKA-212. When true, a newly emitted kernel serves no batch until C2 has compiled it: the shape's batches take the per-row path while a background thread runs the kernel on a copy of the first batch, and every task of the shape switches to the kernel once it runs without allocating. When false, a new kernel serves batches from the first and runs interpreted until enough batches have gone through it. |
+| `spark.sql.codegen.varka.math.ulpContract.enabled` | (none) | Opt-in. Unset or false, every math function Varka fuses returns Spark's answer bit for bit. When true, a math function may compute with the JDK's vector math library where its bound is contracted for the host's library: faster, and within that many representable doubles of Spark's answer rather than equal to it, so a value grouped, joined on, sorted or written as a partition key above the kernel may fall on the other side of a threshold. No function has a contracted bound yet and none computes under it, so it changes no plan today (What fuses, by type). True is part of the shape hash, so such a session emits and caches classes of its own. |
 
 The family switches (VARKA-318), generated from `VarkaFamily` by `VarkaCoverageSuite` with the
 coverage table, and regenerated by the same command:
@@ -2476,17 +2667,14 @@ files, which are the source of truth as the code moves):
 
 The real current edges, stated with their numbers where they have one:
 
-* **Int32 lanes for every expression SQL can reach.** The IR carries a lane
-  type per node and the emitter serves two - 32-bit and 64-bit - but no
-  compiler arm admits a `bigint` column yet, so every expression a query can
-  fuse today is `INT`-shaped (`DateType` days or integer results). The 64-bit
-  lane exists below that line: it emits, verifies and computes against a
-  reference for the arithmetic, the comparisons and the conditional, which is
-  what makes the types built on it - `bigint`, `TIME`, day-time intervals - a
-  compiler question rather than an engine one. No `CalendarInterval`, strings,
-  decimals, timestamps or nested types, and a day offset must be a foldable
-  integer literal or an `IntegerType` column - `ShortType`/`ByteType` offset
-  columns decline (VARKA-38).
+* **Thirteen types, and not the rest.** Varka reads `BOOLEAN`, `TINYINT`,
+  `SMALLINT`, `INT`, `BIGINT`, `FLOAT`, `DOUBLE`, `DECIMAL` to precision 38,
+  `DATE`, `TIMESTAMP_NTZ`, `TIME` and both interval types, and *What fuses, by
+  type* says how much of each fuses. `STRING` and its casts, `TIMESTAMP` with
+  the local time zone and decimal division are out of scope by the owner's
+  decision of 14 October 2026, and `CalendarInterval` and nested types have no
+  representation. A day offset is a foldable integer literal, an `INT`,
+  `SMALLINT` or `TINYINT` column, or int arithmetic over those.
 * **A SIMD lane cannot throw row-accurately**, which shapes how ANSI overflow
   works rather than excluding it. VARKA-63 fuses integer arithmetic over a
   `datediff` result and over the calendar fields; where the operands' ranges do

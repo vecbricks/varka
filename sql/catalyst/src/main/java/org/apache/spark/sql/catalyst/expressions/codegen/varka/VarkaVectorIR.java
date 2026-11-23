@@ -83,10 +83,11 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.AddMonths, VarkaVectorIR.MakeDate,
             VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
             VarkaVectorIR.BoundedDivide, VarkaVectorIR.BitOp, VarkaVectorIR.BitCount,
-            VarkaVectorIR.MathUnary, VarkaVectorIR.RoundToIntegral, VarkaVectorIR.Cond,
-            VarkaVectorIR.CanonicalFloat, VarkaVectorIR.CanonicalBits, VarkaVectorIR.HashStep,
+            VarkaVectorIR.MathUnary, VarkaVectorIR.Fma, VarkaVectorIR.RoundToIntegral,
+            VarkaVectorIR.Cond, VarkaVectorIR.CanonicalFloat, VarkaVectorIR.CanonicalBits,
+            VarkaVectorIR.HashStep,
             VarkaVectorIR.GuardedDay, VarkaVectorIR.GuardedRange, VarkaVectorIR.WidenLane,
-            VarkaVectorIR.ConvertLane,
+            VarkaVectorIR.ConvertLane, VarkaVectorIR.ReinterpretLane,
             VarkaVectorIR.NarrowLane, VarkaVectorIR.WidenDecimal {
 
   /**
@@ -170,6 +171,7 @@ public sealed interface VarkaVectorIR
       case BitOp n -> n.left().laneType();
       case BitCount n -> n.child().laneType();
       case MathUnary n -> n.child().laneType();
+      case Fma n -> n.a().laneType();
       case RoundToIntegral n -> n.child().laneType();
       case CanonicalFloat n -> n.child().laneType();
       case CanonicalBits n -> n.lane();
@@ -200,6 +202,7 @@ public sealed interface VarkaVectorIR
       case GuardedRange n -> n.child().laneType();
       case WidenLane n -> n.target();
       case ConvertLane n -> n.target();
+      case ReinterpretLane n -> n.target();
       case NarrowLane n -> n.target();
       case WidenDecimal n -> n.child().laneType();
       case DayOfWeek n -> LaneType.INT;
@@ -238,12 +241,12 @@ public sealed interface VarkaVectorIR
       case DecimalWord c -> c.ordinal();
       case BoolColumn b -> b.ordinal();
       case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
-          BitCount _, MathUnary _, RoundToIntegral _, Greatest _, Least _, IfElse _, CondValue _,
-          BoolOutput _, CanonicalFloat _, CanonicalBits _, HashStep _,
+          BitCount _, MathUnary _, Fma _, RoundToIntegral _, Greatest _, Least _, IfElse _,
+          CondValue _, BoolOutput _, CanonicalFloat _, CanonicalBits _, HashStep _,
           Compare _, NullSafeEqual _, CondConst _, NullValue _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
-          ConvertLane _,
+          ConvertLane _, ReinterpretLane _,
           NarrowLane _, WidenDecimal _, DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _,
           ThursdayOf _,
           AddMonths _, MakeDate _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
@@ -284,6 +287,26 @@ public sealed interface VarkaVectorIR
     }
   }
 
+  /** Whether {@code root}'s tree holds a {@link ReinterpretLane}, built by the math ports only. */
+  static boolean holdsReinterpret(VarkaVectorIR root) {
+    return holdsReinterpret(root, new HashSet<>());
+  }
+
+  private static boolean holdsReinterpret(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
+    if (!seen.add(node)) {
+      return false;
+    }
+    if (node instanceof ReinterpretLane) {
+      return true;
+    }
+    for (VarkaVectorIR child : childrenOf(node)) {
+      if (holdsReinterpret(child, seen)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * The narrow lanes {@code root}'s tree reads as values: a narrow column leaf, which a widening
    * load spans parts of. A narrow column read only for its validity word - the {@code y1 IS NOT
@@ -320,13 +343,13 @@ public sealed interface VarkaVectorIR
       case LiteralSlot _, BoolColumn _, CondConst _, DecimalColumn _, DecimalWord _,
           NullValue _ -> { }
       case WidenLane _, NarrowLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _,
-          AddMonths _,
+          ReinterpretLane _, AddMonths _,
           MakeDate _, IntArith _, IntNeg _, GuardedDay _, GuardedRange _, NextDay _,
           TruncDateDynamic _,
           DateDiff _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
-          BitOp _, BitCount _, MathUnary _, RoundToIntegral _, Compare _, NullSafeEqual _,
+          BitOp _, BitCount _, MathUnary _, Fma _, RoundToIntegral _, Compare _, NullSafeEqual _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _,
           InRanges _, CanonicalFloat _, CanonicalBits _, HashStep _ -> {
         for (VarkaVectorIR child : childrenOf(node)) {
@@ -367,13 +390,14 @@ public sealed interface VarkaVectorIR
       case BoolColumn _, CondConst _, DecimalColumn _, DecimalWord _, NullValue _ -> false;
       case NarrowLane n -> n.target().isNarrow() || needsNarrowSpecies(n.child(), seen);
       case WidenLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _, AddMonths _,
-          MakeDate _,
+          ReinterpretLane _, MakeDate _,
           IntArith _, IntNeg _,
           GuardedDay _, GuardedRange _, NextDay _, TruncDateDynamic _, DateDiff _, Greatest _,
           Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _, WeekDay _, DayOfWeekIso _,
           ThursdayOf _, Year _,
           Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _, TruncDate _, WeekOfYear _,
-          ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, RoundToIntegral _,
+          ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, Fma _,
+          RoundToIntegral _,
           Compare _, NullSafeEqual _, BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _,
           CrossLane _, InRanges _, CanonicalFloat _, CanonicalBits _, HashStep _ -> {
         boolean any = false;
@@ -1016,7 +1040,8 @@ public sealed interface VarkaVectorIR
    * half of the 32-bit target, as {@code L2I} does. {@code L2F} and {@code L2D}, which a host
    * without AVX512DQ runs as the Vector API's Java loop, take their AVX2 forms below emit level 3
    * ({@code VarkaConversionLowering}), and the kernel plan refuses them at the unknown level and
-   * the conversions from a floating lane to an integral one until row 343's later parts.
+   * the conversions from a floating lane to an integral one but {@code D2I} until row 343's
+   * later parts.
    */
   record ConvertLane(VarkaVectorIR child, LaneType target, int hash) implements VarkaVectorIR {
     public ConvertLane {
@@ -1032,6 +1057,41 @@ public sealed interface VarkaVectorIR
     }
 
     public ConvertLane(VarkaVectorIR child, LaneType target) { this(child, target, 0); }
+    @Override public int hashCode() { return hash; }
+  }
+
+  /**
+   * The raw bits of {@code child} read at {@code target}, the other lane of the same width with
+   * the other kind: {@code DOUBLE} to {@code LONG} and back, {@code Double.doubleToRawLongBits}
+   * and {@code Double.longBitsToDouble}, and {@code FLOAT} to {@code INT} and back, their 32-bit
+   * twins. No bit changes, a NaN's payload and sign included, so the node is a view and no
+   * conversion: the emitter lowers it as {@code reinterpretAsLongs}, {@code reinterpretAsDoubles},
+   * {@code reinterpretAsInts} or {@code reinterpretAsFloats} of the child's vector, whose species
+   * has the target's lane count at the same width. The validity is the child's.
+   *
+   * <p>It is the high- and low-word access of an fdlibm port ({@code VarkaMathPort},
+   * {@code VARKA-345.md} 2.2): {@code __HI(x)} is a shift of {@code x}'s long view, and a result
+   * assembled from words is the double view of a long.
+   */
+  record ReinterpretLane(VarkaVectorIR child, LaneType target, int hash)
+      implements VarkaVectorIR {
+    public ReinterpretLane {
+      Objects.requireNonNull(target, "target");
+      LaneType from = child.laneType();
+      if (from.isNarrow() || target.isNarrow() || from.bits() != target.bits()
+          || from.isFloating() == target.isFloating()) {
+        throw VarkaErrors.illegalArgument("reinterpretLane takes a lane to the other kind of its "
+            + "width, not " + from + " to " + target + ", from a "
+            + child.getClass().getSimpleName());
+      }
+      if (child instanceof Cond) {
+        throw VarkaErrors.illegalArgument("reinterpretLane reads a value's bits, not the "
+            + "condition " + child);
+      }
+      hash = hashOf(child, target);
+    }
+
+    public ReinterpretLane(VarkaVectorIR child, LaneType target) { this(child, target, 0); }
     @Override public int hashCode() { return hash; }
   }
 
@@ -1533,6 +1593,35 @@ public sealed interface VarkaVectorIR
     }
 
     public MathUnary(MathFn fn, VarkaVectorIR child) { this(fn, child, 0); }
+    @Override public int hashCode() { return hash; }
+  }
+
+  /**
+   * {@code a * b + c} over a floating lane with one rounding, {@code Math.fma}: the lanewise
+   * {@code FMA}, which is IEEE's fused multiply-add on every host the Vector API intrinsifies it
+   * on, and {@code Math.fma}'s own exact computation in each lane elsewhere. No Spark expression
+   * is an FMA, so the node is built only by a lowering that needs the single rounding (the
+   * floating remainder and the round-to-odd narrowing, VARKA-346), and never from a multiply and
+   * an add: those stay two {@link IntArith} nodes, rounded twice, as Spark computes them.
+   * Null-intolerant: the validity is the three operands' AND.
+   *
+   * <p>Its NaN's bits are fixed nowhere. {@code Math.fma} run in Java answers the canonical NaN
+   * for any NaN and for {@code inf * 0}; the instruction answers by its own rule over its own
+   * operand order (x86's {@code vfmadd231}, {@code c = a * b + c}), an operand's NaN or the
+   * host's default one; so a NaN answer is compared by NaN-ness.
+   */
+  record Fma(VarkaVectorIR a, VarkaVectorIR b, VarkaVectorIR c, int hash)
+      implements VarkaVectorIR {
+    public Fma {
+      requireSameLane("an FMA", a, b, c);
+      if (!a.laneType().isFloating()) {
+        throw VarkaErrors.illegalArgument("an FMA takes floating operands, not "
+            + a.laneType() + ", from a " + a.getClass().getSimpleName());
+      }
+      hash = hashOf(a, b, c);
+    }
+
+    public Fma(VarkaVectorIR a, VarkaVectorIR b, VarkaVectorIR c) { this(a, b, c, 0); }
     @Override public int hashCode() { return hash; }
   }
 
@@ -2406,6 +2495,8 @@ public sealed interface VarkaVectorIR
       case WidenLane n -> "(widen:" + n.target().name() + " " + kid.apply(n.child()) + ")";
       case ConvertLane n -> "(convert:" + n.target().name() + " " + kid.apply(n.child())
           + ")";
+      case ReinterpretLane n -> "(bits:" + n.target().name() + " " + kid.apply(n.child())
+          + ")";
       case NarrowLane n -> "(narrow:" + n.target().name() + " " + kid.apply(n.child()) + ")";
       case WidenDecimal n -> "(wdec " + kid.apply(n.child()) + ")";
       case DateDiff n -> "(dateDiff " + kid.apply(n.end()) + " " + kid.apply(n.start()) + ")";
@@ -2465,6 +2556,8 @@ public sealed interface VarkaVectorIR
           + kid.apply(n.right()) + ")";
       case BitCount n -> "(bitCount " + kid.apply(n.child()) + ")";
       case MathUnary n -> "(math:" + n.fn().name() + " " + kid.apply(n.child()) + ")";
+      case Fma n -> "(fma " + kid.apply(n.a()) + " " + kid.apply(n.b()) + " "
+          + kid.apply(n.c()) + ")";
       case RoundToIntegral n -> "(round:" + n.mode().name() + " " + kid.apply(n.child()) + ")";
       case CanonicalFloat n -> "(canon " + kid.apply(n.child()) + ")";
       case CanonicalBits n -> "(canonBits " + kid.apply(n.child()) + ")";
@@ -2513,6 +2606,8 @@ public sealed interface VarkaVectorIR
       case NarrowLane n -> "(narrow:" + n.target().name() + " "
           + lineOf.applyAsInt(n.child()) + ")";
       case ConvertLane n -> "(convert:" + n.target().name() + " "
+          + lineOf.applyAsInt(n.child()) + ")";
+      case ReinterpretLane n -> "(bits:" + n.target().name() + " "
           + lineOf.applyAsInt(n.child()) + ")";
       case WidenDecimal n -> "(wdec " + lineOf.applyAsInt(n.child()) + ")";
       case DateDiff n -> "(dateDiff " + lineOf.applyAsInt(n.end()) + " "
@@ -2581,6 +2676,8 @@ public sealed interface VarkaVectorIR
           + lineOf.applyAsInt(n.right()) + ")";
       case BitCount n -> "(bitCount " + lineOf.applyAsInt(n.child()) + ")";
       case MathUnary n -> "(math:" + n.fn().name() + " " + lineOf.applyAsInt(n.child()) + ")";
+      case Fma n -> "(fma " + lineOf.applyAsInt(n.a()) + " " + lineOf.applyAsInt(n.b()) + " "
+          + lineOf.applyAsInt(n.c()) + ")";
       case RoundToIntegral n ->
           "(round:" + n.mode().name() + " " + lineOf.applyAsInt(n.child()) + ")";
       case CanonicalFloat n -> "(canon " + lineOf.applyAsInt(n.child()) + ")";
@@ -2833,6 +2930,7 @@ public sealed interface VarkaVectorIR
       case GuardedRange n -> new VarkaVectorIR[] {n.child()};
       case WidenLane n -> new VarkaVectorIR[] {n.child()};
       case ConvertLane n -> new VarkaVectorIR[] {n.child()};
+      case ReinterpretLane n -> new VarkaVectorIR[] {n.child()};
       case NarrowLane n -> new VarkaVectorIR[] {n.child()};
       case WidenDecimal n -> new VarkaVectorIR[] {n.child()};
       case DateDiff n -> new VarkaVectorIR[] {n.end(), n.start()};
@@ -2878,6 +2976,7 @@ public sealed interface VarkaVectorIR
       case BitOp n -> new VarkaVectorIR[] {n.left(), n.right()};
       case BitCount n -> new VarkaVectorIR[] {n.child()};
       case MathUnary n -> new VarkaVectorIR[] {n.child()};
+      case Fma n -> new VarkaVectorIR[] {n.a(), n.b(), n.c()};
       case RoundToIntegral n -> new VarkaVectorIR[] {n.child()};
       case CanonicalFloat n -> new VarkaVectorIR[] {n.child()};
       case CanonicalBits n -> new VarkaVectorIR[] {n.child()};
@@ -2915,6 +3014,7 @@ public sealed interface VarkaVectorIR
       case GuardedRange n -> new GuardedRange(children[0], n.lo(), n.hi(), n.mode());
       case WidenLane n -> new WidenLane(children[0], n.target());
       case ConvertLane n -> new ConvertLane(children[0], n.target());
+      case ReinterpretLane n -> new ReinterpretLane(children[0], n.target());
       case NarrowLane n -> new NarrowLane(children[0], n.target());
       case WidenDecimal n -> new WidenDecimal(children[0]);
       case DateDiff n -> new DateDiff(children[0], children[1]);
@@ -2961,6 +3061,7 @@ public sealed interface VarkaVectorIR
       case BitOp n -> new BitOp(n.op(), children[0], children[1]);
       case BitCount n -> new BitCount(children[0]);
       case MathUnary n -> new MathUnary(n.fn(), children[0]);
+      case Fma n -> new Fma(children[0], children[1], children[2]);
       case RoundToIntegral n -> new RoundToIntegral(n.mode(), children[0]);
       case CanonicalFloat n -> CanonicalFloat.of(children[0]);
       case CanonicalBits n -> new CanonicalBits(children[0]);

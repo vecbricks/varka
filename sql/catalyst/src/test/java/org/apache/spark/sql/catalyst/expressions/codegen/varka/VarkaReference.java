@@ -138,6 +138,11 @@ public final class VarkaReference {
               v -> (int) convert(n.child().laneType(), n.target(), v));
       case ConvertLane n -> throw new IllegalArgumentException(
           "a conversion is evaluated through mixedValue: " + n);
+      // A float's bits are its int row, so the view at the other 32-bit lane is the row itself.
+      case ReinterpretLane n when n.target().bits() == Integer.SIZE ->
+          value(n.child(), row, isNull, lits);
+      case ReinterpretLane n -> throw new IllegalArgumentException(
+          "a 64-bit view is evaluated through longValue: " + n);
       case DateDiff(var end, var start, _) -> both(end, start, row, isNull, lits, (e, s) -> e - s);
       case DayOfWeek n -> map(n.days(), row, isNull, lits, v -> (Math.floorMod(v, 7) + 4) % 7 + 1);
       case WeekDay n -> map(n.days(), row, isNull, lits, v -> (Math.floorMod(v, 7) + 3) % 7);
@@ -167,6 +172,7 @@ public final class VarkaReference {
               : -Float.intBitsToFloat(v)));
       case MathUnary n -> map(n.child(), row, isNull, lits,
           v -> Float.floatToRawIntBits(mathFloat(n.fn(), Float.intBitsToFloat(v))));
+      case Fma n -> floatFma(n, row, isNull, lits);
       case RoundToIntegral n -> throw VarkaErrors.illegalArgument(
           "a rounding takes a double child, which is no int-lane value: " + n);
       // Spark's own normaliser, NormalizeNaNAndZero's, so the reference is not the lowering.
@@ -516,6 +522,7 @@ public final class VarkaReference {
         yield c.isEmpty() ? c : OptionalLong.of(Double.doubleToRawLongBits(
             mathDouble(n.fn(), Double.longBitsToDouble(c.getAsLong()))));
       }
+      case Fma n -> doubleFma(n, row, isNull, lits);
       // StrictMath's rint, never the lowering's construction, so the reference stays independent
       // of the code it checks, and the canonical NaN for a NaN, as Spark's MathUtils.rint.
       case RoundToIntegral n -> {
@@ -597,6 +604,11 @@ public final class VarkaReference {
           "a widening reads int rows, and is evaluated through mixedValue: " + n);
       case ConvertLane n -> throw new IllegalArgumentException(
           "a conversion is evaluated through mixedValue: " + n);
+      // A double's bits are its long row, so the view at the other 64-bit lane is the row itself.
+      case ReinterpretLane n when n.target().bits() == Long.SIZE ->
+          longValue(n.child(), row, isNull, lits);
+      case ReinterpretLane n -> throw new IllegalArgumentException(
+          "a 32-bit view is evaluated through value: " + n);
       // At the DOUBLE lane by Spark's ordering, the first of two equal operands kept.
       case Greatest(var left, var right, _) when node.laneType() == LaneType.DOUBLE ->
           pick(longValue(left, row, isNull, lits), longValue(right, row, isNull, lits),
@@ -740,6 +752,34 @@ public final class VarkaReference {
       case MUL -> a * b;
       case DIV -> a / b;
     }));
+  }
+
+  /**
+   * An {@code Fma} at the {@code FLOAT} lane: {@code Math.fma}'s float form, one rounding to a
+   * float, never the double form narrowed. Null where any operand is.
+   */
+  private static OptionalInt floatFma(Fma n, int[] row, boolean[] isNull, int[] lits) {
+    var a = value(n.a(), row, isNull, lits);
+    var b = value(n.b(), row, isNull, lits);
+    var c = value(n.c(), row, isNull, lits);
+    if (a.isEmpty() || b.isEmpty() || c.isEmpty()) {
+      return OptionalInt.empty();
+    }
+    return OptionalInt.of(Float.floatToRawIntBits(Math.fma(Float.intBitsToFloat(a.getAsInt()),
+        Float.intBitsToFloat(b.getAsInt()), Float.intBitsToFloat(c.getAsInt()))));
+  }
+
+  /** An {@code Fma} at the {@code DOUBLE} lane: {@code Math.fma}. Null where any operand is. */
+  private static OptionalLong doubleFma(Fma n, long[] row, boolean[] isNull, long[] lits) {
+    var a = longValue(n.a(), row, isNull, lits);
+    var b = longValue(n.b(), row, isNull, lits);
+    var c = longValue(n.c(), row, isNull, lits);
+    if (a.isEmpty() || b.isEmpty() || c.isEmpty()) {
+      return OptionalLong.empty();
+    }
+    return OptionalLong.of(Double.doubleToRawLongBits(Math.fma(
+        Double.longBitsToDouble(a.getAsLong()), Double.longBitsToDouble(b.getAsLong()),
+        Double.longBitsToDouble(c.getAsLong()))));
   }
 
   /** A floating {@code IntArith} at the {@code DOUBLE} lane, by {@link #floatingArith}. */
@@ -939,6 +979,11 @@ public final class VarkaReference {
           case FALSE -> VarkaVectorIR.Truth.FALSE;
           case UNKNOWN -> VarkaVectorIR.Truth.NULL;
         }, x.lane());
+      }
+      // A view keeps the row's bits: a double's or a long's as they are, a float's or an int's
+      // sign-extended, so the child's answer is the view's at its own lane.
+      if (node instanceof ReinterpretLane r) {
+        return column(mixedOf(r.child(), intLits, longLits), r.target());
       }
       if (node instanceof ConvertLane c) {
         OptionalLong v = mixedOf(c.child(), intLits, longLits);

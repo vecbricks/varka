@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
@@ -249,11 +250,63 @@ final class VarkaEmitBudget {
    * (VarkaEmitterParityBenchmark; details in VARKA-9.md): fused throughput declines only
    * gently with depth while sequential passes collapse linearly, so the cap bounds emitted
    * method size and register pressure by policy, well past any depth a real projection
-   * produces, rather than marking a measured performance edge. Condition nodes count. It is the
-   * default of {@link VarkaEmitOptions#maxChainDepth}, which a benchmark raises to price the
-   * depths past it (VARKA-620).
+   * produces, rather than marking a measured performance edge. Condition nodes count. It is what
+   * {@link VarkaEmitOptions#maxChainDepth}'s auto value resolves to on every lane but the int one
+   * and a port's ({@link #chainDepthCap}); a benchmark raises the option to price the depths
+   * past it (VARKA-620).
    */
   public static final int MAX_CHAIN_DEPTH = 16;
+
+  /**
+   * The value of {@link VarkaEmitOptions#maxChainDepth} that leaves the cap to the output's lane,
+   * which is its default.
+   */
+  public static final int AUTO_CHAIN_DEPTH = 0;
+
+  /**
+   * The auto cap of an output whose tree holds only the int lane: a fused chain of int adds,
+   * subtractions, multiplications, compares and selects is 8 to 34 times faster than the row path
+   * to depth 64 at both vector widths (VARKA-620, {@code VarkaChainDepthBenchmark}). That is the
+   * only shape measured: the BIGINT lane is not in the reading, 128 bits being slower than the
+   * row path (row 628), nor are the narrow and floating lanes, nor the calendar and bounded
+   * division chains, which are int-lane trees too and are admitted to 64 without a measurement.
+   * Any other tree keeps {@link #MAX_CHAIN_DEPTH}, but a port's, which has its own cap
+   * ({@link #PORT_MAX_CHAIN_DEPTH}).
+   */
+  public static final int INT_LANE_MAX_CHAIN_DEPTH = 64;
+
+  /**
+   * The auto cap of an output whose tree holds an fdlibm port ({@code VarkaMathPort},
+   * `VARKA-345.md` 10.2). A port's depth is its C function's operation sequence, which no
+   * rebalancing shortens: {@code exp}'s is 36 levels, its polynomial alone ten, over the double,
+   * long and int lanes, so it hit {@link #MAX_CHAIN_DEPTH}. The cap only keeps a runaway
+   * expansion from being emitted at all; the method byte budget is what bounds a port's size, as
+   * it does every method's. The ports alone build {@link VarkaVectorIR.ReinterpretLane}, a
+   * value's raw bits at the other lane, so a tree holds a port exactly when it holds that node,
+   * and no SQL shape or fuzz draw reaches this cap.
+   */
+  public static final int PORT_MAX_CHAIN_DEPTH = 64;
+
+  /**
+   * The deepest op path {@code root} may have under {@code options}: its {@code maxChainDepth}
+   * where one is set, on every lane, which lowers the int lane's 64 as well as raising the others'
+   * 16, and where it is auto 64 for a tree that holds the int lane alone and 16 for any other.
+   * The tree, not the root's lane, decides: a BIGINT chain narrowed to an int root is a long-lane
+   * chain, which row 628 measured slower than the row path at 128 bits. A tree that holds a port
+   * takes {@link #PORT_MAX_CHAIN_DEPTH} by auto, whatever its lanes. An explicit 16 is 16 on the
+   * int lane too, which a default that read 16 as unset could not say.
+   */
+  public static int chainDepthCap(VarkaEmitOptions options, VarkaVectorIR root) {
+    int set = options.maxChainDepth();
+    if (set != AUTO_CHAIN_DEPTH) {
+      return set;
+    }
+    if (VarkaVectorIR.holdsReinterpret(root)) {
+      return PORT_MAX_CHAIN_DEPTH;
+    }
+    return VarkaVectorIR.lanesIn(root).equals(java.util.Set.of(VarkaVectorIR.LaneType.INT))
+        ? INT_LANE_MAX_CHAIN_DEPTH : MAX_CHAIN_DEPTH;
+  }
 
   /**
    * The most literals a one-output loop body hoists into vector locals; past it every broadcast
@@ -602,6 +655,12 @@ final class VarkaEmitBudget {
   static final int DECIMAL_PAIR_LOAD_WEIGHT = 9;
 
   /**
+   * The long lane count a baked scalar {@code L2F} is weighed at: 512 bits of long lanes, the
+   * most a kernel bakes, so that its {@code scalarCalls} bound the form at every width.
+   */
+  static final int SCALAR_WEIGHT_LANES = 8;
+
+  /**
    * What one node costs against {@link #GROUP_BUDGET} and {@link #FUSED_CEILING}. Every node has
    * weighed 1, because every node was one or two lane ops; the calendar nodes are not - each
    * expands to thirty-odd or more, since a civil-from-days decomposition is mostly division and
@@ -623,6 +682,28 @@ final class VarkaEmitBudget {
    * {@link #MAX_FUSED_NODES} counting nodes only where that budget is off.
    */
   static int weightOf(VarkaVectorIR node) {
+    VarkaEmitOptions options = VarkaEmitOptions.DEFAULTS;
+    return weightOf(node, options, options.narrowConversionForm());
+  }
+
+  /**
+   * {@link #weightOf(VarkaVectorIR)} under {@code options}, where {@code narrow} is the form a
+   * long to float conversion takes in this kernel: {@code VarkaConversionLowering.narrowForm}
+   * of the kernel's plan, the decision the emission makes from the same inputs. Below emit level
+   * 3 such a conversion weighs that form's calls, as the emitter writes it, so the rounding to
+   * odd keeps its 24 calls and the windowed form, which holds both its arms, its 31 (VARKA-600).
+   * The scalar form, which a kernel with no baked long lane count does not take, is weighed at
+   * {@link #SCALAR_WEIGHT_LANES}.
+   */
+  static int weightOf(VarkaVectorIR node, VarkaEmitOptions options, NarrowConversionForm narrow) {
+    if (node instanceof ConvertLane n && n.child().laneType() == VarkaVectorIR.LaneType.LONG
+        && n.target() == VarkaVectorIR.LaneType.FLOAT && options.convertsFallBack()) {
+      return switch (narrow) {
+        case ROUND_TO_ODD -> VarkaConversionLowering.ODD_CALLS;
+        case WINDOWED -> VarkaConversionLowering.WINDOWED_CALLS;
+        case SCALAR -> VarkaConversionLowering.scalarCalls(SCALAR_WEIGHT_LANES);
+      };
+    }
     return switch (node) {
       // The leaves' loads and broadcasts are paid once per column and literal, not per node.
       // A boolean column and a constant are leaves: a data word read and a constant, no lane call.
@@ -666,7 +747,8 @@ final class VarkaEmitBudget {
       case Least n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
       // A long converted to a floating lane: one convertShape at level 3, and below it the AVX2
       // form, the larger, whose calls the weight counts as the long division's does: which one
-      // emits cannot be asked here. For L2D that is the largest of its forms, 343b1's split.
+      // emits cannot be asked here. For L2D that is the largest of its forms, 343b1's split; for
+      // L2F the rounding to odd, the default; the options' form is weighed by the overload.
       case ConvertLane n when n.child().laneType() == VarkaVectorIR.LaneType.LONG ->
           n.target() == VarkaVectorIR.LaneType.FLOAT
               ? VarkaConversionLowering.ODD_CALLS : VarkaConversionLowering.SPLIT_CALLS;
@@ -674,7 +756,7 @@ final class VarkaEmitBudget {
       // node of its own), the narrowing conversion, the compare (an unsigned one too: it is the
       // lane's own compare operator, intrinsic at more than two long lanes, VARKA-376 9).
       case AddDays _, SubDays _, DateDiff _, Greatest _, Least _, WidenLane _,
-          NarrowLane _, ConvertLane _, Compare _, NullSafeEqual _ -> 1;
+          NarrowLane _, ConvertLane _, ReinterpretLane _, Compare _, NullSafeEqual _ -> 1;
       // The blend, plus the shift pair a narrow pick may reduce with at the int lane.
       case IfElse n -> n.laneType().isNarrow() ? 3 : 1;
       // The broadcast 0 and the add of 1 under the known-true mask; its validity, the OR of the
@@ -733,6 +815,8 @@ final class VarkaEmitBudget {
       // most eight double lanes at 512 bits, the larger form as above; the scalar calls between
       // them are no vector op.
       case VarkaVectorIR.MathUnary n -> n.fn().laneCall() ? 16 : 1;
+      // The lanewise fused multiply-add: one call.
+      case VarkaVectorIR.Fma _ -> 1;
       // The rint construction: the absolute value, the add and subtract of 2^52, the sign's AND
       // and OR, the compare against 2^52 and the blend, and three reinterpretations, which the
       // budget counts as calls though they emit no instruction; then the NaN's compare and

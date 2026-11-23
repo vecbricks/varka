@@ -40,6 +40,7 @@ final class VarkaDescriptors {
       ClassDesc.of("java.lang.foreign.MemorySegment");
   static final ClassDesc BYTE_ORDER = ClassDesc.of("java.nio.ByteOrder");
   static final ClassDesc INT_VECTOR = ClassDesc.of("jdk.incubator.vector.IntVector");
+  static final ClassDesc FLOAT_VECTOR = ClassDesc.of("jdk.incubator.vector.FloatVector");
   static final ClassDesc LONG_VECTOR = ClassDesc.of("jdk.incubator.vector.LongVector");
   static final ClassDesc VECTOR = ClassDesc.of("jdk.incubator.vector.Vector");
   static final ClassDesc VECTOR_MASK = ClassDesc.of("jdk.incubator.vector.VectorMask");
@@ -107,6 +108,19 @@ final class VarkaDescriptors {
   /** {@code int IntVector.lane(int)}: one lane read, at a constant index. */
   static final MethodTypeDesc INT_LANE =
       MethodTypeDesc.of(ConstantDescs.CD_int, ConstantDescs.CD_int);
+  /** {@code FloatVector FloatVector.zero(VectorSpecies)} (static). */
+  static final MethodTypeDesc FLOAT_ZERO = MethodTypeDesc.of(
+      ClassDesc.of("jdk.incubator.vector.FloatVector"), VECTOR_SPECIES);
+  /** {@code FloatVector FloatVector.withLane(int, float)}: one lane replaced. */
+  static final MethodTypeDesc FLOAT_WITH_LANE = MethodTypeDesc.of(
+      ClassDesc.of("jdk.incubator.vector.FloatVector"), ConstantDescs.CD_int,
+      ConstantDescs.CD_float);
+  /** {@code long LongVector.lane(int)}: one lane read, at a constant index. */
+  static final MethodTypeDesc LONG_LANE =
+      MethodTypeDesc.of(ConstantDescs.CD_long, ConstantDescs.CD_int);
+  /** {@code long LongVector.reduceLanes(VectorOperators.Associative)}: the lanes folded. */
+  static final MethodTypeDesc LONG_REDUCE_LANES =
+      MethodTypeDesc.of(ConstantDescs.CD_long, VO_ASSOCIATIVE);
   /** {@code DoubleVector DoubleVector.withLane(int, double)}: one lane replaced. */
   static final MethodTypeDesc DOUBLE_WITH_LANE =
       MethodTypeDesc.of(DOUBLE_VECTOR, ConstantDescs.CD_int, ConstantDescs.CD_double);
@@ -227,6 +241,12 @@ final class VarkaDescriptors {
 
   /** {@code LongVector Vector.reinterpretAsLongs()}. */
   static final MethodTypeDesc REINTERPRET_L = MethodTypeDesc.of(LONG_VECTOR);
+
+  /** {@code IntVector Vector.reinterpretAsInts()}. */
+  static final MethodTypeDesc REINTERPRET_I = MethodTypeDesc.of(INT_VECTOR);
+
+  /** {@code FloatVector Vector.reinterpretAsFloats()}. */
+  static final MethodTypeDesc REINTERPRET_F = MethodTypeDesc.of(FLOAT_VECTOR);
 
   /** {@code VectorMask DoubleVector.compare(VectorOperators.Comparison, Vector)}. */
   static final MethodTypeDesc COMPARE_DD =

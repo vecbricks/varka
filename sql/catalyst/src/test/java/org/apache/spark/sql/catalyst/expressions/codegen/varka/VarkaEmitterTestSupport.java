@@ -77,6 +77,15 @@ public final class VarkaEmitterTestSupport {
     return perRow == 0 ? 0L : VarkaScratch.forRows(perRow, rows);
   }
 
+  /**
+   * The chain-depth cap {@code options} give the tree {@code root}
+   * ({@code VarkaEmitBudget.chainDepthCap}, which is package-private), for a test outside the
+   * package that reads where a chain stops.
+   */
+  public static int chainDepthCap(VarkaEmitOptions options, VarkaVectorIR root) {
+    return VarkaEmitBudget.chainDepthCap(options, root);
+  }
+
   private VarkaEmitterTestSupport() {
   }
 

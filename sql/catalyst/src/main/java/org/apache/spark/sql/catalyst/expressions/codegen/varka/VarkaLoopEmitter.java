@@ -151,8 +151,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
  *
  * <p>Out-of-shape IR - unknown lane types, a condition in a value position, out-of-range
  * ordinals or slots, a day offset that is neither a literal slot nor a column, trees past
- * the depth cap {@link VarkaEmitOptions#maxChainDepth} (by default
- * {@link VarkaEmitBudget#MAX_CHAIN_DEPTH}) or past {@link VarkaEmitBudget#MAX_FUSED_NODES} - is
+ * the depth cap {@link VarkaEmitOptions#maxChainDepth} (by default the tree's own,
+ * {@link VarkaEmitBudget#chainDepthCap}) or past {@link VarkaEmitBudget#MAX_FUSED_NODES} - is
  * rejected with {@link IllegalArgumentException}, which the evaluator wiring treats as "fall
  * back". Refusing to emit is a normal outcome here, not an error path: the query still runs, on
  * stock Spark.
@@ -1361,13 +1361,15 @@ public final class VarkaLoopEmitter {
         record != null ? lane -> new VarkaEmitCost.Tally(lane, record.prices(), record.keepCounts())
             : predict ? lane -> new VarkaEmitCost.Tally(lane, VarkaEmitCostTable.PRICES, false)
             : null;
-    VarkaVectorIR.LaneType lane = planOf(outputs, options).drive();
-    Supplier<GroupOps> newGroup = () -> new GroupOps(options.shareChronoPrefix(), materialize,
-        earlier, lane, newTally == null ? null : newTally.apply(lane));
+    VarkaKernelPlan plan = planOf(outputs, options);
+    VarkaVectorIR.LaneType lane = plan.drive();
+    Supplier<GroupOps> newGroup = () -> new GroupOps(options,
+        options.shareChronoPrefix(), materialize,
+        earlier, plan, newTally == null ? null : newTally.apply(lane));
     GroupOps group = newGroup.get();
     for (int o = 0; o < outputs.size(); o++) {
       Admission step = admit(group.copy(), outputs.get(o), current.size(), options, predict,
-          materialize, earlier, lane);
+          materialize, earlier, plan);
       GroupOps withNext = step.withNext();
       // marginal == 0 means this output adds no node the group does not already have - it
       // is structurally the same tree - so splitting it off cannot reduce the method's op
@@ -1504,21 +1506,24 @@ public final class VarkaLoopEmitter {
       int n = outputs.size();
       boolean materialize = options.materializeChronoPrefix() && options.methodByteBudget() > 0;
       boolean predict = options.predictGrouping() && options.methodByteBudget() > 0;
-      VarkaVectorIR.LaneType lane = planOf(outputs, options).drive();
+      VarkaKernelPlan plan = planOf(outputs, options);
+      VarkaVectorIR.LaneType lane = plan.drive();
       // Every output before the current start, walked as one group: its prefixes are what a
       // group starting there finds computed earlier.
-      GroupOps before = new GroupOps(options.shareChronoPrefix(), materialize, new HashSet<>(),
-          lane, null);
+      GroupOps before = new GroupOps(options,
+          options.shareChronoPrefix(), materialize, new HashSet<>(),
+          plan, null);
       int[][] runs = new int[n][];
       int[] scratch = new int[n];
       for (int i = 0; i < n; i++) {
         Set<VarkaVectorIR> earlier = before.prefixes;
-        GroupOps run = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane,
+        GroupOps run = new GroupOps(options,
+            options.shareChronoPrefix(), materialize, earlier, plan,
             predict ? new VarkaEmitCost.Tally(lane, prices, false) : null);
         int length = 0;
         for (int o = i; o < n; o++) {
           Admission step = admit(run, outputs.get(o), o - i, options, predict, materialize,
-              earlier, lane);
+              earlier, plan);
           // As in the greedy walk, an output that adds nothing joins whatever the budgets say.
           if (o > i && closes(step, options)) {
             break;
@@ -1564,7 +1569,7 @@ public final class VarkaLoopEmitter {
    */
   private static Admission admit(GroupOps withNext, VarkaVectorIR output, int groupSize,
       VarkaEmitOptions options, boolean predict, boolean materialize,
-      Set<VarkaVectorIR> earlier, VarkaVectorIR.LaneType lane) {
+      Set<VarkaVectorIR> earlier, VarkaKernelPlan plan) {
     int before = withNext.ops;
     int marginal = withNext.add(output);
     if (marginal == 0) {
@@ -1584,7 +1589,8 @@ public final class VarkaLoopEmitter {
     // opens the wider bound, its size does not.
     int reuse = withNext.saved;
     if (options.shareWholeNodes()) {
-      GroupOps alone = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane,
+      GroupOps alone = new GroupOps(options,
+          options.shareChronoPrefix(), materialize, earlier, plan,
           null);
       reuse = alone.add(output) - marginal;
     }
@@ -1664,13 +1670,14 @@ public final class VarkaLoopEmitter {
     }
     boolean materialize = options.materializeChronoPrefix() && options.methodByteBudget() > 0;
     boolean predict = options.predictGrouping() && options.methodByteBudget() > 0;
-    VarkaVectorIR.LaneType lane = planOf(outputs, options).drive();
-    GroupOps before = new GroupOps(options.shareChronoPrefix(), materialize, new HashSet<>(),
-        lane, null);
+    VarkaKernelPlan plan = planOf(outputs, options);
+    GroupOps before = new GroupOps(options,
+        options.shareChronoPrefix(), materialize, new HashSet<>(),
+        plan, null);
     List<List<RunForTest>> all = new ArrayList<>();
     for (int from = 0; from < outputs.size(); from++) {
       all.add(runsFrom(outputs, from, new HashSet<>(before.prefixes), options, predict,
-          materialize, lane));
+          materialize, plan));
       before.add(outputs.get(from));
     }
     return all;
@@ -1682,14 +1689,14 @@ public final class VarkaLoopEmitter {
    */
   private static List<RunForTest> runsFrom(List<VarkaVectorIR> outputs, int from,
       Set<VarkaVectorIR> earlier, VarkaEmitOptions options, boolean predict, boolean materialize,
-      VarkaVectorIR.LaneType lane) {
-    GroupOps group = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane,
-        new VarkaEmitCost.Tally(lane, VarkaEmitCostTable.PRICES, false));
+      VarkaKernelPlan plan) {
+    GroupOps group = new GroupOps(options, options.shareChronoPrefix(), materialize, earlier, plan,
+        new VarkaEmitCost.Tally(plan.drive(), VarkaEmitCostTable.PRICES, false));
     List<RunForTest> runs = new ArrayList<>();
     boolean admitted = true;
     for (int o = from; o < outputs.size(); o++) {
       Admission step = admit(group, outputs.get(o), o - from, options, predict, materialize,
-          earlier, lane);
+          earlier, plan);
       // An output that adds nothing joins whatever the budgets say, as in groupOutputs.
       if (o > from && step.marginal() > 0) {
         if (!step.fitsWeights()) {
@@ -1723,13 +1730,19 @@ public final class VarkaLoopEmitter {
    * is a missed win, never a wrong grouping.
    */
   private static final class GroupOps {
+    /** The options the group is weighed under: a conversion's weight is its form's. */
+    private final VarkaEmitOptions options;
     private final boolean sharePrefix;
     /** Whether a prefix an earlier group computes is loaded here rather than recomputed. */
     private final boolean materialize;
     /** The prefixes the earlier groups compute; shared with them, read here. */
     private final Set<VarkaVectorIR> earlier;
+    /** The kernel's plan, whose baked lane counts pick the long to float form. */
+    private final VarkaKernelPlan plan;
     /** The kernel's lane, which the tally prices a store in. */
     private final VarkaVectorIR.LaneType lane;
+    /** The long to float form the emission takes, which such a conversion weighs. */
+    private final VarkaEmitOptions.NarrowConversionForm narrow;
     private final Set<VarkaVectorIR> nodes;
     private final Set<VarkaVectorIR> prefixes;
     /** The group's op total. */
@@ -1743,18 +1756,23 @@ public final class VarkaLoopEmitter {
      *  it, not by reuse (`groupBudgetUnderPrediction` off); see {@link #admit}. */
     boolean widenedByPrediction;
 
-    GroupOps(boolean sharePrefix, boolean materialize, Set<VarkaVectorIR> earlier,
-        VarkaVectorIR.LaneType lane, VarkaEmitCost.Tally tally) {
-      this(sharePrefix, materialize, earlier, lane, new HashSet<>(), new HashSet<>(), 0, tally);
+    GroupOps(VarkaEmitOptions options, boolean sharePrefix, boolean materialize,
+        Set<VarkaVectorIR> earlier, VarkaKernelPlan plan, VarkaEmitCost.Tally tally) {
+      this(options, sharePrefix, materialize, earlier, plan, new HashSet<>(), new HashSet<>(), 0,
+          tally);
     }
 
-    private GroupOps(boolean sharePrefix, boolean materialize, Set<VarkaVectorIR> earlier,
-        VarkaVectorIR.LaneType lane, Set<VarkaVectorIR> nodes, Set<VarkaVectorIR> prefixes,
-        int ops, VarkaEmitCost.Tally tally) {
+    private GroupOps(VarkaEmitOptions options, boolean sharePrefix, boolean materialize,
+        Set<VarkaVectorIR> earlier, VarkaKernelPlan plan, Set<VarkaVectorIR> nodes,
+        Set<VarkaVectorIR> prefixes, int ops, VarkaEmitCost.Tally tally) {
+      this.options = options;
       this.sharePrefix = sharePrefix;
       this.materialize = materialize;
       this.earlier = earlier;
-      this.lane = lane;
+      this.plan = plan;
+      this.lane = plan.drive();
+      this.narrow = VarkaConversionLowering.narrowForm(options, plan.lanesOf(Lane.LONG),
+          plan.lanesOf(Lane.FLOAT));
       this.nodes = nodes;
       this.prefixes = prefixes;
       this.ops = ops;
@@ -1762,8 +1780,8 @@ public final class VarkaLoopEmitter {
     }
 
     GroupOps copy() {
-      var copy = new GroupOps(sharePrefix, materialize, earlier, lane, new HashSet<>(nodes),
-          new HashSet<>(prefixes), ops, tally == null ? null : tally.copy());
+      var copy = new GroupOps(options, sharePrefix, materialize, earlier, plan,
+          new HashSet<>(nodes), new HashSet<>(prefixes), ops, tally == null ? null : tally.copy());
       copy.widenedByPrediction = widenedByPrediction;
       return copy;
     }
@@ -1828,7 +1846,7 @@ public final class VarkaLoopEmitter {
       if (tally != null) {
         tally.node(node);
       }
-      int weight = weightOf(node);
+      int weight = weightOf(node, options, narrow);
       if (node instanceof VarkaVectorIR.DecimalWord w && nodes.contains(w.sibling())) {
         // The column's shared load is the first word's, which weighs it whole.
         weight -= DECIMAL_PAIR_LOAD_WEIGHT;
@@ -1867,7 +1885,7 @@ public final class VarkaLoopEmitter {
 
   /**
    * Whether {@code outputs} over {@code numInputs} kernel columns fit this emitter's
-   * structural budgets ({@link VarkaEmitOptions#maxChainDepth} height per output,
+   * structural budgets ({@link VarkaEmitBudget#chainDepthCap} height per output,
    * {@link VarkaEmitBudget#MAX_INPUTS} columns, and {@link VarkaEmitBudget#MAX_FUSED_NODES}
    * distinct ops across all outputs where {@code options} have no byte budget), counted exactly as
    * {@link Analysis} and {@link #emit} count them. The compiler mirrors the budgets with this
@@ -1891,7 +1909,8 @@ public final class VarkaLoopEmitter {
     java.util.HashMap<VarkaVectorIR, Integer> heights = new java.util.HashMap<>();
     int[] opNodes = {0};
     for (VarkaVectorIR root : outputs) {
-      if (budgetWalk(root, heights, opNodes) > options.maxChainDepth()
+      if (budgetWalk(root, heights, opNodes)
+              > VarkaEmitBudget.chainDepthCap(options, root)
           || (capOps && opNodes[0] > MAX_FUSED_NODES)) {
         return false;
       }

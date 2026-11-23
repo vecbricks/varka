@@ -462,12 +462,35 @@ def generated_blocks(path):
 
 
 # The generated blocks of each markdown file, by the names their writers give them:
-# `VarkaCoverageSuite` writes the docs file's three, `dev/varka_toc.py` SKILLS.md's contents.
-# Any other marker is prose; the self-test checks this map against the tracked files.
+# `VarkaCoverageSuite` writes three of the docs file's, `dev/varka_census.py` its support table
+# (SUPPORT), `dev/varka_toc.py` SKILLS.md's contents. Any other marker is prose; the self-test
+# checks this map against the tracked files.
+SUPPORT = "support table"
 BLOCKS = {
-    "docs/sql-varka.md": ("coverage table", "verification counts", "family switches"),
+    "docs/sql-varka.md": ("coverage table", "verification counts", "family switches", SUPPORT),
     "SKILLS.md": ("contents",),
 }
+
+
+def block_debt(name):
+    """What a conflict inside the named docs block owes. The support table is the census's
+    (VARKA-353), which every regeneration runs last, so it owes no file and no coverage run; any
+    other block, or one whose name the parser lost, owes the coverage run that rewrites it.
+
+    >>> block_debt(SUPPORT).startswith(CENSUS), block_debt("coverage table"), block_debt(None)
+    (True, 'generated block coverage table', 'generated block')
+    """
+    if name == SUPPORT:
+        return CENSUS + ", which writes the support table"
+    return f"generated block {name}" if name else "generated block"
+
+
+def block_name(line, name):
+    """The block a docs file is in after `line`, given `name` before it; None outside one."""
+    m = re.match(r"<!-- (BEGIN|END) generated (.*?) -->\s*$", line)
+    if not m:
+        return name
+    return m.group(2) if m.group(1) == "BEGIN" else None
 
 
 def hand_lines(path, text):
@@ -641,9 +664,11 @@ def merge_docs(base_path, ours_path, theirs_path, owed):
     for name in sorted(set().union(*blocks)):
         b, o, t = (x.get(name) for x in blocks)
         if o != b and t != b and o != t:
-            owed.add(f"generated block {name}")
+            owed.add(block_debt(name))
     out, real = [], False
     in_block = False
+    # The block the lines are in, known while every hunk so far left the markers alone.
+    name = None
     # Decoded here rather than by text=True, whose universal newlines would turn a "\r" into
     # a line break.
     lines = lines_of(proc.stdout.decode("utf-8"), keepends=True)
@@ -670,7 +695,7 @@ def merge_docs(base_path, ours_path, theirs_path, owed):
             o, t = lines[i + 1 : j], lines[j + 1 : k]
             markers = any("generated" in x and x.startswith("<!--") for x in o + t)
             if in_block and not markers:
-                owed.add("generated block")
+                owed.add(block_debt(name))
                 out.extend(o if "".join(o) <= "".join(t) else t)
             else:
                 real = True
@@ -680,9 +705,11 @@ def merge_docs(base_path, ours_path, theirs_path, owed):
                 # where they disagree, a later hunk stays a real conflict until the next
                 # BEGIN or END line outside every hunk settles the state again.
                 in_block = block_state(in_block, o) and block_state(in_block, t)
+                name = None
             i = k + 1
             continue
         in_block = block_state(in_block, [line])
+        name = block_name(line, name)
         out.append(line)
         i += 1
     return "".join(out), real
@@ -1242,14 +1269,20 @@ def self_test():
         f"22: BLOCKS drifted from the tracked markers: {found}",
     )
 
-    # The attributes patterns match the files git gives the attributes, and each names one.
+    # The attributes patterns match the files git gives the attributes, and each names one: a
+    # generated file, or for a rule of git's union driver alone (the skip list's) a tracked file,
+    # so that a misspelt attribute still fails here.
     tracked = subprocess.run(
         ["git", "ls-files", "-z"], cwd=root, capture_output=True, text=True
     ).stdout.split("\0")[:-1]
     by_git = git_generated(tracked, None, root) or set()
     rules = attribute_rules(lambda p: open(os.path.join(root, p), encoding="utf-8").read())
     ours = {p for p in tracked if is_generated(p, rules)}
-    unused = [g for g, rx, _ in rules if not any(rx.match(p) for p in ours)]
+    unused = [
+        g
+        for g, rx, attrs in rules
+        if not any(rx.match(p) for p in (tracked if attrs == ["merge=union"] else ours))
+    ]
     expect(
         ours == by_git - {DOCS} and not unused,
         f"22: attributes read unlike git: {sorted(ours ^ (by_git - {DOCS}))[:5]}, {unused}",
@@ -1506,6 +1539,48 @@ def review_cases(expect, merged):
             not real and "\n<<<<<<< ours\n" in text and "last theirs" in text and not o.paths,
             f"27: an unterminated hunk was not kept as content: {text!r} {o.paths}",
         )
+
+        # 28. Both sides changing one line of the support table take one side and owe only the
+        # census, which rewrites the block, while the same conflict in a coverage suite's block
+        # owes that block (VARKA-353).
+        def support_doc(name, block, row):
+            path = os.path.join(tmp, name)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(
+                    f"# Doc\n\n<!-- BEGIN generated {block} -->\n| a | {row} |\n"
+                    f"<!-- END generated {block} -->\n\nprose\n"
+                )
+            return path
+
+        for block, census_only in ((SUPPORT, True), ("coverage table", False)):
+            o = Owed()
+            text, real = merge_docs(
+                support_doc("sb.md", block, 0),
+                support_doc("so.md", block, 1),
+                support_doc("st.md", block, 2),
+                o,
+            )
+            only = bool(o.paths) and all(p.startswith(CENSUS) for p in o.paths)
+            expect(
+                not real and "<<<<<<<" not in text and "| a | 1 |" in text and only == census_only,
+                f"28: a {block} conflict merged to {text!r}, owing {o.paths}",
+            )
+            # The driver writes an owed line, which costs dev/varka_regen_generated.sh a
+            # coverage run, for the coverage suite's block only.
+            saved = globals()["owed_file"], globals()["merge_identity"]
+            owed_path = os.path.join(tmp, f"owed-{census_only}")
+            globals()["owed_file"] = lambda: owed_path
+            globals()["merge_identity"] = lambda: "OURS THEIRS"
+            try:
+                paths = [support_doc(f"d{n}.md", block, n) for n in range(3)]
+                with contextlib.redirect_stderr(io.StringIO()):
+                    rc = driver(*paths, DOCS)
+            finally:
+                globals()["owed_file"], globals()["merge_identity"] = saved
+            expect(
+                rc == 0 and os.path.exists(owed_path) != census_only,
+                f"28: the driver's owed line for a {block} conflict: {os.path.exists(owed_path)}",
+            )
         # 8. Any failure inside the merge falls back to git's text merge, never a traceback.
         saved = globals()["merge_text"]
 

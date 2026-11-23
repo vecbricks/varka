@@ -33,6 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.DecimalStore;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.Division;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.FloorMod7;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowGroupStore;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.TruncDateForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.WideConversionForm;
@@ -620,6 +621,14 @@ public sealed interface VarkaEmitOption
           VarkaEmitOptions::roundToOddByShifts, Builder::roundToOddByShifts,
           new FlagTag("roundToOddByShifts", true), new Subject(o -> o.withUseAVX(2)),
           Optional.of(ConvertLane.class)),
+      // A machine choice of L2F's AVX2 forms (VARKA-600): whether a window test, a scalar cast
+      // per lane or the rounding to odd is fastest depends on the host and on its width, so the
+      // losing arms stay behind the option. Read by a long's ConvertLane below level 3 alone, so
+      // it runs over useAVX=2. Its tag keeps the default rendering empty.
+      new Choice<>("narrowConversionForm", Reason.MACHINE, NarrowConversionForm.class,
+          NarrowConversionForm.ROUND_TO_ODD, VarkaEmitOptions::narrowConversionForm,
+          Builder::narrowConversionForm, new ChoiceTag("narrowConversionForm="),
+          Optional.of(ConvertLane.class), new Subject(o -> o.withUseAVX(2))),
       // The math family's opt-in mode (VARKA-345.md 2.6), a session setting laid over the base
       // options as useAVX is. Its tag keeps the default's rendering empty.
       new Flag("mathUlpContract", Reason.CONTRACT, false,
@@ -648,12 +657,15 @@ public sealed interface VarkaEmitOption
           VarkaEmitOptions.IntervalFault.class, VarkaEmitOptions.IntervalFault.NONE,
           VarkaEmitOptions::intervalFault, Builder::intervalFault,
           new ChoiceTag("intervalFault="), Optional.empty()),
-      // The depth cap, raised by VARKA-620's benchmark to price the depths past it. The fuzzer
-      // draws a raised cap too, so a variant that grows a draw past 16 is emitted and checked
-      // rather than skipped. A raise changes no byte of a shape the default cap admits, but the
-      // matrix runs the suites under it (VARKA-620), so the tests that assert the default cap
-      // are listed in the skip list.
-      new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.MAX_CHAIN_DEPTH,
+      // The depth cap: auto by default (VARKA-629), which is 64 for a tree of the int lane alone
+      // or one holding a math port and 16 for any other, and raised by VARKA-620's benchmark to
+      // price the depths past it.
+      // The fuzzer draws 16 and 32, so a draw past 16 is emitted and checked rather than skipped
+      // on the lanes whose default is 16; on the int lane, whose default is 64, they only lower
+      // it, and no draw above 64 is made yet (VARKA-629 owes one). A cap changes no byte of a
+      // shape the default admits, but the matrix runs the suites under it (VARKA-620), so the
+      // tests that assert the default caps are listed in the skip list.
+      new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.AUTO_CHAIN_DEPTH,
           VarkaEmitOptions::maxChainDepth, Builder::maxChainDepth, new CountTag("chainDepth="),
           List.of(VarkaEmitBudget.MAX_CHAIN_DEPTH, 32), List.of(32)));
 

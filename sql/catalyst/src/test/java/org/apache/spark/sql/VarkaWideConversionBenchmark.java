@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.WideConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFusedKernel;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter;
@@ -34,9 +35,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
 
 /**
  * What each AVX2 form of a {@code BIGINT} cast to {@code DOUBLE} and to {@code FLOAT} costs a row
- * (VARKA-583): the kernel emitted at {@code useAVX=2}, where C2 on x86 has no instruction for
- * the Vector API's {@code L2D} and {@code L2F} without AVX512DQ, so the conversion is built from
- * integer operations and double arithmetic ({@code VarkaConversionLowering}).
+ * (VARKA-583, VARKA-600): the kernel emitted at {@code useAVX=2}, where C2 on x86 has no
+ * instruction for the Vector API's {@code L2D} and {@code L2F} without AVX512DQ, so the
+ * conversion is built from integer operations and double arithmetic
+ * ({@code VarkaConversionLowering}).
  *
  * <p>The arms, each its own kernel class over the same column:
  * <ul>
@@ -44,15 +46,21 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  *     arithmetic shift and a multiply, and the bounded magic, five lane calls and a range
  *     guard;</li>
  *   <li>{@code FLOAT}: the round-to-odd form with the default sign and arm selection, and with
- *     part 343b1's ({@code roundToOddByShifts});</li>
+ *     part 343b1's ({@code roundToOddByShifts}); the windowed form, the bounded magic and one
+ *     {@code D2F} for a group inside {@code -2^51 <= v < 2^51} and the round to odd for any
+ *     other; and the scalar form, a lane read, Java's cast and a lane insert a lane
+ *     ({@code narrowConversionForm});</li>
  *   <li>a scalar loop of Java's own cast over the same rows, the arithmetic a row engine does
  *     without its row format.</li>
  * </ul>
- * The forms have no data-dependent branch, so the values do not change their cost; they spread
- * over every bit length up to {@code 2^51}, inside the bounded magic's window, so that no arm
- * declines. Every kernel's first answer is checked against Java's cast on every row; the rows
- * stay below {@code 2^52}, so {@code FLOAT}'s large arm is checked by
- * {@code VarkaEmitterWideConversionSuite}'s cells and binades, not here.
+ * On the first three rungs the values spread over every bit length up to {@code 2^51}, inside
+ * the bounded magic's window, so that no arm declines and the windowed form takes its magic arm
+ * on every group. The fourth rung, sized for L2, spreads them from {@code 2^52} up to
+ * {@code 2^62} of either sign, past the window on every lane, so the windowed form takes its
+ * round to odd on every group, and the bounded magic, which would decline every batch, is left
+ * out there; every other form has no data-dependent branch, so the values do not change its
+ * cost. Every kernel's first answer is checked against Java's cast on every row, so the fourth
+ * rung also checks {@code FLOAT}'s large arm.
  *
  * <p>On a host with AVX-512 the forms run as written only under {@code -XX:UseAVX=2}; the EPYC
  * 7763 runners have no AVX-512, so they need no flag:
@@ -66,17 +74,19 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  */
 public class VarkaWideConversionBenchmark extends VarkaBenchmarkBase {
 
-  /** A rung of the ladder: a row count and what it is for. */
-  private record Rung(int numRows, String level) { }
+  /** A rung of the ladder: a row count, what it is for, and whether its values pass 2^51. */
+  private record Rung(int numRows, String level, boolean pastWindow) { }
 
   /** The column's 8 bytes a row and a double's 8: 16 a row at most, so 16384 rows are 256 KB. */
   private static final List<Rung> LADDER = List.of(
-      new Rung(16384, "every arm in L2"),
-      new Rung(262144, "every arm in L3"),
-      new Rung(8388608, "every arm past L3"));
+      new Rung(16384, "every arm in L2", false),
+      new Rung(262144, "every arm in L3", false),
+      new Rung(8388608, "every arm past L3", false),
+      new Rung(16384, "in L2, every value past 2^51", true));
 
   private static final VarkaEmitOptions AVX2 = VarkaEmitOptions.DEFAULTS.withUseAVX(2)
-      .withWideConversionForm(WideConversionForm.XOR_SPLIT).withRoundToOddByShifts(false);
+      .withWideConversionForm(WideConversionForm.XOR_SPLIT).withRoundToOddByShifts(false)
+      .withNarrowConversionForm(NarrowConversionForm.ROUND_TO_ODD);
 
   /** One timed arm: its label, its conversion's target and the options its kernel emits under. */
   private record Arm(String label, LaneType target, VarkaEmitOptions options) { }
@@ -89,7 +99,11 @@ public class VarkaWideConversionBenchmark extends VarkaBenchmarkBase {
           AVX2.withWideConversionForm(WideConversionForm.MAGIC)),
       new Arm("cast(l AS float), round to odd", LaneType.FLOAT, AVX2),
       new Arm("cast(l AS float), round to odd by 343b1's shifts", LaneType.FLOAT,
-          AVX2.withRoundToOddByShifts(true)));
+          AVX2.withRoundToOddByShifts(true)),
+      new Arm("cast(l AS float), windowed", LaneType.FLOAT,
+          AVX2.withNarrowConversionForm(NarrowConversionForm.WINDOWED)),
+      new Arm("cast(l AS float), scalar lanes", LaneType.FLOAT,
+          AVX2.withNarrowConversionForm(NarrowConversionForm.SCALAR)));
 
   private final AtomicInteger classCounter = new AtomicInteger(0);
 
@@ -101,12 +115,17 @@ public class VarkaWideConversionBenchmark extends VarkaBenchmarkBase {
     return defineKernel(loader, name, bytes);
   }
 
-  /** {@code numRows} longs of every bit length up to {@code 2^51}, of either sign. */
-  private static MemorySegment column(Arena arena, int numRows) {
+  /**
+   * {@code numRows} longs of either sign: of every bit length up to {@code 2^51}, or, past the
+   * window, magnitudes from {@code 2^52} up to {@code 2^62}.
+   */
+  private static MemorySegment column(Arena arena, int numRows, boolean pastWindow) {
     MemorySegment data = arena.allocate(numRows * 8L, 8);
     for (int i = 0; i < numRows; i++) {
       long hash = (i + 1) * 0x9E3779B97F4A7C15L;
-      data.set(ValueLayout.JAVA_LONG, i * 8L, (hash >> 12) >> (i % 52));
+      long magnitude = ((hash >>> 2) >>> (i % 10)) | (1L << 52);
+      long v = !pastWindow ? (hash >> 12) >> (i % 52) : hash < 0 ? -magnitude : magnitude;
+      data.set(ValueLayout.JAVA_LONG, i * 8L, v);
     }
     return data;
   }
@@ -117,7 +136,7 @@ public class VarkaWideConversionBenchmark extends VarkaBenchmarkBase {
     try {
       section("a bigint cast to double and float by the AVX2 forms", () -> {
         for (Rung rung : LADDER) {
-          runRung(rung.numRows(), rung.level(), loader);
+          runRung(rung, loader);
         }
       });
     } finally {
@@ -125,9 +144,10 @@ public class VarkaWideConversionBenchmark extends VarkaBenchmarkBase {
     }
   }
 
-  private void runRung(int numRows, String level, VarkaGeneratedClassLoader loader) {
+  private void runRung(Rung rung, VarkaGeneratedClassLoader loader) {
+    int numRows = rung.numRows();
     try (Arena arena = Arena.ofConfined()) {
-      MemorySegment longs = column(arena, numRows);
+      MemorySegment longs = column(arena, numRows, rung.pastWindow());
       MemorySegment dst = arena.allocate(numRows * 8L, 8);
       MemorySegment dstValidity = arena.allocate(((numRows + 63) / 64) * 8L, 8);
       long[] src = {longs.address()};
@@ -135,8 +155,14 @@ public class VarkaWideConversionBenchmark extends VarkaBenchmarkBase {
       int[] noNulls = {0};
       long[] dsts = {dst.address()};
       long[] validity = {dstValidity.address()};
-      var benchmark = benchmark(numRows + " rows - " + level, numRows).timed().build();
+      var benchmark = benchmark(numRows + " rows - " + rung.level(), numRows).timed().build();
       for (Arm arm : ARMS) {
+        if (rung.pastWindow()
+            && arm.options().wideConversionForm() == WideConversionForm.MAGIC
+            && arm.target() == LaneType.DOUBLE) {
+          // Past 2^51 the bounded magic declines every batch, so it has no rate there.
+          continue;
+        }
         VarkaFusedKernel k = kernel(new ConvertLane(new ColumnRef(0, LaneType.LONG),
             arm.target()), arm.options(), loader);
         run(k, src, noValidity, noNulls, dsts, validity, numRows);

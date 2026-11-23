@@ -459,11 +459,13 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
         case x: BitOp => value(x.left(), Kind.INT); value(x.right(), Kind.INT)
         case x: BitCount => value(x.child(), Kind.INT)
         case x: MathUnary => value(x.child(), Kind.INT)
+        case x: Fma => value(x.a(), Kind.INT); value(x.b(), Kind.INT); value(x.c(), Kind.INT)
         case x: RoundToIntegral => value(x.child(), Kind.INT)
         case x: CanonicalFloat => value(x.child(), Kind.INT)
         case x: CanonicalBits => value(x.child(), Kind.INT)
         case x: HashStep => value(x.seed(), Kind.INT); value(x.word(), Kind.INT)
         case x: ConvertLane => value(x.child(), Kind.INT)
+        case x: ReinterpretLane => value(x.child(), Kind.INT)
         case c: Cond => cond(c)
       }
     }
@@ -566,11 +568,13 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: BitOp => go(x.left(), armed) && go(x.right(), armed)
       case x: BitCount => go(x.child(), armed)
       case x: MathUnary => go(x.child(), armed)
+      case x: Fma => go(x.a(), armed) && go(x.b(), armed) && go(x.c(), armed)
       case x: RoundToIntegral => go(x.child(), armed)
       case x: CanonicalFloat => go(x.child(), armed)
       case x: CanonicalBits => go(x.child(), armed)
       case x: HashStep => go(x.seed(), armed) && go(x.word(), armed)
       case x: ConvertLane => go(x.child(), armed)
+      case x: ReinterpretLane => go(x.child(), armed)
       // A typed null reads nothing, so no row is declined on its account.
       case _: ColumnRef | _: DecimalColumn | _: DecimalWord | _: LiteralSlot | _: NullValue => true
       case c: Cond => goCond(c, armed)

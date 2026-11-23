@@ -71,6 +71,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lea
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathFn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Fma;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -273,6 +275,7 @@ final class VarkaVectorWalk {
       case BitOp n -> emitBitOp(cb, n, dense, analysis, s, computed);
       case BitCount n -> emitBitCount(cb, n, dense, analysis, s, computed);
       case MathUnary n -> emitMathUnary(cb, n, dense, analysis, s, computed);
+      case Fma n -> emitFma(cb, n, dense, analysis, s, computed);
       case RoundToIntegral n ->
           VarkaRoundingLowering.emitRint(cb, n, dense, analysis, s, computed);
       case CanonicalFloat n -> emitCanonicalFloat(cb, n, dense, analysis, s, computed);
@@ -322,6 +325,14 @@ final class VarkaVectorWalk {
         emitValue(cb, n.child(), dense, analysis, s, computed);
         line(cb, analysis, node);
         emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
+      }
+      case ReinterpretLane n -> {
+        // The child's bits at the other kind of its width, a view of the same vector: the
+        // species of the target's lane has the child's lane count at the child's width, in a
+        // kernel of either width. The word is the child's.
+        emitValue(cb, n.child(), dense, analysis, s, computed);
+        line(cb, analysis, node);
+        emitReinterpret(cb, n.target());
       }
       case ConvertLane n -> {
         // Java's primitive cast as one conversion, part 0, into the target's species of the
@@ -826,12 +837,28 @@ final class VarkaVectorWalk {
   }
 
   /**
+   * The vector on the stack viewed at {@code target}, the other kind of its width: its bits
+   * unchanged, in the species of {@code target}'s lane with the same lane count.
+   */
+  private static void emitReinterpret(CodeBuilder cb, VarkaVectorIR.LaneType target) {
+    switch (target) {
+      case LONG -> cb.invokevirtual(VECTOR, "reinterpretAsLongs", REINTERPRET_L);
+      case DOUBLE -> cb.invokevirtual(VECTOR, "reinterpretAsDoubles", REINTERPRET_D);
+      case INT -> cb.invokevirtual(VECTOR, "reinterpretAsInts", REINTERPRET_I);
+      case FLOAT -> cb.invokevirtual(VECTOR, "reinterpretAsFloats", REINTERPRET_F);
+      case BYTE, SHORT -> throw VarkaErrors.illegalArgument("no reinterpretation to " + target);
+    }
+  }
+
+  /**
    * The value on the stack, of lane {@code from}, as lane {@code to}: {@code I2L} and
    * {@code L2I}, and the six conversions to a floating lane and between the two, part 0, each
    * into the target species of the width the emission bakes. A narrow value is widened once at
    * its load and narrowed once at its store, so a conversion node over one names the lane it is
    * already emitted at and emits nothing, and any other pair is a lowering this emitter has not
-   * built: the conversions from a floating lane to an integral one are row 343's second part.
+   * built: of the conversions from a floating lane to an integral one only {@code D2I}, Java's
+   * {@code (int)} of a double, which an fdlibm port takes (`VARKA-345.md` 10.2), and the rest are
+   * row 343's second part.
    * {@code L2F} and {@code L2D} come here at level 3 alone, where x86 has AVX512DQ, the level an
    * aarch64 host resolves to as well; below it they take {@link VarkaConversionLowering}'s
    * forms.
@@ -851,6 +878,7 @@ final class VarkaVectorWalk {
         : from == Lane.LONG && to == Lane.DOUBLE ? "L2D"
         : from == Lane.FLOAT && to == Lane.DOUBLE ? "F2D"
         : from == Lane.DOUBLE && to == Lane.FLOAT ? "D2F"
+        : from == Lane.DOUBLE && to == Lane.INT ? "D2I"
         : null;
     if (op == null) {
       throw VarkaErrors.illegalArgument(
@@ -1193,6 +1221,28 @@ final class VarkaVectorWalk {
     };
     cb.getstatic(VECTOR_OPERATORS, operator, VO_UNARY);
     cb.invokevirtual(lane.vector, "lanewise", MethodTypeDesc.of(lane.vector, VO_UNARY));
+  }
+
+  /**
+   * {@code Fma}: {@code a.fma(b, c)}, the operands pushed in their order, one rounding. In the
+   * masked body a node that owns its word stores the three operands' AND.
+   */
+  private static void emitFma(CodeBuilder cb, Fma n, boolean dense, Analysis analysis, Slots s,
+      Set<VarkaVectorIR> computed) {
+    emitValue(cb, n.a(), dense, analysis, s, computed);
+    emitValue(cb, n.b(), dense, analysis, s, computed);
+    emitValue(cb, n.c(), dense, analysis, s, computed);
+    line(cb, analysis, n);
+    Lane lane = analysis.laneOf(n);
+    cb.invokevirtual(lane.vector, "fma", MethodTypeDesc.of(lane.vector, VECTOR, VECTOR));
+    if (!dense && s.ownWord.contains(n)) {
+      loadWord(cb, s, s.wordRef.get(n.a()));
+      loadWord(cb, s, s.wordRef.get(n.b()));
+      cb.land();
+      loadWord(cb, s, s.wordRef.get(n.c()));
+      cb.land();
+      storeWord(cb, s, s.wordRef.get(n));
+    }
   }
 
   /**

@@ -56,6 +56,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Fma;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -339,7 +341,7 @@ public final class VarkaRangeAnalysis {
       // keeps its value, which a consumer's validity hides and a guard's word AND excludes.
       case GuardedRange n -> VarkaValueRange.of(n.lo(), n.hi());
       // A conversion with a floating side: the lattice tracks no floating value (VARKA-343).
-      case ConvertLane _ -> VarkaValueRange.UNKNOWN;
+      case ConvertLane _, ReinterpretLane _ -> VarkaValueRange.UNKNOWN;
       // A sign extension keeps every value, so an int widened to the long lane is in the int
       // range whatever its child is, and in the child's own range where that fits the int lane:
       // an int interval past it may hold a value the int lane wrapped, which the widening
@@ -397,6 +399,7 @@ public final class VarkaRangeAnalysis {
           ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, Long.SIZE);
       // A floating value has no integer range.
       case MathUnary n -> VarkaValueRange.UNKNOWN;
+      case Fma n -> VarkaValueRange.UNKNOWN;
       case RoundToIntegral n -> VarkaValueRange.UNKNOWN;
       case CanonicalFloat n -> VarkaValueRange.UNKNOWN;
       // The bits of a float and a hash step span their whole lanes.

@@ -1,0 +1,11 @@
+benchmark:   org.apache.spark.sql.execution.benchmark.VarkaDecimalBaselineBenchmark
+commit:      24229268ccf
+date:        2026-11-22T06:31:21Z
+jdk:         OpenJDK Runtime Environment Zulu25.38+201-CA (build 25.0.5.1+2-LTS)
+kernel:      7.0.0-1020-azure
+cpu:         AMD EPYC 7763 64-Core Processor
+power:       governor=n/a epp=n/a profile=n/a
+pinned to:   none (numbers are not comparable with a pinned run)
+load at start: 0.72
+canary:      OFF
+wide run:    SPARK_GENERATE_BENCHMARK_FILES=1  build/sbt sql/Test/runMain org.apache.spark.sql.execution.benchmark.VarkaDecimalBaselineBenchmark

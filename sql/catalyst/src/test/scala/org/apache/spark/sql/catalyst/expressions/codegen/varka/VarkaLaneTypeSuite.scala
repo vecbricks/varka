@@ -120,18 +120,20 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // every type: a node type added without a lane rule would otherwise go unchecked here even
     // though the emitter walks it.
     // The widening is absent: its value is on the long lane by definition, over an int child
-    // (VARKA-28). So is the math function, which exists at a floating lane only (VARKA-342), the
+    // (VARKA-28). So are the math function and the FMA, which exist at a floating lane only
+    // (VARKA-342), the
     // decimal column, an unscaled long whose constructor refuses the int lane until the int arm
     // of VARKA-347 2.3 is built, the decimal output, which widens a long value into a decimal
     // slot and refuses an int child (VARKA-157), and the conversion, one side of which is
-    // floating (VARKA-343).
+    // floating (VARKA-343), as is the reinterpretation's (VARKA-345).
     assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] +
-      classOf[RoundToIntegral] + classOf[CanonicalFloat] +
+      classOf[Fma] + classOf[RoundToIntegral] + classOf[CanonicalFloat] +
       classOf[DecimalColumn] + classOf[DecimalWord] + classOf[WidenDecimal] +
-      classOf[ConvertLane] ===
+      classOf[ConvertLane] + classOf[ReinterpretLane] ===
       concreteNodeTypes(classOf[VarkaVectorIR]) - classOf[CrossLane]) // its child: another lane
     val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
     assert(new MathUnary(MathFn.SQRT, doubleCol).laneType() === LaneType.DOUBLE)
+    assert(new Fma(doubleCol, doubleCol, doubleCol).laneType() === LaneType.DOUBLE)
     everyIntNode.foreach { node =>
       assert(node.laneType() === LaneType.INT, s"${VarkaVectorIR.canonical(node)}")
     }
@@ -510,6 +512,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "WeekOfYear" => new WeekOfYear(new ThursdayOf(c))
         // A floating lane's only: refused at both integral lanes, and emitted at DOUBLE below.
         case "MathUnary" => new MathUnary(MathFn.SQRT, c)
+        case "Fma" => new Fma(c, l, c)
         case "RoundToIntegral" => new RoundToIntegral(RoundMode.RINT, c)
         case "CanonicalFloat" => CanonicalFloat.of(c)
         // A hash step on the lane's own primitive, and a canonical floating value's bits at the
@@ -523,6 +526,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         // own conversion is refused by the plan at the unknown level these options carry.
         case "ConvertLane" => if (lane == LaneType.INT) new ConvertLane(c, LaneType.FLOAT)
           else new ConvertLane(new NarrowLane(c), LaneType.DOUBLE)
+        // A view of the column's bits at the floating lane of its width (VARKA-345).
+        case "ReinterpretLane" => new ReinterpretLane(c,
+          if (lane == LaneType.INT) LaneType.FLOAT else LaneType.DOUBLE)
         case "CrossLane" => new CrossLane(new IsNotNull(c), LaneType.DOUBLE)
         case other => fail(s"no instance recipe for $other; a node type was added")
       }) catch {
@@ -547,13 +553,18 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
     val atLong = buildable.filter(_._1 == LaneType.LONG).map(_._2).toSet
     val atInt = buildable.filter(_._1 == LaneType.INT).map(_._2).toSet
-    assert(atInt + "MathUnary" + "RoundToIntegral" + "CanonicalFloat" ===
+    assert(atInt + "MathUnary" + "Fma" + "RoundToIntegral" + "CanonicalFloat" ===
       types.map(_.getSimpleName).toSet - "DecimalColumn" - "DecimalWord",
       "every integral node type is emittable at INT but the decimal column and the decimal word")
     val sqrt = new MathUnary(MathFn.SQRT, new ColumnRef(0, LaneType.DOUBLE))
     val sqrtBytes = VarkaLoopEmitter.emit("VarkaReachMathUnaryDOUBLE",
       java.util.List.of[VarkaVectorIR](sqrt), 1, 0, null, null, VarkaMatrix.base)
     assert(VarkaEmitterTestSupport.verify(sqrtBytes).isEmpty, "MathUnary at DOUBLE verifies")
+    val fd = new ColumnRef(0, LaneType.DOUBLE)
+    val fmaBytes = VarkaLoopEmitter.emit("VarkaReachFmaDOUBLE",
+      java.util.List.of[VarkaVectorIR](new Fma(fd, fd, new ColumnRef(1, LaneType.DOUBLE))), 2, 0,
+      null, null, VarkaMatrix.base)
+    assert(VarkaEmitterTestSupport.verify(fmaBytes).isEmpty, "Fma at DOUBLE verifies")
     // The subset VARKA-85.md 3.1 names, and nothing else: a calendar node at the long lane
     // is refused by its constructor, which is why it never reaches the emitter.
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",
@@ -561,13 +572,13 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       "BoolColumn", "CondConst", "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue",
       "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
       "DecimalColumn", "DecimalWord", "NullValue", "WidenDecimal", "ConvertLane", "CrossLane",
-      "HashStep", "CanonicalBits"),
+      "HashStep", "CanonicalBits", "ReinterpretLane"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
         "the two conversions, which build over the other lane's child whatever the row, " +
         "VARKA-335's bitwise operations, VARKA-336's null-safe equality, VARKA-460's " +
         "condition as a value, VARKA-27's boolean output, VARKA-347's decimal column, " +
         "VARKA-157's decimal output, VARKA-343's conversion to the double lane and VARKA-333's " +
-        "null leaf, and VARKA-337's hash step and floating bits")
+        "null leaf, VARKA-337's hash step and floating bits, and VARKA-345's reinterpretation")
   }
 
   test("a narrowing is an int over a long child, and a kernel that holds one is driven at the " +

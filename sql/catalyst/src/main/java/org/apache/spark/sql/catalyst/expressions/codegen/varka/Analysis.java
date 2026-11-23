@@ -74,6 +74,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Fma;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ReinterpretLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
@@ -583,9 +585,10 @@ final class Analysis {
     analyze(root);
     // The message keeps the constant's name whatever the option's value, since the fuzzer's
     // steering and its budget skip match on "MAX_CHAIN_DEPTH=", and names the option beside it.
-    if (height.get(root) > options.maxChainDepth()) {
+    int cap = VarkaEmitBudget.chainDepthCap(options, root);
+    if (height.get(root) > cap) {
       throw VarkaErrors.illegalArgument("chain deeper than MAX_CHAIN_DEPTH="
-          + options.maxChainDepth() + " (the maxChainDepth emit option)");
+          + cap + " (the maxChainDepth emit option)");
     }
   }
 
@@ -970,6 +973,7 @@ final class Analysis {
             refuse(node, Refusal.VALUE_RANGE);
           }
         }
+        case ReinterpretLane n -> { }
         case NarrowLane n -> { }
         case WidenDecimal n -> { }
         case NextDay n -> { }
@@ -998,6 +1002,7 @@ final class Analysis {
         case BitOp n -> { }
         case BitCount n -> { }
         case MathUnary n -> { }
+        case Fma n -> { }
         case RoundToIntegral n -> { }
         case CanonicalFloat n -> { }
         case CanonicalBits n -> { }
@@ -1092,14 +1097,14 @@ final class Analysis {
       // narrow AND, OR or XOR does, a compare or a shift right does not - instead of falling
       // into "not ring" and leaving an unreduced int value for its readers.
       case ColumnRef _, DecimalColumn _, DecimalWord _, LiteralSlot _, WidenLane _,
-          NarrowLane _, ConvertLane _,
+          NarrowLane _, ConvertLane _, ReinterpretLane _,
           WidenDecimal _, AddDays _, SubDays _, AddMonths _, MakeDate _, GuardedDay _,
           GuardedRange _, NextDay _,
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
-          BitOp _, BitCount _, MathUnary _, RoundToIntegral _, Compare _, NullSafeEqual _,
-          BoolColumn _, CanonicalFloat _, CanonicalBits _, HashStep _,
+          BitOp _, BitCount _, MathUnary _, Fma _, RoundToIntegral _, Compare _,
+          NullSafeEqual _, BoolColumn _, CanonicalFloat _, CanonicalBits _, HashStep _,
           BoolCompare _,
           CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, CondValue _, NullValue _, BoolOutput _ -> false;
@@ -1448,6 +1453,7 @@ final class Analysis {
       case BitOp n -> andOwner(node, n.left(), n.right());
       case BitCount n -> wordOwner.get(n.child());
       case MathUnary n -> wordOwner.get(n.child());
+      case Fma n -> andOwner(node, andOwner(node, n.a(), n.b()), wordOwner.get(n.c()));
       case RoundToIntegral n -> wordOwner.get(n.child());
       case CanonicalFloat n -> wordOwner.get(n.child());
       case CanonicalBits n -> wordOwner.get(n.child());
@@ -1463,6 +1469,7 @@ final class Analysis {
           : wordOwner.get(n.child());
       case WidenLane n -> wordOwner.get(n.child());
       case ConvertLane n -> wordOwner.get(n.child());
+      case ReinterpretLane n -> wordOwner.get(n.child());
       case NarrowLane n -> wordOwner.get(n.child());
       case WidenDecimal n -> wordOwner.get(n.child());
       case Year n -> wordOwner.get(n.days());
@@ -1480,8 +1487,14 @@ final class Analysis {
 
   /** {@code Slots.andRef}'s folding over owners: all-true drops out, equal operands collapse. */
   private WordOwner andOwner(VarkaVectorIR node, VarkaVectorIR a, VarkaVectorIR b) {
-    WordOwner wa = wordOwner.get(a);
-    WordOwner wb = wordOwner.get(b);
+    return andOwner(node, wordOwner.get(a), wordOwner.get(b));
+  }
+
+  /**
+   * The fold over two owners; a three-operand node folds its first two and then the third, as
+   * {@code Slots.andRef} folds the refs, the node's own word standing for an AND not folded.
+   */
+  private static WordOwner andOwner(VarkaVectorIR node, WordOwner wa, WordOwner wb) {
     if (wa == WordOwner.Const.ALL_TRUE) {
       return wb;
     }
@@ -1517,6 +1530,8 @@ final class Analysis {
       case BitOp n -> andExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case BitCount n -> pureWord.get(n.child());
       case MathUnary n -> pureWord.get(n.child());
+      case Fma n -> andExpr(andExpr(pureWord.get(n.a()), pureWord.get(n.b())),
+          pureWord.get(n.c()));
       case RoundToIntegral n -> pureWord.get(n.child());
       case CanonicalFloat n -> pureWord.get(n.child());
       case CanonicalBits n -> pureWord.get(n.child());
@@ -1532,6 +1547,7 @@ final class Analysis {
       case GuardedRange n -> n.mode() == Overflow.NULL ? null : pureWord.get(n.child());
       case WidenLane n -> pureWord.get(n.child());
       case ConvertLane n -> pureWord.get(n.child());
+      case ReinterpretLane n -> pureWord.get(n.child());
       case NarrowLane n -> pureWord.get(n.child());
       case WidenDecimal n -> pureWord.get(n.child());
       case Year n -> pureWord.get(n.days());
@@ -1727,6 +1743,7 @@ final class Analysis {
       // The conversions: the child's value in the other lane, and the child's validity.
       case WidenLane n -> analyzeOp(node, false, n.child());
       case ConvertLane n -> analyzeOp(node, false, n.child());
+      case ReinterpretLane n -> analyzeOp(node, false, n.child());
       case NarrowLane n -> analyzeOp(node, false, n.child());
       // The decimal store interleaves long lanes into sixteen-byte slots: the root's value is its
       // child's, its validity the child's, and the kernel must be driven at the long lane, as a
@@ -1817,6 +1834,8 @@ final class Analysis {
       case BitCount n -> analyzeOp(node, false, n.child());
       // A floating math function computes every lane and nulls none.
       case MathUnary n -> analyzeOp(node, false, n.child());
+      // So does the fused multiply-add, over its three operands.
+      case Fma n -> analyzeOp(node, false, n.a(), n.b(), n.c());
       case RoundToIntegral n -> analyzeOp(node, false, n.child());
       case CanonicalFloat n -> analyzeOp(node, false, n.child());
       case CanonicalBits n -> analyzeOp(node, false, n.child());
