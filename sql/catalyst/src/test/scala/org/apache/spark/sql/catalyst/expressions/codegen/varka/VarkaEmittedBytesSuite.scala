@@ -27,6 +27,7 @@ import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters._
 
 import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
+import com.fasterxml.jackson.databind.node.{ArrayNode, ObjectNode}
 import org.scalatest.exceptions.TestFailedException
 
 import org.apache.spark.SparkFunSuite
@@ -657,6 +658,115 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
   }
 
+  /**
+   * What differs between `committed`, the pinned file, and `rendered`, the emitter's answer, one
+   * line per coverage row, method, fuzz block or option arm that moved; a test plants a moved
+   * hash in memory and requires its row to be named (VARKA-504). Empty only when the two agree.
+   */
+  private def movedBetween(committed: String, rendered: String): Seq[String] = {
+    if (committed == rendered) return Seq.empty
+    // Name what moved: the coverage rows and methods whose hash differs,
+    // and the fuzz blocks, so the reader goes straight to a shape. Both directions are
+    // walked - a row or a method that *vanished* is the more alarming of the two, since it
+    // means a shape the table claims stopped reaching the emitter, and reporting only
+    // additions would leave the loudest failure with nothing to print.
+    val mapper = new ObjectMapper()
+    val before = mapper.readTree(committed)
+    val after = mapper.readTree(rendered)
+    val moved = Seq.newBuilder[String]
+    def keysOf(node: JsonNode): Set[String] =
+      if (node == null) Set.empty else node.fieldNames().asScala.toSet
+    def hashOf(node: JsonNode, key: String): Option[String] =
+      Option(node).flatMap(n => Option(n.get(key))).map(_.asText())
+    def skipsOf(doc: JsonNode): Set[String] =
+      Option(doc.get("coverage_rows_skipped"))
+        .map(_.elements().asScala.map(_.asText()).toSet).getOrElse(Set.empty)
+    val committedSkips = skipsOf(before)
+    val renderedSkips = skipsOf(after)
+    (committedSkips -- renderedSkips).foreach(r => moved += s"no longer skipped: $r")
+    (renderedSkips -- committedSkips).foreach(r => moved += s"newly skipped: $r")
+    widths.foreach { lanes =>
+      val b = Option(before.get("lanes")).map(_.get(lanes.toString)).orNull
+      val a = after.get("lanes").get(lanes.toString)
+      if (b == null) {
+        moved += s"lanes $lanes: no committed entry"
+      } else {
+        val bCoverage = b.get("coverage")
+        val aCoverage = a.get("coverage")
+        (keysOf(bCoverage) -- keysOf(aCoverage)).foreach { row =>
+          moved += s"lanes $lanes: row gone $row"
+        }
+        (keysOf(aCoverage) -- keysOf(bCoverage)).foreach { row =>
+          moved += s"lanes $lanes: new row $row"
+        }
+        (keysOf(aCoverage) intersect keysOf(bCoverage)).foreach { row =>
+          val was = bCoverage.get(row)
+          val now = aCoverage.get(row)
+          (keysOf(was) -- keysOf(now)).foreach { m =>
+            moved += s"lanes $lanes: $row method gone $m"
+          }
+          (keysOf(now) -- keysOf(was)).foreach { m =>
+            moved += s"lanes $lanes: $row new method $m"
+          }
+          (keysOf(now) intersect keysOf(was)).foreach { m =>
+            if (hashOf(was, m) != hashOf(now, m)) moved += s"lanes $lanes: $row method $m"
+          }
+        }
+        val sequences = Seq("fuzz", "fuzz_long", "fuzz_mixed", "fuzz_byte", "fuzz_short",
+          "fuzz_float", "fuzz_double")
+        sequences.foreach { sequence =>
+          val bb = Option(b.get(sequence)).map(_.get("blocks")).orNull
+          val ab = a.get(sequence).get("blocks")
+          ab.elements().asScala.zipWithIndex.foreach { case (n, k) =>
+            if (bb == null || bb.size <= k || bb.get(k).asText() != n.asText()) {
+              moved += s"lanes $lanes: $sequence block $k (shapes ${k * blockSize} to " +
+                s"${(k + 1) * blockSize - 1})"
+            }
+          }
+          if (bb != null && bb.size > ab.size) {
+            moved += s"lanes $lanes: ${bb.size - ab.size} committed $sequence block(s) gone"
+          }
+        }
+      }
+    }
+    // The option arms: one digest per arm and width, so what moved is the arm's name. An
+    // arm's digest covers every shape, so the fuzz blocks above say which shapes only for
+    // the defaults (VARKA-306).
+    val bArms = before.get("option_arms")
+    val aArms = after.get("option_arms")
+    (keysOf(bArms) -- keysOf(aArms)).foreach(arm => moved += s"option arm gone $arm")
+    (keysOf(aArms) -- keysOf(bArms)).foreach(arm => moved += s"new option arm $arm")
+    (keysOf(aArms) intersect keysOf(bArms)).foreach { arm =>
+      // Every width either file pins the arm at: the store arm's 2 as well as 4 and 16.
+      (keysOf(bArms.get(arm)) ++ keysOf(aArms.get(arm))).foreach { lanes =>
+        if (hashOf(bArms.get(arm), lanes) != hashOf(aArms.get(arm), lanes)) {
+          moved += s"lanes $lanes: option arm $arm"
+        }
+      }
+    }
+    if (moved.result().isEmpty) {
+      // No walker above saw a difference, so it is in a part none of them reads: name every
+      // value that differs by its path, so a section added later is not invisible
+      // (VARKA-306). Only formatting is left when even that finds nothing.
+      def leaves(node: JsonNode, path: String): Map[String, String] =
+        if (node.isContainerNode) {
+          val children = if (node.isObject) node.fields().asScala.map(e => e.getKey ->
+            e.getValue) else node.elements().asScala.zipWithIndex.map { case (n, k) =>
+            k.toString -> n }
+          children.flatMap { case (k, n) => leaves(n, s"$path/$k") }.toMap
+        } else {
+          Map(path -> node.asText())
+        }
+      val (b, a) = (leaves(before, ""), leaves(after, ""))
+      (b.keySet ++ a.keySet).toSeq.sorted.filter(k => b.get(k) != a.get(k))
+        .foreach(k => moved += s"differs at $k")
+      if (moved.result().isEmpty) {
+        moved += "no value differs; the file's formatting changed"
+      }
+    }
+    moved.result()
+  }
+
   test("sql/varka/emitted_bytes.json pins what the emitter produces for every shape") {
     val path = getWorkspaceFilePath("sql", "varka", "emitted_bytes.json")
     val rendered = render()
@@ -668,111 +778,37 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         "  VARKA_BYTES_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'")
       val committed = new String(Files.readAllBytes(path), StandardCharsets.UTF_8)
       if (committed != rendered) {
-        // Name what moved before failing: the coverage rows and methods whose hash differs,
-        // and the fuzz blocks, so the reader goes straight to a shape. Both directions are
-        // walked - a row or a method that *vanished* is the more alarming of the two, since it
-        // means a shape the table claims stopped reaching the emitter, and reporting only
-        // additions would leave the loudest failure with nothing to print.
-        val mapper = new ObjectMapper()
-        val before = mapper.readTree(committed)
-        val after = mapper.readTree(rendered)
-        val moved = Seq.newBuilder[String]
-        def keysOf(node: JsonNode): Set[String] =
-          if (node == null) Set.empty else node.fieldNames().asScala.toSet
-        def hashOf(node: JsonNode, key: String): Option[String] =
-          Option(node).flatMap(n => Option(n.get(key))).map(_.asText())
-        def skipsOf(doc: JsonNode): Set[String] =
-          Option(doc.get("coverage_rows_skipped"))
-            .map(_.elements().asScala.map(_.asText()).toSet).getOrElse(Set.empty)
-        val committedSkips = skipsOf(before)
-        val renderedSkips = skipsOf(after)
-        (committedSkips -- renderedSkips).foreach(r => moved += s"no longer skipped: $r")
-        (renderedSkips -- committedSkips).foreach(r => moved += s"newly skipped: $r")
-        widths.foreach { lanes =>
-          val b = Option(before.get("lanes")).map(_.get(lanes.toString)).orNull
-          val a = after.get("lanes").get(lanes.toString)
-          if (b == null) {
-            moved += s"lanes $lanes: no committed entry"
-          } else {
-            val bCoverage = b.get("coverage")
-            val aCoverage = a.get("coverage")
-            (keysOf(bCoverage) -- keysOf(aCoverage)).foreach { row =>
-              moved += s"lanes $lanes: row gone $row"
-            }
-            (keysOf(aCoverage) -- keysOf(bCoverage)).foreach { row =>
-              moved += s"lanes $lanes: new row $row"
-            }
-            (keysOf(aCoverage) intersect keysOf(bCoverage)).foreach { row =>
-              val was = bCoverage.get(row)
-              val now = aCoverage.get(row)
-              (keysOf(was) -- keysOf(now)).foreach { m =>
-                moved += s"lanes $lanes: $row method gone $m"
-              }
-              (keysOf(now) -- keysOf(was)).foreach { m =>
-                moved += s"lanes $lanes: $row new method $m"
-              }
-              (keysOf(now) intersect keysOf(was)).foreach { m =>
-                if (hashOf(was, m) != hashOf(now, m)) moved += s"lanes $lanes: $row method $m"
-              }
-            }
-            val sequences = Seq("fuzz", "fuzz_long", "fuzz_mixed", "fuzz_byte", "fuzz_short",
-              "fuzz_float", "fuzz_double")
-            sequences.foreach { sequence =>
-              val bb = Option(b.get(sequence)).map(_.get("blocks")).orNull
-              val ab = a.get(sequence).get("blocks")
-              ab.elements().asScala.zipWithIndex.foreach { case (n, k) =>
-                if (bb == null || bb.size <= k || bb.get(k).asText() != n.asText()) {
-                  moved += s"lanes $lanes: $sequence block $k (shapes ${k * blockSize} to " +
-                    s"${(k + 1) * blockSize - 1})"
-                }
-              }
-              if (bb != null && bb.size > ab.size) {
-                moved += s"lanes $lanes: ${bb.size - ab.size} committed $sequence block(s) gone"
-              }
-            }
-          }
-        }
-        // The option arms: one digest per arm and width, so what moved is the arm's name. An
-        // arm's digest covers every shape, so the fuzz blocks above say which shapes only for
-        // the defaults (VARKA-306).
-        val bArms = before.get("option_arms")
-        val aArms = after.get("option_arms")
-        (keysOf(bArms) -- keysOf(aArms)).foreach(arm => moved += s"option arm gone $arm")
-        (keysOf(aArms) -- keysOf(bArms)).foreach(arm => moved += s"new option arm $arm")
-        (keysOf(aArms) intersect keysOf(bArms)).foreach { arm =>
-          // Every width either file pins the arm at: the store arm's 2 as well as 4 and 16.
-          (keysOf(bArms.get(arm)) ++ keysOf(aArms.get(arm))).foreach { lanes =>
-            if (hashOf(bArms.get(arm), lanes) != hashOf(aArms.get(arm), lanes)) {
-              moved += s"lanes $lanes: option arm $arm"
-            }
-          }
-        }
-        if (moved.result().isEmpty) {
-          // No walker above saw a difference, so it is in a part none of them reads: name every
-          // value that differs by its path, so a section added later is not invisible
-          // (VARKA-306). Only formatting is left when even that finds nothing.
-          def leaves(node: JsonNode, path: String): Map[String, String] =
-            if (node.isContainerNode) {
-              val children = if (node.isObject) node.fields().asScala.map(e => e.getKey ->
-                e.getValue) else node.elements().asScala.zipWithIndex.map { case (n, k) =>
-                k.toString -> n }
-              children.flatMap { case (k, n) => leaves(n, s"$path/$k") }.toMap
-            } else {
-              Map(path -> node.asText())
-            }
-          val (b, a) = (leaves(before, ""), leaves(after, ""))
-          (b.keySet ++ a.keySet).toSeq.sorted.filter(k => b.get(k) != a.get(k))
-            .foreach(k => moved += s"differs at $k")
-          if (moved.result().isEmpty) {
-            moved += "no value differs; the file's formatting changed"
-          }
-        }
+        val moved = movedBetween(committed, rendered)
         fail("sql/varka/emitted_bytes.json does not match what the emitter produces. If the " +
           "emitted code was meant to change, regenerate with\n" +
           "  VARKA_BYTES_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'\n" +
-          "and say so in the task's plan. What moved:\n  " + moved.result().mkString("\n  "))
+          "and say so in the task's plan. What moved:\n  " + moved.mkString("\n  "))
       }
     }
+  }
+
+  test("one coverage method's hash and one fuzz block changed in the pinned file are each named") {
+    // VARKA-504's planted fault: the committed file stands in for the emitter's answer, so the
+    // plant emits nothing, and one hash of each kind is changed in memory.
+    val mapper = new ObjectMapper()
+    val path = getWorkspaceFilePath("sql", "varka", "emitted_bytes.json")
+    def doc(): ObjectNode = mapper.readTree(Files.readString(path)).asInstanceOf[ObjectNode]
+    def text(node: JsonNode): String =
+      mapper.writerWithDefaultPrettyPrinter().writeValueAsString(node) + "\n"
+    val base = text(doc())
+    assert(movedBetween(base, base).isEmpty)
+    val planted = doc()
+    val lanes = planted.get("lanes").get("4")
+    val coverage = lanes.get("coverage")
+    assert(coverage.size > 100, s"the pinned file holds only ${coverage.size} coverage rows")
+    val row = coverage.fieldNames().next()
+    val methods = coverage.get(row).asInstanceOf[ObjectNode]
+    val method = methods.fieldNames().next()
+    methods.put(method, "0" * 64)
+    lanes.get("fuzz").get("blocks").asInstanceOf[ArrayNode]
+      .set(3, mapper.getNodeFactory.textNode("0" * 64))
+    assert(movedBetween(base, text(planted)) ==
+      Seq(s"lanes 4: $row method $method", "lanes 4: fuzz block 3 (shapes 300 to 399)"))
   }
 
   test("a coverage row over a column the table lacks fails the oracle, naming the row and the " +

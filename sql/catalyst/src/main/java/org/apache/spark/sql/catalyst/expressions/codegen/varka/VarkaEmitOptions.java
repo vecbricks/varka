@@ -560,6 +560,17 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        or one holding a math port, 16 for any other); any other value is the cap on every
  *        lane, so one below 64 lowers the int lane's cap too. A measurement knob (VARKA-620): a
  *        benchmark sets it to price depths past a cap, and no session conf sets it.
+ * @param uncountedMainLoop whether the main lane-group loop, and the epilogue loop of a kernel
+ *        that converts between lanes or whose narrowing load spans more than one group, step by a
+ *        value C2 cannot fold ({@link VarkaLoopStride#one()} times the lane count) rather than by
+ *        the bytecode constant, so that C2 does not compile them as counted loops
+ *        ({@code VARKA-383.md} 9.5). False,
+ *        the default, steps by the constant: C2 then counts the loop and, because its Arrow
+ *        accesses carry {@code long} range checks, nests it to eliminate them, adding the nest's
+ *        loop predicates under the back edge's state with no per-bytecode trap limit; a profiled
+ *        one of them that fails is recompiled and fails again until the method's trap limit, and
+ *        the warm-up releases the kernel still allocating. True keeps every range check in the
+ *        loop and every answer the same.
  * @param checkedLongMultiply how a projection's ANSI or TRY {@code BIGINT} multiply whose
  *        operands' bounds do not rule out overflow compiles ({@code VARKA-611.md} 3.2):
  *        {@link CheckedLongMultiply#BOUND_ONLY}, the default, declines it to the row engine;
@@ -629,6 +640,7 @@ public record VarkaEmitOptions(
     FloatingFault floatingFault,
     IntervalFault intervalFault,
     int maxChainDepth,
+    boolean uncountedMainLoop,
     CheckedLongMultiply checkedLongMultiply) {
 
   /**
@@ -908,7 +920,8 @@ public record VarkaEmitOptions(
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
           false, false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
           NarrowConversionForm.ROUND_TO_ODD, false, NarrowGroupStore.MASKED, FloatingFault.NONE,
-          IntervalFault.NONE, VarkaEmitBudget.AUTO_CHAIN_DEPTH, CheckedLongMultiply.BOUND_ONLY);
+          IntervalFault.NONE, VarkaEmitBudget.AUTO_CHAIN_DEPTH, false,
+          CheckedLongMultiply.BOUND_ONLY);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -1047,6 +1060,7 @@ public record VarkaEmitOptions(
       b.floatingFault = floatingFault;
       b.intervalFault = intervalFault;
       b.maxChainDepth = maxChainDepth;
+      b.uncountedMainLoop = uncountedMainLoop;
       b.checkedLongMultiply = checkedLongMultiply;
     return b;
   }
@@ -1113,6 +1127,7 @@ public record VarkaEmitOptions(
     private FloatingFault floatingFault;
     private IntervalFault intervalFault;
     private int maxChainDepth;
+    private boolean uncountedMainLoop;
     private CheckedLongMultiply checkedLongMultiply;
 
     private Builder() {
@@ -1418,6 +1433,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder uncountedMainLoop(boolean uncounted) {
+      this.uncountedMainLoop = uncounted;
+      return this;
+    }
+
     public Builder checkedLongMultiply(CheckedLongMultiply form) {
       this.checkedLongMultiply = form;
       return this;
@@ -1440,7 +1460,8 @@ public record VarkaEmitOptions(
           decimalStore, wideConversionForm, roundToOddByShifts, narrowConversionForm,
           mathUlpContract,
           narrowGroupStore,
-          floatingFault, intervalFault, maxChainDepth, checkedLongMultiply);
+          floatingFault, intervalFault, maxChainDepth, uncountedMainLoop,
+          checkedLongMultiply);
     }
   }
 
@@ -1703,6 +1724,10 @@ public record VarkaEmitOptions(
    */
   public VarkaEmitOptions withIntervalFault(IntervalFault fault) {
     return toBuilder().intervalFault(fault).build();
+  }
+
+  public VarkaEmitOptions withUncountedMainLoop(boolean uncounted) {
+    return toBuilder().uncountedMainLoop(uncounted).build();
   }
 
   public boolean isDefault() {
