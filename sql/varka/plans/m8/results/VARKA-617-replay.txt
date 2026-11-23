@@ -163,3 +163,14 @@ pairs the run has no seconds for: share 0, part-seconds 0, alone 0
 bin jobs with no artifact: none
 Out of sample, bins over 600 s: share 7, part-seconds 1, alone 1; the longest bin 695 s, 625 s
 and 624 s. The model: "as run" 32.0 min against the measured 32.3, 0.9 per cent under.
+
+Rebuilt on master after #1632 (23 November 2026), with the review's fix: a part-run pair whose
+share today is above the share it was measured at, past the file's 3-decimal rounding, weighs no
+less than its share. Re-run on the same inputs, every line above is reproduced except one, the
+out-of-sample part-seconds phase, 0.1 min shorter:
+== 43655530012 on this branch's files, after the fix
+replanned, part-seconds    29.9 min   179 bins, the longest 625 s, 1 over 600 s
+(the replay now also prints "units with a run.log but no seconds, left out of as run: 0", from
+#1632's fixes, for both runs.) Under 43655530012's record 12 of the file's pairs have a larger
+share, 5 of them by more than a rounding error, all VarkaSparkFuzzSuite's, whose measured part
+runs exceed their share weighing, so the floor moves none of them.

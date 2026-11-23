@@ -349,8 +349,14 @@ same messages as master on all three runs' artifacts.
    rounding, and 5 matter, all `VarkaSparkFuzzSuite`'s. The run measured them at 101, 100, 80,
    203 and 126 s; the file gives 125, 93, 99, 87 and 126, and scaling by the shares 312, 189,
    138, 122 and 140. The file is nearer in four of five, so a floor at the share weighing, or the
-   ratio scaling, would be worse. One pair, `floorMod7=DIV`, is under-weighed by 116 s. This
-   stays a trade-off, not a fault.
+   ratio scaling, would be worse. One pair, `floorMod7=DIV`, is under-weighed by 116 s. The
+   high review of the rebuilt branch then named the case this check could not see: a suite
+   whose time does follow its share, measured at a small share and run at a large one, as a
+   pull request's record can ask. So a pair whose share today is above the one it was measured
+   at, past the file's rounding, now weighs no less than its share (`read_part_seconds` keeps
+   the share). It moves none of the five fuzz pairs above, since each measured part run exceeds
+   its share weighing, and every replay of section 11 is reproduced but one figure, 0.1 minutes
+   (`results/VARKA-617-replay.txt`).
 8. **The report job is unchanged, as section 3.4 says.** So it does not yet write
    `config-suite-part-seconds.tsv` beside the other two. The file is refreshed as this row
    refreshed it, with `times --reach ... --part-runs` over a run's downloaded bin artifacts.

@@ -89,7 +89,8 @@ PART_ALONE = "sql/varka/matrix/part-alone.tsv"
 # How `units` weighs a suite a configuration runs part of: `share`, its whole run times the share
 # of its tests the record lets through; `part-seconds`, its measured part run where
 # PART_SECONDS lists the pair and its share otherwise; `alone`, a suite PART_ALONE lists in a
-# unit of its own at its whole run, every other suite by its share.
+# unit of its own at its whole run, every other suite by its share. A part run measured at a
+# smaller share than today's weighs no less than its share (`units`).
 PART_WEIGHTS = ("share", "part-seconds", "alone")
 PART_WEIGHT = "part-seconds"
 DEFAULTS = "defaults"
@@ -164,6 +165,22 @@ def read_config_seconds(path):
             continue
         config, suite, seconds = line.split("\t")[:3]
         out[(run_dir(config), suite)] = float(seconds)
+    return out
+
+
+def read_part_seconds(path):
+    """`configuration<TAB>suite<TAB>seconds<TAB>share` lines (`write_part_seconds`) as
+    {(run directory, suite): (seconds, share)}, `#` comments and blank lines aside; empty for a
+    missing file."""
+    out = {}
+    p = Path(path)
+    if not p.exists():
+        return out
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        config, suite, seconds, share = line.split("\t")[:4]
+        out[(run_dir(config), suite)] = (float(seconds), float(share))
     return out
 
 
@@ -342,8 +359,12 @@ def units(
                 if whole is None:
                     whole = weight(name) * factor
                 seconds = whole * max(share, 0.1)
-                if share < 1.0 and part_weight == "part-seconds":
-                    seconds = part_seconds.get((directory, name), seconds)
+                part = part_seconds.get((directory, name))
+                if share < 1.0 and part_weight == "part-seconds" and part is not None:
+                    measured, at = part
+                    # A record that lets more of the suite's tests through than the one the pair
+                    # was measured under (past the file's rounding) weighs no less than its share.
+                    seconds = measured if share <= at + 0.0005 else max(measured, seconds)
                 elif share < 1.0 and name in apart:
                     # Its time follows the cases it drew, not the share of its tests that ran.
                     seconds = whole
@@ -837,7 +858,7 @@ def planner_files(ref=None, pairs=None, suite_seconds=None, part_seconds=None, r
             read_tsv(at(SUITE_TIMES)),
             read_tsv(at(CONFIG_WEIGHTS)),
             read_config_seconds(pairs or at(CONFIG_SUITE_SECONDS)),
-            read_config_seconds(part_seconds or at(PART_SECONDS)),
+            read_part_seconds(part_seconds or at(PART_SECONDS)),
             read_names(at(PART_ALONE)),
         )
 
@@ -1114,8 +1135,8 @@ def write_config_seconds(path, seconds, runs=None, header=None):
 
 def write_part_seconds(path, runs, header=None):
     """The file of part runs, `part_runs`' {(run directory, suite): (seconds, share)}, one line a
-    pair with the share of the suite's tests the configuration ran; `read_config_seconds` reads
-    it, the share aside."""
+    pair with the share of the suite's tests the configuration ran, as `read_part_seconds` reads
+    it."""
     lines = header or [
         "# configuration\tsuite\tseconds\tshare: a suite's seconds under a configuration that",
         "# ran only some of its tests, as dev/varka_matrix_bins.py times --part-runs computes them",
@@ -1131,7 +1152,8 @@ def read_names(path):
     if not p.exists():
         return ()
     lines = p.read_text(encoding="utf-8").splitlines()
-    return tuple(line.strip() for line in lines if line.strip() and not line.startswith("#"))
+    names = (line.strip() for line in lines)
+    return tuple(name for name in names if name and not name.startswith("#"))
 
 
 # A record's format line, which every record a test writes by hand starts with.
@@ -1291,7 +1313,7 @@ class SelfTest(unittest.TestCase):
             self.assertEqual(parts, {("x=1", "A"): (20.0, 0.5)})
             out = Path(root, "config-suite-part-seconds.tsv")
             write_part_seconds(out, parts)
-            self.assertEqual(read_config_seconds(out), {("x=1", "A"): 20.0})
+            self.assertEqual(read_part_seconds(out), {("x=1", "A"): (20.0, 0.5)})
             # Without a record every configuration ran every test, and no run is a part run.
             self.assertEqual(part_runs([Path(root, "runs")]), {})
 
@@ -1306,11 +1328,10 @@ class SelfTest(unittest.TestCase):
             return read_reach(f)
 
     def test_part_seconds_weigh_a_listed_part_run_and_only_a_part_run(self):
-        # x=1 runs two of F's ten tests and one of G's two; y=2, which the record covers but no
-        # test moves under, runs none; the defaults run both whole.
+        # x=1 runs two of F's ten tests and one of G's two; the defaults run both whole.
         suites = [("sql", [("F", True), ("G", True)])]
         reach = self._part_reach()
-        measured = {("x=1", "F"): 150.0, ("defaults", "F"): 160.0}
+        measured = {("x=1", "F"): (150.0, 0.2), ("defaults", "F"): (160.0, 0.2)}
         args = (["x=1"], suites, lambda s: 200.0, {}, 480.0, reach, None, ())
 
         def ran(*more):
@@ -1322,6 +1343,12 @@ class SelfTest(unittest.TestCase):
         # The listed part run weighs its measured seconds, an unlisted one its share.
         self.assertEqual(got[("x=1", "F")], 150.0)
         self.assertEqual(got[("x=1", "G")], 100.0)
+        # A pair lighter than its share weighs its measured seconds at the share it was measured
+        # at, and its share when today's record lets more of the suite through.
+        light = ran("part-seconds", {**measured, ("x=1", "G"): (10.0, 0.5)})
+        self.assertEqual(light[("x=1", "G")], 10.0)
+        light = ran("part-seconds", {**measured, ("x=1", "G"): (10.0, 0.25)})
+        self.assertEqual(light[("x=1", "G")], 100.0)
         # A pair of the part file is never read for a whole run, as the defaults run F, or as
         # every configuration runs every test without a record.
         self.assertEqual(got[("defaults", "F")], 200.0)
@@ -2068,7 +2095,12 @@ def main(argv):
         if args.per_configuration:
             write_config_seconds(args.per_configuration, whole_runs(args.dirs, reach))
         if args.part_runs:
-            write_part_seconds(args.part_runs, part_runs(args.dirs, reach))
+            parts = part_runs(args.dirs, reach)
+            if not parts:
+                # A run with no usable record ran no part run: keep the file it would empty.
+                print(f"times: no part run found; {args.part_runs} left as it is", file=sys.stderr)
+            else:
+                write_part_seconds(args.part_runs, parts)
         return 0
     configurations = [
         c.strip()
@@ -2090,7 +2122,7 @@ def main(argv):
         read_config_seconds(CONFIG_SUITE_SECONDS),
         tuple(PLATFORMS) if args.platforms else (),
         args.part_weight,
-        read_config_seconds(PART_SECONDS),
+        read_part_seconds(PART_SECONDS),
         read_names(PART_ALONE),
     )
     why = over_cap(out, args.target)
