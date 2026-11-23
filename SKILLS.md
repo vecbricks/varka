@@ -250,5 +250,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [The fork's CI queue is a job inside the Build, and the check sync rides the push](sql/varka/skills/working-in-this-repo.md#the-forks-ci-queue-is-a-job-inside-the-build-and-the-check-sync-rides-the-push)
 * [GitHub Actions facts the CI queue cost a run each to learn](sql/varka/skills/working-in-this-repo.md#github-actions-facts-the-ci-queue-cost-a-run-each-to-learn)
 * [`varka_regen_generated.sh --all` does not regenerate the golden corpus](sql/varka/skills/working-in-this-repo.md#varka_regen_generatedsh---all-does-not-regenerate-the-golden-corpus)
+* [The pre-commit hook refuses a census claim that `coverage.json` cannot show yet](sql/varka/skills/working-in-this-repo.md#the-pre-commit-hook-refuses-a-census-claim-that-coveragejson-cannot-show-yet)
+* [The quote check reads a plan section numbered 10.1x as a measurement](sql/varka/skills/working-in-this-repo.md#the-quote-check-reads-a-plan-section-numbered-101x-as-a-measurement)
 
 <!-- END generated contents -->

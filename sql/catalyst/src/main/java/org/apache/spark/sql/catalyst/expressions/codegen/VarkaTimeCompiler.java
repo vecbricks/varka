@@ -231,13 +231,12 @@ final class VarkaTimeCompiler {
       // constructors refuse a tree that mixes it with the int lane anyway.
       // A decimal column is never a long column, whatever lane the registry gives it
       // (VARKA-347): its sixteen-byte slots are read by its own leaf, with the check Spark's
-      // reader makes. Under a comparison or a null test, a decimal value - the column, a
-      // rescale, a negation, abs, a choice or a pick over it (VARKA-348), a sum, a difference or
-      // a product (VARKA-349) - is built by VarkaDecimalCompiler, so a decimal column reaching
-      // here declines, ahead of the long column's arm below, which would read the slots as
-      // eight-byte longs: with the registry's reason where it has one (a precision or scale off
-      // the lane), and otherwise as a value outside a
-      // condition - an output, row 348's (348b), or the operand of a cast to an integral
+      // reader makes. Under a comparison or a null test and as a decimal output, a decimal
+      // value - the column, a rescale, a negation, abs, a choice or a pick over it (VARKA-348),
+      // a sum, a difference or a product (VARKA-349) - is built by VarkaDecimalCompiler, so a
+      // decimal column reaching here declines, ahead of the long column's arm below, which would
+      // read the slots as eight-byte longs: with the registry's reason where it has one (a
+      // precision or scale off the lane), and otherwise as the operand of a cast to an integral
       // or a floating type, rows 350 and 366. Above 18 digits the value is two words
       // (VARKA-359), whose operators beyond the comparisons and null tests are later rows'.
       case BoundReference br when br.dataType() instanceof DecimalType d ->
@@ -247,8 +246,8 @@ final class VarkaTimeCompiler {
                   ? "its comparisons and null tests fuse; its negation, abs and choices are row "
                       + "359's, its +, - and * rows 360 to 363, a decimal output its two-word "
                       + "store, row 359's"
-                  : "its comparisons, null tests and the values they read fuse, +, - and * "
-                      + "among them; a decimal output is row 348's")
+                  : "its comparisons, null tests, the values they read and a decimal output "
+                      + "of them fuse, +, - and * among them")
               + ", its casts to other types rows 350 and 366"), br);
       case BoundReference br
           when VarkaTypes.lane(br.dataType()).orElse(null) == LaneType.LONG ->
@@ -602,14 +601,14 @@ final class VarkaTimeCompiler {
   }
 
   /**
-   * The reason the two decimal-valued {@code TIME} expressions decline below a root: at an output
-   * root they fuse through the decimal store ({@link #decimalProducer}), and as the operand of
-   * another expression their value is a decimal operand, which row 348 consumes
-   * (`VARKA-157.md` 2.1).
+   * The reason the two decimal-valued {@code TIME} expressions decline where a non-decimal
+   * operator reads them: as an output root and as a decimal operand they are
+   * {@code VarkaDecimalCompiler.value}'s ({@link #decimalProducer}), and the casts of a decimal
+   * to another type are rows 350 and 366.
    */
   private static String decimalOperandNotYet(String label) {
-    return label + " returns a decimal, which fuses as a projection's output; as the operand of "
-        + "another expression its value is row 348's";
+    return label + " returns a decimal, which fuses as a projection's output and as a decimal "
+        + "operand; its casts to other types are rows 350 and 366";
   }
 
   /** The two {@code TIME} functions whose value is a decimal (`VARKA-157.md` 2.3). */
@@ -623,10 +622,10 @@ final class VarkaTimeCompiler {
   }
 
   /**
-   * The unscaled value of a decimal-valued {@code TIME} function at an output root, or empty with
-   * the reason noted (`VARKA-157.md` 2.3). Both are non-negative and within their precision for
-   * every time of day, so neither needs a guard, and every divisor is proven in
-   * {@code long_divide.smt2}.
+   * The unscaled value of a decimal-valued {@code TIME} function, at an output root or as a
+   * decimal operand, or empty with the reason noted (`VARKA-157.md` 2.3). Both are non-negative
+   * and within their precision for every time of day, so neither needs a guard, and every divisor
+   * is proven in {@code long_divide.smt2}.
    *
    * <ul>
    *   <li>{@code time_to_seconds(t)}, a {@code DECIMAL(14, 6)}: {@code (n + 500) / 1000}, Spark's

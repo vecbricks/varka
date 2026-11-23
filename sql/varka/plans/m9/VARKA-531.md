@@ -1,5 +1,9 @@
 # VARKA-531: A matrix on the fork's master after each merge, the baseline a PR's matrix reads
 
+*Moved to milestone 9 on 23 November 2026 with row 531 (`SCOPE.md` item 138). A bare
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
+unless that plan moved too (`SCOPE.md` item 138).*
+
 ## 0. What exists now (admission check)
 
 From master at `5c660201b35`, and from MaxGekk/spark's Actions runs, read on 1 November 2026 with

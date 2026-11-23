@@ -1,0 +1,7 @@
+# The suites `dev/varka_matrix_bins.py plan --part-weight alone` plans as a unit of their own
+# under every configuration, weighed at their whole run whatever share of their tests a
+# configuration's reach record lets through, one simple name a line (VARKA-617 3.3). A suite
+# belongs here when its time follows the cases it draws rather than the share of its tests that
+# run: VarkaSparkFuzzSuite's 36 part runs in run 43642146943 took 78.5 to 225.0 s at shares of
+# 0.034 to 0.345 (config-suite-part-seconds.tsv), where its whole run's median is 182.2 s.
+VarkaSparkFuzzSuite

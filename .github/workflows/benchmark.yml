@@ -386,10 +386,16 @@ jobs:
         # Varka benchmark run without it finds no kernels and refuses to time its Varka arm. It
         # also needs the incubating Vector API opened, through extra-java-options:
         # "--add-modules jdk.incubator.vector".
+        # vfdlibm, the vector fdlibm library, is a test-scope dependency of catalyst that sbt
+        # resolves into the coursier cache, and VarkaMathPortBenchmark times it, so it is named
+        # beside the other test dependencies: at the version the measured pom pins, since a
+        # restored cache can also hold an older one.
+        VFDLIBM_VERSION="$(sed -n '/<artifactId>vfdlibm<\/artifactId>/{n;s/.*<version>\(.*\)<\/version>.*/\1/p}' sql/catalyst/pom.xml)"
+        VFDLIBM_VERSION="${VFDLIBM_VERSION:-none}"
         bin/spark-submit \
           --driver-memory 6g --class org.apache.spark.benchmark.Benchmarks \
           "${EXTRA_ARGS[@]}" \
-          --jars "`find . -name '*-SNAPSHOT-tests.jar' -o -name '*avro*-SNAPSHOT.jar' -o -name 'spark-*kafka-0-10*-SNAPSHOT.jar' -o -name 'varka-engine_*-SNAPSHOT.jar' | paste -sd ',' -`,`find ~/.cache/coursier -name 'curator-test-*.jar'`,`find ~/.cache/coursier \( -name 'kafka*.jar' -o -name 'metrics-core-2.2.0.jar' -o -name 'jopt-simple-*.jar' -o -name 'scala-java8-compat_*.jar' -o -name 'scala-logging_*.jar' -o -name 'jackson-dataformat-csv-*.jar' -o -name 'commons-pool2-*.jar' \) ! -name '*-sources.jar' ! -name '*-javadoc.jar' | paste -sd ',' -`" \
+          --jars "`find . -name '*-SNAPSHOT-tests.jar' -o -name '*avro*-SNAPSHOT.jar' -o -name 'spark-*kafka-0-10*-SNAPSHOT.jar' -o -name 'varka-engine_*-SNAPSHOT.jar' | paste -sd ',' -`,`find ~/.cache/coursier -name 'curator-test-*.jar'`,`find ~/.cache/coursier \( -name 'kafka*.jar' -o -name 'metrics-core-2.2.0.jar' -o -name 'jopt-simple-*.jar' -o -name 'scala-java8-compat_*.jar' -o -name 'scala-logging_*.jar' -o -name 'jackson-dataformat-csv-*.jar' -o -name 'commons-pool2-*.jar' -o -name "vfdlibm-$VFDLIBM_VERSION.jar" \) ! -name '*-sources.jar' ! -name '*-javadoc.jar' | paste -sd ',' -`" \
           "`find . -name 'spark-core*-SNAPSHOT-tests.jar'`" \
           "$BENCHMARK_CLASS"
         # Keep the committed sections the run was not asked to replace (VARKA-256): a run on

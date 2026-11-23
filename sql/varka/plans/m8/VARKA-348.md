@@ -919,3 +919,165 @@ kernel runs over a batch with nulls and one without, both bodies, against Spark'
   is false on every row and dropping it is Spark's answer; a set that drops to nothing declines as
   an empty list. Only a hand-built `InSet` holds one: an `In`'s elements share the value's type.
 
+
+### Step 5: 348b, the values as outputs
+
+*Built 20 November 2026 on branch `varka-348-decimal-compare`, on master after 157b (#1348). Built
+in an implementation-first window: every test is written and compiled. One run was taken,
+`VarkaDecimalOutputSuite`'s first four tests, which passed in 26 s. The runs still owed are listed
+in the pull request's body.*
+
+**The gate.** `VarkaDecimalCompiler.output` asks the output's type first, as 157b built it, and
+then compiles any `value()`, bracketed by `enterDecimal` and `exitDecimal` as a comparison's
+operands are, so the choice conditions it keeps are dropped before an entry's tables can be rolled
+back. The value goes under `WidenDecimal` through `widened`, unchanged. Every form 348a built is
+now an output: a rescaling cast, a negation, `abs` under both lowerings, `IF`, `CASE` with and
+without an `ELSE`, `coalesce`, `nullif` and `nullifzero` (578's null), `greatest` and `least`. So
+are 349's sums and differences within 18 digits, and its products. This is the first commit on
+the branch, kept apart so that 349c can stack on it.
+
+**The TIME producers as operands.** `value()` gains an arm for the two decimal-valued `TIME`
+functions (`VarkaTimeCompiler.decimalProducer`, under the TIME family's switch), so
+`time_to_seconds(t) < 10.5` and `extract(SECOND FROM t) + extract(SECOND FROM t)` fuse. A null
+test over one still declines (`valid()` has no arm for it), and so does a cast of one to another
+type (rows 350 and 366).
+
+**The census.** The conformance harness fails a value form that fuses where the census does not
+mark the type. So `dec^` (fused in part: the long fuses, the pair does not) is added to
+`coalesce`, `if`, `when`, `ifnull`, `nvl`, `nvl2`, `nullif`, `nullifzero`, `zeroifnull`,
+`greatest`, `negative`, `abs`, `+`, `-` and `try_add`. Their notes now say "as an output (348b)"
+in place of "as an output with row 157", and `census.tsv` is rewritten by `dev/varka_census.py`.
+`VarkaDecimalConformanceSuite` lists in `declinesInPart` the operators its harness runs, because
+its `DECIMAL(30, 4)` values all decline as outputs (row 359's store). Two more entries are owed:
+`least` and `try_subtract`. The script, and so the pre-commit hook, refuses a `dec` claim for
+them until `coverage.json` holds a row with their node over a decimal operand. This part's
+"DECIMAL values" rows supply those, but they reach `coverage.json` only when the coverage suite
+regenerates it. After that regeneration, both get `dec^` and join the pair suite's
+`declinesInPart`. Until then, `VarkaDecimalLongConformanceSuite` reports `least(x, y)` and
+`try_subtract(x, y)` as drift ("fuses, and the register owes it").
+
+**The coverage rows.** A family of its own, "DECIMAL values" (`predicates = false`), with eight
+rows: the plan's seven projections, `if(b, d18, d18b)` changed to `if(d9 < d9b, d18, d18b)` (see
+the decisions below), and `try_subtract(d9, d9s4)` for the census's `try_subtract` claim. Each is
+`Rendered`. `VarkaDecimalRefinementFile` compiles a decimal-valued row as a projection's one
+output and refines its `WidenDecimal` root, which the printer reads through, against the same
+`Spec` as a predicate row's. The value check is `(not (= data value))` over integers, where a
+predicate row's is over booleans.
+
+**Tests.** `VarkaDecimalOutputSuite` (JUnit, its own JVM) compiles each value as a projection,
+checks that the root is `WidenDecimal` and that the output type is the expression's, and runs the
+value at one, two, four and eight long lanes. It uses the precision's ends, one unit inside them,
+zero, one each way and every null pattern, and holds each row to Spark's `eval` at the output's
+scale. It covers `abs` under both lowerings, the sums and differences, and the decline past 18
+digits naming 359. The bare rescaling cast `CAST(a AS DECIMAL(18, 4))` was added to the first
+test's shapes after that run. Two later tests are compiled but not run. The first runs the whole root, the
+store over the decimal leaves, into a `DecimalVector` of the output's type under both
+`decimalStore` arms, and reads it back through `ArrowColumnVector`. The second checks that a
+constant and a typed null fuse as outputs beside a column's value. `VarkaExpressionCompilerSuite`'s test that the TIME producers decline below a
+root naming 348 becomes the test that they fuse there, under a sum and a comparison.
+
+**The baseline's classes.** `VarkaDecimalBaselineBenchmark` checks every section's plan against
+its `Fusion` class before timing. Twelve sections fused nothing before this part and now fuse
+whole, so their classes change from `NONE` to `WHOLE` in both sessions, since a value root is no
+condition that row 503's two-lane refusal takes:
+- the choice `CASE WHEN x < y THEN x ELSE y END` at precisions 9 and 18;
+- the cast from `DECIMAL(9, 2)` to `DECIMAL(18, 4)`;
+- the three arithmetic projections at precision 9, each at both densities.
+
+These are the sections that measure section 4's prediction 4. The class gains no new section,
+since section 4 already holds the projected choice.
+
+**Predictions for the test phase, registered before any run.**
+
+1. `VarkaDecimalOutputSuite` passes on its first run: every arm under it already answers as a
+   condition. *Scored 20 November 2026: held. Its first four tests passed on the first run (26 s);
+   the two tests added after that run are not yet scored.*
+2. The regenerated `decimal_refinement.smt2` refines all eight new rows, none refused, and both
+   solvers answer `unsat` on every check.
+3. `VarkaDecimalLongConformanceSuite` runs the round trip, choice, ordering and overflow checks'
+   value forms fused where it cancelled them before; `VarkaDecimalConformanceSuite` is unchanged
+   in outcome, each listed operator seen declining.
+4. `VarkaAnsiFormSuite` (sql/core) reports a drift for the TIME producers' `CASE` arm, which now
+   fuses, and needs its expected-decline map trimmed. *Scored 22 November 2026: held in part. The
+   form runs in `VarkaCoverageHarnessSuite`; the `CASE` arm fused, but the false AND also needed a
+   repair (gate finding 5).*
+5. `emitted_bytes.json` gains the eight rows' kernels and moves no existing shape.
+6. `VarkaDecimalBaselineQueriesSuite`, and the benchmark's own plan check, find the twelve
+   sections above `WHOLE` and every other section's class unchanged.
+
+**Left in the row.** The runner measurements: the projections against the baseline at 256 and
+128 bits on the EPYC 7763 (prediction 4 of section 4), and `abs`'s two lowerings at 512 bits on
+the laptop (prediction 3), are owed. The laptop reading was not taken on 20 November 2026,
+because the methodology `sql/varka/CLAUDE.md` fixes ("Measurements, not adjectives",
+`VARKA-14.md` 2.1) needs an otherwise idle machine. That day other agents' JVMs shared the laptop,
+and `dev/varka_bench_regen.sh` refuses a busy machine. The baseline class has `abs(x) < y` as a filter only, so the
+projection arms are an addition to it, the house's own pull request first. The generated files
+(`coverage.json`, `docs/sql-varka.md`, `emitted_bytes.json`, `width_audit.json`, `census.tsv`,
+`decimal_refinement.smt2`) and the runs the body lists are owed too.
+
+**Gate findings (22 November 2026).** The items that kept the branch from opening, and what each
+turned out to be; the fifth came from CI after it opened.
+
+1. *The conformance harness had no check for a decimal store output.* `VarkaKernelChecks`'s
+   decimal slot lane refused a `WidenDecimal` root. It now writes, sizes and reads such an output
+   as a sixteen-byte slot through the helpers the long lane already has, and checks the high word
+   is the low word's sign extension. `VarkaDecimalLongConformanceSuite` then ran every
+   `(ANSI|LEGACY, value)` register. Its overflow check had required the fixture to reach an
+   overflow of `x + y`, `x - y`, `-x` and `abs(x)` as outputs, which cannot happen at
+   `DECIMAL(10, 2)` (the result type holds every sum), so `VarkaTypeConformance` gained
+   `overflowReachable(register)`, which that suite answers false for them; its overflow check is
+   still cancelled by the owed `x * y` (a `DECIMAL(21, 4)` output, row 359's), so the sum and
+   difference forms are held by the output, ordering and choice checks and the output suite.
+2. *The eight refinement checks failed at check 4 because of a sign.* The proof printer gives a
+   long root's data as its unsigned reading (`VarkaSmtSamples.readsWord`), correct for the
+   predicates a root of this lane is compared by in the other files, while the specification's
+   decimal value is signed, so every negative value refuted the equality. `VarkaDecimalRefinementFile`
+   now prints a `WidenDecimal` root's data through `WordForm.term`, the signed reading. The
+   regenerated `decimal_refinement.smt2` holds under Z3 (370 checks) and cvc5, and `--lint`
+   passes. Prediction 2 held once this was fixed.
+3. *The generated files* were regenerated on the rebased branch: `coverage.json`, the docs table,
+   `emitted_bytes.json` (it only appends the new rows' shapes) and `width_audit.json`. The width
+   audit's 128-bit probe took about five minutes on a loaded laptop, close to its 600 s budget:
+   two earlier runs under a load of 25 to 30 were destroyed at the budget and the third passed.
+4. *The rebase.* #1610 made the pair fuse comparisons, `IN`, negation and the choices'
+   comparison forms, and removed the pair suite's `declinesInPart`; the value outputs of the pair
+   still decline (row 359's store), so the override is back without `in`. A test of this row's
+   (the TIME producers as operands) passed an eager `declineReason` clue to `assert`, which
+   fails when the value fuses; the clues are now plain strings.
+5. *The ANSI form's false AND (CI, 22 November 2026).* `VarkaCoverageHarnessSuite`'s ANSI form
+   failed at the defaults on the eight value rows and the two TIME producers: "not served by a
+   kernel (the optimizer left no expression)". The position compared the value with its stand-in,
+   a typed null, and the optimizer folds `rid < 0 AND (e) = NULL` to an empty relation, so no
+   kernel ever saw it; the TIME producers' old declines had hidden this. The position now compares
+   a decimal with a typed zero (`VarkaAnsiForm.comparand`), and the kernel serves all ten. Not a
+   difference from Spark: Spark evaluates nothing there either. The decimal COALESCE position
+   still runs the value as alone does, since the optimizer drops its typed null; a non-null
+   decimal stand-in of every type is left open.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **Every `value()` is an output, 349's arithmetic included.** Section 2.4 makes the decimal root
+   `WidenDecimal(Scaled.unscaled)` for whatever `value()` computes. Admitting only this row's forms
+   would need a walk that declines a sum, a difference or a product naming 349c, for values the
+   compiler already proves within the precision. The coordinator agreed on 20 November 2026 that
+   349c builds on this branch: its rows, its `decimalMulIntInputs` reading and its measurement
+   stay 349c's.
+2. **The TIME producers are decimal operands.** `VARKA-157.md` 2.1 hands their value under another
+   operator to this row, and section 2.1's table does not list them. With the gate open, their
+   old decline would have named row 351 from `value()`'s default arm. One arm makes them operands
+   and keeps every reason true.
+3. **`if(b, d18, d18b)` became `if(d9 < d9b, d18, d18b)`.** The rendered refinement's `Spec` reads
+   decimal columns only, so a boolean condition column would be refused. The row is still a
+   choice of `DECIMAL(18, 2)` values, under a decimal condition instead.
+4. **`dec^`, not `dec`, in the census.** Under the milestone plan's 2.8 a decimal pair counts fused
+   only at every precision to 38. The pair's values are 359's, so these entries are fused in part,
+   as `<` and `in` already are, and the census's fused count does not move (section 6).
+5. **The `VarkaAnsiForm` expectations are left alone.** Its TIME producers' expected declines may
+   now fuse in the `CASE` arm. Changing them on a prediction, unrun, would be a guess either way,
+   so the suite is listed as owed with the rows at risk.
+6. **No family is noted for a negation, `abs`, a cast or a sum at an output root.** No family's
+   claim takes these decimal nodes, so `VarkaFamilySwitchSuite`'s reading of a row's families is
+   empty for them, and the predicate `-d9 < d9b` records none for its negation either. Only the
+   choices, the picks and the TIME producers ask a switch, inside `value()`, as they do under a
+   comparison. This is a reading of the code that `VarkaFamilySwitchSuite` has not yet run to
+   confirm.
