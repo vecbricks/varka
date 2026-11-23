@@ -18,7 +18,9 @@
 # pre-pr.sh <worktree> [--no-merge] [-j N]
 # The one local gate before any push, fix push or PR open (22 Nov 2026: "prevent all the failures").
 # Steps, in order, stopping at the first failure:
-#   1. merge origin/master (stops on a conflict: resolve by hand, commit, rerun)
+#   1. merge origin/master (stops on a conflict: resolve by hand, commit, rerun), then the push
+#      check's R1 text check alone (seconds, no JVM): a test registry or match that lacks a new IR
+#      node fails here, not after the regen's compile (23 Nov 2026)
 #   2. dev/varka_regen_generated.sh --all, and commit what it changed (a clean text merge can leave
 #      generated files stale: 348's push check, 22 Nov); skipped for a branch that changes no
 #      input of the generated files (below). The width audit's probes get
@@ -151,6 +153,17 @@ $TRAILER" origin/master >> "$L" 2>&1 \
       || { git diff --name-only --diff-filter=U; die "merge: conflict; resolve, commit, rerun"; }
     say "merged master $(git rev-parse --short origin/master)"
   fi
+fi
+
+# 1b. the registries. R1 reads the test registries and matches as text; R2-R4 wait for step 4,
+# since the regen fixes what R3 would report now. A caller's VARKA_PUSH_CHECK_SKIP=R1 holds
+# here too.
+if [ "$DRY" = 1 ]; then would "run dev/varka_push_check.py's R1 text check"
+else
+  VARKA_PUSH_CHECK_SKIP="R2,R3,R4,${VARKA_PUSH_CHECK_SKIP:-}" \
+    python3 dev/varka_push_check.py --no-jvm --dry-run >> "$L" 2>&1 \
+    || die "the push check's R1 text check (see $L)"
+  say "R1 text check passed"
 fi
 
 # 2. regen. A branch whose own changes touch no input of the generated files cannot leave them
