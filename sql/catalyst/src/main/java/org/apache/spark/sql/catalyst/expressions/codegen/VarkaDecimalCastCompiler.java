@@ -228,7 +228,7 @@ final class VarkaDecimalCastCompiler {
       DeclineSink sink) {
     if (c.child().dataType() instanceof DecimalType from && from.precision() > MAX_PRECISION) {
       return sink.decline("a cast of a decimal wider than " + MAX_PRECISION + " digits to "
-          + "BOOLEAN is row 359's", c);
+          + "BOOLEAN is row 364's", c);
     }
     if (sink.declinesTwoLaneChecks()) {
       return sink.decline(TWO_LANE_REASON, c);

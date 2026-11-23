@@ -775,7 +775,9 @@ against a column instead. Vanilla Spark's, recorded for an upstream report, not 
 
 **State (20 November 2026, about 04:30 UTC).** 350a is one commit on
 `varka-350a-integer-casts`, 350a1b one on `varka-350a1b-integral-sources` stacked on it; nothing
-pushed. Passing on the laptop for 350a: `VarkaCoverageHarnessSuite` (2641 of 2641), `VarkaDecimalCastQuerySuite` (8 of 8),
+pushed. *23 November 2026:* 350a is rebuilt alone on master as `varka-350a1-r2` for its own pull
+request; 350a1b's items above (the integral and `BOOLEAN` sources, the column word in `valid`, the
+boundary queries) are not in it and follow in their own pull request, then 350a2. Passing on the laptop for 350a: `VarkaCoverageHarnessSuite` (2641 of 2641), `VarkaDecimalCastQuerySuite` (8 of 8),
 `VarkaDecimalBaselineQueriesSuite` (11 of 11), `VarkaExpressionCompilerSuite`'s two-lane tests,
 `VarkaFamilySwitchSuite`, `VarkaFamilyChainSuite`, `VarkaDecimalValueSuite`, and every suite
 `dev/varka_regen_generated.sh --all` runs, the width audit at the laptop's widths among them. Under `JDK_JAVA_OPTIONS=-XX:UseAVX=2` the width audit (5 of 7, the

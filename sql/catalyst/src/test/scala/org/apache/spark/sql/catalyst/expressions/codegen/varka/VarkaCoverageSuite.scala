@@ -1694,7 +1694,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
 
     Family("Decimal cast predicates", predicates = true, Seq(
       Row("CAST(d9 AS BOOLEAN)", "the unscaled value against zero, which cannot fail"),
-      Row("CAST(d18 AS BOOLEAN)"),
+      Row("CAST(d18 AS BOOLEAN)", "the eighteen-digit twin: the unscaled long against zero, "
+        + "no division"),
       Row("CAST(d9s4 AS DECIMAL(9, 2)) < d9", "a rescale down by two digits, rounding half up: "
         + "the half added with the value's sign, then one constant division; seven integral "
         + "digits always fit, so no check"),
