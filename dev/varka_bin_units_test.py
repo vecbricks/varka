@@ -40,6 +40,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -134,6 +135,17 @@ def run_sweep_step(suite, exit_status=0):
         return done.returncode, args
 
 
+# The step's environment but the units: its plan and deadline as the workflow sets them.
+STEP_ENV = {
+    "PATH": os.environ["PATH"],
+    "BIN": "b000",
+    "PLAN_SECONDS": "480",
+    "DEADLINE_FLOOR": "1920",
+    "GRACE": "30",
+    "PLANT": "",
+}
+
+
 def run_step(units, reach=True, store=True):
     """Runs the step over `units` (one line each); returns (exit status, {unit k: [arguments]})."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -148,11 +160,7 @@ def run_step(units, reach=True, store=True):
             (matrix / "reach.tsv").write_text("# covers\n", encoding="utf-8")
         if store:
             (matrix / "harness-store/harness-0.bin").write_bytes(b"x")
-        env = {
-            "PATH": os.environ["PATH"],
-            "UNITS": "\n".join(units) + "\n",
-            "BIN": "b000",
-        }
+        env = dict(STEP_ENV, UNITS="\n".join(units) + "\n")
         done = subprocess.run(
             ["bash", "-e", "-c", step_script()],
             cwd=tmp,
@@ -230,6 +238,142 @@ class BinUnits(unittest.TestCase):
         status, args = run_step(["defaults|sql|OK1", "cse=false|sql|FAIL1", "isa=arm|sql|OK2|"])
         self.assertNotEqual(status, 0)
         self.assertEqual(sorted(args), [0, 1, 2], "a failing unit must not stop the others")
+
+
+# A unit that sleeps the seconds its suites name (`S<n>`), and one whose suites hold HANG
+# ignores TERM, as a JVM stuck outside Java's own handler would, so that only the KILL stops it.
+SLEEP_STUB = r"""#!/bin/bash
+out="" suites=""
+args=("$@")
+for ((i = 0; i < $#; i++)); do
+  case "${args[$i]}" in
+    --out) out="${args[$((i + 1))]}" ;;
+    --suites) suites="${args[$((i + 1))]}" ;;
+  esac
+done
+touch "$out.started"
+case "$suites" in *HANG*) trap '' TERM ;; esac
+sleep "${suites//[^0-9]/}"
+"""
+
+
+def run_watched(units, **env):
+    """Runs the step over `units` against SLEEP_STUB; returns (exit status, seconds taken, the
+    step's output, straggler.txt or None, the units started, the process groups still alive)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        (tmp / "dev").mkdir()
+        stub = tmp / "dev/varka_matrix.sh"
+        stub.write_text(SLEEP_STUB, encoding="utf-8")
+        stub.chmod(0o755)
+        out = tmp / "target/varka-units/b000"
+        (out / "b000-platform").mkdir(parents=True)
+        (out / "b000-platform/platform.txt").write_text(
+            "CPU: AMD EPYC 9V74 80-Core Processor, 4 cores\n", encoding="utf-8"
+        )
+        full = dict(STEP_ENV, UNITS="\n".join(units) + "\n")
+        full.update(env)
+        start = time.monotonic()
+        # The output is captured: a watchdog or a sleep left behind holds the pipe open, so the
+        # call returns only when every process of the step is gone.
+        done = subprocess.run(
+            ["bash", "-e", "-c", step_script()],
+            cwd=tmp,
+            env=full,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        took = time.monotonic() - start
+        marker = out / "b000-straggler/straggler.txt"
+        text = marker.read_text(encoding="utf-8") if marker.exists() else None
+        started = sorted(int(f.name.split("-u")[1].split(".")[0]) for f in out.glob("*.started"))
+        groups = {int(f.read_text()): f.name for f in out.glob("*-u*.pgid")}
+        alive = sorted(groups[g] for g in live_groups() if g in groups)
+        return done.returncode, took, done.stdout, text, started, alive
+
+
+def live_groups():
+    """The process groups with a process that is not a zombie, from /proc: a killed orphan that
+    nothing has reaped yet still answers killpg(group, 0)."""
+    found = set()
+    for stat in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = stat.read_text().rsplit(")", 1)[1].split()
+        except OSError:
+            continue
+        if fields[0] != "Z":
+            found.add(int(fields[2]))
+    return found
+
+
+class Watchdog(unittest.TestCase):
+    def test_a_bin_past_its_deadline_is_stopped_named_and_starts_nothing_more(self):
+        # Two slots, a deadline of 3 s and a grace of 1 s: the first two units outlive it, one of
+        # them deaf to TERM, and the third is never started.
+        status, took, stdout, text, started, alive = run_watched(
+            ["defaults|sql|S60", "cse=false|sql|HANG60", "w=4|catalyst|S1"],
+            PLAN_SECONDS="1",
+            DEADLINE_FLOOR="3",
+            GRACE="1",
+        )
+        self.assertEqual(status, 3, stdout)
+        self.assertLess(took, 15)
+        self.assertEqual(started, [0, 1])
+        self.assertEqual(alive, [])
+        self.assertIsNotNone(text, stdout)
+        self.assertIn("b000: planned 1 s, deadline 3 s, stopped at", text)
+        self.assertIn("CPU: AMD EPYC 9V74 80-Core Processor, 4 cores", text)
+        self.assertIn("running, stopped: defaults|sql|S60", text)
+        self.assertIn("running, stopped: cse=false|sql|HANG60", text)
+        self.assertIn("not run: w=4|catalyst|S1", text)
+        self.assertIn(
+            "::error title=Straggler::b000 ran 0 min against a plan of 0 min on"
+            " AMD EPYC 9V74 80-Core Processor, 4 cores; stopped",
+            stdout,
+        )
+
+    def test_a_finished_unit_is_listed_with_its_exit_and_seconds(self):
+        status, _, stdout, text, started, alive = run_watched(
+            ["defaults|sql|S0", "cse=false|sql|S60"],
+            PLAN_SECONDS="1",
+            DEADLINE_FLOOR="3",
+            GRACE="1",
+        )
+        self.assertEqual((status, started, alive), (3, [0, 1], []), stdout)
+        self.assertRegex(text, r"finished, exit 0 in \d+ s: defaults\|sql\|S0")
+
+    def test_a_bin_on_time_ends_with_its_units_not_at_its_deadline(self):
+        status, took, stdout, text, started, alive = run_watched(
+            ["defaults|sql|S1", "cse=false|sql|S1", "w=4|catalyst|S1"],
+            PLAN_SECONDS="1",
+            DEADLINE_FLOOR="30",
+        )
+        self.assertEqual(status, 0, stdout)
+        self.assertIsNone(text)
+        self.assertEqual((started, alive), ([0, 1, 2], []))
+        # Two rounds of 1 s units: the step waits on neither the watchdog nor its sleep, which
+        # would hold it to the 30 s deadline.
+        self.assertLess(took, 15)
+
+    def test_a_planted_straggler_runs_no_unit_and_is_stopped(self):
+        status, took, stdout, text, started, alive = run_watched(
+            ["defaults|sql|S1", "cse=false|sql|S1"],
+            PLAN_SECONDS="1",
+            DEADLINE_FLOOR="2",
+            GRACE="1",
+            PLANT="b000",
+        )
+        self.assertEqual(status, 3, stdout)
+        self.assertLess(took, 12)
+        self.assertEqual((started, alive), ([], []))
+        self.assertIn("running, stopped: planted straggler", text)
+        self.assertIn("not run: defaults|sql|S1", text)
+        self.assertIn("not run: cse=false|sql|S1", text)
+
+    def test_another_bins_plant_changes_nothing(self):
+        status, _, stdout, text, started, _ = run_watched(["defaults|sql|S0"], PLANT="b001")
+        self.assertEqual((status, text, started), (0, None, [0]), stdout)
 
 
 class SweepStep(unittest.TestCase):

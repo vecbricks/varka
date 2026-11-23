@@ -21,7 +21,8 @@
 #   1. merge origin/master (stops on a conflict: resolve by hand, commit, rerun)
 #   2. dev/varka_regen_generated.sh --all, and commit what it changed (a clean text merge can leave
 #      generated files stale: 348's push check, 22 Nov); skipped for a branch that changes no
-#      input of the generated files (below)
+#      input of the generated files (below). The width audit's probes get
+#      PRE_PR_WIDTH_AUDIT_TIMEOUT seconds each (2400; the suite's own default is 600)
 #   3. extra-gate.sh: lint-java, Error Prone, lint-scala, invariant and proof suites
 #   4. dev/varka_push_check.py (its suites and the size cap)
 #   5. the arm sweep: every test suite the branch adds or changes, under the defaults, useAVX=2,
@@ -74,6 +75,10 @@ NONCODE+='|^sql/varka/[^/]*\.tsv$|^sql/varka/matrix/[^/]*\.tsv$|^sql/varka/fuzz/
 code_files() { grep -vE "$NONCODE" | grep -vE '^$|^sql/varka/matrix/skips\.tsv$'; }
 SWEEP=${PRE_PR_SWEEP:-}
 case $SWEEP in ''|all) ;; *) echo "pre-pr: PRE_PR_SWEEP is empty or all, not $SWEEP"; exit 2;; esac
+# the width audit's probe budget in the regen (step 2), checked before anything runs
+audit_s=${PRE_PR_WIDTH_AUDIT_TIMEOUT:-2400}
+[[ $audit_s =~ ^[1-9][0-9]*$ ]] \
+  || { echo "pre-pr: PRE_PR_WIDTH_AUDIT_TIMEOUT is whole seconds, not $audit_s"; exit 2; }
 short() { echo "$*" | tr '\n' ' ' | cut -c1-200; }
 
 # why_full <commit>: why the commit needs the full gate; nothing when it may be merge-only. A merge
@@ -152,12 +157,19 @@ fi
 # stale (master's are kept current at each merge), so its regen, whose width audit alone can take
 # an hour on a laptop, is skipped (23 Nov 2026); ops_regen_inputs in common.sh says what an input
 # is.
+# The width audit's probes may take childTimeoutSeconds each, 600 s unless set. Beside a second
+# gate they ran past it (23 Nov 2026: the 30-standins, 611 and 343b2a gates); 2400 s is what
+# 103a2's regen used, and passed. JDK_JAVA_OPTIONS reaches the forked test JVM, and is set for the
+# regen alone, so extra-gate and the sweep do not inherit it.
+audit_opt=-Dvarka.widthAudit.childTimeoutSeconds=$audit_s
+regen_jopts=${JDK_JAVA_OPTIONS:+$JDK_JAVA_OPTIONS }$audit_opt
 inputs=$(ops_regen_inputs "$w")
 if [ "$DRY" = 1 ]; then
   if [ -z "$inputs" ] && [ "${PRE_PR_FORCE_REGEN:-0}" != 1 ]; then
     would "skip the regen (no input of the generated files changed) and run the census check"
   else
-    would "run dev/varka_regen_generated.sh --all and commit what it changes"
+    would "run dev/varka_regen_generated.sh --all with $audit_opt added to JDK_JAVA_OPTIONS" \
+      "and commit what it changes"
   fi
 else
   if [ -z "$inputs" ] && [ "${PRE_PR_FORCE_REGEN:-0}" != 1 ]; then
@@ -165,7 +177,8 @@ else
       "(PRE_PR_FORCE_REGEN=1 forces it)"
     python3 dev/varka_census.py --check >> "$L" 2>&1 || die "census check (see $L)"
   else
-    dev/varka_regen_generated.sh --all >> "$L" 2>&1 || die "regen (see $L)"
+    JDK_JAVA_OPTIONS=$regen_jopts dev/varka_regen_generated.sh --all >> "$L" 2>&1 \
+      || die "regen (see $L)"
   fi
   rm -f none
   if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
