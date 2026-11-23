@@ -269,6 +269,8 @@ class VarkaFilterRaiseOrderSuite extends QueryTest with VarkaMaybeThrows with Va
   }
 
   test("an error comparison allows only the JVM's messageless ArithmeticException") {
+    // The JVM drops the message under OmitStackTraceInFastThrow, which VarkaUpstreamPinsSuite
+    // pins; this test and the allowance it checks retire with that pin.
     val arith = classOf[ArithmeticException].getName
     def raised(cls: String, message: String): Raised = Raised(cls, null, Map.empty, message, cls)
     assert(difference(raised(arith, "long overflow"), raised(arith, null)).isEmpty)
