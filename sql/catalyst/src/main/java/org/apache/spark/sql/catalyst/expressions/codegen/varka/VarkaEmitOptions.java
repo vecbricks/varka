@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.lang.management.ManagementFactory;
+import java.util.Set;
 import java.util.StringJoiner;
 
 import com.sun.management.HotSpotDiagnosticMXBean;
@@ -570,6 +571,13 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        one of them that fails is recompiled and fails again until the method's trap limit, and
  *        the warm-up releases the kernel still allocating. True keeps every range check in the
  *        loop and every answer the same.
+ * @param checkedLongMultiply how a projection's ANSI or TRY {@code BIGINT} multiply whose
+ *        operands' bounds do not rule out overflow compiles ({@code VARKA-611.md} 3.2):
+ *        {@link CheckedLongMultiply#BOUND_ONLY}, the default, declines it to the row engine;
+ *        {@link CheckedLongMultiply#MAGNITUDE} builds a {@code GuardedProduct} at a named emit
+ *        level; {@link CheckedLongMultiply#BY_HOST} builds it only where the host's
+ *        measurement chose it ({@link #guardsLongProducts}). Read by the compiler, never by a
+ *        kernel: the node it builds is the shape's difference.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -632,7 +640,8 @@ public record VarkaEmitOptions(
     FloatingFault floatingFault,
     IntervalFault intervalFault,
     int maxChainDepth,
-    boolean uncountedMainLoop) {
+    boolean uncountedMainLoop,
+    CheckedLongMultiply checkedLongMultiply) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -705,6 +714,16 @@ public record VarkaEmitOptions(
    * not take are arms kept to be measured against it.
    */
   public enum WideConversionForm { SPLIT, MAGIC, XOR_SPLIT }
+
+  /**
+   * The forms of a checked {@code BIGINT} multiply the range lattice cannot bound
+   * ({@link VarkaEmitOptions#checkedLongMultiply}): {@link #BOUND_ONLY} declines it, option A of
+   * {@code VARKA-104.md} 3.3; {@link #MAGNITUDE} is option B, the double-lane magnitude
+   * pre-check, at every named level; {@link #BY_HOST} is B on x86 at the levels
+   * {@link VarkaEmitOptions#guardsLongProducts} names, and A elsewhere, Arm included, where B
+   * is unmeasured.
+   */
+  public enum CheckedLongMultiply { BOUND_ONLY, MAGNITUDE, BY_HOST }
 
   /**
    * The AVX2 forms of {@code L2F} ({@code VarkaConversionLowering}, VARKA-600), each Java's
@@ -839,6 +858,34 @@ public record VarkaEmitOptions(
     return useAVX == USE_AVX_UNKNOWN;
   }
 
+  /**
+   * The {@code UseAVX} levels at which {@link CheckedLongMultiply#BY_HOST} builds the guarded
+   * product on x86: 2, where each conversion is the {@code XOR_SPLIT} form, and 3, where it is
+   * one instruction. Provisional until the runner readings of {@code VARKA-611.md} 6 score
+   * prediction 4's rule; {@code BY_HOST} is not the default until they do.
+   */
+  public static final Set<Integer> GUARDED_PRODUCT_LEVELS = Set.of(2, 3);
+
+  /**
+   * Whether the compiler builds a {@code GuardedProduct} for a checked {@code BIGINT} multiply
+   * the range lattice cannot bound, on a host whose {@code os.arch} is x86 or not: never under
+   * {@link CheckedLongMultiply#BOUND_ONLY} or at the unknown level, whose conversions the kernel
+   * plan refuses; at every named level under {@link CheckedLongMultiply#MAGNITUDE}; and under
+   * {@link CheckedLongMultiply#BY_HOST} on x86 at {@link #GUARDED_PRODUCT_LEVELS} alone. An Arm
+   * host resolves to level 3 as an AVX512DQ one does, and runs no two-lane refusal, so it keeps
+   * the decline until B is measured there.
+   */
+  public boolean guardsLongProducts(boolean x86) {
+    if (levelUnknown()) {
+      return false;
+    }
+    return switch (checkedLongMultiply) {
+      case BOUND_ONLY -> false;
+      case MAGNITUDE -> true;
+      case BY_HOST -> x86 && GUARDED_PRODUCT_LEVELS.contains(useAVX);
+    };
+  }
+
   private static int readUseAVX() {
     try {
       HotSpotDiagnosticMXBean bean =
@@ -873,7 +920,8 @@ public record VarkaEmitOptions(
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
           false, false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
           NarrowConversionForm.ROUND_TO_ODD, false, NarrowGroupStore.MASKED, FloatingFault.NONE,
-          IntervalFault.NONE, VarkaEmitBudget.AUTO_CHAIN_DEPTH, false);
+          IntervalFault.NONE, VarkaEmitBudget.AUTO_CHAIN_DEPTH, false,
+          CheckedLongMultiply.BOUND_ONLY);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -927,6 +975,9 @@ public record VarkaEmitOptions(
     }
     if (maxChainDepth < 0) {
       throw VarkaErrors.illegalArgument("maxChainDepth must not be negative: " + maxChainDepth);
+    }
+    if (checkedLongMultiply == null) {
+      throw VarkaErrors.illegalArgument("checkedLongMultiply must not be null");
     }
     if (lanesOverride != 0 && (lanesOverride < 1 || Integer.bitCount(lanesOverride) != 1)) {
       throw VarkaErrors.illegalArgument(
@@ -1010,6 +1061,7 @@ public record VarkaEmitOptions(
       b.intervalFault = intervalFault;
       b.maxChainDepth = maxChainDepth;
       b.uncountedMainLoop = uncountedMainLoop;
+      b.checkedLongMultiply = checkedLongMultiply;
     return b;
   }
 
@@ -1076,6 +1128,7 @@ public record VarkaEmitOptions(
     private IntervalFault intervalFault;
     private int maxChainDepth;
     private boolean uncountedMainLoop;
+    private CheckedLongMultiply checkedLongMultiply;
 
     private Builder() {
     }
@@ -1385,6 +1438,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder checkedLongMultiply(CheckedLongMultiply form) {
+      this.checkedLongMultiply = form;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1402,7 +1460,8 @@ public record VarkaEmitOptions(
           decimalStore, wideConversionForm, roundToOddByShifts, narrowConversionForm,
           mathUlpContract,
           narrowGroupStore,
-          floatingFault, intervalFault, maxChainDepth, uncountedMainLoop);
+          floatingFault, intervalFault, maxChainDepth, uncountedMainLoop,
+          checkedLongMultiply);
     }
   }
 
@@ -1619,6 +1678,11 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withWideConversionForm(WideConversionForm form) {
     return toBuilder().wideConversionForm(form).build();
+  }
+
+  /** The checked {@code BIGINT} multiply's form ({@link #checkedLongMultiply}). */
+  public VarkaEmitOptions withCheckedLongMultiply(CheckedLongMultiply form) {
+    return toBuilder().checkedLongMultiply(form).build();
   }
 
   public VarkaEmitOptions withRoundToOddByShifts(boolean byShifts) {
