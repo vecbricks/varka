@@ -560,10 +560,13 @@ class Run:
         varka = VARKA_JOB.match(job["name"])
         stopped = straggler(annotations) if matrix and MATRIX_STEP.match(step) else None
         if stopped:
-            # The annotation outlives the bin's artifact, which the rerun's upload replaces.
+            # Read from the annotation, since the report downloads only the newest artifact of a
+            # name. A unit that failed before the stop is still a failure: its first artifact is
+            # kept and read too.
             ran, plan, cpu = stopped.groups()
             detail = f"stopped at {ran} min against a plan of {plan} min: a straggler"
-            self.line(job, "-", "-", "-", "slow", detail, cpu_of([f"CPU: {cpu}"]) or cpu)
+            self.line(job, "-", "-", "-", "slow", detail, cpu_of([f"CPU: {cpu}"]))
+            self.matrix_failures(job, matrix)
             return
         if matrix and MATRIX_STEP.match(step):
             self.matrix_failures(job, matrix)
@@ -914,7 +917,7 @@ class SelfTest(unittest.TestCase):
 
     def test_a_bin_the_watchdog_stopped_is_a_slow_line_with_its_cpu(self):
         # The annotation the units step prints, on the job of a run's attempt 1 that its rerun
-        # passed; the bin's artifact is not read.
+        # passed; the bin's artifact holds no failure.
         job = {
             "id": 1,
             "name": "Option matrix: b005",
@@ -934,7 +937,13 @@ class SelfTest(unittest.TestCase):
             },
         ]
         run = {"id": 7, "updated_at": "2026-11-21T11:00:00Z", "head_sha": "abcdef0123456"}
-        r = Run(None, REPO, run, "Varka option matrix")
+
+        class NoArtifacts:
+            # The bin's first artifact is looked up for units that failed before the stop.
+            def get(self, path):
+                return {"artifacts": []}
+
+        r = Run(NoArtifacts(), REPO, run, "Varka option matrix")
         r.failed_job(job, annotations, [job, rerun], {})
         r.mark_reruns([job, rerun])
         self.assertEqual(
