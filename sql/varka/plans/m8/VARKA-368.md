@@ -467,6 +467,119 @@ and expected-declines lists hold only entries with a reason, none stale; the Bui
 measured against prediction 0 and the prediction scored; and, after row 337, the hash subclass
 and `hash_suites.tsv` the same.
 
+## What was built, 20 November 2026 (368a, local)
+
+Built while the owner was away, on two stacked local branches, neither pushed:
+`varka-368-spark-cast-suites` (the harness's two options, `VarkaSuiteCheck`, `VarkaSuiteCheckSuite`)
+and `varka-368a-suite-record` cut from it (`VarkaSuiteRecord`, `VarkaSuiteArm`, the three
+subclasses, `casts_suites.tsv`, the two lists), split so each stays under the size cap.
+
+**Measured** (the laptop, AVX-512, JDK 25, each suite alone at the defaults, one run each; the
+counts are of the fixed-value checks, the random arm off):
+
+| suite | tests | checks through Varka | with a column | fused, run through the harness |
+|---|---|---|---|---|
+| `VarkaCastWithAnsiOffSuite` | 145 pass | 15858 | 934 | 173 |
+| `VarkaCastWithAnsiOnSuite` | 143 pass | 15871 | 632 | 131 |
+| `VarkaTryCastSuite` | 147 pass | 15865 | 633 | 131 |
+
+The suites' wall time beside Spark's own: about 66 s, 59 s and 59 s of "Run completed" for the
+three, against item 0.10's 52.8 s for all four unchanged suites together; the Build's (prediction
+0) is owed to the first CI run.
+
+`casts_suites.tsv` holds 874 lines, 808 distinct (form, form, mode) keys across the three suites,
+647 of them between two census types; 188 lines fused, 686 declined, none unresolved.
+
+**The one finding.** `CastWithAnsiOffSuite`'s `SPARK-36924` test casts the extremes of every
+day-time interval form to `BIGINT` with ANSI off, and the kernel declined each such batch with
+`STATUS_VALUE_RANGE` although Spark answers every row: the cast's unit division is a
+`ConstDivide`, a magic multiply exact only below `ConstDivide.EXACT_DIVIDEND_BOUND`, under a
+`GuardedRange` that sends a larger value to the row path (`VarkaTimeCompiler`'s
+`CAST(dt AS BIGINT)` arm; the `DAY` form, a `truncDivLong`, does not decline). The answer is
+right, computed slower, which 2.7 lists as an expected decline: nine lines of
+`expression_declines.tsv`. Whether the legacy form should divide exactly over the whole long
+range is a cast row's question, not this one's.
+
+**Predictions scored** (section 4):
+
+0. The Build's wall time: owed, no CI run in this window.
+1. "The four subclasses pass with no Varka finding today": **wrong in part.** The three cast
+   subclasses pass with no wrong answer and no answered raising row, but one test failed on its
+   first run, on the batch declines above, before they were listed.
+2. "The record holds fewer than item 0.5's 594 keys ... the expected-declines list is empty on
+   the first run": **both wrong.** 647 census keys, more than the probe's 594: the probe ran on
+   30 October, before rows that added forms and fusions (fused checks with a column went from
+   130 to 435 over the three suites), and its keys were approximated over all checks rather than
+   the bare casts of a lifted expression. The list holds nine lines, the interval declines.
+3. "Nothing is listed in the exclusions after the first run but read-path entries, if any":
+   **right**; nothing is listed, and no `read-path`, `lift` or `spark` finding arose.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+The owner and the lead were away; each point below takes the option the plan, `sql/varka/AGENTS.md`
+or the plan's own recommendation favours, and says why.
+
+1. **The lift's type test is `VarkaTypes.read`, not `VarkaTypes.lane`.** Item 0.4 names `lane`,
+   which answers for plain storage only and so leaves every decimal literal a literal; item 0.5
+   and section 8 count decimal forms the probe reached, so the probe lifted them. `read` answers
+   for every type a kernel reads as values, the decimal's slot included.
+2. **A check the compiler declines is recorded and not run through the harness.** Its batches
+   take the row path, which under the harness is Spark's own projection, so running it compares
+   Spark with Spark; the verdict and its reasons are what 2.4's "compile-declined" row asks for.
+   This keeps the arm's time to the fused checks (item 0.4's 1780 of 6200).
+3. **The kernel's answer is held to Spark's bit for bit, and Spark's to the suite's expected value
+   by the suite itself**, rather than calling the suite's `checkResult` a second time on the
+   kernel's: the suite's own check of Spark's answer runs first and must pass, and the harness's
+   comparison is stricter than `checkResult` (raw bits, where `checkResult` admits a `Spread`).
+   A difference the lift makes is a finding of its own kind, `lift`: Spark's interpreted answer
+   to the lifted expression on a fixture row against its answer to the suite's on its input row,
+   value or error class and message.
+4. **The error check of 2.5 item 3 compares conditions, not message parameters.** The row path's
+   error, out of `serveBatch`, is held to Spark's over the same rows by the harness (class and
+   message), to Spark's over the suite's literals by the lift check, and to the suite's own
+   expectation by its condition (`checkErrorInExpression`) or message substring
+   (`checkExceptionInExpression`). The parameters follow from the first two by transitivity.
+5. **A decline on rows Spark raises on must carry a guard's status** (`MAKE_DATE`,
+   `INT_OVERFLOW`, `VALUE_RANGE`, `DECIMAL_SLOT`, `DIVIDE_BY_ZERO`); a refusal status there is a
+   `varka` finding. A batch the evaluator sent to the row path without running a kernel
+   (`FELL_BACK`) is not, since no guard was asked. `VALUE_RANGE` cannot tell the two apart: a `GuardedRange` raises it where
+   Spark raises and also where a lowering is exact only within a bound, such as the
+   `ConstDivide` of the finding above, so a decline with it passes either way.
+6. **Spark's two projections disagreeing is a finding of kind `spark`**, failing unless
+   `expression_excluded.tsv` lists the test, rather than passing silently as 2.4's table has it:
+   a row no one compared is what the exclusions' stale rule exists to keep visible. None arose.
+7. **The record is compared or written only when every test of the suite ran to a decision and
+   the run is at the defaults.** A run of some tests (`-- -z`) reaches some forms, and comparing
+   it would fail on the rest or, under regeneration, drop them. The expected-declines and the
+   exclusions' stale rules hold at the defaults only, as the record does (2.3's last paragraph).
+8. **`expression_declines.tsv` takes the `batch` kind only in 368a.** A `compile` decline of a
+   form the matrix calls fused is the census check's (2.7 rule 1), which is 368b's; the file
+   rejects a `compile` line until then rather than parsing it and ignoring it.
+9. **The planted kernel of 3 item 2 is an ANSI int add, not a cast.** `checkIntOverflow` reaches
+   the int arithmetic nodes only (`Analysis.readsCheckIntOverflow`); no option takes a cast's
+   `GuardedRange` away, so a cast cannot be planted without its guard. The planted add runs
+   through the same `VarkaSuiteCheck.check` path, and is caught as "the kernel answered a row
+   Spark raises on".
+10. **The random arm's `minSuccessful`, the batch-outcome artifact and the nightly job are 368b's**,
+    with the census rules: 368a's trait runs the random checks through Varka under
+    `-Dvarka.suites.random=true` and records nothing from them.
+11. **The column path reads Arrow through `ArrowColumnVector`, as item 0.11 settles, and not
+    through `VarkaRowView`.** The review of part 1 pointed out that an exec node reading the Arrow
+    cache (`readsArrowCache`) reads a decimal of precision 18 or less through `VarkaRowView`'s
+    long-backed value, the exact rule, where `ArrowColumnVector`'s `BigDecimal` follows the double
+    rule; the harness builds its evaluators with `readsArrowCache=false`, whose row path is
+    `ArrowColumnVector`'s, so the harness is self-consistent. No `read-path` finding arose in the
+    three suites. Which reader the harness should model, the cache node's or the plain columnar
+    node's, is left to the owner; nothing moves today.
+
+**Open point for the owner (22 November 2026, from the pre-PR review).** The lift's 17 rows,
+the lead's "17 rows a literal", fill a full lane group only at int or wider lanes. With
+`narrowLanes` on, the default, a `TINYINT` or `SMALLINT` kernel runs 16 to 64 lanes, so at 512
+bits the suites run its epilogue alone and never its loop. The proposal is 65 rows (the widest
+group plus one) in all three places that hold the count: `VarkaSuiteCheck.LIFTED_ROWS`,
+`VarkaArrowSource.LiftedRows` and the golden suite's lift (`VarkaLiteralLiftSuite.scala:53`).
+Nothing changes until the owner decides.
+
 ## 10. Outcome
 
 (Written when the work lands.)
