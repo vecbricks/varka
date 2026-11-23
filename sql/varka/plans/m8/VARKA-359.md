@@ -1099,6 +1099,11 @@ checks passing, five cancelled on forms owed elsewhere), and the pair suite fail
 **Owed**: the harness's pair-output path (a reference over two words and a `Decimal` oracle above
 18 digits), which would turn the conformance suite's cancellation into checks; `least`'s mark.
 
+*23 November 2026, rebuilt on master after #1628 (row 348's decimal value outputs):* the long
+suite's owed entries left with #1628, which made those outputs fuse, so it lists none; the pair
+suite owes only the sums and differences (row 360), its choices, picks, negation and `abs` now
+fusing as two-word outputs. The record above describes the tree before that rebuild.
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **359b before the pair-load node.** 10.5 names the node as the next part, but its only proof is
