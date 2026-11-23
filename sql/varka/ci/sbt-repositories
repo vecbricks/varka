@@ -21,9 +21,9 @@
 # repository in order and moves on after an error, so an HTTP 429 from repo1.maven.org on a
 # module's pom falls through to the mirror, which serves the same files. A jar is fetched from the
 # repository that served its pom, so a 429 on the jar alone does not fall through. The file reaches
-# the launcher's download of sbt and Scala only: the meta-build's plugins resolve from Maven
-# Central without it, and the Spark projects' resolvers (project/SparkBuild.scala) already put the
-# mirror first.
+# the launcher's download of sbt and Scala and the BOM lookups the sbt-bom plugin makes while the
+# build loads. The meta-build's plugins resolve from Maven Central without it, and the Spark
+# projects' resolvers (project/SparkBuild.scala) already put the mirror first.
 [repositories]
   local
   maven-central

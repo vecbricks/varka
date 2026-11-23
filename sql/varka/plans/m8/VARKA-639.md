@@ -53,6 +53,7 @@ Every job of a Varka workflow (`varka-*.yml`) and every Varka job of `build_and_
 | build_and_test | varka-scoped | sbt | build- (restore, save by rule) | cs per module (same) | n/a | ok |
 | build_and_test | varka-bench | Maven | n/a | n/a | varka-bench-m2 (cache) | ok |
 | build_and_test | varka-engine and the install action | Maven | n/a | n/a | varka-engine-m2-v1 (restore, save) | ok |
+| varka-fuzz | proofs | solvers only, no sbt | - | - | - | needs none |
 | varka-fuzz | fuzz, series | sbt | build- (cache) | varka-fuzz-coursier (cache) | engine action | ok |
 | varka-mutation | shard | sbt | build- (cache) | varka-mutation-coursier (cache) | engine action | ok |
 | varka-option-matrix | build | sbt | build- (cache) | varka-option-matrix-coursier (cache) | engine action | ok |
@@ -124,6 +125,9 @@ restored `~/.sbt` is replaced. `~/.sbt/repositories` is the launcher's default
 What the file reaches, as the runs of section 9 show:
 
 * The launcher's download of sbt and Scala, the step that failed in #1625's Build.
+* The BOM lookups that the sbt-bom plugin makes while the build loads (`Resolving
+  NormalizedArtifact(...)` in the log): with Maven Central dead, these were the five lookups refused
+  at the dead URL, and they then resolved.
 * Not the meta-build's plugins. With `maven-central` replaced by a dead URL, no plugin lookup tried
   that URL, and the plugins came from repo1.maven.org. They are covered by the restored Coursier
   cache only.
@@ -139,7 +143,7 @@ source; the order here keeps Maven Central first, as asked.
 **What resolves cannot change.**
 
 * The mirror serves the same files as Maven Central. It is consulted only after Maven Central has
-  failed for a file.
+  failed for a module.
 * Every version that is resolved is pinned (section 2).
 * `sbt.override.build.repos` stays off, so no build's own resolver list is replaced.
 * The checks are unchanged. The launcher checks `sha1,md5` and Coursier checks SHA-1, each
@@ -226,9 +230,15 @@ it, its list did not). Each ran `build/sbt -batch about` from the worktree with
 | as written | `sql/varka/ci/sbt-repositories` | exit 0 in 88 s, "This is sbt 1.13.0" | repo1.maven.org | repo1.maven.org |
 | Central dead | the same, `maven-central` replaced by `http://127.0.0.1:9/maven2/` | exit 0 in 126 s, "This is sbt 1.13.0" | the Google mirror | repo1.maven.org |
 
-The second run logged five refused connections to the dead URL, all for BOM jars that the pom
-reader looks up, and none for a plugin. So the launcher parses the file, its `#` comments
+The second run logged five refused connections to the dead URL, all for BOM jars that the sbt-bom
+plugin looks up while the build loads, and none for a plugin. So the launcher parses the file, its `#` comments
 included, and falls through to the mirror when Maven Central refuses.
+
+A third run shows what a `build-` hit gives. It reused the first run's boot directory, as a restored
+`~/.sbt` holds it, with an empty Coursier cache and a repositories file whose only entry is the dead
+URL. The launcher printed no `[launcher] getting` line and started sbt 1.13.0, exit 0: with the boot
+directory in place it downloads nothing, so no repository can fail it. The Build's own logs cannot
+show this, since the Varka jobs send sbt's output to files.
 
 The workflows: PyYAML parses every changed file, and `actionlint` reports the same 62 findings
 before and after the change, none on a changed line.
