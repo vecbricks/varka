@@ -9624,7 +9624,7 @@
     "operands" : [ "Cast:dec" ],
     "switches" : [ "spark.sql.codegen.varka.family.decimalCast.enabled" ],
     "domain" : "",
-    "note" : "",
+    "note" : "the eighteen-digit twin: the unscaled long against zero, no division",
     "verified" : "differential"
   }, {
     "sql" : "CAST(d9s4 AS DECIMAL(9, 2)) < d9",

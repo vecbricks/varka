@@ -1558,6 +1558,31 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `abs(d18)` | none |  | a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `try_subtract(d9, d9s4)` | none |  | DECIMAL(12, 4), row 349's difference stored by the same path: no difference within 18 digits overflows, so TRY's null never fires | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 
+#### Decimal casts
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CAST(d9 AS BIGINT)` | `decimalCast` |  | the unscaled long divided by 10^2, truncating toward zero as Decimal.toLong does, one constant division | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(d16s9 AS BIGINT)` | `decimalCast` |  | at sixteen digits the magnitude is shifted right by 9 and divided by 5^9, and the sign put back | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(d18 AS BIGINT)` | `decimalCast` | `abs(d18) * 100 < 18014398509481984` | at (18, 2) the magnitude is guarded below 2^54 before its shift, past which the row engine divides | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(d9 AS INT)` | `decimalCast` |  | truncated, then narrowed: seven integral digits always fit an int, so no mode checks it | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(-d9 AS BIGINT)` | `decimalCast` |  | the cast of a computed value, the negation's unscaled long divided as a column's is | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(d18 AS INT)` | `decimalCast` | `d18 > -2147483649 AND d18 < 2147483648` | the low bits under the legacy mode; under ANSI and TRY the exact rule, the truncated long checked against the int range, as Spark answers a decimal of eighteen digits read from the cache | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(d9 AS SMALLINT)` | `decimalCast` | `d9 > -32769 AND d9 < 32768` | the short twin | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(d9s4 AS TINYINT)` | `decimalCast` | `d9s4 > -129 AND d9s4 < 128` | the byte twin, at scale 4 | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `try_cast(d18 AS INT)` | `decimalCast` | `abs(d18) * 100 < 18014398509481984` | the range guard's nulling mode; only the division's guard declines a batch | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)` | `decimalCast` | `abs(d18) < 10000000000` | the precision check alone, which declines under ANSI the batch Spark raises on and nulls the lane under the legacy mode and TRY, then the truncation | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)` | `decimalCast` | `abs(d9) < 100000` | a rescale up guarded before its multiply: the target's precision check moved onto the operand, so the multiply never wraps | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+
+#### Decimal cast predicates
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CAST(d9 AS BOOLEAN)` | `decimalCast` |  | the unscaled value against zero, which cannot fail | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(d18 AS BOOLEAN)` | `decimalCast` |  | the eighteen-digit twin: the unscaled long against zero, no division | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(d9s4 AS DECIMAL(9, 2)) < d9` | `predicate`, `decimalCast` |  | a rescale down by two digits, rounding half up: the half added with the value's sign, then one constant division; seven integral digits always fit, so no check | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(d16s9 AS DECIMAL(10, 2)) > d9` | `predicate`, `decimalCast` |  | a rescale down by seven digits at sixteen: the half added to the magnitude, shifted by 7 and divided by 5^7, the sign put back | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+
 #### Time arithmetic
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -1606,7 +1631,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 39 | 0 | 0 | 0 | 13 | 0 | 26 |
 | `byte` | 57 | 0 | 0 | 0 | 0 | 8 | 49 |
 | `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
-| `dec` | 100 | 1 | 42 | 12 | 0 | 0 | 45 |
+| `dec` | 108 | 1 | 50 | 12 | 0 | 0 | 45 |
 | `double` | 97 | 0 | 0 | 1 | 0 | 0 | 96 |
 | `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
