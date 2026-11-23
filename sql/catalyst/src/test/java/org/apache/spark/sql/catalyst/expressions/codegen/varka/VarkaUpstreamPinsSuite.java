@@ -76,7 +76,8 @@ public final class VarkaUpstreamPinsSuite {
 
   @Test
   @DisplayName("a hot Math.addExact overflow loses its message under OmitStackTraceInFastThrow, "
-      + "which VarkaMaybeThrows, VarkaExpressionHarness and VarkaAnsiForm accept")
+      + "which VarkaMaybeThrows, VarkaExpressionHarness, VarkaAnsiForm and "
+      + "VarkaFilterRaiseOrderSuite accept")
   void hotOverflowLosesItsMessage() {
     assumeTrue(c2DropsHotMessages(),
         "the pin holds only under C2 with OmitStackTraceInFastThrow, which this JVM does not run");
