@@ -165,12 +165,17 @@ Out of sample, bins over 600 s: share 7, part-seconds 1, alone 1; the longest bi
 and 624 s. The model: "as run" 32.0 min against the measured 32.3, 0.9 per cent under.
 
 Rebuilt on master after #1632 (23 November 2026), with the review's fix: a part-run pair whose
-share today is above the share it was measured at, past the file's 3-decimal rounding, weighs no
-less than its share. Re-run on the same inputs, every line above is reproduced except one, the
-out-of-sample part-seconds phase, 0.1 min shorter:
+share today, at the file's three decimals, is above the share it was measured at weighs no less
+than its share. Re-run on the same inputs: every step-4 and out-of-sample replay above (43642146943
+and 44485292430 on this branch's files, 43642146943 on its own pairs, 43655530012 with
+--plan-from d88234a6db6 and on this branch's files) and both step-4 plan totals reproduce, except
+one figure, the out-of-sample part-seconds phase, 0.1 min shorter:
 == 43655530012 on this branch's files, after the fix
 replanned, part-seconds    29.9 min   179 bins, the longest 625 s, 1 over 600 s
 (the replay now also prints "units with a run.log but no seconds, left out of as run: 0", from
-#1632's fixes, for both runs.) Under 43655530012's record 12 of the file's pairs have a larger
-share, 5 of them by more than a rounding error, all VarkaSparkFuzzSuite's, whose measured part
-runs exceed their share weighing, so the floor moves none of them.
+#1632's fixes.) The steps 2 and 3 replays above are #1632's and were not re-run. Under
+43655530012's record 22 pairs take the floor's branch, 8 of them are raised, by 7.3 s in all,
+none of them VarkaSparkFuzzSuite's; under 43642146943's own record none do.
+An unconditional floor, max(measured, share weighing) for every pair, was tried first: it gave
+180 bins, the longest 605 s, 1 over 600 s on 43642146943 (against 179, 585 s and 0) and the
+longest 653 s on 43655530012 (against 625 s), so only a share above the measured one takes it.

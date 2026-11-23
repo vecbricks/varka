@@ -363,8 +363,9 @@ def units(
                 if share < 1.0 and part_weight == "part-seconds" and part is not None:
                     measured, at = part
                     # A record that lets more of the suite's tests through than the one the pair
-                    # was measured under (past the file's rounding) weighs no less than its share.
-                    seconds = measured if share <= at + 0.0005 else max(measured, seconds)
+                    # was measured under, at the file's three decimals, weighs no less than its
+                    # share.
+                    seconds = measured if round(share, 3) <= at else max(measured, seconds)
                 elif share < 1.0 and name in apart:
                     # Its time follows the cases it drew, not the share of its tests that ran.
                     seconds = whole

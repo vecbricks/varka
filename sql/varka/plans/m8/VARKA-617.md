@@ -345,18 +345,19 @@ same messages as master on all three runs' artifacts.
    pull request's reach record differs. Section 7's risk 1 is answered by the share-1 rule: a
    run with no reach record never reads a part pair.
    Rechecked on 23 November 2026, after the rebuild on master: under 43655530012's reach record,
-   12 of its 558 part pairs have a larger share than the file's, by more than the file's
-   rounding, and 5 matter, all `VarkaSparkFuzzSuite`'s. The run measured them at 101, 100, 80,
-   203 and 126 s; the file gives 125, 93, 99, 87 and 126, and scaling by the shares 312, 189,
-   138, 122 and 140. The file is nearer in four of five, so a floor at the share weighing, or the
-   ratio scaling, would be worse. One pair, `floorMod7=DIV`, is under-weighed by 116 s. The
-   high review of the rebuilt branch then named the case this check could not see: a suite
-   whose time does follow its share, measured at a small share and run at a large one, as a
-   pull request's record can ask. So a pair whose share today is above the one it was measured
-   at, past the file's rounding, now weighs no less than its share (`read_part_seconds` keeps
-   the share). It moves none of the five fuzz pairs above, since each measured part run exceeds
-   its share weighing, and every replay of section 11 is reproduced but one figure, 0.1 minutes
-   (`results/VARKA-617-replay.txt`).
+   5 of the pairs whose share grew matter, all `VarkaSparkFuzzSuite`'s. The run measured them
+   at 101, 100, 80, 203 and 126 s; the file gives 125, 93, 99, 87 and 126, and scaling by the
+   ratio of shares 312, 189, 138, 122 and 140. The file is nearer in four of five, so the ratio
+   scaling stays rejected. The high review of the rebuilt branch then named the case this check
+   could not see: a suite whose time does follow its share, measured at a small share and run
+   at a large one, as a pull request's record can ask. So a pair whose share today, at the
+   file's three decimals, is above the one it was measured at now weighs no less than its share
+   (`read_part_seconds` keeps the share). Under 43655530012's record that raises 8 of 22 such
+   pairs, by 7.3 s in all, none of the fuzz pairs, since each measured part run exceeds its
+   share weighing. A floor for every pair was tried first and lost: on 43642146943 it left 1
+   bin over 600 s and the longest at 605 s, against 0 and 585 s, and on 43655530012 the longest
+   at 653 s against 625 s. The share-aware form reproduces every step-4 replay of section 11 but
+   one figure, 0.1 minutes (`results/VARKA-617-replay.txt`).
 8. **The report job is unchanged, as section 3.4 says.** So it does not yet write
    `config-suite-part-seconds.tsv` beside the other two. The file is refreshed as this row
    refreshed it, with `times --reach ... --part-runs` over a run's downloaded bin artifacts.
