@@ -3405,6 +3405,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
     assert(reasons(UnaryMinus(dt), twoLane).isEmpty)
     assert(reasons(SubtractTimestamps(ntz, ntz), twoLane).isEmpty)
+    // A product by one is its operand, whose unmeasured check is not the product's to decline.
+    assert(reasons(MultiplyDTInterval(SubtractTimestamps(ntz, ntz), Literal(1)), twoLane).isEmpty)
   }
 
   test("a two-lane admission refuses a checked bigint and a decimal boolean in one projection") {

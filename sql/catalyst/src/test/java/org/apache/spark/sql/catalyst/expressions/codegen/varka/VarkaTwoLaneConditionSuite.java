@@ -36,15 +36,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Com
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Word;
 
@@ -191,59 +186,6 @@ public final class VarkaTwoLaneConditionSuite {
     // has no conjunct left to fuse there.
     assertTrue(admit(new IsNotNull(L), true).isPresent());
     assertTrue(admit(new IsNotNull(L), false).isEmpty());
-  }
-
-  @Test
-  @DisplayName("a check on the long lane is found in a tree and left to the compiler, which "
-      + "declines the measured forms")
-  void longLaneCheck() {
-    // The checks the day-time interval, TIME and TIMESTAMP_NTZ arms build: `dt + dt2` and
-    // `t - t2` in ANSI, a TRY sum that nulls, `-dt` and `abs(dt)`, the range guard of `dt * 3`
-    // and its nulling twin, and a checked product.
-    List<VarkaVectorIR> checks = List.of(
-        new IntArith(IntOp.ADD, Overflow.FAIL, L, L2),
-        new IntArith(IntOp.SUB, Overflow.FAIL, L, L2),
-        new IntArith(IntOp.ADD, Overflow.NULL, L, L2),
-        new IntArith(IntOp.MUL, Overflow.FAIL, L, L2),
-        new IntNeg(Overflow.FAIL, L),
-        new IntNeg(Overflow.FAIL, L, true),
-        new GuardedRange(L, -1000L, 1000L),
-        new GuardedRange(L, -1000L, 1000L, Overflow.NULL),
-        // Under a wrapping product, as `dt * 3` builds it, and under a blend's branch.
-        new IntArith(IntOp.MUL, Overflow.WRAP, new GuardedRange(L, -1000L, 1000L), L2),
-        new IfElse(new Compare(CompareOp.LT, L, L2),
-            new IntArith(IntOp.ADD, Overflow.FAIL, L, L2), L2));
-    for (VarkaVectorIR root : checks) {
-      assertTrue(VarkaKernelPlan.holdsLongLaneCheck(root), root.toString());
-      // The plan admits every family's check; the compiler declines the measured day-time
-      // forms by their Spark type (VarkaIntervalCompiler.twoLaneMeasured).
-      assertTrue(admit(root, true).isEmpty(), root.toString());
-      assertTrue(admit(root, false).isEmpty(), root.toString());
-      // The plan itself never refuses for the host.
-      assertTrue(VarkaKernelPlan.of(List.of(root), VarkaMatrixRuns.BASE).refusal().isEmpty(),
-          root.toString());
-    }
-  }
-
-  @Test
-  @DisplayName("a wrapping long operation, a blend and an int-lane check are admitted on the "
-      + "two-lane host")
-  void notACheck() {
-    // A LEGACY sum and a lattice-demoted check are WRAP and make no mask; the blends make long
-    // masks and still beat the row path at two lanes (VARKA-503); an int-lane check's mask is
-    // on a species of four lanes there.
-    List<VarkaVectorIR> admitted = List.of(
-        new IntArith(IntOp.ADD, Overflow.WRAP, L, L2),
-        new IntNeg(Overflow.WRAP, L, true),
-        new IfElse(new Compare(CompareOp.LT, L, L2), L, L2),
-        new IntArith(IntOp.ADD, Overflow.FAIL, I, I2),
-        new IntNeg(Overflow.FAIL, I),
-        new GuardedRange(I, -1000L, 1000L));
-    for (VarkaVectorIR root : admitted) {
-      assertFalse(VarkaKernelPlan.holdsLongLaneCheck(root), root.toString());
-      assertTrue(admit(root, true).isEmpty(), root.toString());
-      assertTrue(admit(root, false).isEmpty(), root.toString());
-    }
   }
 
   @Test

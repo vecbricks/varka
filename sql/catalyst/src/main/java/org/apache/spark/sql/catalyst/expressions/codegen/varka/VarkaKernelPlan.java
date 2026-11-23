@@ -28,9 +28,7 @@ import java.util.Set;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -242,7 +240,7 @@ public final class VarkaKernelPlan {
   /**
    * The reason the compiler records where it declines a checked operation on a 64-bit lane on
    * the two-lane host: a checked {@code BIGINT} operation (VARKA-104) and the day-time interval
-   * arithmetic measured slower there (VARKA-612, {@link #holdsLongLaneCheck}).
+   * arithmetic measured slower there (VARKA-612, {@code VarkaIntervalCompiler.twoLaneMeasured}).
    */
   public static final String TWO_LANE_CHECK_REASON = "a checked operation on a 64-bit lane, on "
       + "an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a "
@@ -355,8 +353,8 @@ public final class VarkaKernelPlan {
    *
    * <p>A check on the long lane is not refused here: the compiler declines the families whose
    * checked forms were measured slower than the row path at two lanes, a checked {@code BIGINT}
-   * operation and the day-time interval arithmetic ({@link #holdsLongLaneCheck}, VARKA-612), so
-   * that a family not measured there keeps fusing.
+   * operation and the day-time interval arithmetic ({@code VarkaIntervalCompiler.twoLaneMeasured},
+   * VARKA-612), so that a family not measured there keeps fusing.
    */
   private static Optional<Refusal> hostRefusal(List<VarkaVectorIR> roots, VarkaKernelPlan plan) {
     if (plan.drive.bits() != 64) {
@@ -371,38 +369,6 @@ public final class VarkaKernelPlan {
       }
     }
     return Optional.empty();
-  }
-
-  /**
-   * Whether {@code node}'s tree holds a check that raises or nulls on the long lane: an
-   * {@link IntArith} or {@link IntNeg} whose mode is not {@code WRAP}, or a
-   * {@link GuardedRange} over a long value. The stored-values guard of a date column
-   * ({@code Analysis.guardsStoredValues}), which folds a min and a max rather than making a mask,
-   * is on the int lane and so is never one.
-   */
-  public static boolean holdsLongLaneCheck(VarkaVectorIR root) {
-    return holdsLongLaneCheck(root, new HashSet<>());
-  }
-
-  private static boolean holdsLongLaneCheck(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
-    boolean check = switch (node) {
-      case IntArith a -> a.mode() != Overflow.WRAP && a.laneType() == LaneType.LONG;
-      case IntNeg n -> n.mode() != Overflow.WRAP && n.laneType() == LaneType.LONG;
-      case GuardedRange g -> g.child().laneType() == LaneType.LONG;
-      default -> false;
-    };
-    if (check) {
-      return true;
-    }
-    if (!seen.add(node)) {
-      return false;
-    }
-    for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
-      if (holdsLongLaneCheck(child, seen)) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**
