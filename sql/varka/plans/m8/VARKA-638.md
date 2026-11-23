@@ -3,7 +3,10 @@
 *Moved to milestone 9 on 23 November 2026 with row 638 (`m9/SCOPE.md` item 138), and returned to
 m8 by the owner on 23 November 2026: the local gate's sweep is the throughput limit. Row 637's
 step 1, which row 638 waits on (section 7), was returned to m8 the same day, so its plan is
-`VARKA-637.md`; row 522 stays in milestone 9, so its plan is `m9/VARKA-522.md`.*
+`VARKA-637.md`; row 522 stays in milestone 9, so its plan is `m9/VARKA-522.md`. #1667, open on
+23 November, narrows the laptop's sweep to the defaults, `useAVX=2`/`useAVX=3` and the
+configurations naming a changed option; this row's sweep stays the full one, every configuration,
+and step 3 times it against the full laptop sweeps of `results/VARKA-638-sweep-sizes.txt`.*
 
 ## 1. Where this came from
 

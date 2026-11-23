@@ -67,7 +67,7 @@ touch no main code, later.
 
 The build job plans two bin lists, `first` and `rest`. `first` holds the units of the changed
 suites under every configuration without the reach record, which was `pre-pr.sh`'s arm sweep
-when this was planned.
+when this was planned (the note below).
 The changed suites are `pre-pr.sh`'s rule: every `*Suite.scala` or `*Suite.java` under
 `sql/catalyst/src/test` or `sql/core/src/test` that the diff adds or changes, plus
 `VarkaMatrixSuite` when `VarkaEmitOption`, `VarkaEmitOptions` or a `VarkaMatrix*` class changes.
@@ -75,10 +75,10 @@ The changed suites are `pre-pr.sh`'s rule: every `*Suite.scala` or `*Suite.java`
 with vecbricks/varka's master; the build job fetches that master, which is public, so no token is
 needed.
 
-*23 November 2026:* the local gate's arm sweep was narrowed that day to the defaults, `useAVX=2`
-and `useAVX=3`, and the configurations that name a changed option (`varka-gate-sweep-scope`,
-#1667). `first` keeps "the changed suites under every configuration" on CI as its own definition,
-not as "`pre-pr.sh`'s arm sweep".
+*23 November 2026:* #1667 (`varka-gate-sweep-scope`, open that day) narrows the local gate's arm
+sweep to the defaults, `useAVX=2` and `useAVX=3`, and the configurations that name a changed
+option. `first` keeps "the changed suites under every configuration" on CI as its own definition,
+not as "`pre-pr.sh`'s arm sweep", whether or not #1667 merges.
 
 `first` also holds the units of any bin that failed in the branch's last run with a failed bin,
 whatever that run's conclusion, so a run cancelled after a red bin counts (#1626's 45060620623
@@ -155,9 +155,9 @@ references do not see (reflection, resources, a class loaded by name), and a too
 a suite runs without naming it. The full matrix on master catches both. **It does not run
 today:** the weekly schedule is disabled on vecbricks/varka, and row 522, which moves it to the
 fork, is Planned. So the tiers are not built until row 522's weekly runs on the fork. A miss
-reaches the owner through `report-failure` on the fork (`m9/VARKA-522.md` 7 question 5). The issue lists the
-pull requests merged since the last green full run, each with the tier its matrix ran, so a miss
-is traced to the tier that let it through and the rule is widened.
+reaches the owner through `report-failure` on the fork (`m9/VARKA-522.md` 7 question 5). The
+issue lists the pull requests merged since the last green full run, each with the tier its matrix
+ran, so a miss is traced to the tier that let it through and the rule is widened.
 
 *22 November 2026, by the lead's settlement:* no daily full run. The tiers save at most 14.6% of
 the bin-minutes (2). The window averaged about seven matrices a day (58 in eight days), so the
