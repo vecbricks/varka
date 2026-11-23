@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.execution
 
+import scala.jdk.CollectionConverters._
+
 import org.apache.spark.sql.{DataFrame, QueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference,
@@ -108,7 +110,10 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
    * NaNs of three payloads and both signs beside each other, a zero, a value and a null, in both
    * kinds: `CAST('NaN' ...)` gives only the canonical NaN, so this is the fixture on which a pick
    * that returned the wrong one of two NaNs, or a store that quieted a payload, would show. The
-   * rows are built from their bits, which the cache keeps as they are.
+   * rows are built from their bits, which the cache keeps as they are. They are handed to Spark
+   * as a local list, never as an RDD of rows: `parallelize` ships the boxed values through Java
+   * serialization, whose `writeDouble` and `writeFloat` store `doubleToLongBits` and
+   * `floatToIntBits`, and so turn every NaN into the canonical one before Spark sees it.
    */
   private val payloads = "varka_float_payloads"
 
@@ -137,7 +142,7 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
       session.sql(sql).createOrReplaceTempView(name)
       session.catalog.cacheTable(name)
     }
-    session.createDataFrame(spark.sparkContext.parallelize(payloadRows, 1), payloadSchema)
+    session.createDataFrame(payloadRows.asJava, payloadSchema)
       .createOrReplaceTempView(payloads)
     session.catalog.cacheTable(payloads)
   }
