@@ -69,7 +69,7 @@ import org.apache.spark.sql.internal.SQLConf;
  * the plan carried to it, fused every conjunct too ({@code VarkaFilterEvaluator.predicate}).
  *
  * <p>The projections the refusal covers are checked the same way: a boolean output over a
- * decimal column (VARKA-596) and an entry holding a check on the long lane (VARKA-612), each
+ * decimal column (VARKA-596) and a checked day-time interval entry (VARKA-612), each
  * beside an entry that stays fused, so that the node and its {@code EXPLAIN} remain.
  *
  * <p>On a JVM that is not x86 the flags are ignored and nothing is refused; the session's default
@@ -255,22 +255,20 @@ public final class VarkaTwoLaneDefault128Suite {
   }
 
   @Test
-  @DisplayName("a projection holding a check on the long lane is the row path's at the default, "
-      + "for the day-time interval, TIME and TIMESTAMP_NTZ arms, a blend fused beside them")
+  @DisplayName("the day-time interval arms measured slower at two lanes are the row path's at the "
+      + "default, and the TIME and TIMESTAMP_NTZ checks, unmeasured, fuse beside them")
   void longLaneChecksDecline() {
-    // The checked day-time arms ran slower than the row path at two lanes (VARKA-612); the TIME
-    // and TIMESTAMP_NTZ arms build the same long-lane checks. The blend makes long masks too but
-    // no check, and still wins there, so it keeps the node and its EXPLAIN. Four blends stand
-    // beside the four declined arms, so the rule that leaves a projection whose residual entries
-    // outnumber its fused ones to Spark (VARKA-613) keeps this one.
+    // The checked day-time arms ran slower than the row path at two lanes (VARKA-612), so they
+    // decline; TIME's and TIMESTAMP_NTZ's long-lane checks were never measured there and keep
+    // fusing, as do the blends beside them. Four fused entries against the three declined ones
+    // keep the node under the rule that leaves a residual-heavy projection to Spark (VARKA-613).
     assumeTrue(varka != null, "not x86: the refusal does not apply");
     for (String n : List.of("", "n")) {
       String dt = "dt" + n;
-      String query = "SELECT " + dt + " + dt2 AS a, abs(" + dt + ") AS b, t" + n
-          + " + dts AS c, ntz" + n + " + dt AS e, CASE WHEN " + dt + " > dt2 THEN " + dt
-          + " ELSE dt2 END AS f, CASE WHEN " + dt + " < dt2 THEN " + dt + " ELSE dt2 END AS g, "
-          + "CASE WHEN dt2 > " + dt + " THEN dt2 ELSE " + dt + " END AS h, CASE WHEN dt2 < " + dt
-          + " THEN dt2 ELSE " + dt + " END AS i FROM two_lane_checks";
+      String query = "SELECT " + dt + " + dt2 AS a, abs(" + dt + ") AS b, " + dt + " * 3 AS c, t"
+          + n + " + dts AS e, ntz" + n + " + dt AS f, CASE WHEN " + dt + " > dt2 THEN " + dt
+          + " ELSE dt2 END AS g, CASE WHEN " + dt + " < dt2 THEN " + dt + " ELSE dt2 END AS h "
+          + "FROM two_lane_checks";
       Dataset<Row> actual = varka.sql(query);
       List<String> got = sorted(actual.collectAsList());
       SparkPlan plan = actual.queryExecution().executedPlan();
@@ -283,11 +281,11 @@ public final class VarkaTwoLaneDefault128Suite {
       PartialVarkaProjection partial = (node instanceof VarkaProjectExec p
           ? p.classification() : ((VarkaColumnarToRowExec) node).classification())
           .orElseThrow(() -> new AssertionError("no classification: " + clue));
-      assertEquals(Set.of(0, 1, 2, 3), partial.declines().keySet(), clue);
+      assertEquals(Set.of(0, 1, 2), partial.declines().keySet(), clue);
       for (VarkaDecline d : partial.declines().values()) {
         assertEquals(VarkaKernelPlan.TWO_LANE_CHECK_REASON, d.reason(), clue);
       }
-      for (int fused = 4; fused < 8; fused++) {
+      for (int fused = 3; fused < 7; fused++) {
         assertTrue(partial.specs().get(fused) instanceof VarkaOutputSpec.FusedOutput, clue);
       }
       String explained = actual.queryExecution().explainString(FormattedMode$.MODULE$);

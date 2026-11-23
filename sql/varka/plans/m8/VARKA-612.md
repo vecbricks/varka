@@ -265,14 +265,27 @@ on the `DOUBLE` lane), the month shift of a `TIMESTAMP_NTZ` (its guard is on the
 math, rounding, floating, floating-cast and boolean-output baselines. This reading is the
 prediction the owed runs of those suites score; the census file is its exhaustive form.
 
-*23 November 2026, review:* the walk also refuses shapes no baseline here times, each a
-`GuardedRange` or checked node over a `LONG` child: the ANSI and try narrowing casts of a
-`BIGINT` (`CAST(l AS INT)`), `d - d2` over dates, `CAST(d AS TIMESTAMP_NTZ)` and
-`timestampadd(MONTH, <bigint>, ntz)`. None was measured fused at two lanes, so a 128-bit
-measurement of them is owed with the baselines above, and the owner may narrow the walk to the
-measured families instead. Decision 2 below is also corrected: a `DOUBLE` division by a computed
-divisor is an `IntArith(DIV, FAIL or NULL)` on the `DOUBLE` lane, which the walk admits; it is
-kept because the committed 128-bit results read `x / y` at 1.0X to 1.1X, at parity.
+*23 November 2026, the owner's decision (8a), superseding the tree walk above:* the refusal is
+narrowed to the family measured slower at 128 bits, the checked day-time interval arithmetic:
+`VarkaIntervalCompiler.twoLaneMeasured` declines `dt + dt2`, `dt - dt2`, `abs(dt)` and `dt * k`
+where a long-lane check is left in their tree, beside master's checked `BIGINT` operation
+(VARKA-104). The kernel plan refuses no check any more; `VarkaKernelPlan.holdsLongLaneCheck` is
+the walk the compiler asks. The other long-lane checks keep fusing unmeasured: `-dt`, `TIME`'s
+and `TIMESTAMP_NTZ`'s (`t + dts`, `ntz + dt`, `ntz - ntz2`, `timestampadd`), the ANSI and try
+narrowing casts of a `BIGINT` (`CAST(l AS INT)`), `d - d2`, `CAST(d AS TIMESTAMP_NTZ)` and
+`CAST(dt AS BIGINT)`. The four baselines above keep master's classes. The census file now lists
+13 rows (it listed 46). Owed, item 9.4: their 128-bit measurement.
+
+### 9.4 Owed: the 128-bit measurement of the unmeasured long-lane checks
+
+The owner dispatches it. Each family above runs fused and on the row path at
+`-XX:MaxVectorSize=16` on an EPYC 7763 and at the default width, through its baseline class:
+`VarkaIntegralCastBaselineBenchmark` (`CAST(dt AS BIGINT)`, the ANSI and try `CAST(l AS INT)`),
+`VarkaTimestampNtzArithmeticBaselineBenchmark` (the chain, `ntz + dt`, `timestampadd(HOUR, q,
+ntz)`), `VarkaTimestampNtzBaselineBenchmark` (the arithmetic chain) and
+`VarkaTimestampNtzFieldsBaselineBenchmark` (`make_timestamp_ntz(d, tm)`, `CAST(tm AS
+TIMESTAMP_NTZ)`); `d - d2` and `-dt` have no section and get one first. A family whose fused arm
+is slower than the row path at 128 bits joins `twoLaneMeasured` in its own change.
 
 ## Decisions taken while the owner was away (20 November 2026)
 

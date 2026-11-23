@@ -3395,11 +3395,16 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for (e <- wrapping) {
       assert(reasons(e, twoLane).isEmpty, e)
     }
-    // TIMESTAMP_NTZ's checked difference (row 339) builds the same long-lane check under another
-    // type: the kernel plan's admission refuses the entry whose tree holds it (VARKA-612).
-    assert(reasons(SubtractTimestamps(ntz, ntz), twoLane) ===
-      Seq(VarkaKernelPlan.TWO_LANE_CHECK_REASON))
-    assert(reasons(SubtractTimestamps(ntz, ntz), VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
+    // The day-time interval forms the 128-bit baseline measured slower than the row path decline
+    // the same way (VARKA-612); the negation, unmeasured, and TIMESTAMP_NTZ's checked difference
+    // (row 339), which builds the same long-lane check under another type, keep fusing.
+    val measured = Seq(Add(dt, dt), Subtract(dt, dt), Abs(dt), MultiplyDTInterval(dt, Literal(3)))
+    for (e <- measured) {
+      assert(reasons(e, twoLane) === Seq(VarkaKernelPlan.TWO_LANE_CHECK_REASON), e)
+      assert(reasons(e, VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
+    }
+    assert(reasons(UnaryMinus(dt), twoLane).isEmpty)
+    assert(reasons(SubtractTimestamps(ntz, ntz), twoLane).isEmpty)
   }
 
   test("a two-lane admission refuses a checked bigint and a decimal boolean in one projection") {

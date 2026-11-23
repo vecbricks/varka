@@ -158,8 +158,8 @@ public final class VarkaExpressionCompiler {
    * decimal column is left to the row engine on a host whose 64-bit masks fall back
    * ({@link VarkaKernelPlan#admit}, VARKA-596), as the predicate leaves a filter's condition
    * there, and with it a checked {@code BIGINT} operation, whose overflow test is a 64-bit
-   * vector mask (VARKA-104, {@code DeclineSink.declinesTwoLaneChecks}), and an entry whose tree
-   * holds any other check on a 64-bit lane (VARKA-612, {@link VarkaKernelPlan#admit}).
+   * vector mask (VARKA-104, {@code DeclineSink.declinesTwoLaneChecks}), and the checked day-time
+   * interval arithmetic measured slower there (VARKA-612), through the same sink.
    */
   public static Optional<PartialVarkaProjection> compilePartial(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
@@ -582,9 +582,9 @@ public final class VarkaExpressionCompiler {
     private final VarkaEmitOptions options;
     // The session's admission settings, which every sink of the pass is built under: its
     // families off, and the one two-lane setting, which refuses a checked BIGINT operation
-    // there through the sink (VARKA-104), and a boolean output over a decimal column (VARKA-596)
-    // and an entry holding any other 64-bit-lane check (VARKA-612) through VarkaKernelPlan.admit,
-    // as the predicate's admission refuses a condition.
+    // and the measured day-time interval checks there through the sink (VARKA-104, VARKA-612),
+    // and a boolean output over a decimal column through VarkaKernelPlan.admit (VARKA-596), as
+    // the predicate's admission refuses a condition.
     private final VarkaAdmission admission;
     private final VarkaSlotTable inputs = new VarkaSlotTable();
     private final VarkaSlotTable literals = new VarkaSlotTable();
@@ -1383,9 +1383,9 @@ public final class VarkaExpressionCompiler {
    * Why {@code entry} cannot join the kernel {@code with} holds it in, or empty when it can: the
    * plan of the entry alone, then the plan of the kernel with it, whose narrow refusal says the
    * joining is what moved the kernel to the int lane. Where {@code twoLaneHost}, the entry's plan
-   * is also asked the host's refusals of a boolean output over a decimal column and of a check on
-   * a 64-bit lane ({@link VarkaKernelPlan#admit}), which no kernel of its own escapes, since the
-   * refusals read the entry's own tree.
+   * is also asked the host's refusal of a boolean output over a decimal column
+   * ({@link VarkaKernelPlan#admit}), which no kernel of its own escapes, since the refusal reads
+   * the entry's own tree.
    */
   private static Optional<Admission> admission(VarkaVectorIR entry, List<VarkaVectorIR> with,
       VarkaEmitOptions options, boolean twoLaneHost) {

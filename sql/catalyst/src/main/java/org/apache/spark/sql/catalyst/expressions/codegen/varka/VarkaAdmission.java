@@ -23,9 +23,9 @@ import java.util.Set;
  * as one value every predicate entry point and the session's projection compiles take: the
  * families switched off (VARKA-318) and whether a filter's condition in a kernel driven at a
  * 64-bit lane (one reading a column of any type on the long or the {@code DOUBLE} lane), a
- * projection's {@code BOOLEAN} output over a decimal column (VARKA-596) and a projection entry
- * holding a check on a 64-bit lane - a checked {@code BIGINT} operation (VARKA-104), and the
- * day-time interval, {@code TIME} and {@code TIMESTAMP_NTZ} checks (VARKA-612) - are
+ * projection's {@code BOOLEAN} output over a decimal column (VARKA-596) and a checked operation
+ * on a 64-bit lane the 128-bit baselines measured slower - a checked {@code BIGINT} operation
+ * (VARKA-104) and the day-time interval arithmetic (VARKA-612) - are
  * refused on an x86 host whose 64-bit species
  * have two lanes or fewer (VARKA-503, {@link VarkaKernelPlan#admit}). Neither setting is an
  * emit option - neither changes a kernel's bytes -
@@ -37,11 +37,10 @@ import java.util.Set;
  *
  * @param familiesOff the expression families switched off
  * @param declineTwoLaneConditions whether a filter's 64-bit-lane condition, a boolean output
- *        over a decimal column, and a projection entry holding a check on a 64-bit lane, whose
+ *        over a decimal column, and the measured checked operations on a 64-bit lane, whose
  *        overflow test is a long-lane mask that host does not lower either (VARKA-104,
- *        VARKA-612), are left to the row engine; the projection compile reads the checked
- *        {@code BIGINT} operation through {@code DeclineSink.declinesTwoLaneChecks}, the other
- *        checks through {@link VarkaKernelPlan#admit}
+ *        VARKA-612), are left to the row engine; the projection compile reads the checks through
+ *        {@code DeclineSink.declinesTwoLaneChecks}
  */
 public record VarkaAdmission(Set<VarkaFamily> familiesOff, boolean declineTwoLaneConditions) {
 

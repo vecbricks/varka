@@ -21,7 +21,6 @@ import java.util.List;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
-import org.apache.spark.sql.execution.VarkaSessionEmit;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
@@ -184,14 +183,8 @@ public class VarkaTimestampNtzFieldsBaselineBenchmark extends VarkaSqlBenchmarkB
         + "from range(0, " + rows + "))";
   }
 
-  /**
-   * Every section, in the order they run: each null density, then each form, with whether a
-   * session fuses them when it does or does not refuse a kernel driven at 64 bits that holds a
-   * check on the long lane at two lanes (VARKA-612): the two {@code make_timestamp_ntz} forms
-   * add the time of day to the midnight under a check.
-   */
-  static List<Section> sections(boolean declinesTwoLaneChecks) {
-    boolean checkedFuses = !declinesTwoLaneChecks;
+  /** Every section, in the order they run: each null density, then each form. */
+  static List<Section> sections() {
     List<Section> out = new ArrayList<>();
     DataType integer = DataTypes.IntegerType;
     DataType ntzType = DataTypes.TimestampNTZType;
@@ -216,10 +209,9 @@ public class VarkaTimestampNtzFieldsBaselineBenchmark extends VarkaSqlBenchmarkB
       out.add(new Section("TIMESTAMP_NTZ CAST(ntz AS TIME(3))" + density,
           "SELECT CAST(" + ntz + " AS TIME(3))" + from, new TimeType(3), one, false, true));
       out.add(new Section("TIMESTAMP_NTZ CAST(tm AS TIMESTAMP_NTZ)" + density,
-          "SELECT CAST(" + tm + " AS TIMESTAMP_NTZ)" + from, ntzType, one, true, checkedFuses));
+          "SELECT CAST(" + tm + " AS TIMESTAMP_NTZ)" + from, ntzType, one, true, true));
       out.add(new Section("TIMESTAMP_NTZ make_timestamp_ntz(d, tm)" + density,
-          "SELECT make_timestamp_ntz(" + d + ", " + tm + ")" + from, ntzType, two, false,
-          checkedFuses));
+          "SELECT make_timestamp_ntz(" + d + ", " + tm + ")" + from, ntzType, two, false, true));
     }
     return out;
   }
@@ -239,11 +231,8 @@ public class VarkaTimestampNtzFieldsBaselineBenchmark extends VarkaSqlBenchmarkB
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView(VIEW);
         VarkaArrowSessions.cache(session, VIEW);
       }
-      // A section fuses exactly when it is listed at the refusal the Varka session resolves, and
-      // a listed one runs every batch as a kernel.
-      List<Section> sections = sections(
-          VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
-      for (Section s : sections) {
+      // A section fuses exactly when it is listed, and a listed one runs every batch as a kernel.
+      for (Section s : sections()) {
         requireBaseline(varka, s.title(), s.query(), s.fuses() ? Fusion.WHOLE : Fusion.NONE);
         if (s.fuses()) {
           try {
@@ -254,7 +243,7 @@ public class VarkaTimestampNtzFieldsBaselineBenchmark extends VarkaSqlBenchmarkB
           }
         }
       }
-      for (Section s : sections) {
+      for (Section s : sections()) {
         section(s.title(), () -> {
           VarkaBenchmark benchmark = benchmark(
               s.title() + " over " + NUM_ROWS + " Arrow-cached rows", NUM_ROWS).timed().build();

@@ -19,6 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen;
 
 import java.math.BigInteger;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import org.apache.spark.sql.catalyst.expressions.Abs;
 import org.apache.spark.sql.catalyst.expressions.Add;
@@ -37,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.IntervalFault;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
@@ -214,19 +216,26 @@ public final class VarkaIntervalCompiler {
       // which raises at `Long.MIN_VALUE` whatever `failOnError` says: the checked negation
       // under the blend fires exactly there. A declined batch is re-evaluated by the row
       // engine, which raises each form's own error class.
-      case Add a when a.dataType() instanceof DayTimeIntervalType ->
-          () -> dayTimeArith(IntOp.ADD, a.left(), a.right(), a, inputs, literals, sink);
+      // The add, subtract, abs and product below are the forms measured slower than the row
+      // path on the two-lane host (VARKA-612), so there a checked one declines (twoLaneMeasured).
+      case Add a when a.dataType() instanceof DayTimeIntervalType -> () -> twoLaneMeasured(() ->
+          dayTimeArith(IntOp.ADD, a.left(), a.right(), a, inputs, literals, sink), a, literals,
+          sink);
       case Subtract s when s.dataType() instanceof DayTimeIntervalType ->
-          () -> dayTimeArith(IntOp.SUB, s.left(), s.right(), s, inputs, literals, sink);
+          () -> twoLaneMeasured(() ->
+              dayTimeArith(IntOp.SUB, s.left(), s.right(), s, inputs, literals, sink), s,
+              literals, sink);
       case UnaryMinus n when n.dataType() instanceof DayTimeIntervalType ->
           () -> dayTimeOperand(n.child(), "the negated interval", inputs, literals, sink)
               .map(x -> (VarkaVectorIR) new IntNeg(Overflow.FAIL, x));
-      case Abs n when n.dataType() instanceof DayTimeIntervalType ->
-          () -> dayTimeOperand(n.child(), "the absolute interval", inputs, literals, sink)
+      case Abs n when n.dataType() instanceof DayTimeIntervalType -> () -> twoLaneMeasured(() ->
+          dayTimeOperand(n.child(), "the absolute interval", inputs, literals, sink)
               .map(x -> (VarkaVectorIR) new IfElse(
                   new Compare(CompareOp.LT, x, sink.longSlot(0L)),
-                  new IntNeg(Overflow.FAIL, x), x));
-      case MultiplyDTInterval m -> () -> dayTimeMultiply(m, inputs, literals, sink);
+                  new IntNeg(Overflow.FAIL, x), x)), n, literals, sink);
+      case MultiplyDTInterval m ->
+          () -> twoLaneMeasured(() -> dayTimeMultiply(m, inputs, literals, sink), m, literals,
+              sink);
       // `extract(DAY FROM dt)` is `IntervalUtils.getDays`, `(int) (micros / MICROS_PER_DAY)`,
       // which `truncDivLong` is over every long; the quotient's magnitude is at most 106,751,991,
       // so the narrowing is exact (VARKA-103 2.3). `date_add`'s own offset arm reads it first.
@@ -610,6 +619,30 @@ public final class VarkaIntervalCompiler {
     return rolledBack(VarkaNodeCompiler.arithOver(
         op, Overflow.FAIL, x.get(), y.get(), whole, literals, mark, sink), literals, mark,
         sink, longMark);
+  }
+
+  /**
+   * {@code built}, or empty with {@link VarkaKernelPlan#TWO_LANE_CHECK_REASON} where its tree
+   * still holds a check on the long lane and the session refuses those on the two-lane host
+   * ({@link DeclineSink#declinesTwoLaneChecks}). Only the day-time forms the 128-bit baseline
+   * measured slower than the row path ask it, {@code dt + dt2 - dt}, {@code abs(dt)} and
+   * {@code dt * 3} (VARKA-612): the other long-lane checks, the TIME and TIMESTAMP_NTZ ones
+   * among them, keep fusing until a measurement says otherwise. A form whose check the range
+   * lattice took off wraps and stays fused.
+   */
+  private static Optional<VarkaVectorIR> twoLaneMeasured(Supplier<Optional<VarkaVectorIR>> form,
+      Expression whole, VarkaSlotTable literals, DeclineSink sink) {
+    int mark = literals.size();
+    int longMark = sink.longMark();
+    Optional<VarkaVectorIR> built = form.get();
+    if (built.isPresent() && sink.declinesTwoLaneChecks()
+        && VarkaKernelPlan.holdsLongLaneCheck(built.get())) {
+      // A declined form leaves no literal slot behind, as a declined BIGINT operation does.
+      literals.truncate(mark);
+      sink.truncateLong(longMark);
+      return sink.decline(VarkaKernelPlan.TWO_LANE_CHECK_REASON, whole);
+    }
+    return built;
   }
 
   /**

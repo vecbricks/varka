@@ -50,8 +50,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wor
 
 /**
  * The compiler's refusal of a condition in a kernel driven at a 64-bit lane, long or
- * {@code DOUBLE}, of a boolean output over a decimal column (VARKA-596), and of a projection
- * root holding a check on the long lane (VARKA-612), on an x86 host
+ * {@code DOUBLE}, and of a boolean output over a decimal column (VARKA-596), on an x86 host
  * whose 64-bit species have two lanes (VARKA-503). The host is
  * one fact, passed in here, so both answers are checked on any
  * machine. What this JVM's fact is, under flags that make it the two-lane host and a four-lane
@@ -195,8 +194,8 @@ public final class VarkaTwoLaneConditionSuite {
   }
 
   @Test
-  @DisplayName("a projection root holding a check on the long lane is refused on the two-lane "
-      + "host and admitted elsewhere")
+  @DisplayName("a check on the long lane is found in a tree and left to the compiler, which "
+      + "declines the measured forms")
   void longLaneCheck() {
     // The checks the day-time interval, TIME and TIMESTAMP_NTZ arms build: `dt + dt2` and
     // `t - t2` in ANSI, a TRY sum that nulls, `-dt` and `abs(dt)`, the range guard of `dt * 3`
@@ -215,10 +214,10 @@ public final class VarkaTwoLaneConditionSuite {
         new IfElse(new Compare(CompareOp.LT, L, L2),
             new IntArith(IntOp.ADD, Overflow.FAIL, L, L2), L2));
     for (VarkaVectorIR root : checks) {
-      Optional<Refusal> refused = admit(root, true);
-      assertTrue(refused.isPresent(), root.toString());
-      assertEquals(Kind.TWO_LANE_CHECK, refused.get().kind(), root.toString());
-      assertEquals(VarkaKernelPlan.TWO_LANE_CHECK_REASON, refused.get().reason());
+      assertTrue(VarkaKernelPlan.holdsLongLaneCheck(root), root.toString());
+      // The plan admits every family's check; the compiler declines the measured day-time
+      // forms by their Spark type (VarkaIntervalCompiler.twoLaneMeasured).
+      assertTrue(admit(root, true).isEmpty(), root.toString());
       assertTrue(admit(root, false).isEmpty(), root.toString());
       // The plan itself never refuses for the host.
       assertTrue(VarkaKernelPlan.of(List.of(root), VarkaMatrixRuns.BASE).refusal().isEmpty(),
@@ -241,6 +240,7 @@ public final class VarkaTwoLaneConditionSuite {
         new IntNeg(Overflow.FAIL, I),
         new GuardedRange(I, -1000L, 1000L));
     for (VarkaVectorIR root : admitted) {
+      assertFalse(VarkaKernelPlan.holdsLongLaneCheck(root), root.toString());
       assertTrue(admit(root, true).isEmpty(), root.toString());
       assertTrue(admit(root, false).isEmpty(), root.toString());
     }

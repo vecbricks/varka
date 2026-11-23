@@ -22,7 +22,6 @@ import java.util.Map;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
-import org.apache.spark.sql.execution.VarkaSessionEmit;
 import org.apache.spark.sql.internal.SQLConf;
 
 /**
@@ -178,12 +177,8 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
               from range(0, %d))""".formatted(rows);
   }
 
-  /**
-   * Every section, in the order they run: each null density, then each cast, with the classes a
-   * session plans them at when it does or does not refuse a kernel driven at 64 bits that holds a
-   * check on the long lane at two lanes (VARKA-612), which the day-time cast's range guard is.
-   */
-  static List<Section> sections(boolean declinesTwoLaneChecks) {
+  /** Every section, in the order they run: each null density, then each cast. */
+  static List<Section> sections() {
     List<Section> out = new ArrayList<>();
     Map<String, String> legacy = Map.of(SQLConf.ANSI_ENABLED().key(), "false");
     Map<String, String> ansi = Map.of(SQLConf.ANSI_ENABLED().key(), "true");
@@ -221,8 +216,7 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
       out.add(new Section("INT CAST(m AS INTERVAL YEAR)" + density,
           "SELECT CAST(" + m + " AS INTERVAL YEAR)" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("INTERVAL DAY TO SECOND CAST(dt AS BIGINT)" + density,
-          "SELECT CAST(" + dt + " AS BIGINT)" + from, Map.of(),
-          declinesTwoLaneChecks ? Fusion.NONE : Fusion.WHOLE));
+          "SELECT CAST(" + dt + " AS BIGINT)" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("INT CAST(i AS BIGINT), control, fuses today" + density,
           "SELECT CAST(" + i + " AS BIGINT)" + from, Map.of(), Fusion.WHOLE));
     }
@@ -243,13 +237,10 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView(VIEW);
         VarkaArrowSessions.cache(session, VIEW);
       }
-      // The classes at the refusal the Varka session resolves.
-      List<Section> sections = sections(
-          VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
-      for (Section s : sections) {
+      for (Section s : sections()) {
         withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fusion()));
       }
-      for (Section s : sections) {
+      for (Section s : sections()) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),
             () -> {
               VarkaBenchmark benchmark = benchmark(

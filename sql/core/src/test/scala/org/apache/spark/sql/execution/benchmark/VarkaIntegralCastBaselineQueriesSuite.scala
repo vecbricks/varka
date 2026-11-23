@@ -55,7 +55,7 @@ class VarkaIntegralCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
 
   private val rows = 2000
 
-  /** The result type of each cast, in the order `sections(false)` lists them for one density. */
+  /** The result type of each cast, in the order `sections()` lists them for one density. */
   private val resultTypes = Seq(ByteType, ByteType, ByteType, ByteType, ShortType, LongType,
     IntegerType, IntegerType, YearMonthIntervalType(YearMonthIntervalType.YEAR), LongType,
     LongType)
@@ -147,7 +147,7 @@ class VarkaIntegralCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
         assert(legacy.getLong(6) === 0)
       }
 
-      val sections = VarkaIntegralCastBaselineBenchmark.sections(false).asScala.toSeq
+      val sections = VarkaIntegralCastBaselineBenchmark.sections().asScala.toSeq
       assert(sections.size === 2 * resultTypes.size)
       val fused = Seq("INT CAST(i AS TINYINT), LEGACY", "INT CAST(j AS TINYINT), ANSI",
         "INT try_cast(k AS TINYINT)", "INT CAST(k AS TINYINT), LEGACY",
@@ -157,13 +157,6 @@ class VarkaIntegralCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
         "INT CAST(i AS BIGINT), control, fuses today")
       assert(sections.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE).map(_.title) ===
         Seq("no nulls", "one row in ten null").flatMap(d => fused.map(t => s"$t, $d")))
-      // Under the two-lane refusal the day-time cast's range guard, a check on the long lane,
-      // leaves it to the row path (VARKA-612); the titles and queries are the same either way.
-      val refused = VarkaIntegralCastBaselineBenchmark.sections(true).asScala.toSeq
-      assert(refused.map(s => (s.title, s.query)) === sections.map(s => (s.title, s.query)))
-      assert(refused.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE).map(_.title) ===
-        Seq("no nulls", "one row in ten null").flatMap(d => fused
-          .filterNot(_ == "INTERVAL DAY TO SECOND CAST(dt AS BIGINT)").map(t => s"$t, $d")))
       for ((s, index) <- sections.zipWithIndex) {
         withClue(s.title) {
           withSettings(s) {
@@ -207,7 +200,7 @@ class VarkaIntegralCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
         // under it.
         assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s"SELECT l FROM $view WHERE l < l_n")
           .isPresent === !declines)
-        for (s <- VarkaIntegralCastBaselineBenchmark.sections(declines).asScala) {
+        for (s <- VarkaIntegralCastBaselineBenchmark.sections().asScala) {
           withClue(s"${s.title}, refusal $declines") {
             withSettings(s) {
               val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
