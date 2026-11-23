@@ -72,8 +72,8 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * control. A session that refuses a filter's condition in a kernel driven at 64 bits
  * ({@code declinesLongConditions}, VARKA-503), the 128-bit companion's host by default, leaves
  * the filter control to the row path too, so both filters are {@code NONE} there and both arms
- * of each time the row path. The same refusal leaves a projection holding a check on the long
- * lane to the row path (VARKA-612), so the checked arithmetic {@code dt + dt2 - dt},
+ * of each time the row path. The same refusal leaves the checked day-time arithmetic measured
+ * slower there to the row path (VARKA-612), so {@code dt + dt2 - dt},
  * {@code abs(dt)} and {@code dt * 3} are {@code NONE} there too. The filter control is thus the
  * 256-bit control: its title, a label of the committed results, still says it fuses, but under
  * the refusal it is {@code NONE} and its kernel check is not made. The blend control is the one

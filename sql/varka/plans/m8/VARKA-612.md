@@ -285,7 +285,9 @@ The owner dispatches it. Each family above runs fused and on the row path at
 ntz)`), `VarkaTimestampNtzBaselineBenchmark` (the arithmetic chain) and
 `VarkaTimestampNtzFieldsBaselineBenchmark` (`make_timestamp_ntz(d, tm)`, `CAST(tm AS
 TIMESTAMP_NTZ)`); `d - d2` and `-dt` have no section and get one first. A family whose fused arm
-is slower than the row path at 128 bits joins `twoLaneMeasured` in its own change.
+is slower than the row path at 128 bits joins `twoLaneMeasured` in its own change. The same dispatch
+reruns `VarkaDayTimeIntervalBaselineBenchmark` at 128 bits: its committed file still says the three
+checked sections fuse, and under the refusal both arms time the row path.
 
 ## Decisions taken while the owner was away (20 November 2026)
 

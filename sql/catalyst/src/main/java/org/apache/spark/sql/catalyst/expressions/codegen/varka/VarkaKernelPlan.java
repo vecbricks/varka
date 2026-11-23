@@ -378,13 +378,13 @@ public final class VarkaKernelPlan {
    * {@link IntArith} or {@link IntNeg} whose mode is not {@code WRAP}, or a
    * {@link GuardedRange} over a long value. The stored-values guard of a date column
    * ({@code Analysis.guardsStoredValues}), which folds a min and a max rather than making a mask,
-   * is on the int lane and so is never one. {@code seen} holds the nodes already walked.
+   * is on the int lane and so is never one.
    */
   public static boolean holdsLongLaneCheck(VarkaVectorIR root) {
-    return holdsTwoLaneCheck(root, new HashSet<>());
+    return holdsLongLaneCheck(root, new HashSet<>());
   }
 
-  private static boolean holdsTwoLaneCheck(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
+  private static boolean holdsLongLaneCheck(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
     boolean check = switch (node) {
       case IntArith a -> a.mode() != Overflow.WRAP && a.laneType() == LaneType.LONG;
       case IntNeg n -> n.mode() != Overflow.WRAP && n.laneType() == LaneType.LONG;
@@ -398,7 +398,7 @@ public final class VarkaKernelPlan {
       return false;
     }
     for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
-      if (holdsTwoLaneCheck(child, seen)) {
+      if (holdsLongLaneCheck(child, seen)) {
         return true;
       }
     }

@@ -622,21 +622,37 @@ public final class VarkaIntervalCompiler {
   }
 
   /**
+   * Whether the node a measured day-time form builds over its operands carries a check on the long
+   * lane: the add's or subtract's own mode, the checked negation under {@code abs}'s blend, or the
+   * range guard of a product's operand. {@code (-dt) * 1}, which builds no node of its own, has
+   * none, so its operand's check is left to the negation's (unmeasured) family.
+   */
+  private static boolean ownLongCheck(VarkaVectorIR root) {
+    return switch (root) {
+      case IntArith a -> (a.mode() != Overflow.WRAP && a.laneType() == LaneType.LONG)
+          || (a.op() == IntOp.MUL && (a.left() instanceof GuardedRange g
+              && g.child().laneType() == LaneType.LONG));
+      case IfElse e -> e.thenNode() instanceof IntNeg n && n.mode() != Overflow.WRAP;
+      default -> false;
+    };
+  }
+
+  /**
    * {@code built}, or empty with {@link VarkaKernelPlan#TWO_LANE_CHECK_REASON} where its tree
    * still holds a check on the long lane and the session refuses those on the two-lane host
    * ({@link DeclineSink#declinesTwoLaneChecks}). Only the day-time forms the 128-bit baseline
    * measured slower than the row path ask it, {@code dt + dt2 - dt}, {@code abs(dt)} and
    * {@code dt * 3} (VARKA-612): the other long-lane checks, the TIME and TIMESTAMP_NTZ ones
-   * among them, keep fusing until a measurement says otherwise. A form whose check the range
-   * lattice took off wraps and stays fused.
+   * among them, keep fusing until a measurement says otherwise. Only the form's own check counts
+   * ({@link #ownLongCheck}), not one in its operands, which is that operand's family's to decline:
+   * a form whose check the range lattice took off wraps and stays fused.
    */
   private static Optional<VarkaVectorIR> twoLaneMeasured(Supplier<Optional<VarkaVectorIR>> form,
       Expression whole, VarkaSlotTable literals, DeclineSink sink) {
     int mark = literals.size();
     int longMark = sink.longMark();
     Optional<VarkaVectorIR> built = form.get();
-    if (built.isPresent() && sink.declinesTwoLaneChecks()
-        && VarkaKernelPlan.holdsLongLaneCheck(built.get())) {
+    if (built.isPresent() && sink.declinesTwoLaneChecks() && ownLongCheck(built.get())) {
       // A declined form leaves no literal slot behind, as a declined BIGINT operation does.
       literals.truncate(mark);
       sink.truncateLong(longMark);

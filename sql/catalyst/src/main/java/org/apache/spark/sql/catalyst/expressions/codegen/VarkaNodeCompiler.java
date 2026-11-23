@@ -1402,9 +1402,8 @@ final class VarkaNodeCompiler {
    * {@link VarkaKernelPlan#TWO_LANE_CHECK_REASON} where the mode still raises or nulls on
    * overflow and the session refuses those ({@link DeclineSink#declinesTwoLaneChecks}). A check
    * the lattice took off is {@code WRAP} by now, so it stays fused, as does every LEGACY form.
-   * The kernel plan's
-   * admission refuses the same check in any family's tree ({@link VarkaKernelPlan#admit}); this
-   * decline comes first so that the reason names the operation rather than the whole entry.
+   * The measured day-time interval forms decline the same way
+   * ({@code VarkaIntervalCompiler.twoLaneMeasured}, VARKA-612).
    */
   private static Optional<VarkaVectorIR> twoLaneChecked(VarkaVectorIR node, Expression whole,
       DeclineSink sink) {
