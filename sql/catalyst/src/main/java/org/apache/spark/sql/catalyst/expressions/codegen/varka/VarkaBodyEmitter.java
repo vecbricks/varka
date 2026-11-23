@@ -1715,8 +1715,9 @@ final class VarkaBodyEmitter {
    * rejects.
    */
   private static boolean wordKnownBeforeCompute(Analysis analysis, Slots s, VarkaVectorIR root) {
-    // A pair store's validity reads both words' (emitRootValidityOr), so both must be known.
-    if (root instanceof InterleaveDecimal pair
+    // Without the liveness pass a pair store's validity reads both words' (emitRootValidityOr),
+    // so both must be known.
+    if (root instanceof InterleaveDecimal pair && s.liveWordOwners == null
         && !wordKnownBeforeCompute(analysis, s, pair.hi())) {
       return false;
     }
@@ -1740,9 +1741,11 @@ final class VarkaBodyEmitter {
         cb.loadConstant(-1L);
       } else {
         loadWord(cb, s, s.wordRef.get(root));
-        // A pair store's two words are valid on the same rows, and each may own a word (a
-        // choice's blend per word): both are read, so neither is computed for nothing.
-        if (root instanceof InterleaveDecimal pair) {
+        // A pair store's two words are valid on the same rows. With the liveness pass on, the
+        // high word's own word (a choice's blend per word) is dead and never computed; without
+        // it every own word is computed, so the high one is read here too, ANDed with the low
+        // one it equals, and no word is computed for nothing (assertWordsLive).
+        if (root instanceof InterleaveDecimal pair && s.liveWordOwners == null) {
           int hi = s.wordRef.get(pair.hi());
           if (hi != s.wordRef.get(root)) {
             loadWord(cb, s, hi);

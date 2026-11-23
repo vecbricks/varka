@@ -1349,7 +1349,9 @@ final class Slots {
    * The consumers, from VARKA-70.md 2.2 plus the one that inventory missed - the null-skipping
    * pick's value substitution, which blends by the operands' words whether or not its own word is
    * wanted: <ul> <li>a value root the pass does not serve: its own word, for the per-group
-   * write;</li> <li>a node in {@link Analysis#refusals}: its own word, which
+   * write (a pair store's high word is not demanded: its validity is the low word's, and only
+   * with the pass off, when every own word is computed, does the write read both);</li>
+   * <li>a node in {@link Analysis#refusals}: its own word, which
    * {@code emitGuardCollect} ANDs with the condemning mask;</li> <li>{@code MakeDate}: its own
    * word, always - it stores it unconditionally and its guard reads it - and so, by propagation,
    * its three inputs';</li> <li>{@code Greatest}/{@code Least}, emitted at all: both operands'
@@ -1379,11 +1381,6 @@ final class Slots {
       w.walk.add(root);
       if (!(root instanceof Cond) && analysis.served[o] == null) {
         w.demand(analysis.wordOwner.get(root));
-        // A pair store's per-group write reads its high word's word too
-        // (VarkaBodyEmitter.emitRootValidityOr).
-        if (root instanceof InterleaveDecimal pair) {
-          w.demand(analysis.wordOwner.get(pair.hi()));
-        }
       }
     }
     w.run();
