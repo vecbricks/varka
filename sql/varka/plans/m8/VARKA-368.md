@@ -160,8 +160,9 @@ recorded `unresolved`. A `BoundReference` over a real input row becomes a column
 row's value at its ordinal (item 0.2's four hash checks).
 
 The fixture is `VarkaHarnessPlans.Fixture(columns, rows)` with the lifted columns, an int `rid`
-column numbering the rows, and `LiftedRows` (17) equal rows, so the kernel runs a full lane group
-and its epilogue at every width; one row would never fill a lane. `VarkaLiteralLiftSuite` holds
+column numbering the rows, and `LIFTED_ROWS` equal rows, one more than the host's byte lanes (33
+at 256 bits, 65 at 512), so every kernel runs a full lane group and its epilogue; one row would
+never fill a lane. `VarkaLiteralLiftSuite` holds
 the golden suite's lift to the same count (`VarkaLiteralLiftSuite.scala:53`).
 
 ### 2.3 Each check through the harness
@@ -604,7 +605,13 @@ the lead's "17 rows a literal", fill a full lane group only at int or wider lane
 bits the suites run its epilogue alone and never its loop. The proposal is 65 rows (the widest
 group plus one) in all three places that hold the count: `VarkaSuiteCheck.LIFTED_ROWS`,
 `VarkaArrowSource.LiftedRows` and the golden suite's lift (`VarkaLiteralLiftSuite.scala:53`).
-Nothing changes until the owner decides.
+Nothing changes until the owner decides. *Measured in 368b, 23 November 2026:* a probe planned
+every narrow cast at 512 and 256 bits under `lanesOverride` 0, 2, 4, 8 and 16; only the byte- or
+short-lane kernels (`TINYINT`, `SMALLINT` to and from `BOOLEAN`) step past 16 rows - 64 or 32
+bytes, 32 or 16 shorts - because no species above 16 lanes is baked; at 17 rows the byte
+kernels' loop never ran at either width, nor the short ones' at 512. 368b sets `VarkaSuiteCheck.LIFTED_ROWS` to the host's byte lanes
+plus one; `VarkaArrowSource.LiftedRows` and `VarkaLiteralLiftSuite` keep 17, a plan row of
+their own.
 
 ## 10. Outcome
 

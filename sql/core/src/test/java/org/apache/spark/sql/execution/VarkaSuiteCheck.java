@@ -50,6 +50,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDecline;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.FusedOutput;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.SelectionVectorOps;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFusedKernel;
@@ -77,13 +78,13 @@ public final class VarkaSuiteCheck {
   private VarkaSuiteCheck() {}
 
   /**
-   * The rows of a lifted fixture: as many as {@code VarkaArrowSource}'s lift writes, the plan's 17,
-   * so a kernel of int or wider lanes runs its loop over a full lane group at every vector width
-   * and then its epilogue, where one row would run the epilogue alone. A kernel at a narrow lane
-   * (32 short or 64 byte lanes at 512 bits) runs its epilogue alone: an open point of
-   * {@code VARKA-368.md}'s decisions, for the owner.
+   * The rows of a lifted fixture: one more than the host's byte lanes, the widest step any
+   * kernel's loop takes, so every kernel runs its loop over a full lane group and then its
+   * epilogue, where one row would run the epilogue alone. The plan's 17 fills a group only at
+   * int or wider lanes: a {@code TINYINT} kernel steps 32 rows at 256 bits and 64 at 512, since
+   * no byte species of that many lanes is baked ({@code VARKA-368.md} 2.2).
    */
-  public static final int LIFTED_ROWS = 17;
+  public static final int LIFTED_ROWS = 4 * SelectionVectorOps.intLanes() + 1;
 
   /**
    * Something a check found, by kind: {@code varka}, a wrong answer or a broken path of the
@@ -305,10 +306,8 @@ public final class VarkaSuiteCheck {
    * {@code ExpressionEvalHelper} prepares it, {@code input} the row it is evaluated on. A check
    * this test already ran, with the same expectation or as a value check, is not run again.
    * {@code record} says whether the check is a fixed-value one, whose bare cast joins the record;
-   * the random properties' are not. Nothing reads it yet, since the record is a later pull
-   * request's: today it only belongs to the dedup key, and a check whose form does not fuse is
-   * counted and skipped, its verdict not kept. A check outside any test fails at once on what it
-   * finds.
+   * the random properties' are not. A check whose form does not fuse is counted and skipped once
+   * its verdict is recorded. A check outside any test fails at once on what it finds.
    */
   public static synchronized void check(String suite, Expression prepared, InternalRow input,
       boolean record, Expect expect) {
