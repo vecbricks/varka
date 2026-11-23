@@ -232,6 +232,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [The Vector API's plain-Java fallback is a second implementation, sharing only its pre-dispatch checks](sql/varka/skills/vector-api-and-width.md#the-vector-apis-plain-java-fallback-is-a-second-implementation-sharing-only-its-pre-dispatch-checks)
 * [On AVX2 a validity word made into a lane mask costs more than a cheap kernel's own work](sql/varka/skills/vector-api-and-width.md#on-avx2-a-validity-word-made-into-a-lane-mask-costs-more-than-a-cheap-kernels-own-work)
 * [At two long lanes a decimal read loses before its compare does](sql/varka/skills/vector-api-and-width.md#at-two-long-lanes-a-decimal-read-loses-before-its-compare-does)
+* [A lane read, a lane insert and a long OR reduction lower at two long lanes on AVX2](sql/varka/skills/vector-api-and-width.md#a-lane-read-a-lane-insert-and-a-long-or-reduction-lower-at-two-long-lanes-on-avx2)
 
 #### [Working in this repository](sql/varka/skills/working-in-this-repo.md)
 * [Repo Workflow (vecbricks/varka)](sql/varka/skills/working-in-this-repo.md#repo-workflow-vecbricksvarka)
