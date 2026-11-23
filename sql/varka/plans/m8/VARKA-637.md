@@ -266,3 +266,37 @@ the bin-minutes per dispatch and the median bin wait against
 `results/VARKA-637-pr-matrix-scope.txt`. The path tiers are optional: if built, a pull request
 whose diff touches no main code runs the tier 3.2 gives it, the run says so, and every miss of
 the weekly full run is traced to its tier.
+
+## 10. Step 1 as built
+
+*23 November 2026, branch `varka-637a-first-stage`, not yet dispatched.*
+
+* `dev/varka_matrix_scope.py BASE HEAD --suites` prints the changed suites by `pre-pr.sh`'s rule
+  (`--no-renames --diff-filter=AM`, both regexes), each once. A failed `git diff` prints none.
+* `dev/varka_matrix_bins.py plan --stages two|one` prints `first` and `rest`. `units` takes a
+  `keep` test over (configuration, module, suite), so the split is made per triple before
+  packing: the last red run's bins need not match today's grouping. `first` is the changed
+  suites under every configuration, the defaults and the platforms (their bins carry
+  `reach: off`, so the bin step passes no reach file), then the failed bins' triples that
+  today's plan runs, with the record as today. `rest` is every other triple. The planner checks
+  that the lists run every triple of the one-list plan once, a changed suite's whole, and falls
+  back to one stage with a warning otherwise. A changed suite the matrix does not list is
+  dropped with a note. The bins are numbered on from `first` into `rest`, so job names
+  (`Option matrix: bNNN`), artifacts and the report's download pattern are unchanged.
+* `--ran-by` writes the reach record less the changed suites' lines, which the
+  `varka-option-matrix-reach` artifact now carries, so `times` counts their whole runs as whole.
+* `dev/varka_matrix_reuse.py failed REPOSITORY BRANCH RUN` names the branch's newest earlier
+  run with a failed or timed-out bin job, among its last 20, and those bins. The build job
+  (`permissions: contents: read, actions: read`) downloads that run's `varka-option-matrix-plan`
+  artifact (new, 30 days). Any failure there puts only the changed suites first (6 risk 3).
+* The build job fetches about a thousand commits of each side without blobs to find the merge
+  base. The two bin jobs, `first` and `rest`, share their steps through a YAML anchor and carry
+  the `if:` conditions of 3.1. The plan step's summary opens with the stage line. The `stages`
+  input defaults to `two`; the Sunday schedule, which has no inputs, runs two stages too.
+* The dry plan of `results/VARKA-637-dry-plan.txt`: #1626's head plans 20 `first` bins and 220
+  `rest` bins against 235 in one list, the `first` bins running 27 triples the reach record cut,
+  and #1659's head, which changes no suite, plans no `first` bin and the one-list plan in `rest`.
+
+Still owed for step 1's done-when (7): the two dispatches of 5, which also prove that a job's
+`if:` reads the build job's outputs before its matrix expands, the live week of 4, and the
+scores of predictions 1 to 4.

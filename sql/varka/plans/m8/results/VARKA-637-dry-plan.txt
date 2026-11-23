@@ -1,0 +1,44 @@
+# The option matrix's two stages planned for two real pull request heads, without a dispatch
+# (VARKA-637 5), on 23 November 2026, by dev/varka_matrix_bins.py plan --stages two on branch
+# varka-637a-first-stage.
+
+## Inputs
+
+* Heads: #1626 at f4ffc42ddfa (varka-611-guarded-product-r), which changes eleven suites and
+  whose branch had a failed bin; #1659 at 6b599a601d4 (varka-570-straggler-bin-rerun), which
+  changes no suite. Changed suites from dev/varka_matrix_scope.py BASE HEAD --suites, BASE the
+  merge base with vecbricks/varka's master.
+* Suites: dev/varka_matrix.sh --list-suites at each head (no build needed).
+* Configurations: the 47 the reach record of run 45158540579 covers (its "covers" lines). No
+  build was made, so the configuration list is not the run's own: the run planned 212 bins and
+  100,245 s, and this list plans 235 and 111,614 s at #1626's head. The weights are master's at
+  323733401c6.
+* Reach: run 45158540579's artifact varka-option-matrix-reach (#1626's branch, an earlier head),
+  used for both heads.
+* Failed bins: dev/varka_matrix_reuse.py failed MaxGekk/spark <branch> 99999999999 named run
+  45158540579, bin b176, for #1626, and none for #1659. That run predates the plan artifact, so
+  b176's 34 units were read from its job log's UNITS and written as an earlier plan.
+
+## Output
+
+=== #1626 (f4ffc42ddfa); changed suites: VarkaBigintArithmeticBaselineQueriesSuite,VarkaEmitCostSuite,VarkaEmitterBudgetSuite,VarkaEmitterLongLaneSuite,VarkaExpressionCompilerSuite,VarkaIrFuzzSuite,VarkaLaneTypeSuite,VarkaMatrixSuite,VarkaRangeAnalysisSuite,VarkaReproductionSuite,VarkaWithChildrenSuite
+plan rc=0
+stages: two; first: 335 units in 20 bins (changed suites VarkaBigintArithmeticBaselineQueriesSuite,VarkaEmitCostSuite,VarkaEmitterBudgetSuite,VarkaEmitterLongLaneSuite,VarkaExpressionCompilerSuite,VarkaIrFuzzSuite,VarkaLaneTypeSuite,VarkaMatrixSuite,VarkaRangeAnalysisSuite,VarkaReproductionSuite,VarkaWithChildrenSuite; failed bins b176 of run 45158540579); rest: 3024 units in 220 bins
+240 bins, the longest 494 s, 112797 s in all
+  today's one list: 235 bins, 9596 (configuration, module, suite) triples, 111614 s
+  first: 20 bins (19 without the reach), 590 triples, 8618 s
+  rest:  220 bins, 9033 triples, 104179 s
+  no triple in both lists: True; every triple of today's list runs: True
+  today's other triples == first's failed + rest: True
+  triples first adds that the reach cut from today: 27
+
+=== #1659 (6b599a601d4); changed suites: 
+plan rc=0
+stages: two; first: none; rest: 3206 units in 234 bins
+234 bins, the longest 494 s, 110824 s in all
+  today's one list: 234 bins, 9392 (configuration, module, suite) triples, 110824 s
+  first: 0 bins (0 without the reach), 0 triples, 0 s
+  rest:  234 bins, 9392 triples, 110824 s
+  no triple in both lists: True; every triple of today's list runs: True
+  today's other triples == first's failed + rest: True
+  triples first adds that the reach cut from today: 0

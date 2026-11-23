@@ -51,17 +51,26 @@ by paging through a Build's several dozen on every 30 s poll, and the reach arti
 read at all while a sql job still runs. Job listings read every page: a run of Spark's module
 matrix lists more jobs than one page holds.
 
+`failed REPOSITORY BRANCH RUN` serves the option matrix's own first stage (VARKA-637 3.1): it
+prints `failed_run=<id>` and `failed_bins=b003,b017` for the branch's newest matrix run before RUN
+that has a failed bin job, or both empty, and the workflow takes those bins' units from that
+run's `varka-option-matrix-plan` artifact. An API failure prints both empty: the run then puts
+only its changed suites first.
+
   dev/varka_matrix_reuse.py REPOSITORY SHA [--wait MINUTES]    # in a step, with GH_TOKEN set
   dev/varka_matrix_reuse.py reach REPOSITORY RUN [--wait MINUTES]
+  dev/varka_matrix_reuse.py failed REPOSITORY BRANCH RUN
   dev/varka_matrix_reuse.py --selftest
 """
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import time
 import unittest
+from urllib.parse import quote
 
 ARTIFACT = "varka-option-matrix-build"
 WORKFLOW = ".github/workflows/build_main.yml"
@@ -293,6 +302,35 @@ def reach(repository, run, wait_minutes, sleep=time.sleep, now=time.monotonic):
         if state != "running" or now() >= deadline:
             return state
         sleep(30)
+
+
+# The option matrix's own runs, for its first stage (VARKA-637 3.1): the bins that failed in the
+# branch's last run with a failed bin, whose units the next run puts first, are read from that
+# run's jobs here and from its plan artifact by the workflow.
+MATRIX_WORKFLOW = "varka-option-matrix.yml"
+BIN_JOB = re.compile(r"Option matrix: (b\d{3})")
+FAILED = ("failure", "timed_out")
+# The branch's runs looked through, newest first: one page.
+LOOK_BACK = 20
+
+
+def last_failed(repository, branch, run):
+    """(run id, its failed bins) for the branch's newest matrix run before `run` that has a
+    failed bin, whatever the run's own conclusion, so a run cancelled after a red bin counts; or
+    (None, []) when none of its last `LOOK_BACK` runs has one. Run ids grow with time, so the
+    runs from `run` on, this one among them, are passed over."""
+    path = f"repos/{repository}/actions/workflows/{MATRIX_WORKFLOW}/runs"
+    runs = gh(f"{path}?branch={quote(branch, safe='')}&per_page={LOOK_BACK}")["workflow_runs"]
+    for earlier in sorted((r["id"] for r in runs if r["id"] < int(run)), reverse=True):
+        jobs = gh_all(f"repos/{repository}/actions/runs/{earlier}/jobs", "jobs")
+        bins = sorted(
+            m.group(1)
+            for j in jobs
+            if j.get("conclusion") in FAILED and (m := BIN_JOB.fullmatch(j.get("name", "")))
+        )
+        if bins:
+            return earlier, bins
+    return None, []
 
 
 class SelfTest(unittest.TestCase):
@@ -584,6 +622,36 @@ class SelfTest(unittest.TestCase):
         )
         self.assertEqual(got, ("complete", 0.0))
 
+    def test_the_last_failed_bins_come_from_the_newest_earlier_run_with_one(self):
+        def bin_job(name, conclusion):
+            return {"name": f"Option matrix: {name}", "conclusion": conclusion}
+
+        # Run 30 is this one and 40 came after it; 20 is green, 10 was cancelled after a red bin.
+        jobs = {
+            40: [bin_job("b001", "failure")],
+            30: [bin_job("b002", "failure")],
+            20: [bin_job("b003", "success"), {"name": "Option matrix: report"}],
+            10: [bin_job(f"b{i:03d}", "cancelled") for i in range(PAGE)]
+            + [bin_job("b104", "timed_out"), bin_job("b101", "failure")],
+        }
+        asked = []
+
+        def api(path):
+            asked.append(path)
+            if "/workflows/" in path:
+                return {"workflow_runs": [{"id": i} for i in jobs]}
+            run = int(path.split("/runs/")[1].split("/")[0])
+            page = int(path.rsplit("page=", 1)[1])
+            return {"jobs": jobs[run][(page - 1) * PAGE : page * PAGE]}
+
+        got, _ = self.run_with(api, lambda sleep, now: last_failed("o/r", "a/b", 30))
+        self.assertEqual(got, (10, ["b101", "b104"]))
+        self.assertIn("branch=a%2Fb", asked[0])
+        self.assertFalse(any("/runs/40/" in a or "/runs/30/" in a for a in asked))
+        jobs[10] = []
+        got, _ = self.run_with(api, lambda sleep, now: last_failed("o/r", "a/b", 30))
+        self.assertEqual(got, (None, []))
+
     def test_reach_retries_a_failed_poll_and_gives_up_after_three(self):
         done = {"name": "Run / Varka suites: sql 1 of 3", "status": "completed"}
         done["conclusion"] = "success"
@@ -611,6 +679,24 @@ class SelfTest(unittest.TestCase):
 
 
 def main(argv):
+    if argv[:1] == ["failed"]:
+        parser = argparse.ArgumentParser(prog="varka_matrix_reuse.py failed")
+        parser.add_argument("repository")
+        parser.add_argument("branch")
+        parser.add_argument("run", help="this run's id")
+        args = parser.parse_args(argv[1:])
+        run, bins = None, []
+        for attempt in range(RETRIES + 1):
+            try:
+                run, bins = last_failed(args.repository, args.branch, args.run)
+                break
+            except TRANSIENT as e:
+                print(f"no failed run read ({e!r}), attempt {attempt + 1}", file=sys.stderr)
+                time.sleep(RETRY_SECONDS if attempt < RETRIES else 0)
+        print(f"last run with a failed bin: {run or 'none'} {','.join(bins)}", file=sys.stderr)
+        print(f"failed_run={run or ''}")
+        print(f"failed_bins={','.join(bins)}")
+        return 0
     if argv[:1] == ["reach"]:
         parser = argparse.ArgumentParser(prog="varka_matrix_reuse.py reach")
         parser.add_argument("repository")

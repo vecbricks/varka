@@ -67,9 +67,11 @@ exit 0
 
 
 def step_script():
-    """The `run:` text of the bin step."""
+    """The `run:` text of the bin step, which both stages' jobs run (VARKA-637)."""
     doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    for step in doc["jobs"]["bins"]["steps"]:
+    if doc["jobs"]["first"]["steps"] != doc["jobs"]["rest"]["steps"]:
+        raise SystemExit(f"the two stages' bin jobs of {WORKFLOW} run different steps")
+    for step in doc["jobs"]["rest"]["steps"]:
         if step.get("name") == STEP:
             return step["run"]
     raise SystemExit(f"no step named {STEP!r} in {WORKFLOW}")
@@ -134,7 +136,7 @@ def run_sweep_step(suite, exit_status=0):
         return done.returncode, args
 
 
-def run_step(units, reach=True, store=True):
+def run_step(units, reach=True, store=True, bin_reach=""):
     """Runs the step over `units` (one line each); returns (exit status, {unit k: [arguments]})."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -152,6 +154,7 @@ def run_step(units, reach=True, store=True):
             "PATH": os.environ["PATH"],
             "UNITS": "\n".join(units) + "\n",
             "BIN": "b000",
+            "REACH": bin_reach,
         }
         done = subprocess.run(
             ["bash", "-e", "-c", step_script()],
@@ -194,6 +197,12 @@ class BinUnits(unittest.TestCase):
         self.assertNotIn("--platform", a)
         self.assertTrue(any(x.startswith("-Dvarka.matrix.reachFile=") for x in a), a)
         self.assertTrue(any(x.startswith("-Dvarka.harness.store=") for x in a), a)
+
+    def test_a_first_stage_bin_of_changed_suites_runs_without_the_reach(self):
+        status, args = run_step(["cse=false|catalyst|C"], bin_reach="off")
+        self.assertEqual(status, 0)
+        self.assertFalse(any("reachFile" in x for x in args[0]), args)
+        self.assertTrue(any(x.startswith("-Dvarka.harness.store=") for x in args[0]), args)
 
     def test_an_option_configuration_without_the_files_passes_neither(self):
         _, args = run_step(["cse=false|catalyst|C"], reach=False, store=False)
