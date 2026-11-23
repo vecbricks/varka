@@ -1,0 +1,226 @@
+BIGINT CAST(l AS FLOAT), no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
+BIGINT CAST(l AS DOUBLE), no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
+INT CAST(i AS DOUBLE), no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
+DOUBLE CAST(x AS FLOAT), no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
+DOUBLE filter coalesce(CAST(x AS BOOLEAN), false), no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
+BIGINT CAST(l AS FLOAT), one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
+BIGINT CAST(l AS DOUBLE), one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
+INT CAST(i AS DOUBLE), one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
+DOUBLE CAST(x AS FLOAT), one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
+DOUBLE filter coalesce(CAST(x AS BOOLEAN), false), one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
+================================================================================================
+BIGINT CAST(l AS FLOAT), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+BIGINT CAST(l AS FLOAT), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                   92            102           3         21.8          45.8       1.0X
+varka on                                                                     28             33           6         70.6          14.2       3.2X
+
+
+================================================================================================
+BIGINT CAST(l AS DOUBLE), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+BIGINT CAST(l AS DOUBLE), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                    87             88           1         23.0          43.4       1.0X
+varka on                                                                      21             26           4         96.2          10.4       4.2X
+
+
+================================================================================================
+INT CAST(i AS DOUBLE), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+INT CAST(i AS DOUBLE), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                 88             89           1         22.8          43.9       1.0X
+varka on                                                                   21             24           4         95.4          10.5       4.2X
+
+
+================================================================================================
+DOUBLE CAST(w AS INT), LEGACY, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE CAST(w AS INT), LEGACY, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                         88             89           1         22.7          44.1       1.0X
+varka on                                                                           88             89           1         22.7          44.0       1.0X
+
+
+================================================================================================
+DOUBLE CAST(x AS INT), ANSI, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE CAST(x AS INT), ANSI, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                       89             90           1         22.5          44.4       1.0X
+varka on                                                                         89             90           0         22.4          44.7       1.0X
+
+
+================================================================================================
+DOUBLE try_cast(w AS BIGINT), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE try_cast(w AS BIGINT), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                       256            258           2          7.8         128.0       1.0X
+varka on                                                                         257            258           1          7.8         128.3       1.0X
+
+
+================================================================================================
+DOUBLE CAST(x AS FLOAT), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE CAST(x AS FLOAT), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                   87             88           1         23.1          43.3       1.0X
+varka on                                                                     17             20           3        115.0           8.7       5.0X
+
+
+================================================================================================
+DOUBLE filter coalesce(CAST(x AS BOOLEAN), false), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE filter coalesce(CAST(x AS BOOLEAN), false), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                             82             84           1         24.3          41.2       1.0X
+varka on                                                                                               38             41           2         52.1          19.2       2.1X
+
+
+================================================================================================
+DOUBLE time_from_seconds(s), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE time_from_seconds(s), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                       88            101           7         22.6          44.2       1.0X
+varka on                                                                        104            105           1         19.3          51.9       0.9X
+
+
+================================================================================================
+BIGINT CAST(l AS FLOAT), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+BIGINT CAST(l AS FLOAT), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                              89             90           1         22.5          44.4       1.0X
+varka on                                                                                16             18           2        127.5           7.8       5.7X
+
+
+================================================================================================
+BIGINT CAST(l AS DOUBLE), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+BIGINT CAST(l AS DOUBLE), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                               86             87           0         23.2          43.0       1.0X
+varka on                                                                                 16             18           2        128.2           7.8       5.5X
+
+
+================================================================================================
+INT CAST(i AS DOUBLE), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+INT CAST(i AS DOUBLE), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                            85             86           1         23.6          42.4       1.0X
+varka on                                                                              15             16           2        136.5           7.3       5.8X
+
+
+================================================================================================
+DOUBLE CAST(w AS INT), LEGACY, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE CAST(w AS INT), LEGACY, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                    86             87           1         23.3          42.8       1.0X
+varka on                                                                                      86             87           1         23.2          43.0       1.0X
+
+
+================================================================================================
+DOUBLE CAST(x AS INT), ANSI, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE CAST(x AS INT), ANSI, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                  84             85           1         23.9          41.8       1.0X
+varka on                                                                                    84             85           1         23.8          42.1       1.0X
+
+
+================================================================================================
+DOUBLE try_cast(w AS BIGINT), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE try_cast(w AS BIGINT), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                  259            261           2          7.7         129.6       1.0X
+varka on                                                                                    260            261           2          7.7         130.1       1.0X
+
+
+================================================================================================
+DOUBLE CAST(x AS FLOAT), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE CAST(x AS FLOAT), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                              85             86           0         23.5          42.5       1.0X
+varka on                                                                                15             16           2        137.2           7.3       5.8X
+
+
+================================================================================================
+DOUBLE filter coalesce(CAST(x AS BOOLEAN), false), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE filter coalesce(CAST(x AS BOOLEAN), false), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                                        76             77           1         26.2          38.2       1.0X
+varka on                                                                                                          35             36           1         57.8          17.3       2.2X
+
+
+================================================================================================
+DOUBLE time_from_seconds(s), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1017-azure
+Unknown processor
+DOUBLE time_from_seconds(s), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                  85             86           1         23.6          42.4       1.0X
+varka on                                                                                    85             86           0         23.5          42.5       1.0X
+
+
