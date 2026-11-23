@@ -291,7 +291,7 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
 | `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
 | `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 82 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 9 | plumbing 12, semantics 43 | 3 | 85: 60 to precision 18, 25 at precision 19 to 38 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 26 | plumbing 3, semantics 35 | 3 | 93: 68 to precision 18, 25 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
 | `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
@@ -304,9 +304,9 @@ One row per section of Spark's function registry, and per family of the operator
 
 | Family | Entries | Every type | Some type | In part | Types owed | Rows |
 | :--- | ---: | ---: | ---: | ---: | :--- | :--- |
-| conditional | 11 | 1 | 11 | 1 | float, dec | 329, 331, 338, 341, 348, 359 |
+| conditional | 11 | 1 | 11 | 10 | float, dec | 329, 331, 338, 341, 348, 359 |
 | predicate | 16 | 6 | 15 | 8 | bool, dec | 27, 329, 331, 336, 338, 341, 347, 348, 359, 497 |
-| math | 59 | 17 | 33 | 0 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
+| math | 59 | 17 | 33 | 8 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
 | bitwise | 13 | 13 | 13 | 0 |  |  |
 | datetime | 41 | 27 | 36 | 0 | byte, short, int, bigint, float, double, dec, ntz, time, ym, dt | 103, 329, 339, 340, 343, 351 |
 | hash | 2 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 337, 359, 368 |
