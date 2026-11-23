@@ -110,7 +110,8 @@ Cache keys:
 ### 3.2 The mirror
 
 `sql/varka/ci/sbt-repositories` holds the launcher's default list, copied from
-`sbt-launch-1.13.0.jar`, with one line added first, before `maven-central`:
+`sbt-launch-1.13.0.jar`, with one line added first among the remote repositories, after `local` and before
+`maven-central`:
 
 ```
 gcs-maven-central-mirror: https://maven-central.storage-download.googleapis.com/maven2/
@@ -174,7 +175,8 @@ has served its pom, and the owner chose the mirror first.
   * The Varka poms have no parent and no repositories, so they resolve from Maven Central alone.
     But each such job restores `~/.m2`, and the engine install retries a failed resolution.
   * A repository in a pom would change every `**/pom.xml` hash and start every cache cold.
-  * A `settings.xml` profile puts its repositories before Maven Central, not after.
+  * A `settings.xml` profile would put the mirror before Maven Central, which is now the order
+    the launcher uses too; the reason left is scope: no Varka Maven build has failed on a 429.
 
   This is left for a row of its own, if a 429 ever fails one of these jobs.
 
@@ -225,8 +227,8 @@ One commit: the file, the steps, and this record.
 Built as designed in 3.1 and 3.2, except that 3.2's reach was corrected after the runs below:
 the plan said the file also reached the meta-build's plugins, and it does not.
 
-Local runs on the laptop, 22 November 2026, at `d17e3b51475` (the file's comments changed after
-it, its list did not). Each ran `build/sbt -batch about` from the worktree with
+Local runs on the laptop, 22 November 2026, at `d17e3b51475`, on the first order, Maven Central
+before the mirror; 9.1 has the same runs on the current list. Each ran `build/sbt -batch about` from the worktree with
 `-Dsbt.repository.config=<file>` and a scratch `sbt.boot.directory`, `sbt.global.base`,
 `sbt.ivy.home` and `COURSIER_CACHE`, so nothing came from the laptop's own caches and
 `~/.sbt/repositories` was never written.
@@ -264,6 +266,10 @@ runs, repeated on the new list with fresh scratch folders:
 Each dead-URL run logged five refused connections, all for the sbt-bom plugin's BOM lookups, which
 then resolved from the next entry. The plugins came from repo1.maven.org in every run, as 3.2
 says.
+
+The second review (at `cb6378e8c02`) found that a mutation or tier-split dispatch on a ref older
+than this change has no `sql/varka/ci/sbt-repositories`, since both check out the dispatch's ref;
+the copy step now skips when the file is missing.
 
 Left for the row: the first Build after the merge, whose assembly gate should restore both
 entries.
