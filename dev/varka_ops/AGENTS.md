@@ -14,6 +14,10 @@ These add to `sql/varka/AGENTS.md`. The tools are listed in `INDEX.md` and the f
 - **One gate at a time.** The width audit's 600 s probes time out beside another gate, so leave
   `PRE_PR_SLOTS` at 1, and use `PRE_PR_EXCLUSIVE=1` for a gate that must run alone. A light
   gate (no generated-file input, no suite) starts at once; do not force it through the queue.
+- **The sweep's scope is mechanical.** The gate sweeps the defaults, `useAVX=2`, `useAVX=3` and
+  the options the branch's diff names, and skips the sweep after a merge-only change
+  (`README.md`). Widen it with `PRE_PR_SWEEP=all` or `PRE_PR_FULL=1`; never narrow it by hand.
+  `PRE_PR_DRY=1` shows what a gate would do.
 - **The regen skip is mechanical.** It applies only when every changed file is tooling, CI,
   plans, benchmarks or prose (`README.md`); do not skip a regeneration by hand.
 - **Kill only recorded PIDs.** Never `pkill` or `killall`; `start-waiter.sh` keeps the pid.
