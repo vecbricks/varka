@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 import java.util.function.LongFunction;
 import java.util.stream.LongStream;
 
@@ -1034,18 +1035,28 @@ public abstract class VarkaTypeConformance {
     return false;
   }
 
+  /**
+   * A stub for the answer the checks hold the reference to, given a row's values and Spark's
+   * answer, or null for Spark's own. A planted-fault test sets one that answers wrong, which
+   * every check must then fail on (VARKA-504, {@code VarkaConformancePlantSuite}).
+   */
+  BiFunction<long[], VarkaKernelChecks.Answer, VarkaKernelChecks.Answer> plantedAnswer;
+
   /** Spark's answers for one batch, as {@link VarkaKernelChecks} reads them. */
   private SparkAnswers answers(VarkaSparkOracle oracle) {
     return new SparkAnswers() {
       @Override
       public VarkaKernelChecks.Answer answer(int output, long[] values, boolean[] isNull) {
         VarkaSparkOracle.Answer a = spark(oracle, output, values, isNull);
+        VarkaKernelChecks.Answer answer;
         if (a instanceof VarkaSparkOracle.Value v) {
-          return new VarkaKernelChecks.Answer.Value(v.v());
+          answer = new VarkaKernelChecks.Answer.Value(v.v());
         } else if (a instanceof VarkaSparkOracle.Raised r) {
-          return new VarkaKernelChecks.Answer.Raised(r.e());
+          answer = new VarkaKernelChecks.Answer.Raised(r.e());
+        } else {
+          answer = new VarkaKernelChecks.Answer.Null();
         }
-        return new VarkaKernelChecks.Answer.Null();
+        return plantedAnswer == null ? answer : plantedAnswer.apply(values, answer);
       }
 
       @Override
