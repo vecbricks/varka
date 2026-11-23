@@ -108,14 +108,14 @@ def gh(path):
     return json.loads(out.stdout)
 
 
-def gh_all(path, key):
-    """Every item of a listing under `key`, read 100 to a page until a page comes back short."""
+def gh_all(path, key, size=PAGE):
+    """Every item of a listing under `key`, read `size` to a page until a page comes back short."""
     items, page = [], 1
     sep = "&" if "?" in path else "?"
     while True:
-        got = gh(f"{path}{sep}per_page={PAGE}&page={page}")[key]
+        got = gh(f"{path}{sep}per_page={size}&page={page}")[key]
         items.extend(got)
-        if len(got) < PAGE:
+        if len(got) < size:
             return items
         page += 1
 
@@ -312,6 +312,9 @@ BIN_JOB = re.compile(r"Option matrix: (b\d{3})")
 FAILED = ("failure", "timed_out")
 # The branch's runs looked through, newest first: one page.
 LOOK_BACK = 20
+# A matrix run's jobs come 50 to a page: a page of 100 of them, steps and all, has answered 502
+# three times running (dev/varka_matrix_stragglers.py reads them 50 to a page too).
+JOB_PAGE = 50
 
 
 def last_failed(repository, branch, run):
@@ -322,7 +325,7 @@ def last_failed(repository, branch, run):
     path = f"repos/{repository}/actions/workflows/{MATRIX_WORKFLOW}/runs"
     runs = gh(f"{path}?branch={quote(branch, safe='')}&per_page={LOOK_BACK}")["workflow_runs"]
     for earlier in sorted((r["id"] for r in runs if r["id"] < int(run)), reverse=True):
-        jobs = gh_all(f"repos/{repository}/actions/runs/{earlier}/jobs", "jobs")
+        jobs = gh_all(f"repos/{repository}/actions/runs/{earlier}/jobs", "jobs", JOB_PAGE)
         bins = sorted(
             m.group(1)
             for j in jobs
@@ -631,7 +634,7 @@ class SelfTest(unittest.TestCase):
             40: [bin_job("b001", "failure")],
             30: [bin_job("b002", "failure")],
             20: [bin_job("b003", "success"), {"name": "Option matrix: report"}],
-            10: [bin_job(f"b{i:03d}", "cancelled") for i in range(PAGE)]
+            10: [bin_job(f"b{i:03d}", "cancelled") for i in range(JOB_PAGE)]
             + [bin_job("b104", "timed_out"), bin_job("b101", "failure")],
         }
         asked = []
@@ -642,7 +645,8 @@ class SelfTest(unittest.TestCase):
                 return {"workflow_runs": [{"id": i} for i in jobs]}
             run = int(path.split("/runs/")[1].split("/")[0])
             page = int(path.rsplit("page=", 1)[1])
-            return {"jobs": jobs[run][(page - 1) * PAGE : page * PAGE]}
+            self.assertIn(f"per_page={JOB_PAGE}&", path)
+            return {"jobs": jobs[run][(page - 1) * JOB_PAGE : page * JOB_PAGE]}
 
         got, _ = self.run_with(api, lambda sleep, now: last_failed("o/r", "a/b", 30))
         self.assertEqual(got, (10, ["b101", "b104"]))

@@ -2263,6 +2263,44 @@ def replay_main(args):
     return 0
 
 
+def stage_main(args, planned):
+    """`plan --stages`: the two lists, the reach record they ran by, and the summary's line,
+    which goes first, before any note. A changed suite or an earlier plan that cannot be read
+    moves nothing into `first`, so the run still runs everything in `rest`."""
+    notes = []
+    listed = {name for _, names in planned["suites"] for name, _ in names}
+    changed = set()
+    if args.changed_suites and Path(args.changed_suites).is_file():
+        changed = set(read_names(args.changed_suites))
+    if changed - listed:
+        notes.append(
+            f"changed suites the matrix does not run: {','.join(sorted(changed - listed))}"
+        )
+    changed &= listed
+    bins = [b for b in args.failed_bins.split(",") if b]
+    failed = set()
+    if bins and args.failed_plan:
+        try:
+            failed = failed_triples(json.loads(Path(args.failed_plan).read_text("utf-8")), bins)
+        except (OSError, ValueError, AttributeError, KeyError, TypeError) as e:
+            notes.append(f"the failed run's plan is not readable, so no unit of it runs first: {e}")
+    elif bins:
+        notes.append("the failed run left no plan, so no unit of it runs first")
+    staged = stage_plan(changed, failed, args.stages, notes, **planned)
+    if not staged["first"]:
+        # One stage, asked for or fallen back to: nothing ran first, and nothing ran whole.
+        changed, failed = set(), set()
+    if not failed:
+        bins = []
+    print(stage_line(args.stages, staged, changed, bins, args.failed_run), file=sys.stderr)
+    for note in notes:
+        print(note, file=sys.stderr)
+    if args.ran_by and args.reach and Path(args.reach).is_file():
+        lines = Path(args.reach).read_text(encoding="utf-8").splitlines()
+        Path(args.ran_by).write_text("\n".join(ran_by(lines, changed)) + "\n", encoding="utf-8")
+    return dict(staged, stages=args.stages, changed=sorted(changed), failed_bins=bins)
+
+
 def main(argv):
     if argv[:1] == ["--selftest"]:
         result = unittest.main(argv=[sys.argv[0]], exit=False, verbosity=0).result
@@ -2394,44 +2432,6 @@ def main(argv):
     longest = max((b["seconds"] for b in every), default=0)
     print(f"{len(every)} bins, the longest {longest} s, {total} s in all", file=sys.stderr)
     return 0
-
-
-def stage_main(args, planned):
-    """`plan --stages`: the two lists, the reach record they ran by, and the summary's line,
-    which goes first, before any note. A changed suite or an earlier plan that cannot be read
-    moves nothing into `first`, so the run still runs everything in `rest`."""
-    notes = []
-    listed = {name for _, names in planned["suites"] for name, _ in names}
-    changed = set()
-    if args.changed_suites and Path(args.changed_suites).is_file():
-        changed = set(read_names(args.changed_suites))
-    if changed - listed:
-        notes.append(
-            f"changed suites the matrix does not run: {','.join(sorted(changed - listed))}"
-        )
-    changed &= listed
-    bins = [b for b in args.failed_bins.split(",") if b]
-    failed = set()
-    if bins and args.failed_plan:
-        try:
-            failed = failed_triples(json.loads(Path(args.failed_plan).read_text("utf-8")), bins)
-        except (OSError, ValueError, AttributeError, KeyError) as e:
-            notes.append(f"the failed run's plan is not readable, so no unit of it runs first: {e}")
-    elif bins:
-        notes.append("the failed run left no plan, so no unit of it runs first")
-    staged = stage_plan(changed, failed, args.stages, notes, **planned)
-    if not staged["first"]:
-        # One stage, asked for or fallen back to: nothing ran first, and nothing ran whole.
-        changed, failed = set(), set()
-    if not failed:
-        bins = []
-    print(stage_line(args.stages, staged, changed, bins, args.failed_run), file=sys.stderr)
-    for note in notes:
-        print(note, file=sys.stderr)
-    if args.ran_by and args.reach and Path(args.reach).is_file():
-        lines = Path(args.reach).read_text(encoding="utf-8").splitlines()
-        Path(args.ran_by).write_text("\n".join(ran_by(lines, changed)) + "\n", encoding="utf-8")
-    return dict(staged, stages=args.stages, changed=sorted(changed), failed_bins=bins)
 
 
 if __name__ == "__main__":

@@ -241,8 +241,13 @@ jobs:
           git remote add varka https://github.com/vecbricks/varka.git &&
           git fetch -q --no-tags --filter=blob:none --depth=1000 varka master &&
           base=$(git merge-base varka/master "$HEAD_SHA"); then
-          ./dev/varka_matrix_scope.py "$base" "$HEAD_SHA" --suites > target/varka-bins/changed
-          echo "== changed suites since $base: $(paste -sd, target/varka-bins/changed)"
+          if ./dev/varka_matrix_scope.py "$base" "$HEAD_SHA" --suites > target/varka-bins/changed
+          then
+            echo "== changed suites since $base: $(paste -sd, target/varka-bins/changed)"
+          else
+            echo "::warning::The changed suites were not listed, so none runs first."
+            : > target/varka-bins/changed
+          fi
         else
           echo "::warning::No merge base with Varka's master, so no changed suite runs first."
         fi
@@ -668,7 +673,8 @@ jobs:
           echo "## Option matrix"
           if [ "$REST" = skipped ] && [ "$FIRST" != success ] && [ "$FIRST" != skipped ]; then
             echo "The first stage ended $FIRST, so the second did not run: this report and the"
-            echo "suite seconds cover the first stage's bins only."
+            echo "suite seconds cover the first stage's bins only. A straggler (listed below) or a"
+            echo "setup step that failed twice ends it so too; rerun the failed jobs to go on."
           fi
           echo '```'
           sed -n '/^configuration/,$p' target/varka-matrix-report.txt 2>/dev/null || echo "no report"
