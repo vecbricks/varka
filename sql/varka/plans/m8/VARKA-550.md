@@ -223,7 +223,11 @@ set on 20 November 2026 (implementation first, tests and CI later).
   invariant admits a masked `BYTE` or `SHORT` load or store (`op=loadMasked` or `op=storeMasked`,
   `etype=byte` or `etype=short`, `vectorIntrinsics.cpp:1065`) only where it is one of those
   (`knownEpilogueRefusal`), and logs every such shape and line: that log, from an AVX2 run, is the
-  work list of 2.2. A unit test holds the allowance in both directions. The allowance stays
+  work list of 2.2. The allowance is keyed on the probe's feature list, as the converts' is: it
+  holds only on an x86 JVM whose list was read and lacks `avx512bw` (HotSpot clears that flag
+  under `-XX:UseAVX=2`, `vm_version_x86.cpp:996-1000`, so the laptop's `UseAVX=2` run is keyed
+  as an AVX2 host), from the high review of 23 November 2026. A unit test holds the allowance in
+  both directions. The allowance stays
   until the narrow-driven epilogues at unbaked counts are served too (11, item 5), since part 2
   leaves those masked.
 - **Where the plan was likely wrong.** Section 5 has `width_audit.json` "regenerated with its
