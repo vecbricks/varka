@@ -1,5 +1,8 @@
 # VARKA-518: The catalyst suites' reach record
 
+*Moved to milestone 9 on 23 November 2026 with row 518 (`SCOPE.md` item 138). A bare
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`.*
+
 ## 0. What exists now (admission check)
 
 From master at `e6d2d4516c8`, from branch `varka-518-catalyst-reach` (`33a9043b806`, built and
