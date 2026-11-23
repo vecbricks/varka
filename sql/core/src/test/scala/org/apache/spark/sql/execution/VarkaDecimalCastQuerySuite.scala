@@ -32,9 +32,9 @@ import org.apache.spark.sql.types.{DataType, DecimalType, StructField, StructTyp
  * and `9.99` and `9.95` into `(2, 1)` (the rounding carry that overflows) - with a null beside
  * them. The division guard's boundaries are the coverage rows' domains.
  *
- * A cast into a decimal has no output of its own yet (row 157's store over 348b), so its value is
- * read back through a cast to `BIGINT` at scale 0 and through comparisons at its scale. Every
- * query is also checked to run in a Varka kernel: a projection's entry fuses, a filter is a
+ * A cast into a decimal is read back through a cast to `BIGINT` at scale 0 and through
+ * comparisons at its scale, and as a projection's own output through the decimal store (348b).
+ * Every query is also checked to run in a Varka kernel: a projection's entry fuses, a filter is a
  * Varka node.
  */
 // varka-session-lint: allow the casts are held to vanilla Spark's answers over the Arrow cache,
@@ -209,6 +209,18 @@ class VarkaDecimalCastQuerySuite extends VarkaMaybeThrows with VarkaTestWatchdog
     checkFilter("CAST(d AS DECIMAL(18, 2)) < 0")
     checkFilter("CAST(c AS DECIMAL(9, 4)) > 0")
     checkFilter("CAST(h AS DECIMAL(3, 3)) < 0.5")
+  }
+
+  test("a cast into a decimal is a decimal output of its own: rounded, rescaled up or checked at " +
+      "one scale, null or an error past the precision") {
+    val casts = Seq(
+      "c" -> "DECIMAL(9, 0)", "c" -> "DECIMAL(2, 0)", "h" -> "DECIMAL(2, 1)",
+      "h" -> "DECIMAL(3, 1)", "b" -> "DECIMAL(17, 2)", "d" -> "DECIMAL(17, 0)",
+      "d" -> "DECIMAL(18, 2)", "g" -> "DECIMAL(12, 4)", "c" -> "DECIMAL(9, 4)",
+      "h" -> "DECIMAL(3, 3)", "g" -> "DECIMAL(5, 0)", "d" -> "DECIMAL(10, 0)")
+    for ((c, to) <- casts) {
+      checkProjection(s"CAST($c AS $to)")
+    }
   }
 
   test("a precision change at one scale is the precision check alone") {

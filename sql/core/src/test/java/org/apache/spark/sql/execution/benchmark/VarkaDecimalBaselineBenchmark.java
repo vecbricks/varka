@@ -127,9 +127,9 @@ import org.apache.spark.sql.internal.SQLConf;
  * {@code DECIMAL(18, 14)} {@code CAST(x AS INT)} under ANSI, {@code try_cast(x AS INT)},
  * {@code CAST(x AS DOUBLE)} and {@code CAST(x AS FLOAT)}; and over the {@code BIGINT} column
  * {@code l16}, below {@code 10^16} in magnitude, {@code CAST(l AS DECIMAL(18, 2))} under LEGACY
- * and ANSI. Their columns come last, after {@code l}. The casts to an integral type and the
- * filter fuse whole (VARKA-350) where the session takes a 64-bit kernel's masks; the floating
- * targets and the decimal outputs run on the row path.
+ * and ANSI. Their columns come last, after {@code l}. The casts to an integral type, the casts
+ * between decimals and the filter fuse whole (VARKA-350) where the session takes a 64-bit
+ * kernel's masks; the floating targets and the BIGINT casts into a decimal run on the row path.
  *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -680,11 +680,11 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
 
   /**
    * Adds the cast sections at density {@code d} (VARKA-350, VARKA-366), in the order the class
-   * javadoc lists them. The casts to an integral type and the filter are {@code fused}: whole
-   * (VARKA-350), but {@code NONE} on a session that refuses a 64-bit kernel's masks, where a
-   * decimal cast's value declines too; a cast to a floating type, or a decimal as an output,
-   * runs on the row path, {@code NONE}. The ANSI and LEGACY sections name their mode, and the
-   * filter runs with constraint propagation off, so that it is the cast alone.
+   * javadoc lists them. The casts to an integral type, the casts between decimals and the filter
+   * are {@code fused}: whole (VARKA-350), but {@code NONE} on a session that refuses a 64-bit
+   * kernel's masks, where a decimal cast's value declines too; a cast to a floating type, or of a
+   * BIGINT into a decimal, runs on the row path, {@code NONE}. The ANSI and LEGACY sections name
+   * their mode, and the filter runs with constraint propagation off, so that it is the cast alone.
    */
   private static void addCasts(List<Section> out, Density d, Fusion fused) {
     Map<String, String> legacy = Map.of(SQLConf.ANSI_ENABLED().key(), "false");
@@ -714,7 +714,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     out.add(new Section(d9 + "CAST(x AS FLOAT)" + tail,
         "SELECT CAST(" + x9 + " AS FLOAT)" + value, Fusion.NONE));
     out.add(new Section(d9 + "CAST(x AS DECIMAL(9, 0))" + tail,
-        "SELECT CAST(" + x9 + " AS DECIMAL(9, 0))" + value, Fusion.NONE));
+        "SELECT CAST(" + x9 + " AS DECIMAL(9, 0))" + value, fused));
     out.add(new Section(d9 + "filter CAST(x AS BOOLEAN)" + tail,
         "SELECT " + x9 + " FROM varka_decimal WHERE CAST(" + x9 + " AS BOOLEAN)", fused,
         noConstraints));
@@ -727,7 +727,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     out.add(new Section(d18 + "CAST(x AS FLOAT)" + tail,
         "SELECT CAST(" + x18 + " AS FLOAT)" + value, Fusion.NONE));
     out.add(new Section(d18 + "CAST(x AS DECIMAL(18, 2))" + tail,
-        "SELECT CAST(" + x18 + " AS DECIMAL(18, 2))" + value, Fusion.NONE));
+        "SELECT CAST(" + x18 + " AS DECIMAL(18, 2))" + value, fused));
     out.add(new Section("DECIMAL(15, 4) CAST(x AS FLOAT)" + tail,
         "SELECT CAST(" + x15s4 + " AS FLOAT)" + value, Fusion.NONE));
     out.add(new Section(d18s14 + "CAST(x AS INT), ANSI" + tail,
