@@ -66,4 +66,20 @@ this row does not hold it back, and confirms or revises that default afterwards.
 
 ## 5. Outcome
 
-Not started.
+Not decided. The re-runs of section 4 are recorded, the mixed rung is not.
+
+On 23 November 2026 `VarkaWideConversionBenchmark` ran six times at master `241125b2f37`
+(`benchmark.yml`, `create-commit=false`). Each run's provenance and results are copied into
+`results/VARKA-640-wide-conversion-runs.txt` byte for byte, and each CPU below is the one its
+provenance names:
+
+| CPU | width | runs |
+| :--- | :--- | :--- |
+| AMD EPYC 7763 | 256 bits | 45125914714, 45125932383 |
+| AMD EPYC 7763 | 128 bits (`-XX:MaxVectorSize=16`) | 45125949427, 45125966020 |
+| AMD EPYC 9V74 | 256 bits | 45125982176 |
+| AMD EPYC 9V74 | 128 bits (`-XX:MaxVectorSize=16`) | 45125998303 |
+
+That is the run count section 4 asks for, with the past-window rung. The ladder on master has no
+mixed rung, so section 4 is not met and no default is chosen here; the mixed rung needs code
+first.
