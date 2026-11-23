@@ -297,8 +297,10 @@ code is a polluter is protected by the order the probe's "mixed-late" mode tests
 `-XX:MaxVectorSize=16 -XX:UseAVX=2`: the warm-up through the helper's first call, the polluter
 (moved from the probe into the test tree), then `VarkaAllocationSampler.suspect` false over
 4,096-row calls. One run on the laptop, with the spike suite: passed, 55 s for its own JVM
-(the spike suite's six cases, the new one included, passed in 9 s). The kernel-level form of 5.3, through
-`VarkaKernelWarmup`, waits for 577b's kernel.
+(the spike suite's six cases, the new one included, passed in 9 s). That run had two passes;
+the third, `x % y` after `pmod`, came after it and is read by the branch's pre-PR gate. The test
+runs on x86 only and under the matrix's C2 configurations only (`C2Code`). The kernel-level
+form of 5.3, through `VarkaKernelWarmup`, waits for 577b's kernel.
 
 ### 9.3 Left for part 2 and after
 
@@ -381,6 +383,6 @@ code is a polluter is protected by the order the probe's "mixed-late" mode tests
    does not move, and drives the helper as 577b's call will; it is re-run on 577b's master as 8
    says once the kernel calls it.
 8. **One run of each branch's new suite.** The brief allowed one quick targeted run of the new
-   suite; read per branch, part 1 ran `VarkaDecimalRemainderOpsSuite` and part 2 ran
-   `VarkaDecimalRemainderAllocationSuite`, each with the spike suite, since a first-run failure
+   suite; read per branch, part 1's first branch ran `VarkaDecimalRemainderOpsSuite` and its
+   second (604b) ran `VarkaDecimalRemainderAllocationSuite`, each with the spike suite, since a first-run failure
    of an `ownJvm` suite's flags is cheap to find before the test phase and dear after it.

@@ -34,7 +34,7 @@ run() {
 specs=("alone rem" "mixed rem" "warm rem" "warm-mixed rem" "mixed-late rem" "mixed pmod"
   "warm-mixed pmod")
 [ -n "$off" ] && specs=("alone rem" "mixed rem" "mixed pmod")
-[ -n "${BOTH:-}" ] && specs=("mixed both" "warm-mixed both")
+[ "${BOTH:-0}" = 1 ] && specs=("mixed both" "warm-mixed both")
 for spec in "${specs[@]}"; do
   read -r mode op <<< "$spec"
   for i in 1 2 3; do run "$mode" "$op" & done; wait

@@ -35,10 +35,12 @@ import jdk.incubator.vector.Vector;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAllocationSampler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDecimalRemainderOps;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaHostIsa;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
 
 /**
@@ -74,9 +76,12 @@ public final class VarkaDecimalRemainderAllocationSuite {
   private static final int SAMPLES = 64;
 
   @Test
+  @Tag(VarkaSuite.C2_CODE)
   @DisplayName("split F after other vector code allocates within the warm-up's allowance")
   void staysWithinTheAllowance() {
     assumeTrue(VarkaAllocationSampler.supported(), "no per-thread allocation counter");
+    // The readings behind this test are x86's; UseAVX is dropped on other hosts.
+    assumeTrue(VarkaHostIsa.isX86(System.getProperty("os.arch", "")), "UseAVX is an x86 flag");
     assumeTrue(LongVector.SPECIES_PREFERRED.length() == 2,
         "the preferred species is not two long lanes; the JVM flags did not take");
     try (Arena arena = Arena.ofConfined()) {
@@ -119,7 +124,7 @@ public final class VarkaDecimalRemainderAllocationSuite {
             + SAMPLES + " calls of " + ROWS + " rows over the allowance, the worst " + worst
             + " bytes");
       }
-      // The answers are still the remainder's; a call that fell back would show it here.
+      // The answers are still the remainder's after the polluter and both operations.
       VarkaDecimalRemainderOps.remainder(xa, ya, oa, words, ROWS, false);
       var check = new Random(604);
       for (int i = 0; i < ROWS; i++) {
