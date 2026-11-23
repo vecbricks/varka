@@ -120,3 +120,14 @@ one moves pinned corpora, so it is left to row 352's sequences.
   each declines a deeper chain to the row engine, never fails, and the compiler builds neither
   shape under a null test.
 
+**The SMALLINT check (23 November 2026).** Row 364's branch met the same double widening over a
+`SMALLINT` column at the defaults (`VARKA-364.md`, the null test the condition compiler lifts to
+the long lane over its int-lane widening). `VarkaExpressionCompilerSuite`'s "a SMALLINT column's
+null test lifted to a bigint kernel widens the column once" compiles and emits, at the defaults,
+`ll > 0 AND (isnotnull(c) OR isnotnull(i))` for a `SMALLINT` and a `TINYINT` column, the same with
+both narrow null tests in the disjunct, and two controls lifted straight to the long lane. With
+this row's three compiler and emitter files set back to master's, the first predicate compiles to
+`isNotNull (widen:LONG (widen:INT col:1:short))` and the test fails; on the branch it passes. A
+probe on master read the emission of the two-null-test disjunct fail with `IsNotNull`'s
+`INTERNAL_ERROR`, the failure this row fixes.
+
