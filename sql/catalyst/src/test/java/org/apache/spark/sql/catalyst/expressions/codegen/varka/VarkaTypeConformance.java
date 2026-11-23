@@ -393,17 +393,17 @@ public abstract class VarkaTypeConformance {
     var forms = new ArrayList<Form>();
     for (Mode mode : List.of(Mode.LEGACY, Mode.ANSI)) {
       for (String op : List.of("+", "-", "*")) {
-        forms.add(value("x " + op + " y", op).in(mode).reachingOverflow());
+        forms.add(overflowing(value("x " + op + " y", op).in(mode)));
       }
-      forms.add(value("-x", "negative").in(mode).reachingOverflow());
-      forms.add(value("abs(x)", "abs").in(mode).reachingOverflow());
+      forms.add(overflowing(value("-x", "negative").in(mode)));
+      forms.add(overflowing(value("abs(x)", "abs").in(mode)));
     }
     for (String fn : List.of("try_add", "try_subtract", "try_multiply")) {
-      forms.add(value(fn + "(x, y)", fn).in(Mode.TRY).reachingOverflow());
+      forms.add(overflowing(value(fn + "(x, y)", fn).in(Mode.TRY)));
     }
     for (OverflowForm f : overflowForms()) {
       for (Mode mode : List.of(Mode.LEGACY, Mode.ANSI)) {
-        forms.add(value(f.sql(), f.register()).in(mode).reachingOverflow());
+        forms.add(overflowing(value(f.sql(), f.register()).in(mode)));
       }
     }
     forms.removeIf(f -> !Registers.census(f.register()).types().contains(type().census()));
@@ -411,6 +411,21 @@ public abstract class VarkaTypeConformance {
       return;
     }
     run(forms);
+  }
+
+  /**
+   * Whether the type's values can reach the overflow of the register's operator as a value
+   * output. True by default; a type whose result type always holds the operator's result (a
+   * 64-bit decimal's sum, difference, negation and {@code abs} of values within 17 digits)
+   * returns false, so that the form is held to Spark's answers without the fixture having to
+   * reach an overflow that cannot happen.
+   */
+  protected boolean overflowReachable(String register) {
+    return true;
+  }
+
+  private Form overflowing(Form f) {
+    return overflowReachable(f.register()) ? f.reachingOverflow() : f;
   }
 
   // -------------------------------------------------------------------------------------------
