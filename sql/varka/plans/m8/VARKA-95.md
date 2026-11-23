@@ -480,14 +480,15 @@ not merged (premise 1 of the build sheet was 0, its stop rule 7.1). *23 November
 #1570 with `i % 7` and the column forms timed, and row 30's part 30a4 builds the constant forms of a
 literal divisor that 95a would have built, so 95a is superseded and the `%` half stays row 30's. The
 EPYC 7763 results at 256 and 128 bits are owed by the owner's dispatch, of this class only: build
-sheet 9's dispatch of the division class waits for that class. *23 November 2026:* both landed and
-are committed (the runner results at the end of the build sheet). No dispatch of the division class
-is owed by this row: its `%` sections were never added to it. Of section 4's six predictions, 4 is
-scored against this baseline's row-path rows once the kernel lands, 5 against row 30's baseline
-(#1570), and the others against the kernel and the bytes oracle. The build sheet's dry run (4.3) was
-not made; the queries suite plans each section under both settings of the two-lane refusal at the
-laptop's width, and every section is on the int lane, whose classes no width moves. The planted
-faults of build sheet 3 were not run.
+sheet 9's dispatch of the division class waits for that class. *23 November 2026:* this class's
+results at both widths landed and are committed (the runner results at the end of the build sheet).
+No dispatch of the division class is owed by this row: its `%` sections were never added to it. Of
+section 4's six predictions, 4 is scored against this baseline's row-path rows once the kernel
+lands, 5's `i % 7` half against row 30's baseline (#1570) and its shift-against-multiply-high half
+against row 30's kernel arms, and the others against the kernel and the bytes oracle. The build
+sheet's dry run (4.3) was not made; the queries suite plans each section under both settings of the
+two-lane refusal at the laptop's width, and every section is on the int lane, whose classes no width
+moves. The planted faults of build sheet 3 were not run.
 
 *Noted 23 November 2026, to the two notes of that date above and in the decisions below:* 30a4,
 row 30's constant-divisor part (`VARKA-30.md` 2.4), is local and not yet a pull request. Row 30 owns
@@ -836,6 +837,9 @@ artifacts whole (`-jdk25-runner-epyc7763[-128bit]-results.txt` and provenance, u
 `sql/core/benchmarks/`), and replace the division class's two files and provenance whole: its
 row 30 sections are re-measured on the same unchanged code, and its notes stay complete. If #1486
 merges after this, it must list both classes' `NULL_TESTS` sections as `NONE` too.
+
+*Corrected 23 November 2026:* the division class's dispatch and the replacement of its files are not
+owed by this row, since its `%` sections were never added to it (section 10).
 
 ### Runner results (23 November 2026)
 
