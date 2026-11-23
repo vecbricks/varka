@@ -6187,11 +6187,14 @@ default is stated per rule in the coverage table's verification column. It waits
 The mid-course review of milestone 8 (`m8/PLAN.md` 12) set the rule that a finding moving no
 census cell goes to this catalogue (12.3). On 23 November 2026 the owner applied it to the open
 rows: a row stays in milestone 8 if it blocks the close or serves the milestone's goal, the new
-types and their casts and math; the 43 rows below do neither and moved here, on the precedent of
+types and their casts and math; the 42 rows below do neither and moved here, on the precedent of
 items 15, 39 and 81: text and task numbers unchanged, each row still in `m8/PLAN.md` with a note
 at its head, and each row's own plan file moved beside this catalogue with a note at its head, as
 `VARKA-64.md` and `VARKA-73.md` were. None is ordered against this catalogue's spine; each
 re-enters with its own argument, and the reason it left is the start of that argument.
+
+Row 493, read the same day, was withdrawn instead: row 507's bins replaced the shards it
+balances (`m8/PLAN.md` row 493).
 
 | task | what it is | where its design is | why it left milestone 8 |
 | ---: | :--- | :--- | :--- |
@@ -6207,7 +6210,6 @@ re-enters with its own argument, and the reason it left is the start of that arg
 | 472 | Matrix premises declared and enforced | `VARKA-472.md` | harness work on the existing lanes: it moves no census cell and serves no new type |
 | 483 | The Varka-scoped CI jobs split by suites | the row | CI or tooling work: it moves no census cell and serves no new type |
 | 491 | Selects without the long-to-mask round trip on AVX2 | `VARKA-491.md` | the fix merged; only its cost on both instruction sets is left, a measurement on no new type |
-| 493 | Weekly option-matrix shards balanced by time | the row | CI or tooling work: it moves no census cell and serves no new type; row 507's bins replaced the shards |
 | 507 | The option matrix in 25 minutes | the row | CI or tooling work: it moves no census cell and serves no new type |
 | 508 | A pull request's matrix reruns only what it moves | the row | CI or tooling work: it moves no census cell and serves no new type; step 2 is parked on `fork/attic/varka-508-split-units` |
 | 511 | A post for Spark application developers on testing below the session | `VARKA-511.md` | a side post, not the milestone post (355) |
