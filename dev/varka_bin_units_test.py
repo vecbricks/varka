@@ -396,137 +396,94 @@ class Watchdog(unittest.TestCase):
 # ---------------------------------------------------------------------------------------------
 
 
-def workflow_doc():
-    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-
-
-def gate_script():
-    """The `run:` text of the gate job's step that judges the first stage's failures."""
-    for step in workflow_doc()["jobs"]["gate"]["steps"]:
-        if step.get("name") == "Judge the first stage's failures":
-            return step["run"]
-    raise SystemExit(f"no judging step in the gate job of {WORKFLOW}")
-
-
-def job_runs(job, results, tests="", rest="[{}]"):
-    """Whether `job`'s `if:` admits it, with the jobs it needs ended as `results` ({job: result})
-    and the gate's output `tests`: the expression read as Python, `!cancelled()` true."""
-    text = workflow_doc()["jobs"][job]["if"].strip()
+def job_runs(job, first, tests="", rest="[{}]"):
+    """Whether `job`'s `if:` admits it after a first stage that ended `first` and a gate whose
+    `tests` output is given: the expression read as Python, with `!cancelled()` true."""
+    text = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][job]["if"].strip()
     text = re.sub(r"^\$\{\{|\}\}$", "", text).replace("!cancelled()", "True")
-    text = text.replace("&&", " and ").replace("||", " or ")
-    needs = SimpleNamespace(
-        build=SimpleNamespace(
-            result=results.get("build", "success"), outputs=SimpleNamespace(rest=rest)
-        ),
-        first=SimpleNamespace(result=results["first"]),
-        gate=SimpleNamespace(
-            result=results.get("gate", "skipped"), outputs=SimpleNamespace(tests=tests)
-        ),
+    text = " ".join(text.replace("&&", " and ").replace("||", " or ").split())
+    ns = SimpleNamespace
+    needs = ns(
+        build=ns(result="success", outputs=ns(rest=rest)),
+        first=ns(result=first),
+        gate=ns(outputs=ns(tests=tests)),
     )
-    return eval(" ".join(text.split()), {"needs": needs, "True": True})
+    return eval(text, {"needs": needs})
 
 
-def bin_records(dst, bin_name, units, stub=STUB, **env):
-    """Runs the bin step as bin `bin_name` and copies its directory's files into `dst`, as the
-    gate's download of every first-stage artifact merges them; returns the step's exit status."""
+def bin_records(dst, name, units, stub=STUB, **env):
+    """Runs the bin step as bin `name` and merges its files into `dst`, as the gate's download of
+    the first stage's artifacts does; returns the step's exit status."""
     with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
-        (tmp / "dev").mkdir()
-        (tmp / "dev/varka_matrix.sh").write_text(stub, encoding="utf-8")
-        (tmp / "dev/varka_matrix.sh").chmod(0o755)
-        full = dict(STEP_ENV, UNITS="\n".join(units) + "\n", BIN=bin_name)
-        full.update(env)
-        done = subprocess.run(
-            ["bash", "-e", "-c", step_script()],
-            cwd=tmp,
-            env=full,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        shutil.copytree(tmp / "target/varka-units" / bin_name, dst, dirs_exist_ok=True)
+        (Path(tmp) / "dev").mkdir()
+        (Path(tmp) / "dev/varka_matrix.sh").write_text(stub, encoding="utf-8")
+        (Path(tmp) / "dev/varka_matrix.sh").chmod(0o755)
+        full = dict(STEP_ENV, UNITS="\n".join(units) + "\n", BIN=name, **env)
+        script = ["bash", "-e", "-c", step_script()]
+        done = subprocess.run(script, cwd=tmp, env=full, capture_output=True, timeout=120)
+        shutil.copytree(Path(tmp, "target/varka-units", name), dst, dirs_exist_ok=True)
         return done.returncode
 
 
 def judge(records, download="success"):
-    """Runs the gate's step over the merged `records`; returns (its `tests` output, its stdout)."""
+    """Runs the gate's judging step over the merged `records`: (its `tests` output, its stdout)."""
+    doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    script = next(s["run"] for s in doc["jobs"]["gate"]["steps"] if s.get("id") == "judge")
     with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
-        shutil.copytree(records, tmp / "target/varka-bins")
-        out = tmp / "github-output"
-        out.write_text("", encoding="utf-8")
-        done = subprocess.run(
-            ["bash", "-e", "-c", gate_script()],
-            cwd=tmp,
-            env={"PATH": os.environ["PATH"], "DOWNLOAD": download, "GITHUB_OUTPUT": str(out)},
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        assert done.returncode == 0, done.stdout + done.stderr
-        got = dict(ln.split("=", 1) for ln in out.read_text(encoding="utf-8").splitlines())
-        return got["tests"], done.stdout
+        shutil.copytree(records, Path(tmp, "target/varka-bins"))
+        out = Path(tmp, "output")
+        env = {"PATH": os.environ["PATH"], "DOWNLOAD": download, "GITHUB_OUTPUT": str(out)}
+        done = subprocess.run(["bash", "-e", "-c", script], cwd=tmp, env=env, capture_output=True)
+        assert done.returncode == 0, done
+        return out.read_text(encoding="utf-8").split("tests=")[1].strip(), done.stdout.decode()
 
 
-# A planted straggler: the units are never started, the watchdog stops the bin at 2 s.
+# A planted straggler: its units never start, and the watchdog stops the bin at 2 s.
 STRAGGLER = {"PLAN_SECONDS": "1", "DEADLINE_FLOOR": "2", "GRACE": "1", "PLANT": "b001"}
 
 
 class StageGate(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.records = Path(self.tmp.name, "records")
+        self.records = Path(self.enterContext(tempfile.TemporaryDirectory()), "records")
         self.records.mkdir()
 
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def test_a_green_first_stage_runs_the_second_without_the_gate(self):
+    def test_a_green_or_empty_first_stage_runs_the_second_without_the_gate(self):
         self.assertEqual(bin_records(self.records, "b000", ["cse=false|sql|OK"]), 0)
-        self.assertFalse(job_runs("gate", {"first": "success"}))
-        self.assertTrue(job_runs("rest", {"first": "success"}))
-        self.assertTrue(job_runs("rest", {"first": "skipped"}), "an empty first stage")
-        self.assertFalse(job_runs("rest", {"first": "success"}, rest="[]"))
+        self.assertFalse(job_runs("gate", "success"))
+        self.assertTrue(job_runs("rest", "success") and job_runs("rest", "skipped"))
+        self.assertFalse(job_runs("rest", "success", rest="[]"))
 
-    def test_a_straggler_only_first_stage_runs_the_second_and_names_the_straggler(self):
-        self.assertEqual(bin_records(self.records, "b000", ["cse=false|sql|S0"], SLEEP_STUB), 0)
-        status = bin_records(self.records, "b001", ["w=4|sql|S1"], SLEEP_STUB, **STRAGGLER)
-        self.assertEqual(status, 3)
+    def test_a_straggler_or_a_setup_failure_alone_runs_the_second_and_names_the_straggler(self):
+        self.assertEqual(bin_records(self.records, "b000", ["x=1|sql|S0"], SLEEP_STUB), 0)
+        self.assertEqual(
+            bin_records(self.records, "b001", ["w=4|sql|S1"], SLEEP_STUB, **STRAGGLER), 3
+        )
+        # A bin whose setup failed twice never reaches its units and leaves only its retries.
+        (self.records / "b002-setup").mkdir()
+        (self.records / "b002-setup/retries.txt").write_text("b002 java failure, retried\n")
         tests, stdout = judge(self.records)
         self.assertEqual(tests, "passed")
         self.assertIn("b001: planned 1 s", stdout)
         self.assertIn("not run: w=4|sql|S1", stdout)
-        self.assertTrue(job_runs("gate", {"first": "failure"}))
-        self.assertTrue(job_runs("rest", {"first": "failure", "gate": "success"}, tests))
-
-    def test_a_setup_only_failure_runs_the_second(self):
-        # A bin whose setup failed twice never reaches its units: it leaves only its retries.
-        (self.records / "b002-setup").mkdir()
-        (self.records / "b002-setup/retries.txt").write_text("b002 java failure, retried\n")
-        tests, _ = judge(self.records)
-        self.assertEqual(tests, "passed")
-        self.assertTrue(job_runs("rest", {"first": "failure", "gate": "success"}, tests))
+        self.assertTrue(job_runs("gate", "failure") and job_runs("rest", "failure", tests))
 
     def test_a_failed_unit_stops_the_second_stage_even_beside_a_straggler(self):
-        status = bin_records(self.records, "b000", ["defaults|sql|OK", "cse=false|sql|FAIL1"])
-        self.assertEqual(status, 1)
+        self.assertEqual(bin_records(self.records, "b000", ["defaults|sql|OK", "x=1|sql|FAIL1"]), 1)
         bin_records(self.records, "b001", ["w=4|sql|S1"], SLEEP_STUB, **STRAGGLER)
         tests, stdout = judge(self.records)
         self.assertEqual(tests, "failed")
-        self.assertIn("exit 3: cse=false|sql|FAIL1", stdout)
+        self.assertIn("exit 3: x=1|sql|FAIL1", stdout)
         self.assertNotIn("defaults|sql|OK", stdout)
-        self.assertFalse(job_runs("rest", {"first": "failure", "gate": "success"}, tests))
+        self.assertFalse(job_runs("rest", "failure", tests))
 
-    def test_records_that_do_not_download_stop_it_and_so_does_a_cancelled_first(self):
+    def test_records_that_do_not_download_or_a_cancelled_first_stop_it(self):
         tests, _ = judge(self.records, download="failure")
         self.assertEqual(tests, "unknown")
-        self.assertFalse(job_runs("rest", {"first": "failure", "gate": "success"}, tests))
-        self.assertFalse(job_runs("rest", {"first": "cancelled", "gate": "success"}, "passed"))
-
-    def test_every_bin_uploads_its_failed_units(self):
-        doc = workflow_doc()
+        self.assertFalse(job_runs("rest", "failure", tests))
+        self.assertFalse(job_runs("rest", "cancelled", "passed"))
+        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         upload = next(
-            s for s in doc["jobs"]["rest"]["steps"] if s.get("name") == "Upload the bin's runs"
+            s for s in doc["jobs"]["rest"]["steps"] if s.get("name", "").startswith("Upload")
         )
         self.assertIn("/*-failed/units.txt", upload["with"]["path"])
 

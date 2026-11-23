@@ -2097,7 +2097,7 @@ class SelfTest(unittest.TestCase):
         ("catalyst", [("D", False)]),
     ]
 
-    def staged(self, changed=(), failed=(), stages="two", reach=None):
+    def staged(self, changed=(), failed=(), stages="two", reach=None, **more):
         weights = {"A": 100.0, "B": 50.0, "C": 300.0, "D": 10.0}
         planned = dict(
             configurations=["x=1", "y=2"],
@@ -2109,7 +2109,7 @@ class SelfTest(unittest.TestCase):
             reach=reach,
             platforms=tuple(PLATFORMS),
         )
-        return plan(**planned)["include"], stage_plan(changed, failed, stages, **planned)
+        return plan(**planned)["include"], stage_plan(changed, failed, stages, **more, **planned)
 
     def test_the_first_stage_runs_the_changed_suites_whole_and_the_failed_units(self):
         # A's tests move only under x=1, and none of them under y=2, so today's plan runs part of
@@ -2134,21 +2134,12 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(names, [f"b{i:03d}" for i in range(len(names))])
 
     def test_a_stage_over_the_cap_falls_back_to_todays_plan(self):
-        today, out = self.staged({"A"})
-        cap = max(len(out["first"]), len(out["rest"])) - 1
-        notes = []
-        planned = dict(
-            configurations=["x=1", "y=2"],
-            suites=self.STAGE_SUITES,
-            suite_seconds={"A": 100.0, "B": 50.0, "C": 300.0, "D": 10.0},
-            suite_times={},
-            config_weights={},
-            lane=400.0,
-            platforms=tuple(PLATFORMS),
+        _, out = self.staged({"A"})
+        notes, cap = [], max(len(out["first"]), len(out["rest"])) - 1
+        today, got = self.staged({"A"}, notes=notes, cap=cap)
+        self.assertEqual(
+            (got, f"over {cap} bins" in notes[0]), ({"first": [], "rest": today}, True)
         )
-        got = stage_plan({"A"}, (), "two", notes, cap=cap, **planned)
-        self.assertEqual(got, {"first": [], "rest": today})
-        self.assertIn(f"over {cap} bins", notes[0])
 
     def test_one_stage_or_nothing_first_is_todays_plan(self):
         today, one = self.staged({"A"}, stages="one")
