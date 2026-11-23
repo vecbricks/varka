@@ -289,6 +289,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
     // the hook the same sections pass. The filter is the case the check exists for: its Varka
     // node is no projection, which the size ladders' run-time check reads alone. The sections
     // are listed at the two-lane refusal the shared sessions leave off.
+    assume(VarkaSqlBenchmarkBase.fuseCheck(), "the fuse check is lifted")
     withTable(100) {
       val whole = VarkaDecimalBaselineBenchmark.sections(false).asScala
         .filter(_.fusion == VarkaSqlBenchmarkBase.Fusion.WHOLE)
@@ -297,7 +298,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         whole.find(!_.query.contains(" WHERE ")).getOrElse(fail("no WHOLE projection section")))
       val handed = """handed (\d+) to another path""".r
       for (s <- planted) {
-        withClue(s.title) {
+        withClue(s.title)(withSettings(s) {
           VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
           VarkaColumnarToRowExec.setDeclineKernelForTesting(true)
           val e = try {
@@ -311,7 +312,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           assert(handed.findAllMatchIn(e.getMessage).map(_.group(1).toLong).sum > 0,
             e.getMessage)
           VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
-        }
+        })
       }
     }
   }
