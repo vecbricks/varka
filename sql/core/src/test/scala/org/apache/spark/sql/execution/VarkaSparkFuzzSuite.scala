@@ -206,6 +206,8 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     var nestedErrored = 0
     var nestedFailed = 0
     val pins = new Pins
+    // The counters are the suite's, so this test's share is what they gained during it.
+    val (comparedBefore, fusedBefore) = (compared, fused)
     val range = onlyIteration.map(k => k to k).getOrElse(0 until iterations)
     for (it <- range if failures.size < maxFailures) {
       val c = rectify(draw(rows, seed, it))
@@ -230,7 +232,9 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     info(s"compared $compared, fused $fused, both errored $bothErrored")
     // A run that compared nothing, or fused nothing, would pass with no case checked. A replay
     // of one iteration may fuse nothing, so only a run of several is held to the second.
-    assert(compared > 0 && (fused > 0 || range.size == 1), s"compared $compared, fused $fused")
+    val (ownCompared, ownFused) = (compared - comparedBefore, fused - fusedBefore)
+    assert(ownCompared > 0 && (ownFused > 0 || range.size == 1),
+      s"this test compared $ownCompared, fused $ownFused")
     if (overflowUnchecked) info(pins.summary)
     pool.foreach { case (k, (n, e)) => info(s"  $k: $n compositions, $e errored on both sides") }
     info(s"  with nested trees: $nested compositions, $nestedErrored errored on both sides, " +

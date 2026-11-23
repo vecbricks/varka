@@ -494,10 +494,10 @@ public final class VarkaOperatorCensusSuite {
     // call site, which is meaningful where neither is the preferred species (256 bits or more).
     int bytes = hostBytes();
     Assumptions.assumeTrue(bytes >= 32, "a host of " + bytes * 8 + " bits prefers one of the two");
-    var reading = fork("planted.bimorphic", bytes);
+    Reading reading = fork("planted.bimorphic", bytes);
     assertTrue(reading.bimorphic(), () -> "two species at one call site read as one: " + reading);
     // The planted fallback's loop, the long add at the preferred species alone, as the control.
-    var control = fork("planted.fallback", bytes);
+    Reading control = fork("planted.fallback", bytes);
     assertFalse(control.bimorphic(), () -> "one species read as two: " + control);
   }
 
