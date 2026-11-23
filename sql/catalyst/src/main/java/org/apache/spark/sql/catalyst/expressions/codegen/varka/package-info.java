@@ -51,7 +51,8 @@
  *   <li><i>Emitter support</i> - {@code VarkaEmitOptions} (the variants the emitter can be
  *       asked for), {@code VarkaChrono} (calendar constants and range bounds),
  *       {@code IntRangeOps}, {@code SelectionVectorOps}, {@code VarkaSelectionBitmap},
- *       {@code TruncLevelLeaf}, {@code WeekdayLeaf}, {@code VarkaDerivedKind}.</li>
+ *       {@code TruncLevelLeaf}, {@code WeekdayLeaf}, {@code VarkaDerivedKind},
+ *       {@code VarkaDecimalRemainderOps}.</li>
  *   <li><i>Telemetry</i> - {@code VarkaDebugInfo} and its reader, which stamp an emitted class
  *       with its IR and plan fragment so a profiler or heap dump names the plan node; the
  *       {@code Varka*Event} classes and {@code VarkaCompilationWatch},

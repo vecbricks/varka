@@ -72,7 +72,7 @@ MUST_MATCH = (
     "datapath",
 )
 # Recorded once per shard in the merged header rather than collapsed.
-PER_SHARD = ("shard", "host", "date", "load at start", "canary", "spark home")
+PER_SHARD = ("shard", "host", "date", "load at start", "canary", "spark home", "run")
 
 
 def read(path):

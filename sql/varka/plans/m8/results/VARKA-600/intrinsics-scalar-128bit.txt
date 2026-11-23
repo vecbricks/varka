@@ -1,0 +1,278 @@
+# VARKA-600 step 1: NarrowL2F600.java scalar, OpenJDK 25.0.5.1, AMD Ryzen AI 9 HX PRO 370, 20 Nov 2026
+# java --add-modules jdk.incubator.vector -XX:UseAVX=2 -XX:MaxVectorSize=16 -XX:-TieredCompilation \
+#   -XX:CompileCommand=quiet -XX:CompileCommand=compileonly,NarrowL2F600::{windowed,scalar,scalarLanes} \
+#   -XX:+UnlockDiagnosticVMOptions -XX:+PrintCompilation -XX:+PrintIntrinsics NarrowL2F600.java scalar
+# compileonly leaves the rest interpreted, so the ns a row below is not a measurement.
+31    1     n       java.lang.invoke.MethodHandle::linkToStatic(L)L (native)   (static)
+33    2     n       java.lang.invoke.MethodHandle::linkToStatic(LLL)L (native)   (static)
+33    3     n       java.lang.invoke.MethodHandle::linkToStatic(LLLL)L (native)   (static)
+34    4     n       java.lang.invoke.MethodHandle::invokeBasic()L (native)   
+34    5     n       java.lang.invoke.MethodHandle::linkToSpecial(LL)L (native)   (static)
+39    6     n       java.lang.invoke.MethodHandle::invokeBasic(L)L (native)   
+39    7     n       java.lang.invoke.MethodHandle::linkToSpecial(LLL)L (native)   (static)
+39    8     n       java.lang.invoke.MethodHandle::linkToStatic(LLLLLLL)L (native)   (static)
+40    9     n       java.lang.invoke.MethodHandle::linkToStatic(LL)I (native)   (static)
+40   10     n       java.lang.invoke.MethodHandle::invokeBasic(LLLLLL)L (native)   
+40   11     n       java.lang.invoke.MethodHandle::linkToSpecial(LL)V (native)   (static)
+41   12     n       java.lang.invoke.MethodHandle::linkToStatic(LLL)I (native)   (static)
+41   13     n       java.lang.invoke.MethodHandle::linkToSpecial(LLL)V (native)   (static)
+42   14     n       java.lang.invoke.MethodHandle::linkToInterface(LLL)I (native)   (static)
+43   15     n       java.lang.invoke.MethodHandle::linkToStatic(LL)L (native)   (static)
+43   16     n       java.lang.invoke.MethodHandle::linkToSpecial(LL)I (native)   (static)
+WARNING: Using incubator modules: jdk.incubator.vector
+69   17     n       jdk.internal.vm.Continuation::enterSpecial (native)   (static)
+69   18     n       jdk.internal.vm.Continuation::doYield (native)   (static)
+122   19     n       java.lang.invoke.MethodHandle::linkToStatic(IL)I (native)   (static)
+145   20     n       java.lang.invoke.MethodHandle::invokeBasic(LL)L (native)   
+145   21     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLL)L (native)   (static)
+184   22     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLL)V (native)   (static)
+189   23     n       java.lang.invoke.MethodHandle::linkToVirtual(LLL)V (native)   (static)
+191   24     n       java.lang.invoke.MethodHandle::linkToStatic(LL)V (native)   (static)
+199   25     n       java.lang.invoke.MethodHandle::linkToStatic(LLLL)V (native)   (static)
+201   26     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLLL)V (native)   (static)
+201   27     n       java.lang.invoke.MethodHandle::invokeBasic(LLL)L (native)   
+201   28     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLLL)L (native)   (static)
+212   29     n       java.lang.invoke.MethodHandle::linkToStatic(LLIL)I (native)   (static)
+215   30     n       java.lang.invoke.MethodHandle::linkToSpecial(LLL)I (native)   (static)
+219   31     n       java.lang.invoke.MethodHandle::linkToVirtual(LLL)I (native)   (static)
+221   32     n       java.lang.invoke.MethodHandle::linkToInterface(LLL)V (native)   (static)
+226   33     n       java.lang.invoke.MethodHandle::linkToStatic(LLLLLL)L (native)   (static)
+226   34     n       java.lang.invoke.MethodHandle::invokeBasic(LLLLL)L (native)   
+226   35     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLLLLL)L (native)   (static)
+227   36     n       java.lang.invoke.MethodHandle::linkToSpecial(LIL)L (native)   (static)
+227   37     n       java.lang.invoke.MethodHandle::invokeBasic(LI)L (native)   
+227   38     n       java.lang.invoke.MethodHandle::linkToSpecial(LLIL)L (native)   (static)
+227   39     n       java.lang.invoke.MethodHandle::linkToStatic(LLLLL)L (native)   (static)
+228   40     n       java.lang.invoke.MethodHandle::invokeBasic(LLLL)L (native)   
+229   41     n       java.lang.invoke.MethodHandle::invokeBasic(I)L (native)   
+240   42     n       java.lang.invoke.MethodHandle::linkToStatic(LIL)I (native)   (static)
+379   43     n       java.lang.invoke.MethodHandle::linkToSpecial(LILLL)L (native)   (static)
+380   44     n       java.lang.invoke.MethodHandle::linkToSpecial(LLIL)V (native)   (static)
+433   45     n       java.lang.invoke.MethodHandle::linkToStatic(LLL)V (native)   (static)
+478   46     n       java.lang.invoke.MethodHandle::linkToVirtual(LL)I (native)   (static)
+487   47     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLLLL)V (native)   (static)
+488   48     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLLLL)L (native)   (static)
+491   49     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLLLLL)V (native)   (static)
+499   50     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLIL)V (native)   (static)
+500   51     n       java.lang.invoke.MethodHandle::invokeBasic(LLI)L (native)   
+500   52     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLIL)L (native)   (static)
+502   53     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLLLLLL)L (native)   (static)
+502   54     n       java.lang.invoke.MethodHandle::linkToStatic(LLIL)L (native)   (static)
+503   55     n       java.lang.invoke.MethodHandle::linkToStatic(IIL)I (native)   (static)
+503   56     n       java.lang.invoke.MethodHandle::linkToStatic(JJL)I (native)   (static)
+503   57     n       java.lang.invoke.MethodHandle::linkToStatic(FFL)I (native)   (static)
+504   58     n       java.lang.invoke.MethodHandle::linkToStatic(DDL)I (native)   (static)
+504   59     n       java.lang.invoke.MethodHandle::linkToStatic(JL)I (native)   (static)
+504   60     n       java.lang.invoke.MethodHandle::linkToStatic(FL)I (native)   (static)
+504   61     n       java.lang.invoke.MethodHandle::linkToStatic(DL)I (native)   (static)
+504   62     n       java.lang.invoke.MethodHandle::linkToStatic(IL)L (native)   (static)
+505   63     n       java.lang.invoke.MethodHandle::linkToStatic(JL)L (native)   (static)
+505   64     n       java.lang.invoke.MethodHandle::linkToStatic(FL)L (native)   (static)
+505   65     n       java.lang.invoke.MethodHandle::linkToStatic(DL)L (native)   (static)
+506   66     n       java.lang.invoke.MethodHandle::invokeBasic(L)I (native)   
+508   67     n       java.lang.invoke.MethodHandle::invokeBasic(II)I (native)   
+508   68     n       java.lang.invoke.MethodHandle::linkToSpecial(LIIL)I (native)   (static)
+517   69     n       java.lang.invoke.MethodHandle::linkToVirtual(LL)L (native)   (static)
+537   70     n       java.lang.invoke.MethodHandle::linkToVirtual(LLL)L (native)   (static)
+540   71     n       java.lang.invoke.MethodHandle::linkToInterface(LL)I (native)   (static)
+572   72     n       java.lang.invoke.MethodHandle::linkToSpecial(LIL)V (native)   (static)
+668   73     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLIILL)I (native)   (static)
+671   74     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLLIIL)V (native)   (static)
+672   75     n       java.lang.invoke.MethodHandle::invokeBasic(LLLII)L (native)   
+672   76     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLLIIL)L (native)   (static)
+780   77     n       java.lang.invoke.MethodHandle::linkToSpecial(LLIIL)L (native)   (static)
+782   78     n       java.lang.invoke.MethodHandle::linkToVirtual(LIL)L (native)   (static)
+809   79     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLL)I (native)   (static)
+879   80     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLLL)I (native)   (static)
+1368   81     n       java.lang.invoke.MethodHandle::linkToVirtual(LLIIL)L (native)   (static)
+1383   82     n       java.lang.invoke.MethodHandle::linkToStatic(LLIL)J (native)   (static)
+1688   83     n       java.lang.invoke.MethodHandle::linkToInterface(LL)L (native)   (static)
+1784   84     n       java.lang.invoke.MethodHandle::linkToStatic(L)V (native)   (static)
+1883   85     n       java.lang.invoke.MethodHandle::linkToStatic(ILLLLLL)V (native)   (static)
+1884   86     n       java.lang.invoke.MethodHandle::linkToSpecial(LILLLLL)V (native)   (static)
+1884   87     n       java.lang.invoke.MethodHandle::invokeBasic(ILLLL)L (native)   
+1884   88     n       java.lang.invoke.MethodHandle::linkToSpecial(LILLLLL)L (native)   (static)
+1884   89     n       java.lang.invoke.MethodHandle::linkToStatic(LIILLILLILL)V (native)   (static)
+1885   90     n       java.lang.invoke.MethodHandle::linkToSpecial(LLIILLILLIL)V (native)   (static)
+1885   91     n       java.lang.invoke.MethodHandle::invokeBasic(LIILLILLI)L (native)   
+1885   92     n       java.lang.invoke.MethodHandle::linkToSpecial(LLIILLILLIL)L (native)   (static)
+1887   93     n       java.lang.invoke.MethodHandle::invokeBasic(LI)I (native)   
+1888   94     n       java.lang.invoke.MethodHandle::linkToSpecial(LLIL)I (native)   (static)
+1954   95     n       java.lang.invoke.MethodHandle::linkToStatic(LLLL)I (native)   (static)
+2097   96     n       java.lang.invoke.MethodHandle::linkToVirtual(LLLL)I (native)   (static)
+2099   97     n       java.lang.invoke.MethodHandle::linkToSpecial(LILL)L (native)   (static)
+2100   98     n       java.lang.invoke.MethodHandle::linkToSpecial(LLILL)V (native)   (static)
+2101   99     n       java.lang.invoke.MethodHandle::invokeBasic(LIL)L (native)   
+2101  100     n       java.lang.invoke.MethodHandle::linkToSpecial(LLILL)L (native)   (static)
+2111  101     n       java.lang.invoke.MethodHandle::linkToSpecial(LLLLLIL)V (native)   (static)
+2840  102     n       java.lang.invoke.MethodHandle::linkToStatic(LLIJL)V (native)   (static)
+2982  103     n       java.lang.invoke.MethodHandle::linkToStatic(LL)J (native)   (static)
+2986  104     n       java.lang.invoke.MethodHandle::linkToStatic(JLL)L (native)   (static)
+3033  105     n       java.lang.invoke.MethodHandle::invokeBasic(L)V (native)   
+3065  106     n       java.lang.invoke.MethodHandle::linkToStatic(LJLL)L (native)   (static)
+3069  107     n       java.lang.invoke.MethodHandle::linkToStatic(LIIL)J (native)   (static)
+3074  108     n       java.lang.invoke.MethodHandle::linkToStatic(JIL)J (native)   (static)
+3077  109     n       java.lang.invoke.MethodHandle::linkToSpecial(LJL)V (native)   (static)
+3079  110     n       java.lang.invoke.MethodHandle::invokeBasic(J)L (native)   
+3079  111     n       java.lang.invoke.MethodHandle::linkToSpecial(LJL)L (native)   (static)
+3080  112     n       java.lang.invoke.MethodHandle::linkToStatic(LIL)J (native)   (static)
+3084  113     n       java.lang.invoke.MethodHandle::linkToStatic(LIJL)L (native)   (static)
+3088  114     n       java.lang.invoke.MethodHandle::linkToStatic(LJLL)V (native)   (static)
+3092  115     n       java.lang.invoke.MethodHandle::linkToStatic(LIIFL)V (native)   (static)
+3156  116             NarrowL2F600::scalarLanes (41 bytes)
+                            @ 3   jdk.incubator.vector.FloatVector::zero (36 bytes)   force inline by annotation
+                              @ 6   jdk.incubator.vector.FloatVector$FloatSpecies::vectorType (5 bytes)   accessor
+                              @ 13   jdk.incubator.vector.AbstractSpecies::length (5 bytes)   accessor
+                              @ 19   jdk.incubator.vector.FloatVector::toBits (6 bytes)   force inline by annotation
+                                @ 1   java.lang.Float::floatToRawIntBits (0 bytes)   (intrinsic)
+                              @ 24   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                              @ 29   jdk.internal.vm.vector.VectorSupport::fromBitsCoerced (35 bytes)   (intrinsic)   late inline succeeded
+                            @ 13   jdk.incubator.vector.AbstractSpecies::length (5 bytes)   accessor   accessor
+                            @ 25   jdk.incubator.vector.Long128Vector::lane (57 bytes)   force inline by annotation
+                              @ 30   jdk.incubator.vector.Long128Vector::laneHelper (20 bytes)   force inline by annotation
+                                @ 11   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                  @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                @ 16   jdk.internal.vm.vector.VectorSupport::extract (35 bytes)   (intrinsic)   late inline succeeded
+                              @ 36   jdk.incubator.vector.Long128Vector::laneHelper (20 bytes)   force inline by annotation
+                                @ 11   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                  @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                @ 16   jdk.internal.vm.vector.VectorSupport::extract (35 bytes)   (intrinsic)   late inline succeeded
+                            @ 29   jdk.incubator.vector.Float128Vector::withLane (7 bytes)   force inline by annotation
+                              @ 3   jdk.incubator.vector.Float128Vector::withLane (77 bytes)   force inline by annotation
+                                @ 35   jdk.incubator.vector.Float128Vector::withLaneHelper (28 bytes)   force inline by annotation
+                                  @ 12   java.lang.Float::floatToRawIntBits (0 bytes)   (intrinsic)
+                                  @ 16   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                    @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                  @ 21   jdk.internal.vm.vector.VectorSupport::insert (37 bytes)   (intrinsic)   late inline succeeded
+                                @ 42   jdk.incubator.vector.Float128Vector::withLaneHelper (28 bytes)   force inline by annotation
+                                  @ 12   java.lang.Float::floatToRawIntBits (0 bytes)   (intrinsic)
+                                  @ 16   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                    @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                  @ 21   jdk.internal.vm.vector.VectorSupport::insert (37 bytes)   (intrinsic)   late inline succeeded
+3241  117 %           NarrowL2F600::scalar @ 11 (43 bytes)
+                            @ 24   jdk.incubator.vector.LongVector::fromArray (28 bytes)   force inline by annotation
+                              @ 2   jdk.incubator.vector.AbstractSpecies::length (5 bytes)   accessor
+                              @ 9   jdk.incubator.vector.VectorIntrinsics::checkFromIndexSize (55 bytes)   force inline by annotation
+                                @ 43   java.util.Objects::checkIndex (7 bytes)   force inline by annotation
+                                  @ 3   jdk.internal.util.Preconditions::checkIndex (18 bytes)   (intrinsic)
+                              @ 19   jdk.incubator.vector.LongVector$LongSpecies::dummyVector (8 bytes)   force inline by annotation
+                                @ 1   jdk.incubator.vector.AbstractSpecies::dummyVector (16 bytes)   force inline by annotation
+                              @ 24   jdk.incubator.vector.Long128Vector::fromArray0 (7 bytes)   force inline by annotation
+                                @ 3   jdk.incubator.vector.LongVector::fromArray0Template (40 bytes)   force inline by annotation
+                                  @ 1   jdk.incubator.vector.Long128Vector::vspecies (4 bytes)   force inline by annotation
+                                  @ 6   jdk.incubator.vector.LongVector$LongSpecies::vectorType (5 bytes)   accessor
+                                  @ 10   jdk.incubator.vector.LongVector$LongSpecies::elementType (4 bytes)   force inline by annotation
+                                  @ 14   jdk.incubator.vector.AbstractSpecies::laneCount (5 bytes)   accessor
+                                  @ 20   jdk.incubator.vector.LongVector::arrayAddress (11 bytes)   force inline by annotation
+                                  @ 28   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                    @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                  @ 33   jdk.internal.vm.vector.VectorSupport::load (38 bytes)   (intrinsic)   late inline succeeded
+                            @ 27   NarrowL2F600::scalarLanes (41 bytes)   inline (hot)
+                              @ 3   jdk.incubator.vector.FloatVector::zero (36 bytes)   force inline by annotation
+                                @ 6   jdk.incubator.vector.FloatVector$FloatSpecies::vectorType (5 bytes)   accessor
+                                @ 13   jdk.incubator.vector.AbstractSpecies::length (5 bytes)   accessor
+                                @ 19   jdk.incubator.vector.FloatVector::toBits (6 bytes)   force inline by annotation
+                                  @ 1   java.lang.Float::floatToRawIntBits (0 bytes)   (intrinsic)
+                                @ 24   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                  @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                @ 29   jdk.internal.vm.vector.VectorSupport::fromBitsCoerced (35 bytes)   (intrinsic)   late inline succeeded
+                              @ 13   jdk.incubator.vector.AbstractSpecies::length (5 bytes)   accessor   accessor
+                              @ 25   jdk.incubator.vector.Long128Vector::lane (57 bytes)   force inline by annotation
+                                @ 30   jdk.incubator.vector.Long128Vector::laneHelper (20 bytes)   force inline by annotation
+                                  @ 11   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                    @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                  @ 16   jdk.internal.vm.vector.VectorSupport::extract (35 bytes)   (intrinsic)   late inline succeeded
+                                @ 36   jdk.incubator.vector.Long128Vector::laneHelper (20 bytes)   force inline by annotation
+                                  @ 11   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                    @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                  @ 16   jdk.internal.vm.vector.VectorSupport::extract (35 bytes)   (intrinsic)   late inline succeeded
+                              @ 29   jdk.incubator.vector.Float128Vector::withLane (7 bytes)   force inline by annotation
+                                @ 3   jdk.incubator.vector.Float128Vector::withLane (77 bytes)   force inline by annotation
+                                  @ 35   jdk.incubator.vector.Float128Vector::withLaneHelper (28 bytes)   force inline by annotation
+                                    @ 12   java.lang.Float::floatToRawIntBits (0 bytes)   (intrinsic)
+                                    @ 16   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                      @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                    @ 21   jdk.internal.vm.vector.VectorSupport::insert (37 bytes)   (intrinsic)   late inline succeeded
+                                  @ 42   jdk.incubator.vector.Float128Vector::withLaneHelper (28 bytes)   force inline by annotation
+                                    @ 12   java.lang.Float::floatToRawIntBits (0 bytes)   (intrinsic)
+                                    @ 16   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                      @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                    @ 21   jdk.internal.vm.vector.VectorSupport::insert (37 bytes)   (intrinsic)   late inline succeeded
+                            @ 32   jdk.incubator.vector.FloatVector::intoArray (48 bytes)   force inline by annotation
+                              @ 2   jdk.incubator.vector.Float128Vector::length (4 bytes)   force inline by annotation
+                              @ 7   jdk.incubator.vector.VectorIntrinsics::checkFromIndexSize (55 bytes)   force inline by annotation
+                                @ 43   java.util.Objects::checkIndex (7 bytes)   force inline by annotation
+                                  @ 3   jdk.internal.util.Preconditions::checkIndex (18 bytes)   (intrinsic)
+                              @ 12   jdk.incubator.vector.Float128Vector::vspecies (4 bytes)   force inline by annotation
+                              @ 17   jdk.incubator.vector.FloatVector$FloatSpecies::vectorType (5 bytes)   accessor
+                              @ 21   jdk.incubator.vector.FloatVector$FloatSpecies::elementType (4 bytes)   force inline by annotation
+                              @ 25   jdk.incubator.vector.AbstractSpecies::laneCount (5 bytes)   accessor
+                              @ 31   jdk.incubator.vector.FloatVector::arrayAddress (11 bytes)   force inline by annotation
+                              @ 39   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                              @ 44   jdk.internal.vm.vector.VectorSupport::store (38 bytes)   (intrinsic)   late inline succeeded
+3263  118             NarrowL2F600::scalar (43 bytes)
+                            @ 3   jdk.incubator.vector.AbstractSpecies::length (5 bytes)   accessor
+                            @ 24   jdk.incubator.vector.LongVector::fromArray (28 bytes)   force inline by annotation
+                              @ 2   jdk.incubator.vector.AbstractSpecies::length (5 bytes)   accessor
+                              @ 9   jdk.incubator.vector.VectorIntrinsics::checkFromIndexSize (55 bytes)   force inline by annotation
+                                @ 43   java.util.Objects::checkIndex (7 bytes)   force inline by annotation
+                                  @ 3   jdk.internal.util.Preconditions::checkIndex (18 bytes)   (intrinsic)
+                              @ 19   jdk.incubator.vector.LongVector$LongSpecies::dummyVector (8 bytes)   force inline by annotation
+                                @ 1   jdk.incubator.vector.AbstractSpecies::dummyVector (16 bytes)   force inline by annotation
+                              @ 24   jdk.incubator.vector.Long128Vector::fromArray0 (7 bytes)   force inline by annotation
+                                @ 3   jdk.incubator.vector.LongVector::fromArray0Template (40 bytes)   force inline by annotation
+                                  @ 1   jdk.incubator.vector.Long128Vector::vspecies (4 bytes)   force inline by annotation
+                                  @ 6   jdk.incubator.vector.LongVector$LongSpecies::vectorType (5 bytes)   accessor
+                                  @ 10   jdk.incubator.vector.LongVector$LongSpecies::elementType (4 bytes)   force inline by annotation
+                                  @ 14   jdk.incubator.vector.AbstractSpecies::laneCount (5 bytes)   accessor
+                                  @ 20   jdk.incubator.vector.LongVector::arrayAddress (11 bytes)   force inline by annotation
+                                  @ 28   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                    @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                  @ 33   jdk.internal.vm.vector.VectorSupport::load (38 bytes)   (intrinsic)   late inline succeeded
+                            @ 27   NarrowL2F600::scalarLanes (41 bytes)   inline (hot)
+                              @ 3   jdk.incubator.vector.FloatVector::zero (36 bytes)   force inline by annotation
+                                @ 6   jdk.incubator.vector.FloatVector$FloatSpecies::vectorType (5 bytes)   accessor
+                                @ 13   jdk.incubator.vector.AbstractSpecies::length (5 bytes)   accessor
+                                @ 19   jdk.incubator.vector.FloatVector::toBits (6 bytes)   force inline by annotation
+                                  @ 1   java.lang.Float::floatToRawIntBits (0 bytes)   (intrinsic)
+                                @ 24   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                  @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                @ 29   jdk.internal.vm.vector.VectorSupport::fromBitsCoerced (35 bytes)   (intrinsic)   late inline succeeded
+                              @ 13   jdk.incubator.vector.AbstractSpecies::length (5 bytes)   accessor   accessor
+                              @ 25   jdk.incubator.vector.Long128Vector::lane (57 bytes)   force inline by annotation
+                                @ 30   jdk.incubator.vector.Long128Vector::laneHelper (20 bytes)   force inline by annotation
+                                  @ 11   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                    @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                  @ 16   jdk.internal.vm.vector.VectorSupport::extract (35 bytes)   (intrinsic)   late inline succeeded
+                                @ 36   jdk.incubator.vector.Long128Vector::laneHelper (20 bytes)   force inline by annotation
+                                  @ 11   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                    @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                  @ 16   jdk.internal.vm.vector.VectorSupport::extract (35 bytes)   (intrinsic)   late inline succeeded
+                              @ 29   jdk.incubator.vector.Float128Vector::withLane (7 bytes)   force inline by annotation
+                                @ 3   jdk.incubator.vector.Float128Vector::withLane (77 bytes)   force inline by annotation
+                                  @ 35   jdk.incubator.vector.Float128Vector::withLaneHelper (28 bytes)   force inline by annotation
+                                    @ 12   java.lang.Float::floatToRawIntBits (0 bytes)   (intrinsic)
+                                    @ 16   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                      @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                    @ 21   jdk.internal.vm.vector.VectorSupport::insert (37 bytes)   (intrinsic)   late inline succeeded
+                                  @ 42   jdk.incubator.vector.Float128Vector::withLaneHelper (28 bytes)   force inline by annotation
+                                    @ 12   java.lang.Float::floatToRawIntBits (0 bytes)   (intrinsic)
+                                    @ 16   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                      @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                                    @ 21   jdk.internal.vm.vector.VectorSupport::insert (37 bytes)   (intrinsic)   late inline succeeded
+                            @ 32   jdk.incubator.vector.FloatVector::intoArray (48 bytes)   force inline by annotation
+                              @ 2   jdk.incubator.vector.Float128Vector::length (4 bytes)   force inline by annotation
+                              @ 7   jdk.incubator.vector.VectorIntrinsics::checkFromIndexSize (55 bytes)   force inline by annotation
+                                @ 43   java.util.Objects::checkIndex (7 bytes)   force inline by annotation
+                                  @ 3   jdk.internal.util.Preconditions::checkIndex (18 bytes)   (intrinsic)
+                              @ 12   jdk.incubator.vector.Float128Vector::vspecies (4 bytes)   force inline by annotation
+                              @ 17   jdk.incubator.vector.FloatVector$FloatSpecies::vectorType (5 bytes)   accessor
+                              @ 21   jdk.incubator.vector.FloatVector$FloatSpecies::elementType (4 bytes)   force inline by annotation
+                              @ 25   jdk.incubator.vector.AbstractSpecies::laneCount (5 bytes)   accessor
+                              @ 31   jdk.incubator.vector.FloatVector::arrayAddress (11 bytes)   force inline by annotation
+                              @ 39   java.lang.invoke.Invokers$Holder::linkToTargetMethod (8 bytes)   force inline by annotation
+                                @ 4   java.lang.invoke.LambdaForm$Holder::constant_L (8 bytes)   force inline by annotation
+                              @ 44   jdk.internal.vm.vector.VectorSupport::store (38 bytes)   (intrinsic)   late inline succeeded
+scalar: 2 long lanes, 4 float lanes, every row exact, 4.07 ns a row

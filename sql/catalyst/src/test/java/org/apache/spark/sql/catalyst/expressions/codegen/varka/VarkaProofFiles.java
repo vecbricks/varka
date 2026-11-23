@@ -3126,6 +3126,8 @@ final class VarkaProofFiles {
   private static final int RTO_SMALL_BITS = VarkaConversionLowering.SMALL_BITS;
   /** The bounded magic's window, {@code |v| <= 2^51}. */
   private static final long RTO_MAGIC_WINDOW = VarkaConversionLowering.MAGIC_WINDOW;
+  /** The windowed L2F's test, {@code (v + 2^51) >>> RTO_WINDOW_SHIFT} (VARKA-600). */
+  private static final int RTO_WINDOW_SHIFT = VarkaConversionLowering.WINDOW_SHIFT;
   /** The forms' double constants and the reinterpretation, restated after each reset. */
   private static final String RTO_DEFS = "(define-fun rto.M () Float64 ((_ to_fp 11 53) "
       + bv64(Double.doubleToRawLongBits(RTO_MAGIC)) + "))\n"
@@ -3241,6 +3243,10 @@ final class VarkaProofFiles {
         ;                 t = m ^ ((m ^ t12) & sel), t12 where big and m elsewhere
         ;                 p = (bits(0x1p52) | (v & Long.MIN_VALUE)) + (sel & (12 << 52))
         ;                 d = bitsToDouble(t | p) - bitsToDouble(p), f = (float) d
+        ;   L2F, windowed w = (v + 2^51) >>> 52, OR-ed over the group's lanes; where it is 0,
+        ;     (VARKA-600) f = (float) (bitsToDouble(v + MB) - M), and the L2F form above
+        ;                 elsewhere. The scalar L2F form is Java's own l2f per lane and needs
+        ;                 no check.
         ;
         ; These are the operations VarkaConversionLowering emits, from its constants; the L2F form
         ; has no mask, since C2 on x86 lowers none at two 64-bit lanes. p is 2^52 below 2^52, where
@@ -3282,6 +3288,12 @@ final class VarkaProofFiles {
         ; negated float, all by the symmetry of rounding to nearest. That k >= 2 is the theorem's
         ; bound, and not slack in it, is shown on the top binade: rounding to odd at 26 bits then
         ; to nearest at 24 is one rounding, at 25 bits it is not.
+        ;
+        ; The windowed form's two claims: a lane's test is 0 exactly where -2^51 <= v < 2^51, and
+        ; there the magic's double, exact, rounded once to a float is (float) v. An OR over the
+        ; lanes is 0 exactly where every lane's is, so a group takes the magic only when every
+        ; lane is inside. Its sat check: with the test one bit wider, (v + 2^52) >>> 53, it
+        ; admits a v whose float the magic gets wrong.
         ;
         ; The sat checks: the domain admits Long.MIN_VALUE; the split with MB or the low word's
         ; magic one higher, or a shift of 31, is wrong; the magic is wrong one past its window at
@@ -3368,6 +3380,20 @@ final class VarkaProofFiles {
     fresh(out, "l2d magic: at -(2^51 + 1) it is not", "sat", List.of(v,
         "(assert (= v " + bv64(-RTO_MAGIC_WINDOW - 1) + "))",
         "(assert (not (= " + magic + " " + toDouble + ")))"));
+
+    String toFloat = "((_ to_fp 8 24) RNE v)";
+    fresh(out, "l2f windowed: (v + 2^51) >>> " + RTO_WINDOW_SHIFT + " is 0 exactly where -2^51"
+        + " <= v < 2^51, for every long", "unsat", List.of(v, "(assert (not (= (= "
+            + windowTest(RTO_MAGIC_WINDOW, RTO_WINDOW_SHIFT) + " " + bv64(0) + ") (and (bvsge v "
+            + bv64(-RTO_MAGIC_WINDOW) + ") (bvslt v " + bv64(RTO_MAGIC_WINDOW) + ")))))"));
+    fresh(out, "l2f windowed: where the test is 0 the magic rounded to a float is (float) v",
+        "unsat", List.of(v, "(assert (= " + windowTest(RTO_MAGIC_WINDOW, RTO_WINDOW_SHIFT) + " "
+            + bv64(0) + "))", "(assert (not (= ((_ to_fp 8 24) RNE " + magic + ") " + toFloat
+            + ")))"));
+    fresh(out, "l2f windowed: with the test one bit wider the magic's float is not (float) v",
+        "sat", List.of(v, "(assert (= " + windowTest(2 * RTO_MAGIC_WINDOW, RTO_WINDOW_SHIFT + 1)
+            + " " + bv64(0) + "))", "(assert (not (= ((_ to_fp 8 24) RNE " + magic + ") "
+            + toFloat + ")))"));
 
     String s = "(bvashr v " + bv64(63) + ")";
     String mOfV = "(bvsub (bvxor v " + s + ") " + s + ")";
@@ -3491,6 +3517,11 @@ final class VarkaProofFiles {
   /** A double constant as an SMT-LIB {@code Float64}, from its bits. */
   private static String toFp(double x) {
     return "((_ to_fp 11 53) " + bv64(Double.doubleToRawLongBits(x)) + ")";
+  }
+
+  /** The windowed L2F's test over {@code v}: {@code (v + bias) >>> shift}. */
+  private static String windowTest(long bias, int shift) {
+    return "(bvlshr (bvadd v " + bv64(bias) + ") " + bv64(shift) + ")";
   }
 
   /** {@code 2^52} as an integer, the small arm's bound and the low part's offset. */
@@ -4275,7 +4306,10 @@ final class VarkaProofFiles {
    * {@code mod 2^64}. An unsigned compare is {@code Long.compareUnsigned}'s, the signed compare
    * with both sign bits flipped, which is {@code jlong.add x jlong.MIN}; each lowering over the
    * longs then equals the comparison of the values. A value within 18 digits joins a pair as its
-   * long and the sign extension {@code x >> 63}, and those words hold {@code x}.
+   * long and the sign extension {@code x >> 63}, and those words hold {@code x}. The negation's
+   * words ({@code DecimalWords.negatedLow} and {@code negatedHigh}) hold {@code -v}, the borrow
+   * stated as {@code ite(lo = 0, 1, 0)}, for every value within 38 digits, and with the borrow
+   * left out they do not; {@code abs}'s blend on the high word's sign holds {@code |v|}.
    */
   private static void decimal128Carry(StringBuilder out, String two64) {
     out.append("""
@@ -4312,6 +4346,43 @@ final class VarkaProofFiles {
     check(out, "a long and its sign extension x >> 63 are the words of the long's value",
         "unsat", List.of("(declare-const x Int)", "(assert (jlong.in x))",
             "(assert (not (= (w.val (jlong.shr x 63) (c.lo x)) x)))"));
+    decimal128Negation(out, longs, vx);
+  }
+
+  /**
+   * The negation and {@code abs} of {@code decimal128.smt2}'s carry layer: over the words of a
+   * value {@code |v| <= 10^38 - 1} as Java longs, {@code lo' = -lo} and
+   * {@code hi' = ~hi + ite(lo = 0, 1, 0)}, both wrapping, are the words of {@code -v}, so the
+   * high word never wraps; the same without the borrow is refuted; and {@code abs}, each word
+   * the negation's where {@code hi < 0} and its own elsewhere, is {@code |v|}.
+   */
+  private static void decimal128Negation(StringBuilder out, List<String> longs, String vx) {
+    BigInteger bound = BigInteger.TEN.pow(DecimalWords.MAX_PRECISION).subtract(BigInteger.ONE);
+    String within = "(assert (<= (abs " + vx + ") " + bound + "))";
+    String lo = "(jlong.neg xl)";
+    String hi = "(jlong.add (jlong.not xh) (ite (= xl 0) 1 0))";
+    String negated = "(w.val " + hi + " (c.lo " + lo + "))";
+    out.append("""
+
+        ; The negation over the words: -v = ~v + 1, so lo' = -lo and hi' = ~hi + borrow, the
+        ; borrow 1 exactly where lo = 0, both wrapping as Java's longs do. abs(v) takes each word
+        ; of -v where hi < 0 and its own word elsewhere.
+        """);
+    var body = new ArrayList<>(longs);
+    body.add(within);
+    body.add("(assert (not (= " + negated + " (- " + vx + "))))");
+    check(out, "lo' = -lo and hi' = ~hi + (lo = 0) are the words of -v for |v| <= 10^38 - 1",
+        "unsat", body);
+    var noBorrow = new ArrayList<>(longs);
+    noBorrow.add(within);
+    noBorrow.add("(assert (not (= (w.val (jlong.not xh) (c.lo " + lo + ")) (- " + vx + "))))");
+    check(out, "and without the borrow they are not", "sat", noBorrow);
+    var abs = new ArrayList<>(longs);
+    abs.add(within);
+    abs.add("(assert (not (= (w.val (ite (< xh 0) " + hi + " xh) (c.lo (ite (< xh 0) " + lo
+        + " xl))) (abs " + vx + "))))");
+    check(out, "abs over the words, blended on hi < 0, is |v| for |v| <= 10^38 - 1", "unsat",
+        abs);
   }
 
   // -----------------------------------------------------------------------------------------

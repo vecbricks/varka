@@ -416,7 +416,7 @@ def rule_skips_tsv(ch):
     if SKIPS not in ch.files:
         return
     options = option_names()
-    seen = {}
+    seen, keys = {}, {}
     for n, line in enumerate(read(SKIPS).splitlines(), 1):
         if not line.strip() or line.startswith("#"):
             continue
@@ -424,6 +424,13 @@ def rule_skips_tsv(ch):
             yield f"{SKIPS}:{n}: skips-tsv: repeats line {seen[line]}"
             continue
         seen[line] = n
+        # Git merges the file by union, which keeps both the old and the new form of a line one
+        # side edited; the matrix acts on the first fails line for a test and ignores the rest.
+        key = tuple(line.split("\t")[:3])
+        if key in keys:
+            yield f"{SKIPS}:{n}: skips-tsv: names the test of line {keys[key]} again"
+            continue
+        keys[key] = n
         if not ch.wrote(SKIPS, n):
             continue
         fields = line.split("\t")
@@ -989,6 +996,17 @@ def selftest():
                 SKIPS: skip % "another template of 1",
             },
             "skips-tsv:has no test named",
+            True,
+        )
+        case(
+            "a skip line kept in its old and its edited form, as a union merge leaves it",
+            {
+                tables: split,
+                suite: lic + "class VarkaShapeSuite {}\n",
+                SKIPS: skip % "a name split across two lines"
+                + (skip % "a name split across two lines").replace("the reason", "another"),
+            },
+            "skips-tsv:names the test of line",
             True,
         )
         case(

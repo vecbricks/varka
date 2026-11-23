@@ -59,9 +59,11 @@ import org.apache.spark.sql.util.ArrowUtils;
  * @param expected the file's signature
  * @param actual what the replay threw, classified; empty when nothing failed
  * @param notes what the replay did and found on the way, a line each
+ * @param sameClass whether the emitter rebuilt the class the file carries byte for byte; empty
+ *     when the file carries none, or the emitter threw
  */
 public record VarkaReplay(VarkaFailureSignature expected, Optional<VarkaFailureSignature> actual,
-    List<String> notes) {
+    List<String> notes, Optional<Boolean> sameClass) {
 
   /** Whether the replay failed with the file's signature. */
   public boolean reproduced() {
@@ -108,8 +110,10 @@ public record VarkaReplay(VarkaFailureSignature expected, Optional<VarkaFailureS
           VarkaShapeCacheImpl.sourceFileFor(hash), "shape " + hash, options);
     } catch (Throwable t) {
       notes.add("the emitter threw");
-      return failed(file, notes, t);
+      return failed(file, notes, t, Optional.empty());
     }
+    Optional<Boolean> same = file.classBytes() == null ? Optional.empty()
+        : Optional.of(Arrays.equals(bytes, file.classBytes()));
     if (file.classBytes() != null) {
       notes.add(Arrays.equals(bytes, file.classBytes())
           ? "the emitter built the failing class byte for byte"
@@ -120,7 +124,8 @@ public record VarkaReplay(VarkaFailureSignature expected, Optional<VarkaFailureS
       List<VerifyError> errors = ClassFile.of().verify(bytes);
       notes.add("verified the class as the admission does: "
           + (errors.isEmpty() ? "it verifies" : errors.size() + " errors"));
-      return errors.isEmpty() ? done(file, notes) : failed(file, notes, errors.get(0));
+      return errors.isEmpty() ? done(file, notes, same)
+          : failed(file, notes, errors.get(0), same);
     }
     var loader = new VarkaGeneratedClassLoader(VarkaReplay.class.getClassLoader());
     try {
@@ -130,18 +135,18 @@ public record VarkaReplay(VarkaFailureSignature expected, Optional<VarkaFailureS
         notes.add("defined and linked the class");
       } catch (Throwable t) {
         notes.add("defining or linking the class threw");
-        return failed(file, notes, t);
+        return failed(file, notes, t, same);
       }
       if (file.call() == null) {
-        return done(file, notes);
+        return done(file, notes, same);
       }
       try {
         run(kernel, VarkaKernelPlan.of(outputs, options).drive(), file, notes);
       } catch (Throwable t) {
         notes.add("the kernel threw");
-        return failed(file, notes, t);
+        return failed(file, notes, t, same);
       }
-      return done(file, notes);
+      return done(file, notes, same);
     } finally {
       loader.release();
     }
@@ -157,12 +162,15 @@ public record VarkaReplay(VarkaFailureSignature expected, Optional<VarkaFailureS
     }
   }
 
-  private static VarkaReplay failed(VarkaReproduction file, List<String> notes, Throwable t) {
-    return new VarkaReplay(file.signature(), Optional.of(VarkaFailureSignature.of(t, "")), notes);
+  private static VarkaReplay failed(VarkaReproduction file, List<String> notes, Throwable t,
+      Optional<Boolean> sameClass) {
+    return new VarkaReplay(file.signature(), Optional.of(VarkaFailureSignature.of(t, "")), notes,
+        sameClass);
   }
 
-  private static VarkaReplay done(VarkaReproduction file, List<String> notes) {
-    return new VarkaReplay(file.signature(), Optional.empty(), notes);
+  private static VarkaReplay done(VarkaReproduction file, List<String> notes,
+      Optional<Boolean> sameClass) {
+    return new VarkaReplay(file.signature(), Optional.empty(), notes, sameClass);
   }
 
   // ---- the run --------------------------------------------------------------------------------

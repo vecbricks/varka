@@ -1,0 +1,51 @@
+# Rules for agents using the operations scripts
+
+These add to `sql/varka/AGENTS.md`. The tools are listed in `INDEX.md` and the flow is in
+`README.md`.
+
+## Rules the tools enforce, and why
+
+- **Gate before every push.** `pre-pr.sh` through `pre-pr-slot.sh`, never a hand-picked subset.
+  Three of the red matrices of 22 November 2026 were option arms nobody had run locally.
+- **Review once, then stamp.** `/code-review high` with the branch name, one triaged fix round,
+  then `mark-reviewed.sh` on the head that round produced. Do not review to zero findings.
+- **Never `git push` by hand.** Use `open-pr.sh`, `push-ci.sh` or `push-no-ci.sh`; they check
+  both stamps and push to the fork remote only.
+- **One gate at a time.** The width audit's 600 s probes time out beside another gate, so leave
+  `PRE_PR_SLOTS` at 1, and use `PRE_PR_EXCLUSIVE=1` for a gate that must run alone. A light
+  gate (no generated-file input, no suite) starts at once; do not force it through the queue.
+- **The regen skip is mechanical.** It applies only when every changed file is tooling, CI,
+  plans, benchmarks or prose (`README.md`); do not skip a regeneration by hand.
+- **Kill only recorded PIDs.** Never `pkill` or `killall`; `start-waiter.sh` keeps the pid.
+- **Never print the environment** (`env`, `printenv`, `set`): it holds tokens.
+- **Wait on outputs, not by fast polling.** A gate ends with `pre-pr: passed on <sha>` or
+  `pre-pr: FAILED at <step>` in its log and a stamp; wait on the command's exit, or poll every
+  few minutes.
+- **Never edit a running script.** Bash reads it as it runs. Write a new file and swap it in
+  with `mv`.
+- **A killed waiter can leave its lock held for up to 40 s.** Its child `sleep` inherits the
+  worktree's lock, so a requeue right after a kill exits 3; wait a minute and queue again.
+
+## Opening or fixing a pull request
+
+1. Commit; the worktree must be clean.
+2. `pre-pr-slot.sh <worktree>`, run as a background command; wait for its exit.
+3. On `FAILED at <step>`, read the log the line names, fix, commit, go to 2.
+4. `/code-review high` on the branch, one fix round, then gate again if it committed.
+5. `mark-reviewed.sh <worktree> high <findings-file>`.
+6. New PR: `open-pr.sh` with an absolute body path whose body records the review; then
+   `start-waiter.sh` with the Build's run id. Fix: `push-ci.sh <worktree> <branch> <pr>`.
+
+## Traps seen on 22-23 November 2026
+
+- **The wrong remote.** A push to `origin` reaches the shared repository. The scripts push to
+  `VARKA_FORK_REMOTE` only.
+- **A relative body path** broke once the script changed directory; `open-pr.sh` resolves it
+  first, but pass an absolute path anyway.
+- **zsh does not split an unquoted variable.** The agent shell is zsh: `for x in $list` runs
+  once. Run multi-word loops under `bash -c` or in a script.
+- **Merged master commits counted as fixes.** `review-covers.sh` read master's commits as work
+  after the review until it took `--first-parent`; a stale review after a merge means a real
+  commit followed it.
+- **Duplicate waiters.** Two gates for one worktree, or two matrix waiters for one PR, fight
+  over the same files; the worktree lock and the pid file stop the second.

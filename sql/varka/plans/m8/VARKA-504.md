@@ -175,3 +175,100 @@ owner prefers smaller pull requests (question 2).
    files. If they cannot, the refactor that lets them is the first commit.
 
 ## 10. Outcome
+
+### 10.1 Part 1, built 20 November 2026 (branch `varka-504-checks-can-fail`)
+
+From master at `6ac76f86cb3`. The census's doctests and the catalyst plants, in 5's order; the
+sql plants (differential, Spark fuzzer, the upstream pins) are part 2 and not built.
+*Corrected 22 November 2026:* one of the two upstream pins, the `Math.addExact` one, is built
+here (below); only the SPARK-58482 pin, which needs a session, is part 2's.
+
+- **Census** (`dev/varka_census.py`): doctests on `row()`, one planted claim per rule (a fused
+  type outside the entry's types, a claim no coverage row shows, a `~` claim quoting no row, a
+  type both fused and fused in part, a part-fused type outside the types, a need the fused types
+  contradict, an unknown need) beside a true claim that reports nothing. `--self-test` passes.
+- **Coverage** (`VarkaCoverageSuite`): the two checks became functions over their input,
+  `declinedRows` and `undocumentedArms`, and a test plants a superclass arm (`BinaryOperator`
+  beside an `i + 1` row) and two rows that stop fusing (a `rand(1)` value and a predicate with a
+  `rand` conjunct). The fusion test now also asserts it checked more than 100 rows.
+- **Cast matrix** (`VarkaCastMatrixSuite`): 9.2 held - both comparisons read the committed files
+  directly. They became `legalityErrors(file)` and `fusionMoves(committed, fresh)`; one plant
+  flips the first legal pair's ANSI answer, another changes one `casts_fused.tsv` answer and a
+  third swaps two lines. Both tests assert they compared more pairs than there are types.
+- **Conformance** (`VarkaTypeConformance`, new `VarkaConformancePlantSuite`): the answer the
+  checks hold the reference to passes through `plantedAnswer`, a stub that is null (Spark's own)
+  unless a test sets it; the plant suite sets it on instances of the type suites to a value off
+  by its low bit (load, round trip, null handling, ordering over INT must each fail), a null
+  answered as zero (null handling) and a NaN comparison answered the other way (ordering over
+  DOUBLE). A first version overrode a method in anonymous subclasses; sbt's discovery then
+  found the subclass and JUnit warned that it must not be anonymous, so the stub became a field.
+- **Upstream pin** (new `VarkaUpstreamPinsSuite`): a hot `Math.addExact` overflow loses its
+  message under `OmitStackTraceInFastThrow`, which three helpers accept; the pin fails when a
+  JDK keeps it. The SPARK-58482 pin needs a session and is part 2's.
+- **Warm-up reach** (`VarkaWarmupReach`, its suite): `laneErrors(receivers)` names any receiver
+  class not of its lane's element type; the suite asserts none and that every `LaneType` is read
+  (completeness), and plants the 27 October fault, the float lane answered with the double lane's
+  receivers.
+- **Bytes oracle** (`VarkaEmittedBytesSuite`): the difference walker became
+  `movedBetween(committed, rendered)`; the plant changes one coverage method's hash and one fuzz
+  block in the committed file in memory and requires exactly those two to be named.
+
+**9.1 answered.** Both 27 October faults are fixed in code, so plants 1 and 7 are regression
+plants: the coverage check compares exact simple class names (`getClass.getSimpleName`), and
+`VarkaWarmupReach.receivers` maps each lane to its own species.
+
+**Where the plan was wrong.** 2.1 item 2 put "the second-species tell" under the Python census.
+The tell is `VarkaOperatorCensusSuite`'s (the operator census, `VARKA-347.md`), not
+`dev/varka_census.py`'s, and its matcher already has a string-level plant ("the second-species
+tell matches a species class and not a shared superclass"). The live case - a loop whose one
+call chain meets two species, read from C2's printer in a forked JVM - is not built: it is a
+JVM-forking probe cell, out of this window's cheap-checks rule, and owed to part 2.
+
+**Run in this window.** One targeted run, `catalyst/testOnly *VarkaConformancePlantSuite
+*VarkaUpstreamPinsSuite`: 4 of 4 passed (the plant suite in its own JVM, 6.8 s; the pin 0.05 s,
+the message dropped within the first ten thousand overflows). The other plants and every
+refactored check have compiled and not run.
+
+**Predictions.** P1 holds for the four plants that ran: each check failed on its planted input,
+and on the disagreement it exists for. P2 is not yet scored: no plant has found a check that
+missed its fault so far, and the rest are owed. P3 is not scored: the suites' times are owed.
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **Plants as committed tests** (7, question 1): the plan's recommendation, taken.
+2. **Pull requests** (7, question 2, and 5): the plan's own text disagrees with itself - 5 says
+   one pull request per module (three), 7 recommends two, catalyst first. Taken: the census
+   doctests ride with the catalyst part, since a Python doctest adds no CI module of its own and
+   both stay under the size cap; sql is part 2.
+3. **The conformance plant's stub is on the expected side.** 2.1 item 4 asked for "an evaluator
+   stub that answers one lane's value wrong". The contract compares the reference with Spark's
+   answer per row and the kernel with the reference, so the stub replaces Spark's answer; a check
+   that compared nothing passes it, which is the fault the plant exists for. Swapping the kernel
+   for a wrong one would need an emitter-level plant per lane, larger than the row's medium.
+4. **Plants that need no expensive input read the committed file instead.** The cast matrix's
+   fusion plant and the bytes plant use the committed file as the "fresh" side, so they run in
+   milliseconds instead of probing every cast or emitting every shape; the comparison they plant
+   into is the same code the real tests call.
+
+### 10.2 Review of #1634 at `2e8a71502f3` (22 November 2026)
+
+`/code-review high` found one important finding and five nits; all six are fixed.
+
+- **Important.** The coverage plant's "a declined row names its reason" assertion could not
+  fail: `String.split` drops a trailing empty string, so `"row  ->  "` split to the row alone,
+  whose `last` is not empty. The assertion now takes the text after the arrow.
+- The predicate plant's `rand` conjunct made the whole condition nondeterministic, which
+  declines every conjunct, so a check satisfied by one fused conjunct still flagged it. The
+  plant is now deterministic: `coalesce(i, 0) > 0` fuses and the month of a year-month
+  interval stays residual, and the plant asserts that split before it asks the check. A
+  nullable `i > 0` would not do: the order rule demotes a conjunct that can be NULL ahead of a
+  residual one that can raise, and every conjunct off its list of error-free nodes can raise.
+- The `Math.addExact` pin skips unless the JVM runs C2 with `OmitStackTraceInFastThrow`; on C1
+  alone, the interpreter or a JVMCI compiler the message is kept and the pin has nothing to pin.
+- Row 504's status and 10.1's part-2 line, corrected above with this date.
+- Three comments dated the fault instead of stating it, and two `var`s did not name their type.
+
+Checked by hand on the laptop. The plant test passed; it also asserts that a row with an empty
+reason fails the reason check. With `declinedRows`' `forall(_.fused)` weakened to
+`exists(_.fused)` (a scratch edit, reverted), the plant failed, naming only the `rand(1)` row.
+The pin passed under the default JVM and was skipped under `-XX:TieredStopAtLevel=1`.
