@@ -105,6 +105,7 @@ public enum VarkaOperandPosition {
       };
       case AddDays _, SubDays _, DateDiff _, IfElse _, Greatest _, Least _, DayOfWeek _,
            WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, AddMonths _, MakeDate _,
+           GuardedProduct _,
            ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, Fma _,
            RoundToIntegral _, CanonicalFloat _, CanonicalBits _, HashStep _, GuardedDay _,
            GuardedRange _,
@@ -146,7 +147,8 @@ public enum VarkaOperandPosition {
            Greatest _, Least _,
            DayOfWeek _,
            WeekDay _, DayOfWeekIso _, ThursdayOf _, MakeDate _, IntArith _, IntNeg _,
-           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, Fma _,
+           GuardedProduct _, ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _,
+           Fma _,
            RoundToIntegral _, CanonicalFloat _, CanonicalBits _, HashStep _, GuardedDay _,
            GuardedRange _,
            WidenLane _, ConvertLane _, ReinterpretLane _,

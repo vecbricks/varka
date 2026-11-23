@@ -30,6 +30,7 @@ import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.Builder;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.CheckedLongMultiply;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.DecimalStore;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.Division;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.FloorMod7;
@@ -677,7 +678,15 @@ public sealed interface VarkaEmitOption
       // draw it. Its tag keeps the default's rendering empty.
       new Flag("uncountedMainLoop", Reason.REFERENCE, false,
           VarkaEmitOptions::uncountedMainLoop, Builder::uncountedMainLoop,
-          new FlagTag("uncountedMainLoop", true)));
+          new FlagTag("uncountedMainLoop", true)),
+      // A machine choice (VARKA-611.md 3.2): the checked BIGINT multiply's magnitude pre-check
+      // against its decline, whose winner is the host's to measure. Read by the compiler alone,
+      // and only at a named level, so its subject is level 2. Its tag keeps the default's
+      // rendering empty.
+      new Choice<>("checkedLongMultiply", Reason.MACHINE, CheckedLongMultiply.class,
+          CheckedLongMultiply.BOUND_ONLY, VarkaEmitOptions::checkedLongMultiply,
+          Builder::checkedLongMultiply, new ChoiceTag("checkedLongMultiply="),
+          Optional.<Class<? extends VarkaVectorIR>>empty(), new Subject(o -> o.withUseAVX(2))));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

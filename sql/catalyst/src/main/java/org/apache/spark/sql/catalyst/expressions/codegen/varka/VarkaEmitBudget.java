@@ -775,6 +775,10 @@ final class VarkaEmitBudget {
       // code does not.
       case InRanges _ -> 3;
       case GuardedDay _, GuardedRange _ -> GUARD_WEIGHT;
+      // The long and the double multiply, the sign's AND and the compare, and the two
+      // conversions at their AVX2 form, the larger, as a long ConvertLane is weighed, and one call
+      // more that the budget suite's recount found.
+      case VarkaVectorIR.GuardedProduct _ -> 5 + 2 * VarkaConversionLowering.XOR_SPLIT_CALLS;
       case DayOfWeek _ -> DAY_OF_WEEK_WEIGHT;
       case WeekDay _ -> WEEK_DAY_WEIGHT;
       case DayOfWeekIso _ -> DAY_OF_WEEK_ISO_WEIGHT;
