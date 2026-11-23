@@ -244,7 +244,7 @@ favours, and each can be reversed in review.
    only from the first deletion on.
 5. **The drawn corpus is every grammar of `VarkaIrGrammar`**, eighteen of them taken in turn, not
    the two the branch's suite drew: the decimal, floating, narrow-lane and cast grammars are
-   where master's new records are drawn. `VarkaNodePropsSuite.drawnNodes` is the one corpus, and
+   where master's new records are drawn. `VarkaNodePropsSuite.drawnShapes` and `nodesOf` are the one corpus, and
    489b's equivalence suite reads it.
 6. **The cost kind is built with `getClass().getSimpleName()`**, the expression `kindOf` uses,
    rather than a literal record name, so the key cannot drift from the class's name.
@@ -272,3 +272,14 @@ fusion dump are owed with 489b, where they first can move.
   branch had a line per argument.
 - **Measured:** `build/sbt catalyst/Test/compile` passes. The suite's time (prediction 2) is not
   measured yet.
+
+**Rebased onto master, 23 November 2026** (`f3b97c0b503`). Master had added five records since
+the build, `ReinterpretLane`, `Fma`, `CanonicalFloat`, `CanonicalBits` and `HashStep`, each given
+its `props()` from master's switch arms. `HashStep`'s word is its seed's alone (a null word leaves
+the hash as it is), which none of the six validity kinds says, so a seventh, `Operand(index)`,
+aliases one operand's word; `ownerOf`, `pureOf`, `planWordRef` and `inputOrdinal` fold it in
+489b and 489c. The equivalence suite, with the five records added to its hand-built corpus, ran
+in a scratch tree at 489b's first commit: it first found `MathUnary`'s weight stale (master's
+per-lane calls weigh 16), then, fixed, **97536 distinct nodes of 61 record types** agreed, with
+**7850 analyses** and 336564 word entries. Master's options overload of `weightOf` (row 600's
+`L2F` forms) stays in `VarkaEmitBudget`, reading the descriptor for every other node.

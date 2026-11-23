@@ -42,9 +42,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
  *
  * @param ring whether reduction modulo a narrow lane's width commutes with the node, which is
  *     what {@code Analysis.isNarrowRing} asks
- * @param validity how the node's validity word follows from its operands' words: whether the
- *     word is a pure function of input bitmaps, and whether a null operand is skipped rather
- *     than propagated
+ * @param validity how the node's validity word follows from its operands' words, and whether
+ *     it is a pure function of input bitmaps; whether the analysis counts a node as skipping a
+ *     null input stays {@code Analysis.analyze}'s own switch
  * @param weight what the node costs against the grouping budgets, in lane operations
  *     ({@code VarkaEmitBudget.weightOf})
  * @param costKind the feature the emit cost model counts the node under

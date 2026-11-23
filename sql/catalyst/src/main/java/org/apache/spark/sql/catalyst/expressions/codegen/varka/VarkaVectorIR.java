@@ -1176,8 +1176,8 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // One lanewise op, the conversion; a long converted to a floating lane is one
-      // convertShape at level 3, and below it the AVX2 form, the larger, which is what is
-      // counted, since which one emits cannot be asked here.
+      // convertShape at level 3, and below it the default AVX2 form; another L2F form the
+      // options choose is weighed by VarkaEmitBudget.weightOf's overload, which reads them.
       int weight = child.laneType() != LaneType.LONG ? 1
           : target == LaneType.FLOAT
               ? VarkaConversionLowering.ODD_CALLS : VarkaConversionLowering.SPLIT_CALLS;
@@ -1218,13 +1218,14 @@ public sealed interface VarkaVectorIR
     }
 
     public ReinterpretLane(VarkaVectorIR child, LaneType target) { this(child, target, 0); }
+    @Override public int hashCode() { return hash; }
+
     @Override
     public VarkaNodeProps props() {
       // A reinterpretation: one lane call, which C2 emits as nothing; its word is its child's.
       return new VarkaNodeProps(NEVER, STRICT, 1, getClass().getSimpleName(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
-    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1832,8 +1833,10 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      // The lanewise call: one.
-      return new VarkaNodeProps(NEVER, STRICT, 1,
+      // The lanewise square root: one call. A per-lane call extracts and inserts each lane, at
+      // most eight double lanes at 512 bits, the larger form; the scalar calls between them are
+      // no vector op.
+      return new VarkaNodeProps(NEVER, STRICT, fn.laneCall() ? 16 : 1,
           getClass().getSimpleName() + '/' + fn + '/' + laneType(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -1865,13 +1868,14 @@ public sealed interface VarkaVectorIR
     }
 
     public Fma(VarkaVectorIR a, VarkaVectorIR b, VarkaVectorIR c) { this(a, b, c, 0); }
+    @Override public int hashCode() { return hash; }
+
     @Override
     public VarkaNodeProps props() {
       // The lanewise fused multiply-add: one call, null where any of its three operands is.
       return new VarkaNodeProps(NEVER, STRICT, 1, getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
-    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1947,13 +1951,14 @@ public sealed interface VarkaVectorIR
     }
 
     public CanonicalFloat(VarkaVectorIR child) { this(child, 0); }
+    @Override public int hashCode() { return hash; }
+
     @Override
     public VarkaNodeProps props() {
       // The canonicalisation: the add of zero, the NaN test and the blend.
       return new VarkaNodeProps(NEVER, STRICT, 3, getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
-    @Override public int hashCode() { return hash; }
 
     /** {@code x} canonicalised: {@code x} itself when it already is a canonicalisation. */
     public static VarkaVectorIR of(VarkaVectorIR x) {
@@ -1981,13 +1986,14 @@ public sealed interface VarkaVectorIR
     }
 
     public CanonicalBits(VarkaVectorIR child) { this(child, 0); }
+    @Override public int hashCode() { return hash; }
+
     @Override
     public VarkaNodeProps props() {
       // A reinterpretation: one lane call, which C2 emits as nothing.
       return new VarkaNodeProps(NEVER, STRICT, 1, getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
-    @Override public int hashCode() { return hash; }
 
     /** The integral lane of the same width as the child's. */
     public LaneType lane() {
@@ -2023,6 +2029,8 @@ public sealed interface VarkaVectorIR
     public HashStep(HashMix mix, VarkaVectorIR seed, VarkaVectorIR word) {
       this(mix, seed, word, 0);
     }
+    @Override public int hashCode() { return hash; }
+
     @Override
     public VarkaNodeProps props() {
       // The lane operations of each step (VARKA-337 2.4), the operand fetches not counted. A
@@ -2037,7 +2045,6 @@ public sealed interface VarkaVectorIR
           getClass().getSimpleName() + '/' + mix, FILLS_NOTHING, RESTRICTS_NOTHING,
           LongNarrowReader.NONE);
     }
-    @Override public int hashCode() { return hash; }
   }
 
   /**
