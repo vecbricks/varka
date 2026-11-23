@@ -341,7 +341,9 @@ final class Analysis {
      * behind {@link VarkaEmitOptions#checkIntOverflow}. The arithmetic parks its operands and
      * result in {@link Slots#intArithTmp}, and {@code emitIntNeg} reads its operand back with
      * {@code dup}, so it parks nothing here. A NULL-mode node checks too, but narrows its own word
-     * instead of refusing the batch, so it has no reason.
+     * instead of refusing the batch, so it has no reason. A {@link GuardedProduct} refuses with
+     * it unconditionally, in every mode, where its pre-check trips ({@code |a * b| >= 2^62} in
+     * doubles, row 611): a batch it declines may hold no overflow.
      */
     INT_OVERFLOW(Family.CHECKED, false, VarkaFusedKernel.STATUS_INT_OVERFLOW),
     /**
