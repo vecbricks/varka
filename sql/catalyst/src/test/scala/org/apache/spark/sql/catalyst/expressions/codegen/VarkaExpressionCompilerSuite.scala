@@ -1042,12 +1042,20 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
   }
 
-  test("the decimal-valued TIME expressions below a root decline naming row 348") {
-    // VARKA-157 2.1: the store is a root's; as another expression's operand the value is a
-    // decimal operand, which row 348 consumes.
+  test("the decimal-valued TIME expressions fuse below a root as decimal operands") {
+    // VARKA-348 2.4: a decimal value is the decimal compiler's wherever it stands, so the TIME
+    // producers' unscaled longs are a sum's operands under the store and a comparison's.
     for (e <- Seq(SecondsOfTimeWithFraction(t6), TimeToSeconds(t6))) {
-      val reason = declineReason(Add(e, e), withLong)
-      assert(reason.contains("row 348's"), reason)
+      val sum = VarkaExpressionCompiler.compile(Seq(out(Add(e, e))), withLong).toScala
+      assert(sum.isDefined, s"$e + $e declined")
+      val root = sum.get.outputs.asScala.head
+      assert(root.isInstanceOf[VarkaVectorIR.WidenDecimal], root)
+      assert(root.asInstanceOf[VarkaVectorIR.WidenDecimal].child.isInstanceOf[IntArith], root)
+      assert(sum.get.outputTypes.asScala.toSeq === Seq(Add(e, e).dataType))
+      val t = e.dataType.asInstanceOf[DecimalType]
+      val below = LessThan(e, Literal(Decimal(BigDecimal("10.5"), t.precision, t.scale), t))
+      assert(VarkaExpressionCompiler.compile(Seq(out(below)), withLong).toScala.isDefined,
+        s"$below declined")
     }
   }
 
@@ -3649,19 +3657,24 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "two kernels, and an entry no kernel serves keeps its own reason") {
     // MAX_INPUTS bounds a kernel's column set, a bitset in a long; past it an entry fits alone but
     // not beside the others, which is another kernel's entry. A checked bigint product over a
-    // column is not a size, so it stays residual whatever the option.
+    // column is not a size, so it stays residual whatever severalKernels says. It is residual
+    // only under the BOUND_ONLY form: MAGNITUDE, and BY_HOST at its levels, build a
+    // GuardedProduct for it (VARKA-611), so the test pins BOUND_ONLY for every
+    // checkedLongMultiply arm.
+    val bound = VarkaMatrix.base
+      .withCheckedLongMultiply(VarkaEmitOptions.CheckedLongMultiply.BOUND_ONLY)
     val columns = (0 until 70).map(c => AttributeReference(s"c$c", DateType)())
     val longCol = AttributeReference("l", LongType)()
     val output = columns :+ longCol
     val list = columns.map(c => out(DateAdd(c, Literal(1)))) :+
       out(Multiply(longCol, Literal(3L), EvalMode.ANSI))
     val one = VarkaExpressionCompiler.compilePartial(list, output,
-      VarkaMatrix.base.withSeveralKernels(false)).get
+      bound.withSeveralKernels(false)).get
     assert(one.specs.asScala.count(_.isInstanceOf[FusedOutput]) ===
         64) // VarkaEmitBudget.MAX_INPUTS
     assert(one.declines.asScala(64).reason === "exceeds the emitter's fused budget")
     val two = VarkaExpressionCompiler.compilePartial(list, output,
-      VarkaMatrix.base.withSeveralKernels(true)).get
+      bound.withSeveralKernels(true)).get
     assert(two.kernels.size === 2)
     assert(two.specs.asScala.toSeq.slice(64, 70) === (0 until 6).map(new KernelOutput(1, _)))
     assert(two.more.asScala.head.inputOrdinals.asScala.toSeq === (64 until 70))

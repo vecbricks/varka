@@ -253,6 +253,12 @@ if [ "${1:-}" = "--selftest" ]; then
     echo "varka_precommit selftest: dev/varka_regen_inputs.py --selftest failed"
     fails=$((fails + 1))
   fi
+  # And the kernel-history reader's case keying (VARKA-383): merged shards of two widths.
+  if ! out="$(python3 dev/varka_kernel_history.py --selftest 2>&1)"; then
+    echo "$out"
+    echo "varka_precommit selftest: dev/varka_kernel_history.py --selftest failed"
+    fails=$((fails + 1))
+  fi
   if [ "$fails" -eq 0 ]; then echo "varka_precommit selftest: ok"; fi
   exit "$fails"
 fi

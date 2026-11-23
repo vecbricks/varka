@@ -348,3 +348,23 @@ filter's `PARTIAL` becoming `PLAIN`), and `dev/varka_regen_generated.sh --all` l
 alone: it has its own switch, `VARKA_GOLDEN_REGEN=true build/sbt -batch "sql/testOnly
 *VarkaGoldenCorpusSuite"`. Run it whenever a change alters which conjuncts or entries fuse, then
 read the diff.
+
+## The pre-commit hook refuses a census claim that `coverage.json` cannot show yet
+
+VARKA-348. `dev/varka_census.py`, which the hook runs as `--check`, refuses a fused type, `^`
+included, for an entry with no coverage row whose node of that class takes an operand of that
+type. It reads the committed `coverage.json`. So a part that adds coverage rows and the census
+claim they support cannot commit both until the coverage suite has regenerated
+`coverage.json`, which is a JVM run (`VARKA_COVERAGE_REGEN=true`). In a window without that run,
+commit the claims the current `coverage.json` already shows, and record the others as owed. A
+conformance suite that reads the census then reports those forms as drift until the
+regeneration lands. Any `declinesInPart` entry naming them waits too:
+`checkDeclinesInPart` refuses an operator the census does not mark fused in part.
+
+## The quote check reads a plan section numbered 10.1x as a measurement
+
+VARKA-348. `dev/varka_quote_check.py` counts a number with two or more integer digits and one to
+three decimals as a performance quote. So a section number with a two-digit part, such as the
+eleventh subsection of section 10, is held to the results files, in a heading and in a citation
+alike. It is an orphan unless those digits happen to appear in one. Name such a section by its title ("section 10, Step 5") rather than adding the number to the
+allowlist, which is a ratchet that should only shrink.

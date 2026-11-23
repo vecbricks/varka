@@ -27,8 +27,9 @@ on, would regenerate what it already holds: `dev/varka_regen_generated.sh --all`
 steps then (`--full` runs them anyway). The list is of what is known irrelevant, not of what is
 read: the suites compile against several modules (sql/api, core, common), so a path that is on
 no list may be an input. Irrelevant are documents, plans, results and benchmark files, the core
-module's tests, the workflows, and the other dev scripts. Exit 1 prints the first reason it could
-not skip: a changed generated file, a path not known to be irrelevant, or what it could not read.
+module's tests but the cast suites and the helpers that write their record, the workflows, and
+the other dev scripts. Exit 1 prints the first reason it could not skip: a changed generated
+file, a path not known to be irrelevant, or what it could not read.
 """
 
 import json
@@ -47,7 +48,9 @@ SAFE = [
     r"^sql/varka/[^/]+\.md$",
     r"^sql/varka/(plans|skills|bench)/",
     r"^sql/(core|catalyst)/benchmarks/",
-    r"^sql/core/src/test/",
+    # The core module's tests, but for the cast suites and the helpers that write casts_suites.tsv.
+    r"^sql/core/src/test/(?!.*/Varka(Suite(Check|Record|Arm)|ExpressionHarness"
+    r"|CastWithAnsiO(ff|n)Suite|TryCastSuite)\.)",
     r"^\.github/",
     r"(^|/)[^/]*Benchmark\.(java|scala)$",
     r"^dev/(?!varka_(regen_generated\.sh|regen_inputs\.py|census\.py|generated_merge\.py)$)",
@@ -127,6 +130,10 @@ def selftest():
         (["README.md", "docs/other.md", "sql/varka/VISION.md", "sql/varka/AGENTS.md"], None),
         (["sql/core/src/test/scala/x/VarkaFooSuite.scala", ".github/workflows/x.yml"], None),
         (["dev/varka_other.py"], None),
+        (
+            ["sql/core/src/test/java/x/VarkaSuiteRecord.java"],
+            "sql/core/src/test/java/x/VarkaSuiteRecord.java " + unknown,
+        ),
         (
             ["sql/catalyst/src/main/java/x/VarkaLoopEmitter.java"],
             "sql/catalyst/src/main/java/x/VarkaLoopEmitter.java " + unknown,

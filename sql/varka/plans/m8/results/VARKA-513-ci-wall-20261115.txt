@@ -72,7 +72,7 @@ November reopening's case, a retry that fails, is not addressed. 516: the rework
 step 3 is not in the tree (the splitting exists as --split-weights, but the JVM
 lines do not start longest first and dev/varka_scoped_suites.sh does not pass
 suite-times.tsv), and the two master Builds, 43631067284 and 43651376198, did not
-draw one CPU for the catalyst shards, which m8/VARKA-516.md 8 (i) excludes from the
+draw one CPU for the catalyst shards, which m9/VARKA-516.md 8 (i) excludes from the
 done-when; their catalyst shards' longest was 2.25 and 2.37 times the shortest
 (1472.5/654.3 and 1607.2/678.2 s), and the first Build's sql shards 1.76
 (762.1/432.7 s). 520: no fresh record is a one-source pull request, and the sql jobs'

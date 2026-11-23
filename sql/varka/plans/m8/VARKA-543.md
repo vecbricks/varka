@@ -38,11 +38,16 @@ dispatched and no JVM was run. `VARKA-503.md` is the plan on that branch, read w
    run 40401767379, 26 October 2026) predates row 341's fusion: its "varka on" arm is the row path
    in every section, and every ratio is 1.0X to 1.2X. Row 341's benchmark step is still open (its
    cell, "left: ... the benchmark").
+   *23 November 2026:* the file now holds run 45125841833 (master `241125b2f37`, an EPYC 7763):
+   the `FLOAT` filters fuse and read 2.0X to 3.3X, the `DOUBLE` comparisons still decline by
+   503's refusal and read 1.0X, so a fused `DOUBLE` filter at 128 bits is still unmeasured.
 5. **503's own measurement is on the laptop** under `-XX:UseAVX=2 -XX:MaxVectorSize=16`
    (`VARKA-503.md` 6, files under `m8/results/VARKA-503/` on the branch, not on master), taken on
    27 October 2026. Since then benchmark verdicts come from the EPYC 7763 runners.
 6. **Projections that blend on a long mask won at two lanes** in 503's measurement (1.3X to 6.6X
    against the row path), and 503 left them fused. A double projection's blend may do the same.
+   *23 November 2026:* it does not in run 45125841833: the `DOUBLE` choice fuses whole and reads
+   0.8X without nulls and 0.6X with one row in ten null.
 
 ### What differs from the row text
 

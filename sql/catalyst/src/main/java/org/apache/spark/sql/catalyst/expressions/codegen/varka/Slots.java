@@ -71,6 +71,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Dec
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedProduct;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.HashStep;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
@@ -1709,6 +1710,7 @@ final class Slots {
           }
         }
         case IntNeg x -> { }
+        case GuardedProduct x -> { }
         case ConstDivide x -> { }
         case BoundedDivide x -> { }
         case BitOp x -> { }
