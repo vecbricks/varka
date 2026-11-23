@@ -363,4 +363,7 @@ failure. The JVM links lazily, so the Parquet input, the `TIME` table and the ch
 only by step 2's runs. Run 45082634358 of
 `varka-surface-benchmark.yml` (`benchmark=math`, an AMD EPYC 7763) ran both stock 4.3.0 arms,
 JDK 17 and JDK 25, beside the engine-off and Varka arms, and its four `MathSurface-*-zen3` files
-are committed. The driver's compile version stays at 4.2.0.
+were committed (#1640). The driver's compile version stays at 4.2.0. Later that day runs
+45149410366 (256 bits) and 45149428408 (128 bits), both at master `4f905f3c436` on an EPYC 7763,
+ran the same four arms the same way. The 256-bit run's files replace run 45082634358's; the
+128-bit run's `-zen3-128bit` files are new.

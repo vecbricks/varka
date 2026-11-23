@@ -166,3 +166,451 @@ cast(l AS double), a scalar loop                              0              0  
 cast(l AS float), a scalar loop                               0              0           0       2268.0           0.4       0.6X
 
 
+
+=== 23 November 2026: the re-runs on master
+
+Six runs of VarkaWideConversionBenchmark at master 241125b2f37 (benchmark.yml, create-commit=false),
+dispatched on 23 November 2026 for section 4 of VARKA-640.md: two a width on the EPYC 7763 and one
+a width on the EPYC 9V74. Each run's provenance and results are copied below as the workflow wrote
+them, byte for byte. A run whose first attempts drew another CPU was rerun by "Rerun a benchmark on
+the wrong CPU"; the provenance names the CPU of the attempt that ran. The ladder has no mixed rung
+yet, so these runs choose no default.
+
+=== run 45125914714
+benchmark:   *.VarkaWideConversionBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/vecbricks/varka/actions/runs/45125914714
+commit:      241125b2f37 (master of vecbricks/varka)
+date:        2026-11-23T08:05:49Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=<none>
+jdk:         OpenJDK Runtime Environment Zulu25.38+201-CA (build 25.0.5.1+2-LTS)
+kernel:      7.0.0-1020-azure
+cpu:         AMD EPYC 7763 64-Core Processor
+datapath:    45.0 / 90.4 / 90.5 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.01 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)
+================================================================================================
+a bigint cast to double and float by the AVX2 forms
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+16384 rows - every arm in L2:                     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       5343.8           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0        641.3           1.6       0.1X
+cast(l AS double), the bounded magic                          0              0           0       5525.8           0.2       1.0X
+cast(l AS float), round to odd                                0              0           0       1604.9           0.6       0.3X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       1327.4           0.8       0.2X
+cast(l AS float), windowed                                    0              0           0       2984.3           0.3       0.6X
+cast(l AS float), scalar lanes                                0              0           0       1121.7           0.9       0.2X
+cast(l AS double), a scalar loop                              0              0           0       2284.1           0.4       0.4X
+cast(l AS float), a scalar loop                               0              0           0       2277.5           0.4       0.4X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+262144 rows - every arm in L3:                    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       3767.5           0.3       1.0X
+cast(l AS double), 343b1's split                              0              0           0       2684.8           0.4       0.7X
+cast(l AS double), the bounded magic                          0              0           0       3781.2           0.3       1.0X
+cast(l AS float), round to odd                                0              0           0       1601.7           0.6       0.4X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       1312.9           0.8       0.3X
+cast(l AS float), windowed                                    0              0           0       2986.6           0.3       0.8X
+cast(l AS float), scalar lanes                                0              0           0       1129.5           0.9       0.3X
+cast(l AS double), a scalar loop                              0              0           0       2073.3           0.5       0.6X
+cast(l AS float), a scalar loop                               0              0           0       2270.5           0.4       0.6X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+8388608 rows - every arm past L3:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              5              5           0       1657.0           0.6       1.0X
+cast(l AS double), 343b1's split                              5              6           0       1563.2           0.6       0.9X
+cast(l AS double), the bounded magic                          5              5           0       1642.3           0.6       1.0X
+cast(l AS float), round to odd                                6              6           0       1463.7           0.7       0.9X
+cast(l AS float), round to odd by 343b1's shifts              7              7           0       1232.8           0.8       0.7X
+cast(l AS float), windowed                                    4              4           0       2016.7           0.5       1.2X
+cast(l AS float), scalar lanes                                8              8           0       1060.1           0.9       0.6X
+cast(l AS double), a scalar loop                              6              6           0       1410.5           0.7       0.9X
+cast(l AS float), a scalar loop                               4              5           0       1878.5           0.5       1.1X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+16384 rows - in L2, every value past 2^51:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       5363.0           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0       2920.5           0.3       0.5X
+cast(l AS float), round to odd                                0              0           0       1604.9           0.6       0.3X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       1326.4           0.8       0.2X
+cast(l AS float), windowed                                    0              0           0       1211.3           0.8       0.2X
+cast(l AS float), scalar lanes                                0              0           0       1121.7           0.9       0.2X
+cast(l AS double), a scalar loop                              0              0           0       2608.1           0.4       0.5X
+cast(l AS float), a scalar loop                               0              0           0       2274.6           0.4       0.4X
+
+
+
+=== run 45125932383
+benchmark:   *.VarkaWideConversionBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/vecbricks/varka/actions/runs/45125932383
+commit:      241125b2f37 (master of vecbricks/varka)
+date:        2026-11-23T12:14:38Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=<none>
+jdk:         OpenJDK Runtime Environment Zulu25.38+201-CA (build 25.0.5.1+2-LTS)
+kernel:      7.0.0-1020-azure
+cpu:         AMD EPYC 7763 64-Core Processor
+datapath:    45.1 / 90.4 / 90.5 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.00 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)
+================================================================================================
+a bigint cast to double and float by the AVX2 forms
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+16384 rows - every arm in L2:                     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       5292.0           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0       2776.9           0.4       0.5X
+cast(l AS double), the bounded magic                          0              0           0       5544.5           0.2       1.0X
+cast(l AS float), round to odd                                0              0           0       1619.1           0.6       0.3X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       1333.9           0.7       0.3X
+cast(l AS float), windowed                                    0              0           0       3011.8           0.3       0.6X
+cast(l AS float), scalar lanes                                0              0           0       1126.3           0.9       0.2X
+cast(l AS double), a scalar loop                              0              0           0       2258.9           0.4       0.4X
+cast(l AS float), a scalar loop                               0              0           0       2268.3           0.4       0.4X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+262144 rows - every arm in L3:                    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       4452.2           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0       2671.3           0.4       0.6X
+cast(l AS double), the bounded magic                          0              0           0       4548.9           0.2       1.0X
+cast(l AS float), round to odd                                0              0           0       1600.0           0.6       0.4X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       1319.6           0.8       0.3X
+cast(l AS float), windowed                                    0              0           0       2982.8           0.3       0.7X
+cast(l AS float), scalar lanes                                0              0           0       1116.8           0.9       0.3X
+cast(l AS double), a scalar loop                              0              0           0       2236.2           0.4       0.5X
+cast(l AS float), a scalar loop                               0              0           0       2264.2           0.4       0.5X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+8388608 rows - every arm past L3:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              5              5           0       1616.5           0.6       1.0X
+cast(l AS double), 343b1's split                              5              6           0       1536.6           0.7       1.0X
+cast(l AS double), the bounded magic                          5              5           0       1598.6           0.6       1.0X
+cast(l AS float), round to odd                                6              6           0       1460.0           0.7       0.9X
+cast(l AS float), round to odd by 343b1's shifts              7              7           0       1234.0           0.8       0.8X
+cast(l AS float), windowed                                    4              4           0       2028.2           0.5       1.3X
+cast(l AS float), scalar lanes                                8              8           0       1061.8           0.9       0.7X
+cast(l AS double), a scalar loop                              6              6           0       1387.0           0.7       0.9X
+cast(l AS float), a scalar loop                               4              5           0       1864.2           0.5       1.2X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+16384 rows - in L2, every value past 2^51:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       5293.7           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0       2984.3           0.3       0.6X
+cast(l AS float), round to odd                                0              0           0       1617.5           0.6       0.3X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       1334.0           0.7       0.3X
+cast(l AS float), windowed                                    0              0           0       1217.7           0.8       0.2X
+cast(l AS float), scalar lanes                                0              0           0       1220.4           0.8       0.2X
+cast(l AS double), a scalar loop                              0              0           0       2707.2           0.4       0.5X
+cast(l AS float), a scalar loop                               0              0           0       2268.3           0.4       0.4X
+
+
+
+=== run 45125949427
+benchmark:   *.VarkaWideConversionBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/vecbricks/varka/actions/runs/45125949427
+commit:      241125b2f37 (master of vecbricks/varka)
+date:        2026-11-23T09:09:18Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=-XX:MaxVectorSize=16
+jdk:         OpenJDK Runtime Environment Zulu25.38+201-CA (build 25.0.5.1+2-LTS)
+kernel:      7.0.0-1020-azure
+cpu:         AMD EPYC 7763 64-Core Processor
+datapath:    45.0 / 90.4 / 90.4 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.01 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)
+================================================================================================
+a bigint cast to double and float by the AVX2 forms
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+16384 rows - every arm in L2:                     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       3540.2           0.3       1.0X
+cast(l AS double), 343b1's split                              0              0           0       1496.3           0.7       0.4X
+cast(l AS double), the bounded magic                          0              0           0         40.1          24.9       0.0X
+cast(l AS float), round to odd                                0              0           0        846.5           1.2       0.2X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0        725.5           1.4       0.2X
+cast(l AS float), windowed                                    0              0           0       1869.0           0.5       0.5X
+cast(l AS float), scalar lanes                                0              0           0       1665.4           0.6       0.5X
+cast(l AS double), a scalar loop                              0              0           0       2243.5           0.4       0.6X
+cast(l AS float), a scalar loop                               0              0           0       2277.5           0.4       0.6X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+262144 rows - every arm in L3:                    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       3032.2           0.3       1.0X
+cast(l AS double), 343b1's split                              0              0           0       1553.1           0.6       0.5X
+cast(l AS double), the bounded magic                          7              7           0         39.2          25.5       0.0X
+cast(l AS float), round to odd                                0              0           0        844.8           1.2       0.3X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0        724.7           1.4       0.2X
+cast(l AS float), windowed                                    0              0           0       1870.3           0.5       0.6X
+cast(l AS float), scalar lanes                                0              0           0       1666.4           0.6       0.5X
+cast(l AS double), a scalar loop                              0              0           0       2034.5           0.5       0.7X
+cast(l AS float), a scalar loop                               0              0           0       2264.0           0.4       0.7X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+8388608 rows - every arm past L3:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              5              6           0       1565.2           0.6       1.0X
+cast(l AS double), 343b1's split                              7              7           0       1225.3           0.8       0.8X
+cast(l AS double), the bounded magic                        219            220           2         38.4          26.1       0.0X
+cast(l AS float), round to odd                               10             11           1        808.2           1.2       0.5X
+cast(l AS float), round to odd by 343b1's shifts             12             12           0        691.0           1.4       0.4X
+cast(l AS float), windowed                                    6              6           0       1508.6           0.7       1.0X
+cast(l AS float), scalar lanes                                6              6           1       1461.6           0.7       0.9X
+cast(l AS double), a scalar loop                              7              7           0       1226.5           0.8       0.8X
+cast(l AS float), a scalar loop                               5              5           0       1682.1           0.6       1.1X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+16384 rows - in L2, every value past 2^51:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       3554.8           0.3       1.0X
+cast(l AS double), 343b1's split                              0              0           0       1684.2           0.6       0.5X
+cast(l AS float), round to odd                                0              0           0        846.5           1.2       0.2X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0        726.2           1.4       0.2X
+cast(l AS float), windowed                                    0              0           0        682.8           1.5       0.2X
+cast(l AS float), scalar lanes                                0              0           0       1663.7           0.6       0.5X
+cast(l AS double), a scalar loop                              0              0           0       2575.3           0.4       0.7X
+cast(l AS float), a scalar loop                               0              0           0       2277.8           0.4       0.6X
+
+
+
+=== run 45125966020
+benchmark:   *.VarkaWideConversionBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/vecbricks/varka/actions/runs/45125966020
+commit:      241125b2f37 (master of vecbricks/varka)
+date:        2026-11-23T07:00:19Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=-XX:MaxVectorSize=16
+jdk:         OpenJDK Runtime Environment Zulu25.38+201-CA (build 25.0.5.1+2-LTS)
+kernel:      7.0.0-1020-azure
+cpu:         AMD EPYC 7763 64-Core Processor
+datapath:    45.1 / 90.5 / 90.3 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.01 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)
+================================================================================================
+a bigint cast to double and float by the AVX2 forms
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+16384 rows - every arm in L2:                     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       3436.2           0.3       1.0X
+cast(l AS double), 343b1's split                              0              0           0       1478.7           0.7       0.4X
+cast(l AS double), the bounded magic                          0              0           0         40.2          24.9       0.0X
+cast(l AS float), round to odd                                0              0           0        845.1           1.2       0.2X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0        725.9           1.4       0.2X
+cast(l AS float), windowed                                    0              0           0       1871.0           0.5       0.5X
+cast(l AS float), scalar lanes                                0              0           0       1663.7           0.6       0.5X
+cast(l AS double), a scalar loop                              0              0           0       2219.2           0.5       0.6X
+cast(l AS float), a scalar loop                               0              0           0       2274.6           0.4       0.7X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+262144 rows - every arm in L3:                    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       2985.9           0.3       1.0X
+cast(l AS double), 343b1's split                              0              0           0       1493.6           0.7       0.5X
+cast(l AS double), the bounded magic                          7              7           0         39.1          25.6       0.0X
+cast(l AS float), round to odd                                0              0           0        845.5           1.2       0.3X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0        724.9           1.4       0.2X
+cast(l AS float), windowed                                    0              0           0       1870.3           0.5       0.6X
+cast(l AS float), scalar lanes                                0              0           0       1665.0           0.6       0.6X
+cast(l AS double), a scalar loop                              0              0           0       2046.3           0.5       0.7X
+cast(l AS float), a scalar loop                               0              0           0       2264.6           0.4       0.8X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+8388608 rows - every arm past L3:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              5              5           0       1629.1           0.6       1.0X
+cast(l AS double), 343b1's split                              7              7           0       1262.5           0.8       0.8X
+cast(l AS double), the bounded magic                        219            219           1         38.3          26.1       0.0X
+cast(l AS float), round to odd                               10             10           0        812.8           1.2       0.5X
+cast(l AS float), round to odd by 343b1's shifts             12             12           0        695.3           1.4       0.4X
+cast(l AS float), windowed                                    5              5           0       1680.7           0.6       1.0X
+cast(l AS float), scalar lanes                                5              6           0       1526.9           0.7       0.9X
+cast(l AS double), a scalar loop                              6              6           0       1406.5           0.7       0.9X
+cast(l AS float), a scalar loop                               4              5           0       1888.8           0.5       1.2X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+16384 rows - in L2, every value past 2^51:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       3464.6           0.3       1.0X
+cast(l AS double), 343b1's split                              0              0           0       1672.2           0.6       0.5X
+cast(l AS float), round to odd                                0              0           0        844.7           1.2       0.2X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0        725.5           1.4       0.2X
+cast(l AS float), windowed                                    0              0           0        683.1           1.5       0.2X
+cast(l AS float), scalar lanes                                0              0           0       1665.2           0.6       0.5X
+cast(l AS double), a scalar loop                              0              0           0       2474.2           0.4       0.7X
+cast(l AS float), a scalar loop                               0              0           0       2274.6           0.4       0.7X
+
+
+
+=== run 45125982176
+benchmark:   *.VarkaWideConversionBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/vecbricks/varka/actions/runs/45125982176
+commit:      241125b2f37 (master of vecbricks/varka)
+date:        2026-11-23T06:57:25Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=<none>
+jdk:         OpenJDK Runtime Environment Zulu25.38+201-CA (build 25.0.5.1+2-LTS)
+kernel:      7.0.0-1020-azure
+cpu:         AMD EPYC 9V74 80-Core Processor
+datapath:    56.4 / 112.9 / 102.7 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.00 (control), 512:256 = 0.91 (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)
+================================================================================================
+a bigint cast to double and float by the AVX2 forms
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 9V74 80-Core Processor
+16384 rows - every arm in L2:                     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       6367.7           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0       6316.1           0.2       1.0X
+cast(l AS double), the bounded magic                          0              0           0       3804.9           0.3       0.6X
+cast(l AS float), round to odd                                0              0           0       2357.4           0.4       0.4X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       2320.4           0.4       0.4X
+cast(l AS float), windowed                                    0              0           0       4131.1           0.2       0.6X
+cast(l AS float), scalar lanes                                0              0           0       1018.0           1.0       0.2X
+cast(l AS double), a scalar loop                              0              0           0       2548.5           0.4       0.4X
+cast(l AS float), a scalar loop                               0              0           0       2584.6           0.4       0.4X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 9V74 80-Core Processor
+262144 rows - every arm in L3:                    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       5630.2           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0       5508.3           0.2       1.0X
+cast(l AS double), the bounded magic                          0              0           0       3366.2           0.3       0.6X
+cast(l AS float), round to odd                                0              0           0       2328.5           0.4       0.4X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       2313.3           0.4       0.4X
+cast(l AS float), windowed                                    0              0           0       3996.2           0.3       0.7X
+cast(l AS float), scalar lanes                                0              0           0       1009.5           1.0       0.2X
+cast(l AS double), a scalar loop                              0              0           0       2208.9           0.5       0.4X
+cast(l AS float), a scalar loop                               0              0           0       2592.1           0.4       0.5X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 9V74 80-Core Processor
+8388608 rows - every arm past L3:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              4              4           0       2249.2           0.4       1.0X
+cast(l AS double), 343b1's split                              4              4           0       2253.3           0.4       1.0X
+cast(l AS double), the bounded magic                          5              6           0       1585.3           0.6       0.7X
+cast(l AS float), round to odd                                4              4           0       2160.2           0.5       1.0X
+cast(l AS float), round to odd by 343b1's shifts              4              4           0       2163.3           0.5       1.0X
+cast(l AS float), windowed                                    3              3           0       2835.6           0.4       1.3X
+cast(l AS float), scalar lanes                                9              9           0        978.3           1.0       0.4X
+cast(l AS double), a scalar loop                              4              4           0       2114.0           0.5       0.9X
+cast(l AS float), a scalar loop                               3              4           0       2398.3           0.4       1.1X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 9V74 80-Core Processor
+16384 rows - in L2, every value past 2^51:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       6390.0           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0       6267.8           0.2       1.0X
+cast(l AS float), round to odd                                0              0           0       2360.5           0.4       0.4X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       2323.6           0.4       0.4X
+cast(l AS float), windowed                                    0              0           0       1825.9           0.5       0.3X
+cast(l AS float), scalar lanes                                0              0           0       1018.7           1.0       0.2X
+cast(l AS double), a scalar loop                              0              0           0       2479.0           0.4       0.4X
+cast(l AS float), a scalar loop                               0              0           0       2584.6           0.4       0.4X
+
+
+
+=== run 45125998303
+benchmark:   *.VarkaWideConversionBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/vecbricks/varka/actions/runs/45125998303
+commit:      241125b2f37 (master of vecbricks/varka)
+date:        2026-11-23T06:59:04Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=-XX:MaxVectorSize=16
+jdk:         OpenJDK Runtime Environment Zulu25.38+201-CA (build 25.0.5.1+2-LTS)
+kernel:      7.0.0-1020-azure
+cpu:         AMD EPYC 9V74 80-Core Processor
+datapath:    56.3 / 112.7 / 102.7 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.00 (control), 512:256 = 0.91 (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)
+================================================================================================
+a bigint cast to double and float by the AVX2 forms
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 9V74 80-Core Processor
+16384 rows - every arm in L2:                     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       4519.7           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0       3701.8           0.3       0.8X
+cast(l AS double), the bounded magic                          0              0           0         46.0          21.7       0.0X
+cast(l AS float), round to odd                                0              0           0       1136.8           0.9       0.3X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       1184.6           0.8       0.3X
+cast(l AS float), windowed                                    0              0           0       2190.1           0.5       0.5X
+cast(l AS float), scalar lanes                                0              0           0       2105.6           0.5       0.5X
+cast(l AS double), a scalar loop                              0              0           0       2568.4           0.4       0.6X
+cast(l AS float), a scalar loop                               0              0           0       2588.7           0.4       0.6X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 9V74 80-Core Processor
+262144 rows - every arm in L3:                    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       4082.2           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0       3188.2           0.3       0.8X
+cast(l AS double), the bounded magic                          6              6           1         44.7          22.4       0.0X
+cast(l AS float), round to odd                                0              0           0       1137.4           0.9       0.3X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       1184.3           0.8       0.3X
+cast(l AS float), windowed                                    0              0           0       2196.4           0.5       0.5X
+cast(l AS float), scalar lanes                                0              0           0       2107.0           0.5       0.5X
+cast(l AS double), a scalar loop                              0              0           0       2167.1           0.5       0.5X
+cast(l AS float), a scalar loop                               0              0           0       2586.7           0.4       0.6X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 9V74 80-Core Processor
+8388608 rows - every arm past L3:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              4              5           1       2074.5           0.5       1.0X
+cast(l AS double), 343b1's split                              5              6           0       1670.6           0.6       0.8X
+cast(l AS double), the bounded magic                        192            198          10         43.6          22.9       0.0X
+cast(l AS float), round to odd                                8              8           0       1099.0           0.9       0.5X
+cast(l AS float), round to odd by 343b1's shifts              7              8           0       1132.3           0.9       0.5X
+cast(l AS float), windowed                                    5              5           0       1840.7           0.5       0.9X
+cast(l AS float), scalar lanes                                5              6           0       1726.7           0.6       0.8X
+cast(l AS double), a scalar loop                              4              6           2       2061.2           0.5       1.0X
+cast(l AS float), a scalar loop                               5              6           0       1747.8           0.6       0.8X
+
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 9V74 80-Core Processor
+16384 rows - in L2, every value past 2^51:        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       4519.7           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0       3701.8           0.3       0.8X
+cast(l AS float), round to odd                                0              0           0       1136.8           0.9       0.3X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       1183.7           0.8       0.3X
+cast(l AS float), windowed                                    0              0           0        885.2           1.1       0.2X
+cast(l AS float), scalar lanes                                0              0           0       2108.4           0.5       0.5X
+cast(l AS double), a scalar loop                              0              0           0       2490.0           0.4       0.6X
+cast(l AS float), a scalar loop                               0              0           0       2588.3           0.4       0.6X
+
+
+

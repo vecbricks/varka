@@ -1,0 +1,72 @@
+================================================================================================
+exp(x): StrictMath per row, vfdlibm 0.2.0 and Varka's port
+================================================================================================
+
+2 doubles a vector (128-bit) for the Varka kernel and vfdlibm alike; vfdlibm from vfdlibm-0.2.0.jar, its bodies inlined by -XX:CompileCommand=inline,io.github.vecbricks.vfdlibm.*::*
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+exp, ordinary x in [-10, 10), 256 passes over 16384 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------
+StrictMath.exp, one call per row                                     60             61           2         69.3          14.4       1.0X
+vfdlibm 0.2.0 VFdlibm.exp, one call per vector                      467            469           3          9.0         111.3       0.1X
+Varka kernel, the port inline                                       971            973           4          4.3         231.4       0.1X
+
+allocated in one pass, exp, ordinary x in [-10, 10): StrictMath 0 B, vfdlibm 9240576 B, Varka kernel 20251936 B
+tier of the exp kernel, ordinary x in [-10, 10): settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=4, loopDense0=4, run=3, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+exp, one row in 64 special, 256 passes over 16384 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------
+StrictMath.exp, one call per row                                   61             62           3         68.5          14.6       1.0X
+vfdlibm 0.2.0 VFdlibm.exp, one call per vector                    466            470           4          9.0         111.1       0.1X
+Varka kernel, the port inline                                     978            982           4          4.3         233.1       0.1X
+
+allocated in one pass, exp, one row in 64 special: StrictMath 0 B, vfdlibm 9250704 B, Varka kernel 20251936 B
+tier of the exp kernel, one row in 64 special: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=4, loopDense0=4, run=3, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+exp, every row special, 256 passes over 16384 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------
+StrictMath.exp, one call per row                               92             94           1         45.4          22.0       1.0X
+vfdlibm 0.2.0 VFdlibm.exp, one call per vector                575            576           1          7.3         137.2       0.2X
+Varka kernel, the port inline                                1088           1090           2          3.9         259.5       0.1X
+
+allocated in one pass, exp, every row special: StrictMath 0 B, vfdlibm 9862656 B, Varka kernel 20251936 B
+tier of the exp kernel, every row special: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=4, loopDense0=4, run=3, runDense=3}
+
+================================================================================================
+expm1(x): StrictMath per row, vfdlibm 0.2.0 and Varka's port
+================================================================================================
+
+2 doubles a vector (128-bit) for the Varka kernel and vfdlibm alike; vfdlibm from vfdlibm-0.2.0.jar, its bodies inlined by -XX:CompileCommand=inline,io.github.vecbricks.vfdlibm.*::*
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+expm1, ordinary x in [-10, 10), 256 passes over 16384 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------
+StrictMath.expm1, one call per row                                     84             84           0         50.2          19.9       1.0X
+vfdlibm 0.2.0 VFdlibm.expm1, one call per vector                     1582           1587           3          2.7         377.1       0.1X
+Varka kernel, the port inline                                        2107           2110           2          2.0         502.4       0.0X
+
+allocated in one pass, expm1, ordinary x in [-10, 10): StrictMath 0 B, vfdlibm 28246016 B, Varka kernel 39846560 B
+tier of the expm1 kernel, ordinary x in [-10, 10): settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=4, loopDense0=4, run=3, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+expm1, one row in 64 special, 256 passes over 16384 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------
+StrictMath.expm1, one call per row                                   83             84           1         50.3          19.9       1.0X
+vfdlibm 0.2.0 VFdlibm.expm1, one call per vector                   1596           1607          11          2.6         380.5       0.1X
+Varka kernel, the port inline                                      2101           2116          20          2.0         500.9       0.0X
+
+allocated in one pass, expm1, one row in 64 special: StrictMath 0 B, vfdlibm 28563720 B, Varka kernel 39846560 B
+tier of the expm1 kernel, one row in 64 special: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=4, loopDense0=4, run=3, runDense=3}
+OpenJDK 64-Bit Server VM 25.0.5.1+2-LTS on Linux 7.0.0-1020-azure
+AMD EPYC 7763 64-Core Processor
+expm1, every row special, 256 passes over 16384 rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------
+StrictMath.expm1, one call per row                               60             61           1         70.1          14.3       1.0X
+vfdlibm 0.2.0 VFdlibm.expm1, one call per vector               2192           2208          21          1.9         522.5       0.0X
+Varka kernel, the port inline                                  2145           2155           8          2.0         511.3       0.0X
+
+allocated in one pass, expm1, every row special: StrictMath 0 B, vfdlibm 38141952 B, Varka kernel 39846560 B
+tier of the expm1 kernel, every row special: settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=4, loopDense0=4, run=3, runDense=3}
+
