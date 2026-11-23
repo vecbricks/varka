@@ -47,9 +47,10 @@ The checks, one per line of the row:
     unchecked rather than reported;
   * state: a row of the default plan whose work has a commit in the branch's
     history - a `[VARKA-<n>]` subject that does not plan the row or file it -
-    opens with its state in bold, `**Done**`, `**Done in part**` or
-    `**Started**`, so a count of the milestone can tell finished rows from part
-    done ones; a started row says in its text what is left.
+    opens with its state in bold, `**Done**`, `**Done in part**`,
+    `**Started**`, `**Withdrawn**` or `**Moved to milestone <n>**`, so a count of
+    the milestone can tell finished rows from part done ones and from rows that
+    left it; a started row says in its text what is left.
 
 The default file is `sql/varka/plans/m8/PLAN.md`; the other milestone plans are
 read for the row numbers a citation may name. The exit status is the number of
@@ -81,7 +82,7 @@ WORK_SUBJECT = re.compile(r"^\[VARKA-(\d+)[a-z]?\] (.*)$")
 NOT_WORK = re.compile(
     r"^(?:Plan\b|Re-?plan\b|Rework the plan\b|Add (?:\w+ )?(?:plan )?rows?\b|File \w+ rows?\b)"
 )
-STATES = ("**Done**", "**Done in part**", "**Started**")
+STATE = re.compile(r"\*\*(?:Done|Done in part|Started|Withdrawn|Moved to milestone \d+)\*\*")
 
 
 def work_commits():
@@ -238,10 +239,11 @@ def main():
                 )
         for rid, entries in rows.items():
             for line, body, provenance, _ in entries:
-                if plan == DEFAULT_PLAN and rid in work and not body.startswith(STATES):
+                if plan == DEFAULT_PLAN and rid in work and not STATE.match(body):
                     findings.append(
                         f"{plan}:{line}: row {rid} has merged work ({work[rid][0]!r}) and does "
-                        f"not open with its state, **Done**, **Done in part** or **Started**"
+                        f"not open with its state, **Done**, **Done in part**, **Started**, "
+                        f"**Withdrawn** or **Moved to milestone <n>**"
                     )
                 if not provenance.strip():
                     findings.append(f"{plan}:{line}: row {rid} has an empty provenance cell")

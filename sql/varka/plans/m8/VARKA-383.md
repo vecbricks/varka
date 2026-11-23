@@ -330,7 +330,8 @@ uploads the directory; a `kernel-history-report` job merges the shards' logs and
   projection, `date_add(d, 3)`, `add_months(d, 2)`, `last_day(d)` over one date column with every
   seventeenth row null, compiled through `VarkaExpressionCompiler`, instead of the cheap tails.
   Its verdict is printed and counted; its answers are compared as the others are.
-* Runners have four vCPUs: every dispatch passes `--jvms 1 --cpus 4`.
+* Runners have four vCPUs: every dispatch passes `--jvms 1 --cpus 4` (the workflow now puts
+  `--jvms 1 --cpus $(nproc)` first, 9.7).
 
 **The cases.**
 
@@ -804,3 +805,204 @@ candidates of 9.3: a counted `for` over a constant lane count, or `loopBound` ta
 final); (2) the flag's cost on the pairs, read beside it only if a shape is not found; (3) R1 and R2
 on runners stay gated on the owner's go-ahead, and now also need only the unflagged long lane and
 the shape's effect. Arm A (conversions `L2D`, `D2L`) stays unbuilt. The row is not Done.
+
+### 9.5 The mechanism in HotSpot's source, and the arm built (20 November 2026)
+
+Built on master `0b8be5a33e4` while the owner was away, with the laptop shared by other agents'
+JVMs (one-minute load 24 to 68 on 24 threads), so nothing here is an idle-machine reading. Raw
+readings, commands and loads: `results/VARKA-383-loop-nest-readings.txt`. Row 605's readings
+(branch `varka-605-nullif-ntz-sanitizer`, `80dae7d38bb`, its `results/VARKA-605-readings.txt`)
+came first: the compiled-test suite's unsettled long-lane rows trap at the back-edge `goto` of
+`loopMasked0` in the same cycle, sanitized or not, a row alone traps once or twice at the loop
+head and settles, and `-XX:-UseProfiledLoopPredicate` settles all of them.
+
+**Where 9.3's two candidates stand: both are what the emitter already writes.** The bound is
+computed once into a local before the loop (`VarkaBodyEmitter.emitSpecies`, `istore
+s.loopBound`) and the step is the bytecode constant in a local (`lanes`); nothing in the loop
+stores either (checked: every `istore` of `s.loopBound` and `s.lanes` is before the loop or in an
+epilogue), and C2 has no notion of a Java `final`. So neither shape is a change, and 9.3 was
+wrong to propose them.
+
+**Why the trap lands on the back edge, read in HotSpot's source** (`jdk-25-ga`,
+`src/hotspot/share/opto`). C2 adds a loop's Parse Predicates at parse time under the loop head's
+state (`parse1.cpp`, `add_parse_predicates` at `block->start()`, or after a dominating `if`), and
+`GraphKit::add_parse_predicate` skips one whose reason has trapped at that bytecode
+(`too_many_traps(reason)` reads the per-bytecode trap history first). That is the head trap row
+605 sees once or twice: recorded at the head's bci, then no more. The one path that builds
+predicates under a back edge's state is `PhaseIdealLoop::create_loop_nest` (`loopnode.cpp`
+1080 to 1135): for an `int` counted loop it runs only when the body holds `long` range checks
+in terms of the induction variable ("The only purpose of creating a loop nest is to handle long
+range checks"), which every `MemorySegment` access of an Arrow buffer is; it peels one iteration,
+wraps the loop in an outer one, and adds the inner loop's Parse Predicates, `Profiled_Loop` among
+them, under the peeled iteration's safepoint, the back-edge `goto`. Its
+`PhaseIdealLoop::add_parse_predicate` checks only `C->too_many_traps(reason)`, the compile-wide
+count against `PerMethodTrapLimit` (100), and the comment beside the auto-vectorization check in
+the same function says so ("PhaseIdealLoop::add_parse_predicate only checks trap limits per
+method"). That count is the sum of the reason's trap counts in the method data of the compiled
+method and of every method it inlines (`Compile::too_many_traps`, `compile.cpp`; the sum is taken
+in `parse1.cpp` as each method is parsed). So a profiled predicate of the nest that fails is
+rebuilt by every recompile until that sum reaches a hundred: at one trap a compile, about one a
+second (row 605's R3: 52 in 60 s), that is longer than the warm-up's 30 s and 60 s deadlines, and
+raising the limits, as R3 of 9.2 did, makes it endless rather than shorter. This fits every
+reading so far: the back-edge bci, the cycle untouched by raised limits (9.2), one trap per
+compile id (45 traps in 42 compiles in the product replay A), the flag clearing it (9.3, 9.4,
+605's R4), and a row alone settling (no profile in the shared templates for a predicate to fail
+on). What the source does not say is which hoisted check fails: `TraceLoopPredicate` exists only
+in a debug JVM, and the fastdebug replay (B) compiled every draw clean, so the failing check is
+not read; the fix below does not need it, since it removes the nest rather than one predicate.
+
+**The nest, seen.** The fastdebug JVM's `-XX:+TraceLoopOpts` on the kernel under test (C, its
+masked loop): at the defaults `Counted Loop ... [0,int),+16`, a `Peel`, then a counted loop
+`[16,int)` inside a new outer loop with `limit_check profile_predicated predicated` - the nest;
+under the arm below, one non-counted loop with its head's predicates and no peel and no nest.
+Draw 15's own compile in the fastdebug run (B) shows the same nest.
+
+**The arm built: `uncountedMainLoop`** (an emit option, default off). The main lane-group loop
+steps by `lanes * VarkaLoopStride.one()`, a private non-final static read through a getter, which
+C2 inlines but does not fold (the pattern of `VarkaMaskGuard.ones`), instead of the constant; C2 counts a loop only when its step is a constant
+(`is_counted_loop`), so the loop is not counted, `create_loop_nest` never applies (it starts with
+`is_BaseCountedLoop`), and no predicate is built under the back edge. The epilogue loop of a
+mixed or narrow-group kernel, at most a few passes but over the same Arrow accesses, steps the
+same way (the PR's review found it counted); the epilogue of any other kernel has no back edge. Every answer is
+the same, so it is a `REFERENCE` option the fuzzer and the matrix draw, and it is in
+`VarkaMatrixRuns.C2_OPTIONS`, so the `C2Code` tests run under it. What it costs: the `long` range
+checks stay in the loop, one compare and branch per access per iteration, and the loop is neither
+unrolled nor strip-mined. The probe emits under `VarkaMatrixRuns.BASE` now, so a history reading
+selects the arm with `--jvm -Dvarka.matrix.config=uncountedMainLoop=true`.
+
+**What could not be read in this window.** The product replay A released draws 15 and 19 again
+(the same two classes, 45 and 32 back-edge traps), but three later replays of the same history
+under the same load, two with this branch's classes, released nothing at all, and the four-JVM
+pairs D2 (arm and control at two seeds, 33 kernels each) released nothing and trapped at no back
+edge in either arm. Under this load the replay does not discriminate, so the arm's effect on the
+releases is not shown; the arm's effect on the loop's shape is (C). The kernel under test's rate
+read slower under the arm in all three pairs (E: 2, 17 and 75 % at the minimum, on loaded shared
+cores), a direction that makes the pairs a condition of any default flip.
+
+**The arm on row 605's reproducer, the one that reproduces under load** (reading F, after the
+section above was written; arm and control side by side on four cores each, load 63 to 75).
+Row 605's compiled test at seed 20261111 on this branch's classes: the control trapped 46 times
+at loop back edges (row 605's classes and bytecodes: `wfuzz47` 362, `wfuzz23` 412, ...) and left
+`try_subtract(l, l2)` (both histories) and `if(x IS NULL, x2, NULL)` unsettled with
+`loopMasked0=0`; the arm trapped **0 times at a back edge** (8 at loop heads, at most 4 a
+bytecode), and both rows settled in both histories (long lane 7/8 and 7/8 against 5/8 and 6/8).
+The one long row left unsettled in each JVM, `timestampadd(MONTH, l, ntz)`, had no
+`profile_predicate` trap and loops not yet compiled at that load, in both. One run each; it is
+the first product-JVM reading of the arm's effect, and it is the effect 9.5 predicted.
+
+**Predictions, registered before the readings they name.**
+
+1. The 144-draw reading of 9.1 (`--after 64 --forks 6 --widths 64,32 --prewarm on`) with the arm,
+   on an idle laptop or a runner, releases under 3 of 144 long kernels past position 15 at each
+   width, as the flag did (9.4: 0 and 0), because both remove the nest's profiled predicate; the
+   int lane at 256 bits under 3 of 144 too (9.4's flag took its 43 to 0).
+2. The arm costs the pairs something: its median pair rate is between 0 and 10 % slower than the
+   defaults on cache-resident shapes and within the band on memory-bound ones, and at least one
+   pair family of many outputs (the cheap tails) is more than 5 % slower. If the median is over
+   10 %, the arm stays a reference, and the next shape is a counted loop whose Arrow offsets are
+   not an affine function of the induction variable (no nest, the loop still unrolled), measured
+   against it.
+3. `VarkaUncountedMainLoopSuite` passes: only the main loops read the stride and every answer is
+   the reference's. **Scored the same day: holds** (2 of 2 on the laptop, 12 s, after two fixes
+   of the suite's own shapes: a checked long multiply has no lowering, and a null-on-overflow
+   kernel has a masked loop only, so the suite asks for one loop method, not two).
+
+**What the row asks next.** (1) The 144-draw reading of prediction 1 on an idle machine, arm and
+defaults side by side (about 55 minutes for the defaults at both widths and 4 for the arm,
+judged by 9.1 and 9.4); (2) the pairs of prediction 2, on a runner or the idle laptop; (3) the
+runner tooling of 3.1 for R1 and R2, which now read the arm against the defaults rather than the
+prewarm; (4) the flip of the default by those readings, then `emitted_bytes.json` and the
+`option_arms` regenerated; (5) step 1 of section 0, the CI count (below). Arm A (conversions
+`L2D`, `D2L`) stays unbuilt: its premise was refuted in 9.2, and this mechanism is not the
+prewarm's. The row is not Done.
+
+### 9.7 The runner tooling of 3.1, built (20 November 2026)
+
+Section 0 step 3 builds `benchmark.yml`'s history mode once the laptop's reading admits half (a),
+which 9.1 did; built here, not dispatched (no dispatch in this window). What exists now:
+
+* `dev/varka_kernel_history.sh --fork-base B`: a shard's forks are `B` to `B + --forks - 1`, their
+  seeds `--seed + B + f` and their log names included, so shards merge into one run. With the
+  default 0 nothing changes for the nightly or a laptop reading.
+* `benchmark.yml`: inputs `history` (the launcher's arguments) and `history-bits` (`256`, `512` or
+  blank). With `history` set, the TPC-DS, benchmark and pair jobs are skipped; a `kernel-history`
+  job per split checks C2's `MaxVectorSize` against `history-bits` before the build and fails on
+  another machine (a rerun of the failed jobs draws another), records the CPU, runs the launcher
+  with `--fork-base (split - 1) * forks` and each word of `extra-java-options` as a `--jvm`, and
+  uploads its logs; `kernel-history-report` merges the shards' logs into one directory and runs
+  `dev/varka_kernel_history.py` over it, with each shard's CPU. `pr` works as for the benchmarks.
+  After the PR's review: `history` must name `--forks` and must not name `--fork-base`; the
+  launcher gets `--jvms 1 --cpus $(nproc)` before `history`'s own words; the width check reads
+  `MaxVectorSize` under `extra-java-options`; the report fails on the shards' `--guard` and
+  `--max-slow`, after writing the summary; and the reader keys a `host` case by the bits its forks
+  printed, so a blank `history-bits` cannot pool a 256-bit and a 512-bit shard.
+* Not built: 3.1's `--prewarm first`, `--cold` and `--test e2e`, which served half (b), answered
+  in section 0; and the nightly's `--max-long-released`, which waits for a runner number.
+
+**The dispatches the row now needs** (owner's go-ahead). A dispatch reads the workflow file from
+the branch it names, and without `--ref` from `master`, where `history` exists only after this
+merges; `pr` changes the code checked out, not the workflow. So they run after the merge, on
+`vecbricks/varka` master with no `pr`, which works because the arm is off by default and is
+selected through `extra-java-options`. The arm against the defaults at each width, three shards
+of two forks each, the history of 9.1:
+
+    gh workflow run benchmark.yml -R vecbricks/varka -f jdk=25 -f generate-tpcds=false \
+      -f num-splits=3 -f history-bits=256 \
+      -f history="--after 64 --forks 2 --prewarm on --jvms 1 --cpus 4"
+    gh workflow run benchmark.yml -R vecbricks/varka -f jdk=25 -f generate-tpcds=false \
+      -f num-splits=3 -f history-bits=256 \
+      -f history="--after 64 --forks 2 --prewarm on --jvms 1 --cpus 4" \
+      -f extra-java-options="-Dvarka.matrix.config=uncountedMainLoop=true"
+
+and the same two with `history-bits=512`. **Cost, predicted** (the calibration table has no
+runner line for the history probe, so 3.1's basis stands: VARKA-257's JIT-bound step at about
+one to one between the laptop and a runner core, 3 min 52 s against 3 minutes): at 9.1's 54
+minutes for 12 forks
+on two laptop JVMs (about 9 minutes a fork with its releases), a defaults shard of two forks is
+about 20 to 40 minutes on a four-vCPU runner plus the catalyst test build (222 to 299 s in
+`sql/varka/ci/step-budget.tsv`), an arm shard 5 to 15 minutes plus the build if prediction 1
+holds (9.4's 4 minutes for 12 forks with the flag); twelve jobs, about four runner hours, and a
+512-bit shard may need reruns until such a machine is drawn.
+
+### 9.8 Section 0 step 1, the CI count: begun, not finished (20 November 2026)
+
+The end-to-end suite does not run in `sql - other tests` as section 0 assumed: in the fork's
+Build it runs in the `Varka suites: sql` jobs (`dev/varka_scoped_suites.sh`), alone and after the
+others, and a failure there is retried in a fresh JVM up to twice with a `Flaky suite retried`
+warning annotation, so a passing job can hide a failure and the count must read the warnings
+too. A first count by per-run REST calls over the fork's 934 Build runs since 18 October used up
+the shared API quota before it finished (its rows are unusable and were not kept as a reading),
+so the count is taken from the committed ledger instead: `sql/varka/matrix/ledger.tsv`
+(`dev/varka_ci_ledger.py`, VARKA-530), written once on 30 October and covering 15 to 29 October,
+holds one failure of the suite, Build run 39148626990 on 18 October, both of its tests, failed in
+all three JVMs; whether that run's commit had row 389 (`568582a9f77`, merged that evening) is not
+read. **Owed**: `dev/varka_ci_ledger.py update --since 2026-10-29` (one GraphQL query a run), then
+the suite's `failed` and `flaked` lines counted against the runs read.
+
+### 9.6 Decisions taken while the owner was away (20 November 2026)
+
+* **The fix is an emit option, default off, and the emitted bytes at the defaults do not move.**
+  Section 3.3 keeps the shipped behaviour as the reference until a runner re-reading flips the
+  default, and 3.4 and 3.5 say no emitted byte changes; the arm keeps that at the defaults and
+  overrides 3.4's "the emitter" bullet for the option's own bytes. Reason: the arm's speed cost is
+  unread and its effect on releases is unread on an idle machine (above), so flipping it now would
+  be a default chosen without either reading.
+* **The option is `REFERENCE` and drawn, not `MACHINE`.** It changes no answer, so the fuzzer and
+  the matrix should exercise it; whether it wins is not known to depend on the host. If the pairs
+  show it does, the reason moves with the reading.
+* **The option is in `C2_OPTIONS`.** It changes what C2 compiles, not only the bytes, and the
+  `C2Code` tests are the ones that read tiers and traps; leaving it out would cancel exactly the
+  tests that can see its effect.
+* **The probe emits under `VarkaMatrixRuns.BASE` instead of `VarkaEmitOptions.DEFAULTS`.** With no
+  configuration they are the same value (`parse("")` returns the defaults), so the nightly's
+  `history` step and every earlier reading are unchanged; with one, a history reading can compare
+  an arm with no new launcher option.
+* **`VarkaLongLaneHistorySuite` of section 5 is not written yet.** Section 5 admits it only once a
+  runner has shown that the replay releases under the shipped code and the fix clears it; this
+  window showed the opposite risk, a replay that does not reproduce under load (D3), so a JIT test
+  on it would flake. It stays owed with that condition.
+* **The runner tooling is on the arm's branch**, where section 8 step 2 wanted it green alone:
+  the two together stay under the size cap, and the tooling is needed to read the arm, so a
+  separate branch would only order two reviews. Split it out if the review asks.
+* **The fastdebug build was used for a diagnosis only**, as `skills/the-jit.md` describes the
+  tree; no reading of a release rests on it, since it does not reproduce one.

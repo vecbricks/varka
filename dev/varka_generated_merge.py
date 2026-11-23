@@ -322,7 +322,14 @@ def merge_json(base_text, ours_text, theirs_text, owed, rules):
 # The leading columns that key a row of each generated TSV: the columns unique in the committed
 # file, which `merge_tsv` checks again on every side of every merge. `casts_fused.tsv` has one
 # row per form pair of a cast, so (from, to) repeats and its key takes the two type columns too.
-TSV_KEYS = {"types.tsv": 1, "census.tsv": 1, "casts.tsv": 2, "casts_fused.tsv": 4}
+# `casts_suites.tsv` has one per suite, form pair and mode, its first six columns.
+TSV_KEYS = {
+    "types.tsv": 1,
+    "census.tsv": 1,
+    "casts.tsv": 2,
+    "casts_fused.tsv": 4,
+    "casts_suites.tsv": 6,
+}
 
 # The rules are keyed by a file's name, but for a file whose name another generated file has:
 # the fuzz descriptor's table (`VarkaFuzzTypesSuite`) is a types.tsv too, keyed by its path.
