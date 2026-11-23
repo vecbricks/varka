@@ -204,12 +204,13 @@ public class VarkaSplitFilterBaselineBenchmark extends VarkaSqlBenchmarkBase {
         VarkaArrowSessions.cache(session, VIEW);
       }
       // Each section fuses as its class lists it at the refusal the Varka session resolves, and
-      // a section that times a kernel serves every batch by it.
+      // a section that times a kernel serves every batch by it. A run with the fuse check lifted
+      // measures a row that changed a section's class, so it checks neither.
       List<Section> sections = sections(
           VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
       for (Section s : sections) {
         requireBaseline(varka, s.title(), s.query(), s.fusion());
-        if (timesKernel(s)) {
+        if (fuseCheck() && timesKernel(s)) {
           requireKernel(varka, s);
         }
       }

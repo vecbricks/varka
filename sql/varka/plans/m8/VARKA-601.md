@@ -232,7 +232,10 @@ Not done in this window (owed, section 8's done-when for 601a): the plan-only dr
    demotes a fused conjunct that can be NULL on a row reaching a raising residual conjunct and
    reorders the per-row fallback's conjuncts. Every `SPLIT` class above was verified at
    `0b8be5a33e4` only. The branch is brought up to master and both suites and the dry run are
-   rerun in the test phase, not here, because this window allowed one targeted run.
+   rerun in the test phase, not here, because this window allowed one targeted run. *23 November
+   2026:* rebased onto `f3b97c0b503`, which also holds #1618 (VARKA-386, the split settled before
+   the order rule reads it again); the residual `hash(i) % 7 <> 0` can raise by
+   `VarkaConjunctOrder.canRaise`, so the classes are re-checked by the suites on the new base.
 
 ## 10. Questions for the owner
 

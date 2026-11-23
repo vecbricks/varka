@@ -365,8 +365,10 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * condition whose own conjuncts are not only null tests.
    */
   private static boolean isSplit(List<SparkPlan> operators) {
-    var rowWork = operators.stream().filter(VarkaSqlBenchmarkBase::computesOnRows).toList();
-    var varkaNodes = operators.stream().filter(VarkaSqlBenchmarkBase::isVarkaNode).toList();
+    List<SparkPlan> rowWork =
+        operators.stream().filter(VarkaSqlBenchmarkBase::computesOnRows).toList();
+    List<SparkPlan> varkaNodes =
+        operators.stream().filter(VarkaSqlBenchmarkBase::isVarkaNode).toList();
     if (rowWork.size() != 1 || varkaNodes.size() != 1
         || !(rowWork.getFirst() instanceof FilterExec residual)
         || !(varkaNodes.getFirst() instanceof VarkaFilterColumnarToRowExec fused)) {
