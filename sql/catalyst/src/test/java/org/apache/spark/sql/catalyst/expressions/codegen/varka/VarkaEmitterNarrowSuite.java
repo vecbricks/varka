@@ -919,8 +919,10 @@ public final class VarkaEmitterNarrowSuite {
               int column = c;
               data[c] = tabulate(len, row -> k.value().applyAsInt(column, row));
             }
-            for (int body = 0; body < 3; body++) {
-              // No nulls, every seventh row null, and the masked body forced over all-valid data.
+            // No nulls, every seventh row null, and the masked body forced over all-valid data,
+            // which a one-row batch cannot take: its forced null count of one is every row, so
+            // the kernel answers it as all null, as `patterns` leaves it out.
+            for (int body = 0; body < (len > 1 ? 3 : 2); body++) {
               IntPredicate pattern = body == 1 ? row -> row % 7 == 3 : row -> false;
               checkValues(k.name() + " at " + lanes + " lanes, " + arm.name() + ", body " + body,
                   List.of(k.root()), k.inputs(), new int[0], len, data, pattern, body == 2,
