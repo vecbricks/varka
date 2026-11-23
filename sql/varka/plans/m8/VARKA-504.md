@@ -287,8 +287,9 @@ The pin passed under the default JVM and was skipped under `-XX:TieredStopAtLeve
 - **Differential** (`VarkaDifferentialSuite`): `checkDifferential` takes an optional
   `expectedQuery` for the row engine, and a test plants a wrong answer (`date_add(d, 8)`
   against `date_add(d, 7)`) on the fused path and on the vanilla one; both must fail on
-  `checkAnswer`. The same test plants row 501's fault: the row engine's plan over the table
-  with its cache dropped, against Varka's cached plan, must fail `sameCacheReads`.
+  `checkAnswer`. `checkDifferential` now also requires both plans to read the same cached
+  tables, and the same test plants row 501's fault: the row engine over the table with its
+  cache dropped, against Varka's cached plan, must fail it.
 - **SPARK-58482 pinned** (`VarkaFloatingLaneSuite`): a cached one-row batch of NaN, filtered by
   `NOT (x < 1.5D)`, keeps its row with the cache's pruning off and loses it with the pruning
   on. If Spark fixes the statistics, the test fails, and the pruning-off workarounds in this
@@ -303,7 +304,8 @@ The pin passed under the default JVM and was skipped under `-XX:TieredStopAtLeve
   `planted.bimorphic`, whose one `lanewise` call site meets the 128-bit and the 64-bit int
   species alternately, so C2 inlines it for both receiver classes and its printer says "callee
   changed to" the second. The suite forks it at the host's width and requires the tell, with the
-  planted fallback's one-species loop as the control. It is assumed away below 256 bits, where
+  same call site at the 128-bit species alone (`planted.one128`) as the control, so the tell
+  reads two species and not one species off the host's width. It is assumed away below 256 bits, where
   one of the two would be the preferred species. It ran at 512 bits and the tell tripped.
 - **The workaround sites name their pins** (the row's last clause): `checkFused` in
   `VarkaFloatingLaneSuite`, both `withFloatingPruningOff`, `VarkaMaybeThrows.sameError`,
@@ -325,13 +327,15 @@ The pin passed under the default JVM and was skipped under `-XX:TieredStopAtLeve
 - Wrong answer, vanilla: the unfused `checkAnswer` alone replaced the same way; the plant
   failed at its unfused `intercept`.
 - Cached against uncached: `sameCacheReads`' comparison of the two plans' cached reads made
-  true; the plant failed at its cache `intercept`.
+  true; the plant failed at its cache `intercept`, before and after the review moved it into
+  `checkDifferential`.
 - Fuzzer pivot: `pivotMissing` made to return `None`; the plant failed, `(None, None)` for the
   expected `(None, Some("pivot row not selected by Varka"))`.
 - SPARK-58482 pin: the pruned run forced to the pruning off, as if Spark had fixed it; the pin
   failed with its "SPARK-58482 looks fixed" message.
 - Second-species tell: the reading's `bimorphic` forced false, and the plant failed on the
-  bimorphic cell; forced true, and it failed on the control. No other census test failed with
+  bimorphic cell; forced true, and it failed on the control (then the long add at the
+  preferred species; since the review, the one-species 128-bit loop). No other census test failed with
   it forced false, as the census asserts only the tell's absence.
 - Census count: `--check` over a build with every in-scope entry dropped (a Python scratch
   patch) failed with "no entry is in scope".
@@ -359,3 +363,20 @@ its weakened check. P2 holds on one check: the Spark fuzzer's main test passed w
 compared, and its first count read the suite's totals, which other tests also raise. P3 holds:
 each sql plant took under 10 s, and the census's planted fork, with its control,
 is the costliest at two JVM starts.
+
+### 10.4 Review of part 2 (23 November 2026)
+
+`/code-review high` on the branch found two important findings and three nits; four are fixed.
+
+- **Important.** The cache plant called `sameCacheReads` directly, and `checkDifferential`
+  never called it, so a comparison of an uncached row-engine plan with Varka's cached one
+  passed. `checkDifferential` now calls it, and the plant goes through `checkDifferential`.
+  `VarkaDifferentialSuite` passed whole with it: 34 tests.
+- **Important.** The census plant's control ran the preferred species, so it did not show that
+  one non-preferred species alone leaves the tell quiet. The control is now that loop,
+  `planted.one128`; it stayed quiet at 512 bits and the plant passed.
+- The fuzzer's count assertion moved after the run's diagnostics, so a failing run still logs
+  why.
+- Left, and named in the tests: the fuzzer plant does not go through `checkOnce` (above), and the
+  fused path's warm-cache rerun comparison has no plant of its own, since the first comparison
+  fails first.
