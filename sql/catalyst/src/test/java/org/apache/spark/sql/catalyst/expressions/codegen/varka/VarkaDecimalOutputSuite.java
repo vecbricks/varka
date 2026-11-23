@@ -204,8 +204,8 @@ public final class VarkaDecimalOutputSuite {
   }
 
   @Test
-  @DisplayName("an output whose type passes 18 digits declines naming row 359, before its value "
-      + "is compiled")
+  @DisplayName("an output whose type passes 18 digits is the lane pair's: where the pair has no "
+      + "form of its value yet, it declines naming that form's row, 359's rescale or 360's sum")
   void wideOutputDeclines() {
     var wide = new DecimalType(18, 0);
     for (Shape s : List.of(new Shape("coalesce(a, b)", wide, D18),
@@ -214,7 +214,9 @@ public final class VarkaDecimalOutputSuite {
       Expression e = VarkaSqlResolve.parse(s.sql(), seq(columns));
       assertTrue(((DecimalType) e.dataType()).precision() > 18, () -> s + ": " + e.dataType());
       String reason = decline(e, columns);
-      assertTrue(reason.contains("359"), () -> s + ": " + reason);
+      // The pair builds no rescale up (row 359's comparison form widens only at one scale) and
+      // no sum past 18 digits (row 360), so each shape declines naming its value's row.
+      assertTrue(reason.matches("(?s).*\\b(359|360)\\b.*"), () -> s + ": " + reason);
     }
   }
 

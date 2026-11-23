@@ -452,7 +452,10 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       // isnotnull reads only it) or the high one.
       (new IntNeg(Overflow.WRAP, new DecimalWord(0, Word.LOW, 38)), 1, 0, VarkaMatrix.base),
       (new IntNeg(Overflow.WRAP, new DecimalWord(0, Word.HIGH, 38)), 1, 0, VarkaMatrix.base),
-      (new WidenDecimal(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base))
+      (new WidenDecimal(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base),
+      // A 128-bit output stored from its two words (VARKA-359).
+      (new VarkaVectorIR.InterleaveDecimal(new DecimalWord(0, Word.LOW, 38),
+        new DecimalWord(0, Word.HIGH, 38)), 1, 0, VarkaMatrix.base))
     // The calendar nodes whose own tail reads no month, so their prefix elides the month step.
     def elidesMonthStep(n: VarkaVectorIR): Boolean =
       VarkaEmitBudget.isChrono(n) && !VarkaChronoLowering.tailReadsMarchMonth(n)

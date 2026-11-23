@@ -76,14 +76,13 @@ public final class VarkaDecimalConformanceSuite extends VarkaTypeConformance {
 
   /**
    * The operators the census marks fused in part for {@code dec} because the long fuses them and
-   * the pair does not: the values, each a projection's output at this suite's
-   * {@code DECIMAL(30, 4)}, which is row 359's two-word store - the choices, {@code greatest},
-   * {@code least}, the negation and {@code abs} (row 348), and the sums and differences (row 349;
-   * the pair's are row 360's).
+   * the pair does not: the sums and differences as values at this suite's
+   * {@code DECIMAL(30, 4)} (row 349's on the long; the pair's are row 360's). The choices,
+   * {@code greatest}, {@code least}, the negation and {@code abs} fuse as outputs over the pair's
+   * two-word store (VARKA-359).
    */
   @Override
   protected Set<String> declinesInPart() {
-    return Set.of("if", "when", "coalesce", "nullif", "greatest", "negative", "abs", "+", "-",
-        "try_add", "least", "try_subtract");
+    return Set.of("+", "-", "try_add", "try_subtract");
   }
 }

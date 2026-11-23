@@ -243,9 +243,8 @@ final class VarkaTimeCompiler {
           () -> sink.decline(VarkaTypes.declineReason(d).orElse("a " + d.simpleString()
               + " column as a value: "
               + (d.precision() > VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION
-                  ? "its comparisons and null tests fuse; its negation, abs and choices are row "
-                      + "359's, its +, - and * rows 360 to 363, a decimal output its two-word "
-                      + "store, row 359's"
+                  ? "its comparisons, null tests, negation, abs and choices fuse, as a "
+                      + "decimal output too; its +, - and * are rows 360 to 363"
                   : "its comparisons, null tests, the values they read and a decimal output "
                       + "of them fuse, +, - and * among them")
               + ", its casts to other types rows 350 and 366"), br);
