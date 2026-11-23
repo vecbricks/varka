@@ -211,7 +211,8 @@ jobs:
             "$(du -sh target/varka-matrix/harness-store | cut -f1)"
         fi
     # The bins, from the configurations the build listed and each module's suites; one line of
-    # the summary says how many and how long.
+    # the summary says how many and how long. A cut past a matrix's 256 jobs fails the step with
+    # the planner's error printed.
     - name: Plan the bins
       id: plan
       run: |
@@ -225,7 +226,8 @@ jobs:
         python3 dev/varka_matrix_bins.py plan \
           --configurations target/varka-matrix/configurations \
           --suites sql=target/varka-bins/sql --suites catalyst=target/varka-bins/catalyst \
-          --platforms "${reach[@]}" > target/varka-bins/bins.json 2> target/varka-bins/plan.txt
+          --platforms "${reach[@]}" > target/varka-bins/bins.json 2> target/varka-bins/plan.txt \
+          || { cat target/varka-bins/plan.txt; exit 1; }
         cat target/varka-bins/plan.txt | tee -a "$GITHUB_STEP_SUMMARY"
         echo "bins=$(cat target/varka-bins/bins.json)" >> "$GITHUB_OUTPUT"
     # Every entry of the test classpath, the build's class directories and the dependencies' jars

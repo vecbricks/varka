@@ -54,15 +54,16 @@ import scala.jdk.javaapi.CollectionConverters;
  *
  * <pre>
  *   spark-submit --master local[1] --driver-memory 8g --class ...DateSurfaceBenchmark \
- *     varka-bench.jar --label spark-4.2.0 --rows 500000000 --out FILE [--partitions 1] [--iters 5]
+ *     varka-bench.jar --label spark-4.3.0 --rows 500000000 --out FILE [--partitions 1] [--iters 5]
  *     [--warmup-seconds 2] [--min-seconds 2] [--only REGEX] [--shard I/N]
  *     [--provenance key=value]... [--expect-fused] [--max-fixed-share PERCENT]
  *     [--allow-nonresident-cache] [--storage-level MEMORY_ONLY] [--table-columns all]
  *     [--expect-operator REGEX]
  * </pre>
  *
- * <p>The same driver runs the date chains ({@link DateChainBenchmark}) and the {@code TIME}
- * surface ({@link TimeSurfaceBenchmark}); each hands {@link #run} its entry list and the
+ * <p>The same driver runs the date chains ({@link DateChainBenchmark}), the {@code TIME}
+ * surface ({@link TimeSurfaceBenchmark}) and the math surface ({@link MathSurfaceBenchmark});
+ * each hands {@link #run} its entry list and the
  * {@link TableShape} its entries read.
  *
  * {@code --expect-fused} (the fork with Varka on) fails the run, after writing the file, when an
@@ -433,15 +434,16 @@ public final class DateSurfaceBenchmark {
    * because a silently shorter run produces a file that looks comparable and is not.
    */
   enum TableShape {
-    ALL, DATES, TIMES;
+    ALL, DATES, TIMES, DOUBLES;
 
     static TableShape of(String s) {
       return switch (s) {
         case "all" -> ALL;
         case "dates" -> DATES;
         case "times" -> TIMES;
+        case "doubles" -> DOUBLES;
         default -> throw new IllegalArgumentException(
-            "--table-columns takes all, dates or times, not '" + s + "'");
+            "--table-columns takes all, dates, times or doubles, not '" + s + "'");
       };
     }
 
@@ -451,6 +453,7 @@ public final class DateSurfaceBenchmark {
         case ALL -> java.util.List.of("d", "d2", "i", "ymm", "ymy", "ym");
         case DATES -> java.util.List.of("d", "d2", "i");
         case TIMES -> java.util.List.of("t", "t2", "dt", "dt2", "l", "l2");
+        case DOUBLES -> java.util.List.of("x", "u");
       };
     }
 
@@ -465,7 +468,11 @@ public final class DateSurfaceBenchmark {
 
     /** The view the entries of this shape read. */
     String tableName() {
-      return this == TIMES ? "varka_times" : "varka_dates";
+      return switch (this) {
+        case TIMES -> "varka_times";
+        case DOUBLES -> "varka_doubles";
+        case ALL, DATES -> "varka_dates";
+      };
     }
 
     /**
@@ -474,7 +481,11 @@ public final class DateSurfaceBenchmark {
      * the family's own width.
      */
     String filterColumn() {
-      return this == TIMES ? "t" : "d";
+      return switch (this) {
+        case TIMES -> "t";
+        case DOUBLES -> "x";
+        case ALL, DATES -> "d";
+      };
     }
 
     String provenance() {
@@ -482,6 +493,7 @@ public final class DateSurfaceBenchmark {
         case ALL -> "all (6)";
         case DATES -> "dates only (3)";
         case TIMES -> "times (6)";
+        case DOUBLES -> "doubles (2)";
       };
     }
   }
@@ -490,6 +502,10 @@ public final class DateSurfaceBenchmark {
       TableShape shape) {
     if (shape == TableShape.TIMES) {
       buildTimesTable(spark, rows, partitions, level);
+      return;
+    }
+    if (shape == TableShape.DOUBLES) {
+      buildDoublesTable(spark, rows, partitions, level);
       return;
     }
     spark.sql(datesQuery(rows, partitions, shape)).createOrReplaceTempView("varka_dates");
@@ -509,11 +525,12 @@ public final class DateSurfaceBenchmark {
    * The same table written once to a Parquet file under {@code dir} and read back from it,
    * uncached, so an arm times the path a query over a file takes - the vectorized Parquet
    * reader into the engine - rather than a cache (VARKA-194). Only the date tables: the
-   * {@code TIME} table's type is not one Parquet writes on every distribution.
+   * {@code TIME} table's type is not one Parquet writes on every distribution, and the math
+   * surface is measured over the cache alone.
    */
   static void buildParquetTable(SparkSession spark, long rows, int partitions, TableShape shape,
       Path dir) {
-    if (shape == TableShape.TIMES) {
+    if (shape == TableShape.TIMES || shape == TableShape.DOUBLES) {
       throw new IllegalArgumentException("--input parquet is for the date tables");
     }
     String file = dir.resolve("varka_dates").toString();
@@ -582,6 +599,28 @@ public final class DateSurfaceBenchmark {
     // MEMORY_ONLY for the reason the date table gives above.
     spark.catalog().cacheTable("varka_times", level);
     spark.sql("SELECT count(*) FROM varka_times").collect();
+  }
+
+  /**
+   * The math surface's table, {@code varka_doubles} (VARKA-633): {@code x} is
+   * {@code hash(id, 1) / 2^31 * 10}, in {@code [-10, 10)}, so the trigonometric functions see
+   * both signs and mostly reduce their argument; {@code u} is {@code (hash(id, 4) + 0.5) / 2^31},
+   * in {@code (-1, 1)} and off both endpoints, the domain of {@code asin} and {@code acos}. They
+   * are {@code VarkaMathBaselineBenchmark}'s {@code x} and {@code u}, with every 31st row null
+   * as {@code d} is, at rows 0 and 15 of each 31 so the two never share a null row.
+   */
+  static void buildDoublesTable(SparkSession spark, long rows, int partitions,
+      StorageLevel level) {
+    String select = "CASE WHEN id %% 31 = 0 THEN NULL"
+        + " ELSE hash(id, 1) / 2147483648.0D * 10.0D END AS x,"
+        + " CASE WHEN id %% 31 = 15 THEN NULL"
+        + " ELSE (hash(id, 4) + 0.5D) / 2147483648.0D END AS u";
+    spark.sql(String.format(Locale.ROOT,
+        "SELECT " + select + " FROM range(0, %d, 1, %d)", rows, partitions))
+        .createOrReplaceTempView("varka_doubles");
+    // MEMORY_ONLY for the reason the date table gives above.
+    spark.catalog().cacheTable("varka_doubles", level);
+    spark.sql("SELECT count(*) FROM varka_doubles").collect();
   }
 
   /**

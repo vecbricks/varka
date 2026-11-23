@@ -905,6 +905,105 @@ than the row path, 0.90x and 0.94x without nulls and 0.75x and 0.79x at one row 
 last is a finding the predictions did not make: the pair's comparison as a value at two long
 lanes costs more than Spark's row. The third, refusal-off run stays unrun.
 
+### 10.6 359b, part 1: the value half's conditions (20 November 2026)
+
+*Branch `varka-359-decimal128-lane-pair`, from master at `0b8be5a33e4`, which holds 359a's four
+parts. Local commits only, built while the owner was away; tests and CI are the later phase's.*
+Section 5 item 4's forms that need no store: `IN`, the choices (`IF`, `CASE`, `coalesce` and the
+forms replaced by them: `nvl`, `nvl2`, `ifnull`, `nullif`, `nullifzero`, `zeroifnull`), the picks
+`greatest` and `least`, `-x` and `abs(x)`, each as a value under a comparison, `<=>`, `IN` or a
+null test. The store and the outputs of these forms are part 2.
+
+**A correction to 10.4, read before building.** 10.4's review found Spark negating a wide value
+through Scala's `BigDecimal`, rounded to 34 digits, and owed 359b "matches the rounding or
+declines". Master's `Decimal.unary_-` now negates the Java value exactly (`f6b469a7633`,
+SPARK-45438, 9 November 2026), and `abs` is `unary_-` under a sign test, so 2.5's exact lowering is
+Spark's answer at every precision and no decline is needed. The null-test probe's comment that
+named the rounding is rewritten; `-x IS NULL` and `abs(x) IS NOT NULL` now fuse.
+
+**Built.**
+
+1. **The negation and `abs` over the words**, `DecimalWords.negatedLow`, `negatedHigh`,
+   `isNegative` and `absWord`, 2.5's lines: `lo' = -lo`, `hi' = (hi XOR -1) + CondValue(EQ(lo,
+   0))`, and `abs` the two blends under `LT(hi, 0)`. All existing long-lane nodes; no IR node is
+   added.
+2. **The pair's choices and picks** in `VarkaDecimalCompiler.pair`: `pairChoice` (`IF` and
+   `CASE`, a missing `ELSE` the null), `pairCoalesce` and `pairPick`, each one `IfElse` per word
+   under one condition, so a row's two words come from one branch. The pick keeps the running
+   value `a` over the next operand `b` under `b IS NULL OR (a IS NOT NULL AND a >= b)` (`<=` for
+   `least`), 2.5's line, with the running validity `valid(a) OR valid(b)` carried beside it, since
+   the running pick is no expression `valid` can read. A `RuntimeReplaceable` is read through its
+   replacement.
+3. **The null constant as a pair**: two `NullValue(LONG)` words, where it declined naming 359b,
+   so a `CASE` without an `ELSE`, `nullif`'s `NULL` and `c < CAST(NULL AS DECIMAL(20, 2))` fuse.
+4. **The wide `IN`** (`VarkaConditionCompiler.compileWideDecimalIn`): the value as its pair first,
+   a rescale into the wide type naming 359 and 360 as a comparison's side does, then each element
+   as its unscaled `BigInteger` at the value's scale, dropped where no value of the type equals it
+   (an `InSet`'s), the balanced `OR` of `x = c` over the words, two long-table slots a literal. A
+   null element, a non-constant one, an empty list and the cap of 16 values decline as on every
+   other lane.
+5. **The carry layer's negation**, `VarkaProofFiles.decimal128Negation`: over the words as Java
+   longs and `|v| <= 10^38 - 1`, `lo' = -lo` and `hi' = ~hi + ite(lo = 0, 1, 0)` are the words of
+   `-v` (unsat), the same without the borrow is refuted (sat), and `abs`'s blend on `hi < 0` is
+   `|v|` (unsat). Three checks; the file itself is regenerated in the later phase.
+6. **Coverage rows**, eight in the "DECIMAL lane pair" family: the wide `IN`, `-d38 < d38b`,
+   `abs(d38) >= d38b`, a choice, a `CASE` without an `ELSE`, `coalesce`, `greatest` and `least`
+   under comparisons; the negation and `abs` take the family's `decimal128.smt2`, the other six
+   are `Differential`, since the proof models values and not validity.
+
+**Tests written.** `VarkaDecimalPairSuite` gains three: the negation and `abs` on the word edges
+at 19, 20 and 38 digits (2^64 and -2^64 have a low word of 0, so the borrow is exercised, and the
+bounds `10^p - 1` keep all 38 digits), a narrower side under the negation; the wide `IN` and `NOT
+IN` with a literal past a long, `2^63`, 0, `-2^64` and the negated bound; and thirteen choices and
+picks as compared values over a narrow-and-wide and a wide-and-wide pair of columns. Its null-test
+test now holds `-b IS NULL` and `abs(b) IS NOT NULL` to Spark. Flipped where they pinned the old
+declines: `VarkaDecimalInSuite` (a wide `IN` fuses; an `InSet` element no value equals is dropped;
+a null element declines), `VarkaDecimalValueSuite` (the wide null family as compared values fuses;
+an `IN` over columns declines on its list), `VarkaExpressionCompilerSuite` (a wide `CASE` compared
+with a constant fuses), `VarkaDecimalConformanceSuite` (`declinesInPart` no longer names `in`, whose
+form now fuses, as the suite's own check requires), and `VarkaDecimalBaselineBenchmark`'s classes
+(the pair's `IN`, `-x < y` and `abs(x) < y` filters are `WHOLE`, `NONE` under the two-lane refusal).
+
+**Run in this window**: `catalyst/Test/compile` passed, and `VarkaDecimalPairSuite` alone, 10 of
+10 passed in 20.6 s of test time, the three new tests included. Every other suite and every
+regeneration is owed to the later phase (the draft pull request's list).
+
+**Predictions, registered before any of this runs** (scored in the later phase):
+
+1. *Op counts* (`dev/varka_emit.sh --table` over two `DECIMAL(38, 2)` columns): `-a < b` adds the
+   negation's six lane calls to `a < b`'s 23; `abs(a) < b` nine; `a IN (c1, c2, c3)` eleven
+   compares and their mask calls over one column's load and check of 10.
+2. *No existing shape's bytes move*: every new shape is a new row of `emitted_bytes.json`; the
+   `option_arms` digests move, as 10.4 found they do whenever a coverage row is added.
+3. *The census*: unchanged in this part. `negative` and `abs` count only when the store lets them
+   be outputs (part 2); `in` stays `dec^` until 360 and 363 bring two scales.
+4. *Width audit*: each of the eight new rows is a filter, so each gets one refusal in the 128-bit
+   column under 503's rule.
+
+**Not in this part**, owed: the store and the output binding, and outputs of the choices,
+negation and `abs` (part 2); the measurement of the baseline's `IN`, `-x < y` and `abs(x) < y`
+sections on the EPYC runners (part 2's, with the choice section); the pair-load node, the planted
+faults for row 504 and the op-count test (below).
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **359b before the pair-load node.** 10.5 names the node as the next part, but its only proof is
+   `emitted_bytes.json` byte-identical, which this window does not regenerate; it changes the
+   two-word-leaf interface that the unmerged local branches of rows 360 to 364 build on (11.6 item
+   7), whose agents are working on them today; and the row text says "never a pair node". So the
+   node stays owed, for a window that can run the oracle, and 359b's value half, which the done-when
+   needs, goes first. The planted faults and the op-count test stay owed with it.
+2. **No rounding match and no decline for `-x` and `abs(x)` above 34 digits**: Spark's negation is
+   exact on this master (the correction above), so 2.5's lowering stands at every precision.
+3. **The null constant fuses as two null words** rather than declining as a value: it is what a
+   `CASE` without an `ELSE` and `nullif` need, and the 64-bit decimal's null constant already fuses
+   as one `NullValue`.
+4. **The pick carries its running validity** instead of a validity node over a computed word,
+   since an IR null test reads only a column's word or a condition (`valid`'s rule).
+5. **Branch cut from master, not from rows 360 to 363's branches**: nothing in this part uses their
+   arithmetic; their stacks edit the same `pair` switch, so whichever merges second takes the
+   other's arms beside its own.
+
 ## 11. 359a, the build plan (1 November 2026)
 
 Written from master at `239995f4fe4` before the laptop's reading of the spike, so that 359a can
@@ -1139,6 +1238,11 @@ under 10 s; the calibration table's sessionless JUnit class (VARKA-328) ran far 
 so the measured time is reported and joins the table. The word edges and the conformance suite
 are of the size of 347's, seconds. The build's CI steps are read against
 `sql/varka/ci/step-budget.tsv` in the pull request.
+
+*21 November 2026:* the negation and `abs` rows of the pair's conditions add 40 lines to
+`sql/varka/proofs/decimal128.smt2` (the negation's borrow and `abs` over the words, each proven
+unsat), regenerated by `VARKA_PROOFS_REGEN=true` and run through `dev/varka_prove.sh --lint`, all
+verdicts as expected.
 
 ### 11.8 Open points for the lead
 

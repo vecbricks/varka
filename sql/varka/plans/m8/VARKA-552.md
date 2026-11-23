@@ -346,4 +346,21 @@ instruction.
 
 ## 10. Outcome
 
-Not started.
+*22 November 2026, row 633 (built, not merged).* Step 1 for `varka-surface-benchmark.yml` alone:
+`STOCK_VERSION: 4.3.0`, the usage examples of `dev/varka_bench_surface.sh`,
+`DateSurfaceBenchmark.java` and `LadderBenchmark.java`, and the script's TIME note. The two demo
+workflows and `compiles/run.sh` are not in it, as step 1 allows: a push of them starts their runs
+through `push.paths`, and the owner runs CI by hand. They switch in their own commit with the
+release-named outputs of decision 6. 0, item 1's open point is settled without a run:
+`spark-4.3.0-bin-hadoop3.tgz.sha512` is served beside the tarball on both `dlcdn.apache.org` and
+`archive.apache.org`, in `sha512sum` format, which the download step's extraction reads.
+Decision 7's question (the 4.2.0-compiled driver on the 4.3.0 distribution) is still open; the
+first `run` dispatch answers it.
+
+*23 November 2026, row 633 (merged as #1635).* Decision 7's question is answered for the math
+surface over the cache: the 4.2.0-compiled driver ran it on the 4.3.0 distribution with no linkage
+failure. The JVM links lazily, so the Parquet input, the `TIME` table and the chains are covered
+only by step 2's runs. Run 45082634358 of
+`varka-surface-benchmark.yml` (`benchmark=math`, an AMD EPYC 7763) ran both stock 4.3.0 arms,
+JDK 17 and JDK 25, beside the engine-off and Varka arms, and its four `MathSurface-*-zen3` files
+are committed. The driver's compile version stays at 4.2.0.

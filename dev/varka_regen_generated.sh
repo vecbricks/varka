@@ -31,7 +31,9 @@
 # casts_fused.tsv, then coverage.json and the docs blocks where owed, the width audit (it reads
 # coverage.json), the bytes file (likewise), coverage again after an audit that ran (the docs
 # read the width audit, and nothing else of coverage's reads the other two), and last the
-# census, which reads them all and costs a second. The JVM steps run in one sbt call,
+# census, which reads them all, rewrites the docs' support table and costs a second; a merge
+# that owed that block alone owes the census, never docs/sql-varka.md, and so no coverage run
+# (the driver's block_debt). The JVM steps run in one sbt call,
 # under the heavy slot's lock, VARKA_HEAVY_LOCK or else ~/proj/.varka-locks/heavy.lock (made if
 # missing), with SPARK_LOCAL_IP=127.0.0.1. On a CPU that is not the width audit's host the audit
 # is skipped and left owed, since its census is that CPU's (VarkaWidthAuditSuite), and the rest

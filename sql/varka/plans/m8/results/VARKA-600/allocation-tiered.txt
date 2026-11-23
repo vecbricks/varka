@@ -1,0 +1,7 @@
+# VARKA-600 step 1: NarrowL2F600.java tiered, OpenJDK 25.0.5.1, AMD Ryzen AI 9 HX PRO 370, 20 Nov 2026
+# java --add-modules jdk.incubator.vector -XX:UseAVX=2 -XX:MaxVectorSize=<16|32> NarrowL2F600.java <form>
+# The allocation over 1000 warm calls is the reading; the ns a row is a model's, not a benchmark's.
+MaxVectorSize=16: windowed: 2 long lanes, 4 float lanes, every row exact, 7.30 ns a row, 0.0 bytes allocated a row
+MaxVectorSize=16: scalar: 2 long lanes, 4 float lanes, every row exact, 7.17 ns a row, 0.0 bytes allocated a row
+MaxVectorSize=32: windowed: 4 long lanes, 8 float lanes, every row exact, 5.21 ns a row, 0.0 bytes allocated a row
+MaxVectorSize=32: scalar: 4 long lanes, 8 float lanes, every row exact, 4.57 ns a row, 0.0 bytes allocated a row

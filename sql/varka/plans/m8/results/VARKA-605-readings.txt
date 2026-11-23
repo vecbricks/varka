@@ -1,0 +1,156 @@
+VARKA-605 readings: the compiled test's unsettled long-lane kernels, sanitized and plain
+=========================================================================================
+
+Machine: the laptop, AMD Ryzen AI 9 HX PRO 370 (AVX-512, 24 threads), openjdk 25.0.5.1.
+Code: origin/master 0b8be5a33e4 plus one test line that names the sampled rows in the compiled
+test's info output (VarkaCoverageCompositionFuzzSuite, this task's branch).
+Build: dev/varka_matrix.sh --module catalyst --list (catalyst test classes, exported classpath and
+JVM options in target/varka-matrix/), then build/sbt catalyst/Test/compile after the test line.
+The laptop was shared with other agents' JVMs: one-minute load 19 to 68 on 24 threads during the
+runs below, recorded per run. Times are UTC, 20 November 2026.
+
+Every run is one JVM, plain java on the catalyst test classpath, as #1500 ran it:
+
+  SPARK_TESTING=1 SPARK_SCALA_VERSION=2.13 SPARK_LOCAL_IP=127.0.0.1 java $(cat jvm.opts) \
+    -Djava.io.tmpdir=<dir>/tmp -Dvarka.ownJvm=true -Dvarka.fuzz.seed=20261111 <PROPS> \
+    -Dspark.test.timeout=60 -Dvarka.test.watchdog.minutes=60 \
+    -cp sql/catalyst/target/scala-2.13/classes:$(cat classpath) org.scalatest.tools.Runner -oW \
+    -s org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaCoverageCompositionFuzzSuite \
+    -z "coverage rows' kernels agree with the reference evaluator as C2 code"
+
+The compiled test is the suite's first registered test, so in a whole-suite JVM nothing of the
+suite runs before it; the -z form is the whole suite's JVM history up to that test's end.
+<PROPS> per run below. "traps" counts distinct profile_predicate trap events (timestamp and
+compile id) in -Xlog:deoptimization=debug on the kernel's loopMasked0, by trapping bytecode index.
+Kernel class wfuzz<3k+1> is sampled row k's warm-same class and wfuzz<3k+2> its quiet-null class.
+
+R1: the narrow replay, nullif(ntz, ntz2) alone, sanitized
+---------------------------------------------------------
+PROPS: -Dvarka.sanitizeMemory=true -Dvarka.fuzz.coverageRow="nullif(ntz, ntz2)"
+       -Dvarka.fuzz.history=<h> -Xlog:deoptimization=debug:file=deopt.log
+
+  run              unsettled  traps on loopMasked0         load at start  start
+  warm-same 1      0          1 at bci 205                 60.30          07:25:45
+  warm-same 2      0          2 at bci 205                 59.15          07:26:32
+  warm-same 3      0          1 at bci 205                 57.71          07:27:24
+  quiet-null 1     0          1 at bci 205                 55.60          07:28:07
+  quiet-null 2     0          1 at bci 205                 57.75          07:29:00
+  quiet-null 3     0          1 at bci 205                 64.94          07:30:01
+
+R1 does not reproduce: 0 of 6 unsettled (no "unsettled:" line; with one history a case has a
+single run, so the tally prints no per-lane line, see the task file's 11.4).
+
+R2: the compiled test at seed 20261111, the seed's sample of today's table
+-------------------------------------------------------------------------
+PROPS: -Dvarka.sanitizeMemory=<true|false> -Dvarka.fuzz.compositions=400
+       -Xlog:deoptimization=debug:file=deopt.log
+
+The sample is no longer #1500's. The table has 539 rows and LaneType has four values, so the
+test takes 4 rows of each of INT, LONG, FLOAT and DOUBLE, 16 rows, 8 a tallied lane. The run
+names them:
+
+  INT:    (year(d) = 2021 AND i > 0) IS TRUE; zeroifnull(i); d - ym; shiftright(i, i)
+  LONG:   timestampadd(MONTH, l, ntz); CAST(ntz AS TIME(3)); try_subtract(l, l2); nullif(t, t2)
+  FLOAT:  equal_null(f, f2); nvl2(f, f2, f); f < f2; ifnull(f, f2)
+  DOUBLE: nvl(x, x2); x <> x2; x + x2; if(x IS NULL, x2, NULL)
+
+nullif(ntz, ntz2) is not in it. The long-tallied lane (LONG and DOUBLE), settled of 8:
+
+  run  sanitizer  warm-same  quiet-null  load at start  start
+  s1   on         5/8        5/8         55.08          07:31:16
+  p1   off        7/8        6/8         45.50          07:36:54
+  s2   on         8/8        8/8         35.23          07:41:26
+  s3   on         5/8        5/8         37.83          07:43:58
+  p2   off        7/8        8/8         40.65          08:22:00
+  p3   off        6/8        5/8         45.55          08:26:45
+
+Unsettled rows: in s1 and s3 try_subtract(l, l2), nullif(t, t2) and if(x IS NULL, x2, NULL),
+each in both histories; in p1 try_subtract(l, l2) in both and nullif(t, t2) in quiet-null; in
+p2 nullif(t, t2) in warm-same; in p3 try_subtract(l, l2) and nullif(t, t2) in both and
+if(x IS NULL, x2, NULL) in quiet-null. (p2 and p3 ran after R4 and R3 below, as plain controls.)
+
+The int-tallied lane settled 8/8 in both histories in all four runs. Every unsettled line reads
+"traps {profile_predicate=7..24[, unstable_if=1..2]} levels {epilogueMasked0=4, loopMasked0=0}":
+the epilogue is C2 code and the masked loop is not, at the deadline.
+
+Traps on the unsettled rows' loopMasked0 (warm-same class / quiet-null class):
+
+  row                          bci     s1      p1      s2      s3
+  try_subtract(l, l2)          205     1/1     0/0     1/1     1/1
+                               392     5/4     21/20   9/8     8/8
+  nullif(t, t2)                205     1/1     0/0     2/1     1/1
+                               412     6/6     9/17    4/8     7/10
+  if(x IS NULL, x2, NULL)      195     2/1     0/0     1/2     1/1
+                               362     7/7     0/0     0/0     11/9
+
+  plain p2 / p3, back edge only (no head traps): try_subtract 392: 19/7 and 8/12;
+  nullif(t, t2) 412: 14/7 and 12/6; if(x IS NULL, x2, NULL) 362: 0/0 and 9/11.
+
+So the case reproduces at the seed under another row name, sanitized in 2 of 3 runs, and plain
+in 3 of 3 (the same rows): the sanitizer is not needed for it. In s2,
+the run that settled everything, the same classes still trapped 4 to 9 times at the same
+bytecodes before settling inside the deadline.
+
+The kernels' bytecode (a class-file agent, -javaagent:dump-agent.jar=<dir>, a
+ClassFileTransformer that writes every class whose name holds VarkaFused, read with javap -c -p)
+------------------------------------------------------------------------------------------------
+PROPS for the two dumps: -Dvarka.sanitizeMemory=true -Dvarka.fuzz.coverageRow=<row>
+       -Dvarka.fuzz.history=cold -javaagent:dump-agent.jar=<dir>
+
+nullif(ntz, ntz2) and nullif(t, t2): javap -c -p of the two kernel classes, the class name
+masked, is identical (513 lines, md5 948a6ce4cdd37798c0977fd382641f6a). So the two rows are one
+kernel. In loopMasked0 of the in-sample classes (dumped in the deadline run below):
+
+  class     bci  instruction                      what it is
+  wfuzz19   205  if_icmpge 395                    head of the main vector loop (i < loopBound)
+  wfuzz19   392  goto 201                         that loop's back edge
+  wfuzz22   205  if_icmpge 415                    head of the main vector loop
+  wfuzz22   412  goto 201                         that loop's back edge
+  wfuzz46   195  if_icmpge 365                    head of the main vector loop
+  wfuzz46   362  goto 191                         that loop's back edge
+
+The loop body calls VarkaVectorSupport.validityBitsAt8 and orValidityBitsAt8 and the Vector API
+(fromMemorySegment, compare, blend, intoMemorySegment). The buffers are mapped through
+VarkaVectorSupport.ofAddress, whose sanitizer check runs at bytecodes 34 to 173, before the loop.
+
+R1b: the unsettled rows alone, sanitized
+----------------------------------------
+PROPS: -Dvarka.sanitizeMemory=true -Dvarka.fuzz.coverageRow=<row>
+       -Dvarka.fuzz.history=warm-same,quiet-null -Xlog:deoptimization=debug:file=deopt.log
+
+  row                    run  unsettled  traps (warm-same class / quiet-null class)  load  start
+  try_subtract(l, l2)    1    0 of 2     205: 1/1                                    22.29 07:50:02
+  nullif(t, t2)          1    0 of 2     205: 1/1                                    20.75 07:50:27
+  try_subtract(l, l2)    2    0 of 2     205: 2/1                                    19.35 07:50:46
+  nullif(t, t2)          2    0 of 2     205: 1/1                                    19.18 07:51:01
+
+Alone, each row settles, and its loop traps at its head once or twice and never at its back edge.
+
+R4: the sample with the profiled loop predicate off, sanitized
+--------------------------------------------------------------
+PROPS: -Dvarka.sanitizeMemory=true -XX:+UnlockDiagnosticVMOptions -XX:-UseProfiledLoopPredicate
+       -Xlog:deoptimization=debug:file=deopt.log
+
+  run  long-tallied warm-same  quiet-null  profile_predicate traps  load at start  start
+  s1   8/8                     8/8         0                        19.16          07:51:20
+  s2   7/8                     7/8         0                        68.28          07:56:16
+  s3   8/8                     8/8         0                        64.25          08:06:56
+
+The three rows settled in all three runs. s2 left timestampadd(MONTH, l, ntz) in both histories
+and d - ym (INT) in quiet-null unsettled with "traps {}" (one unstable_if for d - ym) and levels
+{epilogueDense0=0, epilogueMasked0=0, loopDense0=4, loopMasked0=4}: no trap, epilogues not yet
+compiled at the deadline, at a one-minute load of 64 to 68.
+
+R3: the deadline control, sanitized, deadline 60 s
+--------------------------------------------------
+PROPS: -Dvarka.sanitizeMemory=true -Dvarka.fuzz.settleMillis=60000
+       -Xlog:deoptimization=debug:file=deopt.log -javaagent:dump-agent.jar=<dir>
+
+  long-tallied warm-same 6/8, quiet-null 6/8; load 54.14 at 08:12:41, 40.65 at 08:22:00.
+  unsettled: try_subtract(l, l2) and nullif(t, t2), both histories, each with
+  "levels {epilogueMasked0=4, loopMasked0=0}" at 60 s.
+  back-edge traps (warm-same / quiet-null): try_subtract 392: 52/47; nullif(t, t2) 412: 42/45;
+  if(x IS NULL, x2, NULL) settled this time, 195: 2/1 and no back-edge trap.
+
+Six times the deadline gives six times the traps, about one every 1.2 s, and the masked loop is
+still not in use: a cycle, not a deadline starved by load.
