@@ -477,15 +477,18 @@ control `i * j`, `WHOLE`, the filter `i * j > 0` included (VARKA-598 leaves it t
 `%` half of the baseline, the five sections of the build sheet's 1.3 in row 30's
 `VarkaIntegralDivisionBaselineBenchmark`, is not built: that class was row 30's baseline, which had
 not merged (premise 1 of the build sheet was 0, its stop rule 7.1). *23 November 2026:* it merged as
-#1570 with `i % 7` and the column forms timed, and row 30's part 30a4 builds the constant forms of a
-literal divisor that 95a would have built, so 95a is superseded and the `%` half stays row 30's. The
-EPYC 7763 results at 256 and 128 bits are owed by the owner's dispatch, of this class only: build
-sheet 9's dispatch of the division class waits for that class. *23 November 2026:* both landed and
-are committed (the runner results below). Section 4's six predictions are of the fused kernels and
-the bytes oracle, none of the baseline, so they are scored when the kernel lands. The build sheet's
-dry run (4.3) was not made; the queries suite plans each section under both settings of the two-lane
-refusal at the laptop's width, and every section is on the int lane, whose classes no width moves.
-The planted faults of build sheet 3 were not run.
+#1570 with `i % 7` and the column forms timed. The build sheet's `%` shapes (`i % 16`,
+`try_mod(i, 7)`, `try_mod(i, 16)`, the filter `i % 16 = 0`) are baseline sections only, and #1660
+built none of them; fusing `%` by a literal is row 30's (`VARKA-30.md` 2.4 and its boundary with
+this row), and row 30's part 30a4 (local, not yet a pull request) builds the constant forms of a
+literal divisor that 95a would have built, so 30a4 will supersede 95a when it lands and the `%`
+half stays row 30's. The EPYC 7763 results at 256 and 128 bits are owed by the owner's dispatch, of
+this class only: build sheet 9's dispatch of the division class waits for that class. *23 November
+2026:* both landed and are committed (the runner results below). Section 4's six predictions are of
+the fused kernels and the bytes oracle, none of the baseline, so they are scored when the kernel
+lands. The build sheet's dry run (4.3) was not made; the queries suite plans each section under both
+settings of the two-lane refusal at the laptop's width, and every section is on the int lane, whose
+classes no width moves. The planted faults of build sheet 3 were not run.
 
 ## Decisions taken while the owner was away (20 November 2026)
 
@@ -496,8 +499,9 @@ The planted faults of build sheet 3 were not run.
    fallback (section 4, "creates that class under 30's name with the `%` shapes only") is not
    taken, since it would start row 30's file. This works around the build sheet's stop rule, so
    the owner approves the split before the branch merges, or holds it until row 30's class lands.
-   *23 November 2026:* row 30's class landed (#1570), and row 30 fuses `%` by a literal itself
-   (30a4), so the split stands: this row's baseline is the multiply half.
+   *23 November 2026:* row 30's class landed (#1570), and row 30 will fuse `%` by a literal itself
+   (30a4, local, not yet a pull request), so the split stands: this row's baseline is the multiply
+   half.
    (The heading's date is the window's; the work was done from the evening of 19 November.)
 
 ## Build sheet (11 November 2026)
