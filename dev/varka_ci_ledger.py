@@ -46,7 +46,9 @@ What a line's kind means:
            (ECONNRESET and its kind), a setup step (checkout, Java, a download or an upload),
            or an option-matrix bin's setup step retried (its "Setup step retried" annotation)
   slow     a matrix bin whose tests passed, or none of which failed before the job's time limit
-           cancelled it, took SLOW_RATIO times its attempt's median bin: the runner was slow
+           cancelled it, took SLOW_RATIO times its attempt's median bin: the runner was slow;
+           or a bin the units step's watchdog stopped at three times its plan, by its
+           "Straggler" annotation, which names the minutes, the plan and the CPU (VARKA-570)
 
 Where each part of a line comes from, cheapest first: one GraphQL query per run reads every
 check run of the run's check suite with its annotations (the Build's "Report test results"
@@ -151,6 +153,8 @@ CPU_LINE = re.compile(r"^CPU: (.+?), (\d+) cores\s*$")
 # The report line `dev/varka_matrix_report.py` prints for a failed test, as the job logs it.
 REPORT_FAILED = re.compile(r"^\s+(\S+): - (.+?) \*\*\* FAILED \*\*\*\s*$")
 REPORT_ABORTED = re.compile(r"^\s+(\S+): (.+?) \*\*\* ABORTED \*\*\*\s*$")
+# The watchdog's annotation on a bin it stopped (.github/workflows/varka-option-matrix.yml).
+STRAGGLER = re.compile(r"^b\d+ ran (\d+) min against a plan of (\d+) min on (.+); stopped$")
 FLAKY_RETRY = re.compile(r"^(.+?) failed in its JVM \(attempt \d+ of \d+: (.*)\); a fresh JVM")
 
 
@@ -309,6 +313,16 @@ def one_line(text, width=DETAIL_WIDTH):
 def log_lines(data):
     text = data.decode("utf-8", errors="replace")
     return [LOG_STAMP.sub("", ANSI.sub("", line)) for line in text.splitlines()]
+
+
+def straggler(annotations):
+    """The match of the watchdog's `Straggler` failure annotation, or None."""
+    for a in annotations:
+        if a.get("level") == "failure" and a.get("title") == "Straggler":
+            m = STRAGGLER.match(a.get("message", ""))
+            if m:
+                return m
+    return None
 
 
 def cpu_of(lines):
@@ -544,6 +558,16 @@ class Run:
         before = len(self.lines)
         matrix = MATRIX_JOB.match(job["name"])
         varka = VARKA_JOB.match(job["name"])
+        stopped = straggler(annotations) if matrix and MATRIX_STEP.match(step) else None
+        if stopped:
+            # Read from the annotation, since the report downloads only the newest artifact of a
+            # name. A unit that failed before the stop is still a failure: its first artifact is
+            # kept and read too.
+            ran, plan, cpu = stopped.groups()
+            detail = f"stopped at {ran} min against a plan of {plan} min: a straggler"
+            self.line(job, "-", "-", "-", "slow", detail, cpu_of([f"CPU: {cpu}"]))
+            self.matrix_failures(job, matrix)
+            return
         if matrix and MATRIX_STEP.match(step):
             self.matrix_failures(job, matrix)
         elif varka and VARKA_STEP.match(step):
@@ -890,6 +914,48 @@ class SelfTest(unittest.TestCase):
             [("Option matrix: b021", "slow", "AMD EPYC 9V74 80-Core, 4 cores")],
         )
         self.assertIn("91 min against the attempt's median bin 8 min", got[0]["detail"])
+
+    def test_a_bin_the_watchdog_stopped_is_a_slow_line_with_its_cpu(self):
+        # The annotation the units step prints, on the job of a run's attempt 1 that its rerun
+        # passed; the bin's artifact holds no failure.
+        job = {
+            "id": 1,
+            "name": "Option matrix: b005",
+            "run_attempt": 1,
+            "conclusion": "failure",
+            "completed_at": "2026-11-21T10:40:00Z",
+            "steps": [{"name": "Run this bin's units", "conclusion": "failure"}],
+        }
+        rerun = dict(job, id=2, run_attempt=2, conclusion="success")
+        annotations = [
+            {"level": "failure", "title": "", "message": "Process completed with exit code 3."},
+            {
+                "level": "failure",
+                "title": "Straggler",
+                "message": "b005 ran 32 min against a plan of 8 min on"
+                " AMD EPYC 9V74 80-Core Processor, 4 cores; stopped",
+            },
+        ]
+        run = {"id": 7, "updated_at": "2026-11-21T11:00:00Z", "head_sha": "abcdef0123456"}
+
+        class NoArtifacts:
+            # The bin's first artifact is looked up for units that failed before the stop.
+            def get(self, path):
+                return {"artifacts": []}
+
+        r = Run(NoArtifacts(), REPO, run, "Varka option matrix")
+        r.failed_job(job, annotations, [job, rerun], {})
+        r.mark_reruns([job, rerun])
+        self.assertEqual(
+            [(ln["job"], ln["kind"], ln["cpu"]) for ln in r.lines],
+            [("Option matrix: b005", "slow", "AMD EPYC 9V74 80-Core, 4 cores")],
+        )
+        self.assertEqual(
+            r.lines[0]["detail"],
+            "stopped at 32 min against a plan of 8 min: a straggler; passed on attempt 2",
+        )
+        # A warning of the same title is not the watchdog's.
+        self.assertIsNone(straggler([dict(annotations[1], level="warning")]))
 
     def test_failures_name_the_configuration_suite_and_test(self):
         with tempfile.TemporaryDirectory() as root:

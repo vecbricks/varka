@@ -161,7 +161,8 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
    * One query on every fixture: fused, the same answer bit for bit, and a kernel ran. A filter
    * is run with the cache's batch pruning off: Spark's batch statistics leave NaN out, so a
    * filter that matches NaN rows could prune their batches on both sides (SPARK-58482), and the
-   * kernel would never see the rows it is tested on.
+   * kernel would never see the rows it is tested on. The test below that names SPARK-58482 pins
+   * the pruning, so this wrap retires with it.
    */
   private def checkFused(query: String): Unit = names.foreach { fixture =>
     val q = query.replace("$t", fixture)
@@ -669,6 +670,28 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
           checkAnswer(actual, expectedSql(q, actual))
         }
       }
+    }
+  }
+
+  test("Spark's cache still prunes a batch of NaN from a filter NaN passes (SPARK-58482), the " +
+      "behaviour the floating suites turn the cache's pruning off for") {
+    // The batch statistics leave NaN out, so a batch whose only value is NaN records an empty
+    // range and `NOT (x < 1.5D)`, which Spark answers true on NaN, prunes it. The workarounds in
+    // this suite, VarkaSparkDifferential and VarkaCoverageDifferentialSuite read the rows with
+    // the pruning off. If Spark fixes the statistics this test fails, and they retire with it.
+    val nan = spark.range(1).selectExpr("CAST('NaN' AS DOUBLE) AS x")
+    nan.cache()
+    try {
+      assert(nan.count() == 1)
+      def passing(prune: Boolean): Long =
+        withBothConf(SQLConf.IN_MEMORY_PARTITION_PRUNING.key, prune.toString) {
+          nan.where("NOT (x < 1.5D)").count()
+        }
+      assert(passing(prune = false) == 1, "the NaN row does not pass the filter at all")
+      assert(passing(prune = true) == 0, "SPARK-58482 looks fixed: the cache no longer prunes " +
+        "the NaN batch, so the pruning-off workarounds can be retired")
+    } finally {
+      nan.unpersist()
     }
   }
 }

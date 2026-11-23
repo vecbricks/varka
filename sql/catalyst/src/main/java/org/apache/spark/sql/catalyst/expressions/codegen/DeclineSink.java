@@ -39,6 +39,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.FloatingFault;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.IntervalFault;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaHostIsa;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
@@ -98,6 +99,7 @@ final class DeclineSink {
   private final IntervalFault intervalFault;
   private final Set<VarkaFamily> familiesOff;
   private final boolean declinesTwoLaneChecks;
+  private final boolean guardsLongProducts;
   private final List<VarkaFamily> used = new ArrayList<>();
   private final List<Bound> bounds = new ArrayList<>();
   private final LinkedHashMap<Long, Integer> longLiterals = new LinkedHashMap<>();
@@ -114,21 +116,30 @@ final class DeclineSink {
 
   DeclineSink(Seq<Attribute> childOutput, VarkaEmitOptions options,
       Set<VarkaFamily> familiesOff) {
-    this(childOutput, options, new VarkaAdmission(familiesOff, false));
+    this(childOutput, options, new VarkaAdmission(familiesOff, false), false);
   }
 
   /**
    * A projection's sink under the session's admission settings: its families off, and whether a
    * checked {@code BIGINT} operation declines on a host whose 64-bit species have two lanes
-   * ({@link #declinesTwoLaneChecks}).
+   * ({@link #declinesTwoLaneChecks}). It also keeps whether a checked {@code BIGINT} multiply is
+   * built as a guarded product ({@link #guardsLongProducts}), which the other constructors, a
+   * filter's included, never do.
    */
   DeclineSink(Seq<Attribute> childOutput, VarkaEmitOptions options, VarkaAdmission admission) {
+    this(childOutput, options, admission,
+        options.guardsLongProducts(VarkaHostIsa.isX86(System.getProperty("os.arch", ""))));
+  }
+
+  private DeclineSink(Seq<Attribute> childOutput, VarkaEmitOptions options,
+      VarkaAdmission admission, boolean guardsLongProducts) {
     this.childOutput = childOutput;
     this.rangeSets = options.rangeSets();
     this.floatingFault = options.floatingFault();
     this.intervalFault = options.intervalFault();
     this.familiesOff = Set.copyOf(admission.familiesOff());
     this.declinesTwoLaneChecks = admission.declineTwoLaneConditions();
+    this.guardsLongProducts = guardsLongProducts;
   }
 
   boolean rangeSets() {
@@ -154,6 +165,16 @@ final class DeclineSink {
    */
   boolean declinesTwoLaneChecks() {
     return declinesTwoLaneChecks;
+  }
+
+  /**
+   * Whether a checked {@code BIGINT} multiply the range lattice cannot bound is built as a
+   * {@code GuardedProduct} rather than declined ({@link VarkaEmitOptions#guardsLongProducts},
+   * VARKA-611). A projection's compile reads it from its options; every other sink, a filter's
+   * included, keeps the decline.
+   */
+  boolean guardsLongProducts() {
+    return guardsLongProducts;
   }
 
   /** Whether the session has switched {@code family} off. */

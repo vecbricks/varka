@@ -405,6 +405,9 @@ public final class VarkaRangeAnalysis {
       // The bits of a float and a hash step span their whole lanes.
       case VarkaVectorIR.CanonicalBits n -> VarkaValueRange.UNKNOWN;
       case VarkaVectorIR.HashStep n -> VarkaValueRange.UNKNOWN;
+      // Below 2^62 on a batch it admits, but no bound the lattice may build on is kept: a check
+      // above it keeps its own.
+      case VarkaVectorIR.GuardedProduct n -> VarkaValueRange.UNKNOWN;
       // A condition as a value is 0 or 1 where it is known; an unknown row is null, whose value
       // no consumer reads.
       case CondValue n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, 1);
