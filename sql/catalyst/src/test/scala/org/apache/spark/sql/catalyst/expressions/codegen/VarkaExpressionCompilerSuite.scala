@@ -2663,7 +2663,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("a SMALLINT or TINYINT column's null test lifted to a bigint kernel at the defaults " +
-      "widens the column once") {
+      "widens the column once", PinsDefaults) {
     // VARKA-619 at the defaults: a disjunction of null tests lifts to the int lane, widening each
     // narrow column there, and the conjunction with a bigint conjunct lifts it on to the long
     // lane, whose null test reads the column through one widening. The null tests beside a bigint
@@ -2678,7 +2678,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       }
     for (pred <- preds) {
       val compiled = VarkaExpressionCompiler.compilePredicate(pred, childOutput :+ ll,
-        VarkaMatrix.base, VarkaAdmission.NO_HOST_REFUSAL).toScala
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).toScala
       assert(compiled.isDefined, s"$pred should fuse")
       val canonical = compiled.get.fused.outputs.asScala.map(VarkaVectorIR.canonical).mkString
       assert(!canonical.contains("(widen:LONG (widen:INT col:"),
@@ -2686,7 +2686,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       val bytes = VarkaLoopEmitter.emit(
         s"org.apache.spark.sql.varka.execution.VarkaShortNullTest${System.nanoTime()}",
         compiled.get.fused.outputs, compiled.get.fused.inputOrdinals.size,
-        compiled.get.fused.numLiterals, null, null, VarkaMatrix.base)
+        compiled.get.fused.numLiterals, null, null, VarkaEmitOptions.DEFAULTS)
       assert(bytes.nonEmpty, pred)
     }
   }
