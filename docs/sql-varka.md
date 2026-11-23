@@ -291,7 +291,7 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
 | `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
 | `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 82 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 26 | plumbing 3, semantics 35 | 3 | 93: 68 to precision 18, 25 at precision 19 to 38 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 26 | plumbing 3, semantics 33 | 3 | 93: 68 to precision 18, 25 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
 | `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
@@ -2589,6 +2589,19 @@ exist.
   it was written must still serve one. It needs a JVM of its own, since it
   fixes the process-wide cache serializer, never writes golden files, and
   runs in `dev/varka_nightly.sh`.
+* **Spark's cast suites** (`VarkaCastWithAnsiOffSuite`,
+  `VarkaCastWithAnsiOnSuite`, `VarkaTryCastSuite`) are Spark's
+  `CastWithAnsiOffSuite`, `CastWithAnsiOnSuite` and `TryCastSuite` with each
+  check run a second time through the Varka evaluator once Spark's own has
+  passed: every literal of a type a kernel reads becomes a column of equal rows,
+  one more than the host's byte lanes, written into Arrow batches, a fused check's answers are held to
+  Spark's over the rows read back from Arrow, and a declined batch's error
+  must reach the caller as Spark raised it. Each bare cast's compile verdict
+  per form and mode is recorded in `sql/varka/plans/m8/casts_suites.tsv`,
+  which `dev/varka_census.py --check` holds to the cast matrix;
+  `sql/varka/spark_suites/expression_excluded.tsv` and
+  `expression_declines.tsv` list the tests and the batch declines that are
+  not the kernel's fault. The random properties run through Varka nightly.
 * **Metaspace proof** (`VarkaGeneratedClassLoaderSuite`,
   `VarkaShapeCacheSuite`) verifies with weak references that a released
   loader is collected, that a batch of 1000 loaders is fully collected, and -

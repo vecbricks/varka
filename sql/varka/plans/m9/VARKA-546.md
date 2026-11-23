@@ -1,5 +1,9 @@
 # VARKA-546: Generated files that concurrent pull requests do not hand-merge
 
+*Moved to milestone 9 on 23 November 2026 with row 546 (`SCOPE.md` item 138). A bare
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
+unless that plan moved too (`SCOPE.md` item 138).*
+
 ## 0. What exists now (admission check)
 
 From `origin/master` at `ccd3c180bcb` with the plans branch merged, read on 1 November 2026.

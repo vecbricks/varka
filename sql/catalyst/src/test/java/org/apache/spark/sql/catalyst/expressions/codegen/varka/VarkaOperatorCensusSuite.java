@@ -42,6 +42,7 @@ import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -117,7 +118,9 @@ public final class VarkaOperatorCensusSuite {
    * caught. And the printer says "callee changed to" only when one chain of bcis meets two
    * callees ({@code printinlining.cpp}, {@code at_bci}), so two species at separate call sites
    * print nothing: no two-species cell of the catalog trips the tell at any width, which is why
-   * the census asserts only its absence in the one-species cells, not its presence.
+   * the census asserts only its absence in the one-species cells, not its presence. Its presence
+   * is shown on a planted cell instead, one call site that meets two species
+   * ({@code planted.bimorphic}, VARKA-504).
    *
    * <p>A class of the fork's own preferred width is no second species: a virtual call on a lane's
    * shared class, such as {@code LongVector::addIndex}, prints "callee changed to" the preferred
@@ -482,6 +485,21 @@ public final class VarkaOperatorCensusSuite {
     String own = "jdk.incubator.vector.Long512Vector::addIndex (6 bytes)";
     assertFalse(secondSpecies(prefix + own, 512), "read as a second species: " + own);
     assertTrue(secondSpecies(prefix + own, 256), "not read as a second species: " + own);
+  }
+
+  @Test
+  @DisplayName("a call site that meets two species is read as a second species")
+  void plantedSecondSpecies() throws Exception {
+    // The live case the tell has in no catalog cell: the 128-bit and 64-bit int species at one
+    // call site, which is meaningful where neither is the preferred species (256 bits or more).
+    int bytes = hostBytes();
+    Assumptions.assumeTrue(bytes >= 32, "a host of " + bytes * 8 + " bits prefers one of the two");
+    Reading reading = fork("planted.bimorphic", bytes);
+    assertTrue(reading.bimorphic(), () -> "two species at one call site read as one: " + reading);
+    // The control is the same call site with the 128-bit species alone: one species that is not
+    // the preferred one, so the tell reads two species and not one off the host's width.
+    Reading control = fork("planted.one128", bytes);
+    assertFalse(control.bimorphic(), () -> "one species read as two: " + control);
   }
 
   @Test

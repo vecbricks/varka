@@ -402,6 +402,7 @@ public final class VarkaAnsiForm {
    * instance is also what a hot implicit division by zero throws, so it cannot be told apart; a
    * {@code / by zero} with its message, an int overflow, or a long overflow thrown anywhere but
    * {@code Math} is the harness's own.
+   * {@code VarkaUpstreamPinsSuite} pins the dropped message.
    */
   static boolean isExactLongOverflow(ArithmeticException e) {
     StackTraceElement[] trace = e.getStackTrace();

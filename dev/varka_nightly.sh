@@ -36,6 +36,7 @@
 #   dev/varka_nightly.sh --skip-deoptnull # without the NULL-mode kernels' cycle ratchet
 #   dev/varka_nightly.sh --skip-history   # without the kernel-after-kernels arm (VARKA-257)
 #   dev/varka_nightly.sh --skip-compiled  # without the compiled fuzz histories at volume
+#   dev/varka_nightly.sh --skip-castsuites  # without Spark's cast suites under Varka (VARKA-368)
 #
 # The deopt step forks ten fresh JVMs per vector width of the default emission's twelve-output
 # make_date kernel and fails if any of them enters the C2 deoptimization cycle, reading the
@@ -79,6 +80,7 @@ variants=4
 platform=1
 deoptnull=1
 compiled=1
+castsuites=1
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) usage 0 ;;
@@ -96,6 +98,7 @@ while [ "$#" -gt 0 ]; do
     --skip-cliff) cliff=0; shift ;;
     --skip-golden) golden=0; shift ;;
     --skip-platform) platform=0; shift ;;
+    --skip-castsuites) castsuites=0; shift ;;
     --gate) gate=1; shift ;;
     *) usage ;;
   esac
@@ -150,6 +153,17 @@ if [ "$sparkwarm" -gt 0 ]; then
   run_step sparkwarm build/sbt -batch "project sql" \
     "set Test/javaOptions ++= Seq(\"-Dvarka.sparkfuzz.warmupIterations=$sparkwarm\", \"-Dvarka.sparkfuzz.seed=$seed\", \"-Dspark.test.timeout=170\", \"-Dvarka.test.watchdog.minutes=170\")" \
     "testOnly *VarkaSparkFuzzSuite -- -z \"both sides of the warm-up handover\""
+fi
+# Spark's cast suites with each check also run through the Varka evaluator (VARKA-368), the random
+# properties included at a hundred draws each; the record they write must not move from the
+# committed one, and the census holds it to the matrix.
+if [ "$castsuites" -eq 1 ]; then
+  run_step castsuites env VARKA_SUITES_REGEN=true build/sbt -batch "project sql" \
+    "set Test/javaOptions ++= Seq(\"-Dvarka.suites.random=true\", \"-Dvarka.suites.minSuccessful=100\")" \
+    'testOnly *VarkaCastWithAnsiOffSuite *VarkaCastWithAnsiOnSuite *VarkaTryCastSuite'
+  run_step castsuites-record bash -c \
+    'git diff --exit-code -- sql/varka/plans/m8/casts_suites.tsv \
+      && python3 dev/varka_census.py --check'
 fi
 # Spark's golden files through the Arrow source with Varka on, in a JVM of its own; a failure not
 # on sql/varka/spark_suites/excluded.tsv is rerun with Varka off and named Varka's or the harness's.
