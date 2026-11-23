@@ -54,9 +54,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
 /**
  * The {@code PORT} form's frame and its ports (`VARKA-345.md` 2.2, 2.3, 3.2): the word helpers
  * of {@link VarkaMathPort} against their definitions on the raw bits, and each port's expansion,
- * {@code exp}'s and {@code expm1}'s, emitted as a kernel, against its {@code StrictMath} method and
- * against the vector fdlibm library's {@code VFdlibm} method and blended arm on the same inputs,
- * bit for bit.
+ * {@code exp}'s, {@code expm1}'s, {@code log}'s and {@code log10}'s, emitted as a kernel, against
+ * its {@code StrictMath} method and against the vector fdlibm library's {@code VFdlibm} method
+ * and blended arm on the same inputs, bit for bit.
  *
  * <p>The library is {@code io.github.vecbricks:vfdlibm}, a test-scope dependency: the
  * reference and the oracle, never a kernel's run-time call. The sampled draws are 2.3's four over
@@ -82,12 +82,13 @@ public final class VarkaMathPortSuite {
   /**
    * A ported function: its expansion, its oracles ({@code StrictMath}'s method, {@code VFdlibm}'s
    * and the library's blended arm, reached by reflection since its class is package-private), its
-   * fixed vectors and the range of draw 1, the domain where its result is finite and not a limit
-   * and, for {@code expm1}, where {@code k} takes each of its forms ({@code |x|} up to 56 ln 2).
+   * fixed vectors, the range of draw 1, the domain where its result is finite and not a limit
+   * and, for {@code expm1}, where {@code k} takes each of its forms ({@code |x|} up to 56 ln 2),
+   * and the library's planted faults it is built with.
    */
   private record Fn(String name, BiFunction<VarkaMathPort, VarkaMathPort.Fault, VarkaVectorIR> port,
       DoubleUnaryOperator strict, UnaryOperator<DoubleVector> library, Method blended,
-      long[] fixed, double lowest, double highest) {
+      long[] fixed, double lowest, double highest, List<VarkaMathPort.Fault> faults) {
 
     Built build(VarkaMathPort.Fault fault) {
       var table = new VarkaMathPort.Table();
@@ -125,13 +126,27 @@ public final class VarkaMathPortSuite {
     }
   }
 
+  /** The three faults every port's library class plants. */
+  private static final List<VarkaMathPort.Fault> FAULTS = List.of(
+      VarkaMathPort.Fault.DROP_CORRECTION, VarkaMathPort.Fault.CONSTANT_OFF_BY_ONE_ULP,
+      VarkaMathPort.Fault.THRESHOLD_MOVED);
+
   private static final Fn EXP = new Fn("exp", (p, f) -> p.exp(X, f), StrictMath::exp,
-      VFdlibm::exp, blendedArm("Exp", "expBlended"), expFixedVectors(), -745.2, 709.8);
+      VFdlibm::exp, blendedArm("Exp", "expBlended"), expFixedVectors(), -745.2, 709.8, FAULTS);
 
   private static final Fn EXPM1 = new Fn("expm1", (p, f) -> p.expm1(X, f), StrictMath::expm1,
-      VFdlibm::expm1, blendedArm("Expm1", "expm1Blended"), expm1FixedVectors(), -38.8, 38.8);
+      VFdlibm::expm1, blendedArm("Expm1", "expm1Blended"), expm1FixedVectors(), -38.8, 38.8,
+      FAULTS);
 
-  private static final List<Fn> FUNCTIONS = List.of(EXP, EXPM1);
+  private static final Fn LOG = new Fn("log", (p, f) -> p.log(X, f), StrictMath::log,
+      VFdlibm::log, blendedArm("Log", "logBlended"), logFixedVectors(), 0.0, 4.0, FAULTS);
+
+  private static final Fn LOG10 = new Fn("log10", (p, f) -> p.log10(X, f), StrictMath::log10,
+      VFdlibm::log10, blendedArm("Log10", "log10Blended"), logFixedVectors(), 0.0, 1e6,
+      List.of(VarkaMathPort.Fault.DROP_CORRECTION, VarkaMathPort.Fault.CONSTANT_OFF_BY_ONE_ULP,
+          VarkaMathPort.Fault.THRESHOLD_MOVED, VarkaMathPort.Fault.SUBNORMAL_THRESHOLD_MOVED));
+
+  private static final List<Fn> FUNCTIONS = List.of(EXP, EXPM1, LOG, LOG10);
 
   private static String hex(double v) {
     return String.format(Locale.ROOT, "%s (0x%016x)", v, Double.doubleToRawLongBits(v));
@@ -184,8 +199,7 @@ public final class VarkaMathPortSuite {
   // -------------------------------------------------------------------------------------------
 
   @Test
-  @DisplayName("the ports' constants are the doubles whose words e_exp.c's and s_expm1.c's "
-      + "comments give")
+  @DisplayName("the ports' constants are the doubles whose words their C files' comments give")
   void constantsMatchTheirWords() {
     Map<Double, Long> words = new HashMap<>();
     words.put(VarkaMathPort.TWOM1000, 0x01700000_00000000L);
@@ -204,6 +218,18 @@ public final class VarkaMathPortSuite {
     words.put(VarkaMathPort.Q3, 0xBF14CE19_9EAADBB7L);
     words.put(VarkaMathPort.Q4, 0x3ED0CFCA_86E65239L);
     words.put(VarkaMathPort.Q5, 0xBE8AFDB7_6E09C32DL);
+    words.put(VarkaMathPort.TWO54, 0x43500000_00000000L);
+    words.put(VarkaMathPort.LG1, 0x3FE55555_55555593L);
+    words.put(VarkaMathPort.LG2, 0x3FD99999_9997FA04L);
+    words.put(VarkaMathPort.LG3, 0x3FD24924_94229359L);
+    words.put(VarkaMathPort.LG4, 0x3FCC71C5_1D8E78AFL);
+    words.put(VarkaMathPort.LG5, 0x3FC74664_96CB03DEL);
+    words.put(VarkaMathPort.LG6, 0x3FC39A09_D078C69FL);
+    words.put(VarkaMathPort.LG7, 0x3FC2F112_DF3E5244L);
+    words.put(VarkaMathPort.THIRD, 0x3fd55555_55555555L);
+    words.put(VarkaMathPort.IVLN10, 0x3FDBCB7B_1526E50EL);
+    words.put(VarkaMathPort.LOG10_2HI, 0x3FD34413_509F6000L);
+    words.put(VarkaMathPort.LOG10_2LO, 0x3D59FEF3_11F12B36L);
     for (var e : words.entrySet()) {
       assertEquals(e.getValue(), Double.doubleToRawLongBits(e.getKey()), hex(e.getKey()));
     }
@@ -475,6 +501,21 @@ public final class VarkaMathPortSuite {
   }
 
   /**
+   * The words e_log.c and e_log10.c branch on, in both signs with their 64 neighbours each way:
+   * the subnormal and non-finite bounds, {@code 1.0} and its neighbouring binades, the band of
+   * {@code i > 0} ({@code 0x6147a} and {@code 0x6b851}), the {@code sqrt(2)} split
+   * ({@code 0x6a09c}), the {@code |f| < 2^-20} words around {@code 1.0} and {@code 0.5}, and the
+   * subnormals' bottom and top - with the special values. Both ports take the same vectors.
+   */
+  static long[] logFixedVectors() {
+    return fixedVectors(fromHi(0x3ff00000 | (int) VarkaMathPort.HX_BAND_LO),
+        fromHi(0x3ff00000 | (int) VarkaMathPort.HX_BAND_HI), fromHi(0x3ff6a09c),
+        fromHi(0x3fe6a09c), fromHi(0x3ff00002), fromHi(0x3feffffe), fromHi(0x3fe00002),
+        fromHi(0x3fdffffe), fromHi(0x000fffff), fromHi(0x7fefffff), 2.0, 0.5, 10.0, 0.1,
+        Math.sqrt(2.0), 0x1p-1060);
+  }
+
+  /**
    * {@code edges} in both signs with their 64 neighbours each way, and SLEEF's special values with
    * their neighbours: NaNs of both signs and several payloads, both infinities,
    * {@code +-DBL_MAX}, {@code +-DBL_MIN}, {@code +-denorm_min}, both zeros and {@code +-1}.
@@ -715,10 +756,7 @@ public final class VarkaMathPortSuite {
   private static void plantedFaultsAreCaught(Fn fn) {
     long[] vectors = fn.fixed();
     long[][] refs = references(fn, vectors, vectors.length);
-    for (VarkaMathPort.Fault fault : VarkaMathPort.Fault.values()) {
-      if (fault == VarkaMathPort.Fault.NONE) {
-        continue;
-      }
+    for (VarkaMathPort.Fault fault : fn.faults()) {
       long n = 0;
       try (Kernel k = new Kernel(fn.build(fault), 0); Arena arena = Arena.ofConfined()) {
         Col x = VarkaEmitterFixtures.makeLongInput(arena, vectors.length, i -> false,

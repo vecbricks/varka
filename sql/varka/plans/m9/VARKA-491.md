@@ -1,5 +1,9 @@
 # VARKA-491: selects without the long-to-mask round trip on AVX2
 
+*Moved to milestone 9 on 23 November 2026 with row 491 (`SCOPE.md` item 138). A bare
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
+unless that plan moved too (`SCOPE.md` item 138).*
+
 ## 0. Why this row exists
 
 Row 396 (`VARKA-396.md`, `results/VARKA-396-report.md`) found that JDK 25's C2 miscompiles
