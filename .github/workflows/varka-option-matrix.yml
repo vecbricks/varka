@@ -31,13 +31,17 @@
 # test the dispatched branch. It runs at most 16 bins at a time there by default and compiles the
 # test classes itself, since the fork's Build artifacts need a token it lacks. Runs there do not
 # queue against each other: ~/varka-ops' dispatcher starts one at a time. There is no weekly run
-# until row 522 (m9/VARKA-522.md) gives it a home.
+# until row 522 (m9/VARKA-522.md 2.1) moves the schedule to the fork.
 name: Varka option matrix
 run-name: >-
   ${{ inputs.pr != '' && format('Varka option matrix of #{0} at {1}', inputs.pr, inputs.sha)
   || 'Varka option matrix' }}
 
 on:
+  schedule:
+    # Sunday 03:00 UTC, after the weekly full Spark matrix has started and before Monday's
+    # pull requests. The build job admits it nowhere until row 522 turns it to the fork.
+    - cron: '0 3 * * 0'
   workflow_dispatch:
     inputs:
       pr:
@@ -67,9 +71,10 @@ env:
 jobs:
   build:
     name: "Option matrix: build and plan"
-    # Never on apache/spark, whose tree has no Varka. The jobs after this one need it, so they are
-    # skipped with it.
-    if: github.repository != 'apache/spark'
+    # Never on apache/spark, whose tree has no Varka, and never on the schedule: vecbricks/varka
+    # has 20 runners and no Build to reuse, and the fork's turn waits for row 522. The jobs after
+    # this one need it, so they are skipped with it.
+    if: github.repository != 'apache/spark' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
@@ -599,7 +604,7 @@ jobs:
 
   report-failure:
     name: Report a failed run
-    # No run is scheduled until row 522 gives the weekly run a home, so this waits for it.
+    # The build job admits no scheduled run until row 522 turns the schedule to the fork.
     # Only a scheduled run, since a person who dispatches one sees its result; only on the
     # project's own repository, where issues are on; and when a job failed or was cancelled.
     # The script lists every failed, timed-out or cancelled job, a cancelled one with a note.

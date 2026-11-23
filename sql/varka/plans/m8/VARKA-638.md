@@ -217,8 +217,8 @@ add its 20 slots to the fork's 40? Read from `results/VARKA-637-pr-matrix-scope.
 the fork at midday while vecbricks/varka's runners were mostly idle, so whole pull request
 matrices may run there too. The workflow now takes `pr`, `sha` and `slots` (3.1's names, without
 `stage`). On vecbricks/varka a dispatch without `pr` and `sha` fails, and the fork refuses them.
-The Sunday schedule is removed until row 522 gives the weekly run a home, which is 3.1's guard
-without the sweep clause. A run on vecbricks/varka compiles for itself, with no reach record, and
+The build job refuses the Sunday schedule on both repositories until row 522 turns it to the fork
+(`m9/VARKA-522.md` 2.1), which is 3.1's guard without the sweep clause. A run on vecbricks/varka compiles for itself, with no reach record, and
 runs at most 16 bins at once. The download probe above is still the way to get the
 fork's classes. Which repository takes a matrix is decided outside the repository, by the
 dispatcher in `~/varka-ops`. This row's sweep adds `stage` and the sweep plan on top.
