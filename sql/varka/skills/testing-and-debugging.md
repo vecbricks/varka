@@ -830,7 +830,7 @@ the pinned run under a configuration that changes a pinned option would repeat t
 cancel the case there instead (`assume`, as the unread-locals month-once case does), so that a
 green result does not claim a coverage it lacks. Tag the whole test `PinsDefaults` only when
 nothing else of it is worth running under a configuration.
-The scheduled option matrix runs every configuration and a pull request's scoped run only the one
+The dispatched option matrix runs every configuration and a pull request's scoped run only the one
 its diff names, so a test added with a feature is first run under the others a day later: run the
 new suites under all of `--list` before merging a test that emits.
 The whole matrix over just those suites is one command and no longer than a lane run:
@@ -1122,7 +1122,7 @@ the emitter against the reference evaluator. Three things decided how it is buil
 - **Size is grammar productions, not IR nodes or depth.** `make_date` over a date's fields is one
   arm whose IR repeats the date three times; counted in nodes it never appears at a size that runs.
   And the condition leaf matters: with `IsNotNull` over a column counted as two, no `IfElse` exists
-  below size 5; as one, it appears at 4, the size the nightly jobs and the weekly option matrix run.
+  below size 5; as one, it appears at 4, the size the nightly jobs and the option matrix run.
 - **The counts grow about thirty-fold a size** (3,203 trees to size 3, 101,422 to 4, 3.26 million to
   5 at the int lane), so each tier is one size: 3 in the gate (4 until it cost the gate about 400
   seconds a width; no `IfElse` exists below 4, so the gate's series has none and

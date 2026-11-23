@@ -186,8 +186,8 @@ append, so after such a merge run `dev/varka_lint.py sql/varka/matrix/skips.tsv`
 which reads every line and flags a test named twice.
 A Varka pull request's Build runs
 the suites at the defaults only: its option configurations are checked by the
-`varka-option-matrix` workflow dispatched on its branch, which runs all of them,
-as the weekly run does. There a configuration
+`varka-option-matrix` workflow, which runs all of them, dispatched on its branch
+on the fork or with `pr` and `sha` on vecbricks/varka. There a configuration
 runs a SQL test only where the Build of the same commit recorded that it moves
 something the test compiled or emitted (`VarkaTestReach`); a test the record
 lacks, or one `skips.tsv` names under the configuration, still runs. An option
