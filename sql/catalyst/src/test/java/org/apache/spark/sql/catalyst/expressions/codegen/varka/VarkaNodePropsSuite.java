@@ -64,6 +64,7 @@ public final class VarkaNodePropsSuite {
       r -> VarkaIrGrammar.drawDecimalShape(r).roots(),
       r -> VarkaIrGrammar.drawDecimalValueShape(r).roots(),
       r -> VarkaIrGrammar.drawWideLongShape(r).roots(),
+      r -> VarkaIrGrammar.drawGuardedProductShape(r).roots(),
       r -> VarkaIrGrammar.drawMixedShape(r).roots());
 
   /**
@@ -113,7 +114,7 @@ public final class VarkaNodePropsSuite {
     }
     var records = new ArrayList<Class<?>>();
     leaves(VarkaVectorIR.class, records);
-    assertTrue(records.size() >= 61, "the walk found only " + records.size() + " records");
+    assertTrue(records.size() >= 62, "the walk found only " + records.size() + " records");
     for (Class<?> r : records) {
       Method own = r.getDeclaredMethod("props");
       assertEquals(VarkaNodeProps.class, own.getReturnType(), r.getSimpleName());

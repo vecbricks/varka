@@ -392,3 +392,16 @@ and runs before the regen, so those two misses now fail in seconds. Because 489a
 cleanly over a changed switch arm, every restack runs the equivalence suite and the budget and
 cost suites at 489b's tip before 489a's gate. The owner held the row on 23 November until the
 open pull requests merge, since it touches many files they touch.
+
+**Master merged again, 23 November 2026, late evening** (`c685d37b8eb`). Master's VARKA-611 had
+added a 62nd record, `GuardedProduct`, which merged into 489a without a textual conflict; its
+`props()` was written by hand from master's arms (ring `NEVER`, `STRICT`, weight
+`5 + 2 * XOR_SPLIT_CALLS`, the record name as its cost kind) and was not compared by the
+equivalence suite: its weight and kind checks went with 489b's second commit, and its corpus does
+not draw the node (the grammar draws it in a sequence of its own). 489b and 489c were restacked by
+merge, each keeping its own side in every switch master had given an arm. At 489b's tip
+`VarkaNodePropsEquivalenceSuite` (7850 analyses, 336564 word entries, unchanged),
+`VarkaNodePropsSuite`, `VarkaEmitterBudgetSuite` (whose register has a `GuardedProduct` row) and
+`VarkaEmitCostSuite` pass; at 489c's tip `catalyst/Test/compile` and `sql/Test/compile` pass and so do the last three.
+489c adds `drawGuardedProductShape` to `VarkaNodePropsSuite`'s corpus and raises its record floor
+to 62.
