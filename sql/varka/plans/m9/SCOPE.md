@@ -6187,7 +6187,8 @@ default is stated per rule in the coverage table's verification column. It waits
 The mid-course review of milestone 8 (`m8/PLAN.md` 12) set the rule that a finding moving no
 census cell goes to this catalogue (12.3). On 23 November 2026 the owner applied it to the open
 rows: a row stays in milestone 8 if it blocks the close or serves the milestone's goal, the new
-types and their casts and math; the 42 rows below do neither and moved here, on the precedent of
+types and their casts and math; the 40 rows below, and steps 2 and 3 of row 637 (its line below),
+do neither and moved here, on the precedent of
 items 15, 39 and 81: text and task numbers unchanged, each row still in `m8/PLAN.md` with a note
 at its head, and each row's own plan file moved beside this catalogue, as `VARKA-64.md` and
 `VARKA-73.md` were, with a note at its head. None is ordered against this catalogue's spine; each
@@ -6197,6 +6198,13 @@ Row 493, read the same day, was withdrawn instead: row 507's bins replaced the s
 balances (`m8/PLAN.md` row 493). The shard code it merged (#1023: `dev/varka_matrix_shards.py`,
 `sql/varka/matrix/seconds.tsv` and `dev/varka_matrix.sh --shard`) stays in the tree unused by the
 weekly matrix; removing it is carried here.
+
+*Corrected 23 November 2026:* this item first listed 42 rows. Row 638 was among them, and the
+owner returned it to milestone 8 the same day, since the local gate's sweep is the throughput
+limit. The owner then returned row 637's step 1, the first stage, too: row 638 plans from its
+`dev/varka_matrix_scope.py`, and the fork's slots are the other throughput limit. Row 637 and
+its plan file are therefore in milestone 8 again (`m8/VARKA-637.md`), and this item keeps only
+its steps 2 and 3, the optional path tiers, `--replay` and the `auto` default.
 
 | task | what it is | where its design is | why it left milestone 8 |
 | ---: | :--- | :--- | :--- |
@@ -6239,8 +6247,7 @@ weekly matrix; removing it is carried here.
 | 590 | A pull request's Build tests it merged with Varka's master | `VARKA-590.md` | CI or tooling work: it moves no census cell and serves no new type |
 | 625 | A push check for an option change | the row | CI or tooling work: it moves no census cell and serves no new type |
 | 627 | One benchmark slug per CPU | the row | CI or tooling work: it moves no census cell and serves no new type |
-| 637 | A pull request's option matrix stops a red run early | `VARKA-637.md` | CI or tooling work: it moves no census cell and serves no new type |
-| 638 | The arm sweep on vecbricks/varka's runners | `VARKA-638.md` | CI or tooling work: it moves no census cell and serves no new type |
+| 637 | Steps 2 and 3 only: a pull request's matrix runs what its diff can move (path tiers, `--replay`, the `auto` default) | `m8/VARKA-637.md` 3.2, 3.5 and 7 | CI or tooling work: it moves no census cell and serves no new type; step 1, the first stage, was returned to milestone 8 |
 | 642 | An emit option declared in one place | `VARKA-642.md` | CI or tooling work: it moves no census cell and serves no new type |
 
 Two findings of rows marked done the same day come here too, since neither moves a census cell:
