@@ -1,8 +1,11 @@
 # VARKA-637: a pull request's option matrix stops a red run early, then runs what its diff can move
 
-*Moved to milestone 9 on 23 November 2026 with row 637 (`SCOPE.md` item 138). A bare
-`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
-unless that plan moved too (`SCOPE.md` item 138).*
+*Moved to milestone 9 on 23 November 2026 with row 637 (`m9/SCOPE.md` item 138). Step 1 was
+returned to m8 by the owner on 23 November 2026: row 638 plans from its
+`dev/varka_matrix_scope.py`, and the fork's slots are the other throughput limit. Steps 2 and 3
+(7), the optional path tiers, `--replay` and the `auto` default, stay in m9 under item 138, and
+with them 3.2, 3.5, prediction 5 and the tiers' parts of 3.4, 4, 5 and 6. Row 522 stays in
+milestone 9, so its plan is `m9/VARKA-522.md`.*
 
 ## 1. Where this came from
 
@@ -63,13 +66,19 @@ touch no main code, later.
 ### 3.1 The first stage, built first
 
 The build job plans two bin lists, `first` and `rest`. `first` holds the units of the changed
-suites under every configuration without the reach record, which is `pre-pr.sh`'s arm sweep.
+suites under every configuration without the reach record, which was `pre-pr.sh`'s arm sweep
+when this was planned.
 The changed suites are `pre-pr.sh`'s rule: every `*Suite.scala` or `*Suite.java` under
 `sql/catalyst/src/test` or `sql/core/src/test` that the diff adds or changes, plus
 `VarkaMatrixSuite` when `VarkaEmitOption`, `VarkaEmitOptions` or a `VarkaMatrix*` class changes.
 `dev/varka_matrix_scope.py BASE HEAD --suites` prints them, each once. BASE is the merge base
 with vecbricks/varka's master; the build job fetches that master, which is public, so no token is
 needed.
+
+*23 November 2026:* the local gate's arm sweep was narrowed that day to the defaults, `useAVX=2`
+and `useAVX=3`, and the configurations that name a changed option (`varka-gate-sweep-scope`,
+#1667). `first` keeps "the changed suites under every configuration" on CI as its own definition,
+not as "`pre-pr.sh`'s arm sweep".
 
 `first` also holds the units of any bin that failed in the branch's last run with a failed bin,
 whatever that run's conclusion, so a run cancelled after a red bin counts (#1626's 45060620623
@@ -146,7 +155,7 @@ references do not see (reflection, resources, a class loaded by name), and a too
 a suite runs without naming it. The full matrix on master catches both. **It does not run
 today:** the weekly schedule is disabled on vecbricks/varka, and row 522, which moves it to the
 fork, is Planned. So the tiers are not built until row 522's weekly runs on the fork. A miss
-reaches the owner through `report-failure` on the fork (522 7 question 5). The issue lists the
+reaches the owner through `report-failure` on the fork (`m9/VARKA-522.md` 7 question 5). The issue lists the
 pull requests merged since the last green full run, each with the tier its matrix ran, so a miss
 is traced to the tier that let it through and the rule is widened.
 
