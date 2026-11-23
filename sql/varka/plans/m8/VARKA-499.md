@@ -311,6 +311,19 @@ has been taken (item 3 below); the rest are owed (10.3).
   `VarkaCoverageSuite`, `VarkaEmitterFramesSuite`, `VarkaWithChildrenSuite`,
   `VarkaRangeAnalysisSuite`.
 
+### 10.2a The gate at the defaults, partly taken (23 November 2026)
+
+Before the pull request, the suites the new check may reach were run at the defaults in one shared
+JVM on the laptop (512-bit vectors), on the branch merged with master at `f3b97c0b503`: the eleven
+of 10.2's floor list, with `VarkaSpeciesGuardSuite`, `VarkaSuiteHarnessSuite` and
+`VarkaMatrixSuite`, in one `build/sbt 'catalyst/testOnly ...'`. 350 passed, 3 cancelled, and one
+failed, `VarkaEmittedBytesSuite`'s pin of `emitted_bytes.json`, whose option-arm entries the merge
+left owed (the regeneration rewrites them). No class met the new lane-count refusal: the log holds
+no "lanes of two widths" message. So the check fails none of the suites a grep finds loading a
+division, a widening or a narrowing in the shared JVM, and it is kept failing, not report-only. A
+lane count is proportional to the bit width, so a 256-bit runner selects the same classes. Item 2
+below is met for those suites; the rest of the catalyst suites run in the pull request's Build.
+
 ### 10.3 Owed before the row closes
 
 1. **(a)'s census (step 1)**: the catalyst suites in the shared JVM with
