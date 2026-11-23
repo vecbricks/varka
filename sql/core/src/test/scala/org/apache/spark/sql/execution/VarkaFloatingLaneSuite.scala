@@ -319,6 +319,29 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
         checkFused(s"SELECT $expr AS v FROM $$t")
       }
     }
+    // Both orders of greatest and least in one projection. Spark canonicalises the two with
+    // their children sorted, so greatest(a, b) and greatest(b, a) are one expression to the
+    // subexpression elimination of a whole-stage projection, while each answers on its own
+    // without whole-stage codegen; the orders differ on -0.0 against 0.0 and on two NaNs of
+    // different payloads, which the pairs and payloads fixtures hold. Varka must answer as the
+    // row engine does under each setting (VARKA-341.md 9, from READING_COMET.md 4).
+    // KNOWN WRONG ANSWER, ignored until fixed: a reproducer, found 23 November 2026. With
+    // whole-stage codegen on, Spark answers gs and ls with g's and l's bits on (-0.0, 0.0) and
+    // (0.0, -0.0); Varka evaluates each order on its own and answers the other zero. Enable
+    // this test with the fix (VARKA-341, READING_COMET.md 4 case 4).
+    // varka-session-lint: allow the common subexpression elimination of Spark's whole-stage
+    // projection, seen only through a session's plan
+    ignore(s"$kind: greatest and least with both operand orders in one projection fuse and " +
+        "match the row engine bit for bit, whole-stage codegen on and off") {
+      for (wholeStage <- Seq("true", "false")) {
+        withBothConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, wholeStage) {
+          withClue(s"wholeStage=$wholeStage: ") {
+            checkFused(s"SELECT greatest($a, $b) AS g, greatest($b, $a) AS gs, " +
+              s"least($a, $b) AS l, least($b, $a) AS ls FROM $$t")
+          }
+        }
+      }
+    }
   }
 
   // -----------------------------------------------------------------------------------------
