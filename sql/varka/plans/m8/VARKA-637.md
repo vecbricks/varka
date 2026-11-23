@@ -293,6 +293,15 @@ the weekly full run is traced to its tier.
   base. The two bin jobs, `first` and `rest`, share their steps through a YAML anchor and carry
   the `if:` conditions of 3.1. The plan step's summary opens with the stage line. The `stages`
   input defaults to `two`; the Sunday schedule, which has no inputs, runs two stages too.
+* *23 November 2026, by the owner's word:* a red `first` stops the run only when a unit of it
+  failed. A bin also fails on VARKA-570's stop of a slow runner and on a setup step that failed
+  twice, and those let `rest` run, the run still ending red. The bin step writes
+  `<bin>-failed/units.txt` only for a unit that exited non-zero, which a unit the watchdog stops
+  never does, and a `gate` job, run only after a red `first`, downloads the first stage's
+  artifacts and outputs `tests=failed`, `passed`, or `unknown` when they do not download. `rest`
+  also runs on `needs.first.result == 'failure' && needs.gate.outputs.tests == 'passed'`. A
+  cancelled `first`, a bin past its job timeout, still stops it. Rerunning a straggler's failed
+  job reruns `rest` with it, since GitHub reruns a failed job's dependents.
 * The dry plan of `results/VARKA-637-dry-plan.txt`: #1626's head plans 20 `first` bins and 220
   `rest` bins against 235 in one list, the `first` bins running 27 triples the reach record cut,
   and #1659's head, which changes no suite, plans no `first` bin and the one-list plan in `rest`.

@@ -582,6 +582,10 @@ jobs:
           [ -e "$f" ] || continue
           if [ "$(cat "$f")" != 0 ]; then
             echo "== ${f%.exit}.log:"; tail -40 "${f%.exit}.log"; status=1
+            # For the stage gate: a unit that failed, where a straggler or a setup step leaves
+            # none, since a unit the watchdog stops writes no exit file.
+            mkdir -p "$out/$BIN-failed"
+            echo "exit $(cat "$f"): $(cat "${f%.exit}.unit")" >> "$out/$BIN-failed/units.txt"
           fi
         done
         if [ -e "$strag/straggler.txt" ]; then
@@ -600,6 +604,7 @@ jobs:
           target/varka-units/${{ matrix.bin }}/*-platform/platform.txt
           target/varka-units/${{ matrix.bin }}/*-setup/retries.txt
           target/varka-units/${{ matrix.bin }}/*-straggler/straggler.txt
+          target/varka-units/${{ matrix.bin }}/*-failed/units.txt
           target/varka-units/${{ matrix.bin }}/*-u*.log
           target/varka-units/${{ matrix.bin }}/*-u*/runs/*/name
           target/varka-units/${{ matrix.bin }}/*-u*/runs/*/*/exit
@@ -610,16 +615,57 @@ jobs:
         if-no-files-found: ignore
         retention-days: 30
 
-  # The second stage: every other unit. It runs when the first succeeded or was skipped for an
-  # empty list, and not after a first stage that failed or whose bin timed out. A plain `needs`
-  # would skip it with a skipped first, and a diff that changes no suite would end green with no
-  # bins.
+  # Whether a red first stage failed a test. A bin fails on a unit that failed, on the watchdog's
+  # stop of a slow runner (VARKA-570) or on a setup step that failed twice, and only the first
+  # writes <bin>-failed/units.txt; so the second stage goes on after stragglers and setup
+  # failures, whose run still ends red, and stops after a failed unit. Records that do not
+  # download stop it too.
+  gate:
+    name: "Option matrix: stage gate"
+    needs: [build, first]
+    if: ${{ !cancelled() && needs.first.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tests: ${{ steps.judge.outputs.tests }}
+    steps:
+    - name: Download the first stage's records
+      id: records
+      continue-on-error: true
+      uses: actions/download-artifact@v4
+      with:
+        pattern: varka-option-matrix-b[0-9]*
+        path: target/varka-bins
+        merge-multiple: true
+    - name: Judge the first stage's failures
+      id: judge
+      env:
+        DOWNLOAD: ${{ steps.records.outcome }}
+      run: |
+        if [ "$DOWNLOAD" != success ]; then
+          echo "::error::The first stage's records did not download, so the second stage waits."
+          echo "tests=unknown" >> "$GITHUB_OUTPUT"
+        elif compgen -G "target/varka-bins/*-failed/units.txt" > /dev/null; then
+          echo "== the first stage's failed units, so the second stage does not run:"
+          cat target/varka-bins/*-failed/units.txt
+          echo "tests=failed" >> "$GITHUB_OUTPUT"
+        else
+          echo "== no unit of the first stage failed, so the second stage runs; its stragglers:"
+          cat target/varka-bins/*-straggler/straggler.txt 2>/dev/null || echo "none"
+          echo "tests=passed" >> "$GITHUB_OUTPUT"
+        fi
+
+  # The second stage: every other unit. It runs when the first succeeded, was skipped for an
+  # empty list, or failed with no unit failed (the gate), and not after a failed unit or a first
+  # stage whose bin timed out. A plain `needs` would skip it with a skipped first, and a diff
+  # that changes no suite would end green with no bins.
   rest:
     name: "Option matrix: ${{ matrix.bin }}"
-    needs: [build, first]
+    needs: [build, first, gate]
     if: >-
       ${{ !cancelled() && needs.build.result == 'success'
-      && (needs.first.result == 'success' || needs.first.result == 'skipped')
+      && (needs.first.result == 'success' || needs.first.result == 'skipped'
+      || (needs.first.result == 'failure' && needs.gate.outputs.tests == 'passed'))
       && needs.build.outputs.rest != '[]' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -673,8 +719,12 @@ jobs:
           echo "## Option matrix"
           if [ "$REST" = skipped ] && [ "$FIRST" != success ] && [ "$FIRST" != skipped ]; then
             echo "The first stage ended $FIRST, so the second did not run: this report and the"
-            echo "suite seconds cover the first stage's bins only. A straggler (listed below) or a"
-            echo "setup step that failed twice ends it so too; rerun the failed jobs to go on."
+            echo "suite seconds cover the first stage's bins only: a unit of it failed, or its"
+            echo "records did not download (the stage gate's log says which)."
+          elif [ "$FIRST" = failure ]; then
+            echo "The first stage's failed bins failed no unit - stragglers or setup steps, listed"
+            echo "below - so the second ran. Their units have no answer here: rerun the failed"
+            echo "jobs (the second stage reruns with them), or dispatch again to run them first."
           fi
           echo '```'
           sed -n '/^configuration/,$p' target/varka-matrix-report.txt 2>/dev/null || echo "no report"
@@ -746,7 +796,7 @@ jobs:
     # Only a scheduled run, since a person who dispatches one sees its result; only on the
     # project's own repository, where issues are on; and when a job failed or was cancelled.
     # The script lists every failed, timed-out or cancelled job, a cancelled one with a note.
-    needs: [build, first, rest, report]
+    needs: [build, first, gate, rest, report]
     if: >-
       always() && github.event_name == 'schedule' && github.repository == 'vecbricks/varka'
       && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))

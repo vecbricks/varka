@@ -26,6 +26,9 @@ The test takes the step's `run:` text from the workflow, runs it in a scratch di
 stub `dev/varka_matrix.sh` that records its arguments, and compares them with what each kind of
 unit line must pass.
 
+The same matrix's stage gate (VARKA-637): a red first stage lets the second run when its failed
+bins failed no unit - stragglers and setup steps - and stops it after a failed unit.
+
 The same is done for the sweep workflow's `Run the sweep` step (VARKA-573): its JVM options and
 runner arguments come from `dev/varka_sweeps.py`, and it must pass a failing sweep's status on.
 And for its `Run this share under AVX2 at 128 bits` step (VARKA-564): the three shares of a module
@@ -37,12 +40,15 @@ fail its job.
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
@@ -383,6 +389,146 @@ class Watchdog(unittest.TestCase):
     def test_another_bins_plant_changes_nothing(self):
         status, _, stdout, text, started, _ = run_watched(["defaults|sql|S0"], PLANT="b001")
         self.assertEqual((status, text, started), (0, None, [0]), stdout)
+
+
+# ---------------------------------------------------------------------------------------------
+# The stage gate (VARKA-637): the second stage after a red first one
+# ---------------------------------------------------------------------------------------------
+
+
+def workflow_doc():
+    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+
+def gate_script():
+    """The `run:` text of the gate job's step that judges the first stage's failures."""
+    for step in workflow_doc()["jobs"]["gate"]["steps"]:
+        if step.get("name") == "Judge the first stage's failures":
+            return step["run"]
+    raise SystemExit(f"no judging step in the gate job of {WORKFLOW}")
+
+
+def job_runs(job, results, tests="", rest="[{}]"):
+    """Whether `job`'s `if:` admits it, with the jobs it needs ended as `results` ({job: result})
+    and the gate's output `tests`: the expression read as Python, `!cancelled()` true."""
+    text = workflow_doc()["jobs"][job]["if"].strip()
+    text = re.sub(r"^\$\{\{|\}\}$", "", text).replace("!cancelled()", "True")
+    text = text.replace("&&", " and ").replace("||", " or ")
+    needs = SimpleNamespace(
+        build=SimpleNamespace(
+            result=results.get("build", "success"), outputs=SimpleNamespace(rest=rest)
+        ),
+        first=SimpleNamespace(result=results["first"]),
+        gate=SimpleNamespace(
+            result=results.get("gate", "skipped"), outputs=SimpleNamespace(tests=tests)
+        ),
+    )
+    return eval(" ".join(text.split()), {"needs": needs, "True": True})
+
+
+def bin_records(dst, bin_name, units, stub=STUB, **env):
+    """Runs the bin step as bin `bin_name` and copies its directory's files into `dst`, as the
+    gate's download of every first-stage artifact merges them; returns the step's exit status."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        (tmp / "dev").mkdir()
+        (tmp / "dev/varka_matrix.sh").write_text(stub, encoding="utf-8")
+        (tmp / "dev/varka_matrix.sh").chmod(0o755)
+        full = dict(STEP_ENV, UNITS="\n".join(units) + "\n", BIN=bin_name)
+        full.update(env)
+        done = subprocess.run(
+            ["bash", "-e", "-c", step_script()],
+            cwd=tmp,
+            env=full,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        shutil.copytree(tmp / "target/varka-units" / bin_name, dst, dirs_exist_ok=True)
+        return done.returncode
+
+
+def judge(records, download="success"):
+    """Runs the gate's step over the merged `records`; returns (its `tests` output, its stdout)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        shutil.copytree(records, tmp / "target/varka-bins")
+        out = tmp / "github-output"
+        out.write_text("", encoding="utf-8")
+        done = subprocess.run(
+            ["bash", "-e", "-c", gate_script()],
+            cwd=tmp,
+            env={"PATH": os.environ["PATH"], "DOWNLOAD": download, "GITHUB_OUTPUT": str(out)},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert done.returncode == 0, done.stdout + done.stderr
+        got = dict(ln.split("=", 1) for ln in out.read_text(encoding="utf-8").splitlines())
+        return got["tests"], done.stdout
+
+
+# A planted straggler: the units are never started, the watchdog stops the bin at 2 s.
+STRAGGLER = {"PLAN_SECONDS": "1", "DEADLINE_FLOOR": "2", "GRACE": "1", "PLANT": "b001"}
+
+
+class StageGate(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.records = Path(self.tmp.name, "records")
+        self.records.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_a_green_first_stage_runs_the_second_without_the_gate(self):
+        self.assertEqual(bin_records(self.records, "b000", ["cse=false|sql|OK"]), 0)
+        self.assertFalse(job_runs("gate", {"first": "success"}))
+        self.assertTrue(job_runs("rest", {"first": "success"}))
+        self.assertTrue(job_runs("rest", {"first": "skipped"}), "an empty first stage")
+        self.assertFalse(job_runs("rest", {"first": "success"}, rest="[]"))
+
+    def test_a_straggler_only_first_stage_runs_the_second_and_names_the_straggler(self):
+        self.assertEqual(bin_records(self.records, "b000", ["cse=false|sql|S0"], SLEEP_STUB), 0)
+        status = bin_records(self.records, "b001", ["w=4|sql|S1"], SLEEP_STUB, **STRAGGLER)
+        self.assertEqual(status, 3)
+        tests, stdout = judge(self.records)
+        self.assertEqual(tests, "passed")
+        self.assertIn("b001: planned 1 s", stdout)
+        self.assertIn("not run: w=4|sql|S1", stdout)
+        self.assertTrue(job_runs("gate", {"first": "failure"}))
+        self.assertTrue(job_runs("rest", {"first": "failure", "gate": "success"}, tests))
+
+    def test_a_setup_only_failure_runs_the_second(self):
+        # A bin whose setup failed twice never reaches its units: it leaves only its retries.
+        (self.records / "b002-setup").mkdir()
+        (self.records / "b002-setup/retries.txt").write_text("b002 java failure, retried\n")
+        tests, _ = judge(self.records)
+        self.assertEqual(tests, "passed")
+        self.assertTrue(job_runs("rest", {"first": "failure", "gate": "success"}, tests))
+
+    def test_a_failed_unit_stops_the_second_stage_even_beside_a_straggler(self):
+        status = bin_records(self.records, "b000", ["defaults|sql|OK", "cse=false|sql|FAIL1"])
+        self.assertEqual(status, 1)
+        bin_records(self.records, "b001", ["w=4|sql|S1"], SLEEP_STUB, **STRAGGLER)
+        tests, stdout = judge(self.records)
+        self.assertEqual(tests, "failed")
+        self.assertIn("exit 3: cse=false|sql|FAIL1", stdout)
+        self.assertNotIn("defaults|sql|OK", stdout)
+        self.assertFalse(job_runs("rest", {"first": "failure", "gate": "success"}, tests))
+
+    def test_records_that_do_not_download_stop_it_and_so_does_a_cancelled_first(self):
+        tests, _ = judge(self.records, download="failure")
+        self.assertEqual(tests, "unknown")
+        self.assertFalse(job_runs("rest", {"first": "failure", "gate": "success"}, tests))
+        self.assertFalse(job_runs("rest", {"first": "cancelled", "gate": "success"}, "passed"))
+
+    def test_every_bin_uploads_its_failed_units(self):
+        doc = workflow_doc()
+        upload = next(
+            s for s in doc["jobs"]["rest"]["steps"] if s.get("name") == "Upload the bin's runs"
+        )
+        self.assertIn("/*-failed/units.txt", upload["with"]["path"])
 
 
 class SweepStep(unittest.TestCase):
