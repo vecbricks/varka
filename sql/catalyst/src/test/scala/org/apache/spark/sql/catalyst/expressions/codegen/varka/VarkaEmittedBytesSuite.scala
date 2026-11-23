@@ -769,6 +769,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   test("sql/varka/emitted_bytes.json pins what the emitter produces for every shape") {
     val path = getWorkspaceFilePath("sql", "varka", "emitted_bytes.json")
+    // A table read as empty would render, and could pin, no coverage row at all.
+    assert(coverage.size > 100, s"only ${coverage.size} coverage rows reach the oracle")
     val rendered = render()
     if (regenerate) {
       Files.write(path, rendered.getBytes(StandardCharsets.UTF_8))

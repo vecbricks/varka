@@ -291,7 +291,7 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
 | `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
 | `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 82 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 16 | plumbing 12, semantics 36 | 3 | 100: 75 to precision 18, 25 at precision 19 to 38 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 33 | plumbing 3, semantics 28 | 3 | 108: 83 to precision 18, 25 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
 | `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
@@ -304,9 +304,9 @@ One row per section of Spark's function registry, and per family of the operator
 
 | Family | Entries | Every type | Some type | In part | Types owed | Rows |
 | :--- | ---: | ---: | ---: | ---: | :--- | :--- |
-| conditional | 11 | 1 | 11 | 1 | float, dec | 329, 331, 338, 341, 348, 359 |
+| conditional | 11 | 1 | 11 | 10 | float, dec | 329, 331, 338, 341, 348, 359 |
 | predicate | 16 | 6 | 15 | 8 | bool, dec | 27, 329, 331, 336, 338, 341, 347, 348, 359, 497 |
-| math | 59 | 17 | 33 | 0 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
+| math | 59 | 17 | 33 | 8 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
 | bitwise | 13 | 13 | 13 | 0 |  |  |
 | datetime | 41 | 27 | 36 | 0 | byte, short, int, bigint, float, double, dec, ntz, time, ym, dt | 103, 329, 339, 340, 343, 351 |
 | hash | 2 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 337, 359, 368 |
@@ -1545,30 +1545,18 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `-(d9 + d9b) = d9s4` | `predicate` |  | the negation of a sum, compared at DECIMAL(12, 4) | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `try_multiply(d8, d9) IS NULL` | `predicate` |  | null only where an operand is: no product within 18 digits overflows, so TRY's null past the precision never fires | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
-#### Decimal casts
+#### DECIMAL values
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `CAST(d9 AS BIGINT)` | `decimalCast` |  | the unscaled long divided by 10^2, truncating toward zero as Decimal.toLong does, one constant division | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
-| `CAST(d16s9 AS BIGINT)` | `decimalCast` |  | at sixteen digits the magnitude is shifted right by 9 and divided by 5^9, and the sign put back | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
-| `CAST(d18 AS BIGINT)` | `decimalCast` | `abs(d18) * 100 < 18014398509481984` | at (18, 2) the magnitude is guarded below 2^54 before its shift, past which the row engine divides | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
-| `CAST(d9 AS INT)` | `decimalCast` |  | truncated, then narrowed: seven integral digits always fit an int, so no mode checks it | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
-| `CAST(-d9 AS BIGINT)` | `decimalCast` |  | the cast of a computed value, the negation's unscaled long divided as a column's is | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
-| `CAST(d18 AS INT)` | `decimalCast` | `d18 > -2147483649 AND d18 < 2147483648` | the low bits under the legacy mode; under ANSI and TRY the exact rule, the truncated long checked against the int range, as Spark answers a decimal of eighteen digits read from the cache | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
-| `CAST(d9 AS SMALLINT)` | `decimalCast` | `d9 > -32769 AND d9 < 32768` | the short twin | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
-| `CAST(d9s4 AS TINYINT)` | `decimalCast` | `d9s4 > -129 AND d9s4 < 128` | the byte twin, at scale 4 | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
-| `try_cast(d18 AS INT)` | `decimalCast` | `abs(d18) * 100 < 18014398509481984` | the range guard's nulling mode; only the division's guard declines a batch | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
-| `CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)` | `decimalCast` | `abs(d18) < 10000000000` | the precision check alone, which declines under ANSI the batch Spark raises on and nulls the lane under the legacy mode and TRY, then the truncation | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
-| `CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)` | `decimalCast` | `abs(d9) < 100000` | a rescale up guarded before its multiply: the target's precision check moved onto the operand, so the multiply never wraps | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
-
-#### Decimal cast predicates
-
-| Predicate | Switches | Domain | Notes | 128-bit lanes |
-|---|---|---|---|---|
-| `CAST(d9 AS BOOLEAN)` | `decimalCast` |  | the unscaled value against zero, which cannot fail | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
-| `CAST(d18 AS BOOLEAN)` | `decimalCast` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
-| `CAST(d9s4 AS DECIMAL(9, 2)) < d9` | `predicate`, `decimalCast` |  | a rescale down by two digits, rounding half up: the half added with the value's sign, then one constant division; seven integral digits always fit, so no check | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
-| `CAST(d16s9 AS DECIMAL(10, 2)) > d9` | `predicate`, `decimalCast` |  | a rescale down by seven digits at sixteen: the half added to the magnitude, shifted by 7 and divided by 5^7, the sign put back | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CASE WHEN d9 < d9b THEN d9 ELSE d9b END` | `predicate`, `condition` |  | a DECIMAL(9, 2) choice, the comparison and the blend on the long lane | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `if(d9 < d9b, d18, d18b)` | `predicate`, `condition` |  | a DECIMAL(18, 2) choice under a DECIMAL(9, 2) condition | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `coalesce(d9, d9s4)` | `condition` |  | DECIMAL(11, 4): d9 times 10^2, then the first valid operand | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `greatest(d18, d18b)` | `intArithmetic` |  | the null-skipping pick, of one scale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `least(d9, d9s4)` | `intArithmetic` |  | the null-skipping pick at DECIMAL(11, 4), d9 carrying its rescale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `-d18` | none |  | a negation, which cannot overflow: an unscaled value within 18 digits is never the long lane's minimum | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `abs(d18)` | none |  | a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `try_subtract(d9, d9s4)` | none |  | DECIMAL(12, 4), row 349's difference stored by the same path: no difference within 18 digits overflows, so TRY's null never fires | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 
 #### Time arithmetic
 
@@ -2614,6 +2602,19 @@ exist.
   it was written must still serve one. It needs a JVM of its own, since it
   fixes the process-wide cache serializer, never writes golden files, and
   runs in `dev/varka_nightly.sh`.
+* **Spark's cast suites** (`VarkaCastWithAnsiOffSuite`,
+  `VarkaCastWithAnsiOnSuite`, `VarkaTryCastSuite`) are Spark's
+  `CastWithAnsiOffSuite`, `CastWithAnsiOnSuite` and `TryCastSuite` with each
+  check run a second time through the Varka evaluator once Spark's own has
+  passed: every literal of a type a kernel reads becomes a column of equal rows,
+  one more than the host's byte lanes, written into Arrow batches, a fused check's answers are held to
+  Spark's over the rows read back from Arrow, and a declined batch's error
+  must reach the caller as Spark raised it. Each bare cast's compile verdict
+  per form and mode is recorded in `sql/varka/plans/m8/casts_suites.tsv`,
+  which `dev/varka_census.py --check` holds to the cast matrix;
+  `sql/varka/spark_suites/expression_excluded.tsv` and
+  `expression_declines.tsv` list the tests and the batch declines that are
+  not the kernel's fault. The random properties run through Varka nightly.
 * **Metaspace proof** (`VarkaGeneratedClassLoaderSuite`,
   `VarkaShapeCacheSuite`) verifies with weak references that a released
   loader is collected, that a batch of 1000 loaders is fully collected, and -

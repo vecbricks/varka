@@ -117,6 +117,11 @@ class VarkaEmitOptionSuite extends SparkFunSuite with VarkaTestWatchdog {
     for (name <- Seq("checkIntOverflow", "guardDayProducers")) {
       assert(reasonOf(name) === Reason.PRICED_CHECK, name)
     }
+    // The main loop's step (VARKA-383): an answer-neutral reference arm, drawn in general.
+    assert(reasonOf("uncountedMainLoop") === Reason.REFERENCE)
+    assert(VarkaEmitOption.drawnInGeneral(VarkaEmitOption.named("uncountedMainLoop")))
+    assert(VarkaEmitOptions.DEFAULTS.withUncountedMainLoop(true).canonical()
+      .endsWith("|uncountedMainLoop)"))
     assert(table.filter(_.reason == Reason.KNOB).map(_.name) ===
       Seq("groupBudget", "fusedCeiling", "lanesOverride", "methodByteBudget", "callSiteBudget",
         "heavyGroupOutputs", "maxChainDepth"))

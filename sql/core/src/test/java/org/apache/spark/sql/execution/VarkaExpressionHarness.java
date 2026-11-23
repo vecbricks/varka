@@ -95,6 +95,9 @@ public final class VarkaExpressionHarness {
      */
     public final List<String> readPath = new ArrayList<>();
 
+    /** Each of {@link #findings} that is Spark's two projections disagreeing, not the kernel. */
+    public final List<String> sparkDisagreements = new ArrayList<>();
+
     /** Under {@link Options#rowPath}, each error the row path raised out of a declined batch. */
     public final List<RuntimeException> rowPathErrors = new ArrayList<>();
 
@@ -230,9 +233,11 @@ public final class VarkaExpressionHarness {
           : b.error() == null && sameRow(a.row(), b.row(), types,
               o -> unfixedNaN(bound.get(o), rows.get(row))) == null;
       if (!agree) {
-        outcome.findings.add(context + ", row " + i + ": Spark's interpreted and generated "
+        String finding = context + ", row " + i + ": Spark's interpreted and generated "
             + "projections disagree (" + describe(a, types) + " against " + describe(b, types)
-            + "); the row is not compared");
+            + "); the row is not compared";
+        outcome.findings.add(finding);
+        outcome.sparkDisagreements.add(finding);
         out.add(null);
       } else {
         out.add(b);
@@ -246,7 +251,7 @@ public final class VarkaExpressionHarness {
    * where one has no message. Compiled code may throw a JVM's preallocated exception, whose
    * message HotSpot clears (C2's hot throws, {@code -XX:+OmitStackTraceInFastThrow}), so a hot
    * projection can raise the same {@code ArithmeticException} as the interpreted one without its
-   * "long overflow".
+   * "long overflow". {@code VarkaUpstreamPinsSuite} pins the dropped message.
    */
   private static boolean sameError(Raised a, Raised b) {
     return a.type().equals(b.type()) && (Objects.equals(a.message(), b.message())

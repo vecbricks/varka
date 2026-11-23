@@ -17,8 +17,8 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 /*
- * The exp and expm1 expansions below follow fdlibm 5.3's e_exp.c and s_expm1.c, which carry
- * this notice:
+ * The exp, expm1, log and log10 expansions below follow fdlibm 5.3's e_exp.c, s_expm1.c, e_log.c
+ * and e_log10.c, which carry this notice:
  *
  * ====================================================
  * Copyright (C) 2004 by Sun Microsystems, Inc. All rights reserved.
@@ -34,6 +34,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
+import javax.annotation.Nullable;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
@@ -72,7 +74,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wid
  *
  * <p>{@link #exp} is the template: the sequence {@code vfdlibm} proves for {@code StrictMath.exp},
  * its arm with every branch blended ({@code Exp.expBlended}), so no lane is finished by a call.
- * {@link #expm1} follows it, on the same reduction, from {@code Expm1.expm1Blended}.
+ * {@link #expm1} follows it, on the same reduction, from {@code Expm1.expm1Blended}, and
+ * {@link #log} and {@link #log10} from {@code Log.logBlended} and {@code Log10.log10Blended}, on
+ * e_log.c's common path ({@link #logCore}).
  */
 public final class VarkaMathPort {
 
@@ -111,10 +115,15 @@ public final class VarkaMathPort {
   /**
    * A fault an expansion can be built with, for the cross-checks to catch: {@code vfdlibm}'s own
    * planted faults of each function ({@code Exp.DROP_CORRECTION}, {@code CONSTANT_OFF_BY_ONE_ULP},
-   * {@code THRESHOLD_MOVED}, and {@code Expm1}'s of the same names), here as arguments of a
-   * package-private overload, so the production expansion has none.
+   * {@code THRESHOLD_MOVED}, and {@code Expm1}'s, {@code Log}'s and {@code Log10}'s of the same
+   * names, with {@code Log10}'s fourth), here as arguments of a package-private overload, so the
+   * production expansion has none.
    */
-  enum Fault { NONE, DROP_CORRECTION, CONSTANT_OFF_BY_ONE_ULP, THRESHOLD_MOVED }
+  enum Fault {
+    NONE, DROP_CORRECTION, CONSTANT_OFF_BY_ONE_ULP, THRESHOLD_MOVED,
+    /** {@code Log10.SUBNORMAL_THRESHOLD_MOVED}: line 80's subnormal bound one high word down. */
+    SUBNORMAL_THRESHOLD_MOVED
+  }
 
   /** fdlibm's {@code __LO} word of a long lane, its low 32 bits. */
   static final long LOW_WORD = 0xffff_ffffL;
@@ -563,5 +572,226 @@ public final class VarkaMathPort {
     // Lines 177-179, |x| < 2^-54: t = huge+x; return x - (t-(huge+x)).
     VarkaVectorIR tinyT = add(x, lit(HUGE));
     return blend(isTiny, sub(x, sub(tinyT, add(x, lit(HUGE)))), result);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // log, from e_log.c
+  // -------------------------------------------------------------------------------------------
+
+  // The constants of e_log.c that e_exp.c does not share, in their shortest decimal forms with
+  // the C's words beside them; its ln2_hi and ln2_lo are e_exp.c's LN2HI_0 and LN2LO_0.
+  static final double TWO54 = 1.8014398509481984e16; // 0x43500000, 0x00000000
+  static final double LG1 = 0.6666666666666735; // 0x3FE55555, 0x55555593
+  static final double LG2 = 0.3999999999940942; // 0x3FD99999, 0x9997FA04
+  static final double LG3 = 0.2857142874366239; // 0x3FD24924, 0x94229359
+  static final double LG4 = 0.22222198432149784; // 0x3FCC71C5, 0x1D8E78AF
+  static final double LG5 = 0.1818357216161805; // 0x3FC74664, 0x96CB03DE
+  static final double LG6 = 0.15313837699209373; // 0x3FC39A09, 0xD078C69F
+  static final double LG7 = 0.14798198605116586; // 0x3FC2F112, 0xDF3E5244
+  /** Line 117's {@code 0.33333333333333333}, the double 0x3fd5555555555555. */
+  static final double THIRD = 0.3333333333333333;
+
+  /** The bits of {@code Double.MIN_NORMAL}, the lowest common lane: high word 0x00100000. */
+  static final long COMMON_LO = 0x00100000_00000000L;
+  /** The bits of +inf, above the highest common lane: high word {@code 0x7ff00000}. */
+  static final long COMMON_HI = 0x7ff00000_00000000L;
+  /** Line 110's {@code 0x95f64}: it carries into bit 20 when {@code 1+f >= sqrt(2)}. */
+  static final long SQRT2_SPLIT = 0x95f64;
+  /** Line 124's {@code 0x6147a}: the lowest {@code hx} with {@code i > 0}. */
+  static final long HX_BAND_LO = 0x6147a;
+  /** Line 126's {@code 0x6b851}: the highest {@code hx} with {@code i > 0}. */
+  static final long HX_BAND_HI = 0x6b851;
+  /** {@code 0x1.8p52}, whose ulp is 1, and its bits: {@code (double)k} without {@code L2D}. */
+  static final double DK_MAGIC = 0x1.8p52;
+  static final long DK_MAGIC_BITS = 0x43380000_00000000L;
+  /** The significand bits of a high word, {@code 0x000fffff}. */
+  static final long HI_SIGNIFICAND = 0x000fffffL;
+
+  /** {@code StrictMath.log(x)} in every lane of the double node {@code x}, bit for bit. */
+  public VarkaVectorIR log(VarkaVectorIR x) {
+    return log(x, Fault.NONE);
+  }
+
+  /** {@code lo <= b < hi} for the long node {@code b}, one signed compare (L9). */
+  private Cond inRange(VarkaVectorIR b, long lo, long hi) {
+    return new Compare(CompareOp.LT, add(b, lit(Long.MIN_VALUE - lo)),
+        lit(Long.MIN_VALUE + (hi - lo)));
+  }
+
+  /** The double {@code k} for the long node {@code kBits = k + DK_MAGIC_BITS}, exactly (L7). */
+  private VarkaVectorIR dk(VarkaVectorIR kBits) {
+    return sub(fromBits(kBits), lit(DK_MAGIC));
+  }
+
+  /**
+   * The expansion, node for node {@code vfdlibm}'s {@code Log.logBlended}, with its line
+   * references to e_log.c and its lemmas: the C's int words in long lanes (L8), {@code dk} without
+   * {@code L2D} (L7), the common and subnormal lanes by one biased compare (L9), and every return
+   * in its {@code k != 0} form, which with {@code dk = +0} gives the {@code k == 0} form's bits
+   * (L6). The rare lanes, {@code x <= 0}, the subnormals, the NaNs and {@code +inf}, are computed
+   * in every lane and blended last; a subnormal is scaled by {@code 2^54} first, as the C does.
+   *
+   * <p>A null {@code x} answers null: every condition reads {@code x}, so it is unknown there and
+   * each blend takes its {@code otherwise} arm, and the chain of those arms ends in the general
+   * form, which reads {@code x}.
+   */
+  VarkaVectorIR log(VarkaVectorIR x, Fault fault) {
+    if (x.laneType() != LaneType.DOUBLE) {
+      throw VarkaErrors.illegalArgument("log takes a DOUBLE operand, not " + x.laneType());
+    }
+    VarkaVectorIR bits = bits(x);
+    // Lines 100 and 107: the common lanes, 0x00100000 <= hx < 0x7ff00000 for the C's signed hx;
+    // line 104: the subnormals, bits in [1, COMMON_LO), scaled by two54 with k starting at -54.
+    Cond common = inRange(bits, COMMON_LO, COMMON_HI);
+    Cond subnormal = inRange(bits, 1L, COMMON_LO);
+    VarkaVectorIR xs = blend(subnormal, mul(x, lit(TWO54)), x);
+    VarkaVectorIR result = logCore(xs, subnormal, fault);
+    // The rare paths, in the C's order of precedence, the last blend winning. Line 107: x+x for
+    // +inf and a positive NaN. Line 103: (x-x)/zero for a set sign bit, -inf and a negative NaN
+    // among them. Line 102: -two54/zero, -inf, for +-0.
+    Cond negative = new Compare(CompareOp.LT, bits, lit(0L));
+    Cond positiveNonFinite = new Not(new VarkaVectorIR.Or(
+        new VarkaVectorIR.Or(common, subnormal), negative));
+    result = blend(positiveNonFinite, add(x, x), result);
+    result = blend(negative, div(sub(x, x), lit(0.0)), result);
+    return blend(new Compare(CompareOp.IEEE_EQ, x, lit(0.0)), lit(-TWO54 / 0.0), result);
+  }
+
+  /**
+   * e_log.c's common path in every lane, {@code vfdlibm}'s {@code Log.logCore}: the C's result for
+   * each lane holding a positive normal finite {@code xs}, an unspecified value elsewhere.
+   * {@code scaled}, when not null, marks the lanes whose {@code xs} is a subnormal scaled by
+   * {@code 2^54}, whose {@code k} starts at -54.
+   */
+  VarkaVectorIR logCore(VarkaVectorIR xs, @Nullable Cond scaled, Fault fault) {
+    double ln2hi = fault == Fault.CONSTANT_OFF_BY_ONE_ULP ? Math.nextUp(LN2HI_0) : LN2HI_0;
+    long split = fault == Fault.THRESHOLD_MOVED ? SQRT2_SPLIT + 1 : SQRT2_SPLIT;
+    // Lines 105-112 in the long lanes of the bits (L8): hx = __HI(x); k += (hx>>20)-1023, held
+    // as k plus the bits of 0x1.8p52 (L7), the two constants added as one; hx &= 0x000fffff;
+    // i = (hx+0x95f64)&0x100000; __HI(x) = hx|(i^0x3ff00000); k += (i>>20). The shifts are
+    // logical: hx and i are never negative as longs.
+    VarkaVectorIR xsBits = bits(xs);
+    VarkaVectorIR hx = new BitOp(BitOpKind.USHR, xsBits, lit(32L));
+    VarkaVectorIR kBits = add(new BitOp(BitOpKind.USHR, hx, lit(20L)),
+        lit(DK_MAGIC_BITS - 1023));
+    if (scaled != null) {
+      kBits = blend(scaled, add(kBits, lit(-54L)), kBits);
+    }
+    VarkaVectorIR hxm = new BitOp(BitOpKind.AND, hx, lit(HI_SIGNIFICAND));
+    VarkaVectorIR i = new BitOp(BitOpKind.AND, add(hxm, lit(split)), lit(0x100000L));
+    VarkaVectorIR xn = fromBits(new BitOp(BitOpKind.OR,
+        new BitOp(BitOpKind.AND, xsBits, lit(LOW_WORD)),
+        new BitOp(BitOpKind.SHL, new BitOp(BitOpKind.OR, hxm,
+            new BitOp(BitOpKind.XOR, i, lit(ONE_HI))), lit(32L))));
+    kBits = add(kBits, new BitOp(BitOpKind.USHR, i, lit(20L)));
+    // Line 114: (0x000fffff&(2+hx))<3, |f| < 2**-20. Lines 124-131: i = hx-0x6147a;
+    // j = 0x6b851-hx; i |= j; i > 0.
+    Cond small = new Compare(CompareOp.LT,
+        new BitOp(BitOpKind.AND, add(hxm, lit(2L)), lit(HI_SIGNIFICAND)), lit(3L));
+    Cond band = new Compare(CompareOp.GT, new BitOp(BitOpKind.OR, sub(hxm, lit(HX_BAND_LO)),
+        sub(lit(HX_BAND_HI), hxm)), lit(0L));
+    VarkaVectorIR dk = dk(kBits);
+
+    // Line 113: f = x-1.0, and k*ln2 in two parts.
+    VarkaVectorIR f = sub(xn, lit(ONE));
+    VarkaVectorIR dkHi = mul(dk, lit(ln2hi));
+    VarkaVectorIR dkLo = fault == Fault.DROP_CORRECTION ? lit(0.0) : mul(dk, lit(LN2LO_0));
+    // Lines 121-130: s = f/(2.0+f); z = s*s; w = z*z; t1 = w*(Lg2+w*(Lg4+w*Lg6));
+    // t2 = z*(Lg1+w*(Lg3+w*(Lg5+w*Lg7))); R = t2+t1.
+    VarkaVectorIR s = div(f, add(lit(2.0), f));
+    VarkaVectorIR z = mul(s, s);
+    VarkaVectorIR w = mul(z, z);
+    VarkaVectorIR t1 = mul(w, add(mul(w, add(mul(w, lit(LG6)), lit(LG4))), lit(LG2)));
+    VarkaVectorIR t2 = mul(z, add(mul(w, add(mul(w, add(mul(w, lit(LG7)), lit(LG5))),
+        lit(LG3))), lit(LG1)));
+    VarkaVectorIR r = add(t2, t1);
+
+    // Every return in its k != 0 form (L6). Lines 136-137, i <= 0:
+    // dk*ln2_hi-((s*(f-R)-dk*ln2_lo)-f).
+    VarkaVectorIR result = sub(dkHi, sub(sub(mul(s, sub(f, r)), dkLo), f));
+    // Lines 132-134, i > 0: hfsq = 0.5*f*f; dk*ln2_hi-((hfsq-(s*(hfsq+R)+dk*ln2_lo))-f).
+    VarkaVectorIR hfsq = mul(mul(f, lit(0.5)), f);
+    result = blend(band, sub(dkHi, sub(sub(hfsq, add(mul(s, add(hfsq, r)), dkLo)), f)), result);
+    // Lines 117-119, |f| < 2**-20: R = f*f*(0.5-0.33333333333333333*f);
+    // dk*ln2_hi-((R-dk*ln2_lo)-f). Lines 115-116, f == 0: dk*ln2_hi+dk*ln2_lo.
+    VarkaVectorIR rSmall = mul(mul(f, f), sub(lit(0.5), mul(f, lit(THIRD))));
+    result = blend(small, sub(dkHi, sub(sub(rSmall, dkLo), f)), result);
+    Cond fIsZero = new VarkaVectorIR.And(new Compare(CompareOp.IEEE_EQ, f, lit(0.0)),
+        at(small, LaneType.DOUBLE));
+    return blend(fIsZero, add(dkHi, dkLo), result);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // log10, from e_log10.c
+  // -------------------------------------------------------------------------------------------
+
+  // The constants of e_log10.c, lines 54-57, in their shortest decimal forms; its two54 is
+  // e_log.c's TWO54.
+  static final double IVLN10 = 0.4342944819032518; // 0x3FDBCB7B, 0x1526E50E
+  static final double LOG10_2HI = 0.30102999566361177; // 0x3FD34413, 0x509F6000
+  static final double LOG10_2LO = 3.694239077158931e-13; // 0x3D59FEF3, 0x11F12B36
+
+  /** {@code StrictMath.log10(x)} in every lane of the double node {@code x}, bit for bit. */
+  public VarkaVectorIR log10(VarkaVectorIR x) {
+    return log10(x, Fault.NONE);
+  }
+
+  /**
+   * The expansion, node for node {@code vfdlibm}'s {@code Log10.log10Blended} with the C's int
+   * words in long lanes, as {@link #logCore} holds them (L8): read {@code k} from the high word,
+   * set {@code i = 1} when {@code k < 0}, rewrite the high word's exponent so the lane lies in
+   * {@code [1, 2)} or {@code [0.5, 1)}, and return
+   * {@code (y*log10_2lo + ivln10*log(x)) + y*log10_2hi} with {@code y = k + i}, {@code log} being
+   * e_log.c's common path of the rescaled lane, a positive normal double in every lane.
+   *
+   * <p>Three forms differ from the library's int lanes, on the lanes whose result is kept, the
+   * positive finite ones, without changing a value: {@code hx} is the bits' high word by a logical
+   * shift, the C's signed one there; {@code i = ((unsigned)k&0x80000000)>>31} is {@code k}'s sign
+   * bit as a long, 1 exactly where {@code k < 0}; and {@code y = (double)(k+i)} is L7's exact add
+   * and subtract of {@code 0x1.8p52}, where the library writes an exact {@code I2D}. The rare
+   * tests are on the scaled lane's bits: {@code hx >= 0x7ff00000} for the signed {@code hx} is the
+   * signed {@code bits >= 0x7ff00000_00000000}, and {@code hx < 0} is {@code bits < 0} (L9's
+   * argument on the raw bits).
+   *
+   * <p>A null {@code x} answers null: every condition reads {@code x}, so each blend takes its
+   * {@code otherwise} arm, and those arms end in the general form, which reads {@code x}.
+   */
+  VarkaVectorIR log10(VarkaVectorIR x, Fault fault) {
+    if (x.laneType() != LaneType.DOUBLE) {
+      throw VarkaErrors.illegalArgument("log10 takes a DOUBLE operand, not " + x.laneType());
+    }
+    double ivln10 = fault == Fault.CONSTANT_OFF_BY_ONE_ULP ? Math.nextUp(IVLN10) : IVLN10;
+    double subnormalBound = fault == Fault.SUBNORMAL_THRESHOLD_MOVED
+        ? Double.longBitsToDouble(fromHiBits(0x000fffff)) : Double.MIN_NORMAL;
+    // Line 80: a subnormal is scaled by two54, and k starts at -54.
+    Cond subnormal = new VarkaVectorIR.And(new Compare(CompareOp.IEEE_LT, lit(0.0), x),
+        new Compare(CompareOp.IEEE_LT, x, lit(subnormalBound)));
+    VarkaVectorIR xs = blend(subnormal, mul(x, lit(TWO54)), x);
+    // Lines 81 and 84: hx = __HI(x); k += (hx>>20)-1023.
+    VarkaVectorIR xsBits = bits(xs);
+    VarkaVectorIR hx = new BitOp(BitOpKind.USHR, xsBits, lit(32L));
+    VarkaVectorIR k = sub(new BitOp(BitOpKind.USHR, hx, lit(20L)), lit(1023L));
+    k = blend(subnormal, add(k, lit(-54L)), k);
+    // Line 85: i = ((unsigned)k&0x80000000)>>31.
+    VarkaVectorIR i = new BitOp(BitOpKind.USHR,
+        fault == Fault.THRESHOLD_MOVED ? sub(k, lit(1L)) : k, lit(63L));
+    // Lines 86 and 88: hx = (hx&0x000fffff)|((0x3ff-i)<<20); __HI(x) = hx.
+    VarkaVectorIR hxn = new BitOp(BitOpKind.OR, new BitOp(BitOpKind.AND, hx, lit(HI_SIGNIFICAND)),
+        new BitOp(BitOpKind.SHL, sub(lit(0x3ffL), i), lit(20L)));
+    VarkaVectorIR xn = fromBits(new BitOp(BitOpKind.OR,
+        new BitOp(BitOpKind.AND, xsBits, lit(LOW_WORD)),
+        new BitOp(BitOpKind.SHL, hxn, lit(32L))));
+    // Line 89's __ieee754_log(x) of the rescaled x, and line 87's y = (double)(k+i) (L7).
+    VarkaVectorIR logx = logCore(xn, null, Fault.NONE);
+    VarkaVectorIR y = dk(add(add(k, i), lit(DK_MAGIC_BITS)));
+    // Lines 89-90: z = y*log10_2lo + ivln10*log(x); return z+y*log10_2hi, the product written
+    // log(x)*ivln10 as the library writes it, the same rounding of the same exact product.
+    VarkaVectorIR yLo = fault == Fault.DROP_CORRECTION ? lit(0.0) : mul(y, lit(LOG10_2LO));
+    VarkaVectorIR result = add(add(yLo, mul(logx, lit(ivln10))), mul(y, lit(LOG10_2HI)));
+    // The rare paths, the last blend winning. Line 83: x+x for +inf and a positive NaN. Line 79:
+    // (x-x)/zero for a set sign bit. Line 78: -two54/zero, -inf, for +-0.
+    result = blend(new Compare(CompareOp.GT, xsBits, lit(COMMON_HI - 1)), add(x, x), result);
+    result = blend(new Compare(CompareOp.LT, xsBits, lit(0L)), div(sub(x, x), lit(0.0)), result);
+    return blend(new Compare(CompareOp.IEEE_EQ, x, lit(0.0)), lit(-TWO54 / 0.0), result);
   }
 }

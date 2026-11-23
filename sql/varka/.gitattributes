@@ -9,6 +9,7 @@
 /plans/m8/census.tsv merge=varka-generated
 /plans/m8/casts.tsv merge=varka-generated
 /plans/m8/casts_fused.tsv merge=varka-generated
+/plans/m8/casts_suites.tsv merge=varka-generated
 # The option matrix's skip list is hand-written and mostly appended to, so git's built-in union
 # driver keeps both sides' lines and two branches adding skips never conflict; it needs no
 # --install-hook. Union also keeps a line one side removed or edited next to the other's append.
