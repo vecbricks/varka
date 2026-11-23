@@ -423,7 +423,8 @@ public final class VarkaEmitterIntervalCastSuite {
    */
   private static void sparkPathsAgree(Function<Expression, Expression> form, long[] values) {
     Expression bound = form.apply(new BoundReference(0, DT, true));
-    var exprs = CollectionConverters.asScala(List.of(bound)).toSeq();
+    scala.collection.immutable.Seq<Expression> exprs =
+        CollectionConverters.asScala(List.of(bound)).toSeq();
     UnsafeProjection generated = GenerateUnsafeProjection.generate(exprs, false);
     UnsafeProjection interpreted = InterpretedUnsafeProjection.createProjection(exprs);
     for (long v : values) {
@@ -499,8 +500,8 @@ public final class VarkaEmitterIntervalCastSuite {
       Function<Expression, Expression> form = x -> product ? new MultiplyDTInterval(x, lit)
           : new DivideDTInterval(x, lit);
       Kernel kernel = kernel(form.apply(dt), List.of(dt));
-      var u = new BigDecimal(c[0]).unscaledValue();
-      var p = BigInteger.TEN.pow(new BigDecimal(c[0]).scale());
+      BigInteger u = new BigDecimal(c[0]).unscaledValue();
+      BigInteger p = BigInteger.TEN.pow(new BigDecimal(c[0]).scale());
       long[] f = VarkaIntervalCompiler.dayTimeFraction(product ? u : p.multiply(
           BigInteger.valueOf(u.signum())), product ? p : u.abs());
       long n = f[1] == 1 ? f[0] : Math.abs(f[0]);
