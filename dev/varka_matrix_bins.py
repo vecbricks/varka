@@ -34,10 +34,10 @@ configuration's weight over the defaults (`sql/varka/matrix/seconds.tsv`): the s
 from `sql/varka/matrix/suite-seconds.tsv` where a suite is listed there (each suite's median over
 the configurations), from the pull-request jobs' `sql/varka/ci/suite-times.tsv` otherwise, and
 for a suite neither file lists the median, so a new suite is placed as an ordinary one. A suite
-a configuration's reach record lets only some tests of run is a part run, weighed by its measured
-seconds where `sql/varka/matrix/config-suite-part-seconds.tsv` lists the pair and by the share of
-its whole run otherwise (`--part-weight`, VARKA-617). `times` writes the measured files from a
-fanned-out run's JUnit reports.
+a configuration's reach record lets only some tests of run is a part run, weighed by default by
+the share of its whole run; `--part-weight part-seconds` weighs it by its measured seconds where
+`sql/varka/matrix/config-suite-part-seconds.tsv` lists the pair (VARKA-617, decision 9). `times`
+writes the measured files from a fanned-out run's JUnit reports.
 
   dev/varka_matrix_bins.py plan --configurations FILE --suites MODULE=FILE... \\
       [--target SECONDS] [--part-weight share|part-seconds|alone] > bins.json  # {"include": [...]}
@@ -1867,6 +1867,30 @@ class SelfTest(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "no file"):
                 planner_files(part_seconds=Path(repo, "nope.tsv"), repo=Path(repo))
 
+    def test_plan_weighs_a_part_run_by_its_share_by_default(self):
+        # The default must stay `share` until CI refreshes the part file (VARKA-617 decision 9).
+        self.assertEqual(PART_WEIGHT, "share")
+        parsed = []
+        real = plan
+
+        def spy(*a):
+            parsed.append(a[9])
+            return real(*a)
+
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "configurations").write_text("", encoding="utf-8")
+            Path(root, "sql").write_text("p.A\n", encoding="utf-8")
+            argv = ["plan", "--configurations", str(Path(root, "configurations"))]
+            argv += ["--suites", f"sql={Path(root, 'sql')}"]
+            globals()["plan"] = spy
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        self.assertEqual(main(argv), 0)
+            finally:
+                globals()["plan"] = real
+        self.assertEqual(parsed, ["share"])
+
     def test_plan_refuses_a_matrix_past_the_cap(self):
         # A lane of 10 s is shorter than any unit, so each suite run alone takes a bin.
         with tempfile.TemporaryDirectory() as root:
@@ -2124,8 +2148,9 @@ def main(argv):
         read_config_seconds(CONFIG_SUITE_SECONDS),
         tuple(PLATFORMS) if args.platforms else (),
         args.part_weight,
-        read_part_seconds(PART_SECONDS),
-        read_names(PART_ALONE),
+        # Each read only by the weighing that uses it, so the default plan reads no part file.
+        read_part_seconds(PART_SECONDS) if args.part_weight == "part-seconds" else {},
+        read_names(PART_ALONE) if args.part_weight == "alone" else (),
     )
     why = over_cap(out, args.target)
     if why is not None:

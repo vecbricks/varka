@@ -293,34 +293,35 @@ stays as `--part-weight alone`, with its list, by the house rule for losing opti
 fresh 14 November run that section 1 names, with its own reach record, and its part runs weigh
 43642146943's seconds on this branch's files. The replay cuts its 155 bins back as its build
 job planned them. On this branch's files it leaves 7 bins over 600 s under `share`, 1 under A
-and 1 under B, with the longest bin at 695 s, 625 s and 624 s. A is still the default by 3.3's
+and 1 under B, with the longest bin at 695 s, 625 s and 624 s. A still wins by 3.3's
 tie rule, and it beats `share` out of sample: the tail falls from 7 bins to 1, and the longest
 bin by 70 s. Decision 7 below rests on this. "as run" is 32.0 minutes against the measured
 32.3, so the model holds on a third run.
 
-Section 10's three conditions now hold on the branch. The committed file holds the 14 November
-run. Its replay on its own pairs is 30.4 minutes against the measured 34.4 (31.0 on the
-committed two-run file). `VarkaSparkFuzzSuite`'s part runs carry their own seconds in
-`config-suite-part-seconds.tsv`. Still owed: this pull request's review and merge (the first
-merged as #1632), and step 5's dispatch on master. A master dispatch reads a reach record only
-when a Build of the same commit has left one (`dev/varka_matrix_reuse.py`); 44485292430 found
-none. Without a record, step 5 scores the pair file alone, because every configuration runs
-every test and no part run is weighed. The default's own out-of-sample score in CI then waits
-for the first matrix that has a reach record, a pull request's.
+Section 10's three conditions now hold on the branch under `--part-weight part-seconds`; with
+`share` the default (decision 9), the default path reaches them only with decision 8's refresh. The
+committed file holds the 14 November run. Its replay on its own pairs is 30.4 minutes against the
+measured 34.4 (31.0 on the committed two-run file). `VarkaSparkFuzzSuite`'s part runs carry their
+own seconds in `config-suite-part-seconds.tsv`. Still owed: this pull request's review and merge
+(the first merged as #1632), and step 5's dispatch on master. A master dispatch reads a reach record
+only when a Build of the same commit has left one (`dev/varka_matrix_reuse.py`); 44485292430 found
+none. Without a record, step 5 scores the pair file alone, because every configuration runs every
+test and no part run is weighed. A's own out-of-sample score in CI then waits for the first matrix
+that has a reach record, a pull request's.
 
 **The default is `share`, after all (23 November 2026, decision 9).** 3.3's rule picked A, but
 nothing in CI refreshes the part file (decision 8), so A ships as the opt-in `--part-weight
 part-seconds` and `share` stays the default.
 
 **The CI path after the rebuild on master (23 November 2026).** `plan` as the workflow calls it,
-with no `--part-weight`, on 43642146943's and 44485292430's configurations and master's suites,
-with and without `--platforms`, with no reach record and with either 14 November reach record:
-the JSON and the summary line are byte for byte master's in all twelve cases. Under
-`--part-weight part-seconds` the cut changes on purpose, as above: 4 bins more (186 to 190 with the platforms on
-43642146943's configurations, 191 to 195 on 44485292430's) and about 1,900 planned seconds more,
-every bin still at most 480 s. The largest cut, no record with the platforms, stays at 227 bins,
-29 under the cap of 256. `times` as the report job calls it writes the same two files and the
-same messages as master on all three runs' artifacts.
+with no `--part-weight`, on 43642146943's and 44485292430's configurations and master's suites, with
+and without `--platforms`, with no reach record and with either 14 November reach record: the JSON
+and the summary line are byte for byte master's in all twelve cases, and the default reads no part
+file. Under `--part-weight part-seconds` the cut changes on purpose, as above: 4 bins more (186 to
+190 with the platforms on 43642146943's configurations, 191 to 195 on 44485292430's) and about 1,900
+planned seconds more, every bin still at most 480 s. The largest cut, no record with the platforms,
+stays at 227 bins, 29 under the cap of 256. `times` as the report job calls it writes the same two
+files and the same messages as master on all three runs' artifacts.
 
 ## 12. Decisions taken while the owner was away (20 November 2026)
 
@@ -369,8 +370,10 @@ same messages as master on all three runs' artifacts.
    the owner to approve, since it changes the workflow; row 617's "left:" names it, so it is
    tracked until the owner decides.
 9. **`share` stays the default; A is an option (the lead's settlement, 23 November 2026).** A
-   default that reads a file no CI job refreshes would drift on every pull request with no
-   sign. The flip to A goes with the refresh workflow of decision 8, on the owner's approval,
-   and two replays decide it first: whether A shrinks the 23 to 29 minute bins of b098, or
-   those were slow runners; and what a pair missing from the file weighs on a pull request's
-   record (it falls back to its share, so a fresh suite or configuration is weighed as now).
+   whole-run pair's fit does not depend on the pull request, but a part pair's does: it was measured
+   at one record's shares, and each pull request's record gives others, so an unrefreshed part file
+   drifts from every new record with no sign. The flip to A goes with the refresh workflow of
+   decision 8, on the owner's approval, and two replays decide it first: whether A shrinks the 23 to
+   29 minute bins of b098, or those were slow runners; and what a pair missing from the file weighs
+   on a pull request's record (it falls back to its share, so a fresh suite or configuration is
+   weighed as now).

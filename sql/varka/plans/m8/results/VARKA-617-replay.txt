@@ -109,11 +109,11 @@ bin jobs with no artifact: none
 == plan over run 44485292430's configurations and suites (at e5d70012bdc), no reach record
   origin/master 0b8be5a33e4, October pairs, share: 190 bins, 89557 s in all
   this branch, share: 216 bins, 101711 s in all
-  this branch, part-seconds (the default): 216 bins, 101711 s in all
+  this branch, part-seconds (variant A): 216 bins, 101711 s in all
 == plan over run 43642146943's configurations and suites (at fab438d4d91), its reach record
   origin/master 0b8be5a33e4, October pairs, share: 155 bins, 73197 s in all
   this branch, share: 175 bins, 82300 s in all
-  this branch, part-seconds (the default): 179 bins, 84165 s in all
+  this branch, part-seconds (variant A): 179 bins, 84165 s in all
 
 Where the part runs' underplanning sits, 43642146943 on its own pairs under share: 4967 s
 underplanned over its 565 part runs (267 s overplanned), 3257 s of it VarkaSparkFuzzSuite's
@@ -126,7 +126,8 @@ Scores (VARKA-617.md 6.1):
   prediction 4  a master run's planned bins (no reach record, so no part run under any
                 weighing): 190 on October's pairs, 216 on this branch's, 13.7 per cent more:
                 wrong, past the 10 per cent predicted.
-The default chosen by VARKA-617.md 3.3's rule: part-seconds, with fewer bins over 600 s (0 to
+The default chosen by VARKA-617.md 3.3's rule, superseded on 23 November 2026 by its decision 9
+(share stays the default, part-seconds is an option): part-seconds, with fewer bins over 600 s (0 to
 alone's 1) on this branch's files, and the tie at 0 on the run's own files going to it too.
 VarkaSparkFuzzSuite's 36 part runs in config-suite-part-seconds.tsv: 78.5 to 225.0 s at shares
 of 0.034 to 0.345; its whole run's median in suite-seconds.tsv is 182.2 s.
