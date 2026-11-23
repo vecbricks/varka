@@ -369,3 +369,33 @@ grammar's floating sequence, in one pull request after a baseline one.*
   the IEEE ones by Java's operators, and `VarkaEmittedBytesSuite` pins their first two thousand
   shapes. The fuzz descriptor marks both types present, and `dev/varka_new_lane.py` owes only
   the benchmark at the floating lanes.
+
+*23 November 2026, the runner measurement (`results/VARKA-341-literal-compare.txt`, made by
+`dev/varka_bench_diff.py` from three runs on an AMD EPYC 7763, each committed byte for byte with
+its provenance under `results/VARKA-341/`): the baseline, MaxGekk/spark run 42668162110 (#1440's
+branch, 256 bits); the specialised compares, vecbricks/varka run 44827039786 (256 bits, the run
+#1597 spliced into the class's results file) and run 45125841833 (128 bits).*
+
+- **No gain is claimed at 256 bits.** The four literal sections moved by +10.2%, +5.5%, +11.7%
+  and -6.4% (`DOUBLE` and `FLOAT`, no nulls and one row in ten null). Sections whose code #1443
+  did not touch moved by -12.5% to +19.9% between the same two runs, so the literal sections'
+  movement is inside the runs' noise. Each literal section reads 2.0X to 3.9X Spark's row path
+  after, as it read 1.9X to 3.4X before, when it was the general form.
+- **At 128 bits** there is no baseline run. The `FLOAT` literal sections read 3.1X and 2.0X Spark's
+  row path; the `DOUBLE` ones are `NONE` under the two-lane refusal (row 503), so both arms are
+  the row path.
+- **The predictions of 4:**
+  1. *No integral shape's bytes move:* met, as 5.1 and #1443 recorded from `emitted_bytes.json`
+     (only floating rows and the `option_arms` digests moved).
+  2. *The 128-bit double compares are recorded refusals:* met; `width_audit.json` lists the
+     `DOUBLE` shapes' Vector API refusals at 128 bits and none at 256 or 512.
+  3. *Every form at least as fast as Spark's row path at 512 and 256 bits:* met at 256 bits for
+     the forms the class times (comparison, choice, comparison with a literal), every one 2.0X or
+     more; not measured at 512 bits, since the EPYC 7763 has a 256-bit datapath; the other forms
+     (`greatest`, `least`, `IN`, `isnan`, `nanvl`) have no section. At 128 bits the `DOUBLE`
+     choice reads 0.8X and 0.6X, slower, as the prediction allowed for the Java fallback (row
+     543's class).
+- **Still owed by 9:** the test added to the row on 1 November 2026: `greatest(a, b)` and
+  `greatest(b, a)`, and the same pair for `least`, in one projection over `-0.0` and `0.0`, with
+  whole-stage codegen on and off. `VarkaFloatingLaneSuite` runs the swapped forms only in separate
+  queries, so the row is not done.

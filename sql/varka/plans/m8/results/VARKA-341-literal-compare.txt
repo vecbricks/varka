@@ -1,0 +1,85 @@
+VARKA-341: the literal-specialised floating compares (#1443) against their baseline (#1440).
+Generated on 23 November 2026 by the commands named below; no number is typed by hand.
+
+Files in results/VARKA-341/, each byte-identical to its run's artifact, with its provenance:
+  before, 256 bits: literal-baseline-256bit-results.txt      MaxGekk/spark run 42668162110
+  after, 256 bits:  literal-specialised-256bit-results.txt   vecbricks/varka run 44827039786
+  after, 128 bits:  literal-specialised-128bit-results.txt   vecbricks/varka run 45125841833
+All three ran on an AMD EPYC 7763 runner. The after files' four literal sections are the ones
+#1597 spliced into sql/core/benchmarks/VarkaFloatingBaselineBenchmark-jdk25-runner-epyc7763-
+results.txt (256 bits); the 128-bit file on master holds an earlier run's (44847298623).
+
+== 256 bits, before and after (dev/varka_bench_diff.py --all BEFORE AFTER)
+   The literal rows are the change. Every other row is code #1443 did not change, so its
+   movement is the noise between the two runs.
+
+-- moved by at least 3% --
+case                                                                                                       before      after    change
+[DOUBLE comparison, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)                      18.5       19.7     +6.3% <--
+[DOUBLE comparison, no nulls over 2000000 Arrow-cached rows] varka on                                        38.7       41.4     +7.0% <--
+[DOUBLE arithmetic chain, no nulls over 2000000 Arrow-cached rows] varka on                                  79.0       82.8     +4.8% <--
+[DOUBLE cast to BIGINT, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)                  24.8       25.6     +3.6% <--
+[DOUBLE choice, no nulls over 2000000 Arrow-cached rows] varka on                                           100.0      107.4     +7.4% <--
+[DOUBLE comparison with a literal, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)       41.1       43.4     +5.6% <--
+[DOUBLE comparison with a literal, no nulls over 2000000 Arrow-cached rows] varka on                         97.0      106.9    +10.2% <--
+[DOUBLE comparison, one row in ten null over 2000000 Arrow-cached rows] varka on                             51.5       54.4     +5.6% <--
+[DOUBLE arithmetic chain, one row in ten null over 2000000 Arrow-cached rows] varka on                      109.0      117.7     +8.0% <--
+[DOUBLE cast to BIGINT, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)       26.5       25.3     -4.3% <--
+[DOUBLE cast to BIGINT, one row in ten null over 2000000 Arrow-cached rows] varka on                         26.2       25.2     -3.8% <--
+[DOUBLE choice, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)               21.7       20.9     -3.6% <--
+[DOUBLE choice, one row in ten null over 2000000 Arrow-cached rows] varka on                                112.6      121.6     +8.0% <--
+[DOUBLE comparison with a literal, one row in ten null over 2000000 Arrow-cached rows] varka on              89.1       94.0     +5.5% <--
+[FLOAT comparison, no nulls over 2000000 Arrow-cached rows] varka on                                        108.3      117.0     +8.0% <--
+[FLOAT arithmetic chain, no nulls over 2000000 Arrow-cached rows] varka on                                  136.2      150.9    +10.8% <--
+[FLOAT cast to DOUBLE, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)                   27.1       26.0     -3.9% <--
+[FLOAT cast to DOUBLE, no nulls over 2000000 Arrow-cached rows] varka on                                    153.5      169.3    +10.3% <--
+[FLOAT choice, no nulls over 2000000 Arrow-cached rows] varka on                                            160.6      151.1     -5.9% <--
+[FLOAT comparison with a literal, no nulls over 2000000 Arrow-cached rows] varka on                         160.6      179.4    +11.7% <--
+[FLOAT comparison, one row in ten null over 2000000 Arrow-cached rows] varka on                             103.1       90.2    -12.5% <--
+[FLOAT cast to DOUBLE, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)        26.7       25.6     -4.1% <--
+[FLOAT cast to DOUBLE, one row in ten null over 2000000 Arrow-cached rows] varka on                         151.9      182.2    +19.9% <--
+[FLOAT choice, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)                20.9       20.1     -3.6% <--
+[FLOAT comparison with a literal, one row in ten null over 2000000 Arrow-cached rows] varka on              150.6      140.9     -6.4% <--
+
+-- within the threshold --
+case                                                                                                                  before      after    change
+[DOUBLE arithmetic chain, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)                           16.9       16.5     -2.5%
+[DOUBLE cast to BIGINT, no nulls over 2000000 Arrow-cached rows] varka on                                               25.5       26.0     +2.3%
+[DOUBLE choice, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)                                     21.1       21.1     +0.0%
+[DOUBLE comparison, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)                      26.2       26.6     +1.3%
+[DOUBLE arithmetic chain, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)                18.2       17.8     -2.3%
+[DOUBLE comparison with a literal, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)       47.7       47.6     -0.2%
+[FLOAT comparison, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)                                  25.1       24.8     -1.0%
+[FLOAT arithmetic chain, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)                            18.0       17.7     -1.9%
+[FLOAT choice, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)                                      21.4       20.8     -2.7%
+[FLOAT comparison with a literal, no nulls over 2000000 Arrow-cached rows] spark row path (varka off)                   46.6       45.5     -2.4%
+[FLOAT comparison, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)                       26.9       26.6     -1.6%
+[FLOAT arithmetic chain, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)                 18.6       18.1     -2.9%
+[FLOAT arithmetic chain, one row in ten null over 2000000 Arrow-cached rows] varka on                                  161.5      160.3     -0.7%
+[FLOAT choice, one row in ten null over 2000000 Arrow-cached rows] varka on                                            163.3      162.3     -0.6%
+[FLOAT comparison with a literal, one row in ten null over 2000000 Arrow-cached rows] spark row path (varka off)        47.6       46.7     -1.9%
+
+
+== 128 bits, after only (grep -A3 on the literal sections of the 128-bit file)
+   No 128-bit run of the baseline exists. The two DOUBLE literal sections are NONE at 128 bits
+   (the two-lane refusal, row 503), so their varka on arm is the row path.
+
+DOUBLE comparison with a literal, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                            48             52           4         41.4          24.1       1.0X
+varka on                                                                              49             52           3         40.6          24.6       1.0X
+--
+DOUBLE comparison with a literal, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                       43             48           5         46.0          21.7       1.0X
+varka on                                                                                         44             48           4         45.6          21.9       1.0X
+--
+FLOAT comparison with a literal, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                           44             47           4         45.7          21.9       1.0X
+varka on                                                                             14             19           5        141.3           7.1       3.1X
+--
+FLOAT comparison with a literal, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                      44             46           4         45.9          21.8       1.0X
+varka on                                                                                        22             25           4         90.0          11.1       2.0X
