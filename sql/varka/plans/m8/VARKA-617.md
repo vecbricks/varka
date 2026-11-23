@@ -172,3 +172,94 @@ Two pull requests, each under 1,000 counted lines (the pair file is generated an
 The committed file holds a run of 14 or 15 November. A replay of that run on its own pairs is
 within a fifth of its measured bin phase. `VarkaSparkFuzzSuite`'s part runs carry their own
 seconds.
+
+## 11. What was built
+
+### 11.1 Step 1, the artifacts (20 November 2026)
+
+Both runs downloaded on the laptop with `gh run download`, into the worktree's `target/`: run
+43642146943, 155 bin artifacts, its reach record and its report; run 44485292430, 190 bin
+artifacts and its report (it had no reach record). The jobs API lists 155 and 190 bin jobs, and
+every one has its artifact with each unit's `seconds` and JUnit reports. The 156 and 191 of
+`results/VARKA-570-bin-times.txt`, which section 6 asked step 1 to resolve, count the job "Option
+matrix: build and plan" as a bin: its name starts with "Option matrix: b" too. The build job's
+own artifact, which held the run's configurations, expired after its one day; the configurations
+are read back from the bins' `runs/*/name` files instead.
+
+### 11.2 Step 2, `replay` (pull request 1)
+
+`dev/varka_matrix_bins.py replay RUN_DIR --jobs JOBS --suites MODULE=FILE...` as section 3.2
+designs it, with one more line than it planned: "jobs as run", the run's own jobs at their
+measured lengths on the slot model, which says how much of a gap is the slot model and how much
+the bin model. The replay was checked before it was scored: given the run's configurations, the
+suites its build listed and its reach record, the planner at the run's head cuts 43642146943's
+155 bins with the same units in the same order (73197 s planned, the figure its build job's
+summary prints), and 44485292430's 190. The first try cut 229 bins, because the suites were
+listed with `--defaults`, which lists 14 suites the matrix never runs under a configuration; CI
+lists them without it, and so does the replay's input now.
+
+Selftest cases, both passing: "as run" over a two-bin, one-slot fixture equals its measured 98 s,
+and so does "jobs as run"; a fixture laid out as the planner cut it, its pairs read back by
+`whole_runs`, replans to its own bins and its own phase.
+
+**Prediction 1, scored: right.** "as run" of 43642146943 is 32.5 minutes against the measured
+34.4, 5.5 per cent under, inside the 10 per cent. "jobs as run" is 32.8, so most of the gap is
+the slot model's (jobs start a little out of bin order, and a runner's wait once a slot is free
+has a median of 10 s but a longest of about four minutes), not the lanes'. On 44485292430 the
+three figures are 45.6 measured, 45.6 and 45.2 minutes. Section 3.2 needs no rework.
+
+### 11.3 Step 3, the fresh pair files (pull request 1)
+
+`config-suite-seconds.tsv` rewritten from both runs' report artifacts, 10846 pairs, 8392 in both
+runs and taken as their mean; `suite-seconds.tsv` from 44485292430's.
+
+**Prediction 2, scored: right.** 43642146943 replanned on its own pairs (its report artifact's
+two files) is 30.4 minutes against the measured 34.4, inside 27.5 to 41.3. On the committed file
+of both runs it is 31.0. The figure is in sample by construction, as the prediction said; the
+out-of-sample score is step 5's.
+
+What the replays also show, for step 4: on its own pairs 43642146943 still has 3 bins over 600 s
+(the longest 697 s), where 44485292430, which ran every pair whole, has none (the longest
+515 s). The difference is the part runs, which the pair file does not hold.
+
+Prediction 4's figure on this pull request's files alone, before step 4 rewrites them again: the
+planner over master's configurations and suites (44485292430's, no reach record) cuts 216 bins on
+the fresh file against 190 on October's, 13.7 per cent more, past the predicted 10. It is scored
+after step 4, as section 8 says.
+
+### 11.4 The review's fixes (22 November 2026, pull request 1)
+
+The high review of #1632 on `9032bbbb3d1` found one important fault and seven nits, all fixed:
+
+* `--plan-from` takes only a ref that is a commit, a path the commit lacks still reads empty and
+  any other `git show` failure stops the replay; a given `--pairs` or `--suite-seconds` that is
+  no file stops it too. Before, each planned by fill values alone and printed a believable figure.
+* The jobs file reads in every form `gh api --paginate` saves, with or without `--jq`.
+* Bin jobs whose last attempts differ are refused; a unit with a `run.log` and no `seconds`, killed
+  by a cancel or the timeout, is listed beside "no artifact"; inputs that match nothing stop with
+  the counts found and the paths read; the median set-up counts only jobs that ran their units.
+* `plan` fails, with an `::error::` line the workflow step now prints, when its cut holds more than
+  the 256 jobs a GitHub matrix may: this pull request's data takes a no-reach run from 190 bins to
+  216, 40 under the cap.
+
+The CI plan path's output is unchanged for valid input: `plan` as the workflow calls it, with and
+without `--platforms` and with run 43642146943's reach record, writes the same JSON and summary
+line before and after.
+
+## 12. Decisions taken while the owner was away (20 November 2026)
+
+1. **Section 9's question: both runs.** The committed file holds 43642146943 and 44485292430, as
+   the plan recommended and built on: the first meets the done-when's date, the second is
+   master's head with every pair whole.
+2. **A runner's wait is measured from the slot, not from the job's creation.** Section 3.2 took
+   the wait as a job's `created_at` to `started_at`. Every bin job is created the moment the
+   build job ends (all 155 within a second), so that median, 884 s, is the wait for a slot of
+   `max-parallel`, which the slot model already counts. The replay takes a job's start less the
+   end that freed its slot (its creation for the first wave), median 10 s and 2 s in the two
+   runs.
+3. **The slots are the most bin jobs the run ran at once**, 38 in both runs, which is the
+   workflow's `max-parallel`; `--slots` overrides it.
+4. **The suites are an input, `--suites` as `plan` takes them**, listed at the run's head with
+   `dev/varka_matrix.sh --list-suites` (no build, sources only), since no artifact keeps them.
+5. **`--plan-from REF` takes `--pairs` and `--suite-seconds` beside it.** A run's own pairs are
+   its report artifact's files, not a revision, so the two files can be named directly.
