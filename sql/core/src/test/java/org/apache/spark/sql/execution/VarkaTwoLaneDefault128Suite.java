@@ -158,9 +158,9 @@ public final class VarkaTwoLaneDefault128Suite {
   private static String checksTableSql() {
     return """
         select dt, dt2, dts, t, ntz,
-               case when id % 10 = 1 then null else dt end as dtn,
-               case when id % 10 = 3 then null else t end as tn,
-               case when id % 10 = 5 then null else ntz end as ntzn
+               case when id %% 10 = 1 then null else dt end as dtn,
+               case when id %% 10 = 3 then null else t end as tn,
+               case when id %% 10 = 5 then null else ntz end as ntzn
         from (select id,
                      make_dt_interval(0, 0, 0, cast(cast(hash(id, 1) as decimal(18, 6))
                          + pmod(hash(id, 2), 1000000) * 0.000001 as decimal(18, 6))) as dt,
