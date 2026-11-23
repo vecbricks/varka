@@ -81,7 +81,8 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.WeekDay, VarkaVectorIR.DayOfWeekIso,
             VarkaVectorIR.NextDay, VarkaVectorIR.ThursdayOf, VarkaVectorIR.Chrono,
             VarkaVectorIR.AddMonths, VarkaVectorIR.MakeDate,
-            VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
+            VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.GuardedProduct,
+            VarkaVectorIR.ConstDivide,
             VarkaVectorIR.BoundedDivide, VarkaVectorIR.BitOp, VarkaVectorIR.BitCount,
             VarkaVectorIR.MathUnary, VarkaVectorIR.Fma, VarkaVectorIR.RoundToIntegral,
             VarkaVectorIR.Cond, VarkaVectorIR.CanonicalFloat, VarkaVectorIR.CanonicalBits,
@@ -166,6 +167,7 @@ public sealed interface VarkaVectorIR
       case LiteralSlot n -> n.lane();
       case IntArith n -> n.left().laneType();
       case IntNeg n -> n.child().laneType();
+      case GuardedProduct n -> LaneType.LONG;
       case ConstDivide n -> n.child().laneType();
       case BoundedDivide n -> LaneType.INT;
       case BitOp n -> n.left().laneType();
@@ -240,7 +242,8 @@ public sealed interface VarkaVectorIR
       case DecimalColumn c -> c.ordinal();
       case DecimalWord c -> c.ordinal();
       case BoolColumn b -> b.ordinal();
-      case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
+      case LiteralSlot _, IntArith _, IntNeg _, GuardedProduct _, ConstDivide _,
+          BoundedDivide _, BitOp _,
           BitCount _, MathUnary _, Fma _, RoundToIntegral _, Greatest _, Least _, IfElse _,
           CondValue _, BoolOutput _, CanonicalFloat _, CanonicalBits _, HashStep _,
           Compare _, NullSafeEqual _, CondConst _, NullValue _,
@@ -358,7 +361,8 @@ public sealed interface VarkaVectorIR
           NullValue _ -> { }
       case WidenLane _, NarrowLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _,
           ReinterpretLane _, AddMonths _,
-          MakeDate _, IntArith _, IntNeg _, GuardedDay _, GuardedRange _, NextDay _,
+          MakeDate _, IntArith _, IntNeg _, GuardedProduct _, GuardedDay _, GuardedRange _,
+          NextDay _,
           TruncDateDynamic _,
           DateDiff _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
@@ -405,7 +409,7 @@ public sealed interface VarkaVectorIR
       case NarrowLane n -> n.target().isNarrow() || needsNarrowSpecies(n.child(), seen);
       case WidenLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _, AddMonths _,
           ReinterpretLane _, MakeDate _,
-          IntArith _, IntNeg _,
+          IntArith _, IntNeg _, GuardedProduct _,
           GuardedDay _, GuardedRange _, NextDay _, TruncDateDynamic _, DateDiff _, Greatest _,
           Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _, WeekDay _, DayOfWeekIso _,
           ThursdayOf _, Year _,
@@ -1292,6 +1296,52 @@ public sealed interface VarkaVectorIR
     /** A negation. */
     public IntNeg(Overflow mode, VarkaVectorIR child) {
       this(mode, child, false);
+    }
+  }
+
+  /**
+   * {@code left * right} on the long lane under a magnitude pre-check, Spark's ANSI or TRY
+   * {@code BIGINT} multiply whose operands' bounds do not rule out overflow (`VARKA-611.md` 3.1,
+   * option B of `VARKA-104.md` 3.3). The value is the wrapping product. A batch with a live lane
+   * whose {@code |(double) left * (double) right|} is at least {@link #BOUND}, {@code 2^62}, is
+   * declined, as a {@code FAIL} {@link GuardedRange}'s is, and the row engine answers it: under
+   * ANSI it raises on the row that overflows, under TRY it nulls that row.
+   *
+   * <p>The test is sound with a factor of two to spare. Each conversion and the double product
+   * round to nearest, a relative error of at most {@code 2^-53} each, so the computed magnitude
+   * lies within {@code (1 +- 2^-53)^3} of {@code |left * right|}: every product from
+   * {@code 2^62 / (1 - 2^-53)^3} up trips, every overflow ({@code 2^63} and up) among them, and
+   * none below {@code 2^62 / (1 + 2^-53)^3} does. A lane in the narrow band between may go
+   * either way, and is never an overflow, so the node never admits one.
+   *
+   * <p>It is not a mode of {@link IntArith}: that node's reference is {@code Math.multiplyExact},
+   * which answers the products from {@code 2^62} to {@code 2^63} this one declines. The node
+   * has no mode either: it declines in every Spark mode, since a lane it is unsure of may not
+   * overflow and must not be nulled. Its check is unconditional, as a range guard's is: the
+   * compiler admits the multiply on the strength of it.
+   */
+  record GuardedProduct(VarkaVectorIR left, VarkaVectorIR right, int hash)
+      implements VarkaVectorIR {
+    /** The magnitude a double product trips at, {@code 2^62}, half the overflow edge. */
+    public static final double BOUND = 0x1p62;
+
+    public GuardedProduct {
+      requireSameLane("a guarded product", left, right);
+      if (left.laneType() != LaneType.LONG) {
+        throw VarkaErrors.illegalArgument("a guarded product is a long-lane multiply, not "
+            + left.laneType());
+      }
+      hash = hashOf(left, right);
+    }
+
+    public GuardedProduct(VarkaVectorIR left, VarkaVectorIR right) {
+      this(left, right, 0);
+    }
+    @Override public int hashCode() { return hash; }
+
+    /** Whether the pre-check trips on {@code a * b}: the reference's twin of the kernel's test. */
+    public static boolean trips(long a, long b) {
+      return Math.abs((double) a * (double) b) >= BOUND;
     }
   }
 
@@ -2563,6 +2613,8 @@ public sealed interface VarkaVectorIR
           + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
       case IntNeg n -> "(" + (n.abs() ? "abs:" : "neg:") + n.mode().name() + " "
           + kid.apply(n.child()) + ")";
+      case GuardedProduct n ->
+          "(guardedMul " + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
       case ConstDivide n -> "(divc:" + n.divisor() + " " + kid.apply(n.child()) + ")";
       case BoundedDivide n ->
           "(divb:" + n.divisor() + "/" + n.bound() + " " + kid.apply(n.child()) + ")";
@@ -2683,6 +2735,8 @@ public sealed interface VarkaVectorIR
           + lineOf.applyAsInt(n.left()) + " " + lineOf.applyAsInt(n.right()) + ")";
       case IntNeg n -> "(" + (n.abs() ? "abs:" : "neg:") + n.mode().name() + " "
           + lineOf.applyAsInt(n.child()) + ")";
+      case GuardedProduct n -> "(guardedMul " + lineOf.applyAsInt(n.left()) + " "
+          + lineOf.applyAsInt(n.right()) + ")";
       case ConstDivide n -> "(divc:" + n.divisor() + " " + lineOf.applyAsInt(n.child()) + ")";
       case BoundedDivide n ->
           "(divb:" + n.divisor() + "/" + n.bound() + " " + lineOf.applyAsInt(n.child()) + ")";
@@ -2985,6 +3039,7 @@ public sealed interface VarkaVectorIR
       case InRanges n -> new VarkaVectorIR[] {n.child()};
       case IntArith n -> new VarkaVectorIR[] {n.left(), n.right()};
       case IntNeg n -> new VarkaVectorIR[] {n.child()};
+      case GuardedProduct n -> new VarkaVectorIR[] {n.left(), n.right()};
       case ConstDivide n -> new VarkaVectorIR[] {n.child()};
       case BoundedDivide n -> new VarkaVectorIR[] {n.child()};
       case BitOp n -> new VarkaVectorIR[] {n.left(), n.right()};
@@ -3069,6 +3124,7 @@ public sealed interface VarkaVectorIR
       case InRanges n -> new InRanges(children[0], n.bounds());
       case IntArith n -> new IntArith(n.op(), n.mode(), children[0], children[1]);
       case IntNeg n -> new IntNeg(n.mode(), children[0], n.abs());
+      case GuardedProduct n -> new GuardedProduct(children[0], children[1]);
       case ConstDivide n -> new ConstDivide(children[0], n.divisor(), n.dividendBound());
       case BoundedDivide n -> new BoundedDivide(
           children[0], n.divisor(), n.bound(), n.multiplier(), n.shift());

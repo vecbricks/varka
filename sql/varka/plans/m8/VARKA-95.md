@@ -470,6 +470,44 @@ request and row 95 builds no second copy.
 
 (Written when the work lands.)
 
+**The baseline, its multiply half** (19 November 2026): `VarkaIntArithmeticBaselineBenchmark`
+(sql/core, Java) and `VarkaIntArithmeticBaselineQueriesSuite`, as the build sheet's 1.2 and 1.5 give
+them, with #1486 merged: six sections a density, twelve in all, every one `NONE` but the LEGACY
+control `i * j`, `WHOLE`, the filter `i * j > 0` included (VARKA-598 leaves it to Spark whole). The
+`%` half of the baseline, the five sections of the build sheet's 1.3 in row 30's
+`VarkaIntegralDivisionBaselineBenchmark`, is not built: that class was row 30's baseline, which had
+not merged (premise 1 of the build sheet was 0, its stop rule 7.1). *23 November 2026:* it merged as
+#1570 with `i % 7` and the column forms timed, and row 30's part 30a4 builds the constant forms of a
+literal divisor that 95a would have built, so 95a is superseded and the `%` half stays row 30's. The
+EPYC 7763 results at 256 and 128 bits are owed by the owner's dispatch, of this class only: build
+sheet 9's dispatch of the division class waits for that class. *23 November 2026:* this class's
+results at both widths landed and are committed (the runner results at the end of the build sheet).
+No dispatch of the division class is owed by this row: its `%` sections were never added to it. Of
+section 4's six predictions, 4 is scored against this baseline's row-path rows once the kernel
+lands, 5's `i % 7` half against row 30's baseline (#1570) and its shift-against-multiply-high half
+against row 30's kernel arms, and the others against the kernel and the bytes oracle. The build
+sheet's dry run (4.3) was not made; the queries suite plans each section under both settings of the
+two-lane refusal at the laptop's width, and every section is on the int lane, whose classes no width
+moves. The planted faults of build sheet 3 were not run.
+
+*Noted 23 November 2026, to the two notes of that date above and in the decisions below:* 30a4,
+row 30's constant-divisor part (`VARKA-30.md` 2.4), is local and not yet a pull request. Row 30 owns
+`i % 16` and the filter `i % 16 = 0` (its 2.4) and `try_mod(i, k)` (its 2.2), their baseline
+sections included; #1660 built none of them.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **The baseline is built without its `%` half.** The build sheet's premise 1 reads 0: row 30's
+   baseline class has not merged, and its stop rule 7.1 says the lead's order puts it first. The
+   brief keeps this row off row 30's work, so the multiply half, which needs nothing of row 30's,
+   is built on its own branch and the five `%` sections wait for row 30's class; the plan's own
+   fallback (section 4, "creates that class under 30's name with the `%` shapes only") is not
+   taken, since it would start row 30's file. This works around the build sheet's stop rule, so
+   the owner approves the split before the branch merges, or holds it until row 30's class lands.
+   *23 November 2026:* row 30's class landed (#1570), and row 30 fuses `%` by a literal itself
+   (30a4), so the split stands: this row's baseline is the multiply half.
+   (The heading's date is the window's; the work was done from the evening of 19 November.)
+
 ## Build sheet (11 November 2026)
 
 The step this sheet builds is section 5's step 1, **the baseline**, and nothing else: Spark's row
@@ -799,3 +837,17 @@ artifacts whole (`-jdk25-runner-epyc7763[-128bit]-results.txt` and provenance, u
 `sql/core/benchmarks/`), and replace the division class's two files and provenance whole: its
 row 30 sections are re-measured on the same unchanged code, and its notes stay complete. If #1486
 merges after this, it must list both classes' `NULL_TESTS` sections as `NONE` too.
+
+*Corrected 23 November 2026:* the division class's dispatch and the replacement of its files are not
+owed by this row, since its `%` sections were never added to it (section 10).
+
+### Runner results (23 November 2026)
+
+`VarkaIntArithmeticBaselineBenchmark` ran on the GitHub runners through `benchmark.yml` with
+`pr=1660` and `create-commit=false`; the files are committed as the runs wrote them, and each CPU
+is the one its provenance names:
+
+| run | file label | extra JVM options | CPU | commit measured |
+| ---: | :--- | :--- | :--- | :--- |
+| 45152524903 | `runner-epyc7763` | `<none>` | AMD EPYC 7763 64-Core Processor | `fd667f924bb` |
+| 45152539860 | `runner-epyc7763-128bit` | `-XX:MaxVectorSize=16` | AMD EPYC 7763 64-Core Processor | `fd667f924bb` |
