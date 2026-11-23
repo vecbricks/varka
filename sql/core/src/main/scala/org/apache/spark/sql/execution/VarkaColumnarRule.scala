@@ -242,8 +242,8 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
           case _: VarkaOutputSpec.FusedOutput | _: VarkaOutputSpec.KernelOutput => true
           case _ => false
         }
-        val reason = VarkaSharedOrderDecline.reason(
-          projectList.map(e => e: Expression).asJava, fused.map(b => b: java.lang.Boolean).asJava)
+        val reason = VarkaSharedOrderDecline.reason(projectList.map(e => e: Expression).asJava,
+          fused.map(b => b: java.lang.Boolean).asJava, SQLConf.get.subexpressionEliminationEnabled)
         reason.ifPresent(why => logDebug(s"Varka leaves the projection " +
           s"${projectList.map(_.sql).mkString(", ")} to Spark: it $why"))
         reason.isEmpty
@@ -361,7 +361,8 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
    * (VARKA-541): where the node's per-row fallback would evaluate a raising subexpression ahead
    * of the conjuncts Spark evaluates first (`VarkaFilterExecBase.fallbackHoistsIntoAnAnd`), or
    * where the residual filter would not eliminate a subexpression Spark's filter eliminates
-   * ([[residualMissesElimination]]).
+   * ([[residualMissesElimination]]). None also where the kernel would compute apart two
+   * floating expressions Spark's filter gives one value ([[VarkaSharedOrderDecline]], VARKA-341).
    */
   private def rewriteFilter(
       condition: Expression,
@@ -382,11 +383,24 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
       val missesElimination = residual.exists { r =>
         varka.compiledBySpark && residualMissesElimination(condition, child, residuals, r, varka)
       }
-      if (hoists || missesElimination) {
+      // Spark's filter eliminates where its compiled form takes the CSE branch, or, not
+      // compiled, under the session's setting (`VarkaFilterExecBase.compiledBySpark`).
+      val fused = predicate.fusedConjuncts.asScala.toSeq
+      val sparkEliminates = if (varka.compiledBySpark) {
+        FilterExec(condition, child).eliminatesSubexpressions
+      } else {
+        SQLConf.get.subexpressionEliminationEnabled
+      }
+      val sharesOrder = VarkaSharedOrderDecline.reason((fused ++ residuals).asJava,
+        (fused.map(_ => true) ++ residuals.map(_ => false)).map(b => b: java.lang.Boolean).asJava,
+        sparkEliminates).toScala
+      if (hoists || missesElimination || sharesOrder.isDefined) {
         logDebug(s"Varka leaves the filter $condition to Spark: " + (if (hoists) {
           "its fallback would evaluate a common AND's subexpressions before its first operand"
-        } else {
+        } else if (missesElimination) {
           "its residual filter would skip Spark's subexpression elimination"
+        } else {
+          s"it ${sharesOrder.get}"
         }))
         None
       } else {

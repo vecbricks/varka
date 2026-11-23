@@ -33,34 +33,35 @@ import org.apache.spark.sql.types.DoubleType;
 import org.apache.spark.sql.types.FloatType;
 
 /**
- * Whether a Varka projection is left to Spark because Spark's subexpression elimination would
- * give two of its expressions one value that Varka computes twice, and the two values can differ
- * (VARKA-341).
+ * Whether a Varka projection or filter is left to Spark because Spark's subexpression elimination
+ * would give two of its expressions one value that Varka computes twice, and the two values can
+ * differ (VARKA-341).
  *
- * <p>Spark groups the expressions of one projection by
+ * <p>Spark groups the expressions of one projection, or the conjuncts of one filter, by
  * {@code semanticEquals}, which compares {@code canonicalized} forms, and evaluates each group
  * of two or more always-evaluated uses once, giving every member of the group the value of the
- * first one in the list. That holds in the whole-stage projection, the generated
- * {@code UnsafeProjection} and the interpreted one alike, whenever
- * {@code spark.sql.subexpressionElimination.enabled} is on, the default. A canonical form sorts
- * the children of {@code greatest} and {@code least} and flattens and sorts a chain of {@code +}
- * or of {@code *}. So {@code greatest(a, b)} and {@code greatest(b, a)} are one group, as are
- * {@code (a + b) + c} and {@code a + (b + c)}. On {@code FLOAT} and {@code DOUBLE} values the
- * members differ: {@code greatest(-0.0, 0.0)} is {@code -0.0} and {@code greatest(0.0, -0.0)}
- * is {@code 0.0}, two NaNs give the first one's bits, and {@code (0.1 + 0.2) + 0.3} is
- * {@code 0.6000000000000001} where {@code 0.1 + (0.2 + 0.3)} is {@code 0.6}. Spark answers both
- * columns with the first member's value; a Varka kernel evaluates each member as written.
+ * first one in the list. For a projection that holds in the whole-stage projection, the
+ * generated {@code UnsafeProjection} and the interpreted one alike, whenever
+ * {@code spark.sql.subexpressionElimination.enabled} is on, the default; a filter eliminates
+ * where {@code FilterExec.eliminatesSubexpressions} says so, or, not compiled whole-stage, under
+ * the same setting. A canonical form sorts the children of {@code greatest} and {@code least}
+ * and flattens and sorts a chain of {@code +} or of {@code *}. So {@code greatest(a, b)} and
+ * {@code greatest(b, a)} are one group, as are {@code (a + b) + c} and {@code a + (b + c)}. On
+ * {@code FLOAT} and {@code DOUBLE} values the members differ: {@code greatest(-0.0, 0.0)} is
+ * {@code -0.0} and {@code greatest(0.0, -0.0)} is {@code 0.0}, two NaNs give the first one's
+ * bits, and {@code (0.1 + 0.2) + 0.3} is {@code 0.6000000000000001} where
+ * {@code 0.1 + (0.2 + 0.3)} is {@code 0.6}. Spark answers every member with the first member's
+ * value; a Varka kernel evaluates each member as written.
  *
- * <p>Until Varka shares one value as Spark does, such a projection declines: when a group has
- * two members that are not the same expression, one of them holds a floating {@code greatest},
+ * <p>Until Varka shares one value as Spark does, such an operator declines: when a group has two
+ * members that are not the same expression, one of them holds a floating {@code greatest},
  * {@code least}, {@code +} or {@code *}, and one of them is in an expression the kernel
  * computes. Members that are the same expression give the same value, so sharing them is
  * harmless, and a group whose members are all left to Spark's own per-row evaluation is shared
  * there as Spark shares it.
  *
- * <p>A filter is not asked: measured on 23 November 2026, Spark's filter evaluates
- * {@code 1 / greatest(a, b) < 0 AND 1 / greatest(b, a) < 0} member by member, elimination on or
- * off, so a kernel that does the same keeps Spark's rows.
+ * <p>The setting is read when the rule plans the query; a plan reused after the setting changes
+ * keeps the decision it was planned with.
  */
 public final class VarkaSharedOrderDecline {
 
@@ -68,15 +69,18 @@ public final class VarkaSharedOrderDecline {
   }
 
   /**
-   * Why a projection of {@code expressions} is left to Spark, or empty when it keeps its
+   * Why an operator over {@code expressions} is left to Spark, or empty when it keeps its
    * kernel. {@code fused} says, for each expression, whether the kernel computes it; the groups
-   * are Spark's, over all of them in order. Empty when Spark's subexpression elimination is off.
+   * are Spark's, over all of them in order. Empty when {@code eliminates}, whether Spark's
+   * operator eliminates common subexpressions, is false.
    */
-  public static Optional<String> reason(List<Expression> expressions, List<Boolean> fused) {
-    SQLConf conf = SQLConf.get();
-    if (!conf.subexpressionEliminationEnabled() || !fused.contains(true)) {
+  public static Optional<String> reason(
+      List<Expression> expressions, List<Boolean> fused, boolean eliminates) {
+    if (!eliminates || !fused.contains(true)
+        || expressions.stream().noneMatch(VarkaSharedOrderDecline::ordered)) {
       return Optional.empty();
     }
+    SQLConf conf = SQLConf.get();
     var groups = new EquivalentExpressions(conf.subexpressionEliminationSkipForShotcutExpr());
     for (Expression e : expressions) {
       groups.addExprTree(e, groups.addExprTree$default$2());

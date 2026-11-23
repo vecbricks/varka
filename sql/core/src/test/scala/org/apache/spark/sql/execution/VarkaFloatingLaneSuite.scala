@@ -414,17 +414,25 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
         assert(s1 != 1.1f + (1.3f + 1.7f))
       }
     }
-    // A filter is not left to Spark: measured on 23 November 2026, Spark's filter evaluates
-    // greatest(a, b) and greatest(b, a) each on its own, elimination on or off, whole-stage
-    // codegen on or off, so the kernel's rows are Spark's. Not under ANSI, where the division by
-    // a zero raises; without it, 1 / -0.0 is -Infinity.
+    // A filter whose conjuncts read both associations: Spark's filter gives the two sums one
+    // value too, so on the row whose associations round apart (0.1, 0.2, 0.3 for DOUBLE; 1.1,
+    // 1.3, 1.7 for FLOAT) it drops a row a kernel computing each sum would keep. The bound is
+    // the second association's own sum there. The second conjunct subtracts it, so that the
+    // optimizer, which takes the two sums for one, cannot read the pair as a contradiction and
+    // fold the filter away.
+    val bound = if (kind == "DOUBLE") "0.6D" else "CAST(4.1 AS FLOAT)"
+    val associationFilter = s"SELECT $a FROM $$t " +
+      s"WHERE ($a + $b) + $c > $bound AND $a + ($b + $c) - $bound <= 0"
     // varka-session-lint: allow a filter's subexpression elimination, seen only through a
-    // session's plan
-    test(s"$kind: a filter that reads both orders of greatest through a sign-sensitive " +
-        "division fuses and keeps Spark's rows, ANSI off") {
-      withAnsi(false) {
-        checkFused(s"SELECT $a, $b FROM $$t " +
-          s"WHERE 1.0D / greatest($a, $b) < 0 AND 1.0D / greatest($b, $a) < 0")
+    // session's plan, whole-stage codegen on and off
+    test(s"$kind: a filter reading both associations of + is left to Spark and keeps Spark's " +
+        "rows, whole-stage codegen on and off") {
+      for (wholeStage <- Seq("true", "false")) {
+        withBothConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, wholeStage) {
+          withClue(s"wholeStage=$wholeStage: ") {
+            checkLeftToSpark(associationFilter, Seq(association))
+          }
+        }
       }
     }
     // varka-session-lint: allow the subexpression elimination setting, seen only through a
@@ -434,6 +442,7 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
       withBothConf(SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key, "false") {
         checkFused(bothOrders)
         checkFused(associations, Seq(association))
+        checkFused(associationFilter, Seq(association))
       }
     }
     // varka-session-lint: allow the decline's reach, read in the plan

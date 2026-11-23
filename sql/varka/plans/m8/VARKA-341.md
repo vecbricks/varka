@@ -392,19 +392,21 @@ case 4).*
 - **What Varka did.** The kernel computed each member as written, in every cell, so it matched
   Spark only with the elimination off: a wrong answer against Spark's default, not one of Spark's
   own disagreements (row 541 does not cover it).
-- **The decline.** `VarkaSharedOrderDecline`, asked by `VarkaColumnarRule`'s eligibility test,
-  builds Spark's groups over the projection list with `EquivalentExpressions` and leaves the
-  projection to Spark when the elimination is on and a group holds two members that are not the
-  same expression, one with a floating `greatest`, `least`, `+` or `*`, and one in an entry the
-  kernel computes. A filter is not asked: the same pair read through `1 / greatest(a, b) < 0 AND
-  1 / greatest(b, a) < 0` was measured to be evaluated member by member by Spark in all four
-  cells, and the kernel matches it. Sharing the value instead is row 645.
+- **The decline.** `VarkaSharedOrderDecline`, asked by `VarkaColumnarRule`, builds Spark's groups
+  with `EquivalentExpressions` and leaves the operator to Spark when Spark's would eliminate and a
+  group holds two members that are not the same expression, one with a floating `greatest`,
+  `least`, `+` or `*`, and one in an entry or conjunct the kernel computes. A projection asks it
+  under `spark.sql.subexpressionElimination.enabled`; a filter where its compiled form takes the
+  CSE branch (`FilterExec.eliminatesSubexpressions`) or, not compiled whole-stage, under the same
+  setting. The optimizer itself takes the two members for one, so a filter of `s1 > k AND s2 <= k`
+  folds to an empty relation before Varka sees it; `s1 > k AND s2 - k <= 0` reaches the filter.
+  Sharing the value instead is row 645.
 - **The payload fixture.** It carried only canonical NaNs: `parallelize` ships boxed values
   through Java serialization, whose `writeDouble` stores `doubleToLongBits`. It is now built from
   a local list, and the suite passes over the real payloads.
 - **Tests** (`VarkaFloatingLaneSuite`, both kinds): both orders, and the nested form, are left to
   Spark and answer its bits, whole-stage codegen on and off; both associations of `+` and `*`
   likewise, with Spark's shared value checked on `0.1, 0.2, 0.3` (`DOUBLE`) and `1.1, 1.3, 1.7`
-  (`FLOAT`); the filter fuses and keeps Spark's rows; with the elimination off all of them fuse
-  and match; one order used twice still fuses. With the decline removed, the projection tests
-  fail on the bits.
+  (`FLOAT`); a filter reading both associations is left to Spark and keeps its rows; with the
+  elimination off all of them fuse and match; one order used twice still fuses. With the decline
+  removed, the projection and filter tests fail on the bits.
