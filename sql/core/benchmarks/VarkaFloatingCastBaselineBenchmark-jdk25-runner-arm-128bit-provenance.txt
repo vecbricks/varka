@@ -1,0 +1,11 @@
+benchmark:   *.VarkaFloatingCastBaselineBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/vecbricks/varka/actions/runs/45125874275
+commit:      241125b2f37 (master of vecbricks/varka)
+date:        2026-11-23T06:57:31Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=<none>
+jdk:         OpenJDK Runtime Environment Zulu25.38+201-CA (build 25.0.5.1+2-LTS)
+kernel:      7.0.0-1017-azure
+cpu:         
+datapath:    n/a lane-ops/ns at 128 / 256 / 512 bits; 256:128 = n/a (control), 512:256 = n/a (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)
