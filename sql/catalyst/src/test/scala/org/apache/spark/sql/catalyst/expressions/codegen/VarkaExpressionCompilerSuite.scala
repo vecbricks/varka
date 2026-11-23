@@ -2662,33 +2662,32 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
   }
 
-  test("a SMALLINT column's null test lifted to a bigint kernel widens the column once") {
-    // VARKA-619, the double widening row 364 met over a SMALLINT column, at the defaults: a
-    // disjunction of narrow null tests lifts to the int lane, widening each column there, and the
-    // conjunction with a bigint conjunct lifts it on to the long lane. The null test must read the
-    // column through one widening, not `widen:LONG (widen:INT col)`, which the emitter's IsNotNull
-    // refuses; on master the first predicate fails its emission so. The null tests beside a
-    // bigint conjunct, lifted straight to the long lane, are the controls.
+  test("a SMALLINT or TINYINT column's null test lifted to a bigint kernel at the defaults " +
+      "widens the column once") {
+    // VARKA-619 at the defaults: a disjunction of null tests lifts to the int lane, widening each
+    // narrow column there, and the conjunction with a bigint conjunct lifts it on to the long
+    // lane, whose null test reads the column through one widening. The null tests beside a bigint
+    // conjunct, lifted straight to the long lane, are the controls.
     val ll = AttributeReference("ll", LongType)()
-    for (column <- Seq(sh, by)) {
-      val preds = Seq(
-        And(GreaterThan(ll, Literal(0L)), Or(IsNotNull(column), IsNotNull(i))),
-        And(GreaterThan(ll, Literal(0L)), Or(IsNotNull(sh), IsNotNull(by))),
-        And(LessThan(Cast(column, LongType), ll), IsNotNull(column)),
-        And(GreaterThan(ll, Literal(0L)), IsNotNull(column)))
-      for (pred <- preds) {
-        val compiled = VarkaExpressionCompiler.compilePredicate(pred, childOutput :+ ll,
-          VarkaMatrix.base, VarkaAdmission.NO_HOST_REFUSAL).toScala
-        assert(compiled.isDefined, s"$pred should fuse")
-        val canonical = compiled.get.fused.outputs.asScala.map(VarkaVectorIR.canonical).mkString
-        assert(!canonical.contains("(widen:LONG (widen:INT col:"),
-          s"the null test reads the column through one widening: $canonical")
-        val bytes = VarkaLoopEmitter.emit(
-          s"org.apache.spark.sql.varka.execution.VarkaShortNullTest${System.nanoTime()}",
-          compiled.get.fused.outputs, compiled.get.fused.inputOrdinals.size,
-          compiled.get.fused.numLiterals, null, null, VarkaMatrix.base)
-        assert(bytes.nonEmpty, pred)
+    val preds = And(GreaterThan(ll, Literal(0L)), Or(IsNotNull(sh), IsNotNull(by))) +:
+      Seq(sh, by).flatMap { column =>
+        Seq(
+          And(GreaterThan(ll, Literal(0L)), Or(IsNotNull(column), IsNotNull(i))),
+          And(LessThan(Cast(column, LongType), ll), IsNotNull(column)),
+          And(GreaterThan(ll, Literal(0L)), IsNotNull(column)))
       }
+    for (pred <- preds) {
+      val compiled = VarkaExpressionCompiler.compilePredicate(pred, childOutput :+ ll,
+        VarkaMatrix.base, VarkaAdmission.NO_HOST_REFUSAL).toScala
+      assert(compiled.isDefined, s"$pred should fuse")
+      val canonical = compiled.get.fused.outputs.asScala.map(VarkaVectorIR.canonical).mkString
+      assert(!canonical.contains("(widen:LONG (widen:INT col:"),
+        s"the null test reads the column through one widening: $canonical")
+      val bytes = VarkaLoopEmitter.emit(
+        s"org.apache.spark.sql.varka.execution.VarkaShortNullTest${System.nanoTime()}",
+        compiled.get.fused.outputs, compiled.get.fused.inputOrdinals.size,
+        compiled.get.fused.numLiterals, null, null, VarkaMatrix.base)
+      assert(bytes.nonEmpty, pred)
     }
   }
 

@@ -277,7 +277,9 @@ final class Analysis {
   /**
    * The narrow widenings of {@link #validityOnlyNarrow}'s chains, by identity: unlike a column,
    * a narrow widening has no lowering as a value under a long kernel, so an equal node read as a
-   * value elsewhere in the kernel still fails the lane rule.
+   * value elsewhere is not admitted here. The guard against such a read is the plan's
+   * ({@code VarkaKernelPlan.loweredAtLong}); the walk skips a node equal to one it analyzed, so
+   * this set is the second line, not the first.
    */
   private final Set<VarkaVectorIR> validityOnlyWidenings =
       Collections.newSetFromMap(new IdentityHashMap<>());

@@ -95,7 +95,7 @@ compiler test on master with the `INTERNAL_ERROR`, and the emitter test with `An
 `VarkaEmitterLongLaneSuite`, `VarkaEmitterValiditySuite`, `VarkaEmitterFloatingCastSuite`,
 `VarkaKernelPlanSuite`, `VarkaEmittedBytesSuite` (no pinned digest moved), `VarkaIrFuzzSuite` at its
 default seed, `VarkaCoverageSuite`, `VarkaCoverageCompositionFuzzSuite`, and
-`VarkaSparkReproducerSuite` with the reproducer as a `regression`, both of its tests passing; the sbt run with the sql/core compile took 523 s).
+`VarkaSparkReproducerSuite` with the reproducer as a `regression`, both of its tests passing; the sbt run with the sql/core compile took 523 s.
 
 Where the plan was wrong: row 619 named the lane rule as the failure; the analysis's child check
 threw first (section 2). The emitter test also needed its helper (`checkConds`) to run a 64-bit-lane
@@ -122,9 +122,9 @@ one moves pinned corpora, so it is left to row 352's sequences.
 
 **The SMALLINT check (23 November 2026).** Row 364's branch met the same double widening over a
 `SMALLINT` column at the defaults (`VARKA-364.md`, the null test the condition compiler lifts to
-the long lane over its int-lane widening). `VarkaExpressionCompilerSuite`'s "a SMALLINT column's
-null test lifted to a bigint kernel widens the column once" compiles and emits, at the defaults,
-`ll > 0 AND (isnotnull(c) OR isnotnull(i))` for a `SMALLINT` and a `TINYINT` column, the same with
+the long lane over its int-lane widening). `VarkaExpressionCompilerSuite`'s "a SMALLINT or TINYINT
+column's null test lifted to a bigint kernel at the defaults widens the column once" compiles
+and emits, at the defaults, `ll > 0 AND (isnotnull(c) OR isnotnull(i))` for a `SMALLINT` and a `TINYINT` column, the same with
 both narrow null tests in the disjunct, and two controls lifted straight to the long lane. With
 this row's three compiler and emitter files set back to master's, the first predicate compiles to
 `isNotNull (widen:LONG (widen:INT col:1:short))` and the test fails; on the branch it passes. A
