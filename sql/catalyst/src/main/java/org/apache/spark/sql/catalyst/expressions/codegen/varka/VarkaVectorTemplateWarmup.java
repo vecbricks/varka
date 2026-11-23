@@ -895,6 +895,8 @@ final class VarkaVectorTemplateWarmup {
         VectorMask<Byte> inRange = sum.compare(VectorOperators.EQ, satAdd);
         acc += a.blend(b, m).lane(0) + a.min(b).lane(0) + a.max(b).lane(0) + widened.lane(0)
             + ByteVector.broadcast(s, (byte) 5).lane(0)
+            // The epilogue's narrow rows one at a time (VARKA-550): zero, withLane, lane.
+            + ByteVector.zero(s).withLane(1, (byte) 3).lane(1)
             + m.not().toLong() + m.or(tail).toLong()
             + a.or(b).lane(0)
             + sum.lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0)
@@ -930,6 +932,8 @@ final class VarkaVectorTemplateWarmup {
         VectorMask<Short> inRange = sum.compare(VectorOperators.EQ, satAdd);
         acc += a.blend(b, m).lane(0) + a.min(b).lane(0) + a.max(b).lane(0) + widened.lane(0)
             + ShortVector.broadcast(s, (short) 5).lane(0)
+            // The epilogue's narrow rows one at a time (VARKA-550): zero, withLane, lane.
+            + ShortVector.zero(s).withLane(1, (short) 3).lane(1)
             + m.not().toLong() + m.or(tail).toLong()
             + a.or(b).lane(0)
             + sum.lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0)

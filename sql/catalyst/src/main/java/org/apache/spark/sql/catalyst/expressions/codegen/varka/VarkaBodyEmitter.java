@@ -1257,8 +1257,9 @@ final class VarkaBodyEmitter {
     cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
     // In a kernel driven at the long lane the group is the low half of the int species, and the
     // store is whole in the loop only where the plan says the loop bound leaves room for the
-    // whole species and the species is the int group's own (`wholeNarrowStoreAtLong`): a byte at
-    // two long lanes, or a width with no baked lane count, stays masked. The upper half's rows
+    // whole species and the species is the int group's own (`wholeNarrowStoreAtLong`); a byte at
+    // two long lanes is stored a row at a time before this (`narrowRowsInBody`), and a width with
+    // no baked lane count stays masked. The upper half's rows
     // are the next lane group's, which that group stores over, as `emitLowHalfStore` does
     // (VARKA-332).
     boolean wholeFits = analysis.lane != Lane.LONG || analysis.wholeNarrowStoreAtLong(stored);
