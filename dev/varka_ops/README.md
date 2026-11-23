@@ -9,8 +9,10 @@ arguments.
 ## The flow
 
 1. **Gate.** `pre-pr-slot.sh <worktree>` waits for a free slot, then runs `pre-pr.sh`:
-   merge `origin/master`, regenerate the generated files (or skip that, below), `extra-gate.sh`
-   (lint-java, Error Prone, lint-scala, the invariant and proof suites), `dev/varka_push_check.py`,
+   merge `origin/master`, the push check's R1 text check (seconds: a test registry lacking a new
+   IR node fails before the regen), regenerate the generated files (or skip that, below),
+   `extra-gate.sh` (lint-java, Error Prone, lint-scala, the invariant and proof suites),
+   `dev/varka_push_check.py`,
    then the arm sweep: every suite the branch adds or changes, under the defaults, `useAVX=2`,
    `useAVX=3` and each configuration whose option the branch's changed lines of
    `VarkaEmitOption.java`, `VarkaEmitOptions.java` or `VarkaMatrixRuns.java` name (below). On
