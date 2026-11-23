@@ -20,12 +20,11 @@
 # running, and at least PRE_PR_MIN_GB of memory is available; the 20 Nov OOM came at about 14
 # JVMs, and one run's arm sweep at -j 2 holds about 4. Each waiter wakes at a random offset so two
 # do not take the last slot at once.
-# 23 Nov 2026: every regen runs the width audit, whose 600 s probes time out beside other gates
-# (348, 504, 358a, the skips PR). So gates ran one at a time (PRE_PR_SLOTS=1) and the parallelism
-# moved inside a gate: its arm sweep runs at -j PRE_PR_J (5, for 24 cores).
-# 23 Nov 2026, later: a two-slot trial (601's gate beside 612's) had no probe timeout, and the
-# sweep now runs only the configurations a branch is likely to break (pre-pr.sh), so two gates run
-# at once (PRE_PR_SLOTS=2). pre-pr.sh gives the audit's probes 2400 s each beside another gate.
+# Two gates run at once (PRE_PR_SLOTS=2): a trial on 23 Nov 2026, 601's gate beside 612's, had
+# no width-audit probe timeout, the sweep runs only the configurations a branch is likely to
+# break, and pre-pr.sh gives every regen's audit probes PRE_PR_WIDTH_AUDIT_TIMEOUT (2400) s, not
+# the suite's 600 s, which ran out beside another gate. Inside a gate the arm sweep runs at
+# -j PRE_PR_J (5, for 24 cores).
 set -u
 . "$(dirname "$0")/common.sh"
 SLOTS=${PRE_PR_SLOTS:-2}; MIN_GB=${PRE_PR_MIN_GB:-20}; J=${PRE_PR_J:-5}
@@ -47,11 +46,10 @@ fi
 # A light gate (23 Nov 2026): a branch that changes no input of the generated files and no test
 # suite runs no regen and no arm sweep, only extra-gate and the push check, so it starts at once
 # beside a heavy gate instead of waiting for the slot. An exclusive gate still holds it back.
-# Committed benchmark results (sql/<module>/benchmarks/*.txt) count as light too: results-only
-# branches waited behind code gates. pre-pr.sh still calls the regen for them; for sql/core's and
-# sql/catalyst's results dev/varka_regen_inputs.py skips its JVM steps, so no width audit runs.
+# Committed benchmark results are no input of the generated files (ops_regen_inputs), so a
+# results-only branch is light too.
 base=$(git -C "$w" merge-base HEAD origin/master 2>/dev/null)
-heavy=$(ops_regen_inputs "$w" | grep -vE '^sql/[a-z]+/benchmarks/[^/]+\.txt$'
+heavy=$(ops_regen_inputs "$w"
   git -C "$w" diff --name-only --no-renames "$base" HEAD 2>/dev/null \
     | grep -E 'Suite\.(scala|java)$')
 if [ -n "$base" ] && [ -z "$heavy" ] && [ ! -e "$X" ]; then

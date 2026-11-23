@@ -75,6 +75,10 @@ NONCODE+='|^sql/varka/[^/]*\.tsv$|^sql/varka/matrix/[^/]*\.tsv$|^sql/varka/fuzz/
 code_files() { grep -vE "$NONCODE" | grep -vE '^$|^sql/varka/matrix/skips\.tsv$'; }
 SWEEP=${PRE_PR_SWEEP:-}
 case $SWEEP in ''|all) ;; *) echo "pre-pr: PRE_PR_SWEEP is empty or all, not $SWEEP"; exit 2;; esac
+# the width audit's probe budget in the regen (step 2), checked before anything runs
+audit_s=${PRE_PR_WIDTH_AUDIT_TIMEOUT:-2400}
+[[ $audit_s =~ ^[1-9][0-9]*$ ]] \
+  || { echo "pre-pr: PRE_PR_WIDTH_AUDIT_TIMEOUT is whole seconds, not $audit_s"; exit 2; }
 short() { echo "$*" | tr '\n' ' ' | cut -c1-200; }
 
 # why_full <commit>: why the commit needs the full gate; nothing when it may be merge-only. A merge
@@ -157,14 +161,14 @@ fi
 # gate they ran past it (23 Nov 2026: the 30-standins, 611 and 343b2a gates); 2400 s is what
 # 103a2's regen used, and passed. JDK_JAVA_OPTIONS reaches the forked test JVM, and is set for the
 # regen alone, so extra-gate and the sweep do not inherit it.
-audit_opt=-Dvarka.widthAudit.childTimeoutSeconds=${PRE_PR_WIDTH_AUDIT_TIMEOUT:-2400}
+audit_opt=-Dvarka.widthAudit.childTimeoutSeconds=$audit_s
 regen_jopts=${JDK_JAVA_OPTIONS:+$JDK_JAVA_OPTIONS }$audit_opt
 inputs=$(ops_regen_inputs "$w")
 if [ "$DRY" = 1 ]; then
   if [ -z "$inputs" ] && [ "${PRE_PR_FORCE_REGEN:-0}" != 1 ]; then
     would "skip the regen (no input of the generated files changed) and run the census check"
   else
-    would "run dev/varka_regen_generated.sh --all with JDK_JAVA_OPTIONS='$regen_jopts'" \
+    would "run dev/varka_regen_generated.sh --all with $audit_opt added to JDK_JAVA_OPTIONS" \
       "and commit what it changes"
   fi
 else

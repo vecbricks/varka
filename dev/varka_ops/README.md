@@ -40,15 +40,15 @@ another gate, and 2400 s is what 103a2's regeneration used. More parallelism liv
 gate: its arm sweep runs at `-j PRE_PR_J`.
 A light gate - a branch that changes no input of the generated files and no test suite, so it
 runs no regeneration and no sweep - starts at once beside a heavy one, unless an exclusive gate
-is marked. Committed benchmark results (`sql/<module>/benchmarks/*.txt`) count as light too, so
-a results-only branch does not wait behind code gates; its regeneration skips the JVM steps
-(`dev/varka_regen_inputs.py`), which hold the width audit, for `sql/core` and `sql/catalyst`.
+is marked. Committed benchmark results (`sql/<module>/benchmarks/*.txt`) are no input of the
+generated files, so a results-only branch is light too and does not wait behind code gates.
 A second waiter for the same worktree exits at once with status 3. `PRE_PR_EXCLUSIVE=1` raises
 a marker that stops every other waiter from starting, waits for the running gates to finish,
 and runs alone at `-j 4`.
 
 **The regen skip.** A branch whose own changes are all tooling, CI, plans, benchmarks or prose
-(`.github/`, `sql/varka/{plans,bench,matrix,skills,ci}/`, `dev/*.{py,sh,tsv,json}`, `*.md`)
+(`.github/`, `sql/varka/{plans,bench,matrix,skills,ci}/`, `dev/*.{py,sh,tsv,json}`, `*.md`,
+`sql/<module>/benchmarks/*.txt`)
 cannot leave a generated file stale, so the gate runs only `varka_census.py --check`. The
 generators and `docs/sql-varka.md` always count as inputs. `PRE_PR_FORCE_REGEN=1` forces it.
 
