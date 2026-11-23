@@ -321,8 +321,13 @@ failed, `VarkaEmittedBytesSuite`'s pin of `emitted_bytes.json`, whose option-arm
 left owed (the regeneration rewrites them). No class met the new lane-count refusal: the log holds
 no "lanes of two widths" message. So the check fails none of the suites a grep finds loading a
 division, a widening or a narrowing in the shared JVM, and it is kept failing, not report-only. A
-lane count is proportional to the bit width, so a 256-bit runner selects the same classes. Item 2
-below is met for those suites; the rest of the catalyst suites run in the pull request's Build.
+lane count is proportional to the bit width, so a 256-bit runner selects the same classes.
+
+The same day, the wider run: every catalyst Varka suite that runs in the shared JVM (83, none
+`ownJvm` or `VarkaOwnJvm`) with the fourteen conformance suites, at the defaults, in one
+`build/sbt 'catalyst/testOnly ...'` of 28 minutes: 973 tests, 972 passed, 184 cancelled, the same
+one failure (`VarkaEmittedBytesSuite`'s owed option arms), and no lane-count refusal. Item 2 below
+is met at the defaults.
 
 ### 10.3 Owed before the row closes
 
