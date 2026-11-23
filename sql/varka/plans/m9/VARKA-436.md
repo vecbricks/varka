@@ -1,5 +1,9 @@
 # VARKA-436: `p IS TRUE` over a guarded predicate keeps the dense body
 
+*Moved to milestone 9 on 23 November 2026 with row 436 (`SCOPE.md` item 138). A bare
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
+unless that plan moved too (`SCOPE.md` item 138).*
+
 *Row 436 of `m8/PLAN.md`, found by the 21 October 2026 review of row 336.*
 
 ## 0. What exists now (admission check)

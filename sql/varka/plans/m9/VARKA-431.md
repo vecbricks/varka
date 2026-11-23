@@ -1,5 +1,9 @@
 # VARKA-431: The IR fuzzer draws `<=>` and the mixed-lane bitwise shapes (rows 431 and 432)
 
+*Moved to milestone 9 on 23 November 2026 with rows 431 and 432 (`SCOPE.md` item 138). A bare
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
+unless that plan moved too (`SCOPE.md` item 138).*
+
 *Rows 431 and 432 of `m8/PLAN.md` share this file. Both are grammar gaps in `VarkaIrGrammar`,
 both are "taken with 352's refit" in their cells, and both follow the same draw discipline
 (`VARKA-352.md` 2.2). Row 431 adds `NullSafeEqual` at both lanes. Row 432 adds the long `BitOp`
@@ -139,7 +143,7 @@ No pinned fixture moves: `emitted_bytes.json`, `emit_cost_audit.json`, the reach
 | `VarkaIrGrammar.java` | `GAP_FUZZ_SEED`, the flag, the three draws, 2.2 and 2.3's arms |
 | `VarkaIrFuzzSuite.scala` | tests 1 and 2, the comment of test 3 |
 | `VarkaWithChildrenSuite.scala` | the comment of test 3 |
-| `sql/varka/plans/m8/VARKA-431.md` | the outcome |
+| `sql/varka/plans/m9/VARKA-431.md` | the outcome |
 
 One pull request, verified by its PR Build and an option-matrix dispatch. The new tests are
 seeded, so they join row 499(c)'s seeded set if that has landed. Then refit A (352a) folds the

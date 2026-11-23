@@ -79,6 +79,7 @@ final class VarkaDescriptors {
   static final ClassDesc FUSED_KERNEL = ClassDesc.of(VarkaFusedKernel.class.getName());
   static final ClassDesc MASK_GUARD = ClassDesc.of(VarkaMaskGuard.class.getName());
   static final ClassDesc MASK_FROM_WORD = ClassDesc.of(VarkaMaskFromWord.class.getName());
+  static final ClassDesc LOOP_STRIDE = ClassDesc.of(VarkaLoopStride.class.getName());
 
   static final ClassDesc LONG_ARRAY = ConstantDescs.CD_long.arrayType();
   static final ClassDesc INT_ARRAY = ConstantDescs.CD_int.arrayType();
@@ -185,6 +186,8 @@ final class VarkaDescriptors {
   static final MethodTypeDesc SPECIES_LENGTH = MethodTypeDesc.of(ConstantDescs.CD_int);
   static final MethodTypeDesc LOOP_BOUND =
       MethodTypeDesc.of(ConstantDescs.CD_int, ConstantDescs.CD_int);
+  /** {@code int VarkaLoopStride.one()}: the factor of a loop step C2 must not count. */
+  static final MethodTypeDesc STRIDE_ONE = MethodTypeDesc.of(ConstantDescs.CD_int);
   /** {@code int Math.min/max(int, int)} - the loop bounds of a kernel that converts lanes. */
   static final ClassDesc MATH = ClassDesc.of("java.lang.Math");
   static final MethodTypeDesc MATH_INT_PAIR =
