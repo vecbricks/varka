@@ -25,7 +25,7 @@
 #   3. extra-gate.sh: lint-java, Error Prone, lint-scala, invariant and proof suites
 #   4. dev/varka_push_check.py (its suites and the size cap)
 #   5. the arm sweep: every test suite the branch adds or changes, under the defaults, useAVX=2,
-#      useAVX=3 and each configuration whose option a changed line of VarkaEmitOption.java,
+#      useAVX=3 and each configuration with an option a changed line of VarkaEmitOption.java,
 #      VarkaEmitOptions.java or VarkaMatrixRuns.java names (23 Nov 2026: the sweep of every
 #      configuration took 611 about 47 min and caught one failure in 34 sweeps since 22 Nov).
 #      PRE_PR_SWEEP=all sweeps every configuration. A change to the options also sweeps
@@ -34,8 +34,8 @@
 # A merge-only re-gate skips step 5 (23 Nov 2026). It is one where every first-parent commit since
 # the branch's last stamp is either a merge of origin/master whose code files are exactly git's own
 # merge, or a commit touching only plans, prose and generated files (NONCODE below). It runs
-# steps 1-4 and a test compile of the modules the branch touches, since a clean merge can still
-# break compilation (#1258, #1261). PRE_PR_FULL=1 runs the sweep anyway.
+# steps 1-4 and sql/Test/compile for a branch touching catalyst or sql, since a clean merge can
+# still break compilation (#1258, #1261). PRE_PR_FULL=1 or PRE_PR_SWEEP=all runs the sweep anyway.
 # PRE_PR_DRY=1 prints the steps and the sweep configurations a run would choose and changes
 # nothing: no fetch, merge, commit, log or stamp. PRE_PR_DRY_SINCE=<rev> makes a dry run decide
 # from that commit instead of the last stamp, to check the decision on older history.
@@ -67,10 +67,13 @@ say() { echo "pre-pr: $*"; [ "$DRY" = 1 ] || echo "pre-pr: $*" >> "$L"; }
 die() { say "FAILED at $*"; exit 1; }
 would() { echo "pre-pr (dry): would $*"; }
 
-# The files a merge-only re-gate may carry: plans, prose and the generated files.
+# The files a merge-only re-gate may carry: plans, prose and the generated files. The matrix's
+# skip list is hand-written and decides which arm failures pass, so it counts as code.
 NONCODE='^sql/varka/plans/|\.md$|^sql/varka/(coverage|emitted_bytes|width_audit)\.json$'
-NONCODE+='|^sql/varka/[^/]*\.tsv$|^sql/varka/(matrix|fuzz)/[^/]*\.tsv$'
-code_files() { grep -vE "$NONCODE" | grep -v '^$'; }
+NONCODE+='|^sql/varka/[^/]*\.tsv$|^sql/varka/matrix/[^/]*\.tsv$|^sql/varka/fuzz/types\.tsv$'
+code_files() { grep -vE "$NONCODE" | grep -vE '^$|^sql/varka/matrix/skips\.tsv$'; }
+SWEEP=${PRE_PR_SWEEP:-}
+case $SWEEP in ''|all) ;; *) echo "pre-pr: PRE_PR_SWEEP is empty or all, not $SWEEP"; exit 2;; esac
 short() { echo "$*" | tr '\n' ' ' | cut -c1-200; }
 
 # why_full <commit>: why the commit needs the full gate; nothing when it may be merge-only. A merge
@@ -111,13 +114,17 @@ fi
 
 # 1. merge. A dry run predicts it with git merge-tree; pending holds why that merge, made by hand,
 # would need the full gate.
-pending=""
+pending=""; clean_merge=0
 if [ $merge = 1 ] && [ "$DRY" = 1 ]; then
   m=$(git rev-parse --short origin/master)
+  mt=$(git merge-tree --write-tree --name-only HEAD origin/master 2>/dev/null); rc=$?
   if git merge-base --is-ancestor origin/master HEAD; then
     echo "pre-pr (dry): master $m already merged (origin/master as last fetched)"
-  elif mt=$(git merge-tree --write-tree --name-only HEAD origin/master 2>/dev/null); then
-    would "merge master $m: clean"
+  elif [ $rc = 0 ]; then
+    would "merge master $m: clean"; clean_merge=1
+  elif [ $rc != 1 ]; then
+    would "merge master $m, which git merge-tree could not predict"
+    pending="the merge of master could not be predicted"
   else
     cf=$(echo "$mt" | sed -n '2,/^$/p' | grep -v '^$')
     would "stop at the merge of master $m: conflicts in $(short "$cf")"
@@ -174,7 +181,7 @@ mode=full; prev=$(prev_stamp)
 if [ "$DRY" = 1 ] && [ -n "${PRE_PR_DRY_SINCE:-}" ]; then
   prev=$(git rev-parse "$PRE_PR_DRY_SINCE") || exit 2
 fi
-if [ "${PRE_PR_FULL:-0}" = 1 ]; then why="PRE_PR_FULL=1"
+if [ "${PRE_PR_FULL:-0}" = 1 ] || [ "$SWEEP" = all ]; then why="PRE_PR_FULL=1 or PRE_PR_SWEEP=all"
 elif [ -z "$prev" ]; then why="no earlier stamp on HEAD's first-parent line"; prev=none
 else
   why=$(for c in $(git rev-list --first-parent "$prev..HEAD"); do why_full "$c"; done
@@ -185,17 +192,16 @@ if [ $mode = full ]; then
   say "full gate (last stamp ${prev:0:11}): $(echo "$why" | head -3 | paste -sd';' -)"
 else
   say "merge-only since ${prev:0:11}: $(git rev-list --first-parent --count "$prev..HEAD")" \
-    "commit(s) of merges, plans, prose or generated files$([ -z "${mt+x}" ] \
+    "commit(s) of merges, plans, prose or generated files$([ $clean_merge = 0 ] \
     || echo ", and the merge this run would make")"
 fi
 
 base=$(git merge-base HEAD origin/master)
 own=$(git diff --name-only --no-renames "$base" HEAD)
-# A merge-only re-gate compiles the tests of the modules the branch touches, which the skipped
-# sweep's build would have done.
+# A merge-only re-gate compiles the tests the skipped sweep's build would have: sql's, which hold
+# catalyst's too, so master's sql code that calls a catalyst API the branch changed compiles.
 mods=""
-echo "$own" | grep -q '^sql/catalyst/' && mods=catalyst
-echo "$own" | grep -q '^sql/core/' && mods=sql
+echo "$own" | grep -qE '^sql/(catalyst|core)/' && mods=sql
 if [ $mode = merge-only ] && [ -n "$mods" ]; then
   if [ "$DRY" = 1 ]; then would "run build/sbt $mods/Test/compile"
   else
@@ -237,8 +243,8 @@ if echo "$ch" | grep -qE 'codegen/varka/VarkaEmitOption(s)?\.java$|codegen/varka
 fi
 # The options the branch adds or changes: every identifier on a changed line of the option table,
 # the options record or the matrix's configuration list. A configuration is chosen when its own
-# option, the name in its last name=value pair, is one of them; a leading pair such as useAVX=2,
-# is only the subject the option runs over.
+# option, or another name in it (denseValidityOnce=false,validityByBitmap=false,...), is one of
+# them.
 optf=$(echo "$own" | grep -E 'codegen/varka/(VarkaEmitOptions?|VarkaMatrixRuns)\.java$')
 words=""
 if [ -n "$optf" ]; then
@@ -246,18 +252,18 @@ if [ -n "$optf" ]; then
   words=$(git diff -U0 --no-renames "$base" HEAD -- $optf | grep -E '^[-+]' \
     | grep -vE '^(\+\+\+|---) ' | grep -oE '[A-Za-z_][A-Za-z0-9_]*' | sort -u)
 fi
-SWEEP=${PRE_PR_SWEEP:-narrow}
 # choose <configurations-file>: sets cfgs, one a line, and how, why they were chosen
 choose() {
-  local c opt always="" named=""
+  local c pair always="" named=""
   if [ "$SWEEP" = all ]; then
     cfgs=$(cat "$1"); how="every configuration (PRE_PR_SWEEP=all)"; return
   fi
   while read -r c; do
     [ -n "$c" ] || continue
-    opt=${c##*,}; opt=${opt%%=*}
-    if [ "$c" = useAVX=2 ] || [ "$c" = useAVX=3 ]; then always="$always $c"
-    elif [ -n "$words" ] && echo "$words" | grep -qx "$opt"; then named="$named $c"; fi
+    if [ "$c" = useAVX=2 ] || [ "$c" = useAVX=3 ]; then always="$always $c"; continue; fi
+    for pair in ${c//,/ }; do
+      echo "$words" | grep -qx "${pair%%=*}" && { named="$named $c"; break; }
+    done
   done < "$1"
   if [ -n "$optf" ] && [ -z "$named" ]; then
     cfgs=$(cat "$1"); how="every configuration: the option files changed but name no option"

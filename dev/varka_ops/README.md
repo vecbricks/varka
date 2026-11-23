@@ -48,20 +48,23 @@ generators and `docs/sql-varka.md` always count as inputs. `PRE_PR_FORCE_REGEN=1
 611's took about 47 minutes of wall time, and the 34 sweeps since 22 November caught one
 failure. The option matrix on the pull request still runs every configuration, so the gate runs
 the ones a branch is most likely to break: the defaults, the two named `UseAVX` levels and the
-configurations of the options its diff adds or changes. A configuration's option is the name in
-its last `name=value` pair; in `useAVX=2,checkedLongMultiply=BY_HOST` the leading pair is the
-subject it runs over. When the option files change but name no configuration's option, the
+configurations of the options its diff adds or changes: a configuration is chosen when any
+name in it (`useAVX=2,checkedLongMultiply=BY_HOST` holds two) is an identifier on a changed
+line of `VarkaEmitOption.java`, `VarkaEmitOptions.java` or `VarkaMatrixRuns.java`. An option
+whose behaviour changes elsewhere, such as an emitter branch it guards, is not found; the pull
+request's matrix still runs it. When the option files change but name no configuration, the
 sweep runs every configuration. The log lists the configurations chosen and why.
-`PRE_PR_SWEEP=all` runs every configuration.
+`PRE_PR_SWEEP=all` runs every configuration, after a merge-only change too.
 
 **The merge-only re-gate.** A re-gate whose only new commits since the branch's last stamp are
-merges of `origin/master` and commits touching only plans, prose and generated files skips the
+merges of `origin/master` and commits touching only plans, prose and generated files (not the
+hand-written `sql/varka/matrix/skips.tsv`) skips the
 sweep, and logs `arm sweep skipped: merge-only since <sha>`. A merge counts only when its code
 files are exactly what git's own merge of its two parents writes (`git merge-tree`), so a
 hand-resolved code conflict runs the full gate and a resolved conflict in `PLAN.md` does not.
-The gate still merges, regenerates, compiles the tests of the modules the branch touches (a
-clean merge can still break compilation, as #1258 and #1261 did), and runs `extra-gate.sh` and
-the push check. `PRE_PR_FULL=1` runs the sweep anyway.
+The gate still merges, regenerates, runs `sql/Test/compile` when the branch touches catalyst or
+sql (a clean merge can still break compilation, as #1258 and #1261 did), and runs
+`extra-gate.sh` and the push check. `PRE_PR_FULL=1` runs the sweep anyway.
 
 **A dry run.** `PRE_PR_DRY=1 pre-pr.sh <worktree>` prints the steps a gate would take, the
 merge-only decision and the sweep's configurations, and changes nothing: no fetch, merge,
@@ -82,7 +85,7 @@ the last stamp.
 | `VARKA_TRAILER` | `Generated-by: Claude Code (Claude Opus 5.5)` | trailer of the gate's commits |
 | `PRE_PR_SLOTS`, `PRE_PR_MIN_GB`, `PRE_PR_J` | 1, 20, 5 | slots, free memory, sweep jobs |
 | `PRE_PR_EXCLUSIVE`, `PRE_PR_FORCE_REGEN` | 0, 0 | run alone; regenerate anyway |
-| `PRE_PR_FULL`, `PRE_PR_SWEEP` | 0, empty | sweep after a merge-only change; `all` sweeps all |
+| `PRE_PR_FULL`, `PRE_PR_SWEEP` | 0, empty | sweep after a merge-only change; `all`: every arm |
 | `PRE_PR_DRY`, `PRE_PR_DRY_SINCE` | 0, empty | print the plan only; decide from that commit |
 | `SKIP` | empty | PR numbers `watch-any-ready.sh` ignores |
 | `VARKA_OPS_WATCHERS` | `watch-ready.sh watch-failed.sh` | watchers `ops-status.sh` looks for |
