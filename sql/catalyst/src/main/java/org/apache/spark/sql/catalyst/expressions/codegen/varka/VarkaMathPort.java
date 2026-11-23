@@ -17,7 +17,8 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 /*
- * The exp expansion below follows fdlibm 5.3's e_exp.c, which carries this notice:
+ * The exp and expm1 expansions below follow fdlibm 5.3's e_exp.c and s_expm1.c, which carry
+ * this notice:
  *
  * ====================================================
  * Copyright (C) 2004 by Sun Microsystems, Inc. All rights reserved.
@@ -71,6 +72,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wid
  *
  * <p>{@link #exp} is the template: the sequence {@code vfdlibm} proves for {@code StrictMath.exp},
  * its arm with every branch blended ({@code Exp.expBlended}), so no lane is finished by a call.
+ * {@link #expm1} follows it, on the same reduction, from {@code Expm1.expm1Blended}.
  */
 public final class VarkaMathPort {
 
@@ -108,9 +110,9 @@ public final class VarkaMathPort {
 
   /**
    * A fault an expansion can be built with, for the cross-checks to catch: {@code vfdlibm}'s own
-   * planted faults ({@code Exp.DROP_CORRECTION}, {@code CONSTANT_OFF_BY_ONE_ULP},
-   * {@code THRESHOLD_MOVED}), here as arguments of a package-private overload, so the production
-   * expansion has none.
+   * planted faults of each function ({@code Exp.DROP_CORRECTION}, {@code CONSTANT_OFF_BY_ONE_ULP},
+   * {@code THRESHOLD_MOVED}, and {@code Expm1}'s of the same names), here as arguments of a
+   * package-private overload, so the production expansion has none.
    */
   enum Fault { NONE, DROP_CORRECTION, CONSTANT_OFF_BY_ONE_ULP, THRESHOLD_MOVED }
 
@@ -278,6 +280,42 @@ public final class VarkaMathPort {
   }
 
   // -------------------------------------------------------------------------------------------
+  // The reduction e_exp.c and s_expm1.c share
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * {@code x = k*ln2 + r}, {@code r = hi - lo}: {@code k} at the long lane, {@code t} its double,
+   * and {@code hi}, {@code lo} and {@code r} at the double lane.
+   */
+  record Reduction(VarkaVectorIR k, VarkaVectorIR t, VarkaVectorIR hi, VarkaVectorIR lo,
+      VarkaVectorIR r) {}
+
+  /**
+   * The far form of the reduction for every lane, as e_exp.c's lines 128-142 and s_expm1.c's
+   * lines 162-175 both write it: {@code k = (int)(invln2*x + (xsb==0 ? 0.5 : -0.5))},
+   * {@code t = k}, {@code hi = x - t*ln2_hi}, {@code lo = t*ln2_lo}. A lane whose {@code |x|} is
+   * not above {@code 0.5 ln2} gets {@code k = 0} from the blend before the cast, so
+   * {@code t = +0}, {@code hi = x} and {@code lo = +0} ({@code vfdlibm}'s L1); the near band takes
+   * the far form's values exactly (L2, L10); and {@code (xsb==0 ? 0.5 : -0.5)} is 0.5 with
+   * {@code x}'s sign bit (L5). {@code D2I} truncates toward zero as the C's {@code (int)} does; a
+   * NaN or a huge {@code |x|} is a lane the filter answers, whose {@code k} is never kept.
+   * {@code k} passes through the int lane as the C's {@code int k} does, {@code D2I} then
+   * {@code I2D} and {@code I2L}: x86 lowers {@code D2L} only with AVX512DQ.
+   */
+  Reduction reduce(VarkaVectorIR x, VarkaVectorIR bits, VarkaVectorIR absBits, double ln2hi) {
+    Cond reduced = hiAbove(absBits, HX_HALF_LN2);
+    VarkaVectorIR halF = fromBits(new BitOp(BitOpKind.OR,
+        new BitOp(BitOpKind.AND, bits, lit(Long.MIN_VALUE)), lit(HALF_BITS)));
+    VarkaVectorIR kArg = blend(reduced, add(mul(x, lit(INVLN2)), halF), lit(0.0));
+    VarkaVectorIR kInt = new ConvertLane(kArg, LaneType.INT);
+    VarkaVectorIR t = new ConvertLane(kInt, LaneType.DOUBLE);
+    VarkaVectorIR k = new WidenLane(kInt, LaneType.LONG);
+    VarkaVectorIR hi = sub(x, mul(t, lit(ln2hi)));
+    VarkaVectorIR lo = mul(t, lit(LN2LO_0));
+    return new Reduction(k, t, hi, lo, sub(hi, lo));
+  }
+
+  // -------------------------------------------------------------------------------------------
   // exp, from e_exp.c
   // -------------------------------------------------------------------------------------------
 
@@ -348,24 +386,16 @@ public final class VarkaMathPort {
     // Lines 117, 118, 128 and 139: the filter, the reduced lanes, the tiny ones and the
     // non-finite ones; the near band, line 129, needs no test (L2).
     Cond filter = hiAtLeast(absBits, HX_FILTER);
-    Cond reduced = hiAbove(absBits, HX_HALF_LN2);
     Cond isTiny = hiBelow(absBits, HX_TINY);
     Cond nonFinite = hiAtLeast(absBits, HX_NON_FINITE);
-    // halF[xsb]: 0.5 with x's sign bit.
-    VarkaVectorIR halF = fromBits(new BitOp(BitOpKind.OR,
-        new BitOp(BitOpKind.AND, bits, lit(Long.MIN_VALUE)), lit(HALF_BITS)));
 
     // Lines 128-142 in the far form for every lane: k = (int)(invln2*x+halF[xsb]); t = k;
-    // hi = x - t*ln2HI[0]; lo = t*ln2LO[0]. A lane that is not reduced gets k = 0 from the blend
-    // before the cast, so t = +0, hi = x, lo = +0 (L1). D2I truncates toward zero as the C's
-    // (int) does; a NaN or a huge |x| is a filter lane, whose k is never used.
-    VarkaVectorIR kArg = blend(reduced, add(mul(x, lit(INVLN2)), halF), lit(0.0));
-    VarkaVectorIR kInt = new ConvertLane(kArg, LaneType.INT);
-    VarkaVectorIR t = new ConvertLane(kInt, LaneType.DOUBLE);
-    VarkaVectorIR k = new WidenLane(kInt, LaneType.LONG);
-    VarkaVectorIR hi = sub(x, mul(t, lit(ln2hi)));
-    VarkaVectorIR lo = mul(t, lit(LN2LO_0));
-    VarkaVectorIR r = sub(hi, lo);
+    // hi = x - t*ln2HI[0]; lo = t*ln2LO[0].
+    Reduction red = reduce(x, bits, absBits, ln2hi);
+    VarkaVectorIR k = red.k();
+    VarkaVectorIR hi = red.hi();
+    VarkaVectorIR lo = red.lo();
+    VarkaVectorIR r = red.r();
 
     // Lines 145-146: t = x*x; c = x - t*(P1+t*(P2+t*(P3+t*(P4+t*P5)))).
     VarkaVectorIR tt = mul(r, r);
@@ -397,5 +427,141 @@ public final class VarkaMathPort {
     VarkaVectorIR special = blend(isNaN, add(x, x),
         blend(new Compare(CompareOp.LT, bits, lit(0L)), lit(0.0), x));
     return blend(nonFinite, special, result);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // expm1, from s_expm1.c
+  // -------------------------------------------------------------------------------------------
+
+  // The constants of s_expm1.c, lines 115-127, that e_exp.c does not share; its o_threshold,
+  // ln2_hi, ln2_lo and invln2 are e_exp.c's O_THRESHOLD, LN2HI_0, LN2LO_0 and INVLN2.
+  static final double HUGE = 1.0e+300;
+  static final double TINY = 1.0e-300;
+  static final double Q1 = -0.03333333333333313; // 0xBFA11111, 0x111110F4
+  static final double Q2 = 0.0015873015872548146; // 0x3F5A01A0, 0x19FE5585
+  static final double Q3 = -7.93650757867488e-05; // 0xBF14CE19, 0x9EAADBB7
+  static final double Q4 = 4.008217827329362e-06; // 0x3ED0CFCA, 0x86E65239
+  static final double Q5 = -2.0109921818362437e-07; // 0xBE8AFDB7, 0x6E09C32D
+
+  /** {@code |x| >= 56*ln2}: the filter's outer test (line 146). */
+  static final int HX_56_LN2 = 0x4043687A;
+  /** {@code |x| < 2^-54}: the lanes whose result is {@code x} (line 177). */
+  static final int HX_TINY_EXPM1 = 0x3c900000;
+  /** {@code k > 56}: with {@code k <= -2}, the form that returns {@code 2^k*y - 1} (line 197). */
+  static final long K_FAR = 56;
+  /** {@code k < 20}: the form with {@code t = 1-2^-k}; from it on, {@code t = 2^-k} (line 203). */
+  static final long K_SPLIT = 20;
+  /** {@code __HI(1.0)}, the high word of {@code t} on the lanes neither form rewrites. */
+  static final long ONE_HI = 0x3ff00000L;
+
+  /** {@code StrictMath.expm1(x)} in every lane of the double node {@code x}, bit for bit. */
+  public VarkaVectorIR expm1(VarkaVectorIR x) {
+    return expm1(x, Fault.NONE);
+  }
+
+  /**
+   * The expansion, node for node {@code vfdlibm}'s {@code Expm1.expm1Blended}, with its line
+   * references to s_expm1.c and its lemmas in {@code vfdlibm}'s {@code PROOFS.md}: the reduction is
+   * exp's ({@link #reduce}, L10), the {@code k == 0} return {@code x - (x*e-hxs)} is the other
+   * forms' {@code x - e} with {@code c = +0} on those lanes (L11), the seven forms chosen by
+   * {@code k} are computed in every lane and blended in the C's order, and the early returns, the
+   * filter and {@code |x| < 2^-54}, are blended over them last.
+   *
+   * <p>The library holds the C's {@code int} words in int lanes; here they are long lanes, as in
+   * {@link #exp}: the high-word tests are signed compares of {@code |x|}'s bits (L3), {@code k}'s
+   * tests are long compares of {@code k} widened, and the words {@code 0x3ff00000-(0x200000>>k)}
+   * and {@code (0x3ff-k)<<20} are long arithmetic, shifted by {@code k} lane by lane. On a lane
+   * whose form reads a word the two agree: {@code 2 <= k < 20} keeps {@code 0x200000>>k} positive,
+   * so the unsigned shift written here is the C's signed one, and {@code 20 <= k <= 56} keeps
+   * {@code (0x3ff-k)<<20} in {@code [0, 2^31)}; {@code __HI(t) = w} on a zero low word is
+   * {@code w << 32}, whose bits above the word shift out. A word on a lane that does not read it
+   * is never kept, whatever the shift count there.
+   *
+   * <p>A null {@code x} answers null as {@code exp}'s does: the reduction's blend makes {@code k}
+   * a valid 0 there, so each test of {@code k} is known and the {@code k == 0} blend takes
+   * {@code x - e}, which reads {@code x}; every other condition reads {@code x}, is unknown, and
+   * takes its {@code otherwise} arm.
+   */
+  VarkaVectorIR expm1(VarkaVectorIR x, Fault fault) {
+    if (x.laneType() != LaneType.DOUBLE) {
+      throw VarkaErrors.illegalArgument("expm1 takes a DOUBLE operand, not " + x.laneType());
+    }
+    double ln2hi = fault == Fault.CONSTANT_OFF_BY_ONE_ULP
+        ? Math.nextUp(LN2HI_0) : LN2HI_0;
+    long kFar = fault == Fault.THRESHOLD_MOVED ? K_FAR - 1 : K_FAR;
+    VarkaVectorIR bits = bits(x);
+    // Lines 140-143: hx = __HI(x); xsb = hx&0x80000000; hx &= 0x7fffffff.
+    VarkaVectorIR absBits = absBits(bits);
+    Cond negative = new Compare(CompareOp.LT, bits, lit(0L));
+    // Lines 146, 147, 148 and 177; line 162's test is the reduction's, and line 163's near band
+    // needs no test of its own (L10).
+    Cond big = hiAtLeast(absBits, HX_56_LN2);
+    Cond filter = hiAtLeast(absBits, HX_FILTER);
+    Cond nonFinite = hiAtLeast(absBits, HX_NON_FINITE);
+    Cond isTiny = hiBelow(absBits, HX_TINY_EXPM1);
+
+    // Lines 162-175: the reduction, then x = hi - lo (here r) and c = (hi-x)-lo.
+    Reduction red = reduce(x, bits, absBits, ln2hi);
+    VarkaVectorIR k = red.k();
+    VarkaVectorIR r = red.r();
+    VarkaVectorIR c = fault == Fault.DROP_CORRECTION
+        ? lit(0.0) : sub(sub(red.hi(), r), red.lo());
+
+    // Lines 184-188: hfx = 0.5*x; hxs = x*hfx; r1 = one+hxs*(Q1+hxs*(Q2+hxs*(Q3+hxs*(Q4+hxs*
+    // Q5)))); t = 3.0-r1*hfx; e = hxs*((r1-t)/(6.0 - x*t)), each product with the library's
+    // operand order, the same rounding of the same exact product.
+    VarkaVectorIR hfx = mul(r, lit(0.5));
+    VarkaVectorIR hxs = mul(r, hfx);
+    VarkaVectorIR r1 = add(lit(ONE), mul(add(mul(add(mul(add(mul(add(mul(hxs, lit(Q5)),
+        lit(Q4)), hxs), lit(Q3)), hxs), lit(Q2)), hxs), lit(Q1)), hxs));
+    VarkaVectorIR tt = sub(lit(3.0), mul(r1, hfx));
+    VarkaVectorIR e = mul(hxs, div(sub(r1, tt), sub(lit(6.0), mul(r, tt))));
+    // Lines 191-192: e = (x*(e-c)-c); e -= hxs; and x - e, line 189's return on k == 0 (L11).
+    VarkaVectorIR em = sub(sub(mul(r, sub(e, c)), c), hxs);
+    VarkaVectorIR rMinusE = sub(r, em);
+
+    // The masks of k. Line 197: k <= -2 || k > 56. Line 203: k < 20, among the rest of k >= 2.
+    Cond far = new VarkaVectorIR.Or(new Compare(CompareOp.LE, k, lit(-2L)),
+        new Compare(CompareOp.GT, k, lit(kFar)));
+    Cond mid = new VarkaVectorIR.And(new Compare(CompareOp.GE, k, lit(2L)),
+        new Compare(CompareOp.LT, k, lit(K_SPLIT)));
+    Cond high = new VarkaVectorIR.And(new Compare(CompareOp.GE, k, lit(K_SPLIT)), new Not(far));
+    // Lines 202-208: __HI(t) = 0x3ff00000 - (0x200000>>k) below k = 20, (0x3ff-k)<<20 from it
+    // on, and one's high word on the far lanes; t's low word is one's, 0.
+    VarkaVectorIR midWord = sub(lit(ONE_HI), new BitOp(BitOpKind.USHR, lit(0x200000L), k));
+    VarkaVectorIR highWord = new BitOp(BitOpKind.SHL, sub(lit(0x3ffL), k), lit(20L));
+    VarkaVectorIR tWord = blend(high, highWord, blend(mid, midWord, lit(ONE_HI)));
+    VarkaVectorIR tv = fromBits(new BitOp(BitOpKind.SHL, tWord, lit(32L)));
+    // Line 198, y = one-(e-x), and line 205, y = t-(e-x): one operation, t's word picked per
+    // lane. Lines 209-210: y = x-(e+t); y += one.
+    VarkaVectorIR y = blend(high, add(sub(r, add(em, tv)), lit(ONE)), sub(tv, sub(em, r)));
+    // Lines 199, 206 and 211: __HI(y) += (k<<20); line 200: the far lanes return y-one.
+    VarkaVectorIR scaled = addExponent(y, k);
+    VarkaVectorIR result = blend(far, sub(scaled, lit(ONE)), scaled);
+    // Lines 194-196, k == 1: -2.0*(e-(x+0.5)) for x < -0.25, else one+2.0*(x-e).
+    VarkaVectorIR kOne = blend(new Compare(CompareOp.IEEE_LT, r, lit(-0.25)),
+        mul(sub(em, add(r, lit(0.5))), lit(-2.0)), add(mul(rMinusE, lit(2.0)), lit(ONE)));
+    result = blend(new Compare(CompareOp.EQ, k, lit(1L)), kOne, result);
+    // Line 193, k == -1: 0.5*(x-e)-0.5.
+    result = blend(new Compare(CompareOp.EQ, k, lit(-1L)),
+        sub(mul(rMinusE, lit(0.5)), lit(0.5)), result);
+    // Line 189, k == 0: x - (x*e-hxs), here x-e (L11).
+    result = blend(new Compare(CompareOp.EQ, k, lit(0L)), rMinusE, result);
+
+    // The early returns, lines 146-158 and 177-179, a later blend winning where two overlap, as
+    // the C's earlier return does. Lines 155-157: x < -56*ln2 returns tiny-one (-1.0) where
+    // x+tiny < 0.0, which every such finite x is.
+    result = blend(new VarkaVectorIR.And(at(new VarkaVectorIR.And(negative, big),
+        LaneType.DOUBLE), new Compare(CompareOp.IEEE_LT, add(x, lit(TINY)), lit(0.0))),
+        lit(TINY - ONE), result);
+    // Line 153: x > o_threshold returns huge*huge, +inf.
+    result = blend(new VarkaVectorIR.And(at(filter, LaneType.DOUBLE),
+        new Compare(CompareOp.IEEE_LT, lit(O_THRESHOLD), x)), lit(HUGE * HUGE), result);
+    // Lines 148-151: x+x for a NaN, x for +inf and -1.0 for -inf.
+    Cond isNaN = new Not(new Compare(CompareOp.IEEE_EQ, x, x));
+    result = blend(nonFinite, blend(isNaN, add(x, x), blend(negative, lit(-1.0), x)), result);
+    // Lines 177-179, |x| < 2^-54: t = huge+x; return x - (t-(huge+x)).
+    VarkaVectorIR tinyT = add(x, lit(HUGE));
+    return blend(isTiny, sub(x, sub(tinyT, add(x, lit(HUGE)))), result);
   }
 }

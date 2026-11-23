@@ -1692,3 +1692,22 @@ that host: a forced `UseAVX=2` on a host whose JVM already says `UseAVX=2` was a
 pass says nothing about masks. A test that cannot hold under a platform by design goes in
 `sql/varka/matrix/skips.tsv` under the platform's name, with its reason.
 
+
+## A check ships with a plant that it fails on
+
+On 27 October 2026 six checks were found passing while testing nothing: a NaN filter whose
+batches Spark's cache pruned on both sides, a coverage rule that let a subclass row cover a
+superclass arm, the warm-up reach crediting float masks to the double lane, and three more
+(`m8/VARKA-504.md`). A check proves it can fail only by failing, so each one carries a committed
+test that builds the broken input in memory and requires the check to name it: a claim the
+census must reject (`dev/varka_census.py`'s `row()` doctests), a superclass arm and a declining
+row (`VarkaCoverageSuite`), a flipped cast answer (`VarkaCastMatrixSuite`), a wrong expected
+answer per contract (`VarkaConformancePlantSuite`), a float lane answered with the double lane's
+classes (`VarkaWarmupReachSuite`), a changed hash (`VarkaEmittedBytesSuite`).
+
+Two habits make that cheap. Write the check as a function of its input - the file, the rows, the
+receivers - and let the test call it, so a plant needs no edit to a committed file and no second
+copy of the comparison. And where the real input is expensive to build (every cast probed, every
+shape emitted), plant into the committed file read back, since the comparison is the code under
+test. Beside the plant, the check asserts a positive count of what it compared, so a run over
+nothing fails instead of passing.
