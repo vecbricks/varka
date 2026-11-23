@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 import java.util.function.LongFunction;
 import java.util.stream.LongStream;
 
@@ -392,17 +393,17 @@ public abstract class VarkaTypeConformance {
     var forms = new ArrayList<Form>();
     for (Mode mode : List.of(Mode.LEGACY, Mode.ANSI)) {
       for (String op : List.of("+", "-", "*")) {
-        forms.add(value("x " + op + " y", op).in(mode).reachingOverflow());
+        forms.add(overflowing(value("x " + op + " y", op).in(mode)));
       }
-      forms.add(value("-x", "negative").in(mode).reachingOverflow());
-      forms.add(value("abs(x)", "abs").in(mode).reachingOverflow());
+      forms.add(overflowing(value("-x", "negative").in(mode)));
+      forms.add(overflowing(value("abs(x)", "abs").in(mode)));
     }
     for (String fn : List.of("try_add", "try_subtract", "try_multiply")) {
-      forms.add(value(fn + "(x, y)", fn).in(Mode.TRY).reachingOverflow());
+      forms.add(overflowing(value(fn + "(x, y)", fn).in(Mode.TRY)));
     }
     for (OverflowForm f : overflowForms()) {
       for (Mode mode : List.of(Mode.LEGACY, Mode.ANSI)) {
-        forms.add(value(f.sql(), f.register()).in(mode).reachingOverflow());
+        forms.add(overflowing(value(f.sql(), f.register()).in(mode)));
       }
     }
     forms.removeIf(f -> !Registers.census(f.register()).types().contains(type().census()));
@@ -410,6 +411,21 @@ public abstract class VarkaTypeConformance {
       return;
     }
     run(forms);
+  }
+
+  /**
+   * Whether the type's values can reach the overflow of the register's operator as a value
+   * output. True by default; a type whose result type always holds the operator's result (a
+   * 64-bit decimal's sum, difference, negation and {@code abs} of values within 17 digits)
+   * returns false, so that the form is held to Spark's answers without the fixture having to
+   * reach an overflow that cannot happen.
+   */
+  protected boolean overflowReachable(String register) {
+    return true;
+  }
+
+  private Form overflowing(Form f) {
+    return overflowReachable(f.register()) ? f.reachingOverflow() : f;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1034,18 +1050,28 @@ public abstract class VarkaTypeConformance {
     return false;
   }
 
+  /**
+   * A stub for the answer the checks hold the reference to, given a row's values and Spark's
+   * answer, or null for Spark's own. A planted-fault test sets one that answers wrong, which
+   * every check must then fail on (VARKA-504, {@code VarkaConformancePlantSuite}).
+   */
+  BiFunction<long[], VarkaKernelChecks.Answer, VarkaKernelChecks.Answer> plantedAnswer;
+
   /** Spark's answers for one batch, as {@link VarkaKernelChecks} reads them. */
   private SparkAnswers answers(VarkaSparkOracle oracle) {
     return new SparkAnswers() {
       @Override
       public VarkaKernelChecks.Answer answer(int output, long[] values, boolean[] isNull) {
         VarkaSparkOracle.Answer a = spark(oracle, output, values, isNull);
+        VarkaKernelChecks.Answer answer;
         if (a instanceof VarkaSparkOracle.Value v) {
-          return new VarkaKernelChecks.Answer.Value(v.v());
+          answer = new VarkaKernelChecks.Answer.Value(v.v());
         } else if (a instanceof VarkaSparkOracle.Raised r) {
-          return new VarkaKernelChecks.Answer.Raised(r.e());
+          answer = new VarkaKernelChecks.Answer.Raised(r.e());
+        } else {
+          answer = new VarkaKernelChecks.Answer.Null();
         }
-        return new VarkaKernelChecks.Answer.Null();
+        return plantedAnswer == null ? answer : plantedAnswer.apply(values, answer);
       }
 
       @Override

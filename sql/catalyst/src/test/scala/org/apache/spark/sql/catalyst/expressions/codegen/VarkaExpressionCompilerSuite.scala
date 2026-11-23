@@ -1042,12 +1042,20 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
   }
 
-  test("the decimal-valued TIME expressions below a root decline naming row 348") {
-    // VARKA-157 2.1: the store is a root's; as another expression's operand the value is a
-    // decimal operand, which row 348 consumes.
+  test("the decimal-valued TIME expressions fuse below a root as decimal operands") {
+    // VARKA-348 2.4: a decimal value is the decimal compiler's wherever it stands, so the TIME
+    // producers' unscaled longs are a sum's operands under the store and a comparison's.
     for (e <- Seq(SecondsOfTimeWithFraction(t6), TimeToSeconds(t6))) {
-      val reason = declineReason(Add(e, e), withLong)
-      assert(reason.contains("row 348's"), reason)
+      val sum = VarkaExpressionCompiler.compile(Seq(out(Add(e, e))), withLong).toScala
+      assert(sum.isDefined, s"$e + $e declined")
+      val root = sum.get.outputs.asScala.head
+      assert(root.isInstanceOf[VarkaVectorIR.WidenDecimal], root)
+      assert(root.asInstanceOf[VarkaVectorIR.WidenDecimal].child.isInstanceOf[IntArith], root)
+      assert(sum.get.outputTypes.asScala.toSeq === Seq(Add(e, e).dataType))
+      val t = e.dataType.asInstanceOf[DecimalType]
+      val below = LessThan(e, Literal(Decimal(BigDecimal("10.5"), t.precision, t.scale), t))
+      assert(VarkaExpressionCompiler.compile(Seq(out(below)), withLong).toScala.isDefined,
+        s"$below declined")
     }
   }
 

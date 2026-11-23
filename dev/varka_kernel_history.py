@@ -21,6 +21,7 @@
 # released by the warm-up still allocating, by their position in the history.
 #   dev/varka_kernel_history.py --dir target/varka-kernel-history/<date-time>
 #   dev/varka_kernel_history.py --dir DIR --guard --max-slow 0   # the nightly's verdict
+#   dev/varka_kernel_history.py --selftest                       # the case keying's fixture
 # A fork's kernel under test is slow by its rate, as the inlining-cliff reader cuts it (the median
 # of its last three seconds over --slow-at nanoseconds a row: the loop past C1's limit), or by its
 # allocation (over --alloc-at bytes a call in its last second: a C2 compile that kept a vector box
@@ -97,6 +98,7 @@ def read_fork(path, slow_at, alloc_at):
     if os.path.exists(exit_path):
         with open(exit_path) as f:
             exit_status = f.read().strip()
+    fork["case_width"] = case_width(fork)
     last = fork["rates"][-3:]
     fork["ns_per_row"] = statistics.median(last) if last else None
     if (
@@ -133,7 +135,57 @@ def label(fork):
     return "%s bits" % fork["bits"] if fork["bits"] else fork["width"]
 
 
+def case_width(fork):
+    """The width a fork's case is keyed by. A `host` fork's is the bits it printed, since one
+    directory can merge shards from machines of different widths (benchmark.yml's history mode
+    with a blank history-bits), and their file names all say `host`; a host fork that printed none
+    stays plain `host`, a case of its own, which can only be unfinished. A width given by
+    --widths is the fork's MaxVectorSize, the same on every machine, so it keys as named."""
+    if fork["width"] == "host" and fork["bits"]:
+        return "host-%s" % fork["bits"]
+    return fork["width"]
+
+
+def group_cases(forks):
+    """The forks by case: the width they ran at (case_width), the prewarm, and N."""
+    cases = defaultdict(list)
+    for f in forks:
+        cases[(f["case_width"], f["prewarm"], f["after"])].append(f)
+    return cases
+
+
+def selftest():
+    """Shards merged from a 256-bit and a 512-bit machine, file names alike `host`, must read as
+    two cases, and a fork that printed no bits as a third; a --widths fork keys as named."""
+    import tempfile
+
+    begin = {0: "bits=256", 1: "bits=512", 2: "bits=256", 3: None}
+    with tempfile.TemporaryDirectory() as d:
+        for fork, bits in begin.items():
+            with open(
+                os.path.join(d, "width-host-prewarm-on-after-64-fork-%d.log" % fork), "w"
+            ) as f:
+                if bits:
+                    f.write("%sBEGIN=%s\n" % (PREFIX, bits))
+        with open(os.path.join(d, "width-32-prewarm-on-after-64-fork-0.log"), "w") as f:
+            f.write("%sBEGIN=bits=256\n" % PREFIX)
+        forks = [read_fork(p, 40.0, 2048.0) for p in sorted(glob.glob(os.path.join(d, "*.log")))]
+    got = {c: sorted(f["fork"] for f in g) for c, g in group_cases(forks).items()}
+    want = {
+        ("host-256", "on", 64): [0, 2],
+        ("host-512", "on", 64): [1],
+        ("host", "on", 64): [3],
+        ("32", "on", 64): [0],
+    }
+    if got != want:
+        sys.exit("varka_kernel_history selftest: cases %s, expected %s" % (got, want))
+    print("varka_kernel_history selftest: ok")
+
+
 def main():
+    if "--selftest" in sys.argv[1:]:
+        selftest()
+        return
     parser = argparse.ArgumentParser(description="The slow mode's frequency after N kernels.")
     parser.add_argument("--dir", required=True)
     parser.add_argument("--slow-at", type=float, default=40.0, help="ns a row (default 40)")
@@ -152,7 +204,9 @@ def main():
         "%-28s %-11s %8s %9s  %s"
         % ("case (bits, prewarm, N)", "verdict", "ns/row", "bytes/call", "warm-up | loop tiers")
     )
-    for f in sorted(all_forks, key=lambda f: (f["width"], f["prewarm"], f["after"], f["fork"])):
+    for f in sorted(
+        all_forks, key=lambda f: (f["case_width"], f["prewarm"], f["after"], f["fork"])
+    ):
         print(
             "%-28s %-11s %8s %9s  %s %sms | %s"
             % (
@@ -167,13 +221,11 @@ def main():
         )
 
     print()
-    widths = {f["width"]: label(f) for f in all_forks if f["bits"]}
+    widths = {f["case_width"]: label(f) for f in all_forks if f["bits"]}
     print(
         "the kernel under test: slow by rate / slow by allocation / fast / unfinished or declined"
     )
-    cases = defaultdict(list)
-    for f in all_forks:
-        cases[(f["width"], f["prewarm"], f["after"])].append(f)
+    cases = group_cases(all_forks)
     slow = 0
     for case in sorted(cases, key=lambda c: (c[0], c[1], c[2])):
         group = cases[case]
@@ -207,7 +259,7 @@ def main():
     by_position = defaultdict(lambda: [0, 0, 0])
     for f in all_forks:
         for k in f["kernels"]:
-            key = (f["width"], f["prewarm"], k.get("lane", "?"), bucket(k["position"]))
+            key = (f["case_width"], f["prewarm"], k.get("lane", "?"), bucket(k["position"]))
             by_position[key][1] += 1
             if k.get("state") == "RELEASED":
                 by_position[key][0] += 1

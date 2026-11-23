@@ -1,0 +1,78 @@
+VARKA-617 replays: each run's bin phase as measured, as replayed from its own bins, and as replayed
+from the bins the planner cuts, every unit at the seconds the run measured. Read 20 November 2026
+on the laptop from the runs' downloaded artifacts and their jobs in the Actions API; nothing ran on
+a runner.
+
+Inputs, for each run of MaxGekk/spark:
+  gh run download RUN -R MaxGekk/spark -D DIR    (every bin artifact, the reach, the report)
+  gh api 'repos/MaxGekk/spark/actions/runs/RUN/jobs?per_page=100&filter=all' --paginate \
+      --jq '.jobs[]' > jobs-RUN.jsonl
+  the suites as the run's build listed them, at the run's head (dev/varka_matrix.sh --list-suites
+  --module M, which reads the sources only; without --defaults, as CI lists them)
+
+Step 1, the artifacts: 43642146943 has 155 bin jobs and 155 bin artifacts, 44485292430 has 190
+and 190; every bin job has its artifact with each unit's seconds and JUnit reports. The 156 and
+191 of results/VARKA-570-bin-times.txt count the job "Option matrix: build and plan" as a bin.
+Every unit of every bin is read back: the planner at the run's head, given the run's
+configurations, suites and reach record, cuts 43642146943's 155 bins with the same units in the
+same order (73197 s planned, as its build job's summary line says), and 44485292430's 190.
+
+The model. A bin job is its measured set-up and upload around its units, which run in the order
+the job started them on two lanes, each started as a lane frees. Jobs start in bin order on the
+run's slots (the most bin jobs it ran at once), each after the run's median wait for a runner
+once a slot is free. "jobs as run" times the run's own jobs at their measured lengths, the slot
+model alone; "as run" times them from their units, the bin model too; "replanned" times the
+bins the planner cuts now, each unit its suites' measured JUnit seconds plus the run's median JVM
+overhead, each bin the run's median set-up and upload.
+
+Command:
+  dev/varka_matrix_bins.py replay DIR --jobs jobs-RUN.jsonl --suites sql=S --suites catalyst=C \
+      [--reach DIR/varka-option-matrix-reach/reach.tsv] --plan-from HEAD_OF_RUN \
+      [--pairs DIR/varka-option-matrix-report/config-suite-seconds.tsv \
+       --suite-seconds DIR/varka-option-matrix-report/suite-seconds.tsv]
+
+== 43642146943, planned as the run planned (--plan-from fab438d4d91)
+slots 38, a runner's median wait 10 s
+a bin job's median set-up and upload 34 s, a JVM's median overhead 1.4 s
+measured bin phase     34.4 min
+jobs as run            32.8 min
+as run                 32.5 min   155 bins, the longest 887 s, 18 over 600 s
+replanned              32.2 min   155 bins, the longest 885 s, 17 over 600 s
+pairs the run has no seconds for: 0; bin jobs with no artifact: none
+== 43642146943, replanned on its own pairs (--pairs and --suite-seconds from its report artifact)
+replanned              30.4 min   172 bins, the longest 697 s, 3 over 600 s
+pairs the run has no seconds for: 0; bin jobs with no artifact: none
+== 44485292430, planned as the run planned (--plan-from e5d70012bdc)
+slots 38, a runner's median wait 2 s
+a bin job's median set-up and upload 33 s, a JVM's median overhead 1.4 s
+measured bin phase     45.6 min
+jobs as run            45.6 min
+as run                 45.2 min   190 bins, the longest 1137 s, 26 over 600 s
+replanned              44.9 min   190 bins, the longest 1131 s, 25 over 600 s
+pairs the run has no seconds for: 0; bin jobs with no artifact: none
+== 44485292430, replanned on its own pairs (--pairs and --suite-seconds from its report artifact)
+replanned              37.2 min   217 bins, the longest 515 s, 0 over 600 s
+pairs the run has no seconds for: 0; bin jobs with no artifact: none
+
+Step 3, the fresh pair files: sql/varka/matrix/config-suite-seconds.tsv rewritten from both runs'
+report artifacts, 10846 pairs, 8392 of them in both runs and taken as the mean;
+suite-seconds.tsv from 44485292430's. Replayed on them (no --plan-from: this branch's files):
+
+== 43642146943, replanned on the committed files of this branch (both runs' pairs)
+replanned              31.0 min   175 bins, the longest 752 s, 4 over 600 s
+pairs the run has no seconds for: 0; bin jobs with no artifact: none
+== 44485292430, replanned on the committed files of this branch (both runs' pairs)
+replanned              38.0 min   216 bins, the longest 552 s, 0 over 600 s
+pairs the run has no seconds for: 0; bin jobs with no artifact: none
+== plan over master's configurations and suites (run 44485292430's, at e5d70012bdc), no reach
+   record, platforms included
+origin/master (0b8be5a33e4), the October pairs: 190 bins, the longest 480 s, 89557 s in all
+this branch, the two runs pairs: 216 bins, the longest 480 s, 101711 s in all
+
+Scores (VARKA-617.md 6.1):
+  prediction 1  43642146943 "as run" 32.5 min against measured 34.4: 5.5 per cent under
+                (within 10: right); "jobs as run" 32.8 min, 4.7 per cent under
+  prediction 2  43642146943 replanned on its own pairs 30.4 min, within 27.5 to 41.3: right;
+                on this branch's two-run file 31.0 min
+  prediction 4  (figure before step 4) 216 bins on the fresh file against 190 on October's,
+                13.7 per cent more

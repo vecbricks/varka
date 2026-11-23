@@ -480,6 +480,39 @@ def build():
 
 
 def row(section, name, cls, types, result, fused, need, rows, note, cov, errors, probe):
+    """One census entry's row, each claim rule it breaks appended to `errors`.
+
+    Each rule is shown failing on a planted claim (VARKA-504), against a coverage index whose one
+    row is `year(d) = 2021`, a Year node over a date operand. The first claim is the true one, so
+    a rule that reported everything would show here too.
+
+    >>> cov = {"Year": {"date"}, "#sql": {"year(d) = 2021": {"Year"}}}
+    >>> def claim(types, fused, need, note=""):
+    ...     errors = []
+    ...     row("datetimeExpressions", "year", "Year", types, "int", fused, need, "", note, cov,
+    ...         errors, {})
+    ...     return errors
+    >>> claim("date", "date", "done")
+    []
+    >>> claim("date", "date,int", "plumbing")  # a fused type the entry does not admit
+    ['year: fused type int is not among its types', \
+'year: no coverage row has a Year node over a int operand']
+    >>> claim("date,int", "date,int", "done")  # a claim no coverage row shows
+    ['year: no coverage row has a Year node over a int operand']
+    >>> claim("date,int", "date,int~", "done")  # a derived claim that quotes no row
+    ['year: a ~ claim must quote a coverage row naming its class']
+    >>> claim("date,int", "date,int~", "done", "as in `year(d) = 2021`")
+    []
+    >>> claim("date", "date,date^", "done")  # fused and fused in part at once
+    ['year: type date is both fused and fused in part']
+    >>> claim("date", "int^", "plumbing")  # fused in part outside the entry's types
+    ['year: type int fused in part is not among its types', \
+'year: no coverage row has a Year node over a int operand']
+    >>> claim("date", "date", "plumbing")  # a need that the fused types contradict
+    ["year: need plumbing disagrees with fused ['date'] of ['date']"]
+    >>> claim("date", "", "unplanned")  # a need the census does not know
+    ["year: unknown need 'unplanned'"]
+    """
     if (name in CAST_ALIASES) != (types == "legal") and section != "implicit":
         errors.append(f"{name}: a cast alias, and only one, takes its sources from legal()")
     if types == "legal":
