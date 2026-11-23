@@ -328,7 +328,7 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
           new Form("FLOAT round(f, 1)", "round(" + f + ", 1)", "FLOAT"))) {
         out.add(new Section(form.title() + density,
             "SELECT " + form.expr() + " AS a FROM " + VIEW, Map.of(), form.fuses(),
-            form.resultType(), nullInputs, NullRule.INPUT));
+            form.resultType(), nullInputs, NullRule.INPUT, false));
       }
     }
     return out;

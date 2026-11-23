@@ -68,10 +68,10 @@ import org.apache.spark.sql.internal.SQLConf;
  * whose default is whether the JVM is a test's, which a benchmark's is not, so both sessions turn
  * it on.
  *
- * <p>Twenty-four more sections time the operators of the 128-bit lane pair (VARKA-359) that the
- * four above leave out, at {@code DECIMAL(38, 10)} and at {@code DECIMAL(20, 2)}, a precision
- * just past a long, each with no nulls and with one row in ten null: {@code x IN (c1, c2,
- * c3)}, {@code x <=> y}, {@code x IS NULL}, {@code -x < y} and {@code abs(x) < y} as filters, and
+ * <p>Twenty-two more sections time the operators of the 128-bit lane pair (VARKA-359) that the four
+ * above leave out, at {@code DECIMAL(38, 10)} and at {@code DECIMAL(20, 2)}, a precision just past
+ * a long, each with no nulls and with one row in ten null: {@code x IN (c1, c2, c3)}, {@code x <=>
+ * y}, {@code x IS NULL} (with nulls only), {@code -x < y} and {@code abs(x) < y} as filters, and
  * {@code x < y} as a projected value. A negation or {@code abs} is timed under a comparison, since
  * alone it is as fast as a copy. The three literals of {@code IN} are of the column's scale, so
  * coercion leaves the column as it is; like {@code x <=> y} over independent columns, the filter

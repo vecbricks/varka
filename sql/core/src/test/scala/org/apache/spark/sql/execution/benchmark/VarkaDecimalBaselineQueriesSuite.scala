@@ -127,8 +127,9 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         Seq(own, chain(p.precision), cast, own, own, chain(p.precision), cast, own)
       } ++ Seq.fill(2)(Seq(DecimalType(14, 6), DecimalType(8, 6))).flatten ++
         VarkaDecimalBaselineBenchmark.PAIR_PRECISIONS.asScala.flatMap { p =>
+          // No IS NULL filter over the column with no null (VARKA-549 8.6).
           val own = DecimalType(p.precision, p.scale)
-          Seq.fill(2)(Seq.fill(5)(own) :+ BooleanType).flatten
+          (Seq.fill(4)(own) :+ BooleanType) ++ (Seq.fill(5)(own) :+ BooleanType)
         } ++
         Seq(DecimalType(9, 2), DecimalType(18, 4)).flatMap { own =>
           Seq.fill(2)(Seq.fill(5)(own) :+ BooleanType).flatten
@@ -148,7 +149,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // The one section null on most rows by design; named once, so a reworded title fails here.
       val mostlyNullTitle = "try_cast(x AS SMALLINT), past the range on most rows"
       assert(sections.count(_.title.contains(mostlyNullTitle)) === 2)
-      val castSections = sections.drop(126)
+      val castSections = sections.drop(124)
       assert(castSections.forall(_.fusion == VarkaSqlBenchmarkBase.Fusion.NONE))
       var types = Seq.empty[DataType]
       for (s <- sections) {
