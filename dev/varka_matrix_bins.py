@@ -90,9 +90,10 @@ PART_ALONE = "sql/varka/matrix/part-alone.tsv"
 # of its tests the record lets through; `part-seconds`, its measured part run where
 # PART_SECONDS lists the pair and its share otherwise; `alone`, a suite PART_ALONE lists in a
 # unit of its own at its whole run, every other suite by its share. A part run measured at a
-# smaller share than today's weighs no less than its share (`units`).
+# smaller share than today's weighs no less than its share (`units`). `share` stays the default:
+# nothing in CI refreshes PART_SECONDS yet, and a stale default would drift on every plan.
 PART_WEIGHTS = ("share", "part-seconds", "alone")
-PART_WEIGHT = "part-seconds"
+PART_WEIGHT = "share"
 DEFAULTS = "defaults"
 # A runner JVM's start and its first Spark session, before any suite's own time.
 JVM_START = 20.0

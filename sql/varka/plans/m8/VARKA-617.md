@@ -308,11 +308,15 @@ none. Without a record, step 5 scores the pair file alone, because every configu
 every test and no part run is weighed. The default's own out-of-sample score in CI then waits
 for the first matrix that has a reach record, a pull request's.
 
+**The default is `share`, after all (23 November 2026, decision 9).** 3.3's rule picked A, but
+nothing in CI refreshes the part file (decision 8), so A ships as the opt-in `--part-weight
+part-seconds` and `share` stays the default.
+
 **The CI path after the rebuild on master (23 November 2026).** `plan` as the workflow calls it,
-on 43642146943's and 44485292430's configurations and master's suites, with and without
-`--platforms`: with no reach record the JSON and the summary line are byte for byte master's, and
-with either 14 November reach record they are master's under `--part-weight share`. Under the
-default the cut changes on purpose, as above: 4 bins more (186 to 190 with the platforms on
+with no `--part-weight`, on 43642146943's and 44485292430's configurations and master's suites,
+with and without `--platforms`, with no reach record and with either 14 November reach record:
+the JSON and the summary line are byte for byte master's in all twelve cases. Under
+`--part-weight part-seconds` the cut changes on purpose, as above: 4 bins more (186 to 190 with the platforms on
 43642146943's configurations, 191 to 195 on 44485292430's) and about 1,900 planned seconds more,
 every bin still at most 480 s. The largest cut, no record with the platforms, stays at 227 bins,
 29 under the cap of 256. `times` as the report job calls it writes the same two files and the
@@ -364,3 +368,9 @@ same messages as master on all three runs' artifacts.
    Adding `--part-runs` to the report job's "Suite seconds" step is a two-line follow-up for
    the owner to approve, since it changes the workflow; row 617's "left:" names it, so it is
    tracked until the owner decides.
+9. **`share` stays the default; A is an option (the lead's settlement, 23 November 2026).** A
+   default that reads a file no CI job refreshes would drift on every pull request with no
+   sign. The flip to A goes with the refresh workflow of decision 8, on the owner's approval,
+   and two replays decide it first: whether A shrinks the 23 to 29 minute bins of b098, or
+   those were slow runners; and what a pair missing from the file weighs on a pull request's
+   record (it falls back to its share, so a fresh suite or configuration is weighed as now).
