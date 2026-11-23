@@ -76,3 +76,107 @@ Scores (VARKA-617.md 6.1):
                 on this branch's two-run file 31.0 min
   prediction 4  (figure before step 4) 216 bins on the fresh file against 190 on October's,
                 13.7 per cent more
+
+Step 4, the part runs: sql/varka/matrix/config-suite-part-seconds.tsv written by times --part-runs
+from 43642146943 (565 part runs, 36 of them VarkaSparkFuzzSuite's; 44485292430 ran none);
+laptop times --reach --per-configuration over the downloaded tree reproduces the report
+artifact's 8392 pairs exactly. Each replay prints the three ways of weighing a part run:
+share (the default before this step), part-seconds (variant A), alone (variant B).
+
+== 43642146943 on this branch's files (both runs' pairs, 43642146943's part runs)
+measured bin phase         34.4 min
+jobs as run                32.8 min
+as run                     32.5 min   155 bins, the longest 887 s, 18 over 600 s
+replanned, share           31.0 min   175 bins, the longest 752 s, 4 over 600 s
+replanned, part-seconds    30.7 min   179 bins, the longest 585 s, 0 over 600 s
+replanned, alone           30.7 min   181 bins, the longest 605 s, 1 over 600 s
+pairs the run has no seconds for: share 0, part-seconds 0, alone 0
+bin jobs with no artifact: none
+== 43642146943 on its own pairs and part runs alone (its report artifact's files)
+replanned, share           30.4 min   172 bins, the longest 697 s, 3 over 600 s
+replanned, part-seconds    29.9 min   177 bins, the longest 458 s, 0 over 600 s
+replanned, alone           30.5 min   178 bins, the longest 565 s, 0 over 600 s
+== 44485292430 on this branch's files (no reach record, so no part run)
+measured bin phase         45.6 min
+jobs as run                45.6 min
+as run                     45.2 min   190 bins, the longest 1137 s, 26 over 600 s
+replanned, share           38.0 min   216 bins, the longest 552 s, 0 over 600 s
+replanned, part-seconds    38.0 min   216 bins, the longest 552 s, 0 over 600 s
+replanned, alone           38.1 min   217 bins, the longest 564 s, 0 over 600 s
+pairs the run has no seconds for: share 0, part-seconds 0, alone 0
+bin jobs with no artifact: none
+
+== plan over run 44485292430's configurations and suites (at e5d70012bdc), no reach record
+  origin/master 0b8be5a33e4, October pairs, share: 190 bins, 89557 s in all
+  this branch, share: 216 bins, 101711 s in all
+  this branch, part-seconds (variant A): 216 bins, 101711 s in all
+== plan over run 43642146943's configurations and suites (at fab438d4d91), its reach record
+  origin/master 0b8be5a33e4, October pairs, share: 155 bins, 73197 s in all
+  this branch, share: 175 bins, 82300 s in all
+  this branch, part-seconds (variant A): 179 bins, 84165 s in all
+
+Where the part runs' underplanning sits, 43642146943 on its own pairs under share: 4967 s
+underplanned over its 565 part runs (267 s overplanned), 3257 s of it VarkaSparkFuzzSuite's
+(36 part runs), then VarkaGoldenCorpusSuite 401 s (22) and VarkaFarDaySuite 146 s (14).
+
+Scores (VARKA-617.md 6.1):
+  prediction 3  on this branch's files, bins over 600 s: share 4, part-seconds 0, alone 1; the
+                longest bin 752 s, 585 s (167 s less) and 605 s (147 s less): right for both.
+                part-seconds is in sample: its part seconds are this run's own.
+  prediction 4  a master run's planned bins (no reach record, so no part run under any
+                weighing): 190 on October's pairs, 216 on this branch's, 13.7 per cent more:
+                wrong, past the 10 per cent predicted.
+The default chosen by VARKA-617.md 3.3's rule, superseded on 23 November 2026 by its decision 9
+(share stays the default, part-seconds is an option): part-seconds, with fewer bins over 600 s (0 to
+alone's 1) on this branch's files, and the tie at 0 on the run's own files going to it too.
+VarkaSparkFuzzSuite's 36 part runs in config-suite-part-seconds.tsv: 78.5 to 225.0 s at shares
+of 0.034 to 0.345; its whole run's median in suite-seconds.tsv is 182.2 s.
+
+Out of sample: run 43655530012 (14 to 15 November 2026, head d88234a6db6, varka-fuzz-1533, with
+its reach record), whose pairs and part runs are in none of this branch's files. Its build job
+planned 155 bins, 73113 s, and the replay cuts the same 155. At its head there is no part file
+and no part-alone list, so the three weighings plan alike there. On this branch's files the
+part runs weigh 43642146943's seconds; 43655530012 itself ran 558 part runs, 37 of them
+VarkaSparkFuzzSuite's, at shares of 0.241 to 0.345. Re-checked on this branch's head:
+whole_runs over 43642146943's tree still gives its report artifact's 8392 pairs exactly.
+
+== 43655530012 --plan-from d88234a6db6
+slots 38, a runner's median wait 2 s
+a bin job's median set-up and upload 32 s, a JVM's median overhead 1.4 s
+measured bin phase         32.3 min
+jobs as run                32.3 min
+as run                     32.0 min   155 bins, the longest 883 s, 17 over 600 s
+replanned, share           31.8 min   155 bins, the longest 882 s, 16 over 600 s
+replanned, part-seconds    31.8 min   155 bins, the longest 882 s, 16 over 600 s
+replanned, alone           31.8 min   155 bins, the longest 882 s, 16 over 600 s
+pairs the run has no seconds for: share 0, part-seconds 0, alone 0
+bin jobs with no artifact: none
+== 43655530012 on this branch's files
+slots 38, a runner's median wait 2 s
+a bin job's median set-up and upload 32 s, a JVM's median overhead 1.4 s
+measured bin phase         32.3 min
+jobs as run                32.3 min
+as run                     32.0 min   155 bins, the longest 883 s, 17 over 600 s
+replanned, share           29.8 min   175 bins, the longest 695 s, 7 over 600 s
+replanned, part-seconds    30.0 min   179 bins, the longest 625 s, 1 over 600 s
+replanned, alone           30.0 min   181 bins, the longest 624 s, 1 over 600 s
+pairs the run has no seconds for: share 0, part-seconds 0, alone 0
+bin jobs with no artifact: none
+Out of sample, bins over 600 s: share 7, part-seconds 1, alone 1; the longest bin 695 s, 625 s
+and 624 s. The model: "as run" 32.0 min against the measured 32.3, 0.9 per cent under.
+
+Rebuilt on master after #1632 (23 November 2026), with the review's fix: a part-run pair whose
+share today, at the file's three decimals, is above the share it was measured at weighs no less
+than its share. Re-run on the same inputs: every step-4 and out-of-sample replay above (43642146943
+and 44485292430 on this branch's files, 43642146943 on its own pairs, 43655530012 with
+--plan-from d88234a6db6 and on this branch's files) and both step-4 plan totals reproduce, except
+one figure, the out-of-sample part-seconds phase, 0.1 min shorter:
+== 43655530012 on this branch's files, after the fix
+replanned, part-seconds    29.9 min   179 bins, the longest 625 s, 1 over 600 s
+(the replay now also prints "units with a run.log but no seconds, left out of as run: 0", from
+#1632's fixes.) The steps 2 and 3 replays above are #1632's and were not re-run. Under
+43655530012's record 22 pairs take the floor's branch, 8 of them are raised, by 7.3 s in all,
+none of them VarkaSparkFuzzSuite's; under 43642146943's own record none do.
+An unconditional floor, max(measured, share weighing) for every pair, was tried first: it gave
+180 bins, the longest 605 s, 1 over 600 s on 43642146943 (against 179, 585 s and 0) and the
+longest 653 s on 43655530012 (against 625 s), so only a share above the measured one takes it.

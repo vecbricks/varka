@@ -1,5 +1,9 @@
 # VARKA-537: The exhaustive sweeps run on CI, and a sweep filter is proven to select something
 
+*Moved to milestone 9 on 23 November 2026 with row 537 (`SCOPE.md` item 138). A bare
+`PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
+unless that plan moved too (`SCOPE.md` item 138).*
+
 *Planned 31 October 2026. The row was added on 30 October by the owner's word, from the plans of
 rows 30, 157 and 481. Evidence not in the code is in `results/VARKA-537-admission.txt`: the
 gate's sweep step as it last ran, the five gates' step times, and where the nightly runs.*
