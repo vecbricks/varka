@@ -270,7 +270,7 @@ fusion dump are owed with 489b, where they first can move.
   records, from the branch's 488 for 47; written from master's arms they are 495, because a
   record states one constructor call of seven arguments and keeps its arm's comment, while the
   branch had a line per argument.
-- **Measured:** `build/sbt catalyst/Test/compile` passes; the suite's time is in 489b below.
+- **Measured:** `build/sbt catalyst/Test/compile` passes; the suite's time is measured with 489b.
 
 **489b, 20 November 2026** (branch `varka-489b-switches`, stacked on 489a). Two commits, as 5
 asks. The first adds `VarkaNodePropsEquivalenceSuite` against every live switch, and widens
