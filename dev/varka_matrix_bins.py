@@ -1835,6 +1835,8 @@ class SelfTest(unittest.TestCase):
                 planner_files("HEAD", pairs=Path(repo, "nope.tsv"), repo=Path(repo))
             with self.assertRaisesRegex(SystemExit, "no file"):
                 planner_files(suite_seconds=Path(repo, "nope.tsv"), repo=Path(repo))
+            with self.assertRaisesRegex(SystemExit, "no file"):
+                planner_files(part_seconds=Path(repo, "nope.tsv"), repo=Path(repo))
 
     def test_plan_refuses_a_matrix_past_the_cap(self):
         # A lane of 10 s is shorter than any unit, so each suite run alone takes a bin.

@@ -301,12 +301,22 @@ bin by 70 s. Decision 7 below rests on this. "as run" is 32.0 minutes against th
 Section 10's three conditions now hold on the branch. The committed file holds the 14 November
 run. Its replay on its own pairs is 30.4 minutes against the measured 34.4 (31.0 on the
 committed two-run file). `VarkaSparkFuzzSuite`'s part runs carry their own seconds in
-`config-suite-part-seconds.tsv`. Still owed: the two pull requests' reviews and merges, and step
-5's dispatch on master. A master dispatch reads a reach record only when a Build of the same
-commit has left one (`dev/varka_matrix_reuse.py`); 44485292430 found none. Without a record,
-step 5 scores the pair file alone, because every configuration runs every test and no part run
-is weighed. The default's own out-of-sample score in CI then waits for the first matrix that
-has a reach record, a pull request's.
+`config-suite-part-seconds.tsv`. Still owed: this pull request's review and merge (the first
+merged as #1632), and step 5's dispatch on master. A master dispatch reads a reach record only
+when a Build of the same commit has left one (`dev/varka_matrix_reuse.py`); 44485292430 found
+none. Without a record, step 5 scores the pair file alone, because every configuration runs
+every test and no part run is weighed. The default's own out-of-sample score in CI then waits
+for the first matrix that has a reach record, a pull request's.
+
+**The CI path after the rebuild on master (23 November 2026).** `plan` as the workflow calls it,
+on 43642146943's and 44485292430's configurations and master's suites, with and without
+`--platforms`: with no reach record the JSON and the summary line are byte for byte master's, and
+with either 14 November reach record they are master's under `--part-weight share`. Under the
+default the cut changes on purpose, as above: 4 bins more (186 to 190 with the platforms on
+43642146943's configurations, 191 to 195 on 44485292430's) and about 1,900 planned seconds more,
+every bin still at most 480 s. The largest cut, no record with the platforms, stays at 227 bins,
+29 under the cap of 256. `times` as the report job calls it writes the same two files and the
+same messages as master on all three runs' artifacts.
 
 ## 12. Decisions taken while the owner was away (20 November 2026)
 
@@ -334,8 +344,16 @@ has a reach record, a pull request's.
    Ignoring the pair when the shares differ would leave A almost never applying, since every
    pull request's reach record differs. Section 7's risk 1 is answered by the share-1 rule: a
    run with no reach record never reads a part pair.
+   Rechecked on 23 November 2026, after the rebuild on master: under 43655530012's reach record,
+   12 of its 558 part pairs have a larger share than the file's, by more than the file's
+   rounding, and 5 matter, all `VarkaSparkFuzzSuite`'s. The run measured them at 101, 100, 80,
+   203 and 126 s; the file gives 125, 93, 99, 87 and 126, and scaling by the shares 312, 189,
+   138, 122 and 140. The file is nearer in four of five, so a floor at the share weighing, or the
+   ratio scaling, would be worse. One pair, `floorMod7=DIV`, is under-weighed by 116 s. This
+   stays a trade-off, not a fault.
 8. **The report job is unchanged, as section 3.4 says.** So it does not yet write
    `config-suite-part-seconds.tsv` beside the other two. The file is refreshed as this row
    refreshed it, with `times --reach ... --part-runs` over a run's downloaded bin artifacts.
    Adding `--part-runs` to the report job's "Suite seconds" step is a two-line follow-up for
-   the owner to approve, since it changes the workflow.
+   the owner to approve, since it changes the workflow; row 617's "left:" names it, so it is
+   tracked until the owner decides.
