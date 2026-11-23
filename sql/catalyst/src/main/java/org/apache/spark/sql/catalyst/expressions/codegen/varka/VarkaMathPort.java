@@ -35,6 +35,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import javax.annotation.Nullable;
+
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -661,7 +663,7 @@ public final class VarkaMathPort {
    * {@code scaled}, when not null, marks the lanes whose {@code xs} is a subnormal scaled by
    * {@code 2^54}, whose {@code k} starts at -54.
    */
-  VarkaVectorIR logCore(VarkaVectorIR xs, Cond scaled, Fault fault) {
+  VarkaVectorIR logCore(VarkaVectorIR xs, @Nullable Cond scaled, Fault fault) {
     double ln2hi = fault == Fault.CONSTANT_OFF_BY_ONE_ULP ? Math.nextUp(LN2HI_0) : LN2HI_0;
     long split = fault == Fault.THRESHOLD_MOVED ? SQRT2_SPLIT + 1 : SQRT2_SPLIT;
     // Lines 105-112 in the long lanes of the bits (L8): hx = __HI(x); k += (hx>>20)-1023, held
