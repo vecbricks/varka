@@ -341,7 +341,8 @@ from a new node: no line of `VarkaEmitBudget`, `VarkaEmitCost`, `VarkaOperandPos
    commutes with it; `PICK` for a blend; `Arith(mode)` for narrow ring arithmetic whose check the
    options may drop), its `Validity` (`Input` for a leaf reading a column's word, `ALL_TRUE` for a
    literal, `STRICT` where a null operand makes a null, `SKIPS_NULL` for an OR of the operands'
-   words, `OWN` for a word computed from values, `NO_WORD` for a condition), its weight in lane
+   words, `OWN` for a word computed from values, `NO_WORD` for a condition, `Operand(index)` for
+   one operand's word aliased, as a hash step's seed), its weight in lane
    operations with the comment that counts them, its cost feature (the record name and whatever
    chooses its lowering), its restricted positions (`FILLS_NOTHING` and `RESTRICTS_NOTHING` unless
    it is or has a day offset, month count, weekday or level) and its `LongNarrowReader`.
