@@ -68,16 +68,17 @@ import org.apache.spark.sql.internal.SQLConf;
  * whose default is whether the JVM is a test's, which a benchmark's is not, so both sessions turn
  * it on.
  *
- * <p>Twenty-two more sections time the operators of the 128-bit lane pair (VARKA-359) that the four
- * above leave out, at {@code DECIMAL(38, 10)} and at {@code DECIMAL(20, 2)}, a precision just past
- * a long, each with no nulls and with one row in ten null: {@code x IN (c1, c2, c3)}, {@code x <=>
- * y}, {@code x IS NULL} (with nulls only), {@code -x < y} and {@code abs(x) < y} as filters, and
- * {@code x < y} as a projected value. A negation or {@code abs} is timed under a comparison, since
- * alone it is as fast as a copy. The three literals of {@code IN} are of the column's scale, so
- * coercion leaves the column as it is; like {@code x <=> y} over independent columns, the filter
- * selects next to no row, and the time is the test's. The {@code DECIMAL(20, 2)} columns are an
- * {@code x} and a {@code y} whose integer parts reach five times ten to the seventeenth, so most
- * unscaled values are past a long and the high word holds real bits there too.
+ * <p>Twenty-four more sections time the operators of the 128-bit lane pair (VARKA-359) that the
+ * four above leave out, at {@code DECIMAL(38, 10)} and at {@code DECIMAL(20, 2)}, a precision just
+ * past a long, each with no nulls and with one row in ten null: {@code x IN (c1, c2, c3)}, {@code x
+ * <=> y}, {@code x IS NULL} (over the column with no null with the scan's batch pruning off),
+ * {@code -x < y} and {@code abs(x) < y} as filters, and {@code x < y} as a projected value. A
+ * negation or {@code abs} is timed under a comparison, since alone it is as fast as a copy. The
+ * three literals of {@code IN} are of the column's scale, so coercion leaves the column as it is;
+ * like {@code x <=> y} over independent columns, the filter selects next to no row, and the time is
+ * the test's. The {@code DECIMAL(20, 2)} columns are an {@code x} and a {@code y} whose integer
+ * parts reach five times ten to the seventeenth, so most unscaled values are past a long and the
+ * high word holds real bits there too.
  *
  * <p>Thirty-six more sections time the 64-bit decimal forms the equal-scale comparison leaves out
  * (VARKA-348, VARKA-349), each with no nulls and with one row in ten null. At {@code DECIMAL(9,
@@ -171,6 +172,13 @@ import org.apache.spark.sql.internal.SQLConf;
 public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
 
   static final int NUM_ROWS = 2_000_000;
+
+  /**
+   * The in-memory scan's batch pruning off, so that a filter no cached batch's statistics pass
+   * still reads every row.
+   */
+  static final Map<String, String> NO_PRUNING =
+      Map.of("spark.sql.inMemoryColumnarStorage.partitionPruning", "false");
 
   /**
    * A section: its title, its query, how much of it the Varka session fuses today, the
@@ -787,9 +795,9 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * c2, c3)}, {@code x <=> y}, {@code -x < y} and {@code abs(x) < y} as filters, and {@code x <
    * y} as a value, with one more shape. Given {@code rescaled}, the column at another scale, the
    * first section is {@code x < w} over it as a filter; without it, the third is {@code x IS
-   * NULL} as a filter, the lane pair's order, at the density with nulls only: over the column
-   * with none, the in-memory scan prunes every cached batch of that filter by its null count, so
-   * no batch reaches either arm's filter and the section would time an empty scan.
+   * NULL} as a filter, the lane pair's order, which over the column with no null runs with the
+   * in-memory scan's batch pruning off, since the scan would otherwise prune every cached batch of
+   * that filter by its null count and both arms would time an empty scan.
    * {@code fusion} gives each shape's class.
    */
   private static void addComparisons(List<Section> out, Precision p,
@@ -807,11 +815,6 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String tail = ", " + d.words();
       String filter = "SELECT " + x + " FROM varka_decimal WHERE ";
       for (ComparisonShape shape : shapes) {
-        // Over a column with no null the in-memory scan prunes every cached batch of an IS NULL
-        // filter by its null count, so the section would time an empty scan on both arms.
-        if (shape == ComparisonShape.IS_NULL && d == Density.NO_NULLS) {
-          continue;
-        }
         Fusion expected = Objects.requireNonNull(fusion.apply(shape),
             () -> p.type() + " has no fusion class for " + shape);
         out.add(switch (shape) {
@@ -824,8 +827,12 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
               filter + x + " IN (" + literals + ")", expected);
           case NULL_SAFE -> new Section(head + "<=> filter" + tail,
               filter + x + " <=> " + y, expected);
+          // Over a column with no null the in-memory scan would prune every cached batch of an
+          // IS NULL filter by its null count, so both arms would time an empty scan: the section
+          // runs with that pruning off, on both sessions, so each arm reads every row.
           case IS_NULL -> new Section(head + "IS NULL filter" + tail,
-              filter + x + " IS NULL", expected);
+              filter + x + " IS NULL", expected,
+              d == Density.NO_NULLS ? NO_PRUNING : Map.of());
           case NEGATED -> new Section(head + "-x < y filter" + tail,
               filter + "-" + x + " < " + y, expected);
           case ABS -> new Section(head + "abs(x) < y filter" + tail,

@@ -224,11 +224,11 @@ here with its reason.
    `varkaFused` call failed such a section with the property set to `false` too. Their class
    docs now say what the shared check does; the PR body says so.
 6. **The decimal baseline's two `IS NULL` filter sections over the columns with no null are
-   dropped** rather than kept under a weaker check (9.2): they time an empty scan on both arms,
-   and the plan's risk 2 says the fix for a section no batch reaches is the table, not the check.
-   Turning the scan's batch pruning off for them would keep the labels but change what both arms
-   of a committed baseline time, a decision for the owner; dropping them leaves every remaining
-   section's numbers as committed.
+   kept and run with the in-memory scan's batch pruning off** (the owner's decision of 23
+   November 2026): `VARKA-359.md`'s measurement of the lane pair names them, so they stay, and
+   both arms now read every row instead of an empty scan. Their committed results time the empty
+   scan, so the decimal baseline's runner results at both widths are owed a rerun, a benchmark
+   dispatch the owner starts.
 
 ## 9. Outcome
 
@@ -263,11 +263,12 @@ kernel check's "at least one kernel batch" rule caught them, as risk 2 foresaw.
 
 **Prediction 1 is wrong**, then, though not in the way it guarded against: no section fell back,
 but two `WHOLE` sections timed an empty scan. Fixed in the table of sections, as the prediction's
-rule says: the decimal baseline builds the `IS NULL` filter at the density with nulls only (124
-sections, from 126; 164 from 166 after master's #1572 and #1610), and the failure message now gives each node's input batches too, so a node
-no batch reached reads apart from one whose batches went elsewhere. Committed results named for a
-rerun: `VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and its `-128bit`
-companion, which still hold the two dropped sections. The other eleven suites' `WHOLE` sections
+rule says. The two sections first were dropped; on the owner's word they are kept and run with
+the scan's batch pruning off (decision 6), and the failure message now gives each node's input
+batches too, so a node no batch reached reads apart from one whose batches went elsewhere. Owed,
+a benchmark dispatch: `VarkaDecimalBaselineBenchmark` at 256 and 128 bits on the EPYC 7763, whose
+committed `VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and its `-128bit`
+companion time the two sections as an empty scan. The other eleven suites' `WHOLE` sections
 all passed on the run (the decimal suite's later sections were re-run after the fix; 9.3).
 
 ### 9.3 What is left
