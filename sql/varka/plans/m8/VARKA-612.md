@@ -278,15 +278,22 @@ narrowing casts of a `BIGINT` (`CAST(l AS INT)`), `d - d2`, `CAST(d AS TIMESTAMP
 
 ### 9.4 Owed: the 128-bit measurement of the unmeasured long-lane checks
 
-The owner dispatches it. Each family above runs fused and on the row path at
-`-XX:MaxVectorSize=16` on an EPYC 7763 and at the default width, through its baseline class:
-`VarkaIntegralCastBaselineBenchmark` (`CAST(dt AS BIGINT)`, the ANSI and try `CAST(l AS INT)`),
-`VarkaTimestampNtzArithmeticBaselineBenchmark` (the chain, `ntz + dt`, `timestampadd(HOUR, q,
-ntz)`), `VarkaTimestampNtzBaselineBenchmark` (the arithmetic chain) and
-`VarkaTimestampNtzFieldsBaselineBenchmark` (`make_timestamp_ntz(d, tm)`, `CAST(tm AS
-TIMESTAMP_NTZ)`); `d - d2` and `-dt` have no section and get one first. A family whose fused arm
-is slower than the row path at 128 bits joins `twoLaneMeasured` in its own change. The same dispatch
-reruns `VarkaDayTimeIntervalBaselineBenchmark` at 128 bits: its committed file still says the three
+No existing section times the shapes the narrowed refusal leaves fusing unmeasured, so the
+measurement is a follow-up row: first new sections, then two runs of
+`benchmark.yml` with `-XX:MaxVectorSize=16` on an EPYC 7763, compared by minimums, which the
+owner dispatches.
+
+| shape | class to add it to |
+|---|---|
+| ANSI `CAST(l AS INT)`, `try_cast(l AS INT)` | `VarkaIntegralCastBaselineBenchmark` (beside its ANSI and try narrowing sections, over `l`) |
+| `timestampadd(MONTH, <bigint>, ntz)` | `VarkaTimestampNtzArithmeticBaselineBenchmark`, with a `BIGINT` quantity column beside `q` |
+| `CAST(d AS TIMESTAMP_NTZ)` | `VarkaTimestampNtzFieldsBaselineBenchmark` (it has a `DATE` `d`) |
+| `d - d2` over dates | a second `DATE` column there, or the surface driver's date table (`d`, `d2`) |
+
+The other unmeasured checks already have sections: `CAST(dt AS BIGINT)`, the `TIMESTAMP_NTZ`
+chains, `ntz + dt` and `timestampadd(HOUR, q, ntz)` in the four classes of 9.2, which the same
+runs time; `-dt` and `t + dts` get sections with them. A family whose fused arm is slower than
+the row path at 128 bits joins `twoLaneMeasured` in its own change. The same dispatch reruns `VarkaDayTimeIntervalBaselineBenchmark` at 128 bits: its committed file still says the three
 checked sections fuse, and under the refusal both arms time the row path.
 
 ## Decisions taken while the owner was away (20 November 2026)
