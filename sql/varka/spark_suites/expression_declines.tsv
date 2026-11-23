@@ -1,0 +1,15 @@
+# The expected declines of Spark's expression suites run under Varka (VARKA-368; see VarkaSuiteCheck).
+# Tab separated: suite (the Varka subclass), from form, to form (as casts_fused.tsv writes them), mode,
+# kind (batch), reason. A form casts_fused.tsv calls fused whose fixed-value check declines a batch on
+# rows Spark answers fails its test unless listed here; a listed form whose checks ran and declined no
+# batch fails as a stale line.
+suite	from_type	to_type	mode	kind	reason
+VarkaCastWithAnsiOffSuite	INTERVAL DAY TO HOUR	BIGINT	legacy	batch	the unit division is a magic multiply exact below ConstDivide.EXACT_DIVIDEND_BOUND, guarded by a range that declines the batch past it; the suite casts the type's extremes
+VarkaCastWithAnsiOffSuite	INTERVAL DAY TO MINUTE	BIGINT	legacy	batch	the unit division is a magic multiply exact below ConstDivide.EXACT_DIVIDEND_BOUND, guarded by a range that declines the batch past it; the suite casts the type's extremes
+VarkaCastWithAnsiOffSuite	INTERVAL DAY TO SECOND	BIGINT	legacy	batch	the unit division is a magic multiply exact below ConstDivide.EXACT_DIVIDEND_BOUND, guarded by a range that declines the batch past it; the suite casts the type's extremes
+VarkaCastWithAnsiOffSuite	INTERVAL HOUR	BIGINT	legacy	batch	the unit division is a magic multiply exact below ConstDivide.EXACT_DIVIDEND_BOUND, guarded by a range that declines the batch past it; the suite casts the type's extremes
+VarkaCastWithAnsiOffSuite	INTERVAL HOUR TO MINUTE	BIGINT	legacy	batch	the unit division is a magic multiply exact below ConstDivide.EXACT_DIVIDEND_BOUND, guarded by a range that declines the batch past it; the suite casts the type's extremes
+VarkaCastWithAnsiOffSuite	INTERVAL HOUR TO SECOND	BIGINT	legacy	batch	the unit division is a magic multiply exact below ConstDivide.EXACT_DIVIDEND_BOUND, guarded by a range that declines the batch past it; the suite casts the type's extremes
+VarkaCastWithAnsiOffSuite	INTERVAL MINUTE	BIGINT	legacy	batch	the unit division is a magic multiply exact below ConstDivide.EXACT_DIVIDEND_BOUND, guarded by a range that declines the batch past it; the suite casts the type's extremes
+VarkaCastWithAnsiOffSuite	INTERVAL MINUTE TO SECOND	BIGINT	legacy	batch	the unit division is a magic multiply exact below ConstDivide.EXACT_DIVIDEND_BOUND, guarded by a range that declines the batch past it; the suite casts the type's extremes
+VarkaCastWithAnsiOffSuite	INTERVAL SECOND	BIGINT	legacy	batch	the unit division is a magic multiply exact below ConstDivide.EXACT_DIVIDEND_BOUND, guarded by a range that declines the batch past it; the suite casts the type's extremes

@@ -140,10 +140,11 @@ public final class VarkaMatrixRuns {
    * or a construction of several Vector API calls in place of each {@code fromLong} intrinsic,
    * which C2 compiles otherwise (VARKA-375). The narrow store's form changes which calls a
    * kernel makes, not the species or the instructions; its configuration reaches C2 through its
-   * table subject's {@code lanesOverride=4} ({@code VarkaEmitOption.TABLE}).
+   * table subject's {@code lanesOverride=4} ({@code VarkaEmitOption.TABLE}). Whether C2 counts
+   * the main loop ({@code uncountedMainLoop}, VARKA-383) decides the loop nest and its traps.
    */
-  public static final Set<String> C2_OPTIONS =
-      Set.of("lanesOverride", "narrowHalfSpecies", "useAVX", "maskFromWord");
+  public static final Set<String> C2_OPTIONS = Set.of("lanesOverride", "narrowHalfSpecies",
+      "useAVX", "maskFromWord", "uncountedMainLoop");
 
   /** Whether {@code config} sets an option of {@link #C2_OPTIONS}. */
   public static boolean changesC2(String config) {
