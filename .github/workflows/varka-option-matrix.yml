@@ -280,13 +280,14 @@ jobs:
         done
         reach=()
         [ -s target/varka-matrix/reach.tsv ] && reach=(--reach target/varka-matrix/reach.tsv)
+        mkdir -p target/varka-ran-by
         python3 dev/varka_matrix_bins.py plan \
           --configurations target/varka-matrix/configurations \
           --suites sql=target/varka-bins/sql --suites catalyst=target/varka-bins/catalyst \
           --platforms "${reach[@]}" --stages "${STAGES:-two}" \
           --changed-suites target/varka-bins/changed --failed-plan target/varka-failed/plan.json \
           --failed-bins "$FAILED_BINS" --failed-run "$FAILED_RUN" \
-          --ran-by target/varka-matrix/ran-by.tsv \
+          --ran-by target/varka-ran-by/reach.tsv \
           > target/varka-bins/plan.json 2> target/varka-bins/plan.txt \
           || { cat target/varka-bins/plan.txt; exit 1; }
         cat target/varka-bins/plan.txt | tee -a "$GITHUB_STEP_SUMMARY"
@@ -321,7 +322,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: varka-option-matrix-reach
-        path: target/varka-matrix/ran-by.tsv
+        path: target/varka-ran-by/reach.tsv
         if-no-files-found: ignore
         retention-days: 30
 
@@ -497,13 +498,15 @@ jobs:
         retention-days: 30
 
   # The second stage: every other unit. It runs when the first succeeded or was skipped for an
-  # empty list. A plain `needs` would skip it with a skipped first, and a diff that changes no
-  # suite would end green with no bins.
+  # empty list, and not after a first stage that failed or whose bin timed out. A plain `needs`
+  # would skip it with a skipped first, and a diff that changes no suite would end green with no
+  # bins.
   rest:
     name: "Option matrix: ${{ matrix.bin }}"
     needs: [build, first]
     if: >-
-      ${{ !cancelled() && needs.build.result == 'success' && needs.first.result != 'failure'
+      ${{ !cancelled() && needs.build.result == 'success'
+      && (needs.first.result == 'success' || needs.first.result == 'skipped')
       && needs.build.outputs.rest != '[]' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -544,9 +547,16 @@ jobs:
         ./dev/varka_matrix.sh --report-only target/varka-merged | tee target/varka-matrix-report.txt
     - name: Summary
       if: always()
+      env:
+        FIRST: ${{ needs.first.result }}
+        REST: ${{ needs.rest.result }}
       run: |
         {
           echo "## Option matrix"
+          if [ "$REST" = skipped ] && [ "$FIRST" != success ] && [ "$FIRST" != skipped ]; then
+            echo "The first stage ended $FIRST, so the second did not run: this report and the"
+            echo "suite seconds cover the first stage's bins only."
+          fi
           echo '```'
           sed -n '/^configuration/,$p' target/varka-matrix-report.txt 2>/dev/null || echo "no report"
           echo '```'
