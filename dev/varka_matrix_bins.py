@@ -524,7 +524,7 @@ def failed_triples(earlier, bins):
     return set(unit_triples(chosen))
 
 
-def stage_plan(changed=(), failed=(), stages="two", notes=None, **planned):
+def stage_plan(changed=(), failed=(), stages="two", notes=None, cap=MATRIX_CAP, **planned):
     """The two lists of bins, as {"first": [...], "rest": [...]}, from `plan`'s arguments, which
     are passed by name.
 
@@ -534,7 +534,8 @@ def stage_plan(changed=(), failed=(), stages="two", notes=None, **planned):
     so the two lists together run everything today's plan does, the changed suites' part runs
     made whole. With `stages="one"`, `first` is empty and `rest` is today's plan. The bins are
     numbered on from `first` into `rest`, since a bin's name keys its job and its artifact. A
-    warning goes to `notes`, a list, or else to stderr."""
+    list over GitHub's `cap` of jobs a matrix, which the changed suites run whole can make
+    `first`, falls back to one stage too. A warning goes to `notes`, a list, or else to stderr."""
     today = plan(**planned)["include"]
     if stages == "one":
         return {"first": [], "rest": today}
@@ -558,10 +559,15 @@ def stage_plan(changed=(), failed=(), stages="two", notes=None, **planned):
     mine = sorted(unit_triples(again) + unit_triples(rest))
     others = sorted(t for t in unit_triples(today) if t[2] not in changed)
     ours = {t for t in unit_triples(today) if t[2] in changed}
-    if mine != others or not ours <= set(unit_triples(whole)):
+    exact = mine == others and ours <= set(unit_triples(whole))
+    fits = all(len(include) <= cap for include in (first, rest))
+    if not exact or not fits:
         why = (
             "::warning::varka_matrix_bins plan: the two stages do not run today's plan exactly,"
             " so the run has one stage"
+            if not exact
+            else f"::warning::varka_matrix_bins plan: a stage holds over {cap} bins, so the run"
+            " has one stage"
         )
         if notes is None:
             print(why, file=sys.stderr)
@@ -2126,6 +2132,23 @@ class SelfTest(unittest.TestCase):
         self.assertNotIn(("y=2", "sql", "A"), unit_triples(today))
         names = [b["bin"] for b in out["first"] + out["rest"]]
         self.assertEqual(names, [f"b{i:03d}" for i in range(len(names))])
+
+    def test_a_stage_over_the_cap_falls_back_to_todays_plan(self):
+        today, out = self.staged({"A"})
+        cap = max(len(out["first"]), len(out["rest"])) - 1
+        notes = []
+        planned = dict(
+            configurations=["x=1", "y=2"],
+            suites=self.STAGE_SUITES,
+            suite_seconds={"A": 100.0, "B": 50.0, "C": 300.0, "D": 10.0},
+            suite_times={},
+            config_weights={},
+            lane=400.0,
+            platforms=tuple(PLATFORMS),
+        )
+        got = stage_plan({"A"}, (), "two", notes, cap=cap, **planned)
+        self.assertEqual(got, {"first": [], "rest": today})
+        self.assertIn(f"over {cap} bins", notes[0])
 
     def test_one_stage_or_nothing_first_is_todays_plan(self):
         today, one = self.staged({"A"}, stages="one")

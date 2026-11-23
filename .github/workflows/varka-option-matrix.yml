@@ -619,7 +619,8 @@ jobs:
   # stop of a slow runner (VARKA-570) or on a setup step that failed twice, and only the first
   # writes <bin>-failed/units.txt; so the second stage goes on after stragglers and setup
   # failures, whose run still ends red, and stops after a failed unit. Records that do not
-  # download stop it too.
+  # download stop it too. A bin past its job timeout writes no record either, so it counts as a
+  # setup failure when the stage's result is `failure`; a stage `cancelled` stops the second.
   gate:
     name: "Option matrix: stage gate"
     needs: [build, first]
@@ -678,7 +679,7 @@ jobs:
 
   report:
     name: "Option matrix: report"
-    needs: [build, first, rest]
+    needs: [build, first, gate, rest]
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -714,17 +715,23 @@ jobs:
       env:
         FIRST: ${{ needs.first.result }}
         REST: ${{ needs.rest.result }}
+        TESTS: ${{ needs.gate.outputs.tests }}
       run: |
         {
           echo "## Option matrix"
-          if [ "$REST" = skipped ] && [ "$FIRST" != success ] && [ "$FIRST" != skipped ]; then
-            echo "The first stage ended $FIRST, so the second did not run: this report and the"
-            echo "suite seconds cover the first stage's bins only: a unit of it failed, or its"
-            echo "records did not download (the stage gate's log says which)."
+          if [ "$REST" = skipped ] && [ "$FIRST" != success ] && [ "$FIRST" != skipped ] &&
+            [ "$TESTS" != passed ]; then
+            case "$TESTS" in
+              failed) why="a unit of it failed" ;;
+              unknown) why="its records did not download" ;;
+              *) why="it ended $FIRST" ;;
+            esac
+            echo "The second stage did not run, since $why: this report and the suite seconds"
+            echo "cover the first stage's bins only."
           elif [ "$FIRST" = failure ]; then
             echo "The first stage's failed bins failed no unit - stragglers or setup steps, listed"
-            echo "below - so the second ran. Their units have no answer here: rerun the failed"
-            echo "jobs (the second stage reruns with them), or dispatch again to run them first."
+            echo "below - so the second ran. Their units have no answer here: dispatch again, which"
+            echo "runs them first; a rerun of the failed jobs reruns the whole second stage too."
           fi
           echo '```'
           sed -n '/^configuration/,$p' target/varka-matrix-report.txt 2>/dev/null || echo "no report"

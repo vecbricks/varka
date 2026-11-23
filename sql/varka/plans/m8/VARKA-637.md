@@ -300,8 +300,11 @@ the weekly full run is traced to its tier.
   never does, and a `gate` job, run only after a red `first`, downloads the first stage's
   artifacts and outputs `tests=failed`, `passed`, or `unknown` when they do not download. `rest`
   also runs on `needs.first.result == 'failure' && needs.gate.outputs.tests == 'passed'`. A
-  cancelled `first`, a bin past its job timeout, still stops it. Rerunning a straggler's failed
-  job reruns `rest` with it, since GitHub reruns a failed job's dependents.
+  `cancelled` `first` still stops it; a bin past its job timeout leaves no record, so when the
+  stage ends `failure` it counts as a setup failure. Rerunning a straggler's failed job reruns
+  `rest` with it, since GitHub reruns a failed job's dependents, so the summary points to a new
+  dispatch, which runs the straggler's units first. A stage over GitHub's 256 jobs, which the
+  changed suites run whole can make `first`, falls back to one stage with a warning.
 * The dry plan of `results/VARKA-637-dry-plan.txt`: #1626's head plans 20 `first` bins and 220
   `rest` bins against 235 in one list, the `first` bins running 27 triples the reach record cut,
   and #1659's head, which changes no suite, plans no `first` bin and the one-list plan in `rest`.
