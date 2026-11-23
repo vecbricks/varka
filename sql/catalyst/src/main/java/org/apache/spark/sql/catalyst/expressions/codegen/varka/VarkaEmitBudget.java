@@ -672,10 +672,11 @@ final class VarkaEmitBudget {
    * once.
    *
    * <p>Each record states its weight in its {@link VarkaVectorIR#props()}, beside the comment that
-   * derives it, and the method has no default, so a node added to the IR has no weight until it is
-   * given one, rather than a default that would weigh a node emitting about sixteen ops as one
-   * (VARKA-254). {@code VarkaEmitterBudgetSuite}'s register holds each weight to its node's
-   * count.
+   * derives it, and {@code props()} has no default, so a node added to the IR has no weight until
+   * it is given one, rather than a default that would weigh a node emitting about sixteen ops as
+   * one (VARKA-254). The one weight decided here is a long-to-float conversion's under the
+   * options' form, in the overload below. {@code VarkaEmitterBudgetSuite}'s register holds each
+   * weight to its node's count.
    *
    * <p>This is deliberately only about <i>grouping</i>: whether outputs share a loop method is
    * {@code groupOutputs}' question, and how many a kernel may fuse is the byte budget's, with

@@ -28,7 +28,9 @@ import java.util.List;
  *
  * <p>{@link #takes} is a switch with no default over the positions, and {@link #admits} and
  * {@link #restrictedOperands} read the node's {@link VarkaNodeProps}, which every record must
- * supply, so a new position or node kind does not compile until each says what it takes. A
+ * supply, so a new node kind does not compile until it says what it takes; a new position
+ * compiles, admitted by a column's {@code EnumSet.allOf} and refused by every other record until
+ * its {@code fills} names it, so its author reviews each record's set. A
  * position checks its operand's own kind, not the subtree under it: that a day count is not a
  * date further down is the compiler arms' to build right. Narrowing a position here narrows both
  * sides; widening one also needs the compiler arm that builds the operand, which filters Catalyst
