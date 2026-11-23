@@ -17325,6 +17325,18 @@
       "4" : "193447d7351b3f47",
       "16" : "faeb75f99bf9458d"
     },
+    "narrowConversionForm=ROUND_TO_ODD over useAVX=2" : {
+      "4" : "ee98d3a911a962b1",
+      "16" : "37a40b0ab2544c84"
+    },
+    "narrowConversionForm=WINDOWED over useAVX=2" : {
+      "4" : "ee98d3a911a962b1",
+      "16" : "37a40b0ab2544c84"
+    },
+    "narrowConversionForm=SCALAR over useAVX=2" : {
+      "4" : "ee98d3a911a962b1",
+      "16" : "37a40b0ab2544c84"
+    },
     "narrowGroupStore=MASKED over lanesOverride=4" : {
       "4" : "4de07de8ba6553c2"
     },

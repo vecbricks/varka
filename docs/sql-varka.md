@@ -284,11 +284,11 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 
 | Type | Lanes | Entries | Fused | In part | Left, by need | Declined | Coverage rows |
 | :--- | :--- | ---: | ---: | ---: | :--- | ---: | :--- |
-| `BooleanType` (`bool`) | bitmap | 41 | 28 | 2 | plumbing 5, semantics 6 | 0 | 39 |
-| `ByteType` (`byte`) | BYTE, INT | 75 | 50 | 2 | plumbing 6, semantics 17 | 0 | 56 |
-| `ShortType` (`short`) | SHORT, INT | 75 | 50 | 2 | plumbing 6, semantics 17 | 0 | 54 |
-| `IntegerType` (`int`) | INT | 90 | 63 | 2 | plumbing 6, semantics 19 | 0 | 124 |
-| `LongType` (`bigint`) | LONG | 85 | 58 | 2 | plumbing 7, semantics 18 | 0 | 88 |
+| `BooleanType` (`bool`) | bitmap | 41 | 29 | 2 | plumbing 4, semantics 6 | 0 | 40 |
+| `ByteType` (`byte`) | BYTE, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 57 |
+| `ShortType` (`short`) | SHORT, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 55 |
+| `IntegerType` (`int`) | INT | 90 | 65 | 2 | plumbing 4, semantics 19 | 0 | 128 |
+| `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
 | `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
 | `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 82 |
 | `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 9 | plumbing 12, semantics 43 | 3 | 85: 60 to precision 18, 25 at precision 19 to 38 |
@@ -307,7 +307,7 @@ One row per section of Spark's function registry, and per family of the operator
 | conditional | 11 | 1 | 11 | 1 | float, dec | 329, 331, 338, 341, 348, 359 |
 | predicate | 16 | 6 | 15 | 8 | bool, dec | 27, 329, 331, 336, 338, 341, 347, 348, 359, 497 |
 | math | 59 | 17 | 33 | 0 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
-| bitwise | 13 | 10 | 11 | 0 | bool, byte, short, int, bigint | 329, 331, 335 |
+| bitwise | 13 | 13 | 13 | 0 |  |  |
 | datetime | 41 | 27 | 36 | 0 | byte, short, int, bigint, float, double, dec, ntz, time, ym, dt | 103, 329, 339, 340, 343, 351 |
 | hash | 2 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 337, 359, 368 |
 | conversion | 11 | 1 | 10 | 3 | bool, byte, short, int, bigint, float, double, dec, date, time, ym, dt | 28, 332, 338, 340, 343, 350, 364, 365, 366, 368 |

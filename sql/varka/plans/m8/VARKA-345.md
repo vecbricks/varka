@@ -1103,3 +1103,55 @@ format under `sql/varka/math/`, question 2's classification (3.8), the `--asm` h
 *Corrected 21 November 2026 (review of this part): the frame's tests run each helper over the
 double and long views at the base lane count and over null lanes at two and four lanes; the
 `FLOAT` and `INT` views are lowered and registered, and no kernel runs them yet.*
+
+### 10.3 345c: the ports after `exp`, one stacked part each (22 November 2026)
+
+Built in the owner's absence, as the brief named it: the next `PORT` arms the plan sequences
+after `exp` on 345b's frame, the ones rows 357 (`sinh` and `cosh` reuse `exp`'s and `expm1`'s
+sequences) and 358 (the log family) wait on. Each is a stacked part with a paired `vfdlibm`
+branch, prepared locally and not pushed. Nothing here is a compiler arm: no SQL shape fuses a
+port yet, which stays rows 357 and 358's (2.1's rule and the `mathPort` option, decision 6 of
+10.2).
+
+**345c1, `expm1` (branch `varka-345c-expm1-r`, on master after #1609).**
+
+- `VarkaMathPort.expm1`, node for node `vfdlibm`'s `Expm1.expm1Blended`: every one of
+  s_expm1.c's seven forms chosen by `k` and its early returns computed in every lane and
+  blended, so no lane is finished by a call. The reduction is shared with `exp`
+  (`VarkaMathPort.reduce`, the library's L10), and `exp`'s expansion now builds through it with
+  the same nodes.
+- The library holds the C's `int` words in int lanes; the port holds them in long lanes, as
+  `exp`'s port holds its high-word tests: `k`'s tests are long compares of `k` widened, and the
+  words `0x3ff00000-(0x200000>>k)` and `(0x3ff-k)<<20` are long arithmetic, the first by a
+  logical shift (AVX2 has no 64-bit arithmetic shift). That they are the C's words on the lanes
+  that read them is the paired `vfdlibm` change's lemma.
+- `VarkaMathPortSuite` takes its tests over a list of ported functions, each with its
+  expansion, its three oracles (`StrictMath`, `VFdlibm` and the library's blended arm, read by reflection), its fixed
+  vectors and its draw range: `exp`'s tests are unchanged in what they check, and `expm1` gets the
+  same four (the sampled differential, the fixed vectors over nulls, lengths, three widths and no
+  byte budget, the reference evaluator, the depth caps) and its three planted faults
+  (`DROP_CORRECTION` drops `c`, `CONSTANT_OFF_BY_ONE_ULP` moves `ln2_hi` up, `THRESHOLD_MOVED`
+  moves `k > 56` to `k > 55`, as the library's are). Its fixed vectors are s_expm1.c's thresholds
+  and the edges of `k`'s forms (`k = 1`'s split at `r = -0.25`, and the first lanes of `k = 2`,
+  `20`, `56` and `57`), each with 64 neighbours each way in both signs, and the special values.
+- Paired `vfdlibm` change: branch `varka-expm1-long-words` (worktree
+  `/home/max/proj/vfdlibm-345c2w`), `PROOFS.md` L15 "expm1's words in long lanes, as Varka emits
+  them" and its hinge test `ProofsTest.l15LongWordsAreExpm1sInts` (every `k` from -1100 to 1100);
+  the library's code does not move. Varka's test-scope oracle is `vfdlibm` 0.2.0 from Maven
+  Central (0.2.0 adds `sinh`, `cosh` and the inverse trigonometric ports and splits `expm1` into
+  a core and a rare mask; `VFdlibm.expm1` and `Expm1.expm1Blended` give the same bits), so this
+  part moves the test-scope dependency from 0.1.0 and nothing else of the build.
+
+Predictions (written before the run): the suite passes with every `expm1` lane bit-identical to
+the three oracles; `expm1`'s expansion is deeper than `exp`'s 36 and within the port cap of 64;
+the suite's cost on a quiet machine is under 3 times `exp`'s alone (10.2: 46.9 s), the second
+function adding its own 2^24 samples and the blended arm's call a batch.
+
+Measured (laptop, 22 November 2026, on master after #1609 with `vfdlibm` 0.2.0, one run): the
+suite passes, 11 tests, every `exp` and `expm1` lane bit-identical to `StrictMath` and `VFdlibm`
+and to the blended arm on 2^24 sampled inputs a function and on the fixed vectors at 2, 4 and 8
+lanes, NaN payloads included; each planted fault caught. `expm1`'s expansion is 49 deep as measured on 20 November, and the suite holds it within the port cap (`exp`'s
+36), so the first two predictions held. The earlier run of 20 November (457 s on a shared
+laptop, before the review's changes to `exp`) is not a timing; the third prediction held in one run (86.5 s, under the 141 s limit) and failed in the
+next (175.1 s, the laptop shared), so the suite's cost is not established and is owed a timing
+on an idle machine or the runners.
