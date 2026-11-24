@@ -614,10 +614,12 @@ public final class VarkaKernelPlan {
     return Optional.empty();
   }
 
-  /** Whether {@code n} tests a narrow column, bare or widened, and nothing else narrow. */
+  /**
+   * Whether {@code n} tests a column, bare or through a chain of widenings. A narrow widening in
+   * the chain is not checked here: the caller's walk visits it as a node of its own.
+   */
   private static boolean readsColumnWord(VarkaVectorIR.IsNotNull n) {
-    VarkaVectorIR child = n.child() instanceof VarkaVectorIR.WidenLane w ? w.child() : n.child();
-    return child instanceof VarkaVectorIR.ColumnRef;
+    return VarkaVectorIR.unwidened(n.child()) instanceof VarkaVectorIR.ColumnRef;
   }
 
   /**
@@ -625,8 +627,8 @@ public final class VarkaKernelPlan {
    * word alone, and the root itself is not narrow: the narrow nodes a double kernel lowers, a
    * value through the long kernel's narrow load and a null test through the word, a bit per row
    * at every lane. The test is {@code IS NOT NULL} of a narrow column, as the optimizer infers
-   * it on a cast's source: the column widened to the int lane or bare, and nothing narrow below
-   * it but that column.
+   * it on a cast's source: the column bare or under widenings, and nothing narrow below the test
+   * but that column.
    */
   private static boolean narrowColumnsOnly(VarkaVectorIR root) {
     if (root.laneType().isNarrow()) {

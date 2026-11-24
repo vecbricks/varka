@@ -308,6 +308,20 @@ public sealed interface VarkaVectorIR
   }
 
   /**
+   * {@code node} below every widening that wraps it: the value a chain of {@link WidenLane}
+   * reads, which is {@code node} itself when it is no widening. A widening keeps its child's
+   * validity word, so a null test over the chain tests the value at its bottom; the compiler's
+   * long lift and the emitter's analysis both read a null test's column through this.
+   */
+  static VarkaVectorIR unwidened(VarkaVectorIR node) {
+    VarkaVectorIR value = node;
+    while (value instanceof WidenLane w) {
+      value = w.child();
+    }
+    return value;
+  }
+
+  /**
    * The narrow lanes {@code root}'s tree reads as values: a narrow column leaf, which a widening
    * load spans parts of. A narrow column read only for its validity word - the {@code y1 IS NOT
    * NULL} of a predicate - reads the bitmap and loads no species, so it is not one, and neither
