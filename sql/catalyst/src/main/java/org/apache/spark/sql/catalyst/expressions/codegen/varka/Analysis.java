@@ -1132,7 +1132,7 @@ final class Analysis {
    * {@code NULL}), whose overflow check the option emits or leaves out. The option's reads go
    * through it - the check's scratch in {@link Slots}, and whether a narrow node reduces as a ring
    * node ({@link #loweredUnchecked}; {@link #isNarrowRing} reads the mode its {@code Ring.Arith}
-   * states, so a record stating {@code FAIL} or {@code NULL} belongs here) - and
+   * states, so a narrow record stating {@code FAIL} or {@code NULL} belongs here) - and
    * {@link Refusal#INT_OVERFLOW} is its {@code FAIL} half. A {@code WRAP} node has no check to
    * skip, and neither has a floating division: its {@code FAIL} or {@code NULL} mode is the zero
    * test, which the option does not read.

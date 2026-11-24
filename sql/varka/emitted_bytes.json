@@ -577,6 +577,39 @@
           "loopMasked0([J[J[I[J[J[I[JI)I" : "485a0c23e1ed3506",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "b1c75de6f7db55ad"
         },
+        "dt / 24" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "abe5c00d249fc6e4",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "60df5fecb15574e6",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "abe5c00d249fc6e4",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "60df5fecb15574e6"
+        },
+        "dt * 1.5" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "0f049028a763ebd6",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "4dc44fd5101be492",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "6368054e650b0fad",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "1a59dab3a0b0bd25"
+        },
+        "dt / 1.5" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "37b840ee5aff7648",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "55e53b8e3e1e9381",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "c6133c0afdd394a6",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "f7cb34b922538eb6"
+        },
         "extract(DAY FROM dt)" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -9313,6 +9346,39 @@
           "loopMasked0([J[J[I[J[J[I[JI)I" : "586448d9e90ef68d",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "191c187c672b57a9"
         },
+        "dt / 24" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "ef3aa51f7abf0c5d",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "601f8a3388c18304",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "ef3aa51f7abf0c5d",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "601f8a3388c18304"
+        },
+        "dt * 1.5" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "ae8971366ceca3e8",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "67c9ab9afdf55525",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "cfd2e5ffac6cf88b",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "825a708f13b728c8"
+        },
+        "dt / 1.5" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "eca0e97314f0074c",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "a0856d5e1ded3842",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "8e08146431667abe",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "e3a3d168b35cfd84"
+        },
         "extract(DAY FROM dt)" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -17478,99 +17544,99 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "d40058036f3b6186",
-      "16" : "ef6e90e365c6b142"
+      "4" : "146c8465d660b8f7",
+      "16" : "78e591fa0d2b9027"
     },
     "useAVX=0" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
+      "4" : "a1520dbaaef56099",
+      "16" : "53357a89b85f23e2"
     },
     "useAVX=1" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
+      "4" : "a1520dbaaef56099",
+      "16" : "53357a89b85f23e2"
     },
     "useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
+      "4" : "a1520dbaaef56099",
+      "16" : "53357a89b85f23e2"
     },
     "useAVX=3" : {
-      "4" : "d40058036f3b6186",
-      "16" : "ef6e90e365c6b142"
+      "4" : "146c8465d660b8f7",
+      "16" : "78e591fa0d2b9027"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "9f587f048c9e6912",
-      "16" : "a7a2249f623c371b"
+      "4" : "962672aba3befc1d",
+      "16" : "5a0a5eb8f111ff7c"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "1a57431a04aa0d28",
-      "16" : "f88d72534a76cc07"
+      "4" : "16b831e7514e0018",
+      "16" : "d2f90eec68e415e2"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
+      "4" : "a1520dbaaef56099",
+      "16" : "53357a89b85f23e2"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
+      "4" : "a1520dbaaef56099",
+      "16" : "53357a89b85f23e2"
     },
     "wideConversionForm=XOR_SPLIT over useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
+      "4" : "a1520dbaaef56099",
+      "16" : "53357a89b85f23e2"
     },
     "roundToOddByShifts=true over useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
+      "4" : "a1520dbaaef56099",
+      "16" : "53357a89b85f23e2"
     },
     "roundToOddByShifts=false over useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
+      "4" : "a1520dbaaef56099",
+      "16" : "53357a89b85f23e2"
     },
     "narrowConversionForm=ROUND_TO_ODD over useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
+      "4" : "a1520dbaaef56099",
+      "16" : "53357a89b85f23e2"
     },
     "narrowConversionForm=WINDOWED over useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
+      "4" : "a1520dbaaef56099",
+      "16" : "53357a89b85f23e2"
     },
     "narrowConversionForm=SCALAR over useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
+      "4" : "a1520dbaaef56099",
+      "16" : "53357a89b85f23e2"
     },
     "narrowGroupStore=MASKED over lanesOverride=4" : {
-      "4" : "c59ffbdb0e7a23d2"
+      "4" : "7ac53a1e4af1aab8"
     },
     "narrowGroupStore=COMBINED over lanesOverride=4" : {
-      "4" : "1724fedd0d38bb07"
+      "4" : "9281516277d63a3a"
     },
     "narrowLanes=true" : {
-      "4" : "d40058036f3b6186",
-      "16" : "ef6e90e365c6b142"
+      "4" : "146c8465d660b8f7",
+      "16" : "78e591fa0d2b9027"
     },
     "narrowLanes=false" : {
-      "4" : "17d6efd9f0636c78",
-      "16" : "bae47c1e18868a0d"
+      "4" : "f0b6a6eebdd005b1",
+      "16" : "9326f0f787299907"
     },
     "narrowGroupStore=COMBINED" : {
       "2" : "fcb86e65095bfab7",
-      "4" : "bd85914974590917",
-      "16" : "ef6e90e365c6b142"
+      "4" : "0249452a7bbbfeb4",
+      "16" : "78e591fa0d2b9027"
     },
     "groupLocalSlots=false" : {
-      "4" : "e3bb5ff0ccf78c4e",
-      "16" : "b5028f097013b014"
+      "4" : "0330a38bd96fbb98",
+      "16" : "af36f3a97ea99084"
     },
     "methodByteBudget=0" : {
-      "4" : "beebbb027bacd46d",
-      "16" : "ead82c63006afb4b"
+      "4" : "eae50143be3ebb3d",
+      "16" : "f2046eb6dc5e6ac5"
     },
     "mathUlpContract=true" : {
-      "4" : "d40058036f3b6186",
-      "16" : "ef6e90e365c6b142"
+      "4" : "146c8465d660b8f7",
+      "16" : "78e591fa0d2b9027"
     },
     "maskFromWord=true" : {
-      "4" : "e6cd7f1bc2450dff",
-      "16" : "317f5b857aa5eec2"
+      "4" : "7412f4934660f017",
+      "16" : "4a5f9dd966ab51f9"
     }
   }
 }

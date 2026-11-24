@@ -239,8 +239,9 @@ public final class VarkaLoopEmitter {
   /**
    * Whether a kernel over {@code outputs} is emitted differently with
    * {@link VarkaEmitOptions#checkIntOverflow} on and off: some node under them is one whose
-   * emission reads the option ({@link Analysis#readsCheckIntOverflow}, the test the emitter's own
-   * reads go through, and which names every node whose {@code Ring.Arith} states a checked mode).
+   * emission reads the option ({@link Analysis#readsCheckIntOverflow}, the test every read of the
+   * emitter's but {@code isNarrowRing}'s goes through, and which names every narrow node whose
+   * {@code Ring.Arith} states {@code FAIL} or {@code NULL}).
    * For a differential that runs such a kernel with the check on where its configuration turns it
    * off, and every other kernel as the configuration has it.
    */

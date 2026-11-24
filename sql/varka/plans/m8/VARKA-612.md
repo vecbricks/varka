@@ -296,6 +296,10 @@ runs time; `-dt` and `t + dts` get sections with them. A family whose fused arm 
 the row path at 128 bits joins `twoLaneMeasured` in its own change. The same dispatch reruns `VarkaDayTimeIntervalBaselineBenchmark` at 128 bits: its committed file still says the three
 checked sections fuse, and under the refusal both arms time the row path.
 
+Row 103a2 adds `dt * 1.5`, `dt / 1.5` and `dt / k`. On a two-lane host they fuse unmeasured, as
+decision 8a leaves them, and join this measurement. `VarkaDayTimeIntervalBaselineBenchmark` times
+`dt * 1.5` and `dt / 24`; `dt / 1.5` needs a new section there.
+
 ## Decisions taken while the owner was away (20 November 2026)
 
 1. **Question 10.1: the tree check.** Taken as recommended (3.1), because the brief has the plan's
