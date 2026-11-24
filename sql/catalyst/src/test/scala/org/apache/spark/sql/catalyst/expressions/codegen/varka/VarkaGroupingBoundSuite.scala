@@ -163,12 +163,23 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
     }
   }
 
-  test("under the exact grouping no shape declines, and none falls back to the greedy grouping") {
+  test("under the exact grouping no shape declines, and none falls back to the greedy grouping " +
+      "where the driver splits") {
     // A class the exact grouping would make decline is built again greedily, so a decline alone
     // cannot show the switch costing a kernel: the fallback hides it. What the test holds is
     // that the fallback never runs for the exact grouping - a shape drops no more switches under
     // it than under the greedy grouping - and it reports the loop methods each emits as shipped,
     // after the measurement's regroup.
+    //
+    // That holds only where the driver splits into stages: the driver from a table under
+    // `splitDriver` (VarkaLoopEmitter's stage split). The unrolled driver grows with the outputs
+    // and cannot split, and the compiler cuts a composition to the largest prefix whose greedy
+    // class fits, so its driver ends a few bytes under the byte budget. The exact grouping may
+    // take one group more for fewer ops, and that group's two calls (52 bytes in the masked
+    // driver) can put the driver over, which the fallback answers. There the test holds only
+    // that the exact grouping emits wherever the greedy one does (`m8/PLAN.md` row 644; the
+    // capped retry that would remove the fallback is `m9/SCOPE.md` item 139).
+    val driverSplits = options.driverOutputTable && options.splitDriver
     val exactOptions = options.withExactGrouping(true)
     val totals = scala.collection.mutable.LinkedHashMap[String, (Int, Int)]()
     for (shape <- shapes) {
@@ -177,8 +188,10 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
       val name = s"${shape.family} ${shape.index}"
       assert(greedy.isEmpty || exact.nonEmpty,
         s"$name emits under the greedy grouping and declines under the exact one")
-      assert(exact.map(_._2) === greedy.map(_._2),
-        s"$name falls back from the exact grouping to make a class that fits")
+      if (driverSplits) {
+        assert(exact.map(_._2) === greedy.map(_._2),
+          s"$name falls back from the exact grouping to make a class that fits")
+      }
       val (g, e) = totals.getOrElse(shape.family, (0, 0))
       totals(shape.family) = (g + greedy.map(_._1).getOrElse(0), e + exact.map(_._1).getOrElse(0))
     }

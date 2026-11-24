@@ -6258,6 +6258,21 @@ Two findings of rows marked done the same day come here too, since neither moves
   and the hook, and open point 2 asks for a source stamp in each generated file's header
   (`m8/VARKA-563.md` 4).
 
+### Item 139. The exact grouping capped at the groups the driver can afford
+
+*Added 24 November 2026, from `m8/PLAN.md` row 644.* Under a driver that cannot split into
+stages - the unrolled driver, or the table driver without `splitDriver` - a class the exact
+grouping makes can be over the byte budget on its driver alone: the exact grouping may take one
+group more than the greedy one for fewer ops, and each group adds two calls to the driver (52
+bytes in the masked unrolled driver). `SizeLoop.fallBack` then drops the exact grouping. Before
+it does, the exact grouping should retry with its groups capped at what the driver can afford,
+read off the measured driver, through a best-partition search with a group cap. The retry cannot
+always succeed: the greedy driver can be over too, a saved prefix can add bytes to each call, and
+the splits' forced starts can need more groups than the cap. So the emitter records the reason
+of each fallback, and `VarkaGroupingBoundSuite` allows a fallback under such a driver only for
+the reason that no capped grouping fits. **Done when** that test holds the exact claim under
+`driverOutputTable=false` and `splitDriver=false` on every seed of the draw it is run on.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
