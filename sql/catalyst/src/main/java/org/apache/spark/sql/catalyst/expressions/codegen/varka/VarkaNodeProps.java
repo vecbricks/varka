@@ -42,6 +42,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
  *
  * @param ring whether reduction modulo a narrow lane's width commutes with the node, which is
  *     what {@code Analysis.isNarrowRing} asks
+ * @param intOverflowCheck whether the node's emission holds an int overflow check, which
+ *     {@code VarkaEmitOptions.checkIntOverflow} emits or leaves out: an integral add, subtract,
+ *     multiply, negation or abs of mode {@code FAIL} or {@code NULL}. A floating division's
+ *     zero test is not one. It is what {@code Analysis.readsCheckIntOverflow} asks, and it is
+ *     stated apart from {@link #ring()} because an abs checks but is never a ring node
  * @param validity how the node's validity word follows from its operands' words, and whether
  *     it is a pure function of input bitmaps; whether the analysis counts a node as skipping a
  *     null input stays {@code Analysis.analyze}'s own switch
@@ -57,9 +62,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
  * @param longNarrow what the node reads of its narrow children in a kernel driven at the long
  *     lane ({@code VarkaKernelPlan.loweredAtLong})
  */
-public record VarkaNodeProps(Ring ring, Validity validity, int weight, String costKind,
-    Set<VarkaOperandPosition> fills, List<VarkaOperandPosition.Restricted> restricted,
-    LongNarrowReader longNarrow) {
+public record VarkaNodeProps(Ring ring, boolean intOverflowCheck, Validity validity, int weight,
+    String costKind, Set<VarkaOperandPosition> fills,
+    List<VarkaOperandPosition.Restricted> restricted, LongNarrowReader longNarrow) {
 
   /** For a node that may stand in no restricted position. */
   public static final Set<VarkaOperandPosition> FILLS_NOTHING = Set.of();

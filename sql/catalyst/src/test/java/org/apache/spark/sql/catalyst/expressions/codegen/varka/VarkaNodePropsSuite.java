@@ -134,6 +134,54 @@ public final class VarkaNodePropsSuite {
     assertTrue(nodes.size() > 1000, "drew only " + nodes.size() + " distinct nodes");
   }
 
+  /** Temporary (489c, overflow property): nodes compared, and those both sides call checked. */
+  static final int[] COMPARED = new int[2];
+
+  /** Temporary: the descriptor's answer against the instanceof test it replaces. */
+  static void assertOverflowAgrees(VarkaVectorIR n) {
+    boolean byType = Analysis.readsCheckIntOverflow(n);
+    assertEquals(byType, n.props().intOverflowCheck(), VarkaVectorIR.canonical(n));
+    COMPARED[0]++;
+    if (byType) {
+      COMPARED[1]++;
+    }
+  }
+
+  @Test
+  @DisplayName("temporary: the overflow property agrees with the type test on every node")
+  void overflowAgrees() {
+    var nodes = new ArrayList<VarkaVectorIR>(nodesOf(drawnShapes(5000)));
+    int drawn = nodes.size();
+    for (LaneType lane : LaneType.values()) {
+      var c = new VarkaVectorIR.ColumnRef(0, lane);
+      var c1 = new VarkaVectorIR.ColumnRef(1, lane);
+      for (VarkaVectorIR.Overflow mode : VarkaVectorIR.Overflow.values()) {
+        for (VarkaVectorIR.IntOp op : VarkaVectorIR.IntOp.values()) {
+          try {
+            nodes.add(new VarkaVectorIR.IntArith(op, mode, c, c1));
+          } catch (IllegalArgumentException refused) {
+            // a combination the record refuses
+          }
+        }
+        for (boolean abs : new boolean[] {false, true}) {
+          try {
+            nodes.add(new VarkaVectorIR.IntNeg(mode, c, abs));
+          } catch (IllegalArgumentException refused) {
+            // a combination the record refuses
+          }
+        }
+      }
+    }
+    int before = COMPARED[0];
+    int checkedBefore = COMPARED[1];
+    for (VarkaVectorIR n : nodes) {
+      assertOverflowAgrees(n);
+    }
+    System.out.println("489c-overflow: drawn distinct nodes " + drawn + ", enumerated "
+        + (nodes.size() - drawn) + ", compared " + (COMPARED[0] - before) + ", checked "
+        + (COMPARED[1] - checkedBefore));
+  }
+
   /**
    * That {@code n}'s {@link Validity} fits its operands as the word folds assume. The record's
    * constructor cannot check it, since it has no node; {@code VarkaLaneTypeSuite} also asks it of

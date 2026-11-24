@@ -544,6 +544,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     } yield {
       // Its validity's shape too, for the records no grammar draws (VARKA-489).
       VarkaNodePropsSuite.assertValidityShape(node)
+      VarkaNodePropsSuite.assertOverflowAgrees(node)
       // A `WeekOfYear` needs its `ThursdayOf`; both are int-only, and the guarded day's range
       // check means a bare column root would decline rather than emit, so it is wrapped.
       val roots = Seq[VarkaVectorIR](node)
@@ -571,7 +572,14 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // shape at DOUBLE (VARKA-489).
     Seq[VarkaVectorIR](sqrt, new Fma(fd, fd, new ColumnRef(1, LaneType.DOUBLE)),
       new RoundToIntegral(RoundMode.RINT, fd), CanonicalFloat.of(fd))
-      .foreach(VarkaNodePropsSuite.assertValidityShape)
+      .foreach { n =>
+        VarkaNodePropsSuite.assertValidityShape(n)
+        VarkaNodePropsSuite.assertOverflowAgrees(n)
+      }
+    // scalastyle:off println
+    println(s"489c-overflow lane instances: compared ${VarkaNodePropsSuite.COMPARED(0)}, " +
+      s"checked ${VarkaNodePropsSuite.COMPARED(1)}")
+    // scalastyle:on println
     // The subset VARKA-85.md 3.1 names, and nothing else: a calendar node at the long lane
     // is refused by its constructor, which is why it never reaches the emitter.
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",
