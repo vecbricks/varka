@@ -447,3 +447,12 @@ opt-in sweep): `VarkaIrFuzzSuite`, `VarkaEmitterValiditySuite`, `VarkaEmitterNul
 `VarkaWithChildrenSuite`, `VarkaReproductionSuite`, `VarkaEmitterChronoSuite`,
 `VarkaKernelPlanSuite`, with `VarkaNodePropsSuite`, `VarkaLaneTypeSuite`, `VarkaEmitterBudgetSuite`
 and `VarkaEmitCostSuite`. CI's option matrix is still owed.
+
+**Prediction 3, the evening of 24 November 2026.** `VarkaCoverageSuite`'s fusion dump
+(`VARKA_FUSION_DUMP`, 36379 lines) was taken on master at `6ec492b53cf` (489a merged), at 489b's
+head `4627ad60a4e` and at 489c's tree, one sbt JVM each on the laptop. The three agree byte for
+byte once each node's `hash=` field is masked, and that field alone differs. It is not stable
+from one JVM to the next: a second dump of `6ec492b53cf` prints other hashes and the same masked
+text, because `hashOf` reads the enum components' identity hashes. So no fusion decision moved
+in 489b or 489c, and the prediction holds. The byte oracles held at each gate: the regeneration
+of `emitted_bytes.json`, `coverage.json` and `width_audit.json` changed nothing.
