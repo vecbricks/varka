@@ -87,6 +87,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDerivedKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaOperandPosition;
@@ -102,7 +103,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedProduct;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
@@ -1383,9 +1383,8 @@ final class VarkaNodeCompiler {
     if (y.isEmpty()) {
       return y;
     }
-    Optional<VarkaVectorIR> built = guardsProduct(op, mode, x.get(), y.get(), literals, sink)
-        ? Optional.of(new GuardedProduct(x.get(), y.get()))
-        : arithOver(op, overflowOf(mode), x.get(), y.get(), whole, literals, mark, sink);
+    Optional<VarkaVectorIR> built =
+        arithOver(op, overflowOf(mode), x.get(), y.get(), whole, literals, mark, sink);
     if (built.isPresent() && isLong(whole)) {
       built = twoLaneChecked(built.get(), whole, sink);
     }
@@ -1399,45 +1398,22 @@ final class VarkaNodeCompiler {
   }
 
   /**
-   * Whether a checked {@code BIGINT} multiply the lattice cannot bound is built as a
-   * {@link GuardedProduct}, option B of {@code VARKA-104.md} 3.3, in place of the decline
-   * {@link #arithOver} gives it: where the session's options build one
-   * ({@link DeclineSink#guardsLongProducts}, `VARKA-611.md` 3.2). A bounded product stays the
-   * unchecked {@code IntArith} it is today, which {@link #arithOver} builds. The bound is asked
-   * here without noting the columns it read, since {@code arithOver} asks it again and notes
-   * them where it is bounded.
-   */
-  private static boolean guardsProduct(IntOp op, Object mode, VarkaVectorIR x, VarkaVectorIR y,
-      VarkaSlotTable literals, DeclineSink sink) {
-    return op == IntOp.MUL && overflowOf(mode) != Overflow.WRAP && sink.guardsLongProducts()
-        && x.laneType() == LaneType.LONG && y.laneType() == LaneType.LONG
-        && !(VarkaRangeAnalysis.range(new IntArith(op, Overflow.WRAP, x, y),
-            VarkaRangeAnalysis.Kind.INT, VarkaRangeAnalysis.GuardPolicy.NONE,
-            rangeLiterals(literals, sink), column -> { }) instanceof VarkaValueRange.Bounded);
-  }
-
-  /** Why a checked bigint operation declines on a two-lane host ({@link #twoLaneChecked}). */
-  static final String TWO_LANE_CHECK_REASON = "a checked bigint operation on an x86 host whose "
-      + "64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 "
-      + "does not lower there, so the kernel would run the Vector API's Java fallback";
-
-  /**
    * {@code node}, a {@code BIGINT} operation in its final mode, or empty with
-   * {@link #TWO_LANE_CHECK_REASON} where the mode still raises or nulls on overflow and the
-   * session refuses those ({@link DeclineSink#declinesTwoLaneChecks}). A check the lattice took
-   * off is {@code WRAP} by now, so it stays fused, as does every LEGACY form.
+   * {@link VarkaKernelPlan#TWO_LANE_CHECK_REASON} where the mode still raises or nulls on
+   * overflow and the session refuses those ({@link DeclineSink#declinesTwoLaneChecks}). A check
+   * the lattice took off is {@code WRAP} by now, so it stays fused, as does every LEGACY form.
+   * The measured day-time interval forms decline the same way
+   * ({@code VarkaIntervalCompiler.twoLaneMeasured}, VARKA-612).
    */
   private static Optional<VarkaVectorIR> twoLaneChecked(VarkaVectorIR node, Expression whole,
       DeclineSink sink) {
     Overflow mode = switch (node) {
       case IntArith a -> a.mode();
       case IntNeg n -> n.mode();
-      // Its pre-check is a long-lane mask in every mode.
-      case GuardedProduct _ -> Overflow.FAIL;
       default -> Overflow.WRAP;
     };
     if (mode != Overflow.WRAP && sink.declinesTwoLaneChecks()) {
-      return sink.decline(TWO_LANE_CHECK_REASON, whole);
+      return sink.decline(VarkaKernelPlan.TWO_LANE_CHECK_REASON, whole);
     }
     return Optional.of(node);
   }

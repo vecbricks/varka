@@ -189,8 +189,7 @@ public final class VarkaWordCensus {
           && nn.child().equals(x.thenNode())
           ? orW(pure(x.thenNode(), coalesce, absorb), pure(x.elseNode(), coalesce, absorb), absorb)
           : null;
-      case MakeDate _, IntArith _, IntNeg _, GuardedProduct _, ConstDivide _, BoundedDivide _,
-          Cond _,
+      case MakeDate _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, Cond _,
           CondValue _, VarkaVectorIR.NullValue _, BoolOutput _, GuardedDay _, GuardedRange _,
           WidenLane _, NarrowLane _, ConvertLane _, ReinterpretLane _, WidenDecimal _ -> null;
     };

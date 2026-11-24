@@ -84,9 +84,7 @@ import org.apache.spark.sql.types.DecimalType;
  * type fused today must compile and agree; one it does not mark must decline, and is owed to the
  * rows the register names. The one exception is the {@code BIGINT} casts to {@code FLOAT} and
  * {@code DOUBLE}, which the compiler admits by the options' {@code useAVX} level and which this
- * class takes from that level rather than the register ({@link CastPair#fusedIn}), and the
- * checked {@code BIGINT} multiply, which the options' {@code checkedLongMultiply} may build as a
- * guarded product and which this class takes from them ({@link #guardsProduct}). A check whose
+ * class takes from that level rather than the register ({@link CastPair#fusedIn}). A check whose
  * forms all hold passes; one with an owed form is cancelled naming the owners, after its fused
  * forms have run. A type the census marks fused in part for an operator (one band of it, as a
  * decimal at one scale) may do either: the form is held to the answers where it fuses and owed
@@ -518,9 +516,6 @@ public abstract class VarkaTypeConformance {
       return pair.fusedIn(f.mode(), type().spark(), result) ? Optional.empty()
           : Optional.of(pair.rows());
     }
-    if (guardsProduct(f)) {
-      return Optional.empty();
-    }
     String gap = CHECKED_GAPS.get(census + " " + f.register());
     if (gap != null && f.mode() == Mode.ANSI) {
       return Optional.of(gap);
@@ -566,34 +561,12 @@ public abstract class VarkaTypeConformance {
    * over the type. When the checked form fuses - row 95's bounded ANSI {@code int *} - the check
    * reports it as drift ("fuses, and the register owes it"): remove the entry then, and if the
    * new form fuses only for some operands, key the gap more narrowly rather than letting it owe
-   * the forms that now fuse. A form a non-default option fuses is not drift and keeps its entry:
-   * {@link #guardsProduct} answers for the guarded {@code bigint *} before this map is read.
+   * the forms that now fuse.
    */
   private static final Map<String, String> CHECKED_GAPS = Map.of(
       "int *", "95 (a checked int multiply has no int-lane overflow test)",
       "bigint *", "104 (a checked bigint multiply fuses only where its operands' bounds rule out "
           + "overflow, VARKA-104.md 3.3)");
-
-  /**
-   * Whether {@code f} is a checked {@code BIGINT} multiply this configuration builds as a guarded
-   * product (row 611). The registers describe the defaults, whose {@code checkedLongMultiply}
-   * declines a projection's ANSI or TRY multiply of unbounded {@code BIGINT} operands; a
-   * configuration whose options build the guarded product instead
-   * ({@link VarkaEmitOptions#guardsLongProducts}, asked as the compiler asks it, with this host's
-   * {@code os.arch}) fuses those forms, so they are held to the reference and to Spark there
-   * rather than reported as drift. Its pre-check declines every batch holding a product of
-   * {@code 2^62} or more in magnitude, under TRY too, so {@link #check} holds each batch's
-   * status to the guards' verdict ({@link #guardVerdict}) rather than to where Spark raises, and
-   * still requires a decline wherever Spark raises. A filter never builds one, so a condition
-   * keeps the register's answer.
-   */
-  private boolean guardsProduct(Form f) {
-    return f.kind() == Kind.VALUE && type().census().equals("bigint")
-        && ((f.mode() == Mode.ANSI && f.register().equals("*"))
-            || (f.mode() == Mode.TRY && f.register().equals("try_multiply")))
-        && VarkaMatrixRuns.BASE.guardsLongProducts(
-            VarkaHostIsa.isX86(System.getProperty("os.arch", "")));
-  }
 
   // -------------------------------------------------------------------------------------------
   // Running a check
@@ -880,35 +853,22 @@ public abstract class VarkaTypeConformance {
         String ctx = getClass().getSimpleName() + " " + f + " batch " + n++ + " length "
             + b.length();
         boolean raises = raises(oracle, c, b);
-        // A guarded product declines where its pre-check trips, which is wider than where Spark
-        // raises: every batch that holds a product of 2^62 or more in magnitude, under TRY too.
-        Optional<VarkaGuardSpecs.Verdict> guarded =
-            guardsProduct(f) ? Optional.of(guardVerdict(c, b)) : Optional.empty();
-        boolean mayDecline = raises || guarded.map(v -> !v.answers()).orElse(false);
         BigInteger[] slots = decimalSlots();
         int status = slots != null
             ? VarkaKernelChecks.runLoadedDecimal(ctx, loaded.kernel(), c.roots(),
-                c.inputs().size(), c.longLits(), c.lits(), b, slots, mayDecline, answers(oracle),
+                c.inputs().size(), c.longLits(), c.lits(), b, slots, raises, answers(oracle),
                 CallHook.NONE)
             : c.longLane()
             ? VarkaKernelChecks.runLoadedLong(ctx, loaded.kernel(), c.roots(), c.inputs().size(),
-                c.longLits(), c.lits(), b, mayDecline, answers(oracle), CallHook.NONE)
+                c.longLits(), c.lits(), b, raises, answers(oracle), CallHook.NONE)
             : VarkaKernelChecks.runLoadedNarrow(ctx, loaded.kernel(), c.roots(),
-                c.inputs().size(), c.lits(), intBatch(b), mayDecline, answers(oracle),
-                CallHook.NONE);
+                c.inputs().size(), c.lits(), intBatch(b), raises, answers(oracle), CallHook.NONE);
         if (type().isFloating() && f.overflowing()) {
           assertEquals(0, status, ctx + ": the kernel declined a floating overflow, which Spark "
               + "answers");
         }
-        if (guarded.isPresent()) {
-          assertTrue(guarded.get().admits(status), ctx + ": status " + status + " against the "
-              + "guarded product's pre-check, " + guarded.get());
-          assertTrue(!raises || status != 0, ctx + ": the kernel answered a batch on which "
-              + "Spark raises");
-        } else {
-          assertEquals(raises, status != 0, ctx + ": the kernel " + (status != 0 ? "declined"
-              : "answered") + " a batch on which Spark " + (raises ? "raises" : "does not raise"));
-        }
+        assertEquals(raises, status != 0, ctx + ": the kernel " + (status != 0 ? "declined"
+            : "answered") + " a batch on which Spark " + (raises ? "raises" : "does not raise"));
         if (status == 0) {
           see(answered, oracle, c, b);
         }
@@ -1096,25 +1056,6 @@ public abstract class VarkaTypeConformance {
    * every check must then fail on (VARKA-504, {@code VarkaConformancePlantSuite}).
    */
   BiFunction<long[], VarkaKernelChecks.Answer, VarkaKernelChecks.Answer> plantedAnswer;
-
-  /**
-   * The verdict of the kernel's guards on {@code b} ({@link VarkaGuardSpecs#verdict}), for a
-   * form built as a guarded product ({@link #guardsProduct}): the batches its pre-check declines,
-   * read from the compiled roots as the IR fuzzer reads them.
-   */
-  private static VarkaGuardSpecs.Verdict guardVerdict(Compiled c, LongBatch b) {
-    int n = c.inputs().size();
-    long[][] values = new long[b.length()][n];
-    boolean[][] isNull = new boolean[b.length()][n];
-    for (int r = 0; r < b.length(); r++) {
-      for (int col = 0; col < n; col++) {
-        values[r][col] = b.data()[col][r];
-        isNull[r][col] = b.nulls()[col][r];
-      }
-    }
-    return VarkaGuardSpecs.verdict(c.roots(), n, c.longLits(), c.lits(), VarkaMatrixRuns.BASE,
-        true, values, isNull, List.of());
-  }
 
   /** Spark's answers for one batch, as {@link VarkaKernelChecks} reads them. */
   private SparkAnswers answers(VarkaSparkOracle oracle) {

@@ -2644,6 +2644,61 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(compiled.get.specs.asScala.map(_.fused) === Seq(true, true))
   }
 
+  test("a narrow column's null test in an int disjunct beside a bigint conjunct emits") {
+    // VARKA-619: the disjunct lifts the null test to the int lane beside `i < 3`, widening its
+    // column to the int lane, and the conjunction lifts the disjunct to the long lane beside the
+    // bigint conjunct. The long lift reads the column under the int widening, so the test is
+    // `isNotNull(widen:LONG col)`, as a null test lifted straight to the long lane is, and the
+    // kernel emits at the byte and the short column alike.
+    val options = VarkaMatrix.base.withLanesOverride(16).withValidityByWidth(true)
+    val ll = AttributeReference("ll", LongType)()
+    for ((column, lane) <- Seq(by -> LaneType.BYTE, sh -> LaneType.SHORT)) {
+      val pred = And(GreaterThan(ll, Literal(0L)), Or(IsNotNull(column), LessThan(i, Literal(3))))
+      val compiled = VarkaExpressionCompiler.compilePredicate(pred, childOutput :+ ll, options,
+        VarkaAdmission.NO_HOST_REFUSAL).toScala
+      assert(compiled.isDefined, s"the predicate over $lane should fuse")
+      assert(compiled.get.specs.asScala.map(_.fused) === Seq(true, true), lane)
+      val canonical = compiled.get.fused.outputs.asScala.map(VarkaVectorIR.canonical).mkString
+      assert(canonical.contains("(isNotNull (widen:LONG col:") &&
+        !canonical.contains("(widen:LONG (widen:INT col:"),
+        s"the null test reads the column through one widening: $canonical")
+      val bytes = VarkaLoopEmitter.emit(
+        s"org.apache.spark.sql.varka.execution.VarkaNullTestChain${System.nanoTime()}",
+        compiled.get.fused.outputs, compiled.get.fused.inputOrdinals.size,
+        compiled.get.fused.numLiterals, null, null, options)
+      assert(bytes.nonEmpty)
+    }
+  }
+
+  test("a SMALLINT or TINYINT column's null test lifted to a bigint kernel at the defaults " +
+      "widens the column once", PinsDefaults) {
+    // VARKA-619 at the defaults: a disjunction of null tests lifts to the int lane, widening each
+    // narrow column there, and the conjunction with a bigint conjunct lifts it on to the long
+    // lane, whose null test reads the column through one widening. The null tests beside a bigint
+    // conjunct, lifted straight to the long lane, are the controls.
+    val ll = AttributeReference("ll", LongType)()
+    val preds = And(GreaterThan(ll, Literal(0L)), Or(IsNotNull(sh), IsNotNull(by))) +:
+      Seq(sh, by).flatMap { column =>
+        Seq(
+          And(GreaterThan(ll, Literal(0L)), Or(IsNotNull(column), IsNotNull(i))),
+          And(LessThan(Cast(column, LongType), ll), IsNotNull(column)),
+          And(GreaterThan(ll, Literal(0L)), IsNotNull(column)))
+      }
+    for (pred <- preds) {
+      val compiled = VarkaExpressionCompiler.compilePredicate(pred, childOutput :+ ll,
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).toScala
+      assert(compiled.isDefined, s"$pred should fuse")
+      val canonical = compiled.get.fused.outputs.asScala.map(VarkaVectorIR.canonical).mkString
+      assert(!canonical.contains("(widen:LONG (widen:INT col:"),
+        s"the null test reads the column through one widening: $canonical")
+      val bytes = VarkaLoopEmitter.emit(
+        s"org.apache.spark.sql.varka.execution.VarkaShortNullTest${System.nanoTime()}",
+        compiled.get.fused.outputs, compiled.get.fused.inputOrdinals.size,
+        compiled.get.fused.numLiterals, null, null, VarkaEmitOptions.DEFAULTS)
+      assert(bytes.nonEmpty, pred)
+    }
+  }
+
   test("a boolean equality of two narrow conditions lifts into an int-lane conjunction") {
     // A comparison of two boolean conditions is a mask over them, so one over two narrow
     // comparisons is itself narrow - `compare` builds the BoolCompare with narrow operands -
@@ -3395,7 +3450,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Subtract(l, l2, EvalMode.ANSI), UnaryMinus(l, failOnError = true),
       Abs(l, failOnError = true))
     for (e <- checked) {
-      assert(reasons(e, twoLane) === Seq(VarkaNodeCompiler.TWO_LANE_CHECK_REASON), e)
+      assert(reasons(e, twoLane) === Seq(VarkaKernelPlan.TWO_LANE_CHECK_REASON), e)
       assert(reasons(e, VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
     }
     val wrapping = Seq(Add(l, l2, EvalMode.LEGACY), Abs(l, failOnError = false),
@@ -3403,8 +3458,18 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for (e <- wrapping) {
       assert(reasons(e, twoLane).isEmpty, e)
     }
-    // The scope is the BIGINT arms: TIMESTAMP_NTZ's checked difference (row 339) is untouched.
+    // The day-time interval forms the 128-bit baseline measured slower than the row path decline
+    // the same way (VARKA-612); the negation, unmeasured, and TIMESTAMP_NTZ's checked difference
+    // (row 339), which builds the same long-lane check under another type, keep fusing.
+    val measured = Seq(Add(dt, dt), Subtract(dt, dt), Abs(dt), MultiplyDTInterval(dt, Literal(3)))
+    for (e <- measured) {
+      assert(reasons(e, twoLane) === Seq(VarkaKernelPlan.TWO_LANE_CHECK_REASON), e)
+      assert(reasons(e, VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
+    }
+    assert(reasons(UnaryMinus(dt), twoLane).isEmpty)
     assert(reasons(SubtractTimestamps(ntz, ntz), twoLane).isEmpty)
+    // A product by one is its operand, whose unmeasured check is not the product's to decline.
+    assert(reasons(MultiplyDTInterval(SubtractTimestamps(ntz, ntz), Literal(1)), twoLane).isEmpty)
   }
 
   test("a two-lane admission refuses a checked bigint and a decimal boolean in one projection") {
@@ -3421,7 +3486,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       new VarkaAdmission(java.util.Set.of(), true)).asScala.map { case (k, d) =>
         k.intValue -> d.reason }.toMap
     assert(twoLane === Map(0 -> VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON,
-      1 -> VarkaNodeCompiler.TWO_LANE_CHECK_REASON))
+      1 -> VarkaKernelPlan.TWO_LANE_CHECK_REASON))
     val partial = VarkaExpressionCompiler.compilePartial(list, columns,
       VarkaEmitOptions.DEFAULTS, new VarkaAdmission(java.util.Set.of(), true)).get
     assert(partial.specs.get(2).isInstanceOf[FusedOutput])
@@ -3657,24 +3722,19 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "two kernels, and an entry no kernel serves keeps its own reason") {
     // MAX_INPUTS bounds a kernel's column set, a bitset in a long; past it an entry fits alone but
     // not beside the others, which is another kernel's entry. A checked bigint product over a
-    // column is not a size, so it stays residual whatever severalKernels says. It is residual
-    // only under the BOUND_ONLY form: MAGNITUDE, and BY_HOST at its levels, build a
-    // GuardedProduct for it (VARKA-611), so the test pins BOUND_ONLY for every
-    // checkedLongMultiply arm.
-    val bound = VarkaMatrix.base
-      .withCheckedLongMultiply(VarkaEmitOptions.CheckedLongMultiply.BOUND_ONLY)
+    // column is not a size, so it stays residual whatever the option.
     val columns = (0 until 70).map(c => AttributeReference(s"c$c", DateType)())
     val longCol = AttributeReference("l", LongType)()
     val output = columns :+ longCol
     val list = columns.map(c => out(DateAdd(c, Literal(1)))) :+
       out(Multiply(longCol, Literal(3L), EvalMode.ANSI))
     val one = VarkaExpressionCompiler.compilePartial(list, output,
-      bound.withSeveralKernels(false)).get
+      VarkaMatrix.base.withSeveralKernels(false)).get
     assert(one.specs.asScala.count(_.isInstanceOf[FusedOutput]) ===
         64) // VarkaEmitBudget.MAX_INPUTS
     assert(one.declines.asScala(64).reason === "exceeds the emitter's fused budget")
     val two = VarkaExpressionCompiler.compilePartial(list, output,
-      bound.withSeveralKernels(true)).get
+      VarkaMatrix.base.withSeveralKernels(true)).get
     assert(two.kernels.size === 2)
     assert(two.specs.asScala.toSeq.slice(64, 70) === (0 until 6).map(new KernelOutput(1, _)))
     assert(two.more.asScala.head.inputOrdinals.asScala.toSeq === (64 until 70))

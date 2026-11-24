@@ -1442,10 +1442,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         domain = Some("s1 BETWEEN -32764 AND 32764")),
       Row("bround(s1, -2)", "", domain = Some("s1 BETWEEN -32749 AND 32749")),
       Row("truncate(s1, -2)"))),
-    // The math functions (VARKA-345, VARKA-356), exact by default: each lane is passed to the
-    // scalar method Spark's generated code calls, so the bits are that method's on this host -
-    // Math's for sin, cos and tan, StrictMath's for asin, acos and atan, which Math delegates
-    // to - and the work around the call stays in the kernel.
+    // The math functions (VARKA-345, VARKA-356, VARKA-358), exact by default: each lane is
+    // passed to the scalar method Spark's generated code calls, so the bits are that method's on
+    // this host - Math's for sin, cos, tan and cbrt, StrictMath's for asin, acos and atan, which
+    // Math delegates to, and for the exponentials and logarithms, which Spark's code names - and
+    // the work around the call stays in the kernel.
     Family("Math functions", predicates = false, Seq(
       Row("sin(x)", "exact: a per-lane Math.sin call, the host's answer as Spark's",
         math = Some(MathCell(exactForms(2), operator = Some(VarkaMathBinding.Operator.SIN)))),
@@ -1467,7 +1468,32 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("sin(x) * 2.0D + cos(x2)", "the arithmetic around the calls in the kernel",
         math = Some(MathCell(exactForms(2)))),
       Row("sin(i)", "the int converted exactly, then the call",
-        math = Some(MathCell(exactForms(2)))))),
+        math = Some(MathCell(exactForms(2)))),
+      Row("exp(x)", "exact: a per-lane StrictMath.exp call, as Spark's code makes",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.EXP)))),
+      Row("expm1(x)", "exact: a per-lane StrictMath.expm1 call",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.EXPM1)))),
+      Row("cbrt(x)", "exact: a per-lane Math.cbrt call, the host's answer as Spark's",
+        math = Some(MathCell(exactForms(2), operator = Some(VarkaMathBinding.Operator.CBRT)))),
+      Row("ln(x)", "exact: a per-lane StrictMath.log call, null at x <= 0.0 by Java's <=, "
+        + "so at -0.0 and not at NaN",
+        math = Some(MathCell(exactForms.head,
+          operator = Some(VarkaMathBinding.Operator.LOG)))),
+      Row("log(x)", "the one-argument log as parsed: ln's call and null, with no divide; once "
+        + "the optimizer folds e, the divide by StrictMath.log(e) that Spark's code then makes",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.LOG)))),
+      Row("log10(x)", "exact: a per-lane StrictMath.log10 call, null at x <= 0.0",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.LOG10)))),
+      Row("log1p(x)", "exact: a per-lane StrictMath.log1p call, null at x <= -1.0",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.LOG1P)))),
+      Row("log2(x)", "ln(x) / StrictMath.log(2) as Spark writes it, the divisor folded",
+        math = Some(MathCell(exactForms.head))),
+      Row("log(2.0D, x)", "a constant base: StrictMath.log(2.0) folded as the divisor",
+        math = Some(MathCell(exactForms.head))),
+      Row("log(x2, x)", "StrictMath.log(x) / StrictMath.log(x2), null where either is at or "
+        + "below 0.0", math = Some(MathCell(exactForms.head))),
+      Row("exp(x) * 2.0D + 1.0D", "the arithmetic around the call in the kernel",
+        math = Some(MathCell(exactForms.head))))),
     Family("Math functions as conditions", predicates = true, Seq(
       Row("sin(x) < 0.5D", "the call, then the floating compare in Spark's order",
         math = Some(MathCell(exactForms(2)))))),
@@ -2112,6 +2138,45 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // is a kernel's input ordinal, so the order read back is part of what they compile.
     val read = VarkaCoverageRows.columns(getWorkspaceFilePath("sql", "varka", "coverage.json"))
     assert(read.map(a => a.name -> a.dataType) === columns.map(a => a.name -> a.dataType))
+  }
+
+  // --- the two-lane census (VARKA-612) --------------------------------------------------------
+
+  /**
+   * The value rows a host whose 64-bit masks fall back leaves to the row engine, one line each
+   * with its family and reason, under the defaults the table documents: every value row compiled
+   * as a projection entry with the two-lane refusal on, against the fused kernel it compiles to
+   * with it off, which the first test checks. The reasoning of row 612 refuses an entry by its
+   * tree, so which rows it reaches is this file's, not a reading of the compiler's.
+   */
+  private def renderTwoLaneCensus(): String = {
+    val twoLane = new VarkaAdmission(java.util.Set.of(), true)
+    val valueRows = families.filterNot(_.predicates).flatMap(f => f.rows.map(f -> _))
+    val refused = valueRows.flatMap { case (family, row) =>
+      VarkaExpressionCompiler.declines(Seq(out(expressionOf(row))), columns,
+        VarkaEmitOptions.DEFAULTS, twoLane).asScala.values.headOption
+        .map(d => s"${family.title}\t${row.sql}\t${d.reason}")
+    }
+    val header = Seq(
+      "# The coverage table's value rows a two-lane x86 host refuses as projection entries",
+      "# (VARKA-612), rendered by VarkaCoverageSuite; regenerate with",
+      "#   VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite'",
+      s"# ${refused.size} of ${valueRows.size} value rows refused; family, row, reason:")
+    (header ++ refused).mkString("", "\n", "\n")
+  }
+
+  test("the two-lane census of the value rows is the committed one") {
+    val file = getWorkspaceFilePath("sql", "varka", "plans", "m8", "results",
+      "VARKA-612-refused.txt")
+    val rendered = renderTwoLaneCensus()
+    if (regen) {
+      Files.writeString(file, rendered)
+      logInfo(s"regenerated $file")
+    } else {
+      assert(Files.exists(file) && Files.readString(file) === rendered,
+        s"$file is not what this suite renders. Regenerate it with\n" +
+          "  VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite'")
+    }
   }
 
   // --- what the table's kernels reach of the emitter (VARKA-280) ------------------------------

@@ -454,7 +454,6 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
         case x: WeekDay => value(x.days(), Kind.DAY)
         case x: IntArith => value(x.left(), Kind.INT); value(x.right(), Kind.INT)
         case x: IntNeg => value(x.child(), Kind.INT)
-        case x: GuardedProduct => value(x.left(), Kind.INT); value(x.right(), Kind.INT)
         case x: ConstDivide => value(x.child(), Kind.INT)
         case x: BoundedDivide => value(x.child(), Kind.INT)
         case x: BitOp => value(x.left(), Kind.INT); value(x.right(), Kind.INT)
@@ -564,8 +563,6 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: WeekDay => go(x.days(), armed)
       case x: IntArith => go(x.left(), armed) && go(x.right(), armed)
       case x: IntNeg => go(x.child(), armed)
-      // A long-lane node, which the int-lane property never draws.
-      case x: GuardedProduct => go(x.left(), armed) && go(x.right(), armed)
       case x: ConstDivide => go(x.child(), armed)
       case x: BoundedDivide => go(x.child(), armed)
       case x: BitOp => go(x.left(), armed) && go(x.right(), armed)
