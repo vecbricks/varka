@@ -17,7 +17,11 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * The operand positions whose node kinds the emitter restricts, which kinds each admits, and
@@ -26,15 +30,15 @@ import java.util.List;
  * {@code date_add(d, weekday(d2) + 1)} was fused in EXPLAIN and refused at emit time, which the
  * evaluator turns into a silent per-batch fallback.
  *
- * <p>{@link #takes} is a switch with no default over the positions, and {@link #admits} and
- * {@link #restrictedOperands} read the node's {@link VarkaNodeProps}, which every record must
- * supply, so a new node kind does not compile until it says what it takes; a new position
- * compiles, admitted by a column's {@code EnumSet.allOf} and refused by every other record until
- * its {@code fills} names it, so its author reviews each record's set. A
- * position checks its operand's own kind, not the subtree under it: that a day count is not a
- * date further down is the compiler arms' to build right. Narrowing a position here narrows both
- * sides; widening one also needs the compiler arm that builds the operand, which filters Catalyst
- * expressions before it asks.
+ * <p>{@link #takes}, {@link #LITERAL_FILLS} and {@link #ARITH_FILLS} are switches with no
+ * default over the positions, and {@link #admits} and {@link #restrictedOperands} read the node's
+ * {@link VarkaNodeProps}, which every record must supply, so a new node kind or position does not
+ * compile until each says what it takes. A column takes every position, and the narrowings name
+ * the one position their shape serves (see their {@code props()}). A position checks its
+ * operand's own kind, not the subtree under it: that a day count is not a date further down is
+ * the compiler arms' to build right. Narrowing a position here narrows both sides; widening one
+ * also needs the compiler arm that builds the operand, which filters Catalyst expressions before
+ * it asks.
  *
  * <p>The other operands take any int-valued node and the emitter checks nothing there, with one
  * structural exception outside this enum: {@code WeekOfYear} is defined over a {@code ThursdayOf}
@@ -72,6 +76,28 @@ public enum VarkaOperandPosition {
 
   /** An operand in a restricted position, with its name in a refusal. */
   public record Restricted(VarkaOperandPosition position, VarkaVectorIR operand, String name) {
+  }
+
+  /** The positions a {@code LiteralSlot} fills: a literal is no level, which is a column. */
+  static final Set<VarkaOperandPosition> LITERAL_FILLS = where(p -> switch (p) {
+    case DAY_OFFSET, MONTH_COUNT, WEEKDAY -> true;
+    case TRUNC_LEVEL -> false;
+  });
+
+  /** The positions an {@code IntArith} or an {@code IntNeg} fills: a day or month count. */
+  static final Set<VarkaOperandPosition> ARITH_FILLS = where(p -> switch (p) {
+    case DAY_OFFSET, MONTH_COUNT -> true;
+    case WEEKDAY, TRUNC_LEVEL -> false;
+  });
+
+  private static Set<VarkaOperandPosition> where(Predicate<VarkaOperandPosition> fills) {
+    Set<VarkaOperandPosition> set = EnumSet.noneOf(VarkaOperandPosition.class);
+    for (VarkaOperandPosition p : values()) {
+      if (fills.test(p)) {
+        set.add(p);
+      }
+    }
+    return Collections.unmodifiableSet(set);
   }
 
   /** Whether this position takes {@code node}. */

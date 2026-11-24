@@ -299,6 +299,12 @@ checks and the hand-built corpus from the equivalence suite, which keeps only th
 489c. Compiled; the byte oracles, the fusion dump (prediction 3) and the scoped suites are owed
 to CI, since a pass now reads the descriptor.
 
+(24 November 2026: a third commit applied that build's review, and the counts above are of the
+56 records then; the 61 after the rebase are in the next paragraph. The branch's own high review
+then moved `LiteralSlot`'s and the arithmetic's `fills` into exhaustive switches over the
+positions, `VarkaOperandPosition.LITERAL_FILLS` and `ARITH_FILLS`, so a new position is a compile
+error again, and made `isNarrowRing` read the mode its `Ring.Arith` states.)
+
 **Rebased onto master, 23 November 2026** (`f3b97c0b503`). Master had added five records since
 the build, `ReinterpretLane`, `Fma`, `CanonicalFloat`, `CanonicalBits` and `HashStep`, each given
 its `props()` from master's switch arms. `HashStep`'s word is its seed's alone (a null word leaves

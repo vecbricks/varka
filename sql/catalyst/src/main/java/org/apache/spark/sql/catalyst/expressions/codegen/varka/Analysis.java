@@ -1103,7 +1103,9 @@ final class Analysis {
     return switch (node.props().ring()) {
       case VarkaNodeProps.Ring.Never _ -> false;
       case VarkaNodeProps.Ring.Pick _ -> node.laneType().isNarrow();
-      case VarkaNodeProps.Ring.Arith _ -> loweredUnchecked(node, node.laneType());
+      // Its check is the mode's, and the options may drop it: a narrow node left unchecked wraps.
+      case VarkaNodeProps.Ring.Arith a -> node.laneType().isNarrow()
+          && (a.mode() == Overflow.WRAP || !options.checkIntOverflow());
     };
   }
 
