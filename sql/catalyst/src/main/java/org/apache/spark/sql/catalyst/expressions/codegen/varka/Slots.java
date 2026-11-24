@@ -70,7 +70,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Dec
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedProduct;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.HashStep;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
@@ -1222,7 +1221,6 @@ final class Slots {
           ? Integer.MIN_VALUE
           : andRef(s.wordRef.get(n.left()), s.wordRef.get(n.right()));
       case IntNeg n -> s.wordRef.get(n.child());
-      case GuardedProduct n -> andRef(s.wordRef.get(n.left()), s.wordRef.get(n.right()));
       case ConstDivide n -> s.wordRef.get(n.child());
       case BoundedDivide n -> s.wordRef.get(n.child());
       case BitOp n -> andRef(s.wordRef.get(n.left()), s.wordRef.get(n.right()));
@@ -1749,7 +1747,6 @@ final class Slots {
           }
         }
         case IntNeg x -> { }
-        case GuardedProduct x -> { }
         case ConstDivide x -> { }
         case BoundedDivide x -> { }
         case BitOp x -> { }
@@ -1840,8 +1837,6 @@ final class Slots {
         // IntNeg aliases its child's word (ownerOf), so it never reaches this queue - the
         // child does. Written out rather than defaulted, per this switch's own rule.
         case IntNeg x -> { }
-        case GuardedProduct x -> { demand(analysis.wordOwner.get(x.left()));
-          demand(analysis.wordOwner.get(x.right())); }
         case ConstDivide x -> { }
         case BoundedDivide x -> { }
         case BitOp x -> { demand(analysis.wordOwner.get(x.left()));

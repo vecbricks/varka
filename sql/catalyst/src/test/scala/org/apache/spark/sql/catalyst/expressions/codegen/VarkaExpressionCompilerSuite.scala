@@ -3712,24 +3712,19 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "two kernels, and an entry no kernel serves keeps its own reason") {
     // MAX_INPUTS bounds a kernel's column set, a bitset in a long; past it an entry fits alone but
     // not beside the others, which is another kernel's entry. A checked bigint product over a
-    // column is not a size, so it stays residual whatever severalKernels says. It is residual
-    // only under the BOUND_ONLY form: MAGNITUDE, and BY_HOST at its levels, build a
-    // GuardedProduct for it (VARKA-611), so the test pins BOUND_ONLY for every
-    // checkedLongMultiply arm.
-    val bound = VarkaMatrix.base
-      .withCheckedLongMultiply(VarkaEmitOptions.CheckedLongMultiply.BOUND_ONLY)
+    // column is not a size, so it stays residual whatever the option.
     val columns = (0 until 70).map(c => AttributeReference(s"c$c", DateType)())
     val longCol = AttributeReference("l", LongType)()
     val output = columns :+ longCol
     val list = columns.map(c => out(DateAdd(c, Literal(1)))) :+
       out(Multiply(longCol, Literal(3L), EvalMode.ANSI))
     val one = VarkaExpressionCompiler.compilePartial(list, output,
-      bound.withSeveralKernels(false)).get
+      VarkaMatrix.base.withSeveralKernels(false)).get
     assert(one.specs.asScala.count(_.isInstanceOf[FusedOutput]) ===
         64) // VarkaEmitBudget.MAX_INPUTS
     assert(one.declines.asScala(64).reason === "exceeds the emitter's fused budget")
     val two = VarkaExpressionCompiler.compilePartial(list, output,
-      bound.withSeveralKernels(true)).get
+      VarkaMatrix.base.withSeveralKernels(true)).get
     assert(two.kernels.size === 2)
     assert(two.specs.asScala.toSeq.slice(64, 70) === (0 until 6).map(new KernelOutput(1, _)))
     assert(two.more.asScala.head.inputOrdinals.asScala.toSeq === (64 until 70))
