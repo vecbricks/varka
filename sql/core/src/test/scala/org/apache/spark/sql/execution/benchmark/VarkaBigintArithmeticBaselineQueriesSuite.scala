@@ -24,7 +24,6 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.{VarkaSessionEmit, VarkaSharedSessions}
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
 /**
@@ -111,9 +110,8 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
 
       val sections = VarkaBigintArithmeticBaselineBenchmark.sections(false).asScala.toSeq
       // 25 sections at each of the two null densities, every one fused whole but a checked
-      // product over a column (VARKA-104), and B's decline section (VARKA-611): a row that fuses
-      // one of these changes this list.
-      assert(sections.size === 2 * 25 + 1)
+      // product over a column (VARKA-104): a row that fuses one of these changes this list.
+      assert(sections.size === 2 * 25)
       assert(sections.map(_.fusion.toString).toSet === Set("WHOLE", "NONE"))
       val unfused = sections.filter(_.fusion == VarkaSqlBenchmarkBase.Fusion.NONE)
       assert(unfused.map(_.title) === Seq(
@@ -122,12 +120,7 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
         "try_multiply(l, m), no nulls",
         "l * 3, ANSI, one row in ten null",
         "l * m, ANSI, one row in ten null",
-        "try_multiply(l, m), one row in ten null",
-        "l * m, ANSI, products near 2^62, no nulls"))
-      assert(unfused.forall(_.checkedProduct))
-      // The decline section's products are past 2^62 on every row and below 2^63.
-      val near = spark.sql(s"select min(nb * nm), max(nb * nm) from $view").head()
-      assert(near.getLong(0) >= (1L << 62) && near.getLong(1) < Long.MaxValue / 100 * 99)
+        "try_multiply(l, m), one row in ten null"))
       for (s <- sections) {
         withClue(s.title) {
           withSettings(s) {
@@ -170,21 +163,6 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
             // The benchmark's kernel check too: a WHOLE projection hands no batch to the row path.
             if (s.checksKernels) {
               VarkaSizeLadder.varkaFused(varkaSpark, s.query)
-            }
-            // B's arm (VARKA-611) plans a kernel wherever a checked BIGINT operation fuses, at a
-            // named emit level: the shared sessions plan at the unknown level (-1), where the
-            // kernel plan refuses the conversion B's pre-check needs, so B declines like A there.
-            if (s.checkedProduct) {
-              val checked = if (declines) VarkaSqlBenchmarkBase.Fusion.NONE
-                else VarkaSqlBenchmarkBase.Fusion.WHOLE
-              VarkaArrowSessions.withEmitOptions(VarkaBigintArithmeticBaselineBenchmark.MAGNITUDE) {
-                val unknownLevel = varkaSpark.sql(s.query).queryExecution.executedPlan
-                assert(VarkaSqlBenchmarkBase.fusion(unknownLevel) === Optional.of(s.fusion))
-                withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, "2") {
-                  val planB = varkaSpark.sql(s.query).queryExecution.executedPlan
-                  assert(VarkaSqlBenchmarkBase.fusion(planB) === Optional.of(checked))
-                }
-              }
             }
           }
         }

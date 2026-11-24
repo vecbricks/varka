@@ -59,7 +59,7 @@ generators and `docs/sql-varka.md` always count as inputs. `PRE_PR_FORCE_REGEN=1
 failure. The option matrix on the pull request still runs every configuration, so the gate runs
 the ones a branch is most likely to break: the defaults, the two named `UseAVX` levels and the
 configurations of the options its diff adds or changes: a configuration is chosen when any
-name in it (`useAVX=2,checkedLongMultiply=BY_HOST` holds two) is an identifier on a changed
+name in it (`useAVX=2,narrowConversionForm=WINDOWED` holds two) is an identifier on a changed
 line of `VarkaEmitOption.java`, `VarkaEmitOptions.java` or `VarkaMatrixRuns.java`. An option
 whose behaviour changes elsewhere, such as an emitter branch it guards, is not found; the pull
 request's matrix still runs it. When the option files change but name no configuration, the
