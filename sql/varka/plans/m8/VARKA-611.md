@@ -339,6 +339,36 @@ files needed no change.
    arms, which compile Catalyst expressions there rather than in `VarkaExpressionCompilerSuite`,
    so the arms' IR and their batches of 1, 3 and 4,096 rows sit in one test.
 
+### 9.2 Reverted (23 November 2026)
+
+#1626 (squash commit `c4b0475d86e`) was reverted on 23 November 2026, by the pull request that
+adds this section, at the owner's word, so that master is green before row 489. Row 611 must be
+redesigned before it lands again. The code that 9.1 and the decisions above describe is no
+longer on master; they stay as the record of what was built. The code that merged is branch
+`varka-611-guarded-product-r`, not 9.1's first build `varka-611-guarded-product`.
+
+- **The pin covered none of its code.** Its three option arms,
+  `checkedLongMultiply=BOUND_ONLY`, `MAGNITUDE` and `BY_HOST` over `useAVX=2`, emit the same
+  bytes as `useAVX=2` on every pinned shape. On `c4b0475d86e`, `sql/varka/emitted_bytes.json`
+  has 27 option arms and 11 distinct digests, and 14 arms carry `useAVX=2`'s digests, including
+  `useAVX=2` itself. So the pin paid for three full emission passes and caught no change to the
+  guarded product. The redesign must add a pinned shape whose bytes the guarded product
+  changes. The other 10 arms that share `useAVX=2`'s digests have the same flaw; that is for
+  the split below.
+- **The pin test had no headroom on AVX2 runners.** `VarkaEmittedBytesSuite`'s pin test took
+  511 to 551 s on AVX2-only runners before #1626, against a 600 s cap. After #1626 it is about
+  615 to 650 s, an extrapolation since the red runs stop at the cap. Master run 45256702183
+  failed 3 of 3 attempts, all on EPYC 7763s. A new machine option with a non-default subject
+  must not land until the pin test is split or cached. The split is branch
+  `varka-emitted-bytes-budget`, not yet a pull request.
+- **The default per host belongs to the per-host fuse-or-decline row** (fuse where faster, else
+  decline), row 648 on branch `varka-rows-fuzz-confs-faster`, not yet on master.
+- **Keep two parts in the redesign.** The conformance register's fix
+  (`VarkaTypeConformance.guardsProduct`: a form a non-default option fuses is held to the
+  reference, not reported as drift) and the check that holds each batch's status to the guards'
+  verdict (`guardVerdict`), not to where Spark raises, while still requiring a decline wherever
+  Spark raises.
+
 ## 10. Questions for the owner
 
 1. **The AVX512DQ host.** The row names the laptop at 256 bits. A committed reading is a

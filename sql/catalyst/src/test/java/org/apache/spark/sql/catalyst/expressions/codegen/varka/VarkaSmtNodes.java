@@ -100,7 +100,6 @@ final class VarkaSmtNodes {
       entry(HashStep.class, "a hash step: its multiplies are no linear integer term"),
       entry(ConvertLane.class, "a conversion to or from a floating lane"),
       entry(ReinterpretLane.class, "a view of a floating lane's bits: the prelude has no double"),
-      entry(GuardedProduct.class, "a magnitude test in double lanes: the prelude has no double"),
       entry(CrossLane.class, "a condition moved between lanes; no decimal shape builds one"),
       entry(InRanges.class, "a range set of the int lane; no decimal shape builds one"),
       entry(BoolCompare.class, "an order of two booleans; no decimal shape builds one"),
@@ -271,7 +270,7 @@ final class VarkaSmtNodes {
           ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
           TruncDate _, TruncDateDynamic _, WeekOfYear _, AddMonths _, MakeDate _, GuardedDay _,
           ConstDivide _, BoundedDivide _, BitCount _, MathUnary _, Fma _, RoundToIntegral _,
-          ConvertLane _, ReinterpretLane _, GuardedProduct _,
+          ConvertLane _, ReinterpretLane _,
           CrossLane _, InRanges _, BoolCompare _, BoolNullSafeEq _, CanonicalFloat _,
           CanonicalBits _, HashStep _ ->
           throw refused(node);
