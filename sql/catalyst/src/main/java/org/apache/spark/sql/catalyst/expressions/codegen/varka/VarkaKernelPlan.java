@@ -238,6 +238,16 @@ public final class VarkaKernelPlan {
       + "and the compare would run the Vector API's Java fallback, slower than the row engine";
 
   /**
+   * The reason the compiler records where it declines a checked operation on a 64-bit lane on
+   * the two-lane host: a checked {@code BIGINT} operation (VARKA-104) and the day-time interval
+   * arithmetic measured slower there (VARKA-612, {@code VarkaIntervalCompiler.twoLaneMeasured}).
+   */
+  public static final String TWO_LANE_CHECK_REASON = "a checked operation on a 64-bit lane, on "
+      + "an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a "
+      + "long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's "
+      + "Java fallback";
+
+  /**
    * Whether {@code host}, read on this JVM, runs every mask of a 64-bit species as the Vector
    * API's Java fallback: {@link #twoLaneMasksFallBack(VarkaHostIsa.Reading, int)} of the reading
    * and this JVM's preferred long species. The lane count is the running JVM's own,
@@ -340,6 +350,11 @@ public final class VarkaKernelPlan {
    * {@code BIGINT}, whose load is one plain vector, ran at 1.6X and more, and {@code x < x2} over
    * {@code DOUBLE} tied ({@code m8/results/VARKA-596/}). A refused output leaves the other entries
    * to fuse.
+   *
+   * <p>A check on the long lane is not refused here: the compiler declines the families whose
+   * checked forms were measured slower than the row path at two lanes, a checked {@code BIGINT}
+   * operation and the day-time interval arithmetic ({@code VarkaIntervalCompiler.twoLaneMeasured},
+   * VARKA-612), so that a family not measured there keeps fusing.
    */
   private static Optional<Refusal> hostRefusal(List<VarkaVectorIR> roots, VarkaKernelPlan plan) {
     if (plan.drive.bits() != 64) {
@@ -599,10 +614,12 @@ public final class VarkaKernelPlan {
     return Optional.empty();
   }
 
-  /** Whether {@code n} tests a narrow column, bare or widened, and nothing else narrow. */
+  /**
+   * Whether {@code n} tests a column, bare or through a chain of widenings. A narrow widening in
+   * the chain is not checked here: the caller's walk visits it as a node of its own.
+   */
   private static boolean readsColumnWord(VarkaVectorIR.IsNotNull n) {
-    VarkaVectorIR child = n.child() instanceof VarkaVectorIR.WidenLane w ? w.child() : n.child();
-    return child instanceof VarkaVectorIR.ColumnRef;
+    return VarkaVectorIR.unwidened(n.child()) instanceof VarkaVectorIR.ColumnRef;
   }
 
   /**
@@ -610,8 +627,8 @@ public final class VarkaKernelPlan {
    * word alone, and the root itself is not narrow: the narrow nodes a double kernel lowers, a
    * value through the long kernel's narrow load and a null test through the word, a bit per row
    * at every lane. The test is {@code IS NOT NULL} of a narrow column, as the optimizer infers
-   * it on a cast's source: the column widened to the int lane or bare, and nothing narrow below
-   * it but that column.
+   * it on a cast's source: the column bare or under widenings, and nothing narrow below the test
+   * but that column.
    */
   private static boolean narrowColumnsOnly(VarkaVectorIR root) {
     if (root.laneType().isNarrow()) {

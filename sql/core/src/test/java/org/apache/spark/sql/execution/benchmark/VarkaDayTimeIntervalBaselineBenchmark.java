@@ -58,11 +58,12 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * results file notes each section that fuses. A row that fuses more of a section sets its new
  * class, so that its fusion cannot turn a baseline section into a fused one unnoticed. A section
  * is {@code NONE} when no Varka node plans it and {@code WHOLE} when no row operator evaluates
- * any of it. The projections row 103 fuses are {@code WHOLE} at both widths, and the other
- * projections but the blend control are {@code NONE}. So are the four extracts together: only the
- * DAY field would fuse (the other three are row 103's later step), and a projection that fuses
- * in part under a row consumer with more residual entries than fused ones stays whole on the
- * row path (VARKA-613), so both arms time the row path. So is the filter
+ * any of it. The projections row 103 fuses are {@code WHOLE} where the host admits them, the
+ * checked three of them on a four-lane host only (below), and the other projections but the
+ * blend control are {@code NONE}. So are the four extracts together: only the DAY field would
+ * fuse (the other three are row 103's later step), and a projection that fuses in part under a
+ * row consumer with more residual entries than fused ones stays whole on the row path
+ * (VARKA-613), so both arms time the row path. So is the filter
  * {@code extract(HOUR FROM dt) >= 12} at both densities: of it only the {@code IS NOT NULL}
  * Spark infers of the column would fuse, and a filter fusing nothing else stays whole on the row
  * path (VARKA-598), so both arms time the row path. Each
@@ -71,11 +72,13 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * control. A session that refuses a filter's condition in a kernel driven at 64 bits
  * ({@code declinesLongConditions}, VARKA-503), the 128-bit companion's host by default, leaves
  * the filter control to the row path too, so both filters are {@code NONE} there and both arms
- * of each time the row path. The filter control is thus the 256-bit control: its title,
- * a label of the committed results, still says it fuses, but under the refusal it is
- * {@code NONE} and its kernel check is not made. The blend control is the one the refusal never
- * touches, since it refuses a filter's condition and never a projection: it is {@code WHOLE},
- * with its kernel check, at both widths. It is a fusion control, a check that the varka on arm
+ * of each time the row path. The same refusal leaves the checked day-time arithmetic measured
+ * slower there to the row path (VARKA-612), so {@code dt + dt2 - dt},
+ * {@code abs(dt)} and {@code dt * 3} are {@code NONE} there too. The filter control is thus the
+ * 256-bit control: its title, a label of the committed results, still says it fuses, but under
+ * the refusal it is {@code NONE} and its kernel check is not made. The blend control is the one
+ * the refusal never touches, since it makes no check: it is {@code WHOLE}, with its kernel
+ * check, at both widths. It is a fusion control, a check that the varka on arm
  * times a kernel, not a claim about that kernel's speed at two lanes. Each section's class is the
  * one a probe of its plan on master found.
  *
@@ -169,7 +172,9 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
   /**
    * Every section, in the order they run: each null density, then each expression, with the
    * classes a session plans them at when it does or does not refuse a filter's condition in a
-   * kernel driven at 64 bits, which both filters' conditions over the long lane are.
+   * kernel driven at 64 bits, which both filters' conditions over the long lane are, and with it
+   * a projection holding a check on the long lane, which {@code dt + dt2 - dt}, {@code abs(dt)}
+   * and {@code dt * 3} are.
    */
   static List<Section> sections(boolean declinesLongConditions) {
     List<Section> out = new ArrayList<>();
@@ -179,12 +184,15 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
       String s = "s" + nulls;
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " FROM " + VIEW;
+      // The checked arms hold a check on the long lane, which the same refusal leaves to the row
+      // path at two lanes (VARKA-612).
+      Fusion checked = declinesLongConditions ? Fusion.NONE : Fusion.WHOLE;
       out.add(new Section("dt + dt2 - dt" + density,
-          "SELECT " + dt + " + dt2 - " + dt + " AS a" + from, Map.of(), Fusion.WHOLE));
+          "SELECT " + dt + " + dt2 - " + dt + " AS a" + from, Map.of(), checked));
       out.add(new Section("abs(dt)" + density,
-          "SELECT abs(" + dt + ") AS a" + from, Map.of(), Fusion.WHOLE));
+          "SELECT abs(" + dt + ") AS a" + from, Map.of(), checked));
       out.add(new Section("dt * 3" + density,
-          "SELECT " + dt + " * 3 AS a" + from, Map.of(), Fusion.WHOLE));
+          "SELECT " + dt + " * 3 AS a" + from, Map.of(), checked));
       out.add(new Section("dt * 1.5" + density,
           "SELECT " + dt + " * 1.5 AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("dt / 24" + density,
