@@ -36,7 +36,7 @@ import java.util.function.Predicate;
  * it says what it takes, and a new position does not compile until the literal's and the
  * arithmetic's sets decide it. Elsewhere a new position compiles: a column's {@code EnumSet.allOf}
  * admits it, and the narrowings, which name the one position their shape serves, and every other
- * record refuse it until its {@code fills} names it, so its author reviews each. A position checks
+ * record refuse it, with no check, until its {@code fills} names it. A position checks
  * its operand's own kind, not the subtree under it: that a day count is not a date further down is
  * the compiler arms' to build right. Narrowing a position here narrows both sides; widening one
  * also needs the compiler arm that builds the operand, which filters Catalyst expressions before it
