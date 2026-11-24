@@ -303,7 +303,8 @@ to CI, since a pass now reads the descriptor.
 56 records then; the 61 after the rebase are in the next paragraph. The branch's own high review
 then moved `LiteralSlot`'s and the arithmetic's `fills` into exhaustive switches over the
 positions, `VarkaOperandPosition.LITERAL_FILLS` and `ARITH_FILLS`, so a new position is a compile
-error again, and made `isNarrowRing` read the mode its `Ring.Arith` states.)
+error in those two sets again (elsewhere it is not, as before 489b), and made `isNarrowRing` read
+the mode its `Ring.Arith` states.)
 
 **Rebased onto master, 23 November 2026** (`f3b97c0b503`). Master had added five records since
 the build, `ReinterpretLane`, `Fma`, `CanonicalFloat`, `CanonicalBits` and `HashStep`, each given

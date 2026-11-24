@@ -1117,8 +1117,9 @@ final class Analysis {
   /**
    * Whether {@code node} is emitted with its overflow check: it is one whose emission reads
    * {@link VarkaEmitOptions#checkIntOverflow} ({@link #readsCheckIntOverflow}), and the option is
-   * on. Every read of the option asks it: the {@code FAIL} refusals, the check's scratch in
-   * {@link Slots} and {@link #loweredUnchecked}.
+   * on. Every read of the option asks it - the {@code FAIL} refusals, the check's scratch in
+   * {@link Slots} and {@link #loweredUnchecked} - but {@link #isNarrowRing}'s, which reads the
+   * mode a node's {@code Ring.Arith} states and so must name the same nodes as this test.
    */
   boolean checksIntOverflow(VarkaVectorIR node) {
     return options.checkIntOverflow() && readsCheckIntOverflow(node);
@@ -1128,10 +1129,12 @@ final class Analysis {
    * Whether {@code node}'s emission depends on {@link VarkaEmitOptions#checkIntOverflow}: an int
    * add, subtract, multiply or negation in Spark's ANSI or TRY evaluation ({@code FAIL} or
    * {@code NULL}), whose overflow check the option emits or leaves out. The option's reads go
-   * through it - the check's scratch in {@link Slots}, and whether a narrow node reduces as a
-   * ring node ({@link #loweredUnchecked}) - and {@link Refusal#INT_OVERFLOW} is its {@code FAIL}
-   * half. A {@code WRAP} node has no check to skip, and neither has a floating division: its
-   * {@code FAIL} or {@code NULL} mode is the zero test, which the option does not read.
+   * through it - the check's scratch in {@link Slots}, and whether a narrow node reduces as a ring
+   * node ({@link #loweredUnchecked}; {@link #isNarrowRing} reads the mode its {@code Ring.Arith}
+   * states, so a record stating {@code FAIL} or {@code NULL} belongs here) - and
+   * {@link Refusal#INT_OVERFLOW} is its {@code FAIL} half. A {@code WRAP} node has no check to
+   * skip, and neither has a floating division: its {@code FAIL} or {@code NULL} mode is the zero
+   * test, which the option does not read.
    */
   static boolean readsCheckIntOverflow(VarkaVectorIR node) {
     return (node instanceof IntArith arith && arith.mode() != Overflow.WRAP
