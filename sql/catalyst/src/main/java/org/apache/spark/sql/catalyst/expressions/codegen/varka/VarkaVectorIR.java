@@ -253,27 +253,16 @@ public sealed interface VarkaVectorIR
 
   /**
    * The input ordinal a leaf reads, or -1 for a node that is not an input leaf: a
-   * {@link ColumnRef}, a {@link DecimalColumn} or a {@link BoolColumn}. Every place that asks
-   * "which column does this node read" goes through here, so a new kind of input leaf is added in
-   * one place.
+   * {@link ColumnRef}, a {@link DecimalColumn}, a {@link DecimalWord} or a {@link BoolColumn},
+   * whose {@link VarkaNodeProps#validity()} is a {@link Validity.Input}. Every place that asks
+   * "which column does this node read" goes through here, so a new kind of input leaf states it
+   * in one place, its own record.
    */
   static int inputOrdinal(VarkaVectorIR node) {
-    return switch (node) {
-      case ColumnRef c -> c.ordinal();
-      case DecimalColumn c -> c.ordinal();
-      case DecimalWord c -> c.ordinal();
-      case BoolColumn b -> b.ordinal();
-      case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
-          BitCount _, MathUnary _, Fma _, RoundToIntegral _, Greatest _, Least _, IfElse _,
-          CondValue _, BoolOutput _, CanonicalFloat _, CanonicalBits _, HashStep _,
-          Compare _, NullSafeEqual _, CondConst _, NullValue _,
-          BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _, IsNotNull _,
-          InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
-          ConvertLane _, ReinterpretLane _,
-          NarrowLane _, WidenDecimal _, DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _,
-          ThursdayOf _,
-          AddMonths _, MakeDate _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
-          LastDay _, TruncDate _, TruncDateDynamic _, WeekOfYear _ -> -1;
+    return switch (node.props().validity()) {
+      case Validity.Input in -> in.ordinal();
+      case Validity.AllTrue _, Validity.Strict _, Validity.SkipsNull _, Validity.Own _,
+          Validity.NoWord _, Validity.Operand _ -> -1;
     };
   }
 
@@ -902,8 +891,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // A leaf: its broadcast is paid once per literal, not per node.
       return new VarkaNodeProps(NEVER, ALL_TRUE, 0, getClass().getSimpleName() + '/' + lane,
-          Set.of(VarkaOperandPosition.DAY_OFFSET, VarkaOperandPosition.MONTH_COUNT,
-              VarkaOperandPosition.WEEKDAY), RESTRICTS_NOTHING, LongNarrowReader.NONE);
+          VarkaOperandPosition.LITERAL_FILLS, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
 
@@ -1427,8 +1415,7 @@ public sealed interface VarkaVectorIR
           : mode != Overflow.WRAP ? 5 : laneType().isNarrow() ? 3 : 1;
       return new VarkaNodeProps(new Ring.Arith(mode), mode == Overflow.NULL ? OWN : STRICT, weight,
           getClass().getSimpleName() + '/' + op + '/' + mode + '/' + laneType(),
-          Set.of(VarkaOperandPosition.DAY_OFFSET, VarkaOperandPosition.MONTH_COUNT),
-          RESTRICTS_NOTHING, LongNarrowReader.NONE);
+          VarkaOperandPosition.ARITH_FILLS, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
 
@@ -1496,8 +1483,7 @@ public sealed interface VarkaVectorIR
           : laneType().isNarrow() || (abs && laneType() == LaneType.LONG) ? 3 : 1;
       return new VarkaNodeProps(abs ? NEVER : new Ring.Arith(mode), STRICT, weight,
           getClass().getSimpleName() + (abs ? "/abs/" : "/") + mode + '/' + laneType(),
-          Set.of(VarkaOperandPosition.DAY_OFFSET, VarkaOperandPosition.MONTH_COUNT),
-          RESTRICTS_NOTHING, LongNarrowReader.NONE);
+          VarkaOperandPosition.ARITH_FILLS, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
 

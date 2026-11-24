@@ -1096,31 +1096,16 @@ final class Analysis {
    * alone would leave the exact value of, say, {@code 127Y + 1Y}. A checked node is not a ring
    * node, because its range compare reads the exact narrow value, which is what keeps an
    * overflowing intermediate from hiding behind a later wrap. No node of the int or long lanes
-   * is one either: their reductions are the lane's own.
+   * is one either: their reductions are the lane's own. The node states which kind it is in its
+   * {@link VarkaNodeProps#ring()}; whether its check is emitted is this analysis's to decide.
    */
   private boolean isNarrowRing(VarkaVectorIR node) {
-    return switch (node) {
-      case IntArith n -> loweredUnchecked(n, n.laneType());
-      case IntNeg n -> !n.abs() && loweredUnchecked(n, n.laneType());
-      // A blend picks lanes and so commutes with the reduction: a narrow pick of two unreduced
-      // arms reduces once, where its own reader needs it, rather than once in each arm.
-      case IfElse n -> n.laneType().isNarrow();
-      // Written out rather than defaulted (sql/varka/AGENTS.md): a new narrow node is a compile
-      // error here, so its author decides whether its value commutes with the reduction - a
-      // narrow AND, OR or XOR does, a compare or a shift right does not - instead of falling
-      // into "not ring" and leaving an unreduced int value for its readers.
-      case ColumnRef _, DecimalColumn _, DecimalWord _, LiteralSlot _, WidenLane _,
-          NarrowLane _, ConvertLane _, ReinterpretLane _,
-          WidenDecimal _, AddDays _, SubDays _, AddMonths _, MakeDate _, GuardedDay _,
-          GuardedRange _, NextDay _,
-          TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
-          WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
-          DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
-          BitOp _, BitCount _, MathUnary _, Fma _, RoundToIntegral _, Compare _,
-          NullSafeEqual _, BoolColumn _, CanonicalFloat _, CanonicalBits _, HashStep _,
-          BoolCompare _,
-          CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, CrossLane _, IsNotNull _,
-          InRanges _, CondValue _, NullValue _, BoolOutput _ -> false;
+    return switch (node.props().ring()) {
+      case VarkaNodeProps.Ring.Never _ -> false;
+      case VarkaNodeProps.Ring.Pick _ -> node.laneType().isNarrow();
+      // Its check is the mode's, and the options may drop it: a narrow node left unchecked wraps.
+      case VarkaNodeProps.Ring.Arith a -> node.laneType().isNarrow()
+          && (a.mode() == Overflow.WRAP || !options.checkIntOverflow());
     };
   }
 
@@ -1132,8 +1117,9 @@ final class Analysis {
   /**
    * Whether {@code node} is emitted with its overflow check: it is one whose emission reads
    * {@link VarkaEmitOptions#checkIntOverflow} ({@link #readsCheckIntOverflow}), and the option is
-   * on. Every read of the option asks it: the {@code FAIL} refusals, the check's scratch in
-   * {@link Slots} and {@link #loweredUnchecked}.
+   * on. Every read of the option asks it - the {@code FAIL} refusals, the check's scratch in
+   * {@link Slots} and {@link #loweredUnchecked} - but {@link #isNarrowRing}'s, which reads the
+   * mode a node's {@code Ring.Arith} states and so must name the same nodes as this test.
    */
   boolean checksIntOverflow(VarkaVectorIR node) {
     return options.checkIntOverflow() && readsCheckIntOverflow(node);
@@ -1143,10 +1129,12 @@ final class Analysis {
    * Whether {@code node}'s emission depends on {@link VarkaEmitOptions#checkIntOverflow}: an int
    * add, subtract, multiply or negation in Spark's ANSI or TRY evaluation ({@code FAIL} or
    * {@code NULL}), whose overflow check the option emits or leaves out. The option's reads go
-   * through it - the check's scratch in {@link Slots}, and whether a narrow node reduces as a
-   * ring node ({@link #loweredUnchecked}) - and {@link Refusal#INT_OVERFLOW} is its {@code FAIL}
-   * half. A {@code WRAP} node has no check to skip, and neither has a floating division: its
-   * {@code FAIL} or {@code NULL} mode is the zero test, which the option does not read.
+   * through it - the check's scratch in {@link Slots}, and whether a narrow node reduces as a ring
+   * node ({@link #loweredUnchecked}; {@link #isNarrowRing} reads the mode its {@code Ring.Arith}
+   * states, so a narrow record stating {@code FAIL} or {@code NULL} belongs here) - and
+   * {@link Refusal#INT_OVERFLOW} is its {@code FAIL} half. A {@code WRAP} node has no check to
+   * skip, and neither has a floating division: its {@code FAIL} or {@code NULL} mode is the zero
+   * test, which the option does not read.
    */
   static boolean readsCheckIntOverflow(VarkaVectorIR node) {
     return (node instanceof IntArith arith && arith.mode() != Overflow.WRAP

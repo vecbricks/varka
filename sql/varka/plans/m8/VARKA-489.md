@@ -275,6 +275,37 @@ fusion dump are owed with 489b, where they first can move.
 - **Measured:** `build/sbt catalyst/Test/compile` passes. The suite's time (prediction 2) is not
   measured yet.
 
+**489b, 20 November 2026** (branch `varka-489b-switches`, stacked on 489a). Two commits, as 5
+asks. The first adds `VarkaNodePropsEquivalenceSuite` against every live switch, and widens
+`VarkaLoopEmitter.analyze`, `Analysis.isNarrowRing` and `VarkaKernelPlan.longNarrowReader` to
+package-private for it. Its corpus is every distinct node of 4000 shapes drawn from the eighteen
+grammars plus hand-built variants of every record over every lane, mode, operator, sign, level
+and guard bound the constructors admit; the word rules and the ring rule are compared inside a
+real analysis of each shape under both values of `checkIntOverflow`. One run
+(`build/sbt 'catalyst/testOnly *VarkaNodeProps*'`, on the laptop, in the window):
+
+- **97510 distinct nodes of all 56 record types** agree on `weightOf`, `kindOf`, `admits` for
+  every position, `restrictedOperands`, `inputOrdinal` and `longNarrowReader`; **7850 analyses**
+  (of 8000; 150 the analysis refuses, which the suite skips) agree on `isNarrowRing` for every
+  node and on the word owner and the pure word for **336564 entries**. Prediction 1 holds: no
+  disagreement on any of the 56 types, so no `props()` needed a fix.
+- **Times:** the equivalence suite 8.6 s and `VarkaNodePropsSuite` 0.27 s, as JUnit reports
+  them. Prediction 2 holds for both (under 60 s and under 5 s).
+
+The second commit makes `weightOf`, `kindOf`, `admits`, `restrictedOperands`, `inputOrdinal` and
+`isNarrowRing` read the descriptor, inlines `longNarrowReader` at its one call site as
+`node.props().longNarrow()`, returns `isNarrowRing` to private, and deletes those switches'
+checks and the hand-built corpus from the equivalence suite, which keeps only the word rules for
+489c. Compiled; the byte oracles, the fusion dump (prediction 3) and the scoped suites are owed
+to CI, since a pass now reads the descriptor.
+
+(24 November 2026: a third commit applied that build's review, and the counts above are of the
+56 records then; the 61 after the rebase are in the next paragraph. The branch's own high review
+then moved `LiteralSlot`'s and the arithmetic's `fills` into exhaustive switches over the
+positions, `VarkaOperandPosition.LITERAL_FILLS` and `ARITH_FILLS`, so a new position is a compile
+error in those two sets again (elsewhere it is not, as before 489b), and made `isNarrowRing` read
+the mode its `Ring.Arith` states.)
+
 **Rebased onto master, 23 November 2026** (`f3b97c0b503`). Master had added five records since
 the build, `ReinterpretLane`, `Fma`, `CanonicalFloat`, `CanonicalBits` and `HashStep`, each given
 its `props()` from master's switch arms. `HashStep`'s word is its seed's alone (a null word leaves

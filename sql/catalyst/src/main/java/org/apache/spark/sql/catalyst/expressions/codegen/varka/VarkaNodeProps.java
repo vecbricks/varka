@@ -55,7 +55,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
  * @param restricted the node's own operands that sit in a restricted position
  *     ({@link VarkaOperandPosition#restrictedOperands})
  * @param longNarrow what the node reads of its narrow children in a kernel driven at the long
- *     lane ({@code VarkaKernelPlan.longNarrowReader})
+ *     lane ({@code VarkaKernelPlan.loweredAtLong})
  */
 public record VarkaNodeProps(Ring ring, Validity validity, int weight, String costKind,
     Set<VarkaOperandPosition> fills, List<VarkaOperandPosition.Restricted> restricted,
