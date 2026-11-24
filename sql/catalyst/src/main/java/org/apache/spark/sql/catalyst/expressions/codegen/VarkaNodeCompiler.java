@@ -85,8 +85,10 @@ import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDerivedKind;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.IntervalFault;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaOperandPosition;
@@ -1127,6 +1129,67 @@ final class VarkaNodeCompiler {
     return floorDivLong(new IntArith(IntOp.ADD, Overflow.WRAP, x, bias), divisor, sink);
   }
 
+  /**
+   * Whether {@code k} divides a day's microseconds, {@code D = 2^13 * 3^3 * 5^8}: the divisors
+   * {@link #halfUpDivLong} takes, 504 of each sign. {@code Long.MIN_VALUE} is not one.
+   */
+  static boolean dividesDay(long k) {
+    return k != 0 && MICROS_PER_DAY % k == 0;
+  }
+
+  /**
+   * Guava's {@code LongMath.divide(x, k, HALF_UP)} over every long {@code x}, for a {@code k}
+   * that {@link #dividesDay} with {@code |k| >= 2}: the day split of VARKA-103 2.4, no guard and
+   * no bound on {@code x}.
+   *
+   * <p>With {@code m = |k|} and {@code h = m >> 1}, {@code HALF_UP(x / m)} is
+   * {@code floor((x + b) / m)}: {@code b = h} rounds a non-negative {@code x}'s half up, and for a
+   * negative {@code x}, whose half rounds down, {@code b = h - 1} when {@code m} is even and
+   * {@code h} when it is odd (no half then), so an even {@code m}'s bias is {@code (x >> 63) + h},
+   * with no choice on the sign whose condition would carry a guard under {@code x} to every lane.
+   * That sum can leave the long, so the bias goes onto the remainder of the floor quotient by a
+   * day instead: with {@code qF = floorDivLong(x, D)}
+   * and the wrapping {@code rF = x - qF * D}, in {@code [0, D)}, the quotient is
+   * {@code qF * (D / m) + (rF + b) / m}, since {@code m} divides {@code D}. {@code rF + b} lies
+   * in {@code [0, 2D)}, so its division truncates as a floor, by a {@link ConstDivide} far
+   * inside its bound or, for a power of two, a shift; no step leaves the long. A negative
+   * {@code k} is the negation of the quotient by {@code m}, since {@code HALF_UP} rounds a half
+   * away from zero on both sides; the quotient's magnitude is at most {@code 2^62}, so the
+   * negation cannot overflow. The chain is ten nodes deep, eleven with the negation, so a
+   * decimal literal's guard and multiply and an enclosing comparison or choice stay inside the
+   * emitter's chain depth. {@code dt_arith.smt2} proves the form per divisor of its
+   * {@code DT_DIVISORS}, with the second division modelled exactly; {@code long_divide.smt2}
+   * states that division's {@link ConstDivide} for the coverage rows' divisors only.
+   */
+  static VarkaVectorIR halfUpDivLong(VarkaVectorIR x, long k, DeclineSink sink) {
+    if (!dividesDay(k) || k == 1 || k == -1) {
+      throw VarkaErrors.illegalArgument("no day split for a division by " + k
+          + ": the divisor must divide a day and not be 1 or -1");
+    }
+    long m = Math.abs(k);
+    long h = m >> 1;
+    VarkaVectorIR qF = floorDivLong(x, MICROS_PER_DAY, sink);
+    VarkaVectorIR rF = new IntArith(IntOp.SUB, Overflow.WRAP, x,
+        new IntArith(IntOp.MUL, Overflow.WRAP, qF, sink.longSlot(MICROS_PER_DAY)));
+    boolean unsigned =
+        sink.intervalFault() == IntervalFault.HALF_UP_BIAS_UNSIGNED;
+    // An even m's bias is h less one for a negative x: x >> 63 is -1 there and 0 otherwise.
+    // Arithmetic rather than a choice on the sign, since an IfElse's condition is computed on
+    // every lane, so a guard under x (a decimal factor's) would condemn the batch from the
+    // untaken arm of an enclosing CASE.
+    VarkaVectorIR bias = (m & 1) == 1 || unsigned ? sink.longSlot(h)
+        : new IntArith(IntOp.ADD, Overflow.WRAP,
+            new BitOp(BitOpKind.SHR, x, sink.longSlot(63)), sink.longSlot(h));
+    VarkaVectorIR biased = new IntArith(IntOp.ADD, Overflow.WRAP, rF, bias);
+    VarkaVectorIR part = Long.bitCount(m) == 1
+        ? new BitOp(BitOpKind.SHR, biased, sink.longSlot(Long.numberOfTrailingZeros(m)))
+        : new ConstDivide(biased, m, 2 * MICROS_PER_DAY);
+    VarkaVectorIR days = m == MICROS_PER_DAY ? qF
+        : new IntArith(IntOp.MUL, Overflow.WRAP, qF, sink.longSlot(MICROS_PER_DAY / m));
+    VarkaVectorIR quotient = new IntArith(IntOp.ADD, Overflow.WRAP, days, part);
+    return k > 0 ? quotient : new IntNeg(Overflow.WRAP, quotient);
+  }
+
   private static VarkaVectorIR greatest(VarkaVectorIR left, VarkaVectorIR right) {
     return new VarkaVectorIR.Greatest(left, right);
   }
@@ -1412,16 +1475,13 @@ final class VarkaNodeCompiler {
     return built;
   }
 
-  /** Why a checked bigint operation declines on a two-lane host ({@link #twoLaneChecked}). */
-  static final String TWO_LANE_CHECK_REASON = "a checked bigint operation on an x86 host whose "
-      + "64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 "
-      + "does not lower there, so the kernel would run the Vector API's Java fallback";
-
   /**
    * {@code node}, a {@code BIGINT} operation in its final mode, or empty with
-   * {@link #TWO_LANE_CHECK_REASON} where the mode still raises or nulls on overflow and the
-   * session refuses those ({@link DeclineSink#declinesTwoLaneChecks}). A check the lattice took
-   * off is {@code WRAP} by now, so it stays fused, as does every LEGACY form.
+   * {@link VarkaKernelPlan#TWO_LANE_CHECK_REASON} where the mode still raises or nulls on
+   * overflow and the session refuses those ({@link DeclineSink#declinesTwoLaneChecks}). A check
+   * the lattice took off is {@code WRAP} by now, so it stays fused, as does every LEGACY form.
+   * The measured day-time interval forms decline the same way
+   * ({@code VarkaIntervalCompiler.twoLaneMeasured}, VARKA-612).
    */
   private static Optional<VarkaVectorIR> twoLaneChecked(VarkaVectorIR node, Expression whole,
       DeclineSink sink) {
@@ -1431,7 +1491,7 @@ final class VarkaNodeCompiler {
       default -> Overflow.WRAP;
     };
     if (mode != Overflow.WRAP && sink.declinesTwoLaneChecks()) {
-      return sink.decline(TWO_LANE_CHECK_REASON, whole);
+      return sink.decline(VarkaKernelPlan.TWO_LANE_CHECK_REASON, whole);
     }
     return Optional.of(node);
   }

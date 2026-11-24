@@ -287,16 +287,16 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `BooleanType` (`bool`) | bitmap | 41 | 29 | 2 | plumbing 4, semantics 6 | 0 | 40 |
 | `ByteType` (`byte`) | BYTE, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 57 |
 | `ShortType` (`short`) | SHORT, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 55 |
-| `IntegerType` (`int`) | INT | 90 | 65 | 2 | plumbing 4, semantics 19 | 0 | 128 |
+| `IntegerType` (`int`) | INT | 90 | 66 | 2 | plumbing 4, semantics 18 | 0 | 128 |
 | `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
 | `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
-| `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 82 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 33 | plumbing 3, semantics 28 | 3 | 108: 83 to precision 18, 25 at precision 19 to 38 |
+| `DoubleType` (`double`) | DOUBLE | 102 | 62 | 2 | plumbing 4, semantics 24, ulp 10 | 0 | 93 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 33 | plumbing 3, semantics 26 | 3 | 108: 83 to precision 18, 25 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
 | `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
 | `YearMonthIntervalType` (`ym`) | INT | 55 | 36 | 3 | plumbing 3, semantics 13 | 0 | 37 |
-| `DayTimeIntervalType` (`dt`) | LONG | 57 | 34 | 2 | plumbing 5, semantics 16 | 0 | 33 |
+| `DayTimeIntervalType` (`dt`) | LONG | 57 | 35 | 2 | plumbing 5, semantics 15 | 0 | 36 |
 
 #### By family
 
@@ -306,7 +306,7 @@ One row per section of Spark's function registry, and per family of the operator
 | :--- | ---: | ---: | ---: | ---: | :--- | :--- |
 | conditional | 11 | 1 | 11 | 10 | float, dec | 329, 331, 338, 341, 348, 359 |
 | predicate | 16 | 6 | 15 | 8 | bool, dec | 27, 329, 331, 336, 338, 341, 347, 348, 359, 497 |
-| math | 59 | 17 | 33 | 8 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
+| math | 59 | 25 | 41 | 8 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
 | bitwise | 13 | 13 | 13 | 0 |  |  |
 | datetime | 41 | 27 | 36 | 0 | byte, short, int, bigint, float, double, dec, ntz, time, ym, dt | 103, 329, 339, 340, 343, 351 |
 | hash | 2 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 337, 359, 368 |
@@ -315,7 +315,7 @@ One row per section of Spark's function registry, and per family of the operator
 | conversion, no registry entry | 1 | 0 | 1 | 1 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 332, 343, 350, 364, 365, 366, 368 |
 | predicate, no registry entry | 1 | 0 | 1 | 0 | bool, dec | 329, 341, 348, 359, 497 |
 | datetime, no registry entry | 9 | 8 | 8 | 0 | date | 39 |
-| interval, no registry entry | 10 | 2 | 4 | 0 | byte, short, int, bigint, float, double, dec, ym, dt | 89, 103, 157, 329, 342, 361, 363 |
+| interval, no registry entry | 10 | 2 | 5 | 0 | byte, short, int, bigint, float, double, dec, ym, dt | 89, 103, 157, 329, 342, 361, 363 |
 | internals, no registry entry | 4 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 330, 333, 337, 342 |
 
 #### Math functions
@@ -326,7 +326,7 @@ The math functions that do not fuse yet, by the plan row that fuses them (the on
 | :--- | :--- | :--- | :--- | :--- |
 | `atan2` | 356 | none | Spark's, bit for bit | exact; no contract |
 | `acosh`, `asinh`, `atanh`, `cosh`, `sinh`, `tanh` | 357 | none | Spark's, bit for bit | exact; no contract |
-| `cbrt`, `exp`, `expm1`, `hypot`, `log`, `log10`, `log1p`, `log2`, `ln`, `pow`, `power` | 358 | none | Spark's, bit for bit | exact; no contract |
+| `hypot`, `pow`, `power` | 358 | none | Spark's, bit for bit | exact; no contract |
 
 #### Casts by mode
 
@@ -552,13 +552,16 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `dt + dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_add(dt, dt2) IS NOT NULL)` | a sum past the long raises in every mode, so its batch declines and the row engine raises | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `dt - dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_subtract(dt, dt2) IS NOT NULL)` | the difference, exact in every mode as the sum is | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `dt + dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_add(dt, dt2) IS NOT NULL)` | a sum past the long raises in every mode, so its batch declines and the row engine raises | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `dt - dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_subtract(dt, dt2) IS NOT NULL)` | the difference, exact in every mode as the sum is | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 | `-dt` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | negateExact raises on the least interval alone | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `abs(dt)` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | the checked negation under a blend; Spark raises on the least interval in every mode, with ARITHMETIC_OVERFLOW rather than the interval condition | per-lane: compare to mask, mask logic, blend, mask broadcast, mask test, mask cast |
-| `dt + INTERVAL '1' DAY` | `interval` | `if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)` | the literal, cast to the column's unit and folded, takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `dt * 3` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `-2 * dt` | `interval` | `if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)` | the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `abs(dt)` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | the checked negation under a blend; Spark raises on the least interval in every mode, with ARITHMETIC_OVERFLOW rather than the interval condition | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `dt + INTERVAL '1' DAY` | `interval` | `if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)` | the literal, cast to the column's unit and folded, takes a slot in the long lane's table | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `dt * 3` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `-2 * dt` | `interval` | `if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)` | the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `dt / 24` | `interval` |  | LongMath.divide HALF_UP by a divisor of a day: the floor quotient by a day and its remainder in [0, D), biased by half the divisor (one less for a negative value and an even divisor), give the quotient by 24 exactly over every long; a divisor that does not divide a day declines | vector |
+| `dt * 1.5` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | Spark's Decimal product, HALF_UP(3x / 2): the operand guarded to the longs whose product by 3 fits, then the day split by 2; the guard declines some lanes Spark answers, which the row engine then does | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `dt / 1.5` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 2) IS NOT NULL)` | HALF_UP(2x / 3), the quotient by a decimal at least one in magnitude, which cannot raise; a divisor under one declines (VARKA-414) | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `extract(DAY FROM dt)` | `interval` |  | Java's truncating division by a day, exact over every long and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset | vector |
 
 #### Integer arithmetic
@@ -599,14 +602,14 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `l + l2` | `intArithmetic` | `if(l IS NULL OR l2 IS NULL, NULL, try_add(l, l2) IS NOT NULL)` | checked under ANSI at 64 bits; the legacy mode wraps as Spark does | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
-| `l - l2` | `intArithmetic` | `if(l IS NULL OR l2 IS NULL, NULL, try_subtract(l, l2) IS NOT NULL)` | checked subtraction at 64 bits | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
-| `l + 1` | `intArithmetic` | `l < 9223372036854775807` | a literal does not bound a bigint column, so the check stays | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `l + l2` | `intArithmetic` | `if(l IS NULL OR l2 IS NULL, NULL, try_add(l, l2) IS NOT NULL)` | checked under ANSI at 64 bits; the legacy mode wraps as Spark does | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `l - l2` | `intArithmetic` | `if(l IS NULL OR l2 IS NULL, NULL, try_subtract(l, l2) IS NOT NULL)` | checked subtraction at 64 bits | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `l + 1` | `intArithmetic` | `l < 9223372036854775807` | a literal does not bound a bigint column, so the check stays | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 | `CAST(i AS BIGINT) * 1000L` | `intArithmetic` |  | a widened int times a literal cannot leave the long, so the multiply fuses with no check; `l * 3` over a bigint column declines | per-lane: mask broadcast, mask test |
-| `-l` | `intArithmetic` | `l > -9223372036854775808` | negation raises on Long.MinValue only | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
-| `abs(l)` | `intArithmetic` | `l > -9223372036854775808` | `abs(Long.MinValue)` is out of range, and wraps back to itself in the legacy mode | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
-| `try_add(l, l2)` | `intArithmetic` |  | an overflowing lane is null, so the kernel declines nothing | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
-| `try_subtract(l, l2)` | `intArithmetic` |  | an overflowing lane is null | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `-l` | `intArithmetic` | `l > -9223372036854775808` | negation raises on Long.MinValue only | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `abs(l)` | `intArithmetic` | `l > -9223372036854775808` | `abs(Long.MinValue)` is out of range, and wraps back to itself in the legacy mode | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `try_add(l, l2)` | `intArithmetic` |  | an overflowing lane is null, so the kernel declines nothing | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `try_subtract(l, l2)` | `intArithmetic` |  | an overflowing lane is null | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 
 #### Bitwise and shifts
 
@@ -1394,6 +1397,17 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `cot(x)` | `math` |  | 1 / Math.tan(x) | exact: per-lane Math call | vector |
 | `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | exact: per-lane Math call | vector |
 | `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | exact: per-lane Math call | per-lane: mask broadcast, mask test |
+| `exp(x)` | `math` |  | exact: a per-lane StrictMath.exp call, as Spark's code makes | exact: per-lane StrictMath call | vector |
+| `expm1(x)` | `math` |  | exact: a per-lane StrictMath.expm1 call | exact: per-lane StrictMath call | vector |
+| `cbrt(x)` | `math` |  | exact: a per-lane Math.cbrt call, the host's answer as Spark's | exact: per-lane Math call | vector |
+| `ln(x)` | `math` |  | exact: a per-lane StrictMath.log call, null at x <= 0.0 by Java's <=, so at -0.0 and not at NaN | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(x)` | `math` |  | the one-argument log as parsed: ln's call and null, with no divide; once the optimizer folds e, the divide by StrictMath.log(e) that Spark's code then makes | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log10(x)` | `math` |  | exact: a per-lane StrictMath.log10 call, null at x <= 0.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log1p(x)` | `math` |  | exact: a per-lane StrictMath.log1p call, null at x <= -1.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log2(x)` | `math` |  | ln(x) / StrictMath.log(2) as Spark writes it, the divisor folded | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(2.0D, x)` | `math` |  | a constant base: StrictMath.log(2.0) folded as the divisor | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(x2, x)` | `math` |  | StrictMath.log(x) / StrictMath.log(x2), null where either is at or below 0.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `exp(x) * 2.0D + 1.0D` | `floatingArithmetic`, `math` |  | the arithmetic around the call in the kernel | exact: per-lane StrictMath call | vector |
 
 #### Math functions as conditions
 
@@ -1635,7 +1649,7 @@ operands (a row counts once for each type it reads):
 | `double` | 97 | 0 | 0 | 1 | 0 | 0 | 96 |
 | `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
-| `int` | 185 | 14 | 0 | 4 | 1 | 1 | 165 |
+| `int` | 186 | 14 | 0 | 5 | 1 | 1 | 165 |
 | `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
 | `short` | 55 | 0 | 0 | 0 | 0 | 8 | 47 |
 | `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |

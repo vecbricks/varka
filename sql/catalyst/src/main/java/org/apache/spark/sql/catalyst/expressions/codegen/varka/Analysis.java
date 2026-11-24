@@ -23,8 +23,10 @@ import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChron
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.*;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -264,12 +266,23 @@ final class Analysis {
 
   /**
    * The narrow columns a long-lane emission reads for their validity word alone, as
-   * {@code IsNotNull(WidenLane(column))}: the one narrow node such an emission may hold, since the
-   * word is a bit per row at every lane and the column's data is never loaded. The plan refuses
+   * {@code IsNotNull(WidenLane(column))} or under a longer chain of widenings: with the narrow
+   * widenings of such a chain ({@link #validityOnlyWidenings}), the only narrow nodes such an
+   * emission may hold, since the word is a bit per row at every lane and the column's data is
+   * never loaded. The plan refuses
    * any narrow value under a long kernel, so a narrow column reached any other way still fails
    * the lane rule.
    */
   private final Set<VarkaVectorIR> validityOnlyNarrow = new HashSet<>();
+  /**
+   * The narrow widenings of {@link #validityOnlyNarrow}'s chains, by identity: unlike a column,
+   * a narrow widening has no lowering as a value under a long kernel, so an equal node read as a
+   * value elsewhere is not admitted here. The guard against such a read is the plan's
+   * ({@code VarkaKernelPlan.loweredAtLong}); the walk skips a node equal to one it analyzed, so
+   * this set is the second line, not the first.
+   */
+  private final Set<VarkaVectorIR> validityOnlyWidenings =
+      Collections.newSetFromMap(new IdentityHashMap<>());
   /**
    * {@code Slots.bodyUses} per group body, keyed by the body's outputs and whether it is dense:
    * a group's loop and epilogue methods visit the same nodes, so the count is made once for both.
@@ -1083,31 +1096,16 @@ final class Analysis {
    * alone would leave the exact value of, say, {@code 127Y + 1Y}. A checked node is not a ring
    * node, because its range compare reads the exact narrow value, which is what keeps an
    * overflowing intermediate from hiding behind a later wrap. No node of the int or long lanes
-   * is one either: their reductions are the lane's own.
+   * is one either: their reductions are the lane's own. The node states which kind it is in its
+   * {@link VarkaNodeProps#ring()}; whether its check is emitted is this analysis's to decide.
    */
   private boolean isNarrowRing(VarkaVectorIR node) {
-    return switch (node) {
-      case IntArith n -> loweredUnchecked(n, n.laneType());
-      case IntNeg n -> !n.abs() && loweredUnchecked(n, n.laneType());
-      // A blend picks lanes and so commutes with the reduction: a narrow pick of two unreduced
-      // arms reduces once, where its own reader needs it, rather than once in each arm.
-      case IfElse n -> n.laneType().isNarrow();
-      // Written out rather than defaulted (sql/varka/AGENTS.md): a new narrow node is a compile
-      // error here, so its author decides whether its value commutes with the reduction - a
-      // narrow AND, OR or XOR does, a compare or a shift right does not - instead of falling
-      // into "not ring" and leaving an unreduced int value for its readers.
-      case ColumnRef _, DecimalColumn _, DecimalWord _, LiteralSlot _, WidenLane _,
-          NarrowLane _, ConvertLane _, ReinterpretLane _,
-          WidenDecimal _, AddDays _, SubDays _, AddMonths _, MakeDate _, GuardedDay _,
-          GuardedRange _, NextDay _,
-          TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
-          WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
-          DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
-          BitOp _, BitCount _, MathUnary _, Fma _, RoundToIntegral _, Compare _,
-          NullSafeEqual _, BoolColumn _, CanonicalFloat _, CanonicalBits _, HashStep _,
-          BoolCompare _,
-          CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, CrossLane _, IsNotNull _,
-          InRanges _, CondValue _, NullValue _, BoolOutput _ -> false;
+    return switch (node.props().ring()) {
+      case VarkaNodeProps.Ring.Never _ -> false;
+      case VarkaNodeProps.Ring.Pick _ -> node.laneType().isNarrow();
+      // Its check is the mode's, and the options may drop it: a narrow node left unchecked wraps.
+      case VarkaNodeProps.Ring.Arith a -> node.laneType().isNarrow()
+          && (a.mode() == Overflow.WRAP || !options.checkIntOverflow());
     };
   }
 
@@ -1119,8 +1117,9 @@ final class Analysis {
   /**
    * Whether {@code node} is emitted with its overflow check: it is one whose emission reads
    * {@link VarkaEmitOptions#checkIntOverflow} ({@link #readsCheckIntOverflow}), and the option is
-   * on. Every read of the option asks it: the {@code FAIL} refusals, the check's scratch in
-   * {@link Slots} and {@link #loweredUnchecked}.
+   * on. Every read of the option asks it - the {@code FAIL} refusals, the check's scratch in
+   * {@link Slots} and {@link #loweredUnchecked} - but {@link #isNarrowRing}'s, which reads the
+   * mode a node's {@code Ring.Arith} states and so must name the same nodes as this test.
    */
   boolean checksIntOverflow(VarkaVectorIR node) {
     return options.checkIntOverflow() && readsCheckIntOverflow(node);
@@ -1130,10 +1129,12 @@ final class Analysis {
    * Whether {@code node}'s emission depends on {@link VarkaEmitOptions#checkIntOverflow}: an int
    * add, subtract, multiply or negation in Spark's ANSI or TRY evaluation ({@code FAIL} or
    * {@code NULL}), whose overflow check the option emits or leaves out. The option's reads go
-   * through it - the check's scratch in {@link Slots}, and whether a narrow node reduces as a
-   * ring node ({@link #loweredUnchecked}) - and {@link Refusal#INT_OVERFLOW} is its {@code FAIL}
-   * half. A {@code WRAP} node has no check to skip, and neither has a floating division: its
-   * {@code FAIL} or {@code NULL} mode is the zero test, which the option does not read.
+   * through it - the check's scratch in {@link Slots}, and whether a narrow node reduces as a ring
+   * node ({@link #loweredUnchecked}; {@link #isNarrowRing} reads the mode its {@code Ring.Arith}
+   * states, so a narrow record stating {@code FAIL} or {@code NULL} belongs here) - and
+   * {@link Refusal#INT_OVERFLOW} is its {@code FAIL} half. A {@code WRAP} node has no check to
+   * skip, and neither has a floating division: its {@code FAIL} or {@code NULL} mode is the zero
+   * test, which the option does not read.
    */
   static boolean readsCheckIntOverflow(VarkaVectorIR node) {
     return (node instanceof IntArith arith && arith.mode() != Overflow.WRAP
@@ -1676,6 +1677,7 @@ final class Analysis {
       // narrow, by the classification it refuses with (VarkaKernelPlan.longNarrowRole,
       // VARKA-332); a validity-only narrow column, which the plan does not see, beside them.
       case LONG -> !type.isNarrow() || validityOnlyNarrow.contains(node)
+          || validityOnlyWidenings.contains(node)
           || VarkaKernelPlan.longNarrowRole(node) != VarkaKernelPlan.LongNarrowRole.NONE;
       // A narrow column alone of the narrow nodes, loaded as the long lane loads it (the plan's
       // narrowRefusal admits no other there).
@@ -1938,15 +1940,25 @@ final class Analysis {
         // condition (VARKA-28).
         // A decimal column's word is a column's too; its leaf is emitted under the test all the
         // same, for the slot check Spark's IS NULL makes by reading the value (VARKA-347).
-        VarkaVectorIR column = n.child() instanceof WidenLane w ? w.child() : n.child();
+        // The compiler lifts a narrow test to the int lane and then to the long lane, so the
+        // column may sit under a chain of widenings, every one of which reads its word
+        // (VARKA-619).
+        VarkaVectorIR column = VarkaVectorIR.unwidened(n.child());
         if (!(column instanceof ColumnRef) && !(n.child() instanceof DecimalColumn)
             && !(n.child() instanceof DecimalWord) && !(n.child() instanceof Cond)) {
           throw VarkaErrors.illegalArgument("IsNotNull child must be a ColumnRef, a widened one, "
               + "a DecimalColumn, a DecimalWord or a Cond, got " + n.child());
         }
-        if (lane == Lane.LONG && n.child() instanceof WidenLane
-            && column.laneType().isNarrow()) {
-          validityOnlyNarrow.add(column);
+        if (lane == Lane.LONG) {
+          // Every narrow node of the chain is read for the word alone: the column, and a
+          // narrow widening above it, a byte widened to the short lane first.
+          for (VarkaVectorIR v = n.child(); v instanceof WidenLane w; v = w.child()) {
+            if (w.child() instanceof WidenLane narrow && narrow.laneType().isNarrow()) {
+              validityOnlyWidenings.add(narrow);
+            } else if (w.child().laneType().isNarrow()) {
+              validityOnlyNarrow.add(w.child());
+            }
+          }
         }
         // skips = true states the semantics - known output from a null input - for the value
         // over a condition that reaches a root: IfElse, which marks skipping itself, and

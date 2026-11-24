@@ -49,6 +49,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChildJvm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
 import org.apache.spark.sql.execution.benchmark.VarkaArrowSessions;
 import org.apache.spark.sql.execution.metric.SQLMetric;
+import org.apache.spark.sql.internal.SQLConf;
 
 /**
  * The two-lane refusal at its production default, on the host it is for (VARKA-503): a JVM of its
@@ -66,6 +67,10 @@ import org.apache.spark.sql.execution.metric.SQLMetric;
  * of its condition under the plan's settings fuses every conjunct, and its kernels served the
  * batches, which the filter evaluator in a task does only where its compile, under the settings
  * the plan carried to it, fused every conjunct too ({@code VarkaFilterEvaluator.predicate}).
+ *
+ * <p>The projections the refusal covers are checked the same way: a boolean output over a
+ * decimal column (VARKA-596) and a checked day-time interval entry (VARKA-612), each
+ * beside an entry that stays fused, so that the node and its {@code EXPLAIN} remain.
  *
  * <p>On a JVM that is not x86 the flags are ignored and nothing is refused; the session's default
  * is checked false there and the queries are not run.
@@ -99,6 +104,10 @@ public final class VarkaTwoLaneDefault128Suite {
     for (SparkSession session : List.of(off, varka)) {
       session.sql(tableSql()).createOrReplaceTempView("two_lane_default");
       VarkaArrowSessions.cache(session, "two_lane_default");
+      // The TIME column's type is behind its flag outside the test harness's own default.
+      session.conf().set(SQLConf.TIME_TYPE_ENABLED().key(), "true");
+      session.sql(checksTableSql()).createOrReplaceTempView("two_lane_checks");
+      VarkaArrowSessions.cache(session, "two_lane_checks");
     }
   }
 
@@ -137,6 +146,35 @@ public final class VarkaTwoLaneDefault128Suite {
     }
     return "select " + String.join(", ", columns) + " from (select id, "
         + String.join(", ", values) + " from range(0, " + ROWS + "))";
+  }
+
+  /**
+   * The checked forms' columns: {@code dt} and {@code dt2} day-time intervals of either sign up to
+   * about 24855 days, as the day-time baseline makes them; {@code dts}, an interval inside an hour
+   * either way; {@code t}, a {@code TIME} between 01:00 and 22:59:59, so {@code t + dts} stays in
+   * the day; {@code ntz}, a {@code TIMESTAMP_NTZ} within 20000 days after 2020; and {@code dtn},
+   * {@code tn} and {@code ntzn}, the same with one row in ten null.
+   */
+  private static String checksTableSql() {
+    return """
+        select dt, dt2, dts, t, ntz,
+               case when id %% 10 = 1 then null else dt end as dtn,
+               case when id %% 10 = 3 then null else t end as tn,
+               case when id %% 10 = 5 then null else ntz end as ntzn
+        from (select id,
+                     make_dt_interval(0, 0, 0, cast(cast(hash(id, 1) as decimal(18, 6))
+                         + pmod(hash(id, 2), 1000000) * 0.000001 as decimal(18, 6))) as dt,
+                     make_dt_interval(0, 0, 0, cast(cast(hash(id, 3) as decimal(18, 6))
+                         + pmod(hash(id, 4), 1000000) * 0.000001 as decimal(18, 6))) as dt2,
+                     make_dt_interval(0, 0, 0,
+                         cast(pmod(hash(id, 5), 7200) - 3600 as decimal(18, 6))) as dts,
+                     make_time(cast(pmod(hash(id, 6), 22) + 1 as int),
+                         cast(pmod(hash(id, 7), 60) as int),
+                         cast(pmod(hash(id, 8), 60) as decimal(16, 6))) as t,
+                     timestamp_ntz'2020-01-01 00:00:00'
+                         + make_dt_interval(cast(pmod(hash(id, 9), 20000) as int), 0, 0, 0)
+                         as ntz
+              from range(0, %d))""".formatted(ROWS);
   }
 
   @Test
@@ -211,6 +249,47 @@ public final class VarkaTwoLaneDefault128Suite {
           "two-lane-default", Option.empty(), VarkaExecMetrics.NONE, emit, false, false);
       assertEquals(partial.declines().keySet(),
           task.partialPlan().orElseThrow().declines().keySet(), clue);
+      SQLMetric batches = node.metrics().get("numVarkaBatches").get();
+      assertTrue(batches.value() > 0, "the kernels served no batch: " + clue);
+    }
+  }
+
+  @Test
+  @DisplayName("the day-time interval arms measured slower at two lanes are the row path's at the "
+      + "default, and the TIME and TIMESTAMP_NTZ checks, unmeasured, fuse beside them")
+  void longLaneChecksDecline() {
+    // The checked day-time arms ran slower than the row path at two lanes (VARKA-612), so they
+    // decline; TIME's and TIMESTAMP_NTZ's long-lane checks were never measured there and keep
+    // fusing, as do the blends beside them. Four fused entries against the three declined ones
+    // keep the node under the rule that leaves a residual-heavy projection to Spark (VARKA-613).
+    assumeTrue(varka != null, "not x86: the refusal does not apply");
+    for (String n : List.of("", "n")) {
+      String dt = "dt" + n;
+      String query = "SELECT " + dt + " + dt2 AS a, abs(" + dt + ") AS b, " + dt + " * 3 AS c, t"
+          + n + " + dts AS e, ntz" + n + " + dt AS f, CASE WHEN " + dt + " > dt2 THEN " + dt
+          + " ELSE dt2 END AS g, CASE WHEN " + dt + " < dt2 THEN " + dt + " ELSE dt2 END AS h "
+          + "FROM two_lane_checks";
+      Dataset<Row> actual = varka.sql(query);
+      List<String> got = sorted(actual.collectAsList());
+      SparkPlan plan = actual.queryExecution().executedPlan();
+      String clue = query + "\n" + plan.treeString();
+      assertEquals(sorted(off.sql(query).collectAsList()), got, clue);
+      List<SparkPlan> projections = new ArrayList<>();
+      collectProjections(plan, projections);
+      assertEquals(1, projections.size(), clue);
+      SparkPlan node = projections.get(0);
+      PartialVarkaProjection partial = (node instanceof VarkaProjectExec p
+          ? p.classification() : ((VarkaColumnarToRowExec) node).classification())
+          .orElseThrow(() -> new AssertionError("no classification: " + clue));
+      assertEquals(Set.of(0, 1, 2), partial.declines().keySet(), clue);
+      for (VarkaDecline d : partial.declines().values()) {
+        assertEquals(VarkaKernelPlan.TWO_LANE_CHECK_REASON, d.reason(), clue);
+      }
+      for (int fused = 3; fused < 7; fused++) {
+        assertTrue(partial.specs().get(fused) instanceof VarkaOutputSpec.FusedOutput, clue);
+      }
+      String explained = actual.queryExecution().explainString(FormattedMode$.MODULE$);
+      assertTrue(explained.contains(VarkaKernelPlan.TWO_LANE_CHECK_REASON), explained);
       SQLMetric batches = node.metrics().get("numVarkaBatches").get();
       assertTrue(batches.value() > 0, "the kernels served no batch: " + clue);
     }

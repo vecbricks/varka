@@ -368,6 +368,31 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
     }
   }
 
+  test("a split filter whose fused part reads a value is SPLIT, and only on its own",
+      PinsDefaults) {
+    // VARKA-601. The DECIMAL(15, 2) product has no lowering, so beside the 64-bit comparison it
+    // is the residual of a split: a row FilterExec above the to-row Varka filter. Under a sort
+    // the plan has a second row operator and fits no class, and a filter of null tests beside
+    // the same residual is still NULL_TESTS, not SPLIT.
+    withTable(100) {
+      def fusion(query: String): Optional[VarkaSqlBenchmarkBase.Fusion] =
+        VarkaSqlBenchmarkBase.fusion(varkaSpark.sql(query).queryExecution.executedPlan)
+      val split = "FROM varka_decimal WHERE x9 < y9 AND x15 * y15 < z15"
+      val plan = varkaSpark.sql(s"SELECT x9 $split").queryExecution.executedPlan
+      assert(plan.exists {
+        case f: VarkaFilterColumnarToRowExec => f.wholeCondition.isDefined
+        case _ => false
+      }, plan.treeString)
+      assert(VarkaSqlBenchmarkBase.fusion(plan) ===
+        Optional.of(VarkaSqlBenchmarkBase.Fusion.SPLIT))
+      assert(fusion(s"SELECT x9 $split ORDER BY x9") === Optional.empty())
+      assert(fusion(s"SELECT count(*) AS c $split") === Optional.empty())
+      assert(fusion("SELECT x15n FROM varka_decimal WHERE y15n IS NULL AND " +
+        "(x15n * y15n) IS NULL") === Optional.of(VarkaSqlBenchmarkBase.Fusion.NULL_TESTS))
+      checkAnswer(varkaSpark.sql(s"SELECT x9 $split"), spark.sql(s"SELECT x9 $split"))
+    }
+  }
+
   test("the fusion classes read a plan under adaptive execution through its stages",
       PinsDefaults) {
     withTable(100) {
