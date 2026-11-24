@@ -408,3 +408,13 @@ merge, each keeping its own side in every switch master had given an arm. At 489
 `VarkaEmitCostSuite` pass; at 489c's tip `catalyst/Test/compile` and `sql/Test/compile` pass and so do the last three.
 489c adds `drawGuardedProductShape` to `VarkaNodePropsSuite`'s corpus and raises its record floor
 to 62.
+
+**Master merged again, 24 November 2026** (`a55f82c2427`). Master's #1689 reverted VARKA-611, so
+`GuardedProduct` is gone. This corrects the paragraph above: 489a loses the node's `props()`, and
+489c drops `drawGuardedProductShape` and sets the record floor back to 61. 489a's review added the
+floating-arithmetic and canonical grammars to the corpus. 489b and 489c were restacked by merge,
+each keeping its own side in the switches the revert changed. At 489b's tip
+`VarkaNodePropsEquivalenceSuite` (7882 analyses, 282660 word entries: the corpus changed),
+`VarkaNodePropsSuite`, `VarkaEmitterBudgetSuite` and `VarkaEmitCostSuite` pass; at 489c's tip the
+last three pass. Owed for 489c: the emitter validity suites and the fuzzer on CI, which alone hold
+the validity of the records the equivalence suite's analysis half never drew.

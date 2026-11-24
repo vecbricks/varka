@@ -1186,7 +1186,7 @@ final class Slots {
       case Validity.Input in -> s.word[in.ordinal()];
       case Validity.AllTrue _ -> WORD_ALL_TRUE;
       case Validity.Strict _ -> {
-        VarkaVectorIR[] operands = VarkaVectorIR.childrenOf(node);
+        VarkaVectorIR[] operands = childrenOf(node);
         int ref = s.wordRef.get(operands[0]);
         for (int i = 1; i < operands.length; i++) {
           ref = andRef(ref, s.wordRef.get(operands[i]));
@@ -1197,7 +1197,7 @@ final class Slots {
       // values: each needs a slot of its own.
       case Validity.SkipsNull _, Validity.Own _, Validity.NoWord _ -> Integer.MIN_VALUE;
       // One operand's word, aliased: a hash step's is its seed's.
-      case Validity.Operand op -> s.wordRef.get(VarkaVectorIR.childrenOf(node)[op.index()]);
+      case Validity.Operand op -> s.wordRef.get(childrenOf(node)[op.index()]);
     };
   }
 
@@ -1218,11 +1218,11 @@ final class Slots {
    * operands with different owners can have equal expressions, and then a pick's {@code l | r}
    * folds to an AND, which the fuzzer found a check by operator refusing -
    * while an owner that is an input or the constant must be exactly what the algebra says, and
-   * a computed word can never be either. What this leaves unchecked - an arm whose
-   * {@code pureOf} rule was changed to the wrong operator - produces a wrong bitmap, which
-   * {@code checkMatrix}'s byte-for-byte validity comparison and the fuzzer catch at run time.
-   * An {@code IllegalStateException} here means one side moved without the other, which is the
-   * drift the bitmap pass cannot be allowed to inherit.
+   * a computed word can never be either. Both views fold the same
+   * {@link VarkaNodeProps#validity()}, so a wrong descriptor passes here; its wrong bitmap is
+   * what {@code checkMatrix}'s byte-for-byte validity comparison and the fuzzer catch at run
+   * time. An {@code IllegalStateException} here means the two folds' code diverged, which is
+   * the drift the bitmap pass cannot be allowed to inherit.
    */
   private static void assertWordAlgebraAgrees(VarkaVectorIR node, int ref, Slots s,
       Analysis analysis) {
@@ -1740,8 +1740,10 @@ final class Slots {
     private void propagate(VarkaVectorIR n) {
       // Only a node whose owner is its own word reaches this queue, and its word is computed
       // from its value operands' words, so it demands each of them. A condition operand has no
-      // word: its masks load the words its own leaves demand already.
-      for (VarkaVectorIR operand : VarkaVectorIR.childrenOf(n)) {
+      // word: its masks load the words its own leaves demand already. So an own or null-skipping
+      // node's word reads every value operand's word and never a condition's, not even the word
+      // of a boolean column.
+      for (VarkaVectorIR operand : childrenOf(n)) {
         if (!(operand instanceof Cond)) {
           demand(analysis.wordOwner.get(operand));
         }

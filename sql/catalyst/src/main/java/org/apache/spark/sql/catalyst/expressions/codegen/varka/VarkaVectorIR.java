@@ -1286,7 +1286,7 @@ public sealed interface VarkaVectorIR
    * does. {@code offset} is a {@link LiteralSlot} for a foldable day count, or a {@link ColumnRef}
    * for an {@code IntegerType} column - a nullable one makes the result's
    * validity the AND of both children's, not just {@code days}' (see
-   * {@code VarkaLoopEmitter.planWordRef}).
+   * {@code Slots.planWordRef}).
    */
   record AddDays(VarkaVectorIR days, VarkaVectorIR offset, int hash) implements VarkaVectorIR {
     public AddDays {
