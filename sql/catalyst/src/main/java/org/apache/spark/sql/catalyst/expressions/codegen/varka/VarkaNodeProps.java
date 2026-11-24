@@ -44,9 +44,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
  *     what {@code Analysis.isNarrowRing} asks
  * @param intOverflowCheck whether the node's emission holds an int overflow check, which
  *     {@code VarkaEmitOptions.checkIntOverflow} emits or leaves out: an integral add, subtract,
- *     multiply, negation or abs of mode {@code FAIL} or {@code NULL}. A floating division's
- *     zero test is not one. It is what {@code Analysis.readsCheckIntOverflow} asks, and it is
- *     stated apart from {@link #ring()} because an abs checks but is never a ring node
+ *     multiply of mode {@code FAIL} or {@code NULL}, or a negation or abs of mode {@code FAIL}.
+ *     A floating division's zero test is not one. It is what
+ *     {@code Analysis.readsCheckIntOverflow} asks, and it is stated apart from {@link #ring()}
+ *     because an abs checks but is never a ring node
  * @param validity how the node's validity word follows from its operands' words, and whether
  *     it is a pure function of input bitmaps; whether the analysis counts a node as skipping a
  *     null input stays {@code Analysis.analyze}'s own switch

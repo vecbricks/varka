@@ -358,8 +358,8 @@ from a new node: no line of `VarkaEmitBudget`, `VarkaEmitCost`, `VarkaOperandPos
    it is or has a day offset, month count, weekday or level), its `LongNarrowReader`, and
    `intOverflowCheck`: true where its emission holds an int overflow check that
    `checkIntOverflow` may drop, which `Analysis.readsCheckIntOverflow` returns. A narrow record
-   whose `Ring.Arith` can state `FAIL` or `NULL` states it, or a checked narrow overflow wraps
-   without its check; `VarkaNodePropsSuite` fails such a record where it draws or builds it.
+   whose `Ring.Arith` can state `FAIL` or `NULL` states it; `VarkaNodePropsSuite` fails an
+   integral `Ring.Arith` record whose property differs from its mode.
 3. Add its arms to the switches the compiler then names: the structural ones in `VarkaVectorIR`
    (`laneType`, `childrenOf`, `withChildren`, both canonical forms, the narrow walks),
    `Analysis.collectRefusals` and `Analysis.analyze`, `Slots.visit`, the emission walk in
@@ -457,15 +457,13 @@ text, because `hashOf` reads the enum components' identity hashes. So no fusion 
 in 489b or 489c, and the prediction holds. The byte oracles held at each gate: the regeneration
 of `emitted_bytes.json`, `coverage.json` and `width_audit.json` changed nothing.
 
-**The overflow check as a property, 24 November 2026** (branch `varka-489c-overflow-prop`,
-stacked on 489c). `Analysis.readsCheckIntOverflow` was the last list a new node had to join by
-hand: an `instanceof` test of `IntArith` (not `WRAP`, not floating) and `IntNeg` (not `WRAP`,
-abs included). `VarkaNodeProps` gains the component `intOverflowCheck`, stated by all 61
-records, and the test returns it. It is not derived from `ring`: an abs checks its overflow but
-is never a ring node, and a floating division states `Ring.Arith(FAIL)` for its zero test, which
-the option does not drop. Before the test changed, a temporary check compared the two answers
-on 101569 nodes (every distinct node of 5000 drawn shapes, and every `IntArith` and `IntNeg`
-op, mode, abs and lane the constructors admit; 6123 of them checked) and on the 94 instances of
-`VarkaLaneTypeSuite`: all agree. `VarkaNodePropsSuite.assertOverflowCheckShape` stays, over the
-drawn shapes and the lane instances: an integral node whose `Ring.Arith` checks states the
-property, and a floating node never does.
+**The overflow check as a property, 24 November 2026** (branch `varka-489c-overflow-prop`).
+`Analysis.readsCheckIntOverflow`, an `instanceof` test of `IntArith` and `IntNeg`, now returns
+the new `VarkaNodeProps.intOverflowCheck`, which all 61 records state. `ring` cannot give it: an
+abs checks but is no ring node, and a floating division's `Ring.Arith(FAIL)` is its zero test.
+Before the switch a temporary check compared the two answers on 101569 nodes (5000 drawn shapes,
+and every `IntArith` and `IntNeg` the constructors admit; 6123 checked) and on
+`VarkaLaneTypeSuite`'s 94 instances: all agree. `assertOverflowCheckShape` stays: an integral
+`Ring.Arith` node states it exactly when its mode is not `WRAP`, a floating node never. After
+review `isNarrowRing` asks `checksIntOverflow`. Readers of `IntArith`'s own lowering stay
+(`Slots`, `VarkaKernelPlan.holdsCheckedNarrowMultiply`); a new record joins neither.

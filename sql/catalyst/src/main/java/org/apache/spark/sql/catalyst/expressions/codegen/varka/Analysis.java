@@ -1104,9 +1104,8 @@ final class Analysis {
     return switch (node.props().ring()) {
       case VarkaNodeProps.Ring.Never _ -> false;
       case VarkaNodeProps.Ring.Pick _ -> node.laneType().isNarrow();
-      // Its check is the mode's, and the options may drop it: a narrow node left unchecked wraps.
-      case VarkaNodeProps.Ring.Arith a -> node.laneType().isNarrow()
-          && (a.mode() == Overflow.WRAP || !options.checkIntOverflow());
+      // A narrow node left unchecked wraps: a WRAP one, or one whose check the options drop.
+      case VarkaNodeProps.Ring.Arith _ -> node.laneType().isNarrow() && !checksIntOverflow(node);
     };
   }
 
@@ -1118,9 +1117,8 @@ final class Analysis {
   /**
    * Whether {@code node} is emitted with its overflow check: it is one whose emission reads
    * {@link VarkaEmitOptions#checkIntOverflow} ({@link #readsCheckIntOverflow}), and the option is
-   * on. Every read of the option asks it - the {@code FAIL} refusals, the check's scratch in
-   * {@link Slots} and {@link #loweredUnchecked} - but {@link #isNarrowRing}'s, which reads the
-   * mode a node's {@code Ring.Arith} states and so must name the same nodes as this test.
+   * on. Every read of the option asks it: the {@code FAIL} refusals, the check's scratch in
+   * {@link Slots}, {@link #loweredUnchecked} and {@link #isNarrowRing}.
    */
   boolean checksIntOverflow(VarkaVectorIR node) {
     return options.checkIntOverflow() && readsCheckIntOverflow(node);
@@ -1129,11 +1127,10 @@ final class Analysis {
   /**
    * Whether {@code node}'s emission depends on {@link VarkaEmitOptions#checkIntOverflow}, as the
    * node states in {@link VarkaNodeProps#intOverflowCheck()}: an int add, subtract, multiply,
-   * negation or abs in Spark's ANSI or TRY evaluation ({@code FAIL} or {@code NULL}), whose
-   * overflow check the option emits or leaves out. The option's reads go
-   * through it - the check's scratch in {@link Slots}, and whether a narrow node reduces as a ring
-   * node ({@link #loweredUnchecked}; {@link #isNarrowRing} reads the mode its {@code Ring.Arith}
-   * states, so a narrow record stating {@code FAIL} or {@code NULL} belongs here) - and
+   * negation or abs in Spark's ANSI evaluation ({@code FAIL}), or an add, subtract or multiply
+   * in its TRY evaluation ({@code NULL}), whose overflow check the option emits or leaves out.
+   * The option's reads go through it - the check's scratch in {@link Slots}, and whether a narrow
+   * node reduces as a ring node ({@link #loweredUnchecked}, {@link #isNarrowRing}) - and
    * {@link Refusal#INT_OVERFLOW} is its {@code FAIL} half. A {@code WRAP} node has no check to
    * skip, and neither has a floating division: its {@code FAIL} or {@code NULL} mode is the zero
    * test, which the option does not read.

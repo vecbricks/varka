@@ -138,8 +138,7 @@ public final class VarkaNodePropsSuite {
   }
 
   @Test
-  @DisplayName("an integral node whose ring mode checks states its overflow check, a floating one "
-      + "never")
+  @DisplayName("a node states its overflow check where its ring mode checks, a floating one never")
   void overflowCheckShapes() {
     int checked = 0;
     int narrowRing = 0;
@@ -158,17 +157,23 @@ public final class VarkaNodePropsSuite {
   }
 
   /**
-   * That {@code n} states the overflow check where {@code Analysis.isNarrowRing} reads a checking
-   * mode, so the two read the same nodes, and never at a floating lane, whose checks are not the
-   * option's. Like {@link #assertValidityShape}, {@code VarkaLaneTypeSuite} asks it of its
-   * instance of every record.
+   * That {@code n} states the overflow check exactly where its {@code Ring.Arith} states a
+   * checking mode at an integral lane, never at a floating lane, whose checks are not the
+   * option's, and never on a blend. A node that is never a ring node may state it: an abs. Like
+   * {@link #assertValidityShape}, {@code VarkaLaneTypeSuite} asks it of its instance of every
+   * record.
    */
   static void assertOverflowCheckShape(VarkaVectorIR n) {
     String at = VarkaVectorIR.canonical(n);
+    boolean check = n.props().intOverflowCheck();
     if (n.laneType().isFloating()) {
-      assertFalse(n.props().intOverflowCheck(), at);
-    } else if (n.props().ring() instanceof Ring.Arith a && a.mode() != Overflow.WRAP) {
-      assertTrue(n.props().intOverflowCheck(), at);
+      assertFalse(check, at);
+      return;
+    }
+    switch (n.props().ring()) {
+      case Ring.Arith a -> assertEquals(a.mode() != Overflow.WRAP, check, at);
+      case Ring.Pick _ -> assertFalse(check, at);
+      case Ring.Never _ -> { }
     }
   }
 
