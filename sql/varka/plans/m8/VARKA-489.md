@@ -361,6 +361,10 @@ from a new node: no line of `VarkaEmitBudget`, `VarkaEmitCost`, `VarkaOperandPos
    `Analysis.collectRefusals` and `Analysis.analyze`, `Slots.visit`, the emission walk in
    `VarkaVectorWalk`, `VarkaKernelPlan.longNarrowRole`, `VarkaRangeAnalysis`, and in the tests
    `VarkaIrGrammar.boundsOf`, `VarkaReference` and `VarkaGuardSpecs`.
+   A record whose `Ring.Arith` can state `FAIL` or `NULL` also goes into
+   `Analysis.readsCheckIntOverflow`, an `instanceof` test the compiler does not name: left out,
+   `checksIntOverflow` is false for it, `isNarrowRing` still reads the mode, and a checked narrow
+   overflow wraps without its check.
 4. Price its cost feature in `VarkaEmitCostTable` as `VarkaEmitCostSuite` says, and give the node
    a row in `VarkaEmitterBudgetSuite`'s register.
 5. Give it the other per-node test fixtures. Each holds a sample or a reference walk of the node,
