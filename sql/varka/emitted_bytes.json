@@ -17543,18 +17543,6 @@
     "narrowGroupStore=COMBINED over lanesOverride=4" : {
       "4" : "1724fedd0d38bb07"
     },
-    "checkedLongMultiply=BOUND_ONLY over useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
-    },
-    "checkedLongMultiply=MAGNITUDE over useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
-    },
-    "checkedLongMultiply=BY_HOST over useAVX=2" : {
-      "4" : "1020b81421ca5dc1",
-      "16" : "ac19747723845a3e"
-    },
     "narrowLanes=true" : {
       "4" : "d40058036f3b6186",
       "16" : "ef6e90e365c6b142"
