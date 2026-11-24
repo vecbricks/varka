@@ -424,3 +424,18 @@ each keeping its own side in the switches the revert changed. At 489b's tip
 `VarkaNodePropsSuite`, `VarkaEmitterBudgetSuite` and `VarkaEmitCostSuite` pass; at 489c's tip the
 last three pass. Owed for 489c: the emitter validity suites and the fuzzer on CI, which alone hold
 the validity of the records the equivalence suite's analysis half never drew.
+
+**Later on 24 November 2026.** 489c's review left a descriptor whose `Validity` does not fit its
+operands (`STRICT` with none, `Operand` over a condition) unchecked outside the drawn shapes; a
+record's constructor cannot check it, having no node. `VarkaNodePropsSuite.assertValidityShape`,
+the drawn shapes' check, now also runs over `VarkaLaneTypeSuite`'s instance of every record at
+both lanes, which reaches the records no grammar draws. The owed suites ran once at 489c's tip on
+the laptop, in one sbt JVM, and pass (620 tests, 33 cancelled by their host assumptions):
+`VarkaIrFuzzSuite`, `VarkaEmitterValiditySuite`, `VarkaEmitterNullSafeSuite`,
+`VarkaEmitterBoolSuite`, `VarkaEmitterHashSuite`, `VarkaDecimalWordSuite`,
+`VarkaTwoLaneConditionSuite`, `VarkaEmitterDivisionSuite`, `VarkaEmitterRoundingSuite`,
+`VarkaEmitterFloatingArithSuite`, `VarkaEmitterFloatingCastSuite`, `VarkaEmitterMixedLaneSuite`,
+`VarkaSameAnswerContractSuite`, `VarkaConditionLiftSuite`, `VarkaExpressionCompilerSuite`,
+`VarkaWithChildrenSuite`, `VarkaReproductionSuite`, `VarkaEmitterChronoSuite`,
+`VarkaKernelPlanSuite`, with `VarkaNodePropsSuite`, `VarkaLaneTypeSuite`,
+`VarkaEmitterBudgetSuite` and `VarkaEmitCostSuite`. CI's option matrix is still owed.

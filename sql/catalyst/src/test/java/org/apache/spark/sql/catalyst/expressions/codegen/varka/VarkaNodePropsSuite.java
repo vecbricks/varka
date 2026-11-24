@@ -129,28 +129,37 @@ public final class VarkaNodePropsSuite {
   void validityShapes() {
     Set<VarkaVectorIR> nodes = nodesOf(drawnShapes(500));
     for (VarkaVectorIR n : nodes) {
-      String at = VarkaVectorIR.canonical(n);
-      VarkaVectorIR[] children = VarkaVectorIR.childrenOf(n);
-      switch (n.props().validity()) {
-        case Validity.Strict _, Validity.SkipsNull _ -> {
-          assertTrue(children.length > 0, at);
-          for (VarkaVectorIR c : children) {
-            assertFalse(c instanceof Cond, at);
-          }
-        }
-        case Validity.Input in -> {
-          assertEquals(0, children.length, at);
-          assertEquals(in.ordinal(), VarkaVectorIR.inputOrdinal(n), at);
-        }
-        case Validity.AllTrue _ -> assertEquals(0, children.length, at);
-        case Validity.NoWord _ -> assertTrue(n instanceof Cond, at);
-        case Validity.Own _ -> assertFalse(n instanceof Cond, at);
-        case Validity.Operand op -> {
-          assertTrue(op.index() < children.length, at);
-          assertFalse(children[op.index()] instanceof Cond, at);
-        }
-      }
+      assertValidityShape(n);
     }
     assertTrue(nodes.size() > 1000, "drew only " + nodes.size() + " distinct nodes");
+  }
+
+  /**
+   * That {@code n}'s {@link Validity} fits its operands as the word folds assume. The record's
+   * constructor cannot check it, since it has no node; {@code VarkaLaneTypeSuite} also asks it of
+   * its instance of every record, which reaches the records no grammar draws.
+   */
+  static void assertValidityShape(VarkaVectorIR n) {
+    String at = VarkaVectorIR.canonical(n);
+    VarkaVectorIR[] children = VarkaVectorIR.childrenOf(n);
+    switch (n.props().validity()) {
+      case Validity.Strict _, Validity.SkipsNull _ -> {
+        assertTrue(children.length > 0, at);
+        for (VarkaVectorIR c : children) {
+          assertFalse(c instanceof Cond, at);
+        }
+      }
+      case Validity.Input in -> {
+        assertEquals(0, children.length, at);
+        assertEquals(in.ordinal(), VarkaVectorIR.inputOrdinal(n), at);
+      }
+      case Validity.AllTrue _ -> assertEquals(0, children.length, at);
+      case Validity.NoWord _ -> assertTrue(n instanceof Cond, at);
+      case Validity.Own _ -> assertFalse(n instanceof Cond, at);
+      case Validity.Operand op -> {
+        assertTrue(op.index() < children.length, at);
+        assertFalse(children[op.index()] instanceof Cond, at);
+      }
+    }
   }
 }

@@ -542,6 +542,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       cls <- types
       node <- instance(cls, lane)
     } yield {
+      // Its validity's shape too, for the records no grammar draws (VARKA-489).
+      VarkaNodePropsSuite.assertValidityShape(node)
       // A `WeekOfYear` needs its `ThursdayOf`; both are int-only, and the guarded day's range
       // check means a bare column root would decline rather than emit, so it is wrapped.
       val roots = Seq[VarkaVectorIR](node)
