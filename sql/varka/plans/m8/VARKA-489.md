@@ -320,6 +320,12 @@ checks and the hand-built corpus from the equivalence suite, which keeps only th
 489c. Compiled; the byte oracles, the fusion dump (prediction 3) and the scoped suites are owed
 to CI, since a pass now reads the descriptor.
 
+(24 November 2026: a third commit applied that build's review, and the counts above are of the 56
+records then; the 61 after the rebase are under "Rebased onto master, 23 November 2026" below. The
+branch's own high review then moved `LiteralSlot`'s and the arithmetic's `fills` into exhaustive
+switches over the positions, `VarkaOperandPosition.LITERAL_FILLS` and `ARITH_FILLS`, so a new
+position is a compile error again, and made `isNarrowRing` read the mode its `Ring.Arith` states.)
+
 **489c, 20 November 2026** (branch `varka-489c-word-rules`, stacked on 489b). `Analysis.ownerOf`
 and `Analysis.pureOf` and `Slots.planWordRef` fold the node's `validity` over
 `VarkaVectorIR.childrenOf`, `andOwner` folds the operands' owners instead of taking two named

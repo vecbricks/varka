@@ -891,8 +891,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // A leaf: its broadcast is paid once per literal, not per node.
       return new VarkaNodeProps(NEVER, ALL_TRUE, 0, getClass().getSimpleName() + '/' + lane,
-          Set.of(VarkaOperandPosition.DAY_OFFSET, VarkaOperandPosition.MONTH_COUNT,
-              VarkaOperandPosition.WEEKDAY), RESTRICTS_NOTHING, LongNarrowReader.NONE);
+          VarkaOperandPosition.LITERAL_FILLS, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
 
@@ -1416,8 +1415,7 @@ public sealed interface VarkaVectorIR
           : mode != Overflow.WRAP ? 5 : laneType().isNarrow() ? 3 : 1;
       return new VarkaNodeProps(new Ring.Arith(mode), mode == Overflow.NULL ? OWN : STRICT, weight,
           getClass().getSimpleName() + '/' + op + '/' + mode + '/' + laneType(),
-          Set.of(VarkaOperandPosition.DAY_OFFSET, VarkaOperandPosition.MONTH_COUNT),
-          RESTRICTS_NOTHING, LongNarrowReader.NONE);
+          VarkaOperandPosition.ARITH_FILLS, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
 
@@ -1485,8 +1483,7 @@ public sealed interface VarkaVectorIR
           : laneType().isNarrow() || (abs && laneType() == LaneType.LONG) ? 3 : 1;
       return new VarkaNodeProps(abs ? NEVER : new Ring.Arith(mode), STRICT, weight,
           getClass().getSimpleName() + (abs ? "/abs/" : "/") + mode + '/' + laneType(),
-          Set.of(VarkaOperandPosition.DAY_OFFSET, VarkaOperandPosition.MONTH_COUNT),
-          RESTRICTS_NOTHING, LongNarrowReader.NONE);
+          VarkaOperandPosition.ARITH_FILLS, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
 
