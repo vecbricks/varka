@@ -30,9 +30,11 @@ import java.util.Random;
 import java.util.Set;
 import java.util.function.Function;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaNodeProps.Ring;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaNodeProps.Validity;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -40,7 +42,8 @@ import org.junit.jupiter.api.Test;
  * Every IR node answers its own {@link VarkaNodeProps}: the interface method has no default, so a
  * new record that forgets it does not compile, and these tests keep that guarantee from being
  * softened by a default added later, on the interface or on one of its sealed families. The
- * second test holds the validity rules to the operand shapes the passes that fold them assume.
+ * second test holds the validity rules to the operand shapes the passes that fold them assume,
+ * and the third the overflow check to the ring's mode.
  */
 @VarkaSuite
 public final class VarkaNodePropsSuite {
@@ -134,52 +137,39 @@ public final class VarkaNodePropsSuite {
     assertTrue(nodes.size() > 1000, "drew only " + nodes.size() + " distinct nodes");
   }
 
-  /** Temporary (489c, overflow property): nodes compared, and those both sides call checked. */
-  static final int[] COMPARED = new int[2];
-
-  /** Temporary: the descriptor's answer against the instanceof test it replaces. */
-  static void assertOverflowAgrees(VarkaVectorIR n) {
-    boolean byType = Analysis.readsCheckIntOverflow(n);
-    assertEquals(byType, n.props().intOverflowCheck(), VarkaVectorIR.canonical(n));
-    COMPARED[0]++;
-    if (byType) {
-      COMPARED[1]++;
+  @Test
+  @DisplayName("an integral node whose ring mode checks states its overflow check, a floating one "
+      + "never")
+  void overflowCheckShapes() {
+    int checked = 0;
+    int narrowRing = 0;
+    for (VarkaVectorIR n : nodesOf(drawnShapes(500))) {
+      assertOverflowCheckShape(n);
+      checked += n.props().intOverflowCheck() ? 1 : 0;
+      narrowRing += n.laneType().isNarrow() && n.props().ring() instanceof Ring.Arith a
+          && a.mode() != Overflow.WRAP ? 1 : 0;
     }
+    assertTrue(checked > 0 && narrowRing > 0, "drew " + checked + " checked nodes, "
+        + narrowRing + " of them narrow ring arithmetic");
+    // The one checked node the ring cannot name: an abs is never a ring node.
+    var abs = new VarkaVectorIR.IntNeg(Overflow.FAIL, new VarkaVectorIR.ColumnRef(0), true);
+    assertTrue(abs.props().intOverflowCheck());
+    assertEquals(Ring.NEVER, abs.props().ring());
   }
 
-  @Test
-  @DisplayName("temporary: the overflow property agrees with the type test on every node")
-  void overflowAgrees() {
-    var nodes = new ArrayList<VarkaVectorIR>(nodesOf(drawnShapes(5000)));
-    int drawn = nodes.size();
-    for (LaneType lane : LaneType.values()) {
-      var c = new VarkaVectorIR.ColumnRef(0, lane);
-      var c1 = new VarkaVectorIR.ColumnRef(1, lane);
-      for (VarkaVectorIR.Overflow mode : VarkaVectorIR.Overflow.values()) {
-        for (VarkaVectorIR.IntOp op : VarkaVectorIR.IntOp.values()) {
-          try {
-            nodes.add(new VarkaVectorIR.IntArith(op, mode, c, c1));
-          } catch (IllegalArgumentException refused) {
-            // a combination the record refuses
-          }
-        }
-        for (boolean abs : new boolean[] {false, true}) {
-          try {
-            nodes.add(new VarkaVectorIR.IntNeg(mode, c, abs));
-          } catch (IllegalArgumentException refused) {
-            // a combination the record refuses
-          }
-        }
-      }
+  /**
+   * That {@code n} states the overflow check where {@code Analysis.isNarrowRing} reads a checking
+   * mode, so the two read the same nodes, and never at a floating lane, whose checks are not the
+   * option's. Like {@link #assertValidityShape}, {@code VarkaLaneTypeSuite} asks it of its
+   * instance of every record.
+   */
+  static void assertOverflowCheckShape(VarkaVectorIR n) {
+    String at = VarkaVectorIR.canonical(n);
+    if (n.laneType().isFloating()) {
+      assertFalse(n.props().intOverflowCheck(), at);
+    } else if (n.props().ring() instanceof Ring.Arith a && a.mode() != Overflow.WRAP) {
+      assertTrue(n.props().intOverflowCheck(), at);
     }
-    int before = COMPARED[0];
-    int checkedBefore = COMPARED[1];
-    for (VarkaVectorIR n : nodes) {
-      assertOverflowAgrees(n);
-    }
-    System.out.println("489c-overflow: drawn distinct nodes " + drawn + ", enumerated "
-        + (nodes.size() - drawn) + ", compared " + (COMPARED[0] - before) + ", checked "
-        + (COMPARED[1] - checkedBefore));
   }
 
   /**

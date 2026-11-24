@@ -1127,9 +1127,10 @@ final class Analysis {
   }
 
   /**
-   * Whether {@code node}'s emission depends on {@link VarkaEmitOptions#checkIntOverflow}: an int
-   * add, subtract, multiply or negation in Spark's ANSI or TRY evaluation ({@code FAIL} or
-   * {@code NULL}), whose overflow check the option emits or leaves out. The option's reads go
+   * Whether {@code node}'s emission depends on {@link VarkaEmitOptions#checkIntOverflow}, as the
+   * node states in {@link VarkaNodeProps#intOverflowCheck()}: an int add, subtract, multiply,
+   * negation or abs in Spark's ANSI or TRY evaluation ({@code FAIL} or {@code NULL}), whose
+   * overflow check the option emits or leaves out. The option's reads go
    * through it - the check's scratch in {@link Slots}, and whether a narrow node reduces as a ring
    * node ({@link #loweredUnchecked}; {@link #isNarrowRing} reads the mode its {@code Ring.Arith}
    * states, so a narrow record stating {@code FAIL} or {@code NULL} belongs here) - and
@@ -1138,9 +1139,7 @@ final class Analysis {
    * test, which the option does not read.
    */
   static boolean readsCheckIntOverflow(VarkaVectorIR node) {
-    return (node instanceof IntArith arith && arith.mode() != Overflow.WRAP
-        && !arith.laneType().isFloating())
-        || (node instanceof IntNeg neg && neg.mode() != Overflow.WRAP);
+    return node.props().intOverflowCheck();
   }
 
   /** Whether a node under {@code roots} is one {@link #readsCheckIntOverflow} names. */

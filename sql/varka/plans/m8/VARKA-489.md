@@ -355,16 +355,16 @@ from a new node: no line of `VarkaEmitBudget`, `VarkaEmitCost`, `VarkaOperandPos
    one operand's word aliased, as a hash step's seed), its weight in lane
    operations with the comment that counts them, its cost feature (the record name and whatever
    chooses its lowering), its restricted positions (`FILLS_NOTHING` and `RESTRICTS_NOTHING` unless
-   it is or has a day offset, month count, weekday or level) and its `LongNarrowReader`.
+   it is or has a day offset, month count, weekday or level), its `LongNarrowReader`, and
+   `intOverflowCheck`: true where its emission holds an int overflow check that
+   `checkIntOverflow` may drop, which `Analysis.readsCheckIntOverflow` returns. A narrow record
+   whose `Ring.Arith` can state `FAIL` or `NULL` states it, or a checked narrow overflow wraps
+   without its check; `VarkaNodePropsSuite` fails such a record where it draws or builds it.
 3. Add its arms to the switches the compiler then names: the structural ones in `VarkaVectorIR`
    (`laneType`, `childrenOf`, `withChildren`, both canonical forms, the narrow walks),
    `Analysis.collectRefusals` and `Analysis.analyze`, `Slots.visit`, the emission walk in
    `VarkaVectorWalk`, `VarkaKernelPlan.longNarrowRole`, `VarkaRangeAnalysis`, and in the tests
    `VarkaIrGrammar.boundsOf`, `VarkaReference` and `VarkaGuardSpecs`.
-   A record whose `Ring.Arith` can state `FAIL` or `NULL` also goes into
-   `Analysis.readsCheckIntOverflow`, an `instanceof` test the compiler does not name: left out,
-   `checksIntOverflow` is false for it, `isNarrowRing` still reads the mode, and a checked narrow
-   overflow wraps without its check.
 4. Price its cost feature in `VarkaEmitCostTable` as `VarkaEmitCostSuite` says, and give the node
    a row in `VarkaEmitterBudgetSuite`'s register.
 5. Give it the other per-node test fixtures. Each holds a sample or a reference walk of the node,
@@ -456,3 +456,16 @@ from one JVM to the next: a second dump of `6ec492b53cf` prints other hashes and
 text, because `hashOf` reads the enum components' identity hashes. So no fusion decision moved
 in 489b or 489c, and the prediction holds. The byte oracles held at each gate: the regeneration
 of `emitted_bytes.json`, `coverage.json` and `width_audit.json` changed nothing.
+
+**The overflow check as a property, 24 November 2026** (branch `varka-489c-overflow-prop`,
+stacked on 489c). `Analysis.readsCheckIntOverflow` was the last list a new node had to join by
+hand: an `instanceof` test of `IntArith` (not `WRAP`, not floating) and `IntNeg` (not `WRAP`,
+abs included). `VarkaNodeProps` gains the component `intOverflowCheck`, stated by all 61
+records, and the test returns it. It is not derived from `ring`: an abs checks its overflow but
+is never a ring node, and a floating division states `Ring.Arith(FAIL)` for its zero test, which
+the option does not drop. Before the test changed, a temporary check compared the two answers
+on 101569 nodes (every distinct node of 5000 drawn shapes, and every `IntArith` and `IntNeg`
+op, mode, abs and lane the constructors admit; 6123 of them checked) and on the 94 instances of
+`VarkaLaneTypeSuite`: all agree. `VarkaNodePropsSuite.assertOverflowCheckShape` stays, over the
+drawn shapes and the lane instances: an integral node whose `Ring.Arith` checks states the
+property, and a floating node never does.
