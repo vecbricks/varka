@@ -2125,6 +2125,45 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(read.map(a => a.name -> a.dataType) === columns.map(a => a.name -> a.dataType))
   }
 
+  // --- the two-lane census (VARKA-612) --------------------------------------------------------
+
+  /**
+   * The value rows a host whose 64-bit masks fall back leaves to the row engine, one line each
+   * with its family and reason, under the defaults the table documents: every value row compiled
+   * as a projection entry with the two-lane refusal on, against the fused kernel it compiles to
+   * with it off, which the first test checks. The reasoning of row 612 refuses an entry by its
+   * tree, so which rows it reaches is this file's, not a reading of the compiler's.
+   */
+  private def renderTwoLaneCensus(): String = {
+    val twoLane = new VarkaAdmission(java.util.Set.of(), true)
+    val valueRows = families.filterNot(_.predicates).flatMap(f => f.rows.map(f -> _))
+    val refused = valueRows.flatMap { case (family, row) =>
+      VarkaExpressionCompiler.declines(Seq(out(expressionOf(row))), columns,
+        VarkaEmitOptions.DEFAULTS, twoLane).asScala.values.headOption
+        .map(d => s"${family.title}\t${row.sql}\t${d.reason}")
+    }
+    val header = Seq(
+      "# The coverage table's value rows a two-lane x86 host refuses as projection entries",
+      "# (VARKA-612), rendered by VarkaCoverageSuite; regenerate with",
+      "#   VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite'",
+      s"# ${refused.size} of ${valueRows.size} value rows refused; family, row, reason:")
+    (header ++ refused).mkString("", "\n", "\n")
+  }
+
+  test("the two-lane census of the value rows is the committed one") {
+    val file = getWorkspaceFilePath("sql", "varka", "plans", "m8", "results",
+      "VARKA-612-refused.txt")
+    val rendered = renderTwoLaneCensus()
+    if (regen) {
+      Files.writeString(file, rendered)
+      logInfo(s"regenerated $file")
+    } else {
+      assert(Files.exists(file) && Files.readString(file) === rendered,
+        s"$file is not what this suite renders. Regenerate it with\n" +
+          "  VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite'")
+    }
+  }
+
   // --- what the table's kernels reach of the emitter (VARKA-280) ------------------------------
 
   /**

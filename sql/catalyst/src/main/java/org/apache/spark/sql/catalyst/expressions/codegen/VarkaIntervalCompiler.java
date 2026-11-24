@@ -20,6 +20,9 @@ package org.apache.spark.sql.catalyst.expressions.codegen;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Optional;
+import java.util.function.Supplier;
+
+import javax.annotation.Nullable;
 
 import org.apache.spark.sql.catalyst.expressions.Abs;
 import org.apache.spark.sql.catalyst.expressions.Add;
@@ -39,6 +42,7 @@ import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.IntervalFault;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
@@ -218,19 +222,26 @@ public final class VarkaIntervalCompiler {
       // which raises at `Long.MIN_VALUE` whatever `failOnError` says: the checked negation
       // under the blend fires exactly there. A declined batch is re-evaluated by the row
       // engine, which raises each form's own error class.
-      case Add a when a.dataType() instanceof DayTimeIntervalType ->
-          () -> dayTimeArith(IntOp.ADD, a.left(), a.right(), a, inputs, literals, sink);
+      // The add, subtract, abs and product below are the forms measured slower than the row
+      // path on the two-lane host (VARKA-612), so there a checked one declines (twoLaneMeasured).
+      case Add a when a.dataType() instanceof DayTimeIntervalType -> () -> twoLaneMeasured(() ->
+          dayTimeArith(IntOp.ADD, a.left(), a.right(), a, inputs, literals, sink), IntOp.ADD, a,
+          literals, sink);
       case Subtract s when s.dataType() instanceof DayTimeIntervalType ->
-          () -> dayTimeArith(IntOp.SUB, s.left(), s.right(), s, inputs, literals, sink);
+          () -> twoLaneMeasured(() ->
+              dayTimeArith(IntOp.SUB, s.left(), s.right(), s, inputs, literals, sink), IntOp.SUB,
+              s, literals, sink);
       case UnaryMinus n when n.dataType() instanceof DayTimeIntervalType ->
           () -> dayTimeOperand(n.child(), "the negated interval", inputs, literals, sink)
               .map(x -> (VarkaVectorIR) new IntNeg(Overflow.FAIL, x));
-      case Abs n when n.dataType() instanceof DayTimeIntervalType ->
-          () -> dayTimeOperand(n.child(), "the absolute interval", inputs, literals, sink)
+      case Abs n when n.dataType() instanceof DayTimeIntervalType -> () -> twoLaneMeasured(() ->
+          dayTimeOperand(n.child(), "the absolute interval", inputs, literals, sink)
               .map(x -> (VarkaVectorIR) new IfElse(
                   new Compare(CompareOp.LT, x, sink.longSlot(0L)),
-                  new IntNeg(Overflow.FAIL, x), x));
-      case MultiplyDTInterval m -> () -> dayTimeMultiply(m, inputs, literals, sink);
+                  new IntNeg(Overflow.FAIL, x), x)), null, n, literals, sink);
+      case MultiplyDTInterval m ->
+          () -> twoLaneMeasured(() -> dayTimeMultiply(m, inputs, literals, sink), IntOp.MUL, m,
+              literals, sink);
       case DivideDTInterval m -> () -> dayTimeDivide(m, inputs, literals, sink);
       // `extract(DAY FROM dt)` is `IntervalUtils.getDays`, `(int) (micros / MICROS_PER_DAY)`,
       // which `truncDivLong` is over every long; the quotient's magnitude is at most 106,751,991,
@@ -615,6 +626,53 @@ public final class VarkaIntervalCompiler {
     return rolledBack(VarkaNodeCompiler.arithOver(
         op, Overflow.FAIL, x.get(), y.get(), whole, literals, mark, sink), literals, mark,
         sink, longMark);
+  }
+
+  /**
+   * Whether the node a measured day-time form builds over its operands carries a check on the long
+   * lane: the add's or subtract's own mode, the checked negation under {@code abs}'s blend, or the
+   * range guard of a product's operand. {@code (-dt) * 1}, which builds no node of its own, has
+   * none, so its operand's check is left to the negation's (unmeasured) family.
+   */
+  private static boolean ownLongCheck(VarkaVectorIR root, @Nullable IntOp op) {
+    if (op == null) {
+      return root instanceof IfElse e && e.thenNode() instanceof IntNeg n
+          && n.mode() != Overflow.WRAP;
+    }
+    // The form's own node is an IntArith of its operation: a product with a factor of 0 or 1 is
+    // its operand itself, whose check is that operand's family's.
+    if (!(root instanceof IntArith a) || a.op() != op || a.laneType() != LaneType.LONG) {
+      return false;
+    }
+    return a.mode() != Overflow.WRAP || (op == IntOp.MUL && a.left() instanceof GuardedRange g
+        && g.child().laneType() == LaneType.LONG);
+  }
+
+
+
+  /**
+   * {@code built}, or empty with {@link VarkaKernelPlan#TWO_LANE_CHECK_REASON} where its tree
+   * still holds a check on the long lane and the session refuses those on the two-lane host
+   * ({@link DeclineSink#declinesTwoLaneChecks}). Only the day-time forms the 128-bit baseline
+   * measured slower than the row path ask it, {@code dt + dt2 - dt}, {@code abs(dt)} and
+   * {@code dt * 3} (VARKA-612): the other long-lane checks, the TIME and TIMESTAMP_NTZ ones
+   * among them, keep fusing until a measurement says otherwise. Only the form's own check counts
+   * ({@link #ownLongCheck}), not one in its operands, which is that operand's family's to decline:
+   * an add or subtract whose check the range lattice took off wraps and stays fused; {@code abs}
+   * and the product build theirs whatever the range.
+   */
+  private static Optional<VarkaVectorIR> twoLaneMeasured(Supplier<Optional<VarkaVectorIR>> form,
+      @Nullable IntOp op, Expression whole, VarkaSlotTable literals, DeclineSink sink) {
+    int mark = literals.size();
+    int longMark = sink.longMark();
+    Optional<VarkaVectorIR> built = form.get();
+    if (built.isPresent() && sink.declinesTwoLaneChecks() && ownLongCheck(built.get(), op)) {
+      // A declined form leaves no literal slot behind, as a declined BIGINT operation does.
+      literals.truncate(mark);
+      sink.truncateLong(longMark);
+      return sink.decline(VarkaKernelPlan.TWO_LANE_CHECK_REASON, whole);
+    }
+    return built;
   }
 
   /**
