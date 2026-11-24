@@ -520,6 +520,17 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("-2 * dt", "the factor on the left is the same node; a negative factor swaps the "
         + "guard's ends, which are not symmetric",
         domain = Some(tryDomain("try_multiply(-2, dt)", "dt"))),
+      Row("dt / 24", "LongMath.divide HALF_UP by a divisor of a day: the floor quotient by a "
+        + "day and its remainder in [0, D), biased by half the divisor (one less for a negative "
+        + "value and an even divisor), give the quotient by 24 exactly over every long; a "
+        + "divisor that does not divide a day declines"),
+      Row("dt * 1.5", "Spark's Decimal product, HALF_UP(3x / 2): the operand guarded to the longs "
+        + "whose product by 3 fits, then the day split by 2; the guard declines some lanes "
+        + "Spark answers, which the row engine then does",
+        domain = Some(tryDomain("try_multiply(dt, 3)", "dt"))),
+      Row("dt / 1.5", "HALF_UP(2x / 3), the quotient by a decimal at least one in magnitude, "
+        + "which cannot raise; a divisor under one declines (VARKA-414)",
+        domain = Some(tryDomain("try_multiply(dt, 2)", "dt"))),
       Row("extract(DAY FROM dt)", "Java's truncating division by a day, exact over every long "
         + "and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines "
         + "(`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset"))),
@@ -2455,6 +2466,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "CAST(dt AS BIGINT)" -> Proved("long_divide.smt2"),
     "dt * 3" -> Proved("dt_arith.smt2"),
     "-2 * dt" -> Proved("dt_arith.smt2"),
+    "dt / 24" -> Proved("dt_arith.smt2"),
+    "dt * 1.5" -> Proved("dt_arith.smt2"),
+    "dt / 1.5" -> Proved("dt_arith.smt2"),
     "extract(DAY FROM dt)" -> Proved("long_divide.smt2"),
     "ym / 12" -> Proved("ym_divide.smt2"),
     "ym / -7" -> Proved("ym_divide.smt2"),
