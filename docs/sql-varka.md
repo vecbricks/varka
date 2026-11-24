@@ -290,7 +290,7 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `IntegerType` (`int`) | INT | 90 | 65 | 2 | plumbing 4, semantics 19 | 0 | 128 |
 | `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
 | `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
-| `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 82 |
+| `DoubleType` (`double`) | DOUBLE | 102 | 62 | 2 | plumbing 4, semantics 24, ulp 10 | 0 | 93 |
 | `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 26 | plumbing 3, semantics 35 | 3 | 93: 68 to precision 18, 25 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
@@ -306,7 +306,7 @@ One row per section of Spark's function registry, and per family of the operator
 | :--- | ---: | ---: | ---: | ---: | :--- | :--- |
 | conditional | 11 | 1 | 11 | 10 | float, dec | 329, 331, 338, 341, 348, 359 |
 | predicate | 16 | 6 | 15 | 8 | bool, dec | 27, 329, 331, 336, 338, 341, 347, 348, 359, 497 |
-| math | 59 | 17 | 33 | 8 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
+| math | 59 | 25 | 41 | 8 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
 | bitwise | 13 | 13 | 13 | 0 |  |  |
 | datetime | 41 | 27 | 36 | 0 | byte, short, int, bigint, float, double, dec, ntz, time, ym, dt | 103, 329, 339, 340, 343, 351 |
 | hash | 2 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 337, 359, 368 |
@@ -326,7 +326,7 @@ The math functions that do not fuse yet, by the plan row that fuses them (the on
 | :--- | :--- | :--- | :--- | :--- |
 | `atan2` | 356 | none | Spark's, bit for bit | exact; no contract |
 | `acosh`, `asinh`, `atanh`, `cosh`, `sinh`, `tanh` | 357 | none | Spark's, bit for bit | exact; no contract |
-| `cbrt`, `exp`, `expm1`, `hypot`, `log`, `log10`, `log1p`, `log2`, `ln`, `pow`, `power` | 358 | none | Spark's, bit for bit | exact; no contract |
+| `hypot`, `pow`, `power` | 358 | none | Spark's, bit for bit | exact; no contract |
 
 #### Casts by mode
 
@@ -1379,6 +1379,17 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `cot(x)` | `math` |  | 1 / Math.tan(x) | exact: per-lane Math call | vector |
 | `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | exact: per-lane Math call | vector |
 | `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | exact: per-lane Math call | per-lane: mask broadcast, mask test |
+| `exp(x)` | `math` |  | exact: a per-lane StrictMath.exp call, as Spark's code makes | exact: per-lane StrictMath call | vector |
+| `expm1(x)` | `math` |  | exact: a per-lane StrictMath.expm1 call | exact: per-lane StrictMath call | vector |
+| `cbrt(x)` | `math` |  | exact: a per-lane Math.cbrt call, the host's answer as Spark's | exact: per-lane Math call | vector |
+| `ln(x)` | `math` |  | exact: a per-lane StrictMath.log call, null at x <= 0.0 by Java's <=, so at -0.0 and not at NaN | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(x)` | `math` |  | the one-argument log as parsed: ln's call and null, with no divide; once the optimizer folds e, the divide by StrictMath.log(e) that Spark's code then makes | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log10(x)` | `math` |  | exact: a per-lane StrictMath.log10 call, null at x <= 0.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log1p(x)` | `math` |  | exact: a per-lane StrictMath.log1p call, null at x <= -1.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log2(x)` | `math` |  | ln(x) / StrictMath.log(2) as Spark writes it, the divisor folded | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(2.0D, x)` | `math` |  | a constant base: StrictMath.log(2.0) folded as the divisor | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(x2, x)` | `math` |  | StrictMath.log(x) / StrictMath.log(x2), null where either is at or below 0.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `exp(x) * 2.0D + 1.0D` | `floatingArithmetic`, `math` |  | the arithmetic around the call in the kernel | exact: per-lane StrictMath call | vector |
 
 #### Math functions as conditions
 
@@ -1592,7 +1603,7 @@ operands (a row counts once for each type it reads):
 | `byte` | 57 | 0 | 0 | 0 | 0 | 8 | 49 |
 | `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
 | `dec` | 93 | 1 | 50 | 12 | 0 | 0 | 30 |
-| `double` | 97 | 0 | 0 | 1 | 0 | 0 | 96 |
+| `double` | 108 | 0 | 0 | 1 | 0 | 0 | 107 |
 | `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
 | `int` | 185 | 14 | 0 | 4 | 1 | 1 | 165 |
