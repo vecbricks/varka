@@ -659,7 +659,9 @@ public final class VarkaIntervalCompiler {
    * among them, keep fusing until a measurement says otherwise. Only the form's own check counts
    * ({@link #ownLongCheck}), not one in its operands, which is that operand's family's to decline:
    * an add or subtract whose check the range lattice took off wraps and stays fused; {@code abs}
-   * and the product build theirs whatever the range.
+   * and the product build theirs whatever the range. A decimal factor's product, {@code dt * 1.5},
+   * and the divide, {@code dt / 1.5}, keep their operand's range guard under the half-up divide,
+   * which is not the product's own node: unmeasured, they fuse at both widths.
    */
   private static Optional<VarkaVectorIR> twoLaneMeasured(Supplier<Optional<VarkaVectorIR>> form,
       @Nullable IntOp op, Expression whole, VarkaSlotTable literals, DeclineSink sink) {
