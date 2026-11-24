@@ -46,14 +46,18 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
   private lazy val table =
     VarkaCoverageRows.read(getWorkspaceFilePath("sql", "varka", "coverage.json"))
 
+  private val compositionFamily = "coverage compositions"
+
   /**
    * Projections of twenty to two hundred entries drawn from the coverage table's projection
    * rows, through the compiler: entries of every family the compiler admits, over the table's
    * columns, with the sharing a real projection has rather than a ladder's or a random tree's.
-   * The compiler fuses one lane and declines the rest; the kernel it makes is the shape.
+   * The compiler fuses one lane and declines the rest; the kernel it makes is the shape. The
+   * draw's seed is 20261001 unless `-Dvarka.groupingBound.seed=<seed>` names another, for a run
+   * that holds the tests to other draws.
    */
   private def compositions: Seq[VarkaEmitCostCorpus.Shape] = {
-    val rnd = new Random(20261001L)
+    val rnd = new Random(sys.props.getOrElse("varka.groupingBound.seed", "20261001").toLong)
     (0 until 60).flatMap { i =>
       val drawn = table.projections.filterNot(r => VarkaCoverageRows.readsNarrow(r.executable))
       val picked = Seq.fill(20 + rnd.nextInt(181))(drawn(rnd.nextInt(drawn.size)))
@@ -62,7 +66,7 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
       }
       VarkaExpressionCompiler.compilePartial(list, table.columns, options).toScala.map { partial =>
         val fused = partial.fused
-        new VarkaEmitCostCorpus.Shape("coverage compositions", i, fused.outputs,
+        new VarkaEmitCostCorpus.Shape(compositionFamily, i, fused.outputs,
           fused.inputOrdinals.size, math.max(fused.literals.size, fused.longLiterals.size))
       }
     }
@@ -164,22 +168,22 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
   }
 
   test("under the exact grouping no shape declines, and none falls back to the greedy grouping " +
-      "where the driver splits") {
+      "except once for a composition under the unrolled driver") {
     // A class the exact grouping would make decline is built again greedily, so a decline alone
     // cannot show the switch costing a kernel: the fallback hides it. What the test holds is
     // that the fallback never runs for the exact grouping - a shape drops no more switches under
     // it than under the greedy grouping - and it reports the loop methods each emits as shipped,
     // after the measurement's regroup.
     //
-    // That holds only where the driver splits into stages: the driver from a table under
-    // `splitDriver` (VarkaLoopEmitter's stage split). The unrolled driver grows with the outputs
-    // and cannot split, and the compiler cuts a composition to the largest prefix whose greedy
-    // class fits, so its driver ends a few bytes under the byte budget. The exact grouping may
-    // take one group more for fewer ops, and that group's two calls (52 bytes in the masked
-    // driver) can put the driver over, which the fallback answers. There the test holds only
-    // that the exact grouping emits wherever the greedy one does (`m8/PLAN.md` row 644; the
-    // capped retry that would remove the fallback is `m9/SCOPE.md` item 139).
-    val driverSplits = options.driverOutputTable && options.splitDriver
+    // One case is excused, and only once a shape. The unrolled driver (`driverOutputTable` off)
+    // grows with the outputs and cannot split into stages (VarkaLoopEmitter's stage split), and
+    // the compiler cuts a composition to the largest prefix whose greedy class fits, so the
+    // composition's driver ends a few bytes under the byte budget. The exact grouping may take
+    // one group more for fewer ops, and that group's two calls (52 bytes in the masked driver)
+    // can put the driver over, which the fallback answers by dropping the exact grouping. The
+    // corpus shapes are not cut to the greedy driver and get no excuse (`m8/PLAN.md` row 644;
+    // the capped retry that would remove the fallback is `m9/SCOPE.md` item 139).
+    val excused = if (options.driverOutputTable) 0 else 1
     val exactOptions = options.withExactGrouping(true)
     val totals = scala.collection.mutable.LinkedHashMap[String, (Int, Int)]()
     for (shape <- shapes) {
@@ -188,10 +192,11 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
       val name = s"${shape.family} ${shape.index}"
       assert(greedy.isEmpty || exact.nonEmpty,
         s"$name emits under the greedy grouping and declines under the exact one")
-      if (driverSplits) {
-        assert(exact.map(_._2) === greedy.map(_._2),
-          s"$name falls back from the exact grouping to make a class that fits")
-      }
+      val allowed = if (shape.family == compositionFamily) excused else 0
+      assert(exact.isEmpty == greedy.isEmpty &&
+        exact.zip(greedy).forall { case (e, g) => e._2 >= g._2 && e._2 <= g._2 + allowed },
+        s"$name falls back from the exact grouping to make a class that fits: " +
+          s"${exact.map(_._2)} switches dropped, ${greedy.map(_._2)} under the greedy grouping")
       val (g, e) = totals.getOrElse(shape.family, (0, 0))
       totals(shape.family) = (g + greedy.map(_._1).getOrElse(0), e + exact.map(_._1).getOrElse(0))
     }
