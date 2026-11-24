@@ -181,8 +181,6 @@ public final class VarkaReference {
       case CanonicalFloat n -> map(n.child(), row, isNull, lits,
           v -> Float.floatToRawIntBits((Float) NormalizeFloatingNumbers$.MODULE$
               .FLOAT_NORMALIZER().apply(Float.intBitsToFloat(v))));
-      case VarkaVectorIR.GuardedProduct n -> throw VarkaErrors.illegalArgument(
-          "a guarded product is a long-lane value: " + n);
       case IntNeg n -> {
         var c = value(n.child(), row, isNull, lits);
         if (c.isEmpty()) {
@@ -582,14 +580,6 @@ public final class VarkaReference {
         var c = longValue(n.child(), row, isNull, lits);
         yield c.isEmpty() ? c : OptionalLong.of(c.getAsLong() / n.divisor());
       }
-      // Java's wrapping `*`: on a row the pre-check admits the product is below 2^63 in
-      // magnitude, so this is the exact one; a row it trips on is declined, which is
-      // VarkaGuardSpecs' to say, not a value of this evaluator's.
-      case VarkaVectorIR.GuardedProduct n -> {
-        var a = longValue(n.left(), row, isNull, lits);
-        var b = a.isEmpty() ? a : longValue(n.right(), row, isNull, lits);
-        yield b.isEmpty() ? b : OptionalLong.of(a.getAsLong() * b.getAsLong());
-      }
       case GuardedRange g -> {
         var c = longValue(g.child(), row, isNull, lits);
         yield c.isPresent() && nulls(g, c.getAsLong()) ? OptionalLong.empty() : c;
@@ -832,7 +822,8 @@ public final class VarkaReference {
 
   /**
    * {@code fn} as Spark's generated code computes it: {@code java.lang.Math}'s method, which for
-   * {@code asin}, {@code acos} and {@code atan} is {@code StrictMath}'s on every host. Called by
+   * {@code asin}, {@code acos} and {@code atan} is {@code StrictMath}'s on every host, and
+   * {@code StrictMath}'s for the exponentials and logarithms, which Spark's code calls. Called by
    * name here, never by the class a lowering names, so a lowering calling the wrong class is
    * caught.
    */
@@ -845,6 +836,12 @@ public final class VarkaReference {
       case ASIN -> Math.asin(v);
       case ACOS -> Math.acos(v);
       case ATAN -> Math.atan(v);
+      case EXP -> StrictMath.exp(v);
+      case EXPM1 -> StrictMath.expm1(v);
+      case LOG -> StrictMath.log(v);
+      case LOG10 -> StrictMath.log10(v);
+      case LOG1P -> StrictMath.log1p(v);
+      case CBRT -> Math.cbrt(v);
     };
   }
 
@@ -852,8 +849,8 @@ public final class VarkaReference {
   private static float mathFloat(MathFn fn, float v) {
     return switch (fn) {
       case SQRT -> (float) Math.sqrt(v);
-      case SIN, COS, TAN, ASIN, ACOS, ATAN -> throw VarkaErrors.illegalArgument(
-          fn + " takes a DOUBLE operand only");
+      case SIN, COS, TAN, ASIN, ACOS, ATAN, EXP, EXPM1, LOG, LOG10, LOG1P, CBRT ->
+          throw VarkaErrors.illegalArgument(fn + " takes a DOUBLE operand only");
     };
   }
 

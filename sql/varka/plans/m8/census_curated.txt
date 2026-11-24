@@ -72,23 +72,23 @@ atan|double|double|double|done|356|exact: a per-lane StrictMath.atan call (VARKA
 atan2|double|double||ulp|367,356|Math
 atanh|double|double||ulp|367,357|Spark's formula over StrictMath.log
 bround|NUM|same|byte,short,int,bigint|semantics|344,346,351,363|HALF_EVEN; integral and decimal are semantics, double as round (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3
-cbrt|double|double||ulp|367,358|Math
+cbrt|double|double|double|done|358|exact: a per-lane Math.cbrt call (VARKA-358)
 ceil|NUM|bigint,dec|int~,bigint|semantics|344,351,363|double and integral give bigint, decimal a decimal of scale 0; fused for int in `ceil(i)`, the int under a cast to double
 ceiling|NUM|bigint,dec|bigint|semantics|344,351,363|alias of ceil
 cos|double|double|double|done|356|exact: a per-lane Math.cos call (VARKA-356)
 sec|double|double|double|done|356|1 / Math.cos, Java's division over the per-lane call (VARKA-356)
 cosh|double|double||ulp|367,357|Math
 degrees|double|double|double|done|342|Math.toDegrees is one multiply, bit-exact
-exp|double|double||ulp|367,358|StrictMath
-expm1|double|double||ulp|367,358|StrictMath
+exp|double|double|double|done|358|exact: a per-lane StrictMath.exp call (VARKA-358)
+expm1|double|double|double|done|358|exact: a per-lane StrictMath.expm1 call (VARKA-358)
 floor|NUM|bigint,dec|int~,bigint|semantics|344,351,363|double and integral give bigint, decimal a decimal of scale 0; fused for int in `floor(i)`, the int under a cast to double
 factorial|int|bigint||semantics|344|a table of 21 entries, null outside it
 hypot|double|double||ulp|367,358|Math
-log|double|double||ulp|367,358|StrictMath, one or two arguments
-log10|double|double||ulp|367,358|StrictMath
-log1p|double|double||ulp|367,358|StrictMath
-log2|double|double||ulp|367,358|StrictMath.log over a constant
-ln|double|double||ulp|367,358|StrictMath
+log|double|double|double|done|358|exact: StrictMath.log per lane under its null; with a base, Spark's quotient (VARKA-358)
+log10|double|double|double|done|358|exact: a per-lane StrictMath.log10 call under its null (VARKA-358)
+log1p|double|double|double|done|358|exact: a per-lane StrictMath.log1p call under its null (VARKA-358)
+log2|double|double|double|done|358|exact: StrictMath.log per lane over StrictMath.log(2) folded (VARKA-358)
+ln|double|double|double|done|358|exact: a per-lane StrictMath.log call under its null (VARKA-358)
 mod|NUM|same||semantics|30,95,346,577|integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; row 577 (VARKA-577.md; the owner's word of 7 November 2026)
 negative|NUM,IVL|same|byte,short,int,bigint,ym,dt,float,double,dec^|semantics|330,104,103,342,348,359|the minimum value overflows; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348) and as an output (348b), and counts fused with 359 (2.8)
 pmod|NUM|same||semantics|30,346,577|integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577
