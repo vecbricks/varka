@@ -23,8 +23,10 @@ import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChron
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitBudget.*;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,7 +65,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Dec
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedProduct;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.HashStep;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
@@ -266,12 +267,23 @@ final class Analysis {
 
   /**
    * The narrow columns a long-lane emission reads for their validity word alone, as
-   * {@code IsNotNull(WidenLane(column))}: the one narrow node such an emission may hold, since the
-   * word is a bit per row at every lane and the column's data is never loaded. The plan refuses
+   * {@code IsNotNull(WidenLane(column))} or under a longer chain of widenings: with the narrow
+   * widenings of such a chain ({@link #validityOnlyWidenings}), the only narrow nodes such an
+   * emission may hold, since the word is a bit per row at every lane and the column's data is
+   * never loaded. The plan refuses
    * any narrow value under a long kernel, so a narrow column reached any other way still fails
    * the lane rule.
    */
   private final Set<VarkaVectorIR> validityOnlyNarrow = new HashSet<>();
+  /**
+   * The narrow widenings of {@link #validityOnlyNarrow}'s chains, by identity: unlike a column,
+   * a narrow widening has no lowering as a value under a long kernel, so an equal node read as a
+   * value elsewhere is not admitted here. The guard against such a read is the plan's
+   * ({@code VarkaKernelPlan.loweredAtLong}); the walk skips a node equal to one it analyzed, so
+   * this set is the second line, not the first.
+   */
+  private final Set<VarkaVectorIR> validityOnlyWidenings =
+      Collections.newSetFromMap(new IdentityHashMap<>());
   /**
    * {@code Slots.bodyUses} per group body, keyed by the body's outputs and whether it is dense:
    * a group's loop and epilogue methods visit the same nodes, so the count is made once for both.
@@ -342,9 +354,7 @@ final class Analysis {
      * behind {@link VarkaEmitOptions#checkIntOverflow}. The arithmetic parks its operands and
      * result in {@link Slots#intArithTmp}, and {@code emitIntNeg} reads its operand back with
      * {@code dup}, so it parks nothing here. A NULL-mode node checks too, but narrows its own word
-     * instead of refusing the batch, so it has no reason. A {@link GuardedProduct} refuses with
-     * it unconditionally, in every mode, where its pre-check trips ({@code |a * b| >= 2^62} in
-     * doubles, row 611): a batch it declines may hold no overflow.
+     * instead of refusing the batch, so it has no reason.
      */
     INT_OVERFLOW(Family.CHECKED, false, VarkaFusedKernel.STATUS_INT_OVERFLOW),
     /**
@@ -955,8 +965,6 @@ final class Analysis {
             refuse(node, Refusal.INT_OVERFLOW);
           }
         }
-        // Unconditional, as a range guard is: the compiler admits the multiply on its strength.
-        case GuardedProduct n -> refuse(node, Refusal.INT_OVERFLOW);
         case GuardedDay n -> refuse(node, Refusal.DAY_RANGE);
         // A NULL guard nulls the lanes outside its bounds, as a NULL IntArith does, and like it
         // declines nothing.
@@ -1581,6 +1589,7 @@ final class Analysis {
       // narrow, by the classification it refuses with (VarkaKernelPlan.longNarrowRole,
       // VARKA-332); a validity-only narrow column, which the plan does not see, beside them.
       case LONG -> !type.isNarrow() || validityOnlyNarrow.contains(node)
+          || validityOnlyWidenings.contains(node)
           || VarkaKernelPlan.longNarrowRole(node) != VarkaKernelPlan.LongNarrowRole.NONE;
       // A narrow column alone of the narrow nodes, loaded as the long lane loads it (the plan's
       // narrowRefusal admits no other there).
@@ -1730,8 +1739,6 @@ final class Analysis {
         }
         analyzeOp(node, false, n.child());
       }
-      // It declines a batch and never nulls a lane, so a null operand nulls the product alone.
-      case GuardedProduct n -> analyzeOp(node, false, n.left(), n.right());
       // The bounded division: exact by its constructor over the bound the caller proved,
       // and like the constant division it neither overflows nor nulls a lane.
       case BoundedDivide n -> analyzeOp(node, false, n.child());
@@ -1845,15 +1852,25 @@ final class Analysis {
         // condition (VARKA-28).
         // A decimal column's word is a column's too; its leaf is emitted under the test all the
         // same, for the slot check Spark's IS NULL makes by reading the value (VARKA-347).
-        VarkaVectorIR column = n.child() instanceof WidenLane w ? w.child() : n.child();
+        // The compiler lifts a narrow test to the int lane and then to the long lane, so the
+        // column may sit under a chain of widenings, every one of which reads its word
+        // (VARKA-619).
+        VarkaVectorIR column = VarkaVectorIR.unwidened(n.child());
         if (!(column instanceof ColumnRef) && !(n.child() instanceof DecimalColumn)
             && !(n.child() instanceof DecimalWord) && !(n.child() instanceof Cond)) {
           throw VarkaErrors.illegalArgument("IsNotNull child must be a ColumnRef, a widened one, "
               + "a DecimalColumn, a DecimalWord or a Cond, got " + n.child());
         }
-        if (lane == Lane.LONG && n.child() instanceof WidenLane
-            && column.laneType().isNarrow()) {
-          validityOnlyNarrow.add(column);
+        if (lane == Lane.LONG) {
+          // Every narrow node of the chain is read for the word alone: the column, and a
+          // narrow widening above it, a byte widened to the short lane first.
+          for (VarkaVectorIR v = n.child(); v instanceof WidenLane w; v = w.child()) {
+            if (w.child() instanceof WidenLane narrow && narrow.laneType().isNarrow()) {
+              validityOnlyWidenings.add(narrow);
+            } else if (w.child().laneType().isNarrow()) {
+              validityOnlyNarrow.add(w.child());
+            }
+          }
         }
         // skips = true states the semantics - known output from a null input - for the value
         // over a condition that reaches a root: IfElse, which marks skipping itself, and
