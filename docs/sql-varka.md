@@ -287,16 +287,16 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `BooleanType` (`bool`) | bitmap | 41 | 29 | 2 | plumbing 4, semantics 6 | 0 | 40 |
 | `ByteType` (`byte`) | BYTE, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 57 |
 | `ShortType` (`short`) | SHORT, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 55 |
-| `IntegerType` (`int`) | INT | 90 | 65 | 2 | plumbing 4, semantics 19 | 0 | 128 |
+| `IntegerType` (`int`) | INT | 90 | 66 | 2 | plumbing 4, semantics 18 | 0 | 128 |
 | `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
 | `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
 | `DoubleType` (`double`) | DOUBLE | 102 | 62 | 2 | plumbing 4, semantics 24, ulp 10 | 0 | 93 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 26 | plumbing 3, semantics 35 | 3 | 93: 68 to precision 18, 25 at precision 19 to 38 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 26 | plumbing 3, semantics 33 | 3 | 93: 68 to precision 18, 25 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
 | `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
 | `YearMonthIntervalType` (`ym`) | INT | 55 | 36 | 3 | plumbing 3, semantics 13 | 0 | 37 |
-| `DayTimeIntervalType` (`dt`) | LONG | 57 | 34 | 2 | plumbing 5, semantics 16 | 0 | 33 |
+| `DayTimeIntervalType` (`dt`) | LONG | 57 | 35 | 2 | plumbing 5, semantics 15 | 0 | 36 |
 
 #### By family
 
@@ -315,7 +315,7 @@ One row per section of Spark's function registry, and per family of the operator
 | conversion, no registry entry | 1 | 0 | 1 | 1 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 332, 343, 350, 364, 365, 366, 368 |
 | predicate, no registry entry | 1 | 0 | 1 | 0 | bool, dec | 329, 341, 348, 359, 497 |
 | datetime, no registry entry | 9 | 8 | 8 | 0 | date | 39 |
-| interval, no registry entry | 10 | 2 | 4 | 0 | byte, short, int, bigint, float, double, dec, ym, dt | 89, 103, 157, 329, 342, 361, 363 |
+| interval, no registry entry | 10 | 2 | 5 | 0 | byte, short, int, bigint, float, double, dec, ym, dt | 89, 103, 157, 329, 342, 361, 363 |
 | internals, no registry entry | 4 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 330, 333, 337, 342 |
 
 #### Math functions
@@ -544,6 +544,9 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `dt + INTERVAL '1' DAY` | `interval` | `if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)` | the literal, cast to the column's unit and folded, takes a slot in the long lane's table | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 | `dt * 3` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 | `-2 * dt` | `interval` | `if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)` | the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `dt / 24` | `interval` |  | LongMath.divide HALF_UP by a divisor of a day: the floor quotient by a day and its remainder in [0, D), biased by half the divisor (one less for a negative value and an even divisor), give the quotient by 24 exactly over every long; a divisor that does not divide a day declines | vector |
+| `dt * 1.5` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | Spark's Decimal product, HALF_UP(3x / 2): the operand guarded to the longs whose product by 3 fits, then the day split by 2; the guard declines some lanes Spark answers, which the row engine then does | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `dt / 1.5` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 2) IS NOT NULL)` | HALF_UP(2x / 3), the quotient by a decimal at least one in magnitude, which cannot raise; a divisor under one declines (VARKA-414) | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `extract(DAY FROM dt)` | `interval` |  | Java's truncating division by a day, exact over every long and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset | vector |
 
 #### Integer arithmetic
@@ -1602,11 +1605,11 @@ operands (a row counts once for each type it reads):
 | `bool` | 39 | 0 | 0 | 0 | 13 | 0 | 26 |
 | `byte` | 57 | 0 | 0 | 0 | 0 | 8 | 49 |
 | `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
-| `dec` | 93 | 1 | 50 | 12 | 0 | 0 | 30 |
+| `dec` | 95 | 1 | 50 | 14 | 0 | 0 | 30 |
 | `double` | 108 | 0 | 0 | 1 | 0 | 0 | 107 |
-| `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
+| `dt` | 39 | 2 | 0 | 7 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
-| `int` | 185 | 14 | 0 | 4 | 1 | 1 | 165 |
+| `int` | 186 | 14 | 0 | 5 | 1 | 1 | 165 |
 | `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
 | `short` | 55 | 0 | 0 | 0 | 0 | 8 | 47 |
 | `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
