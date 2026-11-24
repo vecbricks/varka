@@ -244,8 +244,10 @@ favours, and each can be reversed in review.
    only from the first deletion on.
 5. **The drawn corpus is every grammar of `VarkaIrGrammar`**, eighteen of them taken in turn, not
    the two the branch's suite drew: the decimal, floating, narrow-lane and cast grammars are
-   where master's new records are drawn. `VarkaNodePropsSuite.drawnShapes` and `nodesOf` are the one corpus, and
-   489b's equivalence suite reads it.
+   where master's new records are drawn. `VarkaNodePropsSuite.drawnShapes` and `nodesOf` are the
+   one corpus, and 489b's equivalence suite reads it. *Correction, 24 November 2026:* the suite
+   took 16 grammars, not 18; the review found the floating-arithmetic and canonical grammars
+   missing, and they now join at both floating lanes.
 6. **The cost kind is built with `getClass().getSimpleName()`**, the expression `kindOf` uses,
    rather than a literal record name, so the key cannot drift from the class's name.
 
@@ -270,7 +272,8 @@ fusion dump are owed with 489b, where they first can move.
   records, from the branch's 488 for 47; written from master's arms they are 495, because a
   record states one constructor call of seven arguments and keeps its arm's comment, while the
   branch had a line per argument.
-- **Measured:** `build/sbt catalyst/Test/compile` passes; the suite's time is measured with 489b.
+- **Measured:** `build/sbt catalyst/Test/compile` passes. The suite's time (prediction 2) is not
+  measured yet.
 
 **Rebased onto master, 23 November 2026** (`f3b97c0b503`). Master had added five records since
 the build, `ReinterpretLane`, `Fma`, `CanonicalFloat`, `CanonicalBits` and `HashStep`, each given
