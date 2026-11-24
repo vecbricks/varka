@@ -238,6 +238,16 @@ public final class VarkaKernelPlan {
       + "and the compare would run the Vector API's Java fallback, slower than the row engine";
 
   /**
+   * The reason the compiler records where it declines a checked operation on a 64-bit lane on
+   * the two-lane host: a checked {@code BIGINT} operation (VARKA-104) and the day-time interval
+   * arithmetic measured slower there (VARKA-612, {@code VarkaIntervalCompiler.twoLaneMeasured}).
+   */
+  public static final String TWO_LANE_CHECK_REASON = "a checked operation on a 64-bit lane, on "
+      + "an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a "
+      + "long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's "
+      + "Java fallback";
+
+  /**
    * Whether {@code host}, read on this JVM, runs every mask of a 64-bit species as the Vector
    * API's Java fallback: {@link #twoLaneMasksFallBack(VarkaHostIsa.Reading, int)} of the reading
    * and this JVM's preferred long species. The lane count is the running JVM's own,
@@ -340,6 +350,11 @@ public final class VarkaKernelPlan {
    * {@code BIGINT}, whose load is one plain vector, ran at 1.6X and more, and {@code x < x2} over
    * {@code DOUBLE} tied ({@code m8/results/VARKA-596/}). A refused output leaves the other entries
    * to fuse.
+   *
+   * <p>A check on the long lane is not refused here: the compiler declines the families whose
+   * checked forms were measured slower than the row path at two lanes, a checked {@code BIGINT}
+   * operation and the day-time interval arithmetic ({@code VarkaIntervalCompiler.twoLaneMeasured},
+   * VARKA-612), so that a family not measured there keeps fusing.
    */
   private static Optional<Refusal> hostRefusal(List<VarkaVectorIR> roots, VarkaKernelPlan plan) {
     if (plan.drive.bits() != 64) {

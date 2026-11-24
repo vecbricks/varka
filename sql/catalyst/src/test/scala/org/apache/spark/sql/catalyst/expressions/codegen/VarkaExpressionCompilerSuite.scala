@@ -3395,7 +3395,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Subtract(l, l2, EvalMode.ANSI), UnaryMinus(l, failOnError = true),
       Abs(l, failOnError = true))
     for (e <- checked) {
-      assert(reasons(e, twoLane) === Seq(VarkaNodeCompiler.TWO_LANE_CHECK_REASON), e)
+      assert(reasons(e, twoLane) === Seq(VarkaKernelPlan.TWO_LANE_CHECK_REASON), e)
       assert(reasons(e, VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
     }
     val wrapping = Seq(Add(l, l2, EvalMode.LEGACY), Abs(l, failOnError = false),
@@ -3403,8 +3403,18 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for (e <- wrapping) {
       assert(reasons(e, twoLane).isEmpty, e)
     }
-    // The scope is the BIGINT arms: TIMESTAMP_NTZ's checked difference (row 339) is untouched.
+    // The day-time interval forms the 128-bit baseline measured slower than the row path decline
+    // the same way (VARKA-612); the negation, unmeasured, and TIMESTAMP_NTZ's checked difference
+    // (row 339), which builds the same long-lane check under another type, keep fusing.
+    val measured = Seq(Add(dt, dt), Subtract(dt, dt), Abs(dt), MultiplyDTInterval(dt, Literal(3)))
+    for (e <- measured) {
+      assert(reasons(e, twoLane) === Seq(VarkaKernelPlan.TWO_LANE_CHECK_REASON), e)
+      assert(reasons(e, VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
+    }
+    assert(reasons(UnaryMinus(dt), twoLane).isEmpty)
     assert(reasons(SubtractTimestamps(ntz, ntz), twoLane).isEmpty)
+    // A product by one is its operand, whose unmeasured check is not the product's to decline.
+    assert(reasons(MultiplyDTInterval(SubtractTimestamps(ntz, ntz), Literal(1)), twoLane).isEmpty)
   }
 
   test("a two-lane admission refuses a checked bigint and a decimal boolean in one projection") {
@@ -3421,7 +3431,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       new VarkaAdmission(java.util.Set.of(), true)).asScala.map { case (k, d) =>
         k.intValue -> d.reason }.toMap
     assert(twoLane === Map(0 -> VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON,
-      1 -> VarkaNodeCompiler.TWO_LANE_CHECK_REASON))
+      1 -> VarkaKernelPlan.TWO_LANE_CHECK_REASON))
     val partial = VarkaExpressionCompiler.compilePartial(list, columns,
       VarkaEmitOptions.DEFAULTS, new VarkaAdmission(java.util.Set.of(), true)).get
     assert(partial.specs.get(2).isInstanceOf[FusedOutput])
