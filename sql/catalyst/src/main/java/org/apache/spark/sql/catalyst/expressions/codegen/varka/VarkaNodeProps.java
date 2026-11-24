@@ -97,9 +97,9 @@ public record VarkaNodeProps(Ring ring, Validity validity, int weight, String co
     record Pick() implements Ring {}
 
     /**
-     * Narrow add, subtract, multiply or negate declared {@code mode}: a ring node where the
-     * emission does not check its overflow, since a checked node's range compare reads the exact
-     * narrow value.
+     * An add, subtract, multiply or negate declared {@code mode}, at any lane: a ring node on a
+     * narrow lane where the emission does not check its overflow, since a checked node's range
+     * compare reads the exact narrow value. The reader tests the lane, as for {@link #PICK}.
      */
     record Arith(Overflow mode) implements Ring {
       public Arith {
