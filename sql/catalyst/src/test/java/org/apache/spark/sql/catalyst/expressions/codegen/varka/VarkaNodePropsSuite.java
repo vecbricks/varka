@@ -137,7 +137,8 @@ public final class VarkaNodePropsSuite {
   /**
    * That {@code n}'s {@link Validity} fits its operands as the word folds assume. The record's
    * constructor cannot check it, since it has no node; {@code VarkaLaneTypeSuite} also asks it of
-   * its instance of every record, which reaches the records no grammar draws.
+   * its instance of every record (the integral ones at INT and LONG where they build, the floating
+   * ones at DOUBLE), which reaches the records no grammar draws.
    */
   static void assertValidityShape(VarkaVectorIR n) {
     String at = VarkaVectorIR.canonical(n);

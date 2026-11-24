@@ -324,7 +324,8 @@ to CI, since a pass now reads the descriptor.
 records then; the 61 after the rebase are under "Rebased onto master, 23 November 2026" below. The
 branch's own high review then moved `LiteralSlot`'s and the arithmetic's `fills` into exhaustive
 switches over the positions, `VarkaOperandPosition.LITERAL_FILLS` and `ARITH_FILLS`, so a new
-position is a compile error again, and made `isNarrowRing` read the mode its `Ring.Arith` states.)
+position is a compile error in those two sets again (elsewhere it is not, as before 489b), and made
+`isNarrowRing` read the mode its `Ring.Arith` states.)
 
 **489c, 20 November 2026** (branch `varka-489c-word-rules`, stacked on 489b). `Analysis.ownerOf`
 and `Analysis.pureOf` and `Slots.planWordRef` fold the node's `validity` over
@@ -427,15 +428,18 @@ the validity of the records the equivalence suite's analysis half never drew.
 
 **Later on 24 November 2026.** 489c's review left a descriptor whose `Validity` does not fit its
 operands (`STRICT` with none, `Operand` over a condition) unchecked outside the drawn shapes; a
-record's constructor cannot check it, having no node. `VarkaNodePropsSuite.assertValidityShape`,
-the drawn shapes' check, now also runs over `VarkaLaneTypeSuite`'s instance of every record at
-both lanes, which reaches the records no grammar draws. The owed suites ran once at 489c's tip on
-the laptop, in one sbt JVM, and pass (620 tests, 33 cancelled by their host assumptions):
-`VarkaIrFuzzSuite`, `VarkaEmitterValiditySuite`, `VarkaEmitterNullSafeSuite`,
-`VarkaEmitterBoolSuite`, `VarkaEmitterHashSuite`, `VarkaDecimalWordSuite`,
-`VarkaTwoLaneConditionSuite`, `VarkaEmitterDivisionSuite`, `VarkaEmitterRoundingSuite`,
-`VarkaEmitterFloatingArithSuite`, `VarkaEmitterFloatingCastSuite`, `VarkaEmitterMixedLaneSuite`,
-`VarkaSameAnswerContractSuite`, `VarkaConditionLiftSuite`, `VarkaExpressionCompilerSuite`,
+record's constructor cannot check it, having no node. `VarkaNodePropsSuite.assertValidityShape`, the
+drawn shapes' check, now also runs over `VarkaLaneTypeSuite`'s instance of every record: the
+integral ones at INT and LONG where they build, the four floating ones at DOUBLE. This reaches the
+records no grammar draws. Its `Input` arm compares with `inputOrdinal`, which since 489b reads the
+same `Validity`, so a wrong input ordinal is held only by the emitter suites. The owed suites ran
+once at 489c's tip on the laptop, in one sbt JVM, and pass (636 tests; 34 cancelled, every one an
+opt-in sweep): `VarkaIrFuzzSuite`, `VarkaEmitterValiditySuite`, `VarkaEmitterNullSafeSuite`,
+`VarkaEmitterBoolSuite`, `VarkaEmitterHashSuite`, `VarkaEmitterFmaSuite`,
+`VarkaEmitterCanonicalFloatSuite`, `VarkaDecimalWordSuite`, `VarkaTwoLaneConditionSuite`,
+`VarkaEmitterDivisionSuite`, `VarkaEmitterRoundingSuite`, `VarkaEmitterFloatingArithSuite`,
+`VarkaEmitterFloatingCastSuite`, `VarkaEmitterMixedLaneSuite`, `VarkaSameAnswerContractSuite`,
+`VarkaConditionLiftSuite`, `VarkaExpressionCompilerSuite`, `VarkaVectorIRSharingSuite`,
 `VarkaWithChildrenSuite`, `VarkaReproductionSuite`, `VarkaEmitterChronoSuite`,
-`VarkaKernelPlanSuite`, with `VarkaNodePropsSuite`, `VarkaLaneTypeSuite`,
-`VarkaEmitterBudgetSuite` and `VarkaEmitCostSuite`. CI's option matrix is still owed.
+`VarkaKernelPlanSuite`, with `VarkaNodePropsSuite`, `VarkaLaneTypeSuite`, `VarkaEmitterBudgetSuite`
+and `VarkaEmitCostSuite`. CI's option matrix is still owed.

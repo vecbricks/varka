@@ -17,7 +17,6 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -30,15 +29,17 @@ import java.util.function.Predicate;
  * {@code date_add(d, weekday(d2) + 1)} was fused in EXPLAIN and refused at emit time, which the
  * evaluator turns into a silent per-batch fallback.
  *
- * <p>{@link #takes}, {@link #LITERAL_FILLS} and {@link #ARITH_FILLS} are switches with no
- * default over the positions, and {@link #admits} and {@link #restrictedOperands} read the node's
- * {@link VarkaNodeProps}, which every record must supply, so a new node kind or position does not
- * compile until each says what it takes. A column takes every position, and the narrowings name
- * the one position their shape serves (see their {@code props()}). A position checks its
- * operand's own kind, not the subtree under it: that a day count is not a date further down is
+ * <p>{@link #takes}, {@link #LITERAL_FILLS} and {@link #ARITH_FILLS} are switches with no default
+ * over the positions, and {@link #admits} and {@link #restrictedOperands} read the node's
+ * {@link VarkaNodeProps}, which every record must supply, so a new node kind does not compile until
+ * it says what it takes, and a new position does not compile until the literal's and the
+ * arithmetic's sets decide it. Elsewhere a new position compiles: a column's {@code EnumSet.allOf}
+ * admits it, and the narrowings, which name the one position their shape serves, and every other
+ * record refuse it until its {@code fills} names it, so its author reviews each. A position checks
+ * its operand's own kind, not the subtree under it: that a day count is not a date further down is
  * the compiler arms' to build right. Narrowing a position here narrows both sides; widening one
- * also needs the compiler arm that builds the operand, which filters Catalyst expressions before
- * it asks.
+ * also needs the compiler arm that builds the operand, which filters Catalyst expressions before it
+ * asks.
  *
  * <p>The other operands take any int-valued node and the emitter checks nothing there, with one
  * structural exception outside this enum: {@code WeekOfYear} is defined over a {@code ThursdayOf}
@@ -97,7 +98,8 @@ public enum VarkaOperandPosition {
         set.add(p);
       }
     }
-    return Collections.unmodifiableSet(set);
+    // Set.copyOf, so that VarkaNodeProps' own copy returns it rather than copying it again
+    return Set.copyOf(set);
   }
 
   /** Whether this position takes {@code node}. */

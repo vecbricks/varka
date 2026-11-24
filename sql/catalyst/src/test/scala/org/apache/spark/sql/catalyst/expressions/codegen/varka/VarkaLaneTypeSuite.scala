@@ -567,6 +567,11 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       java.util.List.of[VarkaVectorIR](new Fma(fd, fd, new ColumnRef(1, LaneType.DOUBLE))), 2, 0,
       null, null, VarkaMatrix.base)
     assert(VarkaEmitterTestSupport.verify(fmaBytes).isEmpty, "Fma at DOUBLE verifies")
+    // The floating records, which the loop cannot build at an integral lane: their validity's
+    // shape at DOUBLE (VARKA-489).
+    Seq[VarkaVectorIR](sqrt, new Fma(fd, fd, new ColumnRef(1, LaneType.DOUBLE)),
+      new RoundToIntegral(RoundMode.RINT, fd), CanonicalFloat.of(fd))
+      .foreach(VarkaNodePropsSuite.assertValidityShape)
     // The subset VARKA-85.md 3.1 names, and nothing else: a calendar node at the long lane
     // is refused by its constructor, which is why it never reaches the emitter.
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",
