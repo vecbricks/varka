@@ -12,7 +12,7 @@ arguments.
    merge `origin/master`, the push check's R1 text check (seconds: a test registry lacking a new
    IR node fails before the regen), regenerate the generated files (or skip that, below),
    `extra-gate.sh` (lint-java, Error Prone, lint-scala, the invariant and proof suites),
-   `dev/varka_push_check.py`,
+   `dev/varka_push_check.py`, the skip-line recheck (below),
    then the arm sweep: every suite the branch adds or changes, under the defaults, `useAVX=2`,
    `useAVX=3` and each configuration whose option the branch's changed lines of
    `VarkaEmitOption.java`, `VarkaEmitOptions.java` or `VarkaMatrixRuns.java` name (below). On
@@ -74,7 +74,23 @@ files are exactly what git's own merge of its two parents writes (`git merge-tre
 hand-resolved code conflict runs the full gate and a resolved conflict in `PLAN.md` does not.
 The gate still merges, regenerates, runs `sql/Test/compile` when the branch touches catalyst or
 sql (a clean merge can still break compilation, as #1258 and #1261 did), and runs
-`extra-gate.sh` and the push check. `PRE_PR_FULL=1` runs the sweep anyway.
+`extra-gate.sh`, the push check and the skip-line recheck. `PRE_PR_FULL=1` runs the sweep anyway.
+
+**The skip-line recheck.** A clean merge of master keeps a branch's old green matrix, yet
+master's edits to `sql/varka/matrix/skips.tsv` can leave a line stale that no matrix has run
+with the branch: #1644 re-added a line #1643 had deleted, both merged clean, and #1693's option
+matrix failed it. So every skip line added or deleted since the branch's last stamp (with no
+stamp, since its merge base) reruns its suite under its configuration, in a merge-only re-gate
+too. When `sql/varka/coverage.json` changed as well, the suites that draw their cases from the
+coverage table (`VarkaGroupingBoundSuite`) rerun under each configuration their skip lines name
+and under `driverOutputTable=false`, since a new draw can make a passing test fail.
+
+**The tree-equal path.** `PRE_PR_TREE_EQUAL=<sha>` serves a stacked branch whose parent
+squash-merged after a rehearsed merge of the two had passed the full gate. When HEAD, after the
+gate's merge of master, has exactly the tree of `<sha>`, `<sha>` is in this worktree's
+`stamps/<worktree-dir>.history`, and HEAD contains `origin/master`, the gate runs no step and
+stamps HEAD with the mode `tree-equal:<sha>`. Otherwise it logs why and runs as usual. A dry run
+ignores it.
 
 **A dry run.** `PRE_PR_DRY=1 pre-pr.sh <worktree>` prints the steps a gate would take, the
 merge-only decision and the sweep's configurations, and changes nothing: no fetch, merge,
@@ -98,6 +114,7 @@ the last stamp.
 | `PRE_PR_EXCLUSIVE`, `PRE_PR_FORCE_REGEN` | 0, 0 | run alone; regenerate anyway |
 | `PRE_PR_FULL`, `PRE_PR_SWEEP` | 0, empty | sweep after a merge-only change; `all`: every arm |
 | `PRE_PR_DRY`, `PRE_PR_DRY_SINCE` | 0, empty | print the plan only; decide from that commit |
+| `PRE_PR_TREE_EQUAL` | empty | a stamped commit whose tree HEAD may equal: stamp without running |
 | `SKIP` | empty | PR numbers `watch-any-ready.sh` ignores |
 | `VARKA_OPS_WATCHERS` | `watch-ready.sh watch-failed.sh` | watchers `ops-status.sh` looks for |
 
@@ -121,6 +138,8 @@ dev/varka_ops/start-waiter.sh 1700 <build-run-id> varka-123-foo
   fix, commit, and queue the gate again. `merge: conflict` lists the files: resolve, commit,
   rerun. `start: the worktree has uncommitted changes`: commit or move them aside first.
 - `arm sweep`: the failing configurations are printed; rerun one with `dev/varka_matrix.sh`.
+- `skip recheck: <suite> under <configuration>`: a changed skip line is stale or its suite now
+  fails there; fix the line or the code, commit, and gate again.
 - `no pre-pr.sh pass on <sha>` or `review-covers: commits after the reviewed ...`: the head moved
   after a stamp; gate again, or review again for a non-merge commit.
 - `matrix-after-build-link.sh` writes `build ... failed=[...], no matrix` to its log when the
