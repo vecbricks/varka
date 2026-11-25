@@ -99,6 +99,11 @@ old behaviour is the bug. This follows row 541, which changed the fallback witho
 * Row 386 (planned) edits the same method for SPARK-60315's ordering; whichever lands second
   rebases on the other (the row's own note).
 * SPARK-61197 itself: Varka follows Spark's uncompiled behaviour, whichever it is.
+* The residual `FilterExec` above a Varka filter (found by the high review, 23 November 2026, not
+  reproduced): it evaluates the residual conjuncts' fold, so with codegen off and elimination on
+  an AND of that fold that is common can be evaluated ahead of its first operand where Spark's
+  tree would not, the same SPARK-61197 mismatch on the residual side. Out of this row: it needs
+  a residual whose AND is common, which `residualMissesElimination` does not look for.
 
 ### 3.3 Registered op counts
 
@@ -159,14 +164,21 @@ conjuncts in a different tree. Step 4 lists the plan strings that move.
    is harmless (the fallback reads an equal tree), and the first leaves today's behaviour; test 1
    asserts the tree is not the fold.
 2. A plan reader keys on `wholeCondition.isDefined` meaning "split", or reads the tree
-   differently from the fold. The readers (`git grep wholeCondition` under `src/main`):
+   differently from the fold. The readers under `src/main` (`git grep wholeCondition`):
    `fallbackCondition` (section 2); `compiledBySpark`'s `CodegenFallback` scan, which visits the
    same non-`AND` nodes in either form; `fallbackEliminatesSubexpressions`, whose
    `FilterExec(...).eliminatesSubexpressions` splits either into the same conjuncts;
    `VarkaFusionReport.predicateLines`, which flattens the conjuncts, so EXPLAIN's fusion lines
    are unchanged; the two copies in `VarkaColumnarRule` (lines 108 and 113) and the two
-   evaluator factories, which carry the field or `fallbackCondition` unread. None tests
-   `isDefined`, so a non-fold tree changes only the fallback's evaluation order.
+   evaluator factories, which carry the field or `fallbackCondition` unread. None of these tests
+   `isDefined`. One reader in `src/test` did: `VarkaSqlBenchmarkBase.isSplit` (VARKA-601) took a
+   set `wholeCondition` as "this filter was split", so a to-row Varka filter with no residual
+   whose tree is not its fold, under some other row `FilterExec`, would have been classed
+   `SPLIT`. It now asks for the split itself: the whole condition's conjuncts are exactly the
+   node's and the `FilterExec`'s above it. The other test readers construct the field, assert it
+   on a filter that is split (`VarkaDecimalBaselineQueriesSuite`, true either way), or are this
+   row's own tests; nothing under `dev/` reads it. So a non-fold tree changes only the
+   fallback's evaluation order.
 3. Row 386 lands first and reshapes `rewriteFilter`: rebase; the test is independent of the
    order rule.
 
@@ -198,7 +210,98 @@ whole-stage codegen off, under
 `spark.sql.subexpressionElimination.enabled` true and false, Varka raises or answers exactly as
 Spark does on that batch; `VARKA-541.md` 0 item 7 gets a dated note.
 
+## 10a. Decisions taken while the owner was away (20 November 2026)
+
+Built in a local-only window (the owner's order of 07:30 CET: implementation first, tests and CI
+in a later phase, at most one targeted run of the new test). Each decision below is the option
+the plan, `sql/varka/AGENTS.md` or the plan's own recommendations favour.
+
+1. **The fold test is structural, not `semanticEquals`.** Section 3.1 and risk 1 say
+   "semantically its fused conjuncts' left fold"; that test can never fire. `And.canonicalized`
+   (`predicates.scala`, `buildCanonicalizedPlan`) gathers the whole `AND` spine, sorts its
+   operands by hash and re-reduces them, so every `AND` tree is semantically equal to its own
+   fold. `rewriteFilter` compares `fused != condition` (case-class equality, the conjuncts being
+   the condition's own nodes: `predicateOnce` stores each untouched element of
+   `conjuncts(condition)` in its `VarkaConjunctSpec`, `VarkaExpressionCompiler.java:976`, so an
+   over-scan filter's fold equals its condition and its plan string keeps `None`), and the test
+   asserts the same way. A false "not the fold" from a
+   rewritten conjunct is the harmless direction (risk 1): the fallback then reads Spark's tree.
+2. **The reproducer's vehicle is a union with two pushdown rules excluded, not a `LIMIT`.**
+   Section 2's `LIMIT` child cannot fuse: both of `VarkaColumnarRule`'s filter arms require
+   `child.supportsColumnar && arrowFriendly(child)`, and `GlobalLimitExec` and `LocalLimitExec`
+   are row nodes (`limit.scala` has no `supportsColumnar`). An aggregate or a join, the plan's
+   fallback, is a row node too. The child has to be columnar, arrow-friendly, opaque to
+   `PhysicalOperation` (or `pruneFilterProject` folds the condition) and not pushed through by
+   the optimizer (the pushdowns read rebuild with `reduce(And)`, the one through a union among
+   them). The columnar non-scan children are Varka's own nodes and `UnionExec` (columnar when
+   its children are, `vectorTypes` `None`, so `arrowFriendly`), and a filter stays above either
+   only when a pushdown is blocked: by a nondeterministic expression, which Varka declines, or
+   by an expensive alias (a UDF or a costly regex) projected under the filter. That last path,
+   a partial `VarkaProjectExec` computing the UDF row by row under a filter that reads it twice,
+   was not worked through (`PushPredicateThroughNonJoin`'s split around expensive conditions
+   decides what tree stays up), so a default-configuration reproducer is not ruled out. With
+   `spark.sql.optimizer.excludedRules` naming `PushDownPredicates` and
+   `PushPredicateThroughNonJoin` (a public conf; both rules are excludable), the filter should
+   stay above `UNION ALL` of the cached table with itself, and `BasicOperators` keep the
+   optimizer's tree. The second rule is needed because `SparkOptimizer`'s "Extract UDFs" batch
+   runs it again under its own name, which the run below found.
+   The test uses that shape and `SELECT *`, so no column pruning puts a row `ProjectExec`
+   between the filter and the union. **This narrows the row's reach**: the shapes found by
+   reading need a non-default optimizer configuration, or the unexamined expensive-alias path,
+   to show. The fix stays,
+   because it is the by-construction argument of `VARKA-541.md` 0 item 7 and costs a field in
+   the plan string of only the shapes it changes; the owner may prefer to close the row as
+   low-reach once the run confirms.
+3. **The one allowed run is spent after the change**, on test 1. It carries an in-test control
+   in place of the pre-change run: the same `WHERE` directly over the cached table, on Spark
+   alone, with codegen off and elimination on, must answer `[2]` (Spark is handed the fold
+   there), while over the union Spark must raise. That shows the tree and the fold differ in
+   Spark's own uncompiled filter in the same run. Section 8's step 1 (the test on master),
+   step 3 (the planted fault) and step 4 (the four suites) are owed to the test phase.
+
 ## 11. Outcome
 
-*Filled in when the work lands: the runs with their commands, section 6.1's predictions scored
-one by one, and what moved that this plan did not list.*
+*Partial, 20 November 2026: built, one run; the rest is owed to the test phase.*
+
+Built: `rewriteFilter` passes `wholeCondition = Some(condition)` when there is a residual or the
+condition is not structurally its fused conjuncts' fold; the docs of `wholeCondition`,
+`fallbackCondition` and `VarkaFilterExecBase` say so; test 1 in `VarkaDifferentialSuite` over a
+`UNION ALL` with `PushDownPredicates` and `PushPredicateThroughNonJoin` excluded (decision 2),
+with the shape checks, the control
+over the scan, the codegen-off cells under elimination on and off, and the codegen-on cells
+through `checkFourCells`; `VARKA-541.md` 0 item 7 has its dated note.
+
+Predictions (section 6.1):
+
+1. Before the change, Spark raises and Varka answers in the elimination-on, codegen-off cell:
+   **owed** (step 1 not run; decision 3).
+2. After it, all cells agree: **owed** (the run below stopped at the shape check).
+3. Test time under 4 s: **owed**, and the evidence so far is against it: the failed run took
+   about 15 s to reach its shape check, before any of the eight cells. Part of that is the suite's
+   session start and the cached tables' first build, which a rerun measures apart.
+4. Plan strings move only for a filter not over a scan whose tree is not its fold: **owed**
+   (step 4); by decision 2's reading, no filter planned at the default configuration moves.
+
+
+The run, 20 November 2026, after the change: `build/sbt 'sql/testOnly *VarkaDifferentialSuite --
+-z "falls back on Spark"'` failed, in about 15 s, at the shape check, as designed for a vacuous
+shape. The control passed first: with codegen off and elimination on, Spark's filter over the
+scan answered `[2]`. Then Spark's physical `FilterExec` condition was its own left fold: with
+only `PushDownPredicates` excluded, the filter had still been pushed into both children of the
+union as `pushDown.reduceLeft(And)`, by `PushPredicateThroughNonJoin` in `SparkOptimizer`'s
+"Extract UDFs" batch. The test now excludes that rule as well. The run's log is kept at
+`target/varka-608/run608.log` in the worktree. It compiles, and has not been run
+again: the window allowed one run. Whether the shape now holds, and the cells, are owed.
+
+**The runs of 23 November 2026, after the high review** (on the branch merged with master at
+`f3b97c0b503`). The review asked that the test also check the Varka filter's fallback condition,
+so it now asserts that `wholeCondition` is Spark's tree (compared as SQL text, since the two
+sessions number their attributes apart); its title drops "with codegen off", since every cell
+runs. `build/sbt 'sql/testOnly *VarkaDifferentialSuite -- -z "falls back on Spark"'` passed: the
+shape held, the control answered, and the eight cells agreed (about 10 s by sbt's report, session
+start included). Run again with `VarkaColumnarRule.scala` and `VarkaFilterExec.scala` set back to
+the merge base, it failed at the new check, the Varka filter carrying no `wholeCondition`
+(`None`), so the test fails without the fix. Prediction 1, which reads the elimination-on cell
+before the fix, stays owed: that run stops at the earlier check. The planted-fault run (step 3)
+is owed.
+
