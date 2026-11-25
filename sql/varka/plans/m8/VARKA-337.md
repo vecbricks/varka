@@ -730,7 +730,7 @@ instruction sets. The committed file stays the AVX-512 host's, as decision 10 ha
 
 **The two-lane x86 hash kernels are admitted** (25 November 2026). At 128 bits the committed
 `width_audit.json` lists no Java fallback for the `hash` rows on the int lane alone (`hash(i)`,
-`hash(b)`, `hash(y1, s1, b)` and the like). A row read on the long lane lists the long lane's masked
+`hash(b)`, `hash(y1, s1, i)` and the like). A row read on the long lane lists the long lane's masked
 load and mask broadcast, as every long kernel at two lanes does, and the `xxhash64` rows and the
 double ones add the null skip's or the canonicalisation's 64-bit blend (`op=blend vlen=2`); the
 steps' multiplies, rotates and reinterpretations lower. Row 612's refusal (`VARKA-612.md` 3.1)

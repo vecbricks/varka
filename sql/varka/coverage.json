@@ -8606,16 +8606,28 @@
     "note" : "",
     "verified" : "differential"
   }, {
-    "sql" : "hash(y1, s1, b)",
-    "executable" : "hash(y1, s1, b)",
+    "sql" : "hash(y1, s1, i)",
+    "executable" : "hash(y1, s1, i)",
     "family" : "Hash",
     "form" : "projection",
     "catalyst" : [ "Murmur3Hash" ],
     "casts" : [ ],
-    "operands" : [ "Murmur3Hash:bool", "Murmur3Hash:byte", "Murmur3Hash:short" ],
+    "operands" : [ "Murmur3Hash:byte", "Murmur3Hash:int", "Murmur3Hash:short" ],
+    "switches" : [ "spark.sql.codegen.varka.family.hash.enabled" ],
+    "domain" : "",
+    "note" : "narrow children beside an int one, all in the int lane",
+    "verified" : "differential"
+  }, {
+    "sql" : "hash(b, i)",
+    "executable" : "hash(b, i)",
+    "family" : "Hash",
+    "form" : "projection",
+    "catalyst" : [ "Murmur3Hash" ],
+    "casts" : [ ],
+    "operands" : [ "Murmur3Hash:bool", "Murmur3Hash:int" ],
     "switches" : [ "spark.sql.codegen.varka.family.integralCast.enabled", "spark.sql.codegen.varka.family.hash.enabled" ],
     "domain" : "",
-    "note" : "",
+    "note" : "a boolean child beside an int one",
     "verified" : "differential"
   }, {
     "sql" : "hash(i, 7)",
