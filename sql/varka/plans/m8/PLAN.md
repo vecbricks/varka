@@ -373,7 +373,10 @@ TRY range check of those three, so that check is the sampled arm's throughout an
 LEGACY low bits are SMT's; they stay a mixed 3. *Corrected 1 November 2026 (`VARKA-365.md` 11):*
 vanilla Spark's rule below precision 19 is the exact one on every SQL read, so the kernel follows it
 there and the ANSI and TRY range check is SMT's below precision 19 and the sampled arm's above it,
-as first planned; still a mixed 3. Seven pairs are fused today, each in part (the note column says
+as first planned; still a mixed 3. *Changed 25 November 2026 by the backport of SPARK-60843:*
+Spark truncates a decimal exactly at every precision and either backing, so the 3 are SMT's like
+the other integer rules: 32 SMT pairs and none mixed (`m8/casts.tsv`); rows 350 and 364 are
+re-planned for it on their own. Seven pairs are fused today, each in part (the note column says
 which part). Beside the matrix, 368 runs Spark's own cast suites through the Varka evaluator and
 records fused or declined per pair and mode, as Gluten's tracker does, diffed against the matrix
 nightly.

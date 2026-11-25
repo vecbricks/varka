@@ -52,13 +52,12 @@ import org.apache.spark.unsafe.types.UTF8String;
  * read of a Varka node's input batch goes through {@code VarkaEvaluatorBase.inputRows}
  * (VARKA-365).
  *
- * <p>Why it matters: Spark's ANSI and TRY casts of a decimal to {@code INT}, {@code SMALLINT} and
- * {@code TINYINT} follow one of two rules, chosen by the value's backing
- * ({@code Decimal.roundToInt}): a long-backed value truncates its unscaled long and checks it
- * exactly, a {@code BigDecimal}-backed one rounds through a double, and the two part near whole
- * numbers and near the range's ends. Vanilla Spark's operators read the Arrow cache as rows and
- * meet long-backed values; a row of a columnar batch reads through {@code ArrowColumnVector},
- * whose small-decimal accessor builds a {@code BigDecimal}-backed one.
+ * <p>Why it matters: vanilla Spark's operators read the Arrow cache as rows and meet long-backed
+ * values, while a row of a columnar batch reads through {@code ArrowColumnVector}, whose
+ * small-decimal accessor builds a {@code BigDecimal}-backed one. Spark's casts truncate both
+ * backings exactly ({@code Decimal.roundToInt}), so over a well-formed slot the two give the same
+ * answers. They part on a slot outside the column's precision, which Spark's own writer never
+ * writes: the row reader answers its low word, and the accessor raises (the known limit below).
  *
  * <p>The view wraps a column only when it is an {@code ArrowColumnVector} over a
  * {@code DecimalVector}, Arrow Java's class for every decimal field narrower than 256 bits. A
