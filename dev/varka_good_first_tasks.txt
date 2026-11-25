@@ -1,4 +1,5 @@
-# Rows of the current milestone's task table a newcomer can finish in a day, at most five:
+# Open rows of the current milestone's task table, or of the one before it while it still runs,
+# that a newcomer can finish in a day, at most five:
 # <task number><TAB><why it is a good first task>. Read by dev/varka_issues.py, which puts
 # the "good first issue" label on their mirrored issues. Kept by hand, on purpose.
 81	planned already (VARKA-81.md): harvest Spark's date golden inputs through upstream's splitter and run them against Varka
