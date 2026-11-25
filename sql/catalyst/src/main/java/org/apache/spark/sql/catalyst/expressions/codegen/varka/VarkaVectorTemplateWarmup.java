@@ -1064,6 +1064,8 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.lanewise(VectorOperators.SADD, b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
+            // The epilogue's narrow rows one at a time (VARKA-550) at this species: withLane.
+            + a.withLane(1, (short) 3).lane(1)
             + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong()
             // A word mask's element select and bit test at this species, on the loaded vector
             // rather than a word broadcast as longs, which would add a long species of this shape.
