@@ -36,6 +36,7 @@ import org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark.Arm;
 import org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark.Data;
 import org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark.Form;
 import org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark.Op;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDecimalRemainderOps;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
 
 /**
@@ -164,6 +165,29 @@ public final class VarkaDecimalRemainderSpikeSuite {
         () -> VarkaDecimalRemainderSpikeBenchmark.fallbacks(log, "loopPmodD"));
     assertThrows(RuntimeException.class, () -> VarkaDecimalRemainderSpikeBenchmark.fallbacks(
         List.of("  3339 3066    b  4       " + loop, vs + "(intrinsic)"), "loopPmodE"));
+  }
+
+  @Test
+  @DisplayName("the out-of-line arm's check reads the helper's loop, which has no body to find")
+  void intrinsicCheckReadsTheHelperLoop() {
+    String owner = VarkaDecimalRemainderOps.class.getName();
+    String loop = owner + "::" + VarkaDecimalRemainderSpikeBenchmark.OPS_LOOP + " (1672 bytes)";
+    String vs = "    @ 155   jdk.internal.vm.vector.VectorSupport::binaryOp (38 bytes)   ";
+    String failed = vs + "failed to inline (intrinsic)";
+    var clean = List.of("  3339 3066    b  4       " + loop, vs + "(intrinsic)");
+    assertEquals(List.of(), VarkaDecimalRemainderSpikeBenchmark.fallbacks(clean, owner,
+        VarkaDecimalRemainderSpikeBenchmark.OPS_LOOP, false));
+    var boxed = List.of("  3339 3066    b  4       " + loop, vs + "(intrinsic)", failed);
+    assertEquals(List.of(failed.strip().replaceAll("\\s+", " ")),
+        VarkaDecimalRemainderSpikeBenchmark.fallbacks(boxed, owner,
+            VarkaDecimalRemainderSpikeBenchmark.OPS_LOOP, false));
+    // A compile whose tree holds no Vector API site read nothing, and throws.
+    assertThrows(RuntimeException.class, () -> VarkaDecimalRemainderSpikeBenchmark.fallbacks(
+        List.of("  3339 3066    b  4       " + loop), owner,
+        VarkaDecimalRemainderSpikeBenchmark.OPS_LOOP, false));
+    // The spike's own name for the method is not the helper's.
+    assertThrows(RuntimeException.class, () -> VarkaDecimalRemainderSpikeBenchmark.fallbacks(
+        clean, VarkaDecimalRemainderSpikeBenchmark.OPS_LOOP));
   }
 
   @Test

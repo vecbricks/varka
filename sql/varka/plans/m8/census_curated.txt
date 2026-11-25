@@ -72,23 +72,23 @@ atan|double|double|double|done|356|exact: a per-lane StrictMath.atan call (VARKA
 atan2|double|double||ulp|367,356|Math
 atanh|double|double||ulp|367,357|Spark's formula over StrictMath.log
 bround|NUM|same|byte,short,int,bigint|semantics|344,346,351,363|HALF_EVEN; integral and decimal are semantics, double as round (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3
-cbrt|double|double||ulp|367,358|Math
+cbrt|double|double|double|done|358|exact: a per-lane Math.cbrt call (VARKA-358)
 ceil|NUM|bigint,dec|int~,bigint|semantics|344,351,363|double and integral give bigint, decimal a decimal of scale 0; fused for int in `ceil(i)`, the int under a cast to double
 ceiling|NUM|bigint,dec|bigint|semantics|344,351,363|alias of ceil
 cos|double|double|double|done|356|exact: a per-lane Math.cos call (VARKA-356)
 sec|double|double|double|done|356|1 / Math.cos, Java's division over the per-lane call (VARKA-356)
 cosh|double|double||ulp|367,357|Math
 degrees|double|double|double|done|342|Math.toDegrees is one multiply, bit-exact
-exp|double|double||ulp|367,358|StrictMath
-expm1|double|double||ulp|367,358|StrictMath
+exp|double|double|double|done|358|exact: a per-lane StrictMath.exp call (VARKA-358)
+expm1|double|double|double|done|358|exact: a per-lane StrictMath.expm1 call (VARKA-358)
 floor|NUM|bigint,dec|int~,bigint|semantics|344,351,363|double and integral give bigint, decimal a decimal of scale 0; fused for int in `floor(i)`, the int under a cast to double
 factorial|int|bigint||semantics|344|a table of 21 entries, null outside it
 hypot|double|double||ulp|367,358|Math
-log|double|double||ulp|367,358|StrictMath, one or two arguments
-log10|double|double||ulp|367,358|StrictMath
-log1p|double|double||ulp|367,358|StrictMath
-log2|double|double||ulp|367,358|StrictMath.log over a constant
-ln|double|double||ulp|367,358|StrictMath
+log|double|double|double|done|358|exact: StrictMath.log per lane under its null; with a base, Spark's quotient (VARKA-358)
+log10|double|double|double|done|358|exact: a per-lane StrictMath.log10 call under its null (VARKA-358)
+log1p|double|double|double|done|358|exact: a per-lane StrictMath.log1p call under its null (VARKA-358)
+log2|double|double|double|done|358|exact: StrictMath.log per lane over StrictMath.log(2) folded (VARKA-358)
+ln|double|double|double|done|358|exact: a per-lane StrictMath.log call under its null (VARKA-358)
 mod|NUM|same||semantics|30,95,346,577|integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; row 577 (VARKA-577.md; the owner's word of 7 November 2026)
 negative|NUM,IVL|same|byte,short,int,bigint,ym,dt,float,double,dec^|semantics|330,104,103,342,348,359|the minimum value overflows; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348) and as an output (348b), and counts fused with 359 (2.8)
 pmod|NUM|same||semantics|30,346,577|integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577
@@ -202,10 +202,10 @@ datetime_sub|DatetimeSub|datetime|date,ntz,IVL|date,ntz|date,ym,ntz,dt|done|339|
 ntz_plus_dt|TimestampAddInterval|datetime|ntz,dt|ntz|ntz,dt|done|339|UTC, so plain arithmetic; exact or raise
 ntz_plus_ym|TimestampAddYMInterval|datetime|ntz,ym|ntz|ntz,ym|done|339|calendar months on the date part
 timestampadd|TimestampAdd|datetime|bigint,ntz|ntz|bigint,ntz|done|339|units up to a week are arithmetic, months and years calendar
-ym_times_num|MultiplyYMInterval|interval|ym,NUM|ym|ym~,int~|semantics|103,329,342|fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions; an integral literal factor over a stored column is row 103's guard (103a2); a decimal column factor is a product past 64 bits and a HALF_UP division by 10^s; unclaimed, suggested home rows 361 and 363 (VARKA-349.md 7)
-dt_times_num|MultiplyDTInterval|interval|dt,NUM|dt|dt,int~|semantics|103,342,361,363|fused in `dt * 3`, an integral literal factor under an exact guard; checked multiply; HALF_UP from fractions; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
+ym_times_num|MultiplyYMInterval|interval|ym,NUM|ym|ym~,int~|semantics|103,329,342|fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions; an integral literal factor over a stored column is row 103's guard (103a3); a decimal column factor is a product past 64 bits and a HALF_UP division by 10^s; unclaimed, suggested home rows 361 and 363 (VARKA-349.md 7)
+dt_times_num|MultiplyDTInterval|interval|dt,NUM|dt|dt,int~,dec~|semantics|103,342,361,363|fused in `dt * 3`, an integral literal factor under an exact guard, and in `dt * 1.5`, a decimal literal factor whose reduced denominator divides a day; checked multiply; HALF_UP from fractions; an integral column is row 103's (after 104); a floating factor is 342's lowering
 ym_div_num|DivideYMInterval|interval|ym,NUM|ym||semantics|89,342,363|HALF_UP division; a decimal divisor is a division by a variable, claimed by row 363 and declined until one is planned (VARKA-349.md 7)
-dt_div_num|DivideDTInterval|interval|dt,NUM|dt||semantics|103,342,361,363|HALF_UP division; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
+dt_div_num|DivideDTInterval|interval|dt,NUM|dt|dt,int~,dec~|semantics|103,342,361,363|fused in `dt / 24` and `dt / 1.5`, an integral or decimal literal whose reduced denominator divides a day; HALF_UP division; any other literal divisor and an integral column are row 103's (after 30); a floating factor is 342's lowering
 extract_ym_years|ExtractANSIIntervalYears|interval|ym|int|ym|done||
 extract_ym_months|ExtractANSIIntervalMonths|interval|ym|byte||plumbing|329|matched today only to decline: its result is a byte
 extract_dt_days|ExtractANSIIntervalDays|interval|dt|int|dt|done|103|fused in `extract(DAY FROM dt)`, the truncating division by a day over every long; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset

@@ -17,11 +17,10 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import java.util.EnumSet;
 import java.util.List;
-
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InterleaveDecimal;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
+import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * The operand positions whose node kinds the emitter restricts, which kinds each admits, and
@@ -30,12 +29,17 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wid
  * {@code date_add(d, weekday(d2) + 1)} was fused in EXPLAIN and refused at emit time, which the
  * evaluator turns into a silent per-batch fallback.
  *
- * <p>{@link #admits}, {@link #takes} and {@link #restrictedOperands} are switches with no
- * default, over the positions and over every node kind, so a new position or node kind does not
- * compile until each says what it takes. A position checks its operand's own kind, not the
- * subtree under it: that a day count is not a date further down is the compiler arms' to build
- * right. Narrowing a position here narrows both sides; widening one also needs the compiler arm
- * that builds the operand, which filters Catalyst expressions before it asks.
+ * <p>{@link #takes}, {@link #LITERAL_FILLS} and {@link #ARITH_FILLS} are switches with no default
+ * over the positions, and {@link #admits} and {@link #restrictedOperands} read the node's
+ * {@link VarkaNodeProps}, which every record must supply, so a new node kind does not compile until
+ * it says what it takes, and a new position does not compile until the literal's and the
+ * arithmetic's sets decide it. Elsewhere a new position compiles: a column's {@code EnumSet.allOf}
+ * admits it, and the narrowings, which name the one position their shape serves, and every other
+ * record refuse it, with no check, until its {@code fills} names it. A position checks
+ * its operand's own kind, not the subtree under it: that a day count is not a date further down is
+ * the compiler arms' to build right. Narrowing a position here narrows both sides; widening one
+ * also needs the compiler arm that builds the operand, which filters Catalyst expressions before it
+ * asks.
  *
  * <p>The other operands take any int-valued node and the emitter checks nothing there, with one
  * structural exception outside this enum: {@code WeekOfYear} is defined over a {@code ThursdayOf}
@@ -75,49 +79,32 @@ public enum VarkaOperandPosition {
   public record Restricted(VarkaOperandPosition position, VarkaVectorIR operand, String name) {
   }
 
+  /** The positions a {@code LiteralSlot} fills: a literal is no level, which is a column. */
+  static final Set<VarkaOperandPosition> LITERAL_FILLS = where(p -> switch (p) {
+    case DAY_OFFSET, MONTH_COUNT, WEEKDAY -> true;
+    case TRUNC_LEVEL -> false;
+  });
+
+  /** The positions an {@code IntArith} or an {@code IntNeg} fills: a day or month count. */
+  static final Set<VarkaOperandPosition> ARITH_FILLS = where(p -> switch (p) {
+    case DAY_OFFSET, MONTH_COUNT -> true;
+    case WEEKDAY, TRUNC_LEVEL -> false;
+  });
+
+  private static Set<VarkaOperandPosition> where(Predicate<VarkaOperandPosition> fills) {
+    Set<VarkaOperandPosition> set = EnumSet.noneOf(VarkaOperandPosition.class);
+    for (VarkaOperandPosition p : values()) {
+      if (fills.test(p)) {
+        set.add(p);
+      }
+    }
+    // Set.copyOf, so that VarkaNodeProps' own copy returns it rather than copying it again
+    return Set.copyOf(set);
+  }
+
   /** Whether this position takes {@code node}. */
   public boolean admits(VarkaVectorIR node) {
-    return switch (node) {
-      case ColumnRef _ -> true;
-      // A decimal's unscaled value is no day count, month count, weekday or level.
-      case DecimalColumn _ -> false;
-      case DecimalWord _ -> false;
-      case LiteralSlot _ -> switch (this) {
-        case DAY_OFFSET, MONTH_COUNT, WEEKDAY -> true;
-        case TRUNC_LEVEL -> false;
-      };
-      // A narrow column widened to the int lane (VARKA-329): `date_add(d, tinyint_column)`. The
-      // offset is the column's value, a sign extension that its load already does, so it is a
-      // column at this position; the widening of anything computed is not.
-      case WidenLane w -> this == DAY_OFFSET && w.target() == LaneType.INT
-          && w.child() instanceof ColumnRef c && c.laneType().isNarrow();
-      // A bigint month count narrowed to the int lane (VARKA-339), the shape
-      // `timestampadd(MONTH, l, ntz)` builds: its guard declines a batch with a lane past the month
-      // range rather than nulling the lane, so the narrowing is exact on every lane it passes, and
-      // AddMonths guards the count at run time. A cast's guard spans the int range, so
-      // `timestampadd(MONTH, CAST(l AS INT), ntz)` declines in every mode.
-      case NarrowLane n -> this == MONTH_COUNT && n.target() == LaneType.INT
-          && n.child() instanceof GuardedRange g && g.mode() == Overflow.FAIL
-          && g.lo() >= VarkaChrono.MONTH_ARITH_MIN_MONTHS
-          && g.hi() <= VarkaChrono.MONTH_ARITH_MAX_MONTHS;
-      case IntArith _, IntNeg _ -> switch (this) {
-        case DAY_OFFSET, MONTH_COUNT -> true;
-        case WEEKDAY, TRUNC_LEVEL -> false;
-      };
-      case AddDays _, SubDays _, DateDiff _, IfElse _, Greatest _, Least _, DayOfWeek _,
-           WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, AddMonths _, MakeDate _,
-           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, Fma _,
-           RoundToIntegral _, CanonicalFloat _, CanonicalBits _, HashStep _, GuardedDay _,
-           GuardedRange _,
-           ConvertLane _, ReinterpretLane _,
-           WidenDecimal _, InterleaveDecimal _, Year _, Month _, DayOfMonth _, Quarter _,
-           DayOfYear _,
-           LastDay _,
-           TruncDate _, TruncDateDynamic _, WeekOfYear _,
-           Compare _, NullSafeEqual _, And _, Or _, Not _, CrossLane _, IsNotNull _, InRanges _,
-           BoolColumn _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
-           CondValue _, NullValue _, BoolOutput _ -> false;
-    };
+    return node.props().fills().contains(this);
   }
 
   /** What this position takes, for a refusal; {@link #admits} in words. */
@@ -133,32 +120,6 @@ public enum VarkaOperandPosition {
 
   /** The operands of {@code node} that sit in a restricted position; none for most nodes. */
   public static List<Restricted> restrictedOperands(VarkaVectorIR node) {
-    return switch (node) {
-      case AddDays n -> List.of(
-          new Restricted(DAY_OFFSET, n.offset(), "date_add's day offset"));
-      case SubDays n -> List.of(
-          new Restricted(DAY_OFFSET, n.offset(), "date_sub's day offset"));
-      case AddMonths n -> List.of(
-          new Restricted(MONTH_COUNT, n.months(), "add_months' month count"));
-      case NextDay n -> List.of(
-          new Restricted(WEEKDAY, n.offset(), "next_day's weekday"));
-      case TruncDateDynamic n -> List.of(
-          new Restricted(TRUNC_LEVEL, n.level(), "trunc's level"));
-      case ColumnRef _, DecimalColumn _, DecimalWord _, LiteralSlot _, DateDiff _, IfElse _,
-           Greatest _, Least _,
-           DayOfWeek _,
-           WeekDay _, DayOfWeekIso _, ThursdayOf _, MakeDate _, IntArith _, IntNeg _,
-           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, Fma _,
-           RoundToIntegral _, CanonicalFloat _, CanonicalBits _, HashStep _, GuardedDay _,
-           GuardedRange _,
-           WidenLane _, ConvertLane _, ReinterpretLane _,
-           NarrowLane _, WidenDecimal _, InterleaveDecimal _, Year _, Month _, DayOfMonth _,
-           Quarter _, DayOfYear _,
-           LastDay _,
-           TruncDate _, WeekOfYear _, Compare _, NullSafeEqual _, And _, Or _, Not _, CrossLane _,
-           IsNotNull _,
-           InRanges _, BoolColumn _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
-           CondValue _, NullValue _, BoolOutput _ -> List.of();
-    };
+    return node.props().restricted();
   }
 }

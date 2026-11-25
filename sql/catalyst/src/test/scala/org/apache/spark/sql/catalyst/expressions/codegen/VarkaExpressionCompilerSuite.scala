@@ -1579,6 +1579,42 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "interval divisor is a NULL literal")
   }
 
+  test("`dt / num` and `dt * num` fuse the day split's forms and decline the rest, naming the " +
+      "row that claims it") {
+    val dt = AttributeReference("dt", DayTimeIntervalType())()
+    val cols = childOutput :+ dt
+    def dec(v: String): Literal = Literal(BigDecimal(v))
+    for (e <- Seq(DivideDTInterval(dt, Literal(24)), DivideDTInterval(dt, Literal(-24.toShort)),
+        DivideDTInterval(dt, Literal(86400000000L)), DivideDTInterval(dt, dec("1.5")),
+        DivideDTInterval(dt, dec("-2.5")), DivideDTInterval(dt, Literal(1)),
+        MultiplyDTInterval(dt, dec("1.5")), MultiplyDTInterval(dt, dec("-0.5")),
+        MultiplyDTInterval(dt, dec("0.0")), MultiplyDTInterval(dt, dec("0.07")))) {
+      assert(fuses(e, cols), e.sql)
+    }
+    val tooSmall = "day-time interval divisor under one in magnitude, or -1, gives a quotient " +
+      "that can leave the long, and a declined batch's fallback would raise it without its " +
+      "SQL context (VARKA-414)"
+    def notADayDivisor(d: String): String = s"day-time interval scaled by a fraction whose " +
+      s"denominator $d does not divide a day: row 30's constant division"
+    Seq(
+      DivideDTInterval(dt, Literal(0L)) -> "day-time interval divided by a literal zero raises",
+      DivideDTInterval(dt, dec("0.00")) -> "day-time interval divided by a literal zero raises",
+      DivideDTInterval(dt, Literal(-1.toByte)) -> tooSmall,
+      DivideDTInterval(dt, dec("-1.0")) -> tooSmall,
+      DivideDTInterval(dt, dec("0.5")) -> tooSmall,
+      DivideDTInterval(dt, Literal(7)) -> notADayDivisor("7"),
+      DivideDTInterval(dt, dec("7.0")) -> notADayDivisor("7"),
+      DivideDTInterval(dt, Literal(Long.MinValue)) -> notADayDivisor("9223372036854775808"),
+      MultiplyDTInterval(dt, dec("1.000000001")) -> notADayDivisor("1000000000"),
+      DivideDTInterval(dt, i) ->
+        "day-time interval divisor is not a literal: a column divisor is row 30's division",
+      DivideDTInterval(dt, Literal(null, IntegerType)) ->
+        "day-time interval divisor is a NULL literal",
+      MultiplyDTInterval(dt, Literal(null, DecimalType(2, 1))) ->
+        "day-time interval factor is a NULL literal"
+    ).foreach { case (e, reason) => assert(declineReason(e, cols) === reason, e.sql) }
+  }
+
   test("`extract(YEAR FROM ym)` fuses over a stored column, which no magic could serve") {
     // The point of the row: the operand is a stored month count with no bound at all, so the
     // calendar's range-narrowed magic is exact over about one forty-thousandth of it and cannot
@@ -2643,6 +2679,61 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(compiled.get.specs.asScala.map(_.fused) === Seq(true, true))
   }
 
+  test("a narrow column's null test in an int disjunct beside a bigint conjunct emits") {
+    // VARKA-619: the disjunct lifts the null test to the int lane beside `i < 3`, widening its
+    // column to the int lane, and the conjunction lifts the disjunct to the long lane beside the
+    // bigint conjunct. The long lift reads the column under the int widening, so the test is
+    // `isNotNull(widen:LONG col)`, as a null test lifted straight to the long lane is, and the
+    // kernel emits at the byte and the short column alike.
+    val options = VarkaMatrix.base.withLanesOverride(16).withValidityByWidth(true)
+    val ll = AttributeReference("ll", LongType)()
+    for ((column, lane) <- Seq(by -> LaneType.BYTE, sh -> LaneType.SHORT)) {
+      val pred = And(GreaterThan(ll, Literal(0L)), Or(IsNotNull(column), LessThan(i, Literal(3))))
+      val compiled = VarkaExpressionCompiler.compilePredicate(pred, childOutput :+ ll, options,
+        VarkaAdmission.NO_HOST_REFUSAL).toScala
+      assert(compiled.isDefined, s"the predicate over $lane should fuse")
+      assert(compiled.get.specs.asScala.map(_.fused) === Seq(true, true), lane)
+      val canonical = compiled.get.fused.outputs.asScala.map(VarkaVectorIR.canonical).mkString
+      assert(canonical.contains("(isNotNull (widen:LONG col:") &&
+        !canonical.contains("(widen:LONG (widen:INT col:"),
+        s"the null test reads the column through one widening: $canonical")
+      val bytes = VarkaLoopEmitter.emit(
+        s"org.apache.spark.sql.varka.execution.VarkaNullTestChain${System.nanoTime()}",
+        compiled.get.fused.outputs, compiled.get.fused.inputOrdinals.size,
+        compiled.get.fused.numLiterals, null, null, options)
+      assert(bytes.nonEmpty)
+    }
+  }
+
+  test("a SMALLINT or TINYINT column's null test lifted to a bigint kernel at the defaults " +
+      "widens the column once", PinsDefaults) {
+    // VARKA-619 at the defaults: a disjunction of null tests lifts to the int lane, widening each
+    // narrow column there, and the conjunction with a bigint conjunct lifts it on to the long
+    // lane, whose null test reads the column through one widening. The null tests beside a bigint
+    // conjunct, lifted straight to the long lane, are the controls.
+    val ll = AttributeReference("ll", LongType)()
+    val preds = And(GreaterThan(ll, Literal(0L)), Or(IsNotNull(sh), IsNotNull(by))) +:
+      Seq(sh, by).flatMap { column =>
+        Seq(
+          And(GreaterThan(ll, Literal(0L)), Or(IsNotNull(column), IsNotNull(i))),
+          And(LessThan(Cast(column, LongType), ll), IsNotNull(column)),
+          And(GreaterThan(ll, Literal(0L)), IsNotNull(column)))
+      }
+    for (pred <- preds) {
+      val compiled = VarkaExpressionCompiler.compilePredicate(pred, childOutput :+ ll,
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).toScala
+      assert(compiled.isDefined, s"$pred should fuse")
+      val canonical = compiled.get.fused.outputs.asScala.map(VarkaVectorIR.canonical).mkString
+      assert(!canonical.contains("(widen:LONG (widen:INT col:"),
+        s"the null test reads the column through one widening: $canonical")
+      val bytes = VarkaLoopEmitter.emit(
+        s"org.apache.spark.sql.varka.execution.VarkaShortNullTest${System.nanoTime()}",
+        compiled.get.fused.outputs, compiled.get.fused.inputOrdinals.size,
+        compiled.get.fused.numLiterals, null, null, VarkaEmitOptions.DEFAULTS)
+      assert(bytes.nonEmpty, pred)
+    }
+  }
+
   test("a boolean equality of two narrow conditions lifts into an int-lane conjunction") {
     // A comparison of two boolean conditions is a mask over them, so one over two narrow
     // comparisons is itself narrow - `compare` builds the BoolCompare with narrow operands -
@@ -3394,7 +3485,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Subtract(l, l2, EvalMode.ANSI), UnaryMinus(l, failOnError = true),
       Abs(l, failOnError = true))
     for (e <- checked) {
-      assert(reasons(e, twoLane) === Seq(VarkaNodeCompiler.TWO_LANE_CHECK_REASON), e)
+      assert(reasons(e, twoLane) === Seq(VarkaKernelPlan.TWO_LANE_CHECK_REASON), e)
       assert(reasons(e, VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
     }
     val wrapping = Seq(Add(l, l2, EvalMode.LEGACY), Abs(l, failOnError = false),
@@ -3402,8 +3493,18 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     for (e <- wrapping) {
       assert(reasons(e, twoLane).isEmpty, e)
     }
-    // The scope is the BIGINT arms: TIMESTAMP_NTZ's checked difference (row 339) is untouched.
+    // The day-time interval forms the 128-bit baseline measured slower than the row path decline
+    // the same way (VARKA-612); the negation, unmeasured, and TIMESTAMP_NTZ's checked difference
+    // (row 339), which builds the same long-lane check under another type, keep fusing.
+    val measured = Seq(Add(dt, dt), Subtract(dt, dt), Abs(dt), MultiplyDTInterval(dt, Literal(3)))
+    for (e <- measured) {
+      assert(reasons(e, twoLane) === Seq(VarkaKernelPlan.TWO_LANE_CHECK_REASON), e)
+      assert(reasons(e, VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
+    }
+    assert(reasons(UnaryMinus(dt), twoLane).isEmpty)
     assert(reasons(SubtractTimestamps(ntz, ntz), twoLane).isEmpty)
+    // A product by one is its operand, whose unmeasured check is not the product's to decline.
+    assert(reasons(MultiplyDTInterval(SubtractTimestamps(ntz, ntz), Literal(1)), twoLane).isEmpty)
   }
 
   test("a two-lane admission refuses a checked bigint and a decimal boolean in one projection") {
@@ -3420,12 +3521,29 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       new VarkaAdmission(java.util.Set.of(), true)).asScala.map { case (k, d) =>
         k.intValue -> d.reason }.toMap
     assert(twoLane === Map(0 -> VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON,
-      1 -> VarkaNodeCompiler.TWO_LANE_CHECK_REASON))
+      1 -> VarkaKernelPlan.TWO_LANE_CHECK_REASON))
     val partial = VarkaExpressionCompiler.compilePartial(list, columns,
       VarkaEmitOptions.DEFAULTS, new VarkaAdmission(java.util.Set.of(), true)).get
     assert(partial.specs.get(2).isInstanceOf[FusedOutput])
     assert(VarkaExpressionCompiler.declines(list, columns, VarkaEmitOptions.DEFAULTS,
       VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
+  }
+
+  test("a decimal cast's value declines on a two-lane host, and fuses elsewhere") {
+    // Its decimal load, the division's sign and its guards are long-lane masks and rearranges,
+    // which run as the Java fallback at two 64-bit lanes (VARKA-350.md 10.3).
+    val x = AttributeReference("x", DecimalType(16, 9))()
+    val columns = withLong :+ x
+    val casts = Seq(Cast(x, LongType), Cast(x, LongType, evalMode = EvalMode.ANSI),
+      Cast(Cast(x, DecimalType(10, 2)), LongType))
+    for (e <- casts) {
+      def reasons(admission: VarkaAdmission): Seq[String] =
+        VarkaExpressionCompiler.declines(Seq(out(e)), columns, VarkaEmitOptions.DEFAULTS,
+          admission).asScala.values.map(_.reason).toSeq
+      assert(reasons(new VarkaAdmission(java.util.Set.of(), true)) ===
+        Seq(VarkaDecimalCastCompiler.TWO_LANE_REASON), e)
+      assert(reasons(VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
+    }
   }
 
   test("a bigint IN beside a date comparison fuses both conjuncts at the long lane") {

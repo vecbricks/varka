@@ -212,6 +212,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [An overflowing `Math.*Exact` loses its message once its site has trapped enough](sql/varka/skills/the-jit.md#an-overflowing-mathexact-loses-its-message-once-its-site-has-trapped-enough)
 * [Which NaN an operation over two NaNs returns depends on the tier](sql/varka/skills/the-jit.md#which-nan-an-operation-over-two-nans-returns-depends-on-the-tier)
 * [A long-lane kernel unsettled in the compiled test is row 383's back-edge trap, not the sanitizer](sql/varka/skills/the-jit.md#a-long-lane-kernel-unsettled-in-the-compiled-test-is-row-383s-back-edge-trap-not-the-sanitizer)
+* [A compiler directive's inline list binds only the compiles its match names as their root](sql/varka/skills/the-jit.md#a-compiler-directives-inline-list-binds-only-the-compiles-its-match-names-as-their-root)
 
 #### [The Vector API and vector width](sql/varka/skills/vector-api-and-width.md)
 * [Vector API on HotSpot, Measured (JDK 25, x86-64)](sql/varka/skills/vector-api-and-width.md#vector-api-on-hotspot-measured-jdk-25-x86-64)

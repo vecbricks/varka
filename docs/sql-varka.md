@@ -287,16 +287,16 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `BooleanType` (`bool`) | bitmap | 41 | 29 | 2 | plumbing 4, semantics 6 | 0 | 40 |
 | `ByteType` (`byte`) | BYTE, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 57 |
 | `ShortType` (`short`) | SHORT, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 55 |
-| `IntegerType` (`int`) | INT | 90 | 65 | 2 | plumbing 4, semantics 19 | 0 | 128 |
+| `IntegerType` (`int`) | INT | 90 | 66 | 2 | plumbing 4, semantics 18 | 0 | 128 |
 | `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
 | `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
-| `DoubleType` (`double`) | DOUBLE | 102 | 54 | 2 | plumbing 4, semantics 24, ulp 18 | 0 | 82 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 2 | 26 | plumbing 3, semantics 35 | 3 | 100: 68 to precision 18, 32 at precision 19 to 38 |
+| `DoubleType` (`double`) | DOUBLE | 102 | 62 | 2 | plumbing 4, semantics 24, ulp 10 | 0 | 93 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 30 | plumbing 3, semantics 29 | 3 | 110: 78 to precision 18, 32 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
 | `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
 | `YearMonthIntervalType` (`ym`) | INT | 55 | 36 | 3 | plumbing 3, semantics 13 | 0 | 37 |
-| `DayTimeIntervalType` (`dt`) | LONG | 57 | 34 | 2 | plumbing 5, semantics 16 | 0 | 33 |
+| `DayTimeIntervalType` (`dt`) | LONG | 57 | 35 | 2 | plumbing 5, semantics 15 | 0 | 36 |
 
 #### By family
 
@@ -306,16 +306,16 @@ One row per section of Spark's function registry, and per family of the operator
 | :--- | ---: | ---: | ---: | ---: | :--- | :--- |
 | conditional | 11 | 1 | 11 | 10 | float, dec | 329, 331, 338, 341, 348, 359 |
 | predicate | 16 | 6 | 15 | 8 | bool, dec | 27, 329, 331, 336, 338, 341, 347, 348, 359, 497 |
-| math | 59 | 17 | 33 | 8 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
+| math | 59 | 25 | 41 | 8 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
 | bitwise | 13 | 13 | 13 | 0 |  |  |
 | datetime | 41 | 27 | 36 | 0 | byte, short, int, bigint, float, double, dec, ntz, time, ym, dt | 103, 329, 339, 340, 343, 351 |
 | hash | 2 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 337, 359, 368 |
-| conversion | 11 | 1 | 10 | 3 | bool, byte, short, int, bigint, float, double, dec, date, time, ym, dt | 28, 332, 338, 340, 343, 350, 364, 365, 366, 368 |
+| conversion | 11 | 1 | 10 | 5 | bool, byte, short, int, bigint, float, double, dec, date, time, ym, dt | 28, 332, 338, 340, 343, 350, 364, 365, 366, 368 |
 | misc | 2 | 2 | 2 | 0 |  |  |
 | conversion, no registry entry | 1 | 0 | 1 | 1 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 332, 343, 350, 364, 365, 366, 368 |
 | predicate, no registry entry | 1 | 0 | 1 | 0 | bool, dec | 329, 341, 348, 359, 497 |
 | datetime, no registry entry | 9 | 8 | 8 | 0 | date | 39 |
-| interval, no registry entry | 10 | 2 | 4 | 0 | byte, short, int, bigint, float, double, dec, ym, dt | 89, 103, 157, 329, 342, 361, 363 |
+| interval, no registry entry | 10 | 2 | 5 | 0 | byte, short, int, bigint, float, double, dec, ym, dt | 89, 103, 157, 329, 342, 361, 363 |
 | internals, no registry entry | 4 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 330, 333, 337, 342 |
 
 #### Math functions
@@ -326,7 +326,7 @@ The math functions that do not fuse yet, by the plan row that fuses them (the on
 | :--- | :--- | :--- | :--- | :--- |
 | `atan2` | 356 | none | Spark's, bit for bit | exact; no contract |
 | `acosh`, `asinh`, `atanh`, `cosh`, `sinh`, `tanh` | 357 | none | Spark's, bit for bit | exact; no contract |
-| `cbrt`, `exp`, `expm1`, `hypot`, `log`, `log10`, `log1p`, `log2`, `ln`, `pow`, `power` | 358 | none | Spark's, bit for bit | exact; no contract |
+| `hypot`, `pow`, `power` | 358 | none | Spark's, bit for bit | exact; no contract |
 
 #### Casts by mode
 
@@ -344,7 +344,7 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `bigint` | fused | fused | fused | fused | = | declined | declined | declined |  |  |  | declined | declined |
 | `float` | fused | declined | declined | declined | declined | = | fused | declined |  |  |  |  |  |
 | `double` | fused | declined | declined | declined | declined | fused | = | declined |  |  |  |  |  |
-| `dec` | declined | declined | declined | declined | declined | declined | declined | declined |  |  |  | declined | declined |
+| `dec` | 1 of 2 | declined | declined | declined | 1 of 2 | declined | declined | declined |  |  |  | declined | declined |
 | `date` | declined | declined | declined | declined | declined | declined | declined | declined | = | fused |  |  |  |
 | `ntz` |  |  |  |  |  |  |  |  | fused | = | fused |  |  |
 | `time` |  | declined | declined | declined | declined |  |  | declined |  | fused | 3 of 6 |  |  |
@@ -352,6 +352,8 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `dt` |  | declined | declined | declined | fused |  |  | declined |  |  |  |  | 36 of 90 |
 
 
+* `dec` to `bool` (test), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BOOLEAN
+* `dec` to `bigint` (truncation), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BIGINT
 * `time` to `time` (relabel or truncation), 3 of 6 forms; declined: TIME(3) to TIME(0); TIME(6) to TIME(0); TIME(6) to TIME(3)
 * `ym` to `int` (unit division), 2 of 3 forms; declined: INTERVAL YEAR TO MONTH to INT
 * `dt` to `dt` (relabel or unit narrowing), 36 of 90 forms; declined: INTERVAL DAY to INTERVAL DAY TO HOUR; INTERVAL DAY to INTERVAL DAY TO MINUTE; INTERVAL DAY to INTERVAL HOUR; INTERVAL DAY to INTERVAL HOUR TO MINUTE; INTERVAL DAY to INTERVAL MINUTE; INTERVAL DAY TO HOUR to INTERVAL DAY; INTERVAL DAY TO HOUR to INTERVAL DAY TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL HOUR; INTERVAL DAY TO HOUR to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL MINUTE; INTERVAL DAY TO MINUTE to INTERVAL DAY; INTERVAL DAY TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO MINUTE to INTERVAL MINUTE; INTERVAL DAY TO SECOND to INTERVAL DAY; INTERVAL DAY TO SECOND to INTERVAL DAY TO HOUR; INTERVAL DAY TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL HOUR; INTERVAL DAY TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL MINUTE; INTERVAL HOUR to INTERVAL DAY; INTERVAL HOUR to INTERVAL DAY TO HOUR; INTERVAL HOUR to INTERVAL DAY TO MINUTE; INTERVAL HOUR to INTERVAL HOUR TO MINUTE; INTERVAL HOUR to INTERVAL MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL DAY; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL HOUR; INTERVAL HOUR TO MINUTE to INTERVAL MINUTE; INTERVAL HOUR TO SECOND to INTERVAL DAY; INTERVAL HOUR TO SECOND to INTERVAL DAY TO HOUR; INTERVAL HOUR TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL HOUR; INTERVAL HOUR TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL MINUTE; INTERVAL MINUTE to INTERVAL DAY; INTERVAL MINUTE to INTERVAL DAY TO HOUR; INTERVAL MINUTE to INTERVAL DAY TO MINUTE; INTERVAL MINUTE to INTERVAL HOUR; INTERVAL MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL DAY; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO HOUR; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL HOUR; INTERVAL MINUTE TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL MINUTE; INTERVAL SECOND to INTERVAL DAY; INTERVAL SECOND to INTERVAL DAY TO HOUR; INTERVAL SECOND to INTERVAL DAY TO MINUTE; INTERVAL SECOND to INTERVAL HOUR; INTERVAL SECOND to INTERVAL HOUR TO MINUTE; INTERVAL SECOND to INTERVAL MINUTE
@@ -371,7 +373,7 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `bigint` | fused | fused | fused | fused | = | declined | declined | declined |  |  |  | declined | declined |
 | `float` | fused | declined | declined | declined | declined | = | fused | declined |  |  |  |  |  |
 | `double` | fused | declined | declined | declined | declined | fused | = | declined |  |  |  |  |  |
-| `dec` | declined | declined | declined | declined | declined | declined | declined | context |  |  |  | declined | declined |
+| `dec` | 1 of 2 | declined | declined | declined | 1 of 2 | declined | declined | context |  |  |  | declined | declined |
 | `date` |  |  |  |  |  |  |  |  | = | fused |  |  |  |
 | `ntz` |  |  |  |  |  |  |  |  | fused | = | fused |  |  |
 | `time` |  | declined | declined | declined | declined |  |  | declined |  | fused | 3 of 6 |  |  |
@@ -379,6 +381,8 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `dt` |  | declined | declined | declined | fused |  |  | declined |  |  |  |  | 36 of 90 |
 
 
+* `dec` to `bool` (test), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BOOLEAN
+* `dec` to `bigint` (truncation), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BIGINT
 * `time` to `time` (relabel or truncation), 3 of 6 forms; declined: TIME(3) to TIME(0); TIME(6) to TIME(0); TIME(6) to TIME(3)
 * `ym` to `int` (unit division), 2 of 3 forms; declined: INTERVAL YEAR TO MONTH to INT
 * `dt` to `dt` (relabel or unit narrowing), 36 of 90 forms; declined: INTERVAL DAY to INTERVAL DAY TO HOUR; INTERVAL DAY to INTERVAL DAY TO MINUTE; INTERVAL DAY to INTERVAL HOUR; INTERVAL DAY to INTERVAL HOUR TO MINUTE; INTERVAL DAY to INTERVAL MINUTE; INTERVAL DAY TO HOUR to INTERVAL DAY; INTERVAL DAY TO HOUR to INTERVAL DAY TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL HOUR; INTERVAL DAY TO HOUR to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL MINUTE; INTERVAL DAY TO MINUTE to INTERVAL DAY; INTERVAL DAY TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO MINUTE to INTERVAL MINUTE; INTERVAL DAY TO SECOND to INTERVAL DAY; INTERVAL DAY TO SECOND to INTERVAL DAY TO HOUR; INTERVAL DAY TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL HOUR; INTERVAL DAY TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL MINUTE; INTERVAL HOUR to INTERVAL DAY; INTERVAL HOUR to INTERVAL DAY TO HOUR; INTERVAL HOUR to INTERVAL DAY TO MINUTE; INTERVAL HOUR to INTERVAL HOUR TO MINUTE; INTERVAL HOUR to INTERVAL MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL DAY; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL HOUR; INTERVAL HOUR TO MINUTE to INTERVAL MINUTE; INTERVAL HOUR TO SECOND to INTERVAL DAY; INTERVAL HOUR TO SECOND to INTERVAL DAY TO HOUR; INTERVAL HOUR TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL HOUR; INTERVAL HOUR TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL MINUTE; INTERVAL MINUTE to INTERVAL DAY; INTERVAL MINUTE to INTERVAL DAY TO HOUR; INTERVAL MINUTE to INTERVAL DAY TO MINUTE; INTERVAL MINUTE to INTERVAL HOUR; INTERVAL MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL DAY; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO HOUR; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL HOUR; INTERVAL MINUTE TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL MINUTE; INTERVAL SECOND to INTERVAL DAY; INTERVAL SECOND to INTERVAL DAY TO HOUR; INTERVAL SECOND to INTERVAL DAY TO MINUTE; INTERVAL SECOND to INTERVAL HOUR; INTERVAL SECOND to INTERVAL HOUR TO MINUTE; INTERVAL SECOND to INTERVAL MINUTE
@@ -398,7 +402,7 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `bigint` | fused | fused | fused | fused | = | declined | declined | declined |  |  |  | declined | declined |
 | `float` | fused | declined | declined | declined | declined | = | fused | declined |  |  |  |  |  |
 | `double` | fused | declined | declined | declined | declined | fused | = | declined |  |  |  |  |  |
-| `dec` | declined | declined | declined | declined | declined | declined | declined | declined |  |  |  | declined | declined |
+| `dec` | 1 of 2 | declined | declined | declined | 1 of 2 | declined | declined | declined |  |  |  | declined | declined |
 | `date` |  |  |  |  |  |  |  |  | = | fused |  |  |  |
 | `ntz` |  |  |  |  |  |  |  |  | fused | = | fused |  |  |
 | `time` |  | declined | declined | declined | declined |  |  | declined |  | fused | 3 of 6 |  |  |
@@ -406,6 +410,8 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `dt` |  | declined | declined | declined | fused |  |  | declined |  |  |  |  | 36 of 90 |
 
 
+* `dec` to `bool` (test), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BOOLEAN
+* `dec` to `bigint` (truncation), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BIGINT
 * `time` to `time` (relabel or truncation), 3 of 6 forms; declined: TIME(3) to TIME(0); TIME(6) to TIME(0); TIME(6) to TIME(3)
 * `ym` to `int` (unit division), 2 of 3 forms; declined: INTERVAL YEAR TO MONTH to INT
 * `dt` to `dt` (relabel or unit narrowing), 36 of 90 forms; declined: INTERVAL DAY to INTERVAL DAY TO HOUR; INTERVAL DAY to INTERVAL DAY TO MINUTE; INTERVAL DAY to INTERVAL HOUR; INTERVAL DAY to INTERVAL HOUR TO MINUTE; INTERVAL DAY to INTERVAL MINUTE; INTERVAL DAY TO HOUR to INTERVAL DAY; INTERVAL DAY TO HOUR to INTERVAL DAY TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL HOUR; INTERVAL DAY TO HOUR to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL MINUTE; INTERVAL DAY TO MINUTE to INTERVAL DAY; INTERVAL DAY TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO MINUTE to INTERVAL MINUTE; INTERVAL DAY TO SECOND to INTERVAL DAY; INTERVAL DAY TO SECOND to INTERVAL DAY TO HOUR; INTERVAL DAY TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL HOUR; INTERVAL DAY TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL MINUTE; INTERVAL HOUR to INTERVAL DAY; INTERVAL HOUR to INTERVAL DAY TO HOUR; INTERVAL HOUR to INTERVAL DAY TO MINUTE; INTERVAL HOUR to INTERVAL HOUR TO MINUTE; INTERVAL HOUR to INTERVAL MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL DAY; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL HOUR; INTERVAL HOUR TO MINUTE to INTERVAL MINUTE; INTERVAL HOUR TO SECOND to INTERVAL DAY; INTERVAL HOUR TO SECOND to INTERVAL DAY TO HOUR; INTERVAL HOUR TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL HOUR; INTERVAL HOUR TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL MINUTE; INTERVAL MINUTE to INTERVAL DAY; INTERVAL MINUTE to INTERVAL DAY TO HOUR; INTERVAL MINUTE to INTERVAL DAY TO MINUTE; INTERVAL MINUTE to INTERVAL HOUR; INTERVAL MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL DAY; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO HOUR; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL HOUR; INTERVAL MINUTE TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL MINUTE; INTERVAL SECOND to INTERVAL DAY; INTERVAL SECOND to INTERVAL DAY TO HOUR; INTERVAL SECOND to INTERVAL DAY TO MINUTE; INTERVAL SECOND to INTERVAL HOUR; INTERVAL SECOND to INTERVAL HOUR TO MINUTE; INTERVAL SECOND to INTERVAL MINUTE
@@ -537,13 +543,16 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `dt + dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_add(dt, dt2) IS NOT NULL)` | a sum past the long raises in every mode, so its batch declines and the row engine raises | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `dt - dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_subtract(dt, dt2) IS NOT NULL)` | the difference, exact in every mode as the sum is | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `dt + dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_add(dt, dt2) IS NOT NULL)` | a sum past the long raises in every mode, so its batch declines and the row engine raises | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `dt - dt2` | `interval` | `if(dt IS NULL OR dt2 IS NULL, NULL, try_subtract(dt, dt2) IS NOT NULL)` | the difference, exact in every mode as the sum is | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 | `-dt` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | negateExact raises on the least interval alone | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `abs(dt)` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | the checked negation under a blend; Spark raises on the least interval in every mode, with ARITHMETIC_OVERFLOW rather than the interval condition | per-lane: compare to mask, mask logic, blend, mask broadcast, mask test, mask cast |
-| `dt + INTERVAL '1' DAY` | `interval` | `if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)` | the literal, cast to the column's unit and folded, takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `dt * 3` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `-2 * dt` | `interval` | `if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)` | the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `abs(dt)` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | the checked negation under a blend; Spark raises on the least interval in every mode, with ARITHMETIC_OVERFLOW rather than the interval condition | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `dt + INTERVAL '1' DAY` | `interval` | `if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)` | the literal, cast to the column's unit and folded, takes a slot in the long lane's table | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `dt * 3` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `-2 * dt` | `interval` | `if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)` | the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `dt / 24` | `interval` |  | LongMath.divide HALF_UP by a divisor of a day: the floor quotient by a day and its remainder in [0, D), biased by half the divisor (one less for a negative value and an even divisor), give the quotient by 24 exactly over every long; a divisor that does not divide a day declines | vector |
+| `dt * 1.5` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | Spark's Decimal product, HALF_UP(3x / 2): the operand guarded to the longs whose product by 3 fits, then the day split by 2; the guard declines some lanes Spark answers, which the row engine then does | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `dt / 1.5` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 2) IS NOT NULL)` | HALF_UP(2x / 3), the quotient by a decimal at least one in magnitude, which cannot raise; a divisor under one declines (VARKA-414) | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `extract(DAY FROM dt)` | `interval` |  | Java's truncating division by a day, exact over every long and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset | vector |
 
 #### Integer arithmetic
@@ -584,14 +593,14 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `l + l2` | `intArithmetic` | `if(l IS NULL OR l2 IS NULL, NULL, try_add(l, l2) IS NOT NULL)` | checked under ANSI at 64 bits; the legacy mode wraps as Spark does | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
-| `l - l2` | `intArithmetic` | `if(l IS NULL OR l2 IS NULL, NULL, try_subtract(l, l2) IS NOT NULL)` | checked subtraction at 64 bits | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
-| `l + 1` | `intArithmetic` | `l < 9223372036854775807` | a literal does not bound a bigint column, so the check stays | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `l + l2` | `intArithmetic` | `if(l IS NULL OR l2 IS NULL, NULL, try_add(l, l2) IS NOT NULL)` | checked under ANSI at 64 bits; the legacy mode wraps as Spark does | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `l - l2` | `intArithmetic` | `if(l IS NULL OR l2 IS NULL, NULL, try_subtract(l, l2) IS NOT NULL)` | checked subtraction at 64 bits | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `l + 1` | `intArithmetic` | `l < 9223372036854775807` | a literal does not bound a bigint column, so the check stays | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 | `CAST(i AS BIGINT) * 1000L` | `intArithmetic` |  | a widened int times a literal cannot leave the long, so the multiply fuses with no check; `l * 3` over a bigint column declines | per-lane: mask broadcast, mask test |
-| `-l` | `intArithmetic` | `l > -9223372036854775808` | negation raises on Long.MinValue only | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
-| `abs(l)` | `intArithmetic` | `l > -9223372036854775808` | `abs(Long.MinValue)` is out of range, and wraps back to itself in the legacy mode | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
-| `try_add(l, l2)` | `intArithmetic` |  | an overflowing lane is null, so the kernel declines nothing | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
-| `try_subtract(l, l2)` | `intArithmetic` |  | an overflowing lane is null | not emitted: a checked bigint operation on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `-l` | `intArithmetic` | `l > -9223372036854775808` | negation raises on Long.MinValue only | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `abs(l)` | `intArithmetic` | `l > -9223372036854775808` | `abs(Long.MinValue)` is out of range, and wraps back to itself in the legacy mode | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `try_add(l, l2)` | `intArithmetic` |  | an overflowing lane is null, so the kernel declines nothing | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
+| `try_subtract(l, l2)` | `intArithmetic` |  | an overflowing lane is null | not emitted: a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback |
 
 #### Bitwise and shifts
 
@@ -1379,6 +1388,17 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `cot(x)` | `math` |  | 1 / Math.tan(x) | exact: per-lane Math call | vector |
 | `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | exact: per-lane Math call | vector |
 | `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | exact: per-lane Math call | per-lane: mask broadcast, mask test |
+| `exp(x)` | `math` |  | exact: a per-lane StrictMath.exp call, as Spark's code makes | exact: per-lane StrictMath call | vector |
+| `expm1(x)` | `math` |  | exact: a per-lane StrictMath.expm1 call | exact: per-lane StrictMath call | vector |
+| `cbrt(x)` | `math` |  | exact: a per-lane Math.cbrt call, the host's answer as Spark's | exact: per-lane Math call | vector |
+| `ln(x)` | `math` |  | exact: a per-lane StrictMath.log call, null at x <= 0.0 by Java's <=, so at -0.0 and not at NaN | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(x)` | `math` |  | the one-argument log as parsed: ln's call and null, with no divide; once the optimizer folds e, the divide by StrictMath.log(e) that Spark's code then makes | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log10(x)` | `math` |  | exact: a per-lane StrictMath.log10 call, null at x <= 0.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log1p(x)` | `math` |  | exact: a per-lane StrictMath.log1p call, null at x <= -1.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log2(x)` | `math` |  | ln(x) / StrictMath.log(2) as Spark writes it, the divisor folded | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(2.0D, x)` | `math` |  | a constant base: StrictMath.log(2.0) folded as the divisor | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(x2, x)` | `math` |  | StrictMath.log(x) / StrictMath.log(x2), null where either is at or below 0.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `exp(x) * 2.0D + 1.0D` | `floatingArithmetic`, `math` |  | the arithmetic around the call in the kernel | exact: per-lane StrictMath call | vector |
 
 #### Math functions as conditions
 
@@ -1555,6 +1575,26 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `abs(d18)` | none |  | a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `try_subtract(d9, d9s4)` | none |  | DECIMAL(12, 4), row 349's difference stored by the same path: no difference within 18 digits overflows, so TRY's null never fires | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 
+#### Decimal casts
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CAST(d9 AS BIGINT)` | `decimalCast` |  | the unscaled long divided by 10^2, truncating toward zero as Decimal.toLong does, one constant division | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(d16s9 AS BIGINT)` | `decimalCast` |  | at sixteen digits the magnitude is shifted right by 9 and divided by 5^9, and the sign put back | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(d18 AS BIGINT)` | `decimalCast` | `abs(d18) * 100 < 18014398509481984` | at (18, 2) the magnitude is guarded below 2^54 before its shift, past which the row engine divides | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(-d9 AS BIGINT)` | `decimalCast` |  | the cast of a computed value, the negation's unscaled long divided as a column's is | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)` | `decimalCast` | `abs(d18) < 10000000000` | the precision check alone, which declines under ANSI the batch Spark raises on and nulls the lane under the legacy mode and TRY, then the truncation | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)` | `decimalCast` | `abs(d9) < 100000` | a rescale up guarded before its multiply: the target's precision check moved onto the operand, so the multiply never wraps | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+
+#### Decimal cast predicates
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CAST(d9 AS BOOLEAN)` | `decimalCast` |  | the unscaled value against zero, which cannot fail | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(d18 AS BOOLEAN)` | `decimalCast` |  | the eighteen-digit twin: the unscaled long against zero, no division | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(d9s4 AS DECIMAL(9, 2)) < d9` | `predicate`, `decimalCast` |  | a rescale down by two digits, rounding half up: the half added with the value's sign, then one constant division; seven integral digits always fit, so no check | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(d16s9 AS DECIMAL(10, 2)) > d9` | `predicate`, `decimalCast` |  | a rescale down by seven digits at sixteen: the half added to the magnitude, shifted by 7 and divided by 5^7, the sign put back | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+
 #### Time arithmetic
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -1607,7 +1647,7 @@ operands (a row counts once for each type it reads):
 | `double` | 97 | 0 | 0 | 1 | 0 | 0 | 96 |
 | `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
-| `int` | 185 | 14 | 0 | 4 | 1 | 1 | 165 |
+| `int` | 186 | 14 | 0 | 5 | 1 | 1 | 165 |
 | `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
 | `short` | 55 | 0 | 0 | 0 | 0 | 8 | 47 |
 | `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
@@ -2485,6 +2525,7 @@ coverage table, and regenerated by the same command:
 | `spark.sql.codegen.varka.family.floatingArithmetic.enabled` | `true` | The floating arithmetic family: +, -, *, unary minus and abs over double and float operands, and /, try_divide, sqrt, signum, degrees and radians over double ones, signum over year-month and day-time intervals too, a zero divisor null under LEGACY and TRY and raised by the row engine under ANSI, and the canonicalisation of a double or float key (NormalizeNaNAndZero: -0.0 to 0.0, every NaN to the canonical NaN). |
 | `spark.sql.codegen.varka.family.floatingCast.enabled` | `true` | The floating casts family: the casts to float from tinyint, smallint, int, bigint and boolean, to double from tinyint, smallint, int, bigint and boolean, and between float and double; bigint to either at the default emit level, and the casts from a floating type to an integral one, are left to the row engine: a session naming a level fuses the bigint ones (level 3 in one instruction, below it by exact AVX2 forms), as does one asking for the host's on a CPU whose features are read: aarch64, or x86 with AVX512DQ or a long species of 256 bits or more. |
 | `spark.sql.codegen.varka.family.integralCast.enabled` | `true` | The integral cast family: the casts among tinyint, smallint, int, bigint and boolean that the int arithmetic family does not hold: the narrowings to tinyint and smallint (wrapping, or checked under ANSI), a tinyint or smallint widened to smallint or bigint, a number cast to boolean and a boolean cast to a number. |
+| `spark.sql.codegen.varka.family.decimalCast.enabled` | `true` | The decimal cast family: the casts of a decimal of precision 18 or less to bigint and boolean, and into such a decimal from another, rounding half up where the scale drops (checked under ANSI, null on overflow under LEGACY and TRY); the casts to tinyint, smallint and int are claimed and decline, naming row 350's next part; the widening rescale between two decimals that type coercion puts under a comparison is not the family's. |
 | `spark.sql.codegen.varka.family.rounding.enabled` | `true` | The rounding family: rint over a double; floor, ceil and ceiling over bigint and int operands; and round, bround and truncate over tinyint, smallint and int at a constant scale, and over bigint at a scale of zero or more. |
 | `spark.sql.codegen.varka.family.math.enabled` | `true` | The math family: the math functions over double operands (sin, cos, tan, asin, acos, atan, atan2, sec, csc, cot, sinh, cosh, tanh, asinh, acosh, atanh, exp, expm1, ln, log, log10, log1p, log2, pow, hypot and cbrt), each bit for bit Spark's unless spark.sql.codegen.varka.math.ulpContract.enabled is true; none fuses yet, and each declines naming the row of the plan that fuses it. |
 <!-- END generated family switches -->
