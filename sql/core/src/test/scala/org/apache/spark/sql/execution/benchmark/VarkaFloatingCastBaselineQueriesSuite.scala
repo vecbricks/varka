@@ -17,8 +17,6 @@
 
 package org.apache.spark.sql.execution.benchmark
 
-import java.util.Optional
-
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
@@ -33,8 +31,9 @@ import org.apache.spark.sql.types._
  * answer differently fails a pull request rather than the runner dispatch that times it
  * (VARKA-343 5). Each section runs under its own SQL settings, its mode where it has one. It
  * also makes the benchmark's own fuse check, that each section's plan on the Varka session has
- * the section's fusion class under the section's settings, so a row that changes how a section
- * fuses sets the section's new class in the same pull request.
+ * the section's fusion class under the section's settings and that a `WHOLE` section runs every
+ * batch as a kernel, so a row that changes how a section fuses sets the section's new class in the
+ * same pull request.
  *
  * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the
  * id, so these rows already reach the regions the benchmark's javadoc states, which the suite
@@ -210,8 +209,7 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
             for (s <- VarkaFloatingCastBaselineBenchmark.sections(declines, fuses).asScala) {
               withClue(s"${s.title}, level $level, refusal $declines") {
                 withSettings(s) {
-                  val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-                  assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+                  VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
                 }
               }
             }

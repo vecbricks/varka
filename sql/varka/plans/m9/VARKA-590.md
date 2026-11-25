@@ -6,6 +6,8 @@ unless that plan moved too (`m10/SCOPE.md` item 138).*
 
 *25 November 2026: milestone 9's task plan takes the row (`m9/PLAN.md` 3).*
 
+*25 November 2026: milestone 9's task plan takes the row (`m9/PLAN.md` 3).*
+
 ## 1. Where this came from
 
 Row 590 of `PLAN.md`, added on 9 November 2026 on the owner's word, from the Builds of that day.

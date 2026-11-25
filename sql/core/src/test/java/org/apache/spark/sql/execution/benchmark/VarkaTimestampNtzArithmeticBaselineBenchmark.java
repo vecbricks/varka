@@ -58,12 +58,14 @@ import org.apache.spark.sql.VarkaBenchmark;
  * fuses the chain and the interval column sum, at both densities, and they are {@code WHOLE}; the
  * other sections are {@code NONE}. Each later step sets the class of the sections it fuses, so the
  * same class and the same labels time the fused code. A {@code WHOLE} section must also run as a
- * kernel over every batch, none handed back to the row path ({@link VarkaSizeLadder#varkaFused}),
- * or the run fails rather than time the row path under the {@code varka on} label. That holds
- * with {@value VarkaSqlBenchmarkBase#FUSE_CHECK_PROPERTY} set to {@code false} too, which lifts
- * only the plan check. The batch check reads a Varka projection's metrics, which every section
- * here has when it fuses, since none filters; a {@code NULL_TESTS} or {@code PARTIAL} section
- * would time the row path in part by its class, so only {@code WHOLE} is held to it.
+ * kernel over every batch, none handed back to the row path
+ * ({@link VarkaSqlBenchmarkBase#requireKernel}, made by the fuse check), or the run fails rather
+ * than time the row path under the {@code varka on} label. With
+ * {@value VarkaSqlBenchmarkBase#FUSE_CHECK_PROPERTY} set to {@code false} the batch check is still
+ * made on every section that plans {@code WHOLE}, and a section that hands batches to the row
+ * path is noted in the results file with its counts instead of failing the run. A
+ * {@code NULL_TESTS} or {@code PARTIAL} section would time the row path in part by its class, so
+ * only {@code WHOLE} is held to it.
  *
  * <p>No value raises or overflows. Every timestamp lies within 3,000,000 days of the epoch (about
  * 8,200 years either way), well inside the days the month form's day guard admits
@@ -181,19 +183,9 @@ public class VarkaTimestampNtzArithmeticBaselineBenchmark extends VarkaSqlBenchm
         VarkaArrowSessions.cache(session, "varka_ntz_arith");
       }
       // A section fuses as its class says, and one that fuses whole runs every batch as a
-      // kernel. The batch check finds a Varka projection, which a WHOLE section here has: none
-      // of them filters.
+      // kernel.
       for (Section s : sections()) {
         requireBaseline(varka, s.title(), s.query(), s.fusion());
-        if (s.fusion() == Fusion.WHOLE) {
-          try {
-            VarkaSizeLadder.varkaFused(varka, s.query());
-          } catch (RuntimeException e) {
-            throw new IllegalStateException(s.title() + " is listed as " + s.fusion()
-                + " but does not run fused, so its varka on arm would time the row path: "
-                + s.query(), e);
-          }
-        }
       }
       for (Section s : sections()) {
         section(s.title(), () -> {

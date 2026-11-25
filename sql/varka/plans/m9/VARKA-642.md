@@ -6,6 +6,8 @@ unless that plan moved too (`m10/SCOPE.md` item 138).*
 
 *25 November 2026: milestone 9's task plan takes the row (`m9/PLAN.md` 3).*
 
+*25 November 2026: milestone 9's task plan takes the row (`m9/PLAN.md` 3).*
+
 ## 1. Where this came from
 
 On 22 and 23 November 2026, four pull requests built in parallel each added one emit option, and
