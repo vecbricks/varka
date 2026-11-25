@@ -1199,7 +1199,7 @@ final class Slots {
       // A null-skipping pick ORs its operands' words, and every other own word is computed from
       // values: each needs a slot of its own.
       case Validity.SkipsNull _, Validity.Own _, Validity.NoWord _ -> Integer.MIN_VALUE;
-      // One operand's word, aliased: a hash step's is its seed's.
+      // One operand's word, aliased: a hash step's is its seed's, a pair store's its low word's.
       case Validity.Operand op -> s.wordRef.get(childrenOf(node)[op.index()]);
     };
   }
