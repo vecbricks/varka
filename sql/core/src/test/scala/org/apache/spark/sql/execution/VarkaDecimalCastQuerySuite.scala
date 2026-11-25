@@ -155,12 +155,14 @@ class VarkaDecimalCastQuerySuite extends VarkaMaybeThrows with VarkaTestWatchdog
       "long lane, and is row 350's next part (350a1n)"
     for (target <- Seq("TINYINT", "SMALLINT", "INT"); (mode, ansi) <- modes) {
       withAnsi(ansi.toBoolean) {
-        val query = s"SELECT CAST(c AS $target) AS a FROM $view"
+        // The BIGINT cast beside it fuses, so the plan has a Varka node whose report names why.
+        val query = s"SELECT CAST(c AS $target) AS a, CAST(c AS BIGINT) AS b FROM $view"
         withClue(s"$mode: $query") {
           checkSparkAnswerMaybeThrows(query)
           val explained = varkaSpark.sql(query).queryExecution
             .explainString(org.apache.spark.sql.execution.ExplainMode.fromString("formatted"))
           assert(explained.contains(s"a: residual ($reason"), explained)
+          assert(explained.contains("b: fused"), explained)
         }
       }
     }
