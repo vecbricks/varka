@@ -51,27 +51,17 @@ by paging through a Build's several dozen on every 30 s poll, and the reach arti
 read at all while a sql job still runs. Job listings read every page: a run of Spark's module
 matrix lists more jobs than one page holds.
 
-`failed REPOSITORY BRANCH RUN` serves the option matrix's own first stage (VARKA-637 3.1): it
-prints `failed_run=<id>` and `failed_bins=b003,b017` for the branch's newest matrix run before RUN
-that has a failed bin job, or both empty, and the workflow takes those bins' units from that
-run's `varka-option-matrix-plan` artifact. An API failure prints both empty: the run then puts
-only its changed suites first. With `--pr N`, for a vecbricks/varka run of a pull request, whose
-runs all have master as their branch, only the runs the workflow named for pull request N count.
-
   dev/varka_matrix_reuse.py REPOSITORY SHA [--wait MINUTES]    # in a step, with GH_TOKEN set
   dev/varka_matrix_reuse.py reach REPOSITORY RUN [--wait MINUTES]
-  dev/varka_matrix_reuse.py failed REPOSITORY BRANCH RUN [--pr N]
   dev/varka_matrix_reuse.py --selftest
 """
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 import time
 import unittest
-from urllib.parse import quote
 
 ARTIFACT = "varka-option-matrix-build"
 WORKFLOW = ".github/workflows/build_main.yml"
@@ -109,14 +99,14 @@ def gh(path):
     return json.loads(out.stdout)
 
 
-def gh_all(path, key, size=PAGE):
-    """Every item of a listing under `key`, read `size` to a page until a page comes back short."""
+def gh_all(path, key):
+    """Every item of a listing under `key`, read 100 to a page until a page comes back short."""
     items, page = [], 1
     sep = "&" if "?" in path else "?"
     while True:
-        got = gh(f"{path}{sep}per_page={size}&page={page}")[key]
+        got = gh(f"{path}{sep}per_page={PAGE}&page={page}")[key]
         items.extend(got)
-        if len(got) < size:
+        if len(got) < PAGE:
             return items
         page += 1
 
@@ -303,63 +293,6 @@ def reach(repository, run, wait_minutes, sleep=time.sleep, now=time.monotonic):
         if state != "running" or now() >= deadline:
             return state
         sleep(30)
-
-
-# The option matrix's own runs, for its first stage (VARKA-637 3.1): the bins that failed in the
-# branch's last run with a failed bin, whose units the next run puts first, are read from that
-# run's jobs here and from its plan artifact by the workflow.
-MATRIX_WORKFLOW = "varka-option-matrix.yml"
-BIN_JOB = re.compile(r"Option matrix: (b\d{3})")
-FAILED = ("failure", "timed_out")
-# The branch's runs looked through, newest first: one page. With `--pr` every pull request's runs
-# share master as their branch, so pages of the most the API gives are read, up to PR_PAGES of
-# them, until one holds a run named for the pull request.
-LOOK_BACK = 20
-PR_PAGES = 5
-# A matrix run's jobs come 50 to a page: a page of 100 of them, steps and all, has answered 502
-# three times running (dev/varka_matrix_stragglers.py reads them 50 to a page too).
-JOB_PAGE = 50
-
-
-def pr_title(pr):
-    """The part of a run's name, from the workflow's `run-name`, that marks a run of `pr`; the
-    trailing " at " keeps #16 from matching #167.
-
-    >>> pr_title(16) in "Varka option matrix of #167 at 0abc"
-    False
-    """
-    return f"of #{pr} at "
-
-
-def last_failed(repository, branch, run, pr=None):
-    """(run id, its failed bins) for the branch's newest matrix run before `run` that has a
-    failed bin, whatever the run's own conclusion, so a run cancelled after a red bin counts; or
-    (None, []) when none of its last `LOOK_BACK` runs has one. Run ids grow with time, so the
-    runs from `run` on, this one among them, are passed over. With `pr`, only the runs named for
-    that pull request count, from the first page of `PAGE` that holds one, up to `PR_PAGES`."""
-    path = f"repos/{repository}/actions/workflows/{MATRIX_WORKFLOW}/runs"
-    path += f"?branch={quote(branch, safe='')}"
-    if pr is None:
-        runs = gh(f"{path}&per_page={LOOK_BACK}")["workflow_runs"]
-    else:
-        runs = []
-        for page in range(1, PR_PAGES + 1):
-            got = gh(f"{path}&per_page={PAGE}&page={page}")["workflow_runs"]
-            runs = [r for r in got if pr_title(pr) in (r.get("display_title") or "")]
-            if runs or len(got) < PAGE:
-                break
-        if not runs:
-            print(f"no run of the last {page} page(s) is named for #{pr}", file=sys.stderr)
-    for earlier in sorted((r["id"] for r in runs if r["id"] < int(run)), reverse=True):
-        jobs = gh_all(f"repos/{repository}/actions/runs/{earlier}/jobs", "jobs", JOB_PAGE)
-        bins = sorted(
-            m.group(1)
-            for j in jobs
-            if j.get("conclusion") in FAILED and (m := BIN_JOB.fullmatch(j.get("name", "")))
-        )
-        if bins:
-            return earlier, bins
-    return None, []
 
 
 class SelfTest(unittest.TestCase):
@@ -651,80 +584,6 @@ class SelfTest(unittest.TestCase):
         )
         self.assertEqual(got, ("complete", 0.0))
 
-    def test_the_last_failed_bins_come_from_the_newest_earlier_run_with_one(self):
-        def bin_job(name, conclusion):
-            return {"name": f"Option matrix: {name}", "conclusion": conclusion}
-
-        # Run 30 is this one and 40 came after it; 20 is green, 10 was cancelled after a red bin.
-        jobs = {
-            40: [bin_job("b001", "failure")],
-            30: [bin_job("b002", "failure")],
-            20: [bin_job("b003", "success"), {"name": "Option matrix: report"}],
-            10: [bin_job(f"b{i:03d}", "cancelled") for i in range(JOB_PAGE)]
-            + [bin_job("b104", "timed_out"), bin_job("b101", "failure")],
-        }
-        asked = []
-
-        def api(path):
-            asked.append(path)
-            if "/workflows/" in path:
-                return {"workflow_runs": [{"id": i} for i in jobs]}
-            run = int(path.split("/runs/")[1].split("/")[0])
-            page = int(path.rsplit("page=", 1)[1])
-            self.assertIn(f"per_page={JOB_PAGE}&", path)
-            return {"jobs": jobs[run][(page - 1) * JOB_PAGE : page * JOB_PAGE]}
-
-        got, _ = self.run_with(api, lambda sleep, now: last_failed("o/r", "a/b", 30))
-        self.assertEqual(got, (10, ["b101", "b104"]))
-        self.assertIn("branch=a%2Fb", asked[0])
-        self.assertFalse(any("/runs/40/" in a or "/runs/30/" in a for a in asked))
-        jobs[10] = []
-        got, _ = self.run_with(api, lambda sleep, now: last_failed("o/r", "a/b", 30))
-        self.assertEqual(got, (None, []))
-
-    def test_a_pull_request_run_reads_only_the_runs_named_for_it(self):
-        def bin_job(name):
-            return {"name": f"Option matrix: {name}", "conclusion": "failure"}
-
-        # All on master: 20 is #167's, 10 is #16's, 5 is a run without `pr`.
-        titles = {20: "Varka option matrix of #167 at 1a", 10: "Varka option matrix of #16 at 2b"}
-        titles[5] = "Varka option matrix"
-        jobs = {20: [bin_job("b001")], 10: [bin_job("b002")], 5: [bin_job("b003")]}
-        asked = []
-
-        # Page 1 is full of other runs, so the lookup reads on to page 2, which holds all three.
-        other = [{"id": 40 + i, "display_title": "Varka option matrix"} for i in range(PAGE)]
-
-        def api(path):
-            asked.append(path)
-            if "/workflows/" in path:
-                if path.endswith("&page=1"):
-                    return {"workflow_runs": other}
-                runs = [{"id": i, "display_title": t} for i, t in titles.items()]
-                return {"workflow_runs": runs if path.endswith("&page=2") else []}
-            return {"jobs": jobs[int(path.split("/runs/")[1].split("/")[0])]}
-
-        got, _ = self.run_with(api, lambda sleep, now: last_failed("o/r", "master", 30, pr=16))
-        self.assertEqual(got, (10, ["b002"]))
-        self.assertIn(f"per_page={PAGE}&page=1", asked[0])
-        self.assertIn("&page=2", asked[1])
-        self.assertFalse(any("/runs/20/" in a or "/runs/5/" in a for a in asked))
-        # A pull request with no run named for it reads up to the first short page, then gives
-        # up; with only full pages it stops after PR_PAGES.
-        asked.clear()
-        got, _ = self.run_with(api, lambda sleep, now: last_failed("o/r", "master", 30, pr=99))
-        self.assertEqual(got, (None, []))
-        self.assertEqual(sum("/workflows/" in a for a in asked), 2)
-
-        def full(path):
-            asked.append(path)
-            return {"workflow_runs": other}
-
-        asked.clear()
-        got, _ = self.run_with(full, lambda sleep, now: last_failed("o/r", "master", 30, pr=99))
-        self.assertEqual(got, (None, []))
-        self.assertEqual(sum("/workflows/" in a for a in asked), PR_PAGES)
-
     def test_reach_retries_a_failed_poll_and_gives_up_after_three(self):
         done = {"name": "Run / Varka suites: sql 1 of 3", "status": "completed"}
         done["conclusion"] = "success"
@@ -752,25 +611,6 @@ class SelfTest(unittest.TestCase):
 
 
 def main(argv):
-    if argv[:1] == ["failed"]:
-        parser = argparse.ArgumentParser(prog="varka_matrix_reuse.py failed")
-        parser.add_argument("repository")
-        parser.add_argument("branch")
-        parser.add_argument("run", help="this run's id")
-        parser.add_argument("--pr", type=int, help="only the runs named for this pull request")
-        args = parser.parse_args(argv[1:])
-        run, bins = None, []
-        for attempt in range(RETRIES + 1):
-            try:
-                run, bins = last_failed(args.repository, args.branch, args.run, args.pr)
-                break
-            except TRANSIENT as e:
-                print(f"no failed run read ({e!r}), attempt {attempt + 1}", file=sys.stderr)
-                time.sleep(RETRY_SECONDS if attempt < RETRIES else 0)
-        print(f"last run with a failed bin: {run or 'none'} {','.join(bins)}", file=sys.stderr)
-        print(f"failed_run={run or ''}")
-        print(f"failed_bins={','.join(bins)}")
-        return 0
     if argv[:1] == ["reach"]:
         parser = argparse.ArgumentParser(prog="varka_matrix_reuse.py reach")
         parser.add_argument("repository")

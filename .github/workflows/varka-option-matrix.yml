@@ -26,8 +26,8 @@
 # slot hands it to the next, so a slow runner holds back only its own bin. A pull request runs one
 # configuration in its varka-scoped jobs; this runs all of them on dispatch. See
 # dev/varka_matrix.sh. The bins run in two stages (VARKA-637 3.1): the suites the branch changed,
-# under every configuration, and the bins its last red run failed, then every other unit, so a
-# red first stage ends the run early and a green run runs every unit a single stage would.
+# under every configuration, then every other unit, so a red first stage ends the run early and a
+# green run runs every unit a single stage would.
 #
 # On vecbricks/varka a dispatch must name a pull request, `pr` and `sha`, and tests that head, so
 # its runners can take a pull request's matrix beside the fork's (MaxGekk/spark), whose dispatches
@@ -48,7 +48,7 @@ on:
   workflow_dispatch:
     inputs:
       stages:
-        description: "two: the changed suites and the last red run's failed bins first; one: all at once"
+        description: "two: the changed suites first, then the rest; one: all at once"
         type: choice
         options: [two, one]
         default: two
@@ -70,8 +70,7 @@ on:
         default: ''
 
 # Read-only: with `pr` the jobs build and run a pull request's code. `actions: read` lets the
-# build job read the Build runs and artifacts it reuses and this workflow's own earlier runs,
-# whose failed bins go first. report-failure keeps a wider block.
+# build job read the Build runs and artifacts it reuses. report-failure keeps a wider block.
 permissions:
   contents: read
   actions: read
@@ -328,46 +327,9 @@ jobs:
         else
           echo "::warning::No merge base with Varka's master, so no changed suite runs first."
         fi
-    # The bins that failed in the branch's last run with a failed bin, whatever that run's
-    # conclusion, and that run's plan, which names their units. A failed lookup or an expired
-    # plan puts only the changed suites first. With `pr` every run's branch is master, so the
-    # lookup takes only the runs named for that pull request (`run-name`). It reads this
-    # repository's runs only: a red run of the same branch on the other repository is not seen.
-    # The step holds the token, so with `pr` it runs the dispatched commit's copy of the script,
-    # not the pull request's: no pull request code gets the token or picks the run read.
-    - name: Find the bins the branch's last red run failed
-      id: failed
-      env:
-        GH_TOKEN: ${{ github.token }}
-        BRANCH: ${{ github.ref_name }}
-        PR: ${{ inputs.pr }}
-      run: |
-        script=dev/varka_matrix_reuse.py
-        if [ -n "$PR" ]; then
-          script=$RUNNER_TEMP/varka_matrix_reuse.py
-          if ! { git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" &&
-            git show "$GITHUB_SHA:dev/varka_matrix_reuse.py" > "$script"; }; then
-            echo "::warning::The dispatched commit's lookup script did not load, so no failed bin"
-            echo "of an earlier run goes first."
-            printf 'failed_run=\nfailed_bins=\n' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-        fi
-        python3 "$script" failed "$GITHUB_REPOSITORY" "$BRANCH" "$GITHUB_RUN_ID" \
-          ${PR:+--pr "$PR"} >> "$GITHUB_OUTPUT" ||
-          printf 'failed_run=\nfailed_bins=\n' >> "$GITHUB_OUTPUT"
-    - name: Download the plan of the branch's last red run
-      if: steps.failed.outputs.failed_run != ''
-      continue-on-error: true
-      uses: actions/download-artifact@v4
-      with:
-        name: varka-option-matrix-plan
-        path: target/varka-failed
-        run-id: ${{ steps.failed.outputs.failed_run }}
-        github-token: ${{ github.token }}
     # The bins, from the configurations the build listed and each module's suites, in two lists:
-    # `first`, the changed suites under every configuration without the reach record and the
-    # failed bins' units, and `rest`, every other unit. The summary's first line gives each
+    # `first`, the changed suites under every configuration without the reach record, and
+    # `rest`, every other unit. The summary's first line gives each
     # list's units and bins. A cut past a matrix's 256 jobs fails the step with the planner's
     # error printed. The record the configurations ran by drops the suites `first` ran whole.
     # With `pr` this workflow is master's but the planner is the pull request's: a head from
@@ -377,8 +339,6 @@ jobs:
       id: plan
       env:
         STAGES: ${{ inputs.stages }}
-        FAILED_RUN: ${{ steps.failed.outputs.failed_run }}
-        FAILED_BINS: ${{ steps.failed.outputs.failed_bins }}
       run: |
         set -o pipefail
         for module in sql catalyst; do
@@ -406,8 +366,6 @@ jobs:
             --suites sql=target/varka-bins/sql --suites catalyst=target/varka-bins/catalyst \
             --platforms "${reach[@]}" --stages "${STAGES:-two}" \
             --changed-suites target/varka-bins/changed \
-            --failed-plan target/varka-failed/plan.json \
-            --failed-bins "$FAILED_BINS" --failed-run "$FAILED_RUN" \
             --ran-by target/varka-ran-by/reach.tsv \
             > target/varka-bins/plan.json 2> target/varka-bins/plan.txt \
             || { cat target/varka-bins/plan.txt; exit 1; }
@@ -415,16 +373,6 @@ jobs:
         cat target/varka-bins/plan.txt | tee -a "$GITHUB_STEP_SUMMARY"
         echo "first=$(jq -c .first target/varka-bins/plan.json)" >> "$GITHUB_OUTPUT"
         echo "rest=$(jq -c .rest target/varka-bins/plan.json)" >> "$GITHUB_OUTPUT"
-    # The plan, for the branch's next run to find a failed bin's units by.
-    - name: Upload the plan
-      uses: actions/upload-artifact@v4
-      with:
-        name: varka-option-matrix-plan
-        path: |
-          target/varka-bins/plan.json
-          target/varka-bins/plan.txt
-          target/varka-bins/changed
-        retention-days: 30
     # Every entry of the test classpath, the build's class directories and the dependencies' jars
     # alike, archived at its absolute path, which is the same on every runner, with the classpath
     # and JVM options the bins read.
@@ -861,8 +809,8 @@ jobs:
             echo "cover the first stage's bins only."
           elif [ "$FIRST" = failure ]; then
             echo "The first stage's failed bins failed no unit - stragglers or setup steps, listed"
-            echo "below - so the second ran. Their units have no answer here: dispatch again, which"
-            echo "runs them first; a rerun of the failed jobs reruns the whole second stage too."
+            echo "below - so the second ran. Their units have no answer here: dispatch again for"
+            echo "them; a rerun of the failed jobs reruns the whole second stage too."
           fi
           echo '```'
           sed -n '/^configuration/,$p' target/varka-matrix-report.txt 2>/dev/null || echo "no report"
