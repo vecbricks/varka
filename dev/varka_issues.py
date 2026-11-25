@@ -30,11 +30,13 @@ withdrawn, its issue is closed with the row's outcome quoted. Nothing flows the 
 edit the row, and this script brings the issue to it.
 
 Every plan is read, not only the current one, because a milestone's last rows can still be
-open when the next plan merges. Only the current plan's rows open new issues; an earlier plan's
-rows keep the issues they already have in step - one still open there stays open, one done,
-withdrawn or moved is closed - and get none new, so a milestone mirrored before this script
-existed opens nothing. A task number in two plans is the later plan's row: the earlier row's
-"Moved" marker is the record of the move, and the issue follows the row to its new milestone.
+open when the next plan merges. The current plan's rows open new issues, and so do the rows of
+the plan before it: the next milestone's plan is opened while the current milestone still runs
+and adds rows. An earlier plan's rows keep the issues they already have in step - one still
+open there stays open, one done, withdrawn or moved is closed - and get none new, so a
+milestone mirrored before this script existed opens nothing. A task number in two plans is
+the later plan's row: the earlier row's "Moved" marker is the record of the move, and the issue
+follows the row to its new milestone.
 
 The rule, since the tables' status vocabulary is not uniform: a row's state is its first
 bold marker. A marker beginning with "Done" (Done, DONE, "Done, negative") closes the issue
@@ -292,11 +294,12 @@ def title_of(text):
     return prefix + title
 
 
-# The bold words a row's status opens with: "Done", "Started", "Planned", "Built",
+# The bold words a row's status opens with: "Done", "Started", "Planned", "Filed", "Built",
 # "Moved to milestone 7", "Step 1 done", "From milestone 7" and the like, but not "Done when",
 # which opens the row's done-when clause. Any other bold at the row's start is its own title.
 STATUS_WORD = re.compile(
-    r"(?i)(done|started|planned|built|scoped|moved|withdrawn|step|from milestone)(?=$|[\s,;:.])"
+    r"(?i)(done|started|planned|filed|built|scoped|moved|withdrawn|step|from milestone)"
+    r"(?=$|[\s,;:.])"
 )
 DONE_WHEN = re.compile(r"(?i)done when\b")
 
@@ -592,22 +595,36 @@ def stale_milestone_labels(issue, row):
     return [n for n in names if MILESTONE_LABEL.fullmatch(n) and n != own]
 
 
-def plan_actions(rows, issues, current, good_first):
+def opening_milestones(plans_read):
+    """The milestones whose rows open issues: the current plan's and the one before it, of the
+    plans read, which come highest first.
+
+    >>> sorted(opening_milestones([("P9.md", 9, []), ("P8.md", 8, []), ("P7.md", 7, [])]))
+    [8, 9]
+    >>> sorted(opening_milestones([("P6.md", 6, [])]))
+    [6]
+    """
+    return {milestone for _, milestone, _ in plans_read[:2]}
+
+
+def plan_actions(rows, issues, opening, good_first):
     """What to do for each row, as (row, action, detail) with action in create, update, close,
     reopen, keep or skip; pure, so the dry run and --apply agree by construction. Only a row of
-    the current milestone's plan opens an issue; an earlier plan's row keeps the one it has.
+    a milestone in `opening` (see `opening_milestones`) opens an issue; an earlier plan's row
+    keeps the one it has.
 
     >>> rows = [Row(1, "Open one", "o", "small", "P.md", 6),
     ...         Row(2, "Closed one. **Done** (x): won", "o", "s", "P.md", 6),
     ...         Row(3, "Never mirrored. **Withdrawn**: no", "o", "s", "P.md", 6),
-    ...         Row(4, "Open in an earlier plan", "o", "s", "Q.md", 5),
-    ...         Row(5, "Moved. **Moved to milestone 6**: as row 9", "o", "s", "Q.md", 5)]
+    ...         Row(4, "Open in the plan before", "o", "s", "Q.md", 5),
+    ...         Row(5, "Moved. **Moved to milestone 6**: as row 9", "o", "s", "Q.md", 5),
+    ...         Row(6, "Open in an earlier plan", "o", "s", "R.md", 4)]
     >>> issues = {1: {"number": 11, "state": "OPEN", "title": "[VARKA-1] Open one",
     ...                "body": issue_body(rows[0], classify(rows[0].text))},
     ...           2: {"number": 12, "state": "OPEN", "title": "[VARKA-2] Closed one", "body": ""},
     ...           5: {"number": 15, "state": "OPEN", "title": "[VARKA-5] Moved", "body": ""}}
-    >>> [(r.number, a) for r, a, _ in plan_actions(rows, issues, 6, {})]
-    [(1, 'keep'), (2, 'close'), (3, 'skip'), (4, 'skip'), (5, 'close')]
+    >>> [(r.number, a) for r, a, _ in plan_actions(rows, issues, {5, 6}, {})]
+    [(1, 'keep'), (2, 'close'), (3, 'skip'), (4, 'create'), (5, 'close'), (6, 'skip')]
     """
     actions = []
     for row in rows:
@@ -617,7 +634,7 @@ def plan_actions(rows, issues, current, good_first):
         body = issue_body(row, state)
         if state.kind == "open":
             if issue is None:
-                if row.milestone == current:
+                if row.milestone in opening:
                     actions.append((row, "create", (title, body, state)))
                 else:
                     actions.append((row, "skip", f"milestone {row.milestone}, never mirrored"))
@@ -694,15 +711,16 @@ def apply(actions, issues, repo, good_first):
             print(f"task {row.number}: closed #{number} as {reason}")
 
 
-def report(actions, plans_read, current, good_first):
+def report(actions, plans_read, current, opening, good_first):
     names = ", ".join(f"{name} ({len(rows)} rows)" for name, _, rows in plans_read)
     print(f"Plans read: {names}; milestone {current} is current.")
     print('The rule: a row\'s state is its first bold marker; "Done..." closes as completed,')
     print('"Withdrawn"/"Moved..." as not planned, any other marker is in progress and stays open,')
-    print("no marker is open and not started. Only the current plan opens issues.\n")
+    print("no marker is open and not started. The current plan and the one before it open")
+    print("issues.\n")
     counts = {}
     for row, action, detail in actions:
-        if action == "skip" and row.milestone != current:
+        if action == "skip" and row.milestone not in opening:
             counts["skip, earlier plan"] = counts.get("skip, earlier plan", 0) + 1
             continue
         state = classify(row.text)
@@ -717,10 +735,10 @@ def report(actions, plans_read, current, good_first):
         if action in ("create", "update", "reopen"):
             print(f"        {issue_title(row)}")
     print("\n" + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())))
-    current_rows = {r.number for r in plans_read[0][2]} if plans_read else set()
-    unknown = [n for n in good_first if n not in current_rows]
+    opening_rows = {r.number for _, m, rows in plans_read if m in opening for r in rows}
+    unknown = [n for n in good_first if n not in opening_rows]
     if unknown:
-        print(f"good-first list names rows not in the current table: {unknown}")
+        print(f"good-first list names rows not in a table that opens issues: {unknown}")
 
 
 def main():
@@ -748,8 +766,9 @@ def main():
     rows = rows_of_plans(plans_read)
     good_first = good_first_tasks()
     issues = existing_issues(args.repo)
-    actions = plan_actions(rows, issues, current, good_first)
-    report(actions, plans_read, current, good_first)
+    opening = opening_milestones(plans_read)
+    actions = plan_actions(rows, issues, opening, good_first)
+    report(actions, plans_read, current, opening, good_first)
     if args.apply:
         apply(actions, issues, args.repo, good_first)
     else:
