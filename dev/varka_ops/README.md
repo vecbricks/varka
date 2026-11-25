@@ -81,16 +81,20 @@ master's edits to `sql/varka/matrix/skips.tsv` can leave a line stale that no ma
 with the branch: #1644 re-added a line #1643 had deleted, both merged clean, and #1693's option
 matrix failed it. So every skip line added or deleted since the branch's last stamp (with no
 stamp, since its merge base) reruns its suite under its configuration, in a merge-only re-gate
-too. When `sql/varka/coverage.json` changed as well, the suites that draw their cases from the
-coverage table (`VarkaGroupingBoundSuite`) rerun under each configuration their skip lines name
-and under `driverOutputTable=false`, since a new draw can make a passing test fail.
+too, and so does every line on which the branch differs from `origin/master`, since master never
+ran its matrix with it. A line both sides carry is master's to keep true: rerunning every skip
+line of the suites that read `coverage.json` on each coverage change would be hundreds of runs.
+A deleted line whose option the sources no longer declare went with the option and is not rerun.
+When `sql/varka/coverage.json` changed, `VarkaGroupingBoundSuite` also reruns under
+`driverOutputTable=false`, since a new draw can make a passing test fail there (row 644).
 
 **The tree-equal path.** `PRE_PR_TREE_EQUAL=<sha>` serves a stacked branch whose parent
 squash-merged after a rehearsed merge of the two had passed the full gate. When HEAD, after the
-gate's merge of master, has exactly the tree of `<sha>`, `<sha>` is in this worktree's
-`stamps/<worktree-dir>.history`, and HEAD contains `origin/master`, the gate runs no step and
-stamps HEAD with the mode `tree-equal:<sha>`. Otherwise it logs why and runs as usual. A dry run
-ignores it.
+gate's merge of master, has exactly the tree of `<sha>`, `<sha>` passed the full gate in this
+worktree (`stamps/<worktree-dir>.history`), and HEAD contains `origin/master`, the gate runs no
+step and stamps HEAD with the mode `tree-equal:<sha>`. Otherwise it logs why and runs as usual. A
+dry run ignores it, `PRE_PR_FULL=1` and `PRE_PR_SWEEP=all` override it, and a value that names no
+commit exits 2 before anything runs.
 
 **A dry run.** `PRE_PR_DRY=1 pre-pr.sh <worktree>` prints the steps a gate would take, the
 merge-only decision and the sweep's configurations, and changes nothing: no fetch, merge,
@@ -140,6 +144,8 @@ dev/varka_ops/start-waiter.sh 1700 <build-run-id> varka-123-foo
 - `arm sweep`: the failing configurations are printed; rerun one with `dev/varka_matrix.sh`.
 - `skip recheck: <suite> under <configuration>`: a changed skip line is stale or its suite now
   fails there; fix the line or the code, commit, and gate again.
+- `skip recheck: not rerun, their options are gone`: deleted lines of an option the branch
+  removed; nothing to do.
 - `no pre-pr.sh pass on <sha>` or `review-covers: commits after the reviewed ...`: the head moved
   after a stamp; gate again, or review again for a non-merge commit.
 - `matrix-after-build-link.sh` writes `build ... failed=[...], no matrix` to its log when the

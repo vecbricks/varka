@@ -167,18 +167,19 @@ $TRAILER" origin/master >> "$L" 2>&1 \
 fi
 
 # 1a. the tree-equal path (24 Nov 2026). PRE_PR_TREE_EQUAL=<sha> names a commit this worktree's
-# gate already passed, in any mode (a line of stamps/<dir>.history). It serves a stacked branch
-# whose parent squash-merged after a rehearsed merge of the two had passed the full gate: when
-# HEAD, after the merge above, holds exactly that commit's tree and contains origin/master, there
-# is nothing new to check, so the gate logs the match and stamps HEAD with the mode
+# full gate already passed (a line of stamps/<dir>.history whose mode is full). It serves a
+# stacked branch whose parent squash-merged after a rehearsed merge of the two had passed the full
+# gate: when HEAD, after the merge above, holds exactly that commit's tree and contains
+# origin/master, there is nothing new to check, so the gate logs the match and stamps HEAD with the
+# mode
 # "tree-equal:<sha>". In any other case it says why and runs the gate. A dry run ignores it, and
 # PRE_PR_FULL=1 or PRE_PR_SWEEP=all overrides it.
 if [ -n "$TE" ] && [ "$DRY" != 1 ]; then
   te=$(git rev-parse "$TE^{commit}")
   if [ "${PRE_PR_FULL:-0}" = 1 ] || [ "$SWEEP" = all ]; then
     say "tree-equal: ignored, PRE_PR_FULL=1 or PRE_PR_SWEEP=all asks for the gate; running it"
-  elif ! grep -q "^$te " "$OPS/stamps/$n.history" 2>/dev/null; then
-    say "tree-equal: ${te:0:11} was never stamped here; running the gate"
+  elif ! grep -qE "^$te [^ ]+ full$" "$OPS/stamps/$n.history" 2>/dev/null; then
+    say "tree-equal: ${te:0:11} never passed the full gate here; running the gate"
   elif [ "$(git rev-parse "HEAD^{tree}")" != "$(git rev-parse "$te^{tree}")" ]; then
     say "tree-equal: HEAD's tree differs from ${te:0:11}'s" \
       "($(git diff --name-only "$te" HEAD | head -5 | paste -sd' ' -)); running the gate"
