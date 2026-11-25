@@ -292,8 +292,10 @@ public final class VarkaAnsiForm {
         "timestampadd(QUARTER, l, ntz)", "timestampadd(YEAR, i, ntz)",
         "timestampadd(YEAR, l, ntz)", "add_months(ntz, i)", "round(i, -1)", "bround(i, -1)",
         "round(y1, -1)", "bround(y1, -1)", "round(s1, -1)", "bround(s1, -2)", "l + 1",
-        "l - l2", "dt - dt2", "dt + INTERVAL '1' DAY", "dt * 3", "-2 * dt", "bit_get(i, i)",
-        "bit_get(s1, i)", "bit_get(l, i)")) {
+        "l - l2", "dt - dt2", "dt + INTERVAL '1' DAY", "dt * 3", "-2 * dt", "dt * 1.5",
+        "dt / 1.5", "bit_get(i, i)", "bit_get(s1, i)", "bit_get(l, i)", "CAST(d18 AS BIGINT)",
+        "CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)",
+        "CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     // A bigint narrowed to a narrow type, or the TINYINT bit of a bigint, as a COALESCE argument
@@ -324,6 +326,8 @@ public final class VarkaAnsiForm {
       Map.entry("DIVIDE_BY_ZERO", "x / x2"),
       Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"),
       Map.entry("INVALID_PARAMETER_VALUE.BIT_POSITION_RANGE", "bit_get(i, i)"),
+      Map.entry("NUMERIC_VALUE_OUT_OF_RANGE.WITH_SUGGESTION",
+          "CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)"),
       Map.entry("java.lang.ArithmeticException", "dt * 3"));
 
   /**
@@ -376,14 +380,32 @@ public final class VarkaAnsiForm {
       Set.of("addExact", "subtractExact", "multiplyExact", "negateExact");
 
   /**
+   * Whether {@code trace} is {@code BigDecimal.longValueExact}'s overflow raised for a Catalyst
+   * expression: its frames inside {@code java.math} end in that method, and the first frame
+   * past them is the expression's.
+   */
+  private static boolean fromLongValueExact(StackTraceElement[] trace) {
+    int i = 0;
+    while (i < trace.length && trace[i].getClassName().startsWith("java.math.")) {
+      i++;
+    }
+    return i > 0 && i < trace.length
+        && trace[i - 1].getClassName().equals("java.math.BigDecimal")
+        && trace[i - 1].getMethodName().equals("longValueExact")
+        && trace[i].getClassName().startsWith("org.apache.spark.sql.catalyst.expressions.");
+  }
+
+  /**
    * Whether {@code e} is the overflow of {@code Math}'s exact long arithmetic: the message
-   * {@code long overflow}, thrown from one of {@link #EXACT_LONG_METHODS}. Or the JVM's
-   * preallocated {@code ArithmeticException}, with no message and no stack trace: once such a
-   * site has trapped often enough, C2 throws that shared instance in place of the overflow
-   * ({@code inline_math_mathExact}, under the default {@code OmitStackTraceInFastThrow}), as
-   * {@code VarkaMaybeThrows.sameError} records. That instance is also what a hot implicit
-   * division by zero throws, so it cannot be told apart; a {@code / by zero} with its message,
-   * an int overflow, or a long overflow thrown anywhere but {@code Math} is the harness's own.
+   * {@code long overflow}, thrown from one of {@link #EXACT_LONG_METHODS}, or {@code Overflow}
+   * from {@code BigDecimal.longValueExact} called by a Catalyst expression, {@code dt * c}'s
+   * decimal product. Or the JVM's preallocated {@code ArithmeticException}, with no message and
+   * no stack trace: once such a site has trapped often enough, C2 throws that shared instance in
+   * place of the overflow ({@code inline_math_mathExact}, under the default
+   * {@code OmitStackTraceInFastThrow}), as {@code VarkaMaybeThrows.sameError} records. That
+   * instance is also what a hot implicit division by zero throws, so it cannot be told apart; a
+   * {@code / by zero} with its message, an int overflow, or a long overflow thrown anywhere but
+   * {@code Math} is the harness's own.
    * {@code VarkaUpstreamPinsSuite} pins the dropped message.
    */
   static boolean isExactLongOverflow(ArithmeticException e) {
@@ -391,9 +413,15 @@ public final class VarkaAnsiForm {
     if (e.getMessage() == null) {
       return trace.length == 0;
     }
-    return e.getMessage().equals("long overflow") && trace.length > 0
-        && trace[0].getClassName().equals("java.lang.Math")
-        && EXACT_LONG_METHODS.contains(trace[0].getMethodName());
+    return switch (e.getMessage()) {
+      case "long overflow" -> trace.length > 0
+          && trace[0].getClassName().equals("java.lang.Math")
+          && EXACT_LONG_METHODS.contains(trace[0].getMethodName());
+      // A day-time interval times a decimal, rounded to a long by BigDecimal.longValueExact,
+      // which throws itself or from its LongOverflow.check, for a 19-digit value.
+      case "Overflow" -> fromLongValueExact(trace);
+      default -> false;
+    };
   }
 
   /**

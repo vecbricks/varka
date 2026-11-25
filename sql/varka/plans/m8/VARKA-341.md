@@ -369,3 +369,105 @@ grammar's floating sequence, in one pull request after a baseline one.*
   the IEEE ones by Java's operators, and `VarkaEmittedBytesSuite` pins their first two thousand
   shapes. The fuzz descriptor marks both types present, and `dev/varka_new_lane.py` owes only
   the benchmark at the floating lanes.
+
+*23 November 2026, the runner measurement (`results/VARKA-341-literal-compare.txt`, made by
+`dev/varka_bench_diff.py` from three runs on an AMD EPYC 7763, each committed byte for byte with
+its provenance under `results/VARKA-341/`): the baseline, MaxGekk/spark run 42668162110 (#1440's
+branch, 256 bits); the specialised compares, vecbricks/varka run 44827039786 (256 bits, the run
+#1597 spliced into the class's results file) and run 45125841833 (128 bits).*
+
+- **No gain is claimed at 256 bits.** Read against the flat 3% threshold (the family has no
+  band file yet), the four literal sections moved by +10.2%, +5.5%, +11.7% and -6.4% (`DOUBLE`
+  and `FLOAT`, no nulls and one row in ten null). The two runs are not a pair: they ran eleven
+  days apart, on commits with other engine changes between them (#1586's head is the after
+  side) and on different JDK builds and runner kernels, and sections whose kernels #1443 did not
+  touch moved by -12.5% to +19.9% between them. So this reading cannot separate #1443's effect;
+  a paired run of #1443 against its parent on one runner would. Each literal section reads 2.0X
+  to 3.9X Spark's row path after, as it read 1.9X to 3.4X before, when it was the general form.
+- **At 128 bits** there is no baseline run. The `FLOAT` literal sections read 3.1X and 2.0X Spark's
+  row path; the `DOUBLE` ones are `NONE` under the two-lane refusal (row 503), so both arms are
+  the row path.
+- **The predictions of 4:**
+  1. *No integral shape's bytes move:* met, as 5.1 and #1443 recorded from `emitted_bytes.json`
+     (only floating rows and the `option_arms` digests moved).
+  2. *The 128-bit double compares are recorded refusals:* met; at 128 bits `width_audit.json`
+     records the `DOUBLE` comparisons (`x < 1.5D`, `x < x2`, `isnan(x)`) as declined by row
+     503's two-lane refusal, and the `DOUBLE` value forms (`CASE`, `IF`, `greatest`) with C2's
+     Vector API refusals; it records no `DOUBLE` refusal at 256 or 512 bits.
+  3. *Every form at least as fast as Spark's row path at 512 and 256 bits:* partly met. Met at
+     256 bits for the forms the class times (comparison, choice, comparison with a literal),
+     every one 2.0X or more; unscored at 512 bits, which the EPYC 7763's 256-bit datapath does
+     not give, and for `greatest`, `least`, `IN`, `isnan` and `nanvl`, which have no section. At
+     128 bits the fused `DOUBLE` choice with one row in ten null reads 0.6X, slower, as the
+     prediction allowed for the Java fallback; its no-nulls section's ratio is from this one run
+     and was not re-run. Both are the first fused 128-bit `DOUBLE` reading, for row 543, whose
+     admission check had none.
+- **Still owed by 9:** the test added to the row on 1 November 2026: `greatest(a, b)` and
+  `greatest(b, a)`, and the same pair for `least`, in one projection over `-0.0` and `0.0`, with
+  whole-stage codegen on and off. `VarkaFloatingLaneSuite` runs the swapped forms only in separate
+  queries, so the row is not done.
+
+*23 November 2026, the added test of both operand orders in one projection (`READING_COMET.md` 4
+case 4).*
+
+- **What Spark does, measured on the laptop.** `SELECT greatest(a, b), greatest(b, a), least(a, b),
+  least(b, a)` over `(-0.0, 0.0)`, both kinds, Varka off, in six cells: whole-stage codegen on and
+  off, `spark.sql.subexpressionElimination.enabled` on and off, and whole-stage off under the
+  interpreted factory mode. With the elimination on, every cell gives both columns the first
+  member's bits (`-0.0` for `g` and `gs` on `(-0.0, 0.0)`); with it off, every cell gives each its
+  own (`gs` is `0.0`). The setting decides, not whole-stage codegen: section 4 of
+  `READING_COMET.md` read the codegen-off answer as the second member's, which holds only with the
+  elimination off. Swapping the columns swaps the shared value; `greatest(a, b) + 1` beside
+  `greatest(b, a) * 2` shares the inner `greatest`; the pair split across a `CASE`'s `THEN` and
+  `ELSE` is never shared, since a use only inside a branch is not counted. Two NaN payloads behave
+  as the zeros do.
+- **Not only `greatest` and `least`.** `Add` and `Multiply` canonicalise by flattening a chain and
+  sorting its operands, so `(a + b) + c` beside `a + (b + c)` is one group too, and on ordinary
+  values Spark answers both with the first one's value: `0.6000000000000001` on `0.1, 0.2, 0.3`,
+  where the second association alone is `0.6`. The comparisons, `AND`, `OR`, `IN` and the bitwise
+  operators also reorder, but their answers do not depend on the order.
+- **What Varka did.** The kernel computed each member as written, in every cell, so it matched
+  Spark only with the elimination off: a wrong answer against Spark's default, not one of Spark's
+  own disagreements (row 541 does not cover it).
+- **The decline.** `VarkaSharedOrderDecline`, asked by `VarkaColumnarRule`, builds Spark's groups
+  with `EquivalentExpressions` and leaves the operator to Spark when Spark's would eliminate and a
+  group holds two members that are not the same expression, one with a floating `greatest`,
+  `least`, `+` or `*`, and one in an entry or conjunct the kernel computes. A projection asks it
+  under `spark.sql.subexpressionElimination.enabled`; a filter where its compiled form takes the
+  CSE branch (`FilterExec.eliminatesSubexpressions`) or, not compiled whole-stage, under the same
+  setting. The optimizer itself takes the two members for one, so a filter of `s1 > k AND s2 <= k`
+  folds to an empty relation before Varka sees it; `s1 > k AND s2 - k <= 0` reaches the filter.
+  Sharing the value instead is row 645.
+- **The payload fixture.** It carried only canonical NaNs: `parallelize` ships boxed values
+  through Java serialization, whose `writeDouble` stores `doubleToLongBits`. It is now built from
+  a local list, and the suite passes over the real payloads.
+- **Tests** (`VarkaFloatingLaneSuite`, both kinds): both orders, and the nested form, are left to
+  Spark and answer its bits, whole-stage codegen on and off; both associations of `+` and `*`
+  likewise, with Spark's shared value checked on `0.1, 0.2, 0.3` (`DOUBLE`) and `1.1, 1.3, 1.7`
+  (`FLOAT`); a filter reading both associations is left to Spark and keeps its rows; with the
+  elimination off all of them fuse and match; one order used twice still fuses. With the decline
+  removed, the projection and filter tests fail on the bits.
+
+*23 November 2026, later, the closing check against 9, with this pull request (#1681) and the
+runner record (#1671) merged.* Section 9 reads: "the table test of item 89 bullet 1 passes for
+every operator and its literal-specialised forms at both kinds, with NaN payload bits and the tie
+cells; each form of 2.5 fuses with coverage rows and passes the conformance suites; the bytes
+oracle is unchanged for every integral shape; the 128-bit double refusals are recorded in
+`width_audit.json`; and the PR build and the option matrix pass." The row adds the test of
+1 November 2026, both operand orders of `greatest` and of `least` in one projection over `-0.0`
+and `0.0`, whole-stage codegen on and off.
+
+- *The table test, with NaN payload bits and the tie cells:* met. `VarkaFloatingLaneSuite` runs
+  every operator and its literal-specialised forms at both kinds over every fixture, and the
+  payload fixture now carries real NaN payloads (the bullet above), so the payload cells hold.
+- *Each form of 2.5 fuses with coverage rows and passes the conformance suites:* met by 5.1 and
+  the literal compares of 9 November 2026. A projection or filter that holds two orders of one
+  floating expression which Spark's elimination shares is left to Spark, as recorded above; each
+  form alone still fuses, and the pair fuses with the elimination off.
+- *The bytes oracle unchanged for every integral shape* and *the 128-bit double refusals in
+  `width_audit.json`:* met, predictions 1 and 2 above.
+- *The test of 1 November 2026:* met, the tests above.
+- *The PR build and the option matrix:* this pull request's own.
+
+So the row is Done once this pull request merges. Prediction 3's unscored cells are a prediction
+of 4, not a clause of 9, so they do not hold it open.

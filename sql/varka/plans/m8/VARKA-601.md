@@ -166,7 +166,76 @@ to Spark's filter under a stated rule, with the baselines' classes following.
 
 ## 9. Outcome
 
-Not built.
+### 9.1 601a, built 20 November 2026 (local, not yet reviewed or run on CI)
+
+Built on branch `varka-601-split-filter-row-copy`, the four files of section 4 but the rule's:
+
+* `Fusion.SPLIT` in `VarkaSqlBenchmarkBase`. `fusion` answers it only where it answered empty
+  before: the plan holds a row operator, some Varka node fuses more than null tests, and then
+  exactly one row operator, a `FilterExec`, sits directly above (through whole-stage codegen's
+  `InputAdapter`) the plan's one Varka node, a `VarkaFilterColumnarToRowExec` whose
+  `wholeCondition` is set and whose own condition is not only null tests. `NULL_TESTS` is decided
+  first, so a split whose fused part is only an `IS NULL` stays `NULL_TESTS`. `requireBaseline`
+  notes a `SPLIT` section.
+* `VarkaSplitFilterBaselineBenchmark`, the table and sections of 3.1. Two departures from 3.1,
+  both small: the residual control reads `hash(i) % 7 <> 0 AND u IS NOT NULL` (`u_n` at the null
+  density), so the two densities are different queries that keep the rows their splits keep, and
+  it is still `NONE` because a filter whose fused part is only that null test stays whole on the
+  row path (row 598). And every `SPLIT` and `WHOLE` section gets the day-time baseline's kernel
+  check, run once before timing, since a split whose batches fall back refilters with the whole
+  condition and would time the row path under the split's label.
+* `VarkaSplitFilterBaselineQueriesSuite`: the shares the titles state over the fixture's 2000
+  rows, both sessions' answers for every section, and every section's class at both two-lane
+  refusal settings with the kernel check.
+* `VarkaDecimalBaselineQueriesSuite`: `SPLIT` for `x9 < y9 AND x15 * y15 < z15`, empty under
+  `ORDER BY` and under `count(*)`, `NULL_TESTS` unchanged for an `IS NULL` beside the same kind of
+  residual.
+
+Where the plan was loose: 3.1 calls the one-column splits "the copy of one column". The to-row
+node copies every column the residual filter and the output need, so `SELECT l ... WHERE u < 900
+AND hash(i) % 7 <> 0` copies at least `i` and `l`, and the three-column section copies `l2`
+beside them. Section 6.1's prediction 3 is about that difference, one more column copied, not
+one column against three.
+
+Run on the laptop: `build/sbt sql/Test/compile` passes, and `build/sbt 'sql/testOnly
+*VarkaSplitFilterBaselineQueriesSuite *VarkaDecimalBaselineQueriesSuite'` passes, 14 tests, none
+failed. So every class 3.1 lists held at the unnamed emit level and at `useAVX` 2 and 3, each
+with the two-lane refusal off and on, and every `SPLIT` and `WHOLE` section passed the kernel
+check. The class test also loops over the emit levels, which section 5 did not name: the
+benchmark's session resolves a named level from the host while the test sessions pin the
+unnamed one, the gap that let row 594's cast classes pass their suite.
+
+Section 5's cost prediction is not scored by this run. The new suite took 39 s (its two tests
+28.7 s and 10.6 s), but the machine ran other agents' JVMs at a load average of 43 to 48 on 24
+cores, and the decimal suite beside it took 92 s against the option matrix's median of 5.5 s
+(`sql/varka/matrix/suite-seconds.tsv`). It is scored from the first CI Build's JUnit times.
+
+Not done in this window (owed, section 8's done-when for 601a): the plan-only dry run
+(`-Dvarka.bench.dryRun=true`) at both widths, and CI.
+
+### 9.2 Decisions taken while the owner was away (20 November 2026)
+
+1. **A baseline, not a probe** (question 10.2). Taken as the plan recommends, for the reason in
+   3.1: a later row that changes the split moves a class and fails the run.
+2. **No rule is built ahead of the measurement.** The owner's standing preference is to build
+   competing design variants and choose from the numbers; here the variants (a), (b) and (c) of
+   3.2 are not alternative lowerings of one shape to be benchmarked against each other but the
+   rule the runner numbers select, and (b) and (c) only remove kernels. So nothing is prebuilt:
+   601b builds the one the measurement picks.
+3. **The residual control carries the null test** of its density's column, as 9.1 says, so its
+   two densities are distinct queries.
+4. **A section's share is of the rows whose fused column is not null**, and its title says so
+   ("keeps 90% of non-null rows"): at one row in ten null the 90% and 10% splits keep about 81%
+   and 9% of all rows. Section 6.1's prediction 5 compares each null twin with its no-null
+   section on that basis.
+5. **Not rebased onto master.** While 601a was built, master gained #1556 (VARKA-386), which
+   demotes a fused conjunct that can be NULL on a row reaching a raising residual conjunct and
+   reorders the per-row fallback's conjuncts. Every `SPLIT` class above was verified at
+   `0b8be5a33e4` only. The branch is brought up to master and both suites and the dry run are
+   rerun in the test phase, not here, because this window allowed one targeted run. *23 November
+   2026:* rebased onto `f3b97c0b503`, which also holds #1618 (VARKA-386, the split settled before
+   the order rule reads it again); the residual `hash(i) % 7 <> 0` can raise by
+   `VarkaConjunctOrder.canRaise`, so the classes are re-checked by the suites on the new base.
 
 ## 10. Questions for the owner
 

@@ -1,0 +1,86 @@
+Row 604's step-2 probe on the laptop (VARKA-604.md 9.2), 20 November 2026, 08:50 to 09:05 CET.
+
+Host: the laptop, AMD Ryzen AI 9 HX PRO 370, OpenJDK 25, shared with other agents' JVMs at a load
+average of 23 to 39; not pinned. Branch varka-604-decimal-remainder-f over master 0b8be5a33e4. The
+subject is the bytes a row, which the load does not change; no timing is read.
+
+What ran: results/VARKA-604/Probe604b.java by results/VARKA-604/run-step2.sh, three JVMs a mode at
+once, at -XX:UseAVX=2 -XX:MaxVectorSize=16 (two long lanes), with NO compile commands: the
+committed VarkaDecimalRemainderOps.remainder as a kernel would call it, over 4,096 rows of random
+two-word slots (one row in 32 a zero divisor). Each JVM primes it with 20,000 calls of 64 rows,
+drives it for 8 s, then reads its own thread's allocation over 256 calls of 4,096 rows.
+
+Modes: alone (nothing first); mixed (the admission probe's polluter, a lanewise ADD then MAX over
+seven species, 20,000 rounds, first); warm (VarkaVectorTemplateWarmup.ensure first); warm-mixed
+(the warm-up, then the polluter); mixed-late (the polluter, then the warm-up). The helper's own
+class initializer runs the template warm-up (beforeVectorCode) at its first call, so "mixed" with
+the warm-up on is the polluter followed by the warm-up, as mixed-late is; the control with the
+warm-up off is the second run, -Dvarka.warmup.vectorTemplates=false (OFF=1).
+
+120 bytes a call is the three MemorySegments the driver maps (x, y, out); some JVMs read 40, which
+is one of them, why is not read (no compile log). Neither depends on the rows. 65,656 bytes a call is 16 bytes a row
+plus those 120: one long[2] a lane group, the residual of VARKA-577.md 10.4.
+
+Run 1, the template warm-up on (the default):
+mode=alone op=rem L=2 bytes/row=0.010 bytes/call=40.0
+mode=alone op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=alone op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm op=rem L=2 bytes/row=0.010 bytes/call=40.0
+mode=warm-mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed-late op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed-late op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed-late op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=pmod L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=pmod L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=pmod L=2 bytes/row=0.010 bytes/call=40.0
+mode=warm-mixed op=pmod L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=pmod L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=pmod L=2 bytes/row=0.029 bytes/call=120.0
+
+Run 2, the template warm-up off (OFF=1):
+mode=alone op=rem L=2 bytes/row=0.010 bytes/call=40.0
+mode=alone op=rem L=2 bytes/row=0.010 bytes/call=40.0
+mode=alone op=rem L=2 bytes/row=0.010 bytes/call=40.0
+mode=mixed op=rem L=2 bytes/row=16.029 bytes/call=65656.0
+mode=mixed op=rem L=2 bytes/row=16.029 bytes/call=65656.0
+mode=mixed op=rem L=2 bytes/row=16.029 bytes/call=65656.0
+mode=mixed op=pmod L=2 bytes/row=16.029 bytes/call=65656.0
+mode=mixed op=pmod L=2 bytes/row=16.029 bytes/call=65656.0
+mode=mixed op=pmod L=2 bytes/row=16.029 bytes/call=65656.0
+
+Reading: with the warm-up on, 0 of 21 JVMs kept the residual, after the polluter or not, for
+x % y and pmod; with it off, 6 of 6 JVMs after the polluter kept 16 bytes a row, and 0 of 3 with
+no polluter. The verdict of the admission probe (VARKA-604.md 2) holds for the helper's shape: one
+loop64 with pmod an argument, kept out of line by its size alone, the transposes free to inline.
+
+Run 3, both operations in one JVM (BOTH=1), 20 November 2026, about 09:10 CET: x % y, then pmod,
+then x % y again, each primed, driven and read, so that loop64 is compiled with both arms of its
+pmod branch (the runs above each served one operation, and C2 pruned the other arm):
+mode=mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=pmod L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=pmod L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=pmod L=2 bytes/row=0.029 bytes/call=120.0
+mode=mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=pmod L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=pmod L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=pmod L=2 bytes/row=0.029 bytes/call=120.0
+mode=warm-mixed op=rem L=2 bytes/row=0.029 bytes/call=120.0
+
+Reading: 0 of 18 readings in 6 JVMs kept the residual, after the polluter alone (the helper's
+first call running the warm-up after it) and with the warm-up before it.

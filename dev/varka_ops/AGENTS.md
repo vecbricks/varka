@@ -11,9 +11,18 @@ These add to `sql/varka/AGENTS.md`. The tools are listed in `INDEX.md` and the f
   then `mark-reviewed.sh` on the head that round produced. Do not review to zero findings.
 - **Never `git push` by hand.** Use `open-pr.sh`, `push-ci.sh` or `push-no-ci.sh`; they check
   both stamps and push to the fork remote only.
-- **One gate at a time.** The width audit's 600 s probes time out beside another gate, so leave
-  `PRE_PR_SLOTS` at 1, and use `PRE_PR_EXCLUSIVE=1` for a gate that must run alone. A light
-  gate (no generated-file input, no suite) starts at once; do not force it through the queue.
+- **Two gates at a time.** `PRE_PR_SLOTS` is 2, and the gate gives the width audit's probes
+  2400 s each (`PRE_PR_WIDTH_AUDIT_TIMEOUT`), since the suite's 600 s ran out beside another
+  gate. Do not raise either without a trial; use `PRE_PR_EXCLUSIVE=1` for a gate that must run
+  alone. A light gate (no generated-file input, no suite, or only benchmark results) starts at
+  once; do not force it through the queue.
+- **The sweep's scope is mechanical.** The gate sweeps the defaults, `useAVX=2`, `useAVX=3` and
+  the options the branch's diff names, and skips the sweep after a merge-only change
+  (`README.md`). Widen it with `PRE_PR_SWEEP=all` or `PRE_PR_FULL=1`; never narrow it by hand.
+  `PRE_PR_DRY=1` shows what a gate would do.
+- **The tree-equal path is for a rehearsed tree.** Pass `PRE_PR_TREE_EQUAL=<sha>` only for a
+  stacked branch whose rehearsed merge `<sha>` passed the full gate in this worktree; the gate
+  checks the tree, the stamp and `origin/master` itself, and runs in full on any mismatch.
 - **The regen skip is mechanical.** It applies only when every changed file is tooling, CI,
   plans, benchmarks or prose (`README.md`); do not skip a regeneration by hand.
 - **Kill only recorded PIDs.** Never `pkill` or `killall`; `start-waiter.sh` keeps the pid.

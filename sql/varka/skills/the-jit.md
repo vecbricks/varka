@@ -1382,3 +1382,20 @@ back so that it can (VARKA-557).
   control, which reproduced the case 3 of 3, and the bytecode showing the sanitizer's check
   before the loop. `-XX:+UnlockDiagnosticVMOptions -XX:-UseProfiledLoopPredicate` clears it, as it
   cleared row 383's releases; it is a diagnosis, not a fix.
+
+## A compiler directive's inline list binds only the compiles its match names as their root
+
+Adding `inline: ["-C::m"]` at run time through `Compiler.directives_add` does not keep `C::m` out
+of line wherever it is called. C2 asks the directive of the compile it is running, the root
+method's (`InlineTree::should_inline` reads `C->directive()`, `opto/bytecodeInfo.cpp`), and a
+compile takes the first directive on the stack whose `match` names its root
+(`DirectivesStack::getMatchingDirective`, `compiler/compilerDirectives.cpp`). So a directive that
+should keep a callee out of line has to match every method that can be a root above it, a kernel
+the caller is inlined into among them, and a `*.*` match to get there would take the place of
+every other directive for every compile, `VarkaKernelCompileDirective`'s C1 exclusion included.
+`-XX:CompileCommand=dontinline`, which does bind at every call site, can only be given at JVM
+start. Where a method must stay a compile of its own, its size can do it with no flag: C2 inlines
+no method over `FreqInlineSize` at a hot call site ("hot method too big"; 325 bytes of bytecode on
+x86, aarch64 and riscv, 175 elsewhere, `cpu/*/c2_globals_*.hpp`), unless a command or an
+annotation forces it. `VarkaDecimalRemainderOps.loop64` is kept out of line that way, and its
+suite pins the size (VARKA-604.md 12, decision 3).

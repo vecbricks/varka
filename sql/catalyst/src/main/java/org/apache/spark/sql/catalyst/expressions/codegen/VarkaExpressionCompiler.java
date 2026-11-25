@@ -158,7 +158,8 @@ public final class VarkaExpressionCompiler {
    * decimal column is left to the row engine on a host whose 64-bit masks fall back
    * ({@link VarkaKernelPlan#admit}, VARKA-596), as the predicate leaves a filter's condition
    * there, and with it a checked {@code BIGINT} operation, whose overflow test is a 64-bit
-   * vector mask (VARKA-104, {@code DeclineSink.declinesTwoLaneChecks}).
+   * vector mask (VARKA-104, {@code DeclineSink.declinesTwoLaneChecks}), and the checked day-time
+   * interval arithmetic measured slower there (VARKA-612), through the same sink.
    */
   public static Optional<PartialVarkaProjection> compilePartial(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
@@ -581,8 +582,9 @@ public final class VarkaExpressionCompiler {
     private final VarkaEmitOptions options;
     // The session's admission settings, which every sink of the pass is built under: its
     // families off, and the one two-lane setting, which refuses a checked BIGINT operation
-    // there through the sink (VARKA-104) and a boolean output over a decimal column through
-    // VarkaKernelPlan.admit (VARKA-596), as the predicate's admission refuses a condition.
+    // and the measured day-time interval checks there through the sink (VARKA-104, VARKA-612),
+    // and a boolean output over a decimal column through VarkaKernelPlan.admit (VARKA-596), as
+    // the predicate's admission refuses a condition.
     private final VarkaAdmission admission;
     private final VarkaSlotTable inputs = new VarkaSlotTable();
     private final VarkaSlotTable literals = new VarkaSlotTable();
