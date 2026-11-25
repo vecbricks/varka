@@ -694,14 +694,14 @@ hash formula is the records' own for both nodes: `CanonicalFloat` keeps 337a1's
 `hashOf(child)`, as #1566 settled it, and `CanonicalBits` takes the same `hashOf(child)` by the
 owner's decision of 20 November 2026, so neither mixes its class in.
 
-Left of 337a, after 337a3 below: the IR grammar's productions of 2.6 (the fuzz and grammar suites list both nodes as not
-drawn yet, pointing here), `hash.smt2` with the step, fold and blend claims of 3.4, and the
-planted faults of 3.9's second and third bullets. Then, by section 5's order, the baseline (its
-build sheet below) and the spike, and the measurement that scores predictions 1 to 4; the PR
-build and the option matrix (3.8).
+Left of 337a, after 337a3 below: the IR grammar's productions of 2.6 (the fuzz and grammar suites
+list both nodes as not drawn yet, pointing here), `hash.smt2` with the step, fold and blend claims
+of 3.4, and the planted faults of 3.9's second and third bullets. Then, by section 5's order, the
+baseline (its build sheet below) and the spike, and the measurement that scores predictions 1 to 4;
+the PR build and the option matrix (3.8).
 
 **337a3, the compiler** (20 November 2026, branch `varka-337a3-hash-compiler`, stacked on 337a2,
-local; decision 16 below). Built: the `HASH` family with its switch and `VarkaHashCompiler`, last
+#1573; decision 16 below). Built: the `HASH` family with its switch and `VarkaHashCompiler`, last
 in the chain, claiming `Murmur3Hash` and `XxHash64` by exact class, so the collation-aware variants
 and `HiveHash` stay on the row engine; the fold of the children in order from the expression's
 seed, each child's word by 2.3's table: a bare int column through the int operand rule, a boolean
