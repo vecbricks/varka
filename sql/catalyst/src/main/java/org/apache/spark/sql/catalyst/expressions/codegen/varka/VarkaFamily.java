@@ -100,7 +100,8 @@ public enum VarkaFamily {
   DECIMAL_CAST("decimal cast", "decimalCast", "the casts of a decimal of precision 18 or less to"
       + " bigint and boolean, and into such a decimal from another,"
       + " rounding half up where the scale drops (checked under ANSI, null on overflow under"
-      + " LEGACY and TRY); the widening rescale between two decimals that type coercion puts"
+      + " LEGACY and TRY); the casts to tinyint, smallint and int are claimed and decline, naming"
+      + " row 350's next part; the widening rescale between two decimals that type coercion puts"
       + " under a comparison is not the family's"),
   /** {@code VarkaRoundingCompiler}. */
   ROUNDING("rounding", "rounding", "rint over a double; floor, ceil and ceiling over bigint"

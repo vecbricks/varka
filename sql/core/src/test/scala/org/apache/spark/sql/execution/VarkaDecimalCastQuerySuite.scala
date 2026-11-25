@@ -24,13 +24,15 @@ import org.apache.spark.sql.types.{DataType, DecimalType, StructField, StructTyp
 /**
  * The 64-bit decimal casts (VARKA-350) to BIGINT, BOOLEAN and between decimals over an
  * Arrow-cached table, Varka against vanilla Spark in LEGACY, ANSI and TRY: the rows both answer,
- * or the error both raise; the narrow integral targets decline. Each column holds the
- * named cases of `VARKA-350.md` 3 item 2 for its type - the values where the exact rule and the
- * double rule part (`0.999999999999999999` as `DECIMAL(18, 18)`, `2147483647.99999999` as
- * `DECIMAL(18, 8)` and the three first differences of item 0.14), each target's bounds and one
- * past them, `-0.5`, `-1.5` and `1.5`, Trino's `184467440737095517` at `(18, 0)` into `(18, 2)`,
- * and `9.99` and `9.95` into `(2, 1)` (the rounding carry that overflows) - with a null beside
- * them. The division guard's boundaries are the coverage rows' domains.
+ * or the error both raise; the narrow integral targets decline, and are only checked to run on
+ * the row engine here. The columns hold the named cases of `VARKA-350.md` 3 item 2 for every
+ * target: the values where the exact rule and the double rule part for INT
+ * (`0.999999999999999999` as `DECIMAL(18, 18)`, `2147483647.99999999` as `DECIMAL(18, 8)` and the
+ * three first differences of item 0.14, in `f`, `k` and `m`), each target's bounds and one past
+ * them, `-0.5`, `-1.5` and `1.5`, Trino's `184467440737095517` at `(18, 0)` into `(18, 2)`, and
+ * `9.99` and `9.95` into `(2, 1)` (the rounding carry that overflows) - with a null beside them.
+ * Here they feed the BIGINT, BOOLEAN and decimal casts; holding the narrow targets to them is
+ * 350a1n's. The division guard's boundaries are the coverage rows' domains.
  *
  * A cast into a decimal is read back through a cast to `BIGINT` at scale 0 and through
  * comparisons at its scale, and as a projection's own output through the decimal store (348b).
