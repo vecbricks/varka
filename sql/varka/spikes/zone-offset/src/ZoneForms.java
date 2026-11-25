@@ -172,75 +172,101 @@ public class ZoneForms {
     return offset;
   }
 
-  /** The broadcast change points and deltas of {@code s}, and its base offset last. */
-  static LongVector[][] broadcast(Steps s) {
-    int k = s.at.length;
-    LongVector[] at = new LongVector[k];
-    LongVector[] delta = new LongVector[k];
-    for (int j = 0; j < k; j++) {
-      at[j] = LongVector.broadcast(S, s.at[j]);
-      delta[j] = LongVector.broadcast(S, s.delta[j]);
-    }
-    return new LongVector[][] {at, delta, {LongVector.broadcast(S, s.base)}};
-  }
+  // The steps written out for a known number of changes, as an emitted kernel has them: every
+  // change point and delta is a local that is broadcast once, and the loop is one chain of
+  // compares and masked adds.
 
-  static LongVector one(LongVector offset, LongVector v, LongVector[][] b, int j) {
-    return offset.add(b[1][j], v.compare(VectorOperators.GE, b[0][j]));
-  }
-
-  static LongVector two(LongVector offset, LongVector v, LongVector[][] b, int j) {
-    return one(one(offset, v, b, j), v, b, j + 1);
-  }
-
-  static LongVector four(LongVector offset, LongVector v, LongVector[][] b, int j) {
-    return two(two(offset, v, b, j), v, b, j + 2);
-  }
-
-  static LongVector eight(LongVector offset, LongVector v, LongVector[][] b, int j) {
-    return four(four(offset, v, b, j), v, b, j + 4);
-  }
-
-  /**
-   * The steps written out for 1, 2, 4, 8 or 16 changes, as an emitted kernel would have them:
-   * each loop below is one chain of compares and masked adds with no inner loop.
-   */
-  static void stepsWrittenOut(long[] in, long[] out, Steps s) {
-    LongVector[][] b = broadcast(s);
-    LongVector base = b[2][0];
-    int up = S.loopBound(in.length);
+  static void stepsOf1(long[] in, long[] out, Steps s) {
+    LongVector base = LongVector.broadcast(S, s.base);
+    LongVector at0 = LongVector.broadcast(S, s.at[0]);
+    LongVector delta0 = LongVector.broadcast(S, s.delta[0]);
     int i = 0;
-    switch (s.at.length) {
-      case 1 -> {
-        for (; i < up; i += S.length()) {
-          LongVector v = LongVector.fromArray(S, in, i);
-          v.add(one(base, v, b, 0)).intoArray(out, i);
-        }
-      }
-      case 2 -> {
-        for (; i < up; i += S.length()) {
-          LongVector v = LongVector.fromArray(S, in, i);
-          v.add(two(base, v, b, 0)).intoArray(out, i);
-        }
-      }
-      case 4 -> {
-        for (; i < up; i += S.length()) {
-          LongVector v = LongVector.fromArray(S, in, i);
-          v.add(four(base, v, b, 0)).intoArray(out, i);
-        }
-      }
-      case 8 -> {
-        for (; i < up; i += S.length()) {
-          LongVector v = LongVector.fromArray(S, in, i);
-          v.add(eight(base, v, b, 0)).intoArray(out, i);
-        }
-      }
-      case 16 -> {
-        for (; i < up; i += S.length()) {
-          LongVector v = LongVector.fromArray(S, in, i);
-          v.add(eight(eight(base, v, b, 0), v, b, 8)).intoArray(out, i);
-        }
-      }
-      default -> throw new IllegalArgumentException(s.at.length + " changes are not written out");
+    for (int up = S.loopBound(in.length); i < up; i += S.length()) {
+      LongVector v = LongVector.fromArray(S, in, i);
+      LongVector offset = base
+          .add(delta0, v.compare(VectorOperators.GE, at0));
+      v.add(offset).intoArray(out, i);
+    }
+    for (; i < in.length; i++) {
+      out[i] = in[i] + scalarOffset(in[i], s);
+    }
+  }
+
+  static void stepsOf2(long[] in, long[] out, Steps s) {
+    LongVector base = LongVector.broadcast(S, s.base);
+    LongVector at0 = LongVector.broadcast(S, s.at[0]);
+    LongVector delta0 = LongVector.broadcast(S, s.delta[0]);
+    LongVector at1 = LongVector.broadcast(S, s.at[1]);
+    LongVector delta1 = LongVector.broadcast(S, s.delta[1]);
+    int i = 0;
+    for (int up = S.loopBound(in.length); i < up; i += S.length()) {
+      LongVector v = LongVector.fromArray(S, in, i);
+      LongVector offset = base
+          .add(delta0, v.compare(VectorOperators.GE, at0))
+          .add(delta1, v.compare(VectorOperators.GE, at1));
+      v.add(offset).intoArray(out, i);
+    }
+    for (; i < in.length; i++) {
+      out[i] = in[i] + scalarOffset(in[i], s);
+    }
+  }
+
+  static void stepsOf4(long[] in, long[] out, Steps s) {
+    LongVector base = LongVector.broadcast(S, s.base);
+    LongVector at0 = LongVector.broadcast(S, s.at[0]);
+    LongVector delta0 = LongVector.broadcast(S, s.delta[0]);
+    LongVector at1 = LongVector.broadcast(S, s.at[1]);
+    LongVector delta1 = LongVector.broadcast(S, s.delta[1]);
+    LongVector at2 = LongVector.broadcast(S, s.at[2]);
+    LongVector delta2 = LongVector.broadcast(S, s.delta[2]);
+    LongVector at3 = LongVector.broadcast(S, s.at[3]);
+    LongVector delta3 = LongVector.broadcast(S, s.delta[3]);
+    int i = 0;
+    for (int up = S.loopBound(in.length); i < up; i += S.length()) {
+      LongVector v = LongVector.fromArray(S, in, i);
+      LongVector offset = base
+          .add(delta0, v.compare(VectorOperators.GE, at0))
+          .add(delta1, v.compare(VectorOperators.GE, at1))
+          .add(delta2, v.compare(VectorOperators.GE, at2))
+          .add(delta3, v.compare(VectorOperators.GE, at3));
+      v.add(offset).intoArray(out, i);
+    }
+    for (; i < in.length; i++) {
+      out[i] = in[i] + scalarOffset(in[i], s);
+    }
+  }
+
+  static void stepsOf8(long[] in, long[] out, Steps s) {
+    LongVector base = LongVector.broadcast(S, s.base);
+    LongVector at0 = LongVector.broadcast(S, s.at[0]);
+    LongVector delta0 = LongVector.broadcast(S, s.delta[0]);
+    LongVector at1 = LongVector.broadcast(S, s.at[1]);
+    LongVector delta1 = LongVector.broadcast(S, s.delta[1]);
+    LongVector at2 = LongVector.broadcast(S, s.at[2]);
+    LongVector delta2 = LongVector.broadcast(S, s.delta[2]);
+    LongVector at3 = LongVector.broadcast(S, s.at[3]);
+    LongVector delta3 = LongVector.broadcast(S, s.delta[3]);
+    LongVector at4 = LongVector.broadcast(S, s.at[4]);
+    LongVector delta4 = LongVector.broadcast(S, s.delta[4]);
+    LongVector at5 = LongVector.broadcast(S, s.at[5]);
+    LongVector delta5 = LongVector.broadcast(S, s.delta[5]);
+    LongVector at6 = LongVector.broadcast(S, s.at[6]);
+    LongVector delta6 = LongVector.broadcast(S, s.delta[6]);
+    LongVector at7 = LongVector.broadcast(S, s.at[7]);
+    LongVector delta7 = LongVector.broadcast(S, s.delta[7]);
+    int i = 0;
+    for (int up = S.loopBound(in.length); i < up; i += S.length()) {
+      LongVector v = LongVector.fromArray(S, in, i);
+      LongVector offset = base
+          .add(delta0, v.compare(VectorOperators.GE, at0))
+          .add(delta1, v.compare(VectorOperators.GE, at1))
+          .add(delta2, v.compare(VectorOperators.GE, at2))
+          .add(delta3, v.compare(VectorOperators.GE, at3))
+          .add(delta4, v.compare(VectorOperators.GE, at4))
+          .add(delta5, v.compare(VectorOperators.GE, at5))
+          .add(delta6, v.compare(VectorOperators.GE, at6))
+          .add(delta7, v.compare(VectorOperators.GE, at7));
+      v.add(offset).intoArray(out, i);
     }
     for (; i < in.length; i++) {
       out[i] = in[i] + scalarOffset(in[i], s);
@@ -248,13 +274,16 @@ public class ZoneForms {
   }
 
   /**
-   * Two steps, carried from the batch before, with the check that every instant is in the range
+   * Two steps carried from the batch before, with the check that every instant is in the range
    * they cover in the same loop, as the batch's least and greatest instant; false means the
    * batch must run again with steps of its own.
    */
-  static boolean stepsCarriedByRange(long[] in, long[] out, Steps s, long from, long until) {
-    LongVector[][] b = broadcast(s);
-    LongVector base = b[2][0];
+  static boolean stepsOf2ByRange(long[] in, long[] out, Steps s, long from, long until) {
+    LongVector base = LongVector.broadcast(S, s.base);
+    LongVector at0 = LongVector.broadcast(S, s.at[0]);
+    LongVector delta0 = LongVector.broadcast(S, s.delta[0]);
+    LongVector at1 = LongVector.broadcast(S, s.at[1]);
+    LongVector delta1 = LongVector.broadcast(S, s.delta[1]);
     LongVector least = LongVector.broadcast(S, Long.MAX_VALUE);
     LongVector greatest = LongVector.broadcast(S, Long.MIN_VALUE);
     int i = 0;
@@ -262,7 +291,10 @@ public class ZoneForms {
       LongVector v = LongVector.fromArray(S, in, i);
       least = least.min(v);
       greatest = greatest.max(v);
-      v.add(two(base, v, b, 0)).intoArray(out, i);
+      LongVector offset = base
+          .add(delta0, v.compare(VectorOperators.GE, at0))
+          .add(delta1, v.compare(VectorOperators.GE, at1));
+      v.add(offset).intoArray(out, i);
     }
     long lo = least.reduceLanes(VectorOperators.MIN);
     long hi = greatest.reduceLanes(VectorOperators.MAX);
@@ -275,20 +307,26 @@ public class ZoneForms {
   }
 
   /**
-   * {@link #stepsCarriedByRange} with its check as one OR a vector: every instant is in
+   * {@link #stepsOf2ByRange} with its check as one OR a vector: every instant is in
    * {@code [from, from + 2^bits)} exactly when the OR of every {@code instant - from} has no bit
    * at or above {@code bits}.
    */
-  static boolean stepsCarriedByOr(long[] in, long[] out, Steps s, long from, int bits) {
-    LongVector[][] b = broadcast(s);
-    LongVector base = b[2][0];
+  static boolean stepsOf2ByOr(long[] in, long[] out, Steps s, long from, int bits) {
+    LongVector base = LongVector.broadcast(S, s.base);
+    LongVector at0 = LongVector.broadcast(S, s.at[0]);
+    LongVector delta0 = LongVector.broadcast(S, s.delta[0]);
+    LongVector at1 = LongVector.broadcast(S, s.at[1]);
+    LongVector delta1 = LongVector.broadcast(S, s.delta[1]);
     LongVector lo = LongVector.broadcast(S, from);
     LongVector seen = LongVector.zero(S);
     int i = 0;
     for (int up = S.loopBound(in.length); i < up; i += S.length()) {
       LongVector v = LongVector.fromArray(S, in, i);
       seen = seen.or(v.sub(lo));
-      v.add(two(base, v, b, 0)).intoArray(out, i);
+      LongVector offset = base
+          .add(delta0, v.compare(VectorOperators.GE, at0))
+          .add(delta1, v.compare(VectorOperators.GE, at1));
+      v.add(offset).intoArray(out, i);
     }
     long or = seen.reduceLanes(VectorOperators.OR);
     for (; i < in.length; i++) {
@@ -299,12 +337,13 @@ public class ZoneForms {
   }
 
   /**
-   * Two steps with no mask, for the species of two 64-bit lanes, at which this JVM compiles no
-   * mask (`skills/the-jit.md`): `at - 1 - instant` is negative exactly when the instant is at or
-   * past the change, and its sign, shifted across the lane, selects the delta. The instants must
-   * be near enough to the changes for the difference not to overflow, which the OR check shows.
+   * {@link #stepsOf2ByOr} with no mask, for the species of two 64-bit lanes, at which this JVM
+   * compiles no mask (`skills/the-jit.md`): `at - 1 - instant` is negative exactly when the
+   * instant is at or past the change, and its sign, shifted across the lane, selects the delta.
+   * The instants must be near enough to the changes for the difference not to overflow, which
+   * the OR check shows.
    */
-  static boolean stepsNoMask(long[] in, long[] out, Steps s, long from, int bits) {
+  static boolean stepsOf2NoMaskByOr(long[] in, long[] out, Steps s, long from, int bits) {
     LongVector base = LongVector.broadcast(S, s.base);
     LongVector at0 = LongVector.broadcast(S, s.at[0] - 1);
     LongVector at1 = LongVector.broadcast(S, s.at[1] - 1);
@@ -430,14 +469,13 @@ public class ZoneForms {
         () -> oneOffset(week, out, weekSteps.base), true);
     time("the pass for least and greatest", "a year, no order", 2, year, out,
         () -> leastAndGreatest(year), false);
-    time("steps carried, checked by range", "a year, no order", 2, year, out,
-        () -> stepsCarriedByRange(year, out, yearSteps, micros(2025, 1, 1), micros(2026, 1, 1)),
-        true);
+    time("steps of 2, checked by range", "a year, no order", 2, year, out,
+        () -> stepsOf2ByRange(year, out, yearSteps, micros(2025, 1, 1), micros(2026, 1, 1)), true);
     // 2^45 microseconds are 407 days: the year of 2025 from its first instant.
-    time("steps carried, checked by an OR", "a year, no order", 2, year, out,
-        () -> stepsCarriedByOr(year, out, yearSteps, micros(2025, 1, 1), 45), true);
-    time("steps carried, no mask, by an OR", "a year, no order", 2, year, out,
-        () -> stepsNoMask(year, out, yearSteps, micros(2025, 1, 1), 45), true);
+    time("steps of 2, checked by an OR", "a year, no order", 2, year, out,
+        () -> stepsOf2ByOr(year, out, yearSteps, micros(2025, 1, 1), 45), true);
+    time("steps of 2, no mask, by an OR", "a year, no order", 2, year, out,
+        () -> stepsOf2NoMaskByOr(year, out, yearSteps, micros(2025, 1, 1), 45), true);
 
     // Batches that span exactly k changes: from a month before the first of them to a month
     // after the last, counted from the first change of 2016.
@@ -451,11 +489,16 @@ public class ZoneForms {
       long until = CHANGE[first + k - 1] + month;
       long[] in = instants(random, from, until);
       Steps s = Steps.of(from, until);
-      time("steps, written out", (k + 1) / 2 + " years, no order", k, in, out,
-          () -> stepsWrittenOut(in, out, s), true);
+      String data = (k + 1) / 2 + " years, no order";
+      switch (k) {
+        case 1 -> time("steps, written out", data, k, in, out, () -> stepsOf1(in, out, s), true);
+        case 2 -> time("steps, written out", data, k, in, out, () -> stepsOf2(in, out, s), true);
+        case 4 -> time("steps, written out", data, k, in, out, () -> stepsOf4(in, out, s), true);
+        case 8 -> time("steps, written out", data, k, in, out, () -> stepsOf8(in, out, s), true);
+        default -> { }
+      }
       if (k >= 8) {
-        time("steps, read in a loop", (k + 1) / 2 + " years, no order", k, in, out,
-            () -> stepsInLoop(in, out, s), true);
+        time("steps, read in a loop", data, k, in, out, () -> stepsInLoop(in, out, s), true);
       }
     }
 
