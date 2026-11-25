@@ -1740,14 +1740,19 @@ final class VarkaBodyEmitter {
       if (dense) {
         cb.loadConstant(-1L);
       } else {
-        loadWord(cb, s, s.wordRef.get(root));
+        int ref = s.wordRef.get(root);
+        loadWord(cb, s, ref);
         // A pair store's two words are valid on the same rows. With the liveness pass on, the
         // high word's own word (a choice's blend per word) is dead and never computed; without
         // it every own word is computed, so the high one is read here too, ANDed with the low
         // one it equals, and no word is computed for nothing (assertWordsLive).
         if (root instanceof InterleaveDecimal pair && s.liveWordOwners == null) {
-          int hi = s.wordRef.get(pair.hi());
-          if (hi != s.wordRef.get(root)) {
+          Integer hi = s.wordRef.get(pair.hi());
+          if (hi == null) {
+            throw VarkaErrors.illegalState("a decimal pair output whose high word has no word "
+                + "planned: " + VarkaVectorIR.canonical(root));
+          }
+          if (hi != ref) {
             loadWord(cb, s, hi);
             cb.land();
           }
