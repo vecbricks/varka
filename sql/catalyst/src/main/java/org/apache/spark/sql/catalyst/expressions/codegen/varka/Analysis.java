@@ -95,6 +95,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InterleaveDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
@@ -990,6 +991,7 @@ final class Analysis {
         case ReinterpretLane n -> { }
         case NarrowLane n -> { }
         case WidenDecimal n -> { }
+        case InterleaveDecimal n -> { }
         case NextDay n -> { }
         case TruncDateDynamic n -> { }
         case DateDiff n -> { }
@@ -1670,6 +1672,14 @@ final class Analysis {
         }
         analyzeOp(node, false, n.child());
       }
+      // The pair's store, the same interleave over a high word of its own.
+      case InterleaveDecimal n -> {
+        if (lane != Lane.LONG) {
+          throw VarkaErrors.illegalArgument("a decimal output in a " + lane.laneType
+              + " emission: the store interleaves long lanes");
+        }
+        analyzeOp(node, false, n.lo(), n.hi());
+      }
       case GuardedRange n -> {
         // At a narrow or the int lane the bounds have to be what the lane can compare against;
         // the long lane holds any bound. Refused here, where the tree is, rather than at the
@@ -1920,7 +1930,7 @@ final class Analysis {
       }
       // Nor is a decimal output anything but a root: no operator over a decimal value consumes
       // it yet, and its store is the root's (VARKA-157 2.1).
-      if (child instanceof WidenDecimal) {
+      if (child instanceof WidenDecimal || child instanceof InterleaveDecimal) {
         throw VarkaErrors.illegalArgument("a decimal output below a root, under "
             + node.getClass().getSimpleName() + ": " + child);
       }

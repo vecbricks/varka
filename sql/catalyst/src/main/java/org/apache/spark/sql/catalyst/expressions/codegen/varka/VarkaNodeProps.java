@@ -164,8 +164,9 @@ public record VarkaNodeProps(Ring ring, boolean intOverflowCheck, Validity valid
     /**
      * The word of one operand, the one at {@code index} in {@code VarkaVectorIR.childrenOf}
      * order, aliased: a node whose other operands' nulls leave its value as it is, as a hash
-     * step's word does its seed (VARKA-337). The node reads those operands' words as data, not
-     * as its own validity.
+     * step's word does its seed (VARKA-337), or whose operands are valid on the same rows, as a
+     * decimal pair store's two words are (VARKA-359). The node reads those operands' words as
+     * data, not as its own validity.
      */
     record Operand(int index) implements Validity {
       public Operand {

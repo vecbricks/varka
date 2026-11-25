@@ -373,24 +373,27 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
     val compiled = VarkaExpressionCompiler.compilePredicate(condition, child.output,
       VarkaColumnarToRowExec.emitOptions(session), session.admission)
     compiled.toScala.flatMap { predicate =>
+      val fused = predicate.fusedConjuncts.asScala.toSeq
       val residuals = predicate.residualConjuncts.asScala.toSeq
       val residual = residuals.reduceLeftOption(And(_, _))
-      // With residual conjuncts split off, a batch the kernel cannot serve is refiltered with
-      // the whole condition, in Spark's order (see VarkaFilterExecBase).
-      val varka = mkVarka(predicate.fusedConjuncts.asScala.reduceLeft(And(_, _)), child,
-        residual.map(_ => condition))
+      val fusedFold = fused.reduceLeft(And(_, _))
+      // A batch the kernel cannot serve is refiltered with the filter's own condition, in
+      // Spark's order (see VarkaFilterExecBase), wherever the fused conjuncts' left fold is not
+      // that condition: with residual conjuncts split off, or where the condition's AND tree is
+      // not its own left fold. Spark's uncompiled predicate keeps an AND of the tree that is a
+      // common subexpression as one conjunct (SPARK-61197), which the fold does not have
+      // (VARKA-608). The test is structural: `semanticEquals` would equate every AND tree with
+      // its fold, since `And.canonicalized` gathers and sorts the whole spine.
+      val whole = if (residual.isDefined || fusedFold != condition) Some(condition) else None
+      val varka = mkVarka(fusedFold, child, whole)
       val hoists = varka.fallbackHoistsIntoAnAnd
       val missesElimination = residual.exists { r =>
         varka.compiledBySpark && residualMissesElimination(condition, child, residuals, r, varka)
       }
-      // Spark's filter eliminates where its compiled form takes the CSE branch, or, not
-      // compiled, under the session's setting (`VarkaFilterExecBase.compiledBySpark`).
-      val fused = predicate.fusedConjuncts.asScala.toSeq
-      val sparkEliminates = if (varka.compiledBySpark) {
-        FilterExec(condition, child).eliminatesSubexpressions
-      } else {
-        SQLConf.get.subexpressionEliminationEnabled
-      }
+      // Whether Spark's filter eliminates common subexpressions here. The node asks it of a
+      // `FilterExec` of `whole.getOrElse(fusedFold)`, which is `condition` either way: `whole` is
+      // None only where the fold is structurally `condition`.
+      val sparkEliminates = varka.fallbackEliminatesSubexpressions
       val sharesOrder = VarkaSharedOrderDecline.reason((fused ++ residuals).asJava,
         (fused.map(_ => true) ++ residuals.map(_ => false)).map(b => b: java.lang.Boolean).asJava,
         sparkEliminates).toScala
