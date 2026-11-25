@@ -6261,7 +6261,7 @@ its steps 2 and 3, the optional path tiers, `--replay` and the `auto` default.
 | 625 | A push check for an option change | the row | CI or tooling work: it moves no census cell and serves no new type |
 | 627 | One benchmark slug per CPU | the row | CI or tooling work: it moves no census cell and serves no new type |
 | 637 | Steps 2 and 3 only: a pull request's matrix runs what its diff can move (path tiers, `--replay`, the `auto` default) | `m8/VARKA-637.md` 3.2, 3.5 and 7 | CI or tooling work: it moves no census cell and serves no new type; step 1, the first stage, was returned to milestone 8 |
-| 642 | An emit option declared in one place | `VARKA-642.md` | CI or tooling work: it moves no census cell and serves no new type |
+| 642 | An emit option declared in one place | `VARKA-642.md` | CI or tooling work: it moves no census cell and serves no new type. *Moved to milestone 9's task plan on 25 November 2026 (`m9/PLAN.md` 3); its plan stays in `m9/`.* |
 
 Two findings of rows marked done the same day come here too, since neither moves a census cell:
 
