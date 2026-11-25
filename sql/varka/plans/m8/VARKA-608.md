@@ -164,14 +164,21 @@ conjuncts in a different tree. Step 4 lists the plan strings that move.
    is harmless (the fallback reads an equal tree), and the first leaves today's behaviour; test 1
    asserts the tree is not the fold.
 2. A plan reader keys on `wholeCondition.isDefined` meaning "split", or reads the tree
-   differently from the fold. The readers (`git grep wholeCondition` under `src/main`):
+   differently from the fold. The readers under `src/main` (`git grep wholeCondition`):
    `fallbackCondition` (section 2); `compiledBySpark`'s `CodegenFallback` scan, which visits the
    same non-`AND` nodes in either form; `fallbackEliminatesSubexpressions`, whose
    `FilterExec(...).eliminatesSubexpressions` splits either into the same conjuncts;
    `VarkaFusionReport.predicateLines`, which flattens the conjuncts, so EXPLAIN's fusion lines
    are unchanged; the two copies in `VarkaColumnarRule` (lines 108 and 113) and the two
-   evaluator factories, which carry the field or `fallbackCondition` unread. None tests
-   `isDefined`, so a non-fold tree changes only the fallback's evaluation order.
+   evaluator factories, which carry the field or `fallbackCondition` unread. None of these tests
+   `isDefined`. One reader in `src/test` did: `VarkaSqlBenchmarkBase.isSplit` (VARKA-601) took a
+   set `wholeCondition` as "this filter was split", so a to-row Varka filter with no residual
+   whose tree is not its fold, under some other row `FilterExec`, would have been classed
+   `SPLIT`. It now asks for the split itself: the whole condition's conjuncts are exactly the
+   node's and the `FilterExec`'s above it. The other test readers construct the field, assert it
+   on a filter that is split (`VarkaDecimalBaselineQueriesSuite`, true either way), or are this
+   row's own tests; nothing under `dev/` reads it. So a non-fold tree changes only the
+   fallback's evaluation order.
 3. Row 386 lands first and reshapes `rewriteFilter`: rebase; the test is independent of the
    order rule.
 
@@ -292,8 +299,9 @@ so it now asserts that `wholeCondition` is Spark's tree (compared as SQL text, s
 sessions number their attributes apart); its title drops "with codegen off", since every cell
 runs. `build/sbt 'sql/testOnly *VarkaDifferentialSuite -- -z "falls back on Spark"'` passed: the
 shape held, the control answered, and the eight cells agreed (about 10 s by sbt's report, session
-start included). Run again with `VarkaColumnarRule.scala` and `VarkaFilterExec.scala` set back to the
-merge base, it failed at the new check, the Varka filter carrying no `wholeCondition` (`None`), so
-the test fails without the fix. Prediction 1, which reads the elimination-on cell before the fix,
-stays owed: that run stops at the earlier check. The planted-fault run (step 3) is owed.
+start included). Run again with `VarkaColumnarRule.scala` and `VarkaFilterExec.scala` set back to
+the merge base, it failed at the new check, the Varka filter carrying no `wholeCondition`
+(`None`), so the test fails without the fix. Prediction 1, which reads the elimination-on cell
+before the fix, stays owed: that run stops at the earlier check. The planted-fault run (step 3)
+is owed.
 

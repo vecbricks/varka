@@ -1255,6 +1255,54 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
     }
   }
 
+  // varka-session-lint: allow the rule's decline of a filter whose tree is not its fold, read in
+  // the plan, which only a session plans
+  test("a filter whose tree is not its fold and whose conjuncts hold both orders of a floating " +
+      "greatest is left to Spark") {
+    import org.apache.spark.sql.catalyst.optimizer.{PushDownPredicates,
+      PushPredicateThroughNonJoin}
+    // VARKA-341 meets VARKA-608. Spark's filter, not whole-stage compiled, eliminates common
+    // subexpressions under the session's setting and gives greatest(x, y) and greatest(y, x)
+    // one value, which the kernel would compute apart, so with elimination on the rule leaves
+    // the filter to Spark. The condition reaches the rule as the optimizer's tree, not its
+    // fold, over the union shape of the test above; with elimination off the same filter fuses
+    // whole and carries that tree as its whole condition, which shows the shape holds.
+    Seq(spark, varkaSpark).foreach { session =>
+      session.createDataFrame(Seq((1, 0.0, -0.0), (2, -0.0, 0.0), (3, 1.0, 2.0)))
+        .toDF("i", "x", "y").coalesce(1)
+        .createOrReplaceTempView("varka_shared_order_tree")
+      session.catalog.cacheTable("varka_shared_order_tree")
+    }
+    try {
+      val q = "SELECT * FROM (SELECT * FROM varka_shared_order_tree UNION ALL " +
+        "SELECT * FROM varka_shared_order_tree) " +
+        "WHERE i > 0 AND (greatest(x, y) >= -1.0D AND greatest(y, x) < 5.0D)"
+      withBothConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, "false") {
+        withBothConf(SQLConf.OPTIMIZER_EXCLUDED_RULES.key,
+            Seq(PushDownPredicates, PushPredicateThroughNonJoin).map(_.ruleName).mkString(",")) {
+          withBothConf(SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key, "false") {
+            val plan = varkaSpark.sql(q).queryExecution.executedPlan
+            val filter = collectFirst(plan) { case f: VarkaFilterExecBase => f }
+              .getOrElse(fail(s"no Varka filter with elimination off:\n${plan.treeString}"))
+            assert(collectFirst(plan) { case f: FilterExec => f }.isEmpty, plan.treeString)
+            assert(filter.wholeCondition.isDefined,
+              s"the filter's condition reached the rule as its fold:\n${plan.treeString}")
+          }
+          withBothConf(SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key, "true") {
+            val actual = varkaSpark.sql(q)
+            assertNotFused(actual.queryExecution.executedPlan)
+            checkAnswer(actual, spark.sql(q).collect().toSeq)
+          }
+        }
+      }
+    } finally {
+      Seq(spark, varkaSpark).foreach { session =>
+        session.catalog.uncacheTable("varka_shared_order_tree")
+        session.catalog.dropTempView("varka_shared_order_tree")
+      }
+    }
+  }
+
   // varka-session-lint: allow the gate read off Spark's generated code, which only a session
   // compiles
   test("the fallback's elimination gate is the branch Spark's compiled filter takes") {
