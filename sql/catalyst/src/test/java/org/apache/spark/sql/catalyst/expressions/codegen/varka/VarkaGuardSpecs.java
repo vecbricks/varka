@@ -474,8 +474,8 @@ public final class VarkaGuardSpecs {
         }
         yield pair(g.lo(), g.hi());
       }
-      // The check reads the slots' high words, which a lane value does not carry: the slot table
-      // of VarkaDecimalLoadSuite is its oracle.
+      // The check reads the slots' high words, which a lane value does not carry: fires()
+      // answers it first, and the slot table of VarkaDecimalLoadSuite is its oracle.
       case DECIMAL_SLOT ->
           throw new IllegalArgumentException("no guard spec for a decimal slot on " + node);
     };
@@ -503,6 +503,12 @@ public final class VarkaGuardSpecs {
       boolean isLong, List<Shift> shifts) {
     if (reason == Analysis.Refusal.DIVIDE_BY_ZERO) {
       return zeroDivisor((IntArith) node, values);
+    }
+    if (reason == Analysis.Refusal.DECIMAL_SLOT) {
+      // A row's lane value is a decimal Spark holds, within its precision and so in a slot
+      // whose high word is its sign, which the check passes; a malformed slot, which a lane
+      // value cannot carry, is VarkaDecimalLoadSuite's.
+      return false;
     }
     BigInteger[] b = bound(node, reason, isLong, shifts);
     return switch (node) {

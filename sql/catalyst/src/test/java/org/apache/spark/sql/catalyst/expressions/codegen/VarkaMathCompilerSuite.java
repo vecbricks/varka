@@ -31,11 +31,18 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import scala.Option;
 import scala.collection.immutable.Seq;
 import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.Cast;
+import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.GreaterThan;
+import org.apache.spark.sql.catalyst.expressions.If;
+import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.catalyst.expressions.Logarithm;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
@@ -63,11 +70,14 @@ public final class VarkaMathCompilerSuite {
       VarkaSqlResolve.column("i", DataTypes.IntegerType))).toSeq();
 
   /**
-   * The functions that fuse, as SQL: row 356's one-argument functions, and an int operand, which
-   * reaches the call through its cast to double, lowered by the floating casts family.
+   * The functions that fuse, as SQL: row 356's one-argument functions, row 358's but {@code pow}
+   * and {@code hypot}, {@code log} with a constant and with a column base, and two int operands,
+   * which reach the call through their cast to double, lowered by the floating casts family.
    */
   private static final List<String> FUSED = Stream.concat(Stream.of("sin", "cos", "tan", "asin",
-      "acos", "atan", "sec", "csc", "cot").map(f -> f + "(x)"), Stream.of("sin(i)")).toList();
+      "acos", "atan", "sec", "csc", "cot", "exp", "expm1", "ln", "log", "log10", "log1p", "log2",
+      "cbrt").map(f -> f + "(x)"), Stream.of("log(2.0D, x)", "log(y, x)", "sin(i)", "exp(i)"))
+      .toList();
 
   /** Each other function as SQL, with the name its reason gives and the row that fuses it. */
   private static final Map<String, String> FUNCTIONS = functions();
@@ -78,15 +88,8 @@ public final class VarkaMathCompilerSuite {
     for (String f : List.of("sinh", "cosh", "tanh", "asinh", "acosh", "atanh")) {
       m.put(f + "(x)", f + " is row 357's");
     }
-    for (String f : List.of("exp", "expm1", "ln", "log", "log10", "log1p", "log2", "cbrt")) {
-      m.put(f + "(x)", f + " is row 358's");
-    }
-    m.put("log(2.0D, x)", "log is row 358's");
     m.put("pow(x, y)", "pow is row 358's");
     m.put("hypot(x, y)", "hypot is row 358's");
-    // An int operand reaches the function through its cast to double, which the floating casts
-    // family claims; the math family claims the function over it.
-    m.put("exp(i)", "exp is row 358's");
     return Collections.unmodifiableMap(m);
   }
 
@@ -98,7 +101,12 @@ public final class VarkaMathCompilerSuite {
   /** The reason {@code sql} declines with, or empty where it fuses. */
   private static Optional<String> outcome(String sql, Set<VarkaFamily> off,
       VarkaEmitOptions options) {
-    Expression e = VarkaSqlResolve.parse(sql, COLUMNS);
+    return outcome(VarkaSqlResolve.parse(sql, COLUMNS), off, options);
+  }
+
+  /** The reason the resolved expression {@code e} declines with, or empty where it fuses. */
+  private static Optional<String> outcome(Expression e, Set<VarkaFamily> off,
+      VarkaEmitOptions options) {
     Seq<NamedExpression> entries =
         CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "o"))).toSeq();
     var declines =
@@ -113,7 +121,8 @@ public final class VarkaMathCompilerSuite {
   @Test
   @DisplayName("every math function not built declines naming the row that fuses it")
   void eachFunctionNamesItsRow() {
-    assertEquals(27, FUSED.size() + FUNCTIONS.size() - 2, "the 27 functions and two int operands");
+    assertEquals(27, FUSED.size() + FUNCTIONS.size() - 3,
+        "the 27 functions, two int operands and a column base");
     var failures = new ArrayList<String>();
     for (var f : FUNCTIONS.entrySet()) {
       for (boolean contract : List.of(false, true)) {
@@ -128,7 +137,7 @@ public final class VarkaMathCompilerSuite {
   }
 
   @Test
-  @DisplayName("row 356's one-argument functions fuse, with the contract off and on")
+  @DisplayName("the built functions fuse, with the contract off and on")
   void builtFunctionsFuse() {
     var failures = new ArrayList<String>();
     for (String sql : FUSED) {
@@ -140,6 +149,43 @@ public final class VarkaMathCompilerSuite {
       }
     }
     assertEquals(List.of(), failures);
+  }
+
+  @Test
+  @DisplayName("a log with a constant base at or below 0.0 declines, every row being null")
+  void constantBaseAtOrBelowZeroDeclines() {
+    for (String sql : List.of("log(0.0D, x)", "log(-0.0D, x)", "log(-2.0D, x)")) {
+      String why = reason(sql, Set.of(), VarkaMatrixRuns.BASE);
+      assertTrue(why.contains("a log with a constant base at or below 0.0"), sql + ": " + why);
+    }
+  }
+
+  @Test
+  @DisplayName("a log with a constant base whose evaluation fails declines rather than throws")
+  void failingConstantBaseDeclines() {
+    // Such a base reaches the compiler when ConstantFolding leaves it: in a conditional branch,
+    // which no row may take, or with the rule excluded. The expressions are built, not parsed:
+    // the SQL helper folds a string cast to double itself, and so would raise first. The cast is
+    // ANSI whatever the configuration says.
+    Expression x = COLUMNS.apply(0);
+    Expression log = new Logarithm(new Cast(Literal.create("abc", DataTypes.StringType),
+        DataTypes.DoubleType, Option.empty(), EvalMode.ANSI()), x);
+    Expression branch = new If(new GreaterThan(x, Literal.create(0.0, DataTypes.DoubleType)),
+        log, COLUMNS.apply(1));
+    for (Expression e : List.of(log, branch)) {
+      String why = outcome(e, Set.of(), VarkaMatrixRuns.BASE)
+          .orElseThrow(() -> new AssertionError(e + " fused"));
+      assertTrue(why.contains("a log base whose evaluation fails"), e + ": " + why);
+    }
+  }
+
+  @Test
+  @DisplayName("a log with a null constant base declines, every row being null")
+  void nullConstantBaseDeclines() {
+    Expression log = new Logarithm(Literal.create(null, DataTypes.DoubleType), COLUMNS.apply(0));
+    String why = outcome(log, Set.of(), VarkaMatrixRuns.BASE)
+        .orElseThrow(() -> new AssertionError(log + " fused"));
+    assertTrue(why.contains("a log with a null base"), why);
   }
 
   @Test
