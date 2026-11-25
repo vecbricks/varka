@@ -3,7 +3,7 @@
 *Opened 25 November 2026, while milestone 8 runs. The owner set the theme the same day:
 `TIMESTAMP_LTZ` at precision 6 to 9, `TIMESTAMP_NTZ` with nanoseconds, and the remaining features
 of the ANSI intervals, `TIME`, and `TIMESTAMP_NTZ` and `TIMESTAMP_LTZ` with `DATE`. The decisions
-in section 1 are his and fixed; this plan works inside them.*
+in section 1 are the owner's and fixed; this plan works inside them.*
 
 This is a task plan, not a scope catalogue. Under the house rule (`sql/varka/AGENTS.md`), the
 catalogue that sits in this folder (`SCOPE.md`, with its reading note and the plans of the rows it
@@ -11,16 +11,20 @@ holds) moves forward to `m10/` by `dev/varka_catalogue_move.sh 9 10`, with its i
 unchanged and every inbound reference rewritten. By the owner's choice of 25 November 2026 that
 move is the next pull request, on its own, since its mechanical rewrite alone is over the size
 cap; until it merges, `m9/SCOPE.md` below is the catalogue in this folder. The same pull request
-moves the plans of the six rows this milestone takes from milestone 8 (section 2) into this
-folder, as the house rule asks of a plan whose row changes milestone. This pull request
-holds the goals; the foundation's rows, their designs and the fan-out's task template follow in
-their own pull requests, as section 2 says.
+moves the plans of the six rows this milestone takes from milestone 8 (section 3) into this
+folder, as the house rule asks of a plan whose row changes milestone.
+
+The plan holds the goals and what "done" means (section 1), the design each foundation row starts
+from (section 2), the task table (section 3), the order (section 4), the risks (section 5) and
+the predictions registered before the work (section 6). A row's own plan is written in the pull
+request that opens the row.
 
 ## 1. The question, and what "done" means
 
 Can Varka answer Spark's datetime surface - every timestamp kind Spark has, in every session time
 zone, and the interval, `TIME` and `DATE` expressions milestone 8 leaves - bit for bit with
-Spark? And can most of that work be done by cheaper models from written task plans?
+Spark, and much faster than Spark where a time zone is read? And can most of that work be done by
+cheaper models from written task plans?
 
 **The owner's decisions (25 November 2026).**
 
@@ -38,64 +42,95 @@ Spark? And can most of that work be done by cheaper models from written task pla
 4. Delivery by cheaper models is a goal of the milestone (G5), not only its method.
 5. The milestone ends in a post (G6).
 6. The rows milestone 8 leaves - 30, 95, 103, 351, 364 and 366 - are this milestone's (section
-   2). Rows 30, 95, 364 and 366 are not datetime rows; they come as milestone 8's carry-over.
+   3). Rows 30, 95, 364 and 366 are not datetime rows; they come as milestone 8's carry-over.
 7. How precisions 7, 8 and 9 enter the census (one type per kind with a precision band, as
-   `DECIMAL` has, or one type per precision) is designed, not assumed: row F2's design answers it.
+   `DECIMAL` has, or one type per precision) is designed, not assumed: row 660's design answers
+   it.
+8. Varka's timestamps with a time zone outperform vanilla Spark significantly (G7).
 
 ### 1.1 Goals
 
 - **G1. `TIMESTAMP_LTZ` at microseconds (phase 1).** It is a census type. The entries that read
-  no time zone - choice, null tests, comparisons, `IN`, `greatest`, `least` and the hashes - fuse
-  over it as they do over `TIMESTAMP_NTZ`. Under the session time zone, the calendar and clock
-  fields, `date_trunc`, `months_between`, `from_utc_timestamp`, `to_utc_timestamp`,
-  `convert_timezone`, `make_timestamp` and its forms, `timestamp_seconds` and its kin, the
-  `unix_*` functions and the timestamp arithmetic fuse.
-- **G2. Every time zone, proven.** A kernel's answer equals Spark's in every zone the JDK knows,
-  at daylight-saving gaps and overlaps too, checked by a sweep that runs in CI.
+  no time zone fuse over it: choice, null tests, comparisons, `IN`, `greatest`, `least` and the
+  hashes, as they do over `TIMESTAMP_NTZ`, and the conversions between a timestamp and a count
+  since the epoch (`timestamp_seconds` and its kin, and the `unix_*` functions). Under the
+  session time zone, the calendar and clock fields, `date_trunc`, `months_between`,
+  `from_utc_timestamp`, `to_utc_timestamp`, `convert_timezone`, `make_timestamp` and its forms
+  and the timestamp arithmetic fuse.
+- **G2. Every time zone, proven.** A kernel's answer equals Spark's in every zone the session
+  can name - every region in the time-zone data of the JDK that CI runs, Spark's short names
+  and fixed offsets - at the gaps and overlaps of each change of a zone's offset too, checked by
+  a sweep that runs in CI. A kernel answers there itself: instants in no order must not send
+  every batch back to the row engine (2.2).
 - **G3. The remaining datetime features (phase 1).** The temporal pairs milestone 8 leaves
   unfused - interval `div`, `extract` over a day-time interval, `time_bucket` (its year-month
   width is `m9/SCOPE.md` item 117), `width_bucket`, the interval and `TIME` casts, the `try_`
   functions over intervals (item 125), and a `DATE` mixed with a timestamp; the one feature with
   no census row, `d + dt` over a stored interval column (item 126); and `TIME` plus or minus an
   interval without its range guard (item 50), a fused form that loses its guard once SPARK-57853
-  merges upstream. The six rows carried over from milestone 8 (decision 6) are part of G3.
+  merges upstream. Items 117, 125 and 126 are tasks (rows 664 to 666); item 50 is taken only if
+  SPARK-57853 merges before the close, and stays in the catalogue otherwise. The six rows
+  carried over from milestone 8 (decision 6) are part of G3.
 - **G4. Nanosecond `TIMESTAMP_NTZ` and `TIMESTAMP_LTZ`, precision 7 to 9 (phase 2).** Admitted
   while Spark's `spark.sql.timestampNanosTypes.enabled` is on, as Spark itself admits them; the
   functions Spark accepts over them fuse, and the casts among `DATE`, `TIME`, the microsecond and
   the nanosecond timestamps.
 - **G5. Delivery by cheaper models.** After the foundation, each fan-out task is one task plan
   from a template, with a one-command oracle; most fan-out pull requests are built by the cheaper
-  models, each through the same review.
-- **G6. The post.** What of Spark's datetime surface now runs in kernels, how that is known, and
-  how much of it the cheaper models built.
+  models, each through the same review, and a ledger (row 658) records each one's builder and
+  what its review found.
+- **G6. The post.** What of Spark's datetime surface now runs in kernels, how that is known, how
+  much faster it is, and how much of it the cheaper models built.
+- **G7. Speed where a time zone is read.** A fused `TIMESTAMP_LTZ` expression runs significantly
+  faster than vanilla Spark: than the row path of the same build, section by section, and than
+  the newest stock Spark release on a timestamp surface. No fused shape is slower than the row
+  path on a measured host; a shape that would be declines there.
 
 ### 1.2 Done when
 
-Each item is read from `dev/varka_census.py --summary`, which row F1 extends to print the counts
-per type; the ratios below are fixed, and the counts behind them are fixed when F1's census
-holds the new types.
+The census items are read from `dev/varka_census.py --summary`, which row 654 extends to print
+the counts per type. The ratios below are fixed; the counts beside them are 25 November 2026's
+and move with the census, as the upstream sync adds entries and rows 654 and 661 add the new
+types.
 
 1. **G1:** at least three quarters of `TIMESTAMP_LTZ`'s (entry, type) pairs fused (about 68
    entries are expected to admit it).
-2. **G2:** the every-zone sweep passes in CI, and every kernel that reads a time zone has a test
-   whose rows straddle a daylight-saving change.
-3. **G3:** at least 250 of the 278 (entry, type) pairs over `DATE`, `TIMESTAMP_NTZ`, `TIME` and
-   the two interval types fused (203 on 25 November 2026), and at least two thirds of the
-   temporal casts fused or declined with their reason: the 42 legal pairs of `m8/casts.tsv` with
-   a temporal side, plus the new types' pairs F1 adds (about 43 more).
-4. **G4:** at least three quarters of each nanosecond type's pairs fused under the flag.
+2. **G2:** the every-zone sweep passes in CI under each rule by which Spark resolves a local
+   time in a gap or an overlap (2.1); every kernel that reads a time zone has a test whose rows
+   straddle both of a year's changes of offset; and over ten years of instants in no order in a
+   daylight-saving zone the kernels of the fields, of the casts and of the sum with an interval
+   decline no batch.
+3. **G3:** at least nine tenths of the (entry, type) pairs over `DATE`, `TIMESTAMP_NTZ`, `TIME`
+   and the two interval types fused (203 of 278 today, so 251), and at least two thirds of the
+   microsecond temporal casts fused or declined with their reason: the 42 legal pairs of
+   `m8/casts.tsv` with a temporal side, plus `TIMESTAMP_LTZ`'s pairs row 654 adds (23).
+4. **G4:** at least three quarters of each nanosecond type's pairs fused under the flag, and at
+   least two thirds of the nanosecond types' cast pairs row 661 adds (about 20) fused or
+   declined with their reason.
 5. The six carried-over rows (30, 95, 103, 351, 364, 366) meet their own done-when.
-6. Every pair left unfused carries its reason in the census: a declined band, or a named row of
-   the next milestone.
-7. **G5:** the share of fan-out pull requests the cheaper models built, and their review finding
-   counts, reported; no threshold.
-8. **G6:** the post is published.
+6. Rows 664 to 666 meet the done-when their catalogue items state, and item 50 too if it is
+   taken.
+7. Every pair left unfused carries its reason in the census: a declined band, an owner's
+   decision, a function Spark itself rejects over the type, or a named row of the next milestone.
+8. **G5:** the share of fan-out pull requests the cheaper models built, and their review finding
+   counts, reported from row 658's ledger; no threshold.
+9. **G6:** the post is published.
+10. **G7:** on the AMD EPYC 7763 at 256 bits, in the baseline classes of row 655 under a
+    daylight-saving zone with a year of instants in no order, every `TIMESTAMP_LTZ` section whose
+    kernel reads the zone runs at least five times the row path's rate and every other section at
+    least twice; no section is slower than the row path at 256 or at 128 bits; and the timestamp
+    surface against the newest stock Spark release is committed for the post. The nanosecond
+    `TIMESTAMP_LTZ` sections meet the same bars in phase 2. "Five times" and "twice" are this
+    plan's reading of "significantly" (1.6).
 
 ### 1.3 Out of scope
 
 - The datetime functions that read or write a string (`date_format`, `to_char`,
   `from_unixtime`, `to_date`, `to_timestamp` and its forms, `dayname`, `monthname`,
   `unix_timestamp` of a string): the `STRING` decision stands.
+- A time zone read from a column: `from_utc_timestamp`, `to_utc_timestamp`, `convert_timezone`
+  and `make_timestamp` take the zone as a `STRING`, so a literal zone is in and a zone column is
+  out under the same decision.
 - Casts to and from `STRING`; aggregates and window functions; the coverage spine (TPC-H q6 and
   q1), which moves with the catalogue to milestone 10.
 - A function Spark rejects over the nanosecond types (today `ts - ts`, `months_between` and
@@ -103,44 +138,421 @@ holds the new types.
 
 ### 1.4 Order
 
-0. **Before the fan-out:** milestone 8 closes; the upstream sync (the fork is 345 commits behind
-   apache/spark, and the sync brings SPARK-61538's nanosecond fix among others); the shared-file
-   fixes (row 642, and F0: one file per plan row); the census and the cast matrix with
-   `TIMESTAMP_LTZ` (F1); the task template and its oracle (F3); the pilot (F4). Milestone 8's
-   open rows that wait on a carried row (340's `SECOND` as a decimal waits on 351; 349's
-   narrowing casts wait on 364) close in milestone 8 with that part named as milestone 9's.
+Section 4 has the waves. In short:
+
+0. **Before the fan-out:** milestone 8 closes; the upstream sync (row 663: the fork is 345
+   commits behind apache/spark, and the sync brings SPARK-61538's nanosecond fix among others);
+   the shared-file fixes (row 642; milestone 8's row 646, one file per plan row; and row 653,
+   the files every type row appends to or regenerates); the baselines (row 655); the census and
+   the cast matrix with `TIMESTAMP_LTZ` (row 654); the task template, its oracle and its ledger
+   (row 658); the pilot (row 659). Milestone 8's open rows that wait on a carried row (340's
+   `SECOND` as a decimal waits on 351; 349's narrowing casts wait on 364) close in milestone 8
+   with that part named as milestone 9's.
 1. **Phase 1:** the six carried-over rows; the `TIMESTAMP_LTZ` lane and the time-zone design
-   (F5, F6), built at full strength; then the fan-out over G1 and G3.
-2. **Phase 2:** how precisions 7 to 9 enter the census (F2), then the census with the
-   nanosecond types (F1b) and their layout (F7), built both ways and measured; then the fan-out
-   over G4.
+   (rows 656 and 657), built at full strength; then the fan-out over G1 and G3 (rows 667 to
+   672), with rows 664 to 666 beside it.
+2. **Phase 2:** how precisions 7 to 9 enter the census (row 660), then the census with the
+   nanosecond types (row 661) and their layout (row 662), built both ways and measured; then the
+   fan-out over G4 (rows 673 to 675).
 
 ### 1.5 Defaults, until a row's design says otherwise
 
-- **Time zones:** one offset a batch, the batch declining when it spans a daylight-saving change;
-  a per-row table of the zone's transitions as a measured option arm.
-- **The nanosecond layout:** the cache's pair of a microsecond long and a nanosecond short, and a
-  long of nanoseconds, both built and measured.
+- **Time zones:** the offset is a step function of the instant, evaluated over the changes of
+  offset a batch spans. One offset a batch is the first form built; it serves UTC, fixed offsets
+  and instants in time order, and declines nearly every batch of instants in no order (2.2).
+  Steps written out for the changes a batch spans serve those, and a table serves a batch that
+  spans many years; each is built and measured, and the default at each vector width is the
+  fastest that passes G2's sweep.
+- **The nanosecond layout:** the cache's pair of a microsecond long and a nanosecond short, and
+  one long at the column's precision, both built and measured.
 - **The oracle:** Spark's row engine; `java.time` a second reference at the edges.
+- **Speed:** a baseline on the unchanged engine before a kernel, in its own pull request; every
+  number from the AMD EPYC 7763 at 256 and 128 bits; a ratio under 1.3 run again and compared by
+  minimums.
 
-## 2. Tasks
+### 1.6 Open for the owner
 
-The foundation rows below are named here and numbered, planned and designed in the pull request
-that opens each; the fan-out rows come from F3's template once F1's census lists their entries.
+The plan takes the first choice of each until the owner says otherwise.
 
-| row | what it is | depends on |
+1. **The bar for "significantly" (G7).** Five times the row path where the kernel reads the
+   zone, twice elsewhere, nothing slower. Basis: on the same runner the fused `BIGINT`
+   arithmetic sections average 7.0X over their 50 sections
+   (`VarkaBigintArithmeticBaselineBenchmark`'s committed results), and row 340 registered five
+   times for `year(ntz)`. Or: a higher bar, or one bar for
+   every section.
+2. **Where the cheaper models run.** They compile and run the catalyst suites on the laptop
+   under the heavy-JVM lock; the `sql/core` suites, the regeneration and the option matrix run in
+   CI, which returns the regenerated files as a patch (2.7). Or: all on the laptop, in turn with
+   the coordinator's runs; or a machine of their own.
+3. **Milestone 8's close and this plan's code.** Section 4's first wave moves no census cell and
+   starts now. Rows 654 and 656 change the census; they land before milestone 8 closes only
+   behind a milestone tag on each census type, so that milestone 8's counts read the same
+   (2.4). Or: every row that changes the census waits for the close.
+4. **The pilot's form.** The same task to all three models first, then one task each (2.7). Or:
+   one task each from the start.
+5. **A library of its own for the batch forms of `java.time`.** As vfdlibm is for the math: the
+   zone database of 2.2, the offset forms, the three local-time rules, the calendar fields and
+   the sums with days and months, over arrays, each bit for bit `java.time`'s answer, with the
+   every-zone sweep and the forms' benchmarks. A form is built there first, where a build takes
+   seconds and needs no Spark, and is then ported, each port paired with the library's pull
+   request; its functions are the smallest tasks a cheaper model can take. Varka's kernels stay
+   its own, since fused code calls no library. Or: the reference forms stay in this repository,
+   beside the probes of 2.2.
+
+## 2. Design
+
+What each foundation row starts from. Spark was read on 25 November 2026 at master
+`ceef882ae45`; names are given in place of line numbers, which move.
+
+### 2.1 What Spark does with a time zone
+
+- **The value.** A `TIMESTAMP` is a long of microseconds since the epoch in UTC, the same eight
+  bytes as a `TIMESTAMP_NTZ`. In Arrow it is a `TimeStampMicroTZVector` whose field names the
+  session zone; the zone there is a label, and the values are instants.
+- **Where the zone enters.** A `TimeZoneAwareExpression` takes the session zone at analysis, one
+  zone for the query. `zoneIdForType` gives the `TIMESTAMP_NTZ` family UTC, which is why
+  milestone 8's kernels read no zone. The session accepts any name `DateTimeUtils.getZoneId`
+  resolves: a region, a fixed offset, or one of `ZoneId.SHORT_IDS`.
+- **What reads no zone.** Comparisons, null tests, choice, `IN`, `greatest`, `least` and the
+  hashes read the long. So do `timestamp_seconds`, `timestamp_millis`, `timestamp_micros`,
+  `unix_seconds`, `unix_millis`, `unix_micros` and their nanosecond forms, which are not
+  `TimeZoneAwareExpression`s, and the casts between `TIMESTAMP` and the numeric types and
+  `BOOLEAN`.
+- **Instant to local** is a function of the instant: the fields, `CAST(ts AS DATE)`,
+  `CAST(ts AS TIMESTAMP_NTZ)` and `from_utc_timestamp` add the zone's offset at that instant.
+  An offset has second granularity, and before a zone's first standard time it is a local mean
+  time that is no whole minute, so even `minute` and `second` read the zone.
+- **Local to instant** meets a gap where the clocks go forward and an overlap where they go
+  back. `java.time` resolves them by three rules, and Spark uses each:
+  - *the earlier offset* in an overlap, and a time in a gap moved later by the gap's length
+    (`LocalDateTime.atZone`): a cast from `TIMESTAMP_NTZ` and `to_utc_timestamp` (`convertTz`),
+    and `make_timestamp` (`DateTimeExpressionUtils`);
+  - *the offset kept* in an overlap while it is valid there (`ZonedDateTime.plusDays`,
+    `plusMonths`): `ts + INTERVAL DAY`, whose whole days are calendar days
+    (`timestampAddDayTime`), and `ts + INTERVAL MONTH` (`timestampAddMonths`);
+  - *the gap's end* when midnight falls in a gap (`LocalDate.atStartOfDay`): a cast from `DATE`
+    (`daysToMicros`).
+- **A difference** of two timestamps is the microseconds between their two local date-times
+  (`subtractTimestamps`), so it reads the offset at both ends.
+- **Spark's own fast path.** `truncTimestamp` reads the offset at the input, truncates in local
+  time, reads the offset again at the result, and takes `truncTimestampSlow` when the two
+  differ. That is a guard and a fallback in scalar form, and it is why vanilla `date_trunc` is
+  cheaper than the fields, which call `java.time` for every row.
+- **A zone argument** (`from_utc_timestamp`, `to_utc_timestamp`, `convert_timezone`, the seventh
+  argument of `make_timestamp`) is a `STRING`: a literal is one zone for the query, and a column
+  is a zone a row (1.3).
+
+### 2.2 The session time zone in a kernel (rows 678 and 657)
+
+Two probes measured this section on 25 November 2026 (`sql/varka/spikes/zone-offset`, its own
+pull request): `results/facts.txt` over every zone id of JDK 25's time-zone data 2026f, 604 of
+them, to the year 2100; and `results/forms.txt`, timings on the laptop, an AMD Ryzen AI 9 HX PRO
+370. The runners' numbers are row 657's.
+
+**The offset is a step function.** A zone is a sorted list of instants `T[i]` and the offset
+`O[i]` that holds from `T[i]` on. For instant to local, `local = instant + O[#{T <= instant}]`.
+For local to instant under the earlier-offset rule, `instant = local - O[#{LT <= local}]` with
+`LT[i] = T[i] + max(O[i-1], O[i])`. The catalogue's item 89, bullet 7, had that formula from a
+survey, "to be repeated before a design leans on it". The probe repeated it: `LT` rises strictly
+in every zone, and the formula equals `LocalDateTime.atZone` at each of 253,686,729 local times
+around the 65,794 changes. The kept-offset rule is the same formula with one exception, inside
+an overlap, where the source's own offset wins if it is one of the two; that equals
+`ZonedDateTime.ofLocal` at each of 712,898,979 local times inside a gap or an overlap. The
+gap's-end rule differs only when midnight is strictly inside a gap: one day, 31 March 1919, in
+six zone ids.
+
+**What the data allows.** The closest two changes of one zone are 601,200 s apart, so a bucket
+of 2^39 microseconds holds at most one, on either time line. No zone has more than 5 changes in
+any 365 days or 42 in any ten years, and none has more than 8 distinct offsets. The last offset
+that is no whole minute ended in 1972 and the last that is no whole quarter hour in 1979; 562
+ids have had whole-hour offsets since 1970. The 604 ids are 349 distinct sets of rules, and 397
+ids have no change after 2025.
+
+**One offset a batch is not enough.** With one offset a batch, a batch whose instants lie on
+both sides of a change must decline. In `America/Los_Angeles`, 1000 of 1000 batches of a year of
+instants in no order span a change, at 4096 rows and at 10000; in time order 2 of 1000 do. So
+the entries would count as fused in the census and gain nothing on such data (G2, G7). One
+offset is right for UTC, for a fixed offset and for a zone that has stopped changing, and it is
+the first form built.
+
+**The zone database (row 678).** `java.time` keeps a zone for one lookup at a time: a binary
+search, then a rule worked out for a year past its table. Row 678 lays the same data out for
+vector code, once a zone in each JVM, from that JVM's own `ZoneRules`: the zone's class (fixed;
+no change after a given instant; yearly changes), its changes sorted on both time lines with
+the window of each gap and overlap, the instants from which its offsets are whole minutes and
+whole hours, the rule years written out as they are needed and repeated by the 400-year cycle,
+and the bucket table (89 KB a zone from 1900 to 2100 at eight bytes a bucket). Ids with the
+same rules share an entry. It is special data structures over the JVM's data, not a second
+time-zone database: a shipped copy would let a kernel and the row engine disagree after an
+update of either.
+
+**The forms, and what each cost on the laptop:** nanoseconds a row to write `instant + offset`
+for a batch of 4096 instants in no order, each form equal to `java.time` on every row.
+
+| form | 8 lanes | 4 lanes, AVX2 | 2 lanes, AVX2 |
+| :--- | ---: | ---: | ---: |
+| `java.time`: the offset | 10 | 10 | 10 |
+| `java.time`: the hour of the day, as the row engine reads it | 26 | 26 | 26 |
+| one offset | 0.092 | 0.077 | 0.088 |
+| steps written out, 1 change | 0.087 | 0.087 | 7.121 |
+| steps written out, 2 changes | 0.088 | 0.142 | 13 |
+| steps written out, 4 changes | 0.145 | 0.394 | 29 |
+| steps written out, 8 changes | 0.280 | 0.742 | 63 |
+| steps read in a loop, 8 changes | 1.238 | 1.445 | 52 |
+| 2 steps, their range checked by least and greatest | 0.106 | 0.225 | 15 |
+| 2 steps, their range checked by an OR | 0.101 | 0.165 | 15 |
+| 2 steps with no mask, checked by an OR | 0.142 | 0.260 | 0.668 |
+| a pass for the least and greatest instant, alone | 0.057 | 0.233 | 0.394 |
+| the table, three gathers | 0.779 | 0.874 | 39 |
+
+- **Steps written out** (a compare and a masked add for each change the batch spans, the
+  change points and deltas in the kernel's slots) cost little more than one offset and about a
+  hundredth of `java.time`'s lookup. Read in a loop they cost twice as much at four lanes and
+  four times at eight, so a kernel is emitted for its number of steps: a few sizes, the unused
+  steps padded with a change that never comes.
+- **The table** costs the same at any number of changes. At four lanes it wins past about nine
+  changes a batch, at eight lanes past about twenty. It is the form for a batch that spans many
+  years.
+- **Knowing the batch's range is the dear part.** A pass before the kernel costs more than the
+  steps at four lanes, and milestone 7's date bound cost 10% to 17% on the cheapest date kernels
+  until its check was folded into the loop. Three ways need no pass. The Arrow cache already
+  records each batch's least and greatest value of a `TIMESTAMP` column
+  (`ArrowCachedBatchSerializer`'s statistics), which is the range for free where the input is a
+  cached column. Steps carried from the batch before can be checked by one OR a vector: every
+  instant is inside a power-of-two range the steps cover exactly when the OR of every
+  `instant - from` has no high bit, and a batch that leaves the range runs again with steps of
+  its own. And a zone that has stopped changing needs one bound.
+- **At two 64-bit lanes this JVM compiles no mask** (`sql/varka/skills/the-jit.md`). The masked
+  steps and the table's gathers ran as Java loops there, slower than `java.time`'s own lookup.
+  The step written as a subtract, a shift and an AND has no mask. A kernel takes that form at
+  two lanes or declines there, as row 503 does for a long-lane condition.
+
+**What needs no offset.** A field finer than the offset's own grain reads the instant alone:
+`second` wherever every offset in the batch's range is whole minutes, and `minute` wherever
+they are whole hours. ClickHouse keeps the two as flags of a zone; here the database holds the
+instant from which each holds, and the kernel's range check covers it. Spark itself reads no
+zone to truncate to a second or finer.
+
+**How the values reach a kernel.** A kernel's constants are literal slots
+(`VarkaVectorIR.LiteralSlot`): scalars it receives in an array on every call and broadcasts
+once, with their values outside the shape key. Today the compiler fills them from the plan's
+literals, once a query. The offset, the change points and the range are the first slots the
+evaluator fills from the batch, so row 657 designs that kind of slot: who computes it, in which
+table (one a task, since two tasks run one compiled projection), and how a batch that leaves
+the range runs again or declines. The only per-batch mechanism today, `VarkaInputBound`, checks
+an int interval fixed at compile time and can only decline.
+
+**What stays out of the kernel's bytes.** The zone is a property of the compiled plan, as an
+input bound is, so two sessions in two zones share a kernel class. The offsets come from the
+executor's `ZoneRules`, the rules Spark's row engine reads there, never from the driver
+(catalogue item 127's rule, applied to zone data). A literal zone argument is a second zone with
+its own slots. A zone with a constant rule is a fixed offset from the plan on
+(`ZoneId.normalized`).
+
+**Two nodes carry the family.** `ToLocal` (instant to local) and `ToInstant` (local to instant,
+with its rule) are IR nodes; a zone-aware expression over a `TIMESTAMP` lowers to the
+`TIMESTAMP_NTZ` kernel between them. So the fields need no kernel of their own, and a fan-out
+task over a field is its admission, its coverage rows and its tests.
+
+**The proof.** A unit suite sweeps every region of CI's JDK, Spark's short names and a sample of
+fixed offsets: each change of offset, two hours either side at a one-second step, and the far
+past and future, under each of the three rules, against `java.time`. The probe ran that sweep
+for the formulas in under a minute, so it runs in every Build. The Spark-level suites take a
+fixture whose rows straddle both changes of a year, because on any other rows a wrong kernel
+agrees with Spark (catalogue item 31). The fuzzers draw the session zone from a list with
+daylight saving, a half-hour change (`Australia/Lord_Howe`), a 45-minute offset
+(`Asia/Kathmandu`) and a zone that crossed the date line (`Pacific/Apia`).
+
+**Names.** New zone classes take the `Chrono` name, as the house rule has it.
+
+### 2.3 `TIMESTAMP_LTZ` on the long lane (row 656)
+
+The registry (`VarkaTypes`) declines `TIMESTAMP` today with the reason "its arithmetic is in the
+session time zone, which is not lane arithmetic". The row turns the entry to the long lane, with
+the census name `ltz`, and takes the path of `sql/varka/ADDING_A_TYPE.md` for a type that joins a
+lane: the registry and `types.tsv` (step 4), the fuzzers' entry and fixture column (step 9),
+`TimeStampMicroTZVector` in `VarkaLaneArrow` in and out (step 10), the coverage rows (step 11),
+the benchmark (step 14), the matrix and the linters (steps 15 and 16). The one new piece of
+plumbing is the output: Arrow needs the session zone in the field of a `TIMESTAMP` vector, so
+the evaluator carries the zone's name to `allocateVector`.
+
+The row fuses what reads no zone and needs no new node: the load, the comparisons and null-safe
+equality, the null tests, `IN`, `greatest`, `least`, `CASE`, `IF`, `coalesce` and the output.
+Milestone 8's row 338 is the model: one plan and one code pull request (#1028, #1031), 40
+files, most of its lines generated.
+
+### 2.4 The census and the cast matrix (rows 654 and 661)
+
+- `dev/varka_census.py` writes `m8/census.tsv` and reads `m8/census_curated.txt` by fixed
+  paths, and its `--summary` prints no count per type. Row 654 gives it the milestone as an
+  argument, a census and a curated file in this folder, and the per-type counts 1.2 reads.
+- 20 entries are out of scope today with the reason "`TIMESTAMP` with local time zone".
+  `current_timestamp` and `now` fold to literals before Varka sees them. The other 18 come into
+  scope: 8 conversions with the epoch that read no zone, and `from_utc_timestamp`,
+  `to_utc_timestamp`, `convert_timezone`, `date_trunc`, `months_between`, `make_timestamp`,
+  `try_make_timestamp`, `make_timestamp_ltz`, `try_make_timestamp_ltz` and the cast alias
+  `timestamp`.
+- The cast table gains `TIMESTAMP_LTZ`'s 23 legal pairs, from `Cast.canCast` and
+  `Cast.canAnsiCast`: the seven numeric types in both directions, `BOOLEAN` in both directions
+  under LEGACY only, `DATE`, `TIMESTAMP_NTZ` and `TIME` in both directions, and the identity.
+  The 16 with a number or a boolean read no zone. `VarkaCastMatrixSuite` holds the table to
+  Spark's three legality functions, as it does today.
+- **A type's milestone.** If row 654 lands while milestone 8 runs, its new type must not move
+  milestone 8's counts. Each census type carries the milestone that admits it, and a
+  milestone's census counts the types of its own milestone and of those before it (1.6).
+- **The nanosecond types (row 661).** Spark's support moves weekly, so admission is not a hand
+  list: a suite asks Spark's own type check, with the preview flag on, whether an entry accepts
+  the type, and writes the answer as a table the census reads, as `VarkaTypesSuite` writes
+  `types.tsv`. An entry Spark rejects carries that as its reason, and a later sync then moves
+  cells by itself. The flag is on by default under tests and off in production, so the
+  census sets it and does not rely on the default. The nanosecond types add about 20 cast pairs:
+  with `DATE`, `TIME`, the two microsecond timestamps and each other. Catalogue item 123's
+  register of upstream behaviours takes SPARK-56822, the preview, as a moving dependency.
+
+### 2.5 The nanosecond timestamps (rows 660 and 662)
+
+- **Spark's value** is a `TimestampNanosVal`: `epochMicros`, a long, and `nanosWithinMicro`, a
+  short from 0 to 999. Its range is the microsecond types' whole range, not a long of
+  nanoseconds. The flag `spark.sql.timestampNanosTypes.enabled` is internal and off in
+  production; SPARK-60335 made every function without nanosecond support reject the type in
+  place of narrowing it.
+- **What a kernel sees.** The Arrow cache stores the value as a struct of two children, a long
+  and a short. It is the first Spark column that is two Arrow vectors, and `isArrowBacked`
+  admits only lane vectors today. One value is two words, as a 128-bit decimal is in the
+  registry; the output is a struct of two vectors.
+- **Precision** is in the type, not in the value's layout: a cast to a lower precision floors
+  the nanoseconds to a power of ten. Row 660 decides how that enters the census and the cast
+  table. The plan's lean is one type per kind, `ntz_ns` and `ltz_ns`, with the precision a band
+  only where an answer depends on it, as `dec` carries its two bands; six types would multiply
+  rows whose kernels are the same.
+- **Two layouts (row 662), both built.** (a) Two words, the cache's own form: exact over the
+  whole range, and every field reads the microsecond word alone, so the fields are the
+  microsecond kernels. Only `second` with its fraction and the arithmetic touch the second word.
+  (b) One long at the column's precision, as ClickHouse's `DateTime64`, QuestDB's nanosecond
+  type and DuckDB's and Arrow's unit types hold a timestamp: one word and plain arithmetic, a
+  multiply and an add on load and a division on store. Its range is the years 1677 to 2262 at
+  nine digits, ten times as wide at eight and a hundred times at seven, and a batch outside it
+  declines. The measurement is on the baselines of row 655.
+- **Floor, never round.** A cast to a lower precision floors in Spark. Trino rounds half up,
+  DuckDB rounds half away from zero and Arrow truncates toward zero, so none of the three is a
+  reference here.
+- **Edges.** SPARK-57838, in the fork, says where Spark raises at the range's ends; the tests
+  pin those values against `TimestampNanosVal`.
+- **Zones.** A nanosecond `TIMESTAMP_LTZ` takes row 657's offset on its microsecond word; an
+  offset is whole seconds, so the nanosecond word is untouched.
+
+### 2.6 Shared files (rows 642 and 653, and milestone 8's row 646)
+
+Parallel rows conflict in three kinds of file, and the fan-out multiplies each.
+
+- **The task table.** Two rows that edit neighbouring lines of `PLAN.md` conflict. Row 646 of
+  milestone 8 moves each row to a file of its own and renders the table; this plan's table
+  moves with it. Until then the fan-out's rows are all in section 3 already, so a fan-out pull
+  request adds no row.
+- **The option files.** Row 642: an emit option is declared in one place.
+- **What every type row appends to or regenerates.** A cast task of milestone 8 (#1434) touched
+  23 files. Its own were five: a compiler family, two suites, the row's plan and a benchmark.
+  The rest were shared: `VarkaCoverageSuite.scala`'s rows, `VarkaExpressionCompilerSuite.scala`,
+  `census_curated.txt`, one line of `casts.tsv`, `skips.tsv`, and the generated `coverage.json`,
+  `emitted_bytes.json`, `width_audit.json`, `census.tsv`, `casts_fused.tsv` and the docs table.
+  Row 546's merge driver (#1293) merges the generated ones in a local clone, but GitHub's
+  mergeability check and its squash merge run no driver, so each merge to master leaves the
+  other open type rows in conflict, and each then costs a merge, a regeneration on the laptop
+  and a new Build. Regenerating in CI after a merge is excluded: the fork has no token.
+
+Row 653's rule: a task adds files of its own and edits only its family's. The lists a task
+appends to become one file an entry (a coverage row, a compiler expectation, a curated claim, a
+cast pair, a skip line), read by the suites and the tools that hold the lists today; a generated
+file and each of its digests are split the same way, so a regeneration writes only the task's
+own files. Sibling casts sit on neighbouring lines of `casts.tsv`, so a split by family alone
+is not enough.
+
+### 2.7 The cheaper models' work (rows 658 and 659)
+
+**The task plan** is generated, not written by hand, so that it holds nothing to decide. For one
+entry and one type it names:
+
+1. Spark's class and the methods that define the answer.
+2. The sibling to copy: the merged kernel of the nearest type, with its tests.
+3. The files to add and the files to edit, in order, and what goes in each.
+4. The commands, in order, each with the output it must print: `dev/varka_emit.sh` on the
+   expression must read `FusedOutput`; the family's suites; the differential suite; the
+   regeneration; `python3 dev/varka_census.py --check`; `dev/varka_msg_check.py pr`.
+5. The declines to keep, each by its reason and its test.
+6. The house rules that bind the change, quoted from the `AGENTS.md` files, and the attribution
+   line with the model's own tool name.
+7. What not to do: no new IR node the plan does not name, no edit outside the listed files, no
+   change to a default.
+8. How to open the pull request: the branch, the title, the body's sections, the ledger line.
+
+`sql/varka/ADDING_AN_EXPRESSION.md` is the page such a plan points at, and it describes
+milestone 4's engine: int lanes only, `m4/PLAN.md` as the task table, `dev/varka_gate.sh` as the
+gate. Row 658 brings it to today's tree.
+
+**The oracle** is one command for an entry and a type. Its local half compiles and runs the
+catalyst suites; its CI half runs the `sql/core` suites, the regeneration and the option matrix
+on vecbricks' runners and returns the regenerated files as a patch, so a task needs the laptop
+for a compile only. It fails on an unfused entry, on a stale generated file, on a pull request
+over the size cap, and on a benchmark section slower than the row path.
+
+**The loop.** The coordinator generates the plan. The owner gives it to a model. The model
+builds, runs the oracle and opens the pull request. The review (`/code-review high`) posts its
+findings on the pull request, and the model fixes them: one review and one fix round. Then the
+pull request merges, or the coordinator takes it over, or the task returns to the pool. The
+ledger records which, with the builder, the rounds and the finding counts; a pull request the
+coordinator had to rewrite does not count as built by the model.
+
+**The pilot (row 659).** The four casts from `TIME` to the integral types are legal, unfused
+and claimed by no row. Each is a floor division by the nanoseconds in a second, the narrower
+targets checking their range; `dt -> bigint` is the fused sibling, and they need no new type and
+no zone.
+
+- *Round 1:* all three models build `time -> int` from the same generated plan. The best pull
+  request merges; the others close with their lines in the ledger. This compares the models on
+  equal terms.
+- *Round 2:* `time -> smallint`, `time -> tinyint` and `time -> bigint`, one model each, in
+  flight together. Three siblings of one family are row 653's hardest case.
+- *Admission:* a model joins the fan-out when its round-2 pull request merges within two fix
+  rounds. One that does not gets a third task, one of the five always-null casts from `DATE`;
+  after that its share goes to the others or to the coordinator, and G5 reports the share as it
+  is.
+
+### 2.8 The upstream sync (row 663)
+
+The fork's base is apache/spark of 10 November 2026, 345 commits back. The sync brings
+SPARK-61538 (special datetime values in casts to the nanosecond types), SPARK-62149 (`try_abs`
+and `try_negative`, which take the two interval types and so add census pairs to G3),
+SPARK-61352 (the query context of interval errors, which ends the reason of three
+interval-division declines) and SPARK-56076 (the types framework's row access, to be read for
+what it changes under Varka's readers). The census fails on the three registry names the sync
+adds until each is curated in or out. The sync waits for #1708 and #1675, and for the owner's
+answers on those names.
+
+### 2.9 What other engines do
+
+Read on 25 November 2026 in the local checkouts of ClickHouse, QuestDB, Trino, Druid, Velox,
+Gluten, Comet, DuckDB, StarRocks, Arrow, DataFusion and abseil's cctz. None of them converts a
+named zone in vector code: each reads the zone a value at a time. ClickHouse was read directly
+and the others by a survey; a row checks a claim again before it leans on it. The reading note
+behind this table follows the catalogue's move, since `dev/varka_catalogue_move.sh` takes every
+reading note of this folder with the catalogue until then.
+
+| engine | how it reads a zone | what this plan takes |
 | :--- | :--- | :--- |
-| F0 | One file per plan row, so parallel rows stop conflicting in `PLAN.md` | - |
-| F1 | The census and the cast matrix with `TIMESTAMP_LTZ`, and per-type counts in `--summary` | the upstream sync |
-| F2 | How precisions 7 to 9 enter the census (owner's decision 7) | - |
-| F1b | The census and the cast matrix with the nanosecond types | F1, F2 |
-| F3 | The fan-out task template, self-contained, and its one-command oracle | F0, 642 |
-| F4 | The pilot: one templated task built by each cheaper model, then reviewed | F3 |
-| F5 | The `TIMESTAMP_LTZ` lane: Arrow, the type registry, load, compare, choice, output | F1 |
-| F6 | The time-zone design, its every-zone sweep and its daylight-saving tests | F5 |
-| F7 | The nanosecond layout, both arms, measured | F1b |
+| ClickHouse | a table for each zone with one entry a local day from 1900 to 2299: the day's first instant, its calendar fields and the day's change of offset; a lookup is a division and two compares, with no search (`DateLUTImpl`); two flags say that a zone's offsets are whole hours or whole minutes | a table whose bucket holds at most one change, read with no search; the two flags, which free `minute` and `second` of the zone |
+| cctz | sorted changes, each with its local time on both sides, so one compare says whether a local time is unique, skipped or repeated; a hint remembers the last change found; the yearly rule written out for 400 years, later instants moved back by whole cycles | both local times in the database; the carried steps, which are its hint for a batch; the 400-year cycle |
+| QuestDB | the JDK's own change arrays, copied, with a cache of each year's rule; it remembers the interval it is in and when that ends, and starts doing so only after two near misses; one long of nanoseconds for its nanosecond type | the database read from the JVM's own rules; the guard against thrashing on instants in no order |
+| Trino | Joda for every value; a `timestamp(p)` past six digits is a pair, microseconds and the picoseconds of the microsecond, and a field reads the first word alone | the two-word layout and its rule for fields |
+| Druid | Joda for every value; truncates in UTC when every offset of the zone is a multiple of the unit | the same test, over the offsets in the batch's own range |
+| Velox, Gluten | a binary search for every value and no cache; fixed offsets in whole minutes, and `second` reads no zone | its gaps as tests: an offset with seconds, and Spark's own daylight-saving test for `timestampadd`, which Gluten excludes |
+| Comet | UTC is arithmetic and any other zone a library call a value; `date_trunc` outside UTC, `from_utc_timestamp`, `make_timestamp`, `months_between` and `timestampadd` run in Spark's own code; a zone with a constant rule becomes a fixed offset when the plan is built | the fixed-offset test at plan time (`ZoneId.normalized`) |
+| DuckDB, Arrow, DataFusion, StarRocks | a calendar or library call a value; one long at the type's precision for nanoseconds; in an overlap DuckDB takes the later instant | the long at the column's precision as the second nanosecond layout; each difference from Spark as a test |
 
-The rows this milestone takes, with their numbers and their plans where they are:
+## 3. Tasks
+
+Sizes are the house's small, medium and large. A row opens **Filed** and has no plan file until
+its first pull request. Rows 667 to 669 and 672 to 674 are fan-out rows: one row a family, one
+part a pull request, two to four sibling entries a part, each part from a generated plan.
 
 | task | what it is | where it came from | size |
 | ---: | :--- | :--- | :--- |
@@ -151,3 +563,130 @@ The rows this milestone takes, with their numbers and their plans where they are
 | 364 | **Planned** (carried over from milestone 8 on 25 November 2026; state and record: `m8/PLAN.md` row 364 and its plan). The 128-bit decimal casts | milestone 8, `VARKA-364.md` | medium |
 | 366 | **Planned** (carried over from milestone 8 on 25 November 2026; state and record: `m8/PLAN.md` row 366 and its plan). The exact decimal-to-floating arm | milestone 8, `VARKA-366.md` | medium |
 | 642 | **Planned** (`m9/SCOPE.md` item 138). Declare an emit option in one place, so parallel option rows stop conflicting | milestone 8 by item 138, `VARKA-642.md` | small to medium |
+| 653 | The files every type row appends to or regenerates, one file an entry. **Filed** (25 November 2026; the admission check: #1434 touched 23 files, 18 of them shared, and on 25 November five open pull requests conflicted with master in generated files that the merge driver resolves only in a local clone) Section 2.6. **Done when** three pull requests that each add a sibling entry of one family (the pilot's second round), and two that add entries of different families, merge with master in either order under `git merge-tree` with no merge driver, with no conflict and no regeneration owed; a stale generated file fails CI with its command; and every tool and suite that reads the lists gives the same output before and after | `m9/SCOPE.md` item 121, its part of 11 November 2026; row 546 | medium |
+| 654 | The census and the cast matrix by milestone, with `TIMESTAMP_LTZ`. **Filed** (25 November 2026; the admission check: the tool writes milestone 8's files by fixed paths, `--summary` prints no count per type, and 20 entries carry the zoned reason) Section 2.4. **Done when** the summary for milestone 9 prints the pairs admitted and fused for each type; `ltz` is a census type and each of the 18 entries that come into scope has a row or a reason; the cast table holds the 23 pairs and `VarkaCastMatrixSuite` passes; and milestone 8's summary reads the same before and after | owner's decisions 1 and 2; row 663 first, so the registry is read once | medium |
+| 655 | Baselines for `TIMESTAMP_LTZ` and the nanosecond types before their kernels, and the timestamp surface. **Filed** (25 November 2026; the admission check: the `TIMESTAMP_NTZ` baseline classes exist and no class reads a `TIMESTAMP`; the three `TIMESTAMP_NTZ` results files still hold their runs from before the kernels) One class a family, as row 377 built them: the zone-free sections, the fields, the casts, the arithmetic and the zone functions, each under UTC, a fixed offset and a daylight-saving zone, over instants in time order and in no order across one and ten years; and timestamp cases in the surface that runs against the newest stock Spark release. **Done when** each class and both widths' results from the EPYC 7763 are committed before the type's first kernel, each later row's measurement diffs against them, and the `TIMESTAMP_NTZ` files are run again so that milestone 8's kernels have their numbers | owner's decision 8; the house rule for a baseline; row 377 | medium |
+| 656 | `TIMESTAMP_LTZ` on the long lane. **Filed** (25 November 2026; the admission check: the registry declines the type, and `types.tsv` reads `TIMESTAMP declined`) Section 2.3. **Done when** the registry has the type on the long lane; a `TimeStampMicroTZVector` is read and written, with the session zone in the output's field; the load, the comparisons, the null tests, `IN`, `greatest`, `least`, the choices and the output fuse with coverage rows; the conformance suite passes; `dev/varka_new_lane.py --check` passes; and no existing shape's bytes move | `m9/SCOPE.md` item 31, its zoned type; rows 654 and 655 first | medium |
+| 657 | The session time zone in a kernel. **Filed** (25 November 2026; the admission check: a literal slot is filled once a query, an input bound can only decline, and in the probe one offset a batch declines 1000 of 1000 batches of a year of instants in no order) Section 2.2: its plan first; then the slots the evaluator fills from the batch, with `hour` and `minute`; the steps written out, their range from the cache's statistics or carried and checked in the loop; the form with no mask at two lanes; the sweep and the fixtures; the local-to-instant node with a cast from `TIMESTAMP_NTZ`, a cast from `DATE` and `ts + INTERVAL DAY`; and the table. **Done when** the sweep passes in every Build under the three rules; the first kernels of each direction fuse with tests whose rows straddle both changes of a year; ten years of instants in no order decline no batch; each form of 2.2's table is measured in a kernel on row 655's classes at 256 and 128 bits, and the default at each width is the fastest; and G7's bar holds for `hour` and for the cast to `DATE` | `m9/SCOPE.md` items 31 and 89; rows 656 and 678 first | large |
+| 658 | The fan-out task: its template, generator, oracle and ledger. **Filed** (25 November 2026; the admission check: `sql/varka/ADDING_AN_EXPRESSION.md` describes milestone 4's int-lane engine, and no command says of one entry and one type whether the work is done) Section 2.7. **Done when** a plan generated for a merged entry names every file that entry's pull request touched; the oracle passes on that entry and fails with its kernel reverted; the CI half returns the regenerated files as a patch; the ledger has its columns and one line; and the guide describes today's tree | owner's decisions 3 and 4; rows 642, 646 and 653 first | medium |
+| 659 | The pilot: each cheaper model builds a templated task. **Filed** (25 November 2026; the admission check: the four casts from `TIME` to the integral types are legal, unfused and unclaimed in `m8/casts.tsv`) Section 2.7's two rounds and its admission rule. **Done when** each model's pull requests are in the ledger with their reviews; the admission rule's verdict for each model is recorded; the four casts are fused; and what the pilot taught is in the template and in `skills/working-in-this-repo.md` | owner's decisions 3 and 4; row 658 first | medium |
+| 660 | How precisions 7 to 9 enter the census. **Filed** (25 November 2026; the admission check: the precision is in the type, the value's layout is one for all three, and a cast to a lower precision floors) Section 2.5: a design, no code. **Done when** the plan states the census types and the cast pairs each choice gives, with their counts, and the owner has chosen | owner's decision 7 | small |
+| 661 | The census and the cast matrix with the nanosecond types. **Filed** (25 November 2026; the admission check: the registry holds neither type, and Spark's set of functions over them moved in six commits since May) Section 2.4. **Done when** the two types are census types as row 660 decides; each entry's admission is read from Spark's own type check with the flag on; an entry Spark rejects carries that reason; and the cast table holds the nanosecond pairs | owner's decision 1; rows 654, 660 and 663 first | medium |
+| 662 | The nanosecond timestamps' layout. **Filed** (25 November 2026; the admission check: the cache stores the value as a struct of two vectors, and `isArrowBacked` admits lane vectors only) Section 2.5. **Done when** a nanosecond column is read from the cache's struct and written back; both layouts are built and measured on row 655's classes, the slower kept as an option arm; the zone-free entries fuse; a field over the microsecond word, a cast to microseconds and `second` with its fraction fuse; and the values at the range's ends answer as `TimestampNanosVal` does | owner's decision 1; rows 655 and 661 first, and row 359's two words | large |
+| 663 | Sync with apache/spark's master. **Filed** (25 November 2026; the admission check: 345 commits behind, SPARK-61538 not an ancestor of master, and a trial merge fails the census on three names) Section 2.8. **Done when** master holds apache/spark's master of the sync's day; the census passes with each new name curated in or out with its reason; and the three interval-division declines SPARK-61352 ends are named in row 672 | the house's sync; #1708 and #1675 first | medium |
+| 664 | A year-month `time_bucket`. **Filed** (25 November 2026, from the catalogue) The item's text and its done-when, over `TIMESTAMP_NTZ`, and over `TIMESTAMP_LTZ` once row 657 lands | `m9/SCOPE.md` item 117 | small |
+| 665 | `TryEval` over a fused subtree. **Filed** (25 November 2026, from the catalogue) The item's rule and its done-when: each `try_` entry over an interval fuses, and a subtree with an inexact guard declines | `m9/SCOPE.md` item 125 | medium |
+| 666 | `d + dt` over a stored `INTERVAL DAY` column. **Filed** (25 November 2026, from the catalogue) The item's text and its done-when | `m9/SCOPE.md` item 126 | small |
+| 667 | Fan-out: `TIMESTAMP_LTZ`'s zone-free entries. **Filed** (25 November 2026) The 8 conversions with the epoch, `hash` and `xxhash64` (after row 337), `in_set`, `known_not_null` and `try_eval`. **Done when** each entry is fused with a coverage row and a benchmark section, or carries its reason | owner's decision 3; rows 656 and 659 first | medium |
+| 668 | Fan-out: `TIMESTAMP_LTZ`'s fields. **Filed** (25 November 2026) `year`, `quarter`, `month`, `day`, `dayofmonth`, `dayofyear`, `dayofweek`, `weekday`, `weekofyear`, `second`, `last_day`, `next_day`, `trunc`, `extract`, `date_part`, `datepart` and `time_bucket`, each the `TIMESTAMP_NTZ` kernel behind row 657's node. **Done when** each is fused with a coverage row, a test whose rows straddle both changes of a year and a benchmark section at G7's bar, or carries its reason | owner's decision 3; rows 657 and 659 first | medium |
+| 669 | Fan-out: `TIMESTAMP_LTZ`'s casts. **Filed** (25 November 2026) The 16 pairs with a number or a boolean, which read no zone and wait for row 656 alone; then `DATE`, `TIMESTAMP_NTZ` and `TIME` in both directions behind row 657's nodes. **Done when** each of the 23 pairs is fused under each mode it admits, with its proof kind and its line in the cast table, or carries its reason | owner's decision 3; rows 656, 657 and 659 first | medium |
+| 670 | `TIMESTAMP_LTZ`'s zone functions. **Filed** (25 November 2026) `from_utc_timestamp`, `to_utc_timestamp` and `convert_timezone` over a literal zone, `date_trunc`, `months_between`, and `make_timestamp`, `make_timestamp_ltz` and their `try_` forms; the first of each kind at full strength, the rest from its plan. **Done when** each is fused with its tests across both changes and a benchmark section at G7's bar, or carries its reason; a zone column declines by name | owner's decisions 1 and 8; row 657 first | large |
+| 671 | `TIMESTAMP_LTZ`'s arithmetic. **Filed** (25 November 2026) `ts - ts`, `ts` plus and minus a day-time and a year-month interval, `timestampadd` and `datetime_sub`, at full strength: both directions of the conversion and the kept-offset rule. **Done when** each is fused with tests across both changes, in both signs, and a benchmark section at G7's bar | owner's decisions 1 and 8; row 657 first | large |
+| 672 | Fan-out: the existing temporal types' tail. **Filed** (25 November 2026; the admission check: 75 of the 278 temporal pairs are unfused, and 32 of the 42 temporal casts) The five always-null casts from `DATE`; the casts between the intervals and the integral and decimal types, after row 103's; `try_abs` and `try_negative` over the intervals, after row 663; the three interval-division declines SPARK-61352 ends; and each pair milestone 8's close leaves with this row's name. **Done when** 1.2's item 3 holds | owner's decisions 1 and 6; row 659 first | large |
+| 673 | Fan-out: the nanosecond fields. **Filed** (25 November 2026) The fields Spark accepts over the two types, on the microsecond word; a nanosecond `TIMESTAMP_LTZ` behind row 657's node. **Done when** each is fused with a coverage row and a benchmark section, or carries the reason that Spark rejects it | owner's decision 3; row 662 first | medium |
+| 674 | Fan-out: the nanosecond casts. **Filed** (25 November 2026) The pairs with `DATE`, `TIME`, the microsecond timestamps and each other, and the changes of precision. **Done when** each pair row 661 lists is fused or carries its reason | owner's decision 3; row 662 first | medium |
+| 675 | The nanosecond functions. **Filed** (25 November 2026) What Spark accepts over the two types at the last sync: `date_trunc`, `timestampadd`, `from_utc_timestamp`, `to_utc_timestamp`, `convert_timezone`, the `unix_*` functions and `timestamp_nanos`; the units below a microsecond and the sums that carry into the microsecond word at full strength. **Done when** each is fused or carries its reason | owner's decision 1; row 662 first | medium |
+| 676 | The post. **Filed** (25 November 2026) What of Spark's datetime surface runs in kernels, how it is known in every zone, how much faster it is than vanilla Spark, and what the cheaper models built, with its figures from committed results. **Done when** it is published | owner's decision 5 | medium |
+| 677 | The close. **Filed** (25 November 2026) Section 1.2 read item by item against the tree, G5's report from the ledger, and the house's close: documents only, its numbers quoted from CI's committed runs. **Done when** every item of 1.2 is answered and the milestone's tag is set | the house's close | small |
+| 678 | The time-zone database for vector code. **Filed** (25 November 2026, on the owner's word of that day; the admission check: `java.time` answers one lookup at a time by a binary search, and the probe's sorted changes gave every row `java.time`'s answer under each of the three rules) Section 2.2: a zone's class, its changes on both time lines with each gap's and overlap's window, the instants from which its offsets are whole minutes and whole hours, the rule years written out as they are needed, and the bucket table; built once a zone in each JVM, from that JVM's `ZoneRules`; ids with the same rules share an entry. **Done when** every zone id the session accepts has an entry; the steps and the table read from it equal `java.time` over the sweep's instants on both time lines; the time to build an entry and its size are measured and recorded; and no entry crosses from the driver to an executor | the owner's word of 25 November 2026; `m9/SCOPE.md` item 89 | medium |
+
+### 3.1 Goals to rows
+
+| goal | rows |
+| :--- | :--- |
+| G1 `TIMESTAMP_LTZ` | 654, 656, 678, 657, 667 to 671 |
+| G2 every zone | 678, 657, and the tests of 668 to 671 |
+| G3 remaining features | 30, 95, 103, 351, 364, 366, 664 to 666, 672 |
+| G4 nanoseconds | 660 to 662, 673 to 675 |
+| G5 cheaper models | 653, 658, 659, the fan-out rows, and 642 and 646 under them |
+| G6 the post | 676 |
+| G7 speed | 655, 678, 657, and a benchmark section in every `TIMESTAMP_LTZ` row |
+
+### 3.2 What the carried rows hold
+
+Rows 30, 95, 103, 351, 364 and 366 are mostly built: about 30 local branches from 20 to 23
+November 2026 hold their parts, each named in the row's own status in `m8/PLAN.md`. Landing them
+is a merge of master, a review, a push and CI for each, in the merge queue's order; the parts
+over the 128-bit decimal (351's last, 364 and 366) wait for milestone 8's rows 360 to 363.
+
+## 4. Order
+
+**Wave 0, now, while milestone 8 runs.** Nothing here moves a census cell. This plan; the
+catalogue's move; rows 646 and 642, which are milestone 8's throughput work too; the plans of
+rows 653, 657 and 660; row 678, which is new classes and their tests; row 655's `TIMESTAMP_LTZ`
+classes and the second run of the `TIMESTAMP_NTZ` ones; the carried rows' built parts; row 663
+once #1708 and #1675 have merged.
+
+**Wave 1, the census opens to the new type.** Rows 654 and 656; row 653's code; row 658.
+
+**Wave 2.** Row 657; the pilot (row 659); then the fan-out that reads no zone: row 672, row 667
+and the first 16 pairs of row 669.
+
+**Wave 3.** The fan-out behind the zone: rows 668 to 671, and rows 664 to 666.
+
+**Wave 4, phase 2's foundation, beside wave 3.** Rows 660, 661, 655's nanosecond classes, 662.
+
+**Wave 5.** Rows 673 to 675.
+
+**Wave 6.** Rows 676 and 677.
+
+**The paths that set the length.** Zones: 663, 654, 656, with 678 beside them, then 657, then
+668 to 671. The cheaper models' machinery: 646, 642 and 653, then 658, 659, then every fan-out
+row. Nanoseconds: 660, 661, 662, then 673 to 675. The carried decimals: milestone 8's 128-bit
+rows, then 351, 364 and 366.
+
+**The length.** About 130 pull requests and about seven working weeks from the sync's merge
+(section 6), at the rate of 9 to 25 November 2026, when the last 200 merges took 17 days and 37
+of them were plans, and with milestone 8's tail sharing the slots.
+
+## 5. Risks
+
+- **Milestone 8's close slips.** It has 102 open rows. Wave 0 does not wait for it; waves 1 and
+  on wait for the close or for 1.6's milestone tag.
+- **The per-batch slot is a new kind of kernel argument,** and a pass before the kernel has cost
+  10% to 17% before. The row's plan comes first, and "steps, carried" has no pass.
+- **Two 64-bit lanes.** This JVM compiles no mask there, and the probe's masked steps ran slower
+  than `java.time`. A zone kernel takes the form with no mask at that width or declines, and
+  G7's 128-bit bar is read with that.
+- **A kernel that declines.** A form that sends most batches to the row engine meets the census
+  and fails G2 and G7; both name the fixture that shows it.
+- **The cheaper models fail the pilot.** The generated plans and the oracle still pay: the
+  coordinator builds the same tasks at less cost, and G5 has no threshold.
+- **Row 653 is late.** Then the fan-out runs one pull request at a time, each merge costing the
+  others a regeneration.
+- **Spark's nanosecond surface moves.** Row 661 reads Spark at the last sync; one sync is fixed
+  before wave 5.
+- **The first column of two Arrow vectors.** Row 662 leans on row 359's two words; if that
+  path does not carry a struct, the row grows.
+- **The review's load.** About 50 pull requests from the cheaper models, each with one review;
+  the findings go on the pull request so that a model can act on them.
+- **Time-zone data differs** between CI's JDK and an executor's. Offsets are read on the
+  executor, and the sweep names its JDK.
+- **A library of its own** (1.6) is a second repository to keep. vfdlibm's rule is the control:
+  a port here is paired with the pull request there, and nothing here waits on a release.
+- **A benchmark's runner.** Every G7 number needs an EPYC 7763; a run on another CPU is
+  dispatched again, as the house does.
+
+## 6. Predictions, registered 25 November 2026
+
+Scored at the close, each against the record.
+
+1. The milestone takes about 130 pull requests, between 100 and 160: the carried rows about 30,
+   the foundation and the shared files about 35, the fan-out about 60, the close 3.
+2. Row 656 lands in one plan and at most two code pull requests, as row 338 did.
+3. One offset a batch declines every batch of a year of instants in no order in a
+   daylight-saving zone, and none under UTC. This is arithmetic, and the measurement is its
+   check. *Scored the same day by the probe of 2.2, which ran after this was written: 1000 of
+   1000 batches span a change, at 4096 rows and at 10000.*
+4. Over such instants the fields run at least ten times the row path at 256 bits on the EPYC
+   7763, twice G7's bar: the row path pays `java.time`'s zone lookup for every row on top of
+   what a `TIMESTAMP_NTZ` field costs it, and the kernel adds a few compares.
+5. The fastest form at two changes a batch is "steps, carried"; the table wins only past eight.
+   *Scored the same day on the laptop: right at four lanes, where the table wins past about nine
+   changes; at eight lanes it wins only past about twenty. The runner's score is row 657's.*
+6. Both nanosecond layouts run the fields at the same rate, and the single long wins only on
+   the arithmetic.
+7. In the pilot's first round at least one of the three models' pull requests merges within two
+   fix rounds, and none merges with no finding.
+8. The cheaper models build at least half of the fan-out's pull requests.
+9. The close is seven working weeks after the sync's merge, between five and ten.
