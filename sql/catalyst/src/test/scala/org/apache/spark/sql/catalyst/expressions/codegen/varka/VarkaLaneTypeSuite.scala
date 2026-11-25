@@ -542,6 +542,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       cls <- types
       node <- instance(cls, lane)
     } yield {
+      // Its validity's and overflow check's shapes, for the records no grammar draws (VARKA-489).
+      VarkaNodePropsSuite.assertValidityShape(node)
+      VarkaNodePropsSuite.assertOverflowCheckShape(node)
       // A `WeekOfYear` needs its `ThursdayOf`; both are int-only, and the guarded day's range
       // check means a bare column root would decline rather than emit, so it is wrapped.
       val roots = Seq[VarkaVectorIR](node)
@@ -565,6 +568,14 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       java.util.List.of[VarkaVectorIR](new Fma(fd, fd, new ColumnRef(1, LaneType.DOUBLE))), 2, 0,
       null, null, VarkaMatrix.base)
     assert(VarkaEmitterTestSupport.verify(fmaBytes).isEmpty, "Fma at DOUBLE verifies")
+    // The floating records, which the loop cannot build at an integral lane: their validity's
+    // and overflow check's shapes at DOUBLE (VARKA-489).
+    Seq[VarkaVectorIR](sqrt, new Fma(fd, fd, new ColumnRef(1, LaneType.DOUBLE)),
+      new RoundToIntegral(RoundMode.RINT, fd), CanonicalFloat.of(fd))
+      .foreach { n =>
+        VarkaNodePropsSuite.assertValidityShape(n)
+        VarkaNodePropsSuite.assertOverflowCheckShape(n)
+      }
     // The subset VARKA-85.md 3.1 names, and nothing else: a calendar node at the long lane
     // is refused by its constructor, which is why it never reaches the emitter.
     assert(atLong === Set("ColumnRef", "LiteralSlot", "IntArith", "IntNeg", "Greatest", "Least",
