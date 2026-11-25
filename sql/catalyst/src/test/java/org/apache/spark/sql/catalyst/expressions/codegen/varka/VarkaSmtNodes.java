@@ -100,7 +100,7 @@ final class VarkaSmtNodes {
       entry(HashStep.class, "a hash step: its multiplies are no linear integer term"),
       entry(ConvertLane.class, "a conversion to or from a floating lane"),
       entry(ReinterpretLane.class, "a view of a floating lane's bits: the prelude has no double"),
-      entry(VarkaVectorIR.InterleaveDecimal.class,
+      entry(InterleaveDecimal.class,
           "a decimal pair's store, whose two words decimal128.smt2 holds"),
       entry(CrossLane.class, "a condition moved between lanes; no decimal shape builds one"),
       entry(InRanges.class, "a range set of the int lane; no decimal shape builds one"),
@@ -268,12 +268,11 @@ final class VarkaSmtNodes {
       case NarrowLane n -> throw new Refused(n, "only the narrowing of a long to an int");
       // The decimal store writes its child's long unchanged (VarkaReference's rule).
       case WidenDecimal n -> child.apply(n.child());
-      case VarkaVectorIR.InterleaveDecimal n -> throw new Refused(n, REFUSED.get(n.getClass()));
       case AddDays _, SubDays _, DateDiff _, DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _,
           ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
           TruncDate _, TruncDateDynamic _, WeekOfYear _, AddMonths _, MakeDate _, GuardedDay _,
           ConstDivide _, BoundedDivide _, BitCount _, MathUnary _, Fma _, RoundToIntegral _,
-          ConvertLane _, ReinterpretLane _,
+          ConvertLane _, ReinterpretLane _, InterleaveDecimal _,
           CrossLane _, InRanges _, BoolCompare _, BoolNullSafeEq _, CanonicalFloat _,
           CanonicalBits _, HashStep _ ->
           throw refused(node);
