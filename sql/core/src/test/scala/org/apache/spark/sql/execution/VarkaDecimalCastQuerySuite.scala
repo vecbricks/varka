@@ -26,7 +26,7 @@ import org.apache.spark.sql.types.{DataType, DecimalType, StructField, StructTyp
  * Arrow-cached table, Varka against vanilla Spark in LEGACY, ANSI and TRY: the rows both answer,
  * or the error both raise; the narrow integral targets decline, and are only checked to run on
  * the row engine here. The columns hold the named cases of `VARKA-350.md` 3 item 2 for every
- * target: the values where the exact rule and the double rule part for INT
+ * target: the values a range check through a double gets wrong for INT
  * (`0.999999999999999999` as `DECIMAL(18, 18)`, `2147483647.99999999` as `DECIMAL(18, 8)` and the
  * three first differences of item 0.14, in `f`, `k` and `m`), each target's bounds and one past
  * them, `-0.5`, `-1.5` and `1.5`, Trino's `184467440737095517` at `(18, 0)` into `(18, 2)`, and
@@ -40,7 +40,7 @@ import org.apache.spark.sql.types.{DataType, DecimalType, StructField, StructTyp
  * Varka node.
  */
 // varka-session-lint: allow the casts are held to vanilla Spark's answers over the Arrow cache,
-// whose read path decides between the exact and the double rule (VARKA-365), and to its errors
+// whose read path decides each decimal's backing (VARKA-365), and to its errors
 class VarkaDecimalCastQuerySuite extends VarkaMaybeThrows with VarkaTestWatchdog {
 
   private val view = "varka_decimal_casts"

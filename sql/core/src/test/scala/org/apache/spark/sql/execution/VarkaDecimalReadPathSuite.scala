@@ -45,12 +45,11 @@ import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch}
  * Arrow-cached table, on each path a query can take to the cast, with Varka off and on
  * (VARKA-365).
  *
- * `Decimal.roundToInt` truncates exactly whatever the value's backing (SPARK-60843). Before it, a
- * `BigDecimal`-backed value was converted to a double and its floor and ceiling range-checked,
- * which parts from the truncation on the two values this suite reads: `0.999999999999999999` as
- * `DECIMAL(18, 18)`, which truncates to 0 but rounds to the double 1.0, and
- * `2147483647.99999999` as `DECIMAL(18, 8)`, which truncates to `Int.MaxValue` but rounds to the
- * double 2^31, past it. Every path here now answers by the truncation, the exact rule.
+ * `Decimal.roundToInt` truncates exactly whatever the value's backing, so every path answers by
+ * the truncation, the exact rule. The suite reads the two values a range check through a double
+ * gets wrong: `0.999999999999999999` as `DECIMAL(18, 18)`, which truncates to 0 but rounds to the
+ * double 1.0, and `2147483647.99999999` as `DECIMAL(18, 8)`, which truncates to `Int.MaxValue`
+ * but rounds to the double 2^31, past it.
  *
  * The backing is decided by the path, not by the data. `ArrowColumnVector` builds a
  * `BigDecimal`-backed value at every precision, and an `UnsafeRow` holding a decimal of
@@ -294,7 +293,7 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
 
   /**
    * Runs the six casts on `path` and returns the reading they followed. The plan is checked on a
-   * TRY query, which raises on neither rule over the valid tables.
+   * TRY query, which raises on none of the valid tables.
    */
   private def readingOf(path: Path): String = {
     val session = path.session()
@@ -677,8 +676,8 @@ private object VarkaDecimalReadPathSuite {
 
   /**
    * A columnar leaf that is not the Arrow cache, built as `TestColumnarBatchPlan` is: one batch
-   * of Arrow vectors holding the row of `rp_fused` - the two decimals that part the rules, a date
-   * and an int that `date_add(d, i)` fuses.
+   * of Arrow vectors holding the row of `rp_fused` - the two decimals a double range check gets
+   * wrong, a date and an int that `date_add(d, i)` fuses.
    */
   case class ArrowDecimalBatchPlan() extends LeafExecNode {
     override val output: Seq[Attribute] = Seq(
