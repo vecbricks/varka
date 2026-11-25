@@ -95,7 +95,7 @@ class VarkaFamilyChainSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private def freshChain(): Chain =
     VarkaNodeCompiler.families().asScala.toSeq :+ VarkaNodeCompiler.predicates() :+
-      VarkaNodeCompiler.castConditions()
+      VarkaNodeCompiler.castConditions() :+ VarkaNodeCompiler.decimalCastConditions()
 
   /**
    * The nodes of `sqls` claimed by more than one group of `chain`, each with its claimants, and

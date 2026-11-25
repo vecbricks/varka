@@ -264,7 +264,12 @@ final class VarkaProofFiles {
       // rows' divisors of a day that are not powers of two, which shift: dt / 24, and
       // dt / 1.5's denominator (VARKA-103).
       24L,
-      3L);
+      3L,
+      // A decimal cast's division by 10^k past 2^52, of the magnitude shifted right by k, by
+      // 5^k (VARKA-350): the coverage rows' k = 2, 7 and 9.
+      25L,
+      78_125L,
+      1_953_125L);
 
   /**
    * The divisors of {@link #LONG_DIVISORS} that only the day split divides by: their dividend is
@@ -272,6 +277,13 @@ final class VarkaProofFiles {
    * about them, and the rule that finds it does not hold for them.
    */
   private static final List<Long> DAY_SPLIT_DIVISORS = List.of(24L, 3L);
+
+  /**
+   * The divisors of {@link #LONG_DIVISORS} that only a decimal cast's magnitude form divides by:
+   * their dividend is a magnitude shifted below {@code 2^52}, never near {@code 2^53}, and the
+   * rule's first failure past it does not hold for {@code 5^7} and {@code 5^9}.
+   */
+  private static final List<Long> DECIMAL_SHIFT_DIVISORS = List.of(25L, 78_125L, 1_953_125L);
 
   private static final long P52 = 1L << 52;
   private static final long P53 = 1L << 53;
@@ -354,7 +366,8 @@ final class VarkaProofFiles {
       // Where the conversion form first goes wrong past 2^53 is a fact about the TIME divisors,
       // whose dividends reach the bound. The day's odd part is still exact at the dividend the
       // rule renders - both solvers say so - and its caller states a bound near 2^50.
-      if (d != NTZ_DAY_ODD && !DAY_SPLIT_DIVISORS.contains(d)) {
+      if (d != NTZ_DAY_ODD && !DAY_SPLIT_DIVISORS.contains(d)
+          && !DECIMAL_SHIFT_DIVISORS.contains(d)) {
         conversionBound(out, d, m);
       }
       magicExact(out, d, m);

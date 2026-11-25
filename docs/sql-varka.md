@@ -291,7 +291,7 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
 | `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
 | `DoubleType` (`double`) | DOUBLE | 102 | 62 | 2 | plumbing 4, semantics 24, ulp 10 | 0 | 93 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 26 | plumbing 3, semantics 33 | 3 | 93: 68 to precision 18, 25 at precision 19 to 38 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 30 | plumbing 3, semantics 29 | 3 | 103: 78 to precision 18, 25 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
 | `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
@@ -310,7 +310,7 @@ One row per section of Spark's function registry, and per family of the operator
 | bitwise | 13 | 13 | 13 | 0 |  |  |
 | datetime | 41 | 27 | 36 | 0 | byte, short, int, bigint, float, double, dec, ntz, time, ym, dt | 103, 329, 339, 340, 343, 351 |
 | hash | 2 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 337, 359, 368 |
-| conversion | 11 | 1 | 10 | 3 | bool, byte, short, int, bigint, float, double, dec, date, time, ym, dt | 28, 332, 338, 340, 343, 350, 364, 365, 366, 368 |
+| conversion | 11 | 1 | 10 | 5 | bool, byte, short, int, bigint, float, double, dec, date, time, ym, dt | 28, 332, 338, 340, 343, 350, 364, 365, 366, 368 |
 | misc | 2 | 2 | 2 | 0 |  |  |
 | conversion, no registry entry | 1 | 0 | 1 | 1 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 332, 343, 350, 364, 365, 366, 368 |
 | predicate, no registry entry | 1 | 0 | 1 | 0 | bool, dec | 329, 341, 348, 359, 497 |
@@ -344,7 +344,7 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `bigint` | fused | fused | fused | fused | = | declined | declined | declined |  |  |  | declined | declined |
 | `float` | fused | declined | declined | declined | declined | = | fused | declined |  |  |  |  |  |
 | `double` | fused | declined | declined | declined | declined | fused | = | declined |  |  |  |  |  |
-| `dec` | declined | declined | declined | declined | declined | declined | declined | declined |  |  |  | declined | declined |
+| `dec` | 1 of 2 | declined | declined | declined | 1 of 2 | declined | declined | declined |  |  |  | declined | declined |
 | `date` | declined | declined | declined | declined | declined | declined | declined | declined | = | fused |  |  |  |
 | `ntz` |  |  |  |  |  |  |  |  | fused | = | fused |  |  |
 | `time` |  | declined | declined | declined | declined |  |  | declined |  | fused | 3 of 6 |  |  |
@@ -352,6 +352,8 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `dt` |  | declined | declined | declined | fused |  |  | declined |  |  |  |  | 36 of 90 |
 
 
+* `dec` to `bool` (test), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BOOLEAN
+* `dec` to `bigint` (truncation), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BIGINT
 * `time` to `time` (relabel or truncation), 3 of 6 forms; declined: TIME(3) to TIME(0); TIME(6) to TIME(0); TIME(6) to TIME(3)
 * `ym` to `int` (unit division), 2 of 3 forms; declined: INTERVAL YEAR TO MONTH to INT
 * `dt` to `dt` (relabel or unit narrowing), 36 of 90 forms; declined: INTERVAL DAY to INTERVAL DAY TO HOUR; INTERVAL DAY to INTERVAL DAY TO MINUTE; INTERVAL DAY to INTERVAL HOUR; INTERVAL DAY to INTERVAL HOUR TO MINUTE; INTERVAL DAY to INTERVAL MINUTE; INTERVAL DAY TO HOUR to INTERVAL DAY; INTERVAL DAY TO HOUR to INTERVAL DAY TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL HOUR; INTERVAL DAY TO HOUR to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL MINUTE; INTERVAL DAY TO MINUTE to INTERVAL DAY; INTERVAL DAY TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO MINUTE to INTERVAL MINUTE; INTERVAL DAY TO SECOND to INTERVAL DAY; INTERVAL DAY TO SECOND to INTERVAL DAY TO HOUR; INTERVAL DAY TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL HOUR; INTERVAL DAY TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL MINUTE; INTERVAL HOUR to INTERVAL DAY; INTERVAL HOUR to INTERVAL DAY TO HOUR; INTERVAL HOUR to INTERVAL DAY TO MINUTE; INTERVAL HOUR to INTERVAL HOUR TO MINUTE; INTERVAL HOUR to INTERVAL MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL DAY; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL HOUR; INTERVAL HOUR TO MINUTE to INTERVAL MINUTE; INTERVAL HOUR TO SECOND to INTERVAL DAY; INTERVAL HOUR TO SECOND to INTERVAL DAY TO HOUR; INTERVAL HOUR TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL HOUR; INTERVAL HOUR TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL MINUTE; INTERVAL MINUTE to INTERVAL DAY; INTERVAL MINUTE to INTERVAL DAY TO HOUR; INTERVAL MINUTE to INTERVAL DAY TO MINUTE; INTERVAL MINUTE to INTERVAL HOUR; INTERVAL MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL DAY; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO HOUR; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL HOUR; INTERVAL MINUTE TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL MINUTE; INTERVAL SECOND to INTERVAL DAY; INTERVAL SECOND to INTERVAL DAY TO HOUR; INTERVAL SECOND to INTERVAL DAY TO MINUTE; INTERVAL SECOND to INTERVAL HOUR; INTERVAL SECOND to INTERVAL HOUR TO MINUTE; INTERVAL SECOND to INTERVAL MINUTE
@@ -371,7 +373,7 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `bigint` | fused | fused | fused | fused | = | declined | declined | declined |  |  |  | declined | declined |
 | `float` | fused | declined | declined | declined | declined | = | fused | declined |  |  |  |  |  |
 | `double` | fused | declined | declined | declined | declined | fused | = | declined |  |  |  |  |  |
-| `dec` | declined | declined | declined | declined | declined | declined | declined | context |  |  |  | declined | declined |
+| `dec` | 1 of 2 | declined | declined | declined | 1 of 2 | declined | declined | context |  |  |  | declined | declined |
 | `date` |  |  |  |  |  |  |  |  | = | fused |  |  |  |
 | `ntz` |  |  |  |  |  |  |  |  | fused | = | fused |  |  |
 | `time` |  | declined | declined | declined | declined |  |  | declined |  | fused | 3 of 6 |  |  |
@@ -379,6 +381,8 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `dt` |  | declined | declined | declined | fused |  |  | declined |  |  |  |  | 36 of 90 |
 
 
+* `dec` to `bool` (test), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BOOLEAN
+* `dec` to `bigint` (truncation), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BIGINT
 * `time` to `time` (relabel or truncation), 3 of 6 forms; declined: TIME(3) to TIME(0); TIME(6) to TIME(0); TIME(6) to TIME(3)
 * `ym` to `int` (unit division), 2 of 3 forms; declined: INTERVAL YEAR TO MONTH to INT
 * `dt` to `dt` (relabel or unit narrowing), 36 of 90 forms; declined: INTERVAL DAY to INTERVAL DAY TO HOUR; INTERVAL DAY to INTERVAL DAY TO MINUTE; INTERVAL DAY to INTERVAL HOUR; INTERVAL DAY to INTERVAL HOUR TO MINUTE; INTERVAL DAY to INTERVAL MINUTE; INTERVAL DAY TO HOUR to INTERVAL DAY; INTERVAL DAY TO HOUR to INTERVAL DAY TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL HOUR; INTERVAL DAY TO HOUR to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL MINUTE; INTERVAL DAY TO MINUTE to INTERVAL DAY; INTERVAL DAY TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO MINUTE to INTERVAL MINUTE; INTERVAL DAY TO SECOND to INTERVAL DAY; INTERVAL DAY TO SECOND to INTERVAL DAY TO HOUR; INTERVAL DAY TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL HOUR; INTERVAL DAY TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL MINUTE; INTERVAL HOUR to INTERVAL DAY; INTERVAL HOUR to INTERVAL DAY TO HOUR; INTERVAL HOUR to INTERVAL DAY TO MINUTE; INTERVAL HOUR to INTERVAL HOUR TO MINUTE; INTERVAL HOUR to INTERVAL MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL DAY; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL HOUR; INTERVAL HOUR TO MINUTE to INTERVAL MINUTE; INTERVAL HOUR TO SECOND to INTERVAL DAY; INTERVAL HOUR TO SECOND to INTERVAL DAY TO HOUR; INTERVAL HOUR TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL HOUR; INTERVAL HOUR TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL MINUTE; INTERVAL MINUTE to INTERVAL DAY; INTERVAL MINUTE to INTERVAL DAY TO HOUR; INTERVAL MINUTE to INTERVAL DAY TO MINUTE; INTERVAL MINUTE to INTERVAL HOUR; INTERVAL MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL DAY; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO HOUR; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL HOUR; INTERVAL MINUTE TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL MINUTE; INTERVAL SECOND to INTERVAL DAY; INTERVAL SECOND to INTERVAL DAY TO HOUR; INTERVAL SECOND to INTERVAL DAY TO MINUTE; INTERVAL SECOND to INTERVAL HOUR; INTERVAL SECOND to INTERVAL HOUR TO MINUTE; INTERVAL SECOND to INTERVAL MINUTE
@@ -398,7 +402,7 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `bigint` | fused | fused | fused | fused | = | declined | declined | declined |  |  |  | declined | declined |
 | `float` | fused | declined | declined | declined | declined | = | fused | declined |  |  |  |  |  |
 | `double` | fused | declined | declined | declined | declined | fused | = | declined |  |  |  |  |  |
-| `dec` | declined | declined | declined | declined | declined | declined | declined | declined |  |  |  | declined | declined |
+| `dec` | 1 of 2 | declined | declined | declined | 1 of 2 | declined | declined | declined |  |  |  | declined | declined |
 | `date` |  |  |  |  |  |  |  |  | = | fused |  |  |  |
 | `ntz` |  |  |  |  |  |  |  |  | fused | = | fused |  |  |
 | `time` |  | declined | declined | declined | declined |  |  | declined |  | fused | 3 of 6 |  |  |
@@ -406,6 +410,8 @@ One matrix per evaluation mode, rows the source type and columns the target, eac
 | `dt` |  | declined | declined | declined | fused |  |  | declined |  |  |  |  | 36 of 90 |
 
 
+* `dec` to `bool` (test), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BOOLEAN
+* `dec` to `bigint` (truncation), 1 of 2 forms; declined: DECIMAL precision 19 to 38 to BIGINT
 * `time` to `time` (relabel or truncation), 3 of 6 forms; declined: TIME(3) to TIME(0); TIME(6) to TIME(0); TIME(6) to TIME(3)
 * `ym` to `int` (unit division), 2 of 3 forms; declined: INTERVAL YEAR TO MONTH to INT
 * `dt` to `dt` (relabel or unit narrowing), 36 of 90 forms; declined: INTERVAL DAY to INTERVAL DAY TO HOUR; INTERVAL DAY to INTERVAL DAY TO MINUTE; INTERVAL DAY to INTERVAL HOUR; INTERVAL DAY to INTERVAL HOUR TO MINUTE; INTERVAL DAY to INTERVAL MINUTE; INTERVAL DAY TO HOUR to INTERVAL DAY; INTERVAL DAY TO HOUR to INTERVAL DAY TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL HOUR; INTERVAL DAY TO HOUR to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO HOUR to INTERVAL MINUTE; INTERVAL DAY TO MINUTE to INTERVAL DAY; INTERVAL DAY TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR; INTERVAL DAY TO MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO MINUTE to INTERVAL MINUTE; INTERVAL DAY TO SECOND to INTERVAL DAY; INTERVAL DAY TO SECOND to INTERVAL DAY TO HOUR; INTERVAL DAY TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL HOUR; INTERVAL DAY TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL DAY TO SECOND to INTERVAL MINUTE; INTERVAL HOUR to INTERVAL DAY; INTERVAL HOUR to INTERVAL DAY TO HOUR; INTERVAL HOUR to INTERVAL DAY TO MINUTE; INTERVAL HOUR to INTERVAL HOUR TO MINUTE; INTERVAL HOUR to INTERVAL MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL DAY; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO HOUR; INTERVAL HOUR TO MINUTE to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO MINUTE to INTERVAL HOUR; INTERVAL HOUR TO MINUTE to INTERVAL MINUTE; INTERVAL HOUR TO SECOND to INTERVAL DAY; INTERVAL HOUR TO SECOND to INTERVAL DAY TO HOUR; INTERVAL HOUR TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL HOUR; INTERVAL HOUR TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL HOUR TO SECOND to INTERVAL MINUTE; INTERVAL MINUTE to INTERVAL DAY; INTERVAL MINUTE to INTERVAL DAY TO HOUR; INTERVAL MINUTE to INTERVAL DAY TO MINUTE; INTERVAL MINUTE to INTERVAL HOUR; INTERVAL MINUTE to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL DAY; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO HOUR; INTERVAL MINUTE TO SECOND to INTERVAL DAY TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL HOUR; INTERVAL MINUTE TO SECOND to INTERVAL HOUR TO MINUTE; INTERVAL MINUTE TO SECOND to INTERVAL MINUTE; INTERVAL SECOND to INTERVAL DAY; INTERVAL SECOND to INTERVAL DAY TO HOUR; INTERVAL SECOND to INTERVAL DAY TO MINUTE; INTERVAL SECOND to INTERVAL HOUR; INTERVAL SECOND to INTERVAL HOUR TO MINUTE; INTERVAL SECOND to INTERVAL MINUTE
@@ -1557,6 +1563,26 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `abs(d18)` | none |  | a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `try_subtract(d9, d9s4)` | none |  | DECIMAL(12, 4), row 349's difference stored by the same path: no difference within 18 digits overflows, so TRY's null never fires | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 
+#### Decimal casts
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CAST(d9 AS BIGINT)` | `decimalCast` |  | the unscaled long divided by 10^2, truncating toward zero as Decimal.toLong does, one constant division | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(d16s9 AS BIGINT)` | `decimalCast` |  | at sixteen digits the magnitude is shifted right by 9 and divided by 5^9, and the sign put back | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(d18 AS BIGINT)` | `decimalCast` | `abs(d18) * 100 < 18014398509481984` | at (18, 2) the magnitude is guarded below 2^54 before its shift, past which the row engine divides | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(-d9 AS BIGINT)` | `decimalCast` |  | the cast of a computed value, the negation's unscaled long divided as a column's is | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)` | `decimalCast` | `abs(d18) < 10000000000` | the precision check alone, which declines under ANSI the batch Spark raises on and nulls the lane under the legacy mode and TRY, then the truncation | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+| `CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)` | `decimalCast` | `abs(d9) < 100000` | a rescale up guarded before its multiply: the target's precision check moved onto the operand, so the multiply never wraps | not emitted: a decimal cast on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal load, the division's sign and the guards would run the Vector API's Java fallback |
+
+#### Decimal cast predicates
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CAST(d9 AS BOOLEAN)` | `decimalCast` |  | the unscaled value against zero, which cannot fail | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(d18 AS BOOLEAN)` | `decimalCast` |  | the eighteen-digit twin: the unscaled long against zero, no division | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(d9s4 AS DECIMAL(9, 2)) < d9` | `predicate`, `decimalCast` |  | a rescale down by two digits, rounding half up: the half added with the value's sign, then one constant division; seven integral digits always fit, so no check | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(d16s9 AS DECIMAL(10, 2)) > d9` | `predicate`, `decimalCast` |  | a rescale down by seven digits at sixteen: the half added to the magnitude, shifted by 7 and divided by 5^7, the sign put back | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+
 #### Time arithmetic
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -1605,7 +1631,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 39 | 0 | 0 | 0 | 13 | 0 | 26 |
 | `byte` | 57 | 0 | 0 | 0 | 0 | 8 | 49 |
 | `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
-| `dec` | 95 | 1 | 50 | 14 | 0 | 0 | 30 |
+| `dec` | 105 | 1 | 50 | 14 | 0 | 0 | 40 |
 | `double` | 108 | 0 | 0 | 1 | 0 | 0 | 107 |
 | `dt` | 39 | 2 | 0 | 7 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
@@ -2487,6 +2513,7 @@ coverage table, and regenerated by the same command:
 | `spark.sql.codegen.varka.family.floatingArithmetic.enabled` | `true` | The floating arithmetic family: +, -, *, unary minus and abs over double and float operands, and /, try_divide, sqrt, signum, degrees and radians over double ones, signum over year-month and day-time intervals too, a zero divisor null under LEGACY and TRY and raised by the row engine under ANSI, and the canonicalisation of a double or float key (NormalizeNaNAndZero: -0.0 to 0.0, every NaN to the canonical NaN). |
 | `spark.sql.codegen.varka.family.floatingCast.enabled` | `true` | The floating casts family: the casts to float from tinyint, smallint, int, bigint and boolean, to double from tinyint, smallint, int, bigint and boolean, and between float and double; bigint to either at the default emit level, and the casts from a floating type to an integral one, are left to the row engine: a session naming a level fuses the bigint ones (level 3 in one instruction, below it by exact AVX2 forms), as does one asking for the host's on a CPU whose features are read: aarch64, or x86 with AVX512DQ or a long species of 256 bits or more. |
 | `spark.sql.codegen.varka.family.integralCast.enabled` | `true` | The integral cast family: the casts among tinyint, smallint, int, bigint and boolean that the int arithmetic family does not hold: the narrowings to tinyint and smallint (wrapping, or checked under ANSI), a tinyint or smallint widened to smallint or bigint, a number cast to boolean and a boolean cast to a number. |
+| `spark.sql.codegen.varka.family.decimalCast.enabled` | `true` | The decimal cast family: the casts of a decimal of precision 18 or less to bigint and boolean, and into such a decimal from another, rounding half up where the scale drops (checked under ANSI, null on overflow under LEGACY and TRY); the casts to tinyint, smallint and int are claimed and decline, naming row 350's next part; the widening rescale between two decimals that type coercion puts under a comparison is not the family's. |
 | `spark.sql.codegen.varka.family.rounding.enabled` | `true` | The rounding family: rint over a double; floor, ceil and ceiling over bigint and int operands; and round, bround and truncate over tinyint, smallint and int at a constant scale, and over bigint at a scale of zero or more. |
 | `spark.sql.codegen.varka.family.math.enabled` | `true` | The math family: the math functions over double operands (sin, cos, tan, asin, acos, atan, atan2, sec, csc, cot, sinh, cosh, tanh, asinh, acosh, atanh, exp, expm1, ln, log, log10, log1p, log2, pow, hypot and cbrt), each bit for bit Spark's unless spark.sql.codegen.varka.math.ulpContract.enabled is true; none fuses yet, and each declines naming the row of the plan that fuses it. |
 <!-- END generated family switches -->

@@ -146,8 +146,25 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // The one section null on most rows by design; named once, so a reworded title fails here.
       val mostlyNullTitle = "try_cast(x AS SMALLINT), past the range on most rows"
       assert(sections.count(_.title.contains(mostlyNullTitle)) === 2)
-      val castSections = sections.drop(126)
-      assert(castSections.forall(_.fusion == VarkaSqlBenchmarkBase.Fusion.NONE))
+      // The cast sections of row 350: the casts to BIGINT, the casts between decimals
+      // (a decimal output, written by the decimal store, 348b) and the BOOLEAN filter fuse whole
+      // where the session takes a 64-bit kernel's masks, the rest stay on the row path.
+      for (declines <- Seq(false, true)) {
+        val casts = VarkaDecimalBaselineBenchmark.sections(declines).asScala.drop(126)
+        // The BIGINT column's CAST(l AS DECIMAL(18, 2)) runs on the row path (no BIGINT into a
+        // decimal fuses yet), so the titles name the decimal column x.
+        val fused = Seq(" AS BIGINT)", "filter CAST(x AS BOOLEAN)",
+          "CAST(x AS DECIMAL(9, 0))", "CAST(x AS DECIMAL(18, 2))")
+        for (s <- casts) {
+          val expected =
+            if (!declines && fused.exists(t => s.title.contains(t))) {
+              VarkaSqlBenchmarkBase.Fusion.WHOLE
+            } else {
+              VarkaSqlBenchmarkBase.Fusion.NONE
+            }
+          assert(s.fusion === expected, s.title)
+        }
+      }
       var types = Seq.empty[DataType]
       for (s <- sections) {
         withSettings(s)(types :+= spark.sql(s.query).schema.head.dataType)
