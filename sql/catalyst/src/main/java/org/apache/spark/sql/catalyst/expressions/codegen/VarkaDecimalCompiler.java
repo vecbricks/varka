@@ -113,7 +113,8 @@ import org.apache.spark.sql.types.DecimalType;
  * <p>A comparison or a null test of a type wider than 18 digits, up to 38, reads each value as a
  * {@link Pair} of words instead (VARKA-359): a column's two {@code DecimalWord} leaves, a
  * literal's two slots, or a value within 18 digits and its sign extension, and compares the
- * words ({@code DecimalWords.compare}).
+ * words ({@code DecimalWords.compare}). An output of such a type is its {@link Pair}, stored by
+ * an {@code InterleaveDecimal} root.
  *
  * <p>What declines, each naming its row: any other form of a type wider than 18 digits (row 359,
  * and row 360 where a rescale is needed); a sum or difference past 18 digits (row 360, and 363
@@ -123,8 +124,10 @@ import org.apache.spark.sql.types.DecimalType;
  * under its family's switch (VARKA-350); one from an integral type or {@code BOOLEAN} declines
  * naming row 350.
  *
- * <p>A decimal-valued output root is any {@link #value}, compiled by {@link #output}, which the
- * projection's root binding calls, and admitted by {@link #outputRoot}.
+ * <p>A decimal-valued output root is compiled by {@link #output}, which the projection's root
+ * binding calls: within 18 digits any {@link #value}, admitted by {@link #outputRoot}, which
+ * throws for a wider type; above 18 digits the value's {@link Pair} under an
+ * {@code InterleaveDecimal} root.
  */
 final class VarkaDecimalCompiler {
 

@@ -359,7 +359,11 @@ public final class VarkaKernelPlan {
    * to fuse. A decimal output of the lane pair ({@link VarkaVectorIR.InterleaveDecimal}) is
    * refused there too, by the same mechanism and before any measurement: its store is the two
    * two-vector rearranges the load's split is, and its words read a decimal column's slots in
-   * every form but a constant's (`m8/VARKA-359.md` 10.7).
+   * every form but a constant's (`m8/VARKA-359.md` 10.7). A {@link VarkaVectorIR.WidenDecimal}
+   * store, which interleaves in the same way, is not refused by itself: no measurement shows
+   * that store losing, and this refusal follows the measured losses. The pair's case is the
+   * load's: outside a constant its words come from a column's slots, whose load row 596 measured
+   * at 0.8X of the row path.
    *
    * <p>A check on the long lane is not refused here: the compiler declines the families whose
    * checked forms were measured slower than the row path at two lanes, a checked {@code BIGINT}

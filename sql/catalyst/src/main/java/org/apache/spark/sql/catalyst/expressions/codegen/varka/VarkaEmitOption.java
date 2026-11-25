@@ -605,9 +605,10 @@ public sealed interface VarkaEmitOption
           new FlagTag("dropDecimalBound", true)),
       // A machine choice: which of the decimal store's two interleaves is native depends on the
       // host (`VARKA-157.md` 2.2), so the losing arm stays behind the option. Its tag keeps the
-      // default's rendering empty. Only a decimal output's store reads it: a WidenDecimal root's,
-      // which readOnlyBy names, and an InterleaveDecimal root's, which it cannot name beside it
-      // (one class), so the matrix's reach misses the pair's stores (VARKA-359.md 10.7).
+      // default's rendering empty. Only a decimal output's store reads it: a WidenDecimal root's
+      // and an InterleaveDecimal root's. readOnlyBy names one class, WidenDecimal, so the
+      // steering (VarkaSteering.mutable) does not draw it for a shape with only a pair's store;
+      // the option matrix still runs decimalStore=SELECT_FROM over it (VARKA-359.md 10.7).
       new Choice<>("decimalStore", Reason.MACHINE, DecimalStore.class, DecimalStore.REARRANGE,
           VarkaEmitOptions::decimalStore, Builder::decimalStore,
           new ChoiceTag("decimalStore="), Optional.of(WidenDecimal.class)),
