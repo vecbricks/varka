@@ -20,6 +20,9 @@ These add to `sql/varka/AGENTS.md`. The tools are listed in `INDEX.md` and the f
   the options the branch's diff names, and skips the sweep after a merge-only change
   (`README.md`). Widen it with `PRE_PR_SWEEP=all` or `PRE_PR_FULL=1`; never narrow it by hand.
   `PRE_PR_DRY=1` shows what a gate would do.
+- **The tree-equal path is for a rehearsed tree.** Pass `PRE_PR_TREE_EQUAL=<sha>` only for a
+  stacked branch whose rehearsed merge `<sha>` passed the full gate in this worktree; the gate
+  checks the tree, the stamp and `origin/master` itself, and runs in full on any mismatch.
 - **The regen skip is mechanical.** It applies only when every changed file is tooling, CI,
   plans, benchmarks or prose (`README.md`); do not skip a regeneration by hand.
 - **Kill only recorded PIDs.** Never `pkill` or `killall`; `start-waiter.sh` keeps the pid.

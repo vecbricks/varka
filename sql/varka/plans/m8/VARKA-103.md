@@ -53,6 +53,16 @@ LEGACY, ANSI and TRY collapse to one kernel per form, and TRY is item 12 (the ca
    truncated quotient moved one step away from zero when `2|r| >= |k|`); floating
    `roundToLong(micros / (double) k, HALF_UP)` (`:874`); decimal `Decimal./`, to 39 fractional
    digits `DOWN`, then `HALF_UP` to scale 0 (`:870-872`; `Decimal.scala:526-533`).
+   *25 November 2026:* the two classes are one on master since the apache/spark sync #1427 (9
+   November 2026), which brought SPARK-60746 (apache/spark#59956, upstream `ed83bbf762f`), and the
+   lines cited above (`intervalExpressions.scala:733-745`, `:889-893`) are those of the code
+   before it. Both paths now call the day-time long overload of `IntervalMathUtils.divide`
+   (`util/IntervalMathUtils.scala:83-89`; the year-month overloads at `:55-81`, the day-time
+   decimal and double ones at `:92-108`), which raises
+   `INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION` with the query context on `Long.MIN_VALUE / -1`
+   (`VARKA-414.md` 9). What `dt / -1` waits on now is the context itself: a declined batch's
+   fallback raises it without the `== SQL ==` block until a sync brings SPARK-61352 (item 8's
+   note).
 5. **The extracts** (`intervalExpressions.scala:100-123`, parsed at `:139-158`, the unit admitted
    only inside the type's start and end fields) call `IntervalUtils` (`util/IntervalUtils.scala:
    47-68`): `getDays = (int) (x / D)`, `getHours = (byte) ((x % D) / H)`, `getMinutes = (byte)
@@ -596,6 +606,73 @@ Predictions, registered before the build:
    arithmetic, `dt * k` and `k * dt`, `extract(DAY FROM dt)` with the planted fault, the day-time
    rows of `dt_arith.smt2` and `long_divide.smt2`, the coverage family's day-time rows, the fuzz
    grammar's day-time productions and the generated files.
+   *12 November 2026, 103a2 built* (`varka-103a2-dt-div`, stacked on 103a1): 2.4's day split
+   and the decimal literal forms. `VarkaNodeCompiler.halfUpDivLong(x, k)` is
+   `LongMath.divide(x, k, HALF_UP)` for a `k` dividing `D` (`dividesDay`): `floorDivLong`'s
+   quotient `qF` and remainder `rF` in `[0, D)`, then `qF * (D / m) + (rF + b) / m` with
+   `m = |k|` and `b = m >> 1`, less one for a negative `x` and an even `m`, negated for `k < 0`;
+   a power of two divides by a shift (cvc5 answers `unknown` on `long_divide.smt2`'s magic form
+   at the divisor 2 inside the lint's limit, so no `ConstDivide` by a power of two is built). A
+   departure from 2.4's form: the step after a truncated quotient by `k` (compare, negate,
+   blend, compare, blend, add) put the chain at 18 nodes, past the emitter's `MAX_CHAIN_DEPTH`
+   of 16, so every form declined "exceeds the emitter's fused budget"; a bias on the remainder
+   of the day's floor rounds the same way (`floor((x + b) / m)` is `HALF_UP`), cannot overflow
+   there, and gives 10 nodes, 13 with a decimal's guard, multiply and negation, so the coverage
+   harness's CASE arm and filter comparison still fit (a first build biased `truncDivLong`'s
+   remainder, 13 nodes, and those two positions declined). It has no `ceil(|k| / 2)` constant,
+   so 3.7's second planted fault has no site here; it stays 103d's, over row 30's forms. In its
+   place for this form, `VarkaIntervalFault.HALF_UP_BIAS_UNSIGNED` gives a negative `x` the
+   non-negative bias at an even divisor: a `sat` witness in `dt_arith.smt2`, and it fails the
+   emitter suite's `-3 / 2` cell while the rest pass.
+   The even bias is `(x >> 63) + (m >> 1)`, not a blend on the sign: a first build blended,
+   and under an untaken CASE arm and a later COALESCE argument `dt * 1.5` then declined the
+   coverage harness's batch where `dt * 3` and `dt / 1.5` were served. The blend's sign compare
+   is an `IfElse` condition, which the emitter computes on every lane, so `Analysis`'s arm walk
+   leaves everything under it unqualified, the product's guard included, and that guard
+   condemned the batch from the extremes row's lane the arm does not take. The shift form has
+   no condition, so the guard is qualified by the arm. No fuzz production is added:
+   the quotients never raise, but the products raise a bare `ArithmeticException`, as
+   `dt * k`'s do.
+   `DivideDTInterval` by an integral literal: `0` declines, `1` is the operand, `-1` declines
+   naming 414, another divisor of `D` is the split, the rest (`Long.MIN_VALUE` among them)
+   declines naming row 30. A decimal literal `u / 10^s` (unscaled value within a long, scale
+   0 to 18) is `HALF_UP(x * n / d)` with `n / d` the product's `u / 10^s` or the quotient's
+   `10^s / u` in lowest terms (`dayTimeFraction`): `d = 1` is the integral product and its exact
+   guard, any other `d` must divide `D` (else row 30), and the operand is guarded to
+   `dayTimeProductBounds(|n|)` before the wrapping multiply and the split by `d`. Departures
+   from 2.4, decided here: (1) the fraction is reduced, as 2.7 does for the casts, so `dt * 1.0`
+   is the operand and `dt * 2.0` the exact product rather than a guard on `x * 10` (2.4 and 3.3
+   say `MAX * 1.0` declines; it now fuses, with Spark's answer), and `dt / 2.0` needs no guard;
+   (2) a decimal divisor under one in magnitude, and `-1.0`, decline naming 414 as `k = -1`
+   does: its quotient can leave the long, and the raise from a declined batch's fallback loses
+   the `== SQL ==` block (`VARKA-414.md` 9), while every other divisor gives a quotient no
+   larger than the operand. Tests: `dt_arith.smt2` proves the split `HALF_UP` per divisor of
+   `DT_DIVISORS` (twelve, both signs, `D` itself) over every long with the biased remainder in
+   `[0, 2D)`, the bias one off either way and the missing negation refuted, and per literal of
+   `DT_FRACTIONS` (ten) Spark's `HALF_UP` on the literal's own digits under the guard;
+   `long_divide.smt2` gains the coverage rows' second divisors 24 and 3, without the conversion
+   bound past `2^53`, which is not theirs; `dt_arith.smt2` moves to the logic `ALL`, under which
+   cvc5 proves it in about 2 s where `QF_NIA` left four checks `unknown`; the emitter suite
+   holds ten divisors and fifteen decimal literals to Spark's `eval` over the 3.3 cells, values
+   about the multiples and drawn longs, and Spark's generated projection to its interpreted one
+   on each; `VarkaDayTimeArithmeticSuite` runs
+   the cells against the row engine with whole-stage code on and with it off and the
+   interpreted projections, `MAX * 1.5` raising `longValueExact`'s bare `ArithmeticException`
+   from the row engine; rows `dt / 24`, `dt * 1.5` and `dt / 1.5`; the baseline's `dt * 1.5` and
+   `dt / 24` `WHOLE`; the harness's ANSI form takes that `Overflow` from an expression too.
+   *20 November 2026, 103a2 re-cut onto master and split in two by the size cap*: 103a1 merged
+   as #1534 (`3e4514fcfed`) after the 14 November split, so 103a2's three commits no longer had
+   a parent to stack on, and with the two pieces that split moved here 103a2 counted 1166 lines
+   against master, over the 1000-line cap. **103a2** (`varka-103a2-recut`, cut from master) is
+   this part's own work: the day split, the decimal literal forms and the shift bias. **103a3**
+   (`varka-103a3-ym-times`, stacked on 103a2 and opening after it) holds the moved pieces:
+   `ym * k` for an integral literal, with its int-lane rows of `dt_arith.smt2`, the `ym * 3`
+   coverage row, the emitter suite's test, the census note, the expected-errors line's int
+   overflow and the harness's int-overflow naming; and the product case of the `d - dt` cell
+   over a stored `INTERVAL DAY`. The split review's fixes that #1534 merged stay as merged: the
+   ANSI form's first bare-exception row is still `dt * 3`, the expected-errors row leaves out
+   the day-time product the Spark-level fuzzer cannot reach, and `dt_arith.smt2` still renders
+   the symmetric-bound refutation for `Long.MIN_VALUE`.
 3. **103b, after 332b and 157 and 347**: `HOUR`, `MINUTE`, `SECOND`, `make_dt_interval` (the
    seconds of both, section 8, point 3), the third planted fault, and the measurement against the
    baseline at both widths.
@@ -684,6 +761,15 @@ None of the owner's. The lead settled the admission check's nine points on 30 Oc
    condition mismatch if the fallback and the oracle took different paths. That difference may be
    an upstream Spark defect, one input with an engine-dependent error class; the lead checks it on
    apache/master.
+   *25 November 2026:* the second fact was an upstream defect, and the first was refuted. The
+   class difference was filed and fixed as SPARK-60746, on master since #1427 (item 4's note).
+   `VARKA-414.md` 9 found that the fallback evaluates Spark's own `DivideYMInterval`, not the
+   negation, so `negateExact`'s null context is not the cause: the block is lost because the
+   fallback projection is compiled on the executor from a deserialized copy, whose `origin` is
+   empty. That defect is upstream's too, fixed as SPARK-61352 (apache/spark#60285, merged upstream
+   on 24 November 2026 as `8621489fe80`), which is not on master yet. Until the sync that brings it,
+   `dt / -1` and a decimal divisor under one in magnitude decline naming 414
+   (`VarkaIntervalCompiler.java`, `dayTimeDivide`).
 9. **The G1 edges** are the lead's to edit; what they should be is under the open points below.
 
 ### Open points for the lead

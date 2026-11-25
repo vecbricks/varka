@@ -217,6 +217,56 @@ Each takes row 489's status line forward; the row is Done at 489c's merge.
    it.* Every node added first is one more arm to move. Not mine: the order of m8's rows against
    its type work (row priority is the owner's, the new types first).
 
+## Decisions taken while the owner was away (20 November 2026)
+
+The owner was away for the morning of 20 November 2026, and the build ran in an
+implementation-first window: everything local, no pull request, no CI, tests written and only
+compiled, with one targeted run. Each decision below is the option the plan or `sql/varka/AGENTS.md`
+favours, and each can be reversed in review.
+
+1. **Question 1, per-record `props()`**, as recommended: the done-when asks that a new node touch
+   "its record and its lowering", which only the per-record method gives. The bodies are 495
+   lines over 56 records against the branch's 488 over 47, about nine lines a record, written
+   from master's arms and not from the branch's, whose weights, cost keys and positions master
+   has since changed (`IntArith`'s floating division, the long-lane `abs`, the floating orders,
+   `ConvertLane` from a long, `GuardedRange`'s `NULL` mode, the conditional positions of
+   `WidenLane` and `NarrowLane`).
+2. **Question 2, the row now**, as recommended: nine nodes arrived since the branch, and every
+   one added before 489b is one more arm to move.
+3. **`LongNarrowReader` moves into `VarkaNodeProps`** as a public nested enum, with its `takes`.
+   It was a private enum of `VarkaKernelPlan`, which a public record's component cannot name; a
+   package-private enum of `VarkaKernelPlan` would have been the other choice, but it would make
+   the descriptor's public accessor return a type no caller outside the package can see.
+   `LongNarrowRole` stays in `VarkaKernelPlan`: it is class (c), read from the child's lane, and
+   the descriptor does not hold it (3.3).
+4. **The equivalence suite moves to 489b**, the plan's own fallback in 8: 489a with the 56
+   bodies, the record and its suite is already near the cap, and the equivalence suite is needed
+   only from the first deletion on.
+5. **The drawn corpus is every grammar of `VarkaIrGrammar`**, eighteen of them taken in turn, not
+   the two the branch's suite drew: the decimal, floating, narrow-lane and cast grammars are
+   where master's new records are drawn. `VarkaNodePropsSuite.drawnShapes` and `nodesOf` are the
+   one corpus, and 489b's equivalence suite reads it. *Correction, 24 November 2026:* the suite
+   took 16 grammars, not 18; the review found the floating-arithmetic and canonical grammars
+   missing, and they now join at both floating lanes.
+6. **The cost kind is built with `getClass().getSimpleName()`**, the expression `kindOf` uses,
+   rather than a literal record name, so the key cannot drift from the class's name.
+7. **`planWordRef` and `propagate` were not compared directly** with the descriptor, though 3.2
+   names both: `planWordRef` runs only inside `Slots.plan`, whose arguments a test would have to
+   rebuild from a body plan, and `propagate` only from the liveness queue. Both are folds of the
+   same rule as `ownerOf` (the old arms' own comments said "case for case"), which the suite did
+   compare, and the emitter suites exercise both; their direct check is owed to CI's run of
+   those suites.
+8. **Master moved under the branch during the window**: `6821ea3318b` (#1566, VARKA-337) added a
+   57th record, `CanonicalFloat`, with arms in every switch this row removes. The branches are
+   left on `6ac76f86cb3` and not rebased in the window, since a rebase needs a compile behind the
+   shared lock that the window could not promise. The rebase is the migration recipe below:
+   delete its arms, and give it `props()` of `NEVER`, `STRICT`, weight 3, cost kind
+   `CanonicalFloat/<lane>` (`getClass().getSimpleName() + '/' + laneType()`), `FILLS_NOTHING`,
+   `RESTRICTS_NOTHING` and `LongNarrowReader.NONE`, which is what its master arms say.
+9. **Prediction 2's calibration row is owed**: the two suite times were read from one laptop run
+   beside other agents' JVMs, and `dev/varka_calibration.py --add-row` wants the run's estimate
+   and ratio, which a CI run should give.
+
 ## Done when
 
 The switches of 3.2 read the descriptor, a new node touches its record and its lowering rather
@@ -225,5 +275,195 @@ than about twenty files (6.1 prediction 4), and `emitted_bytes.json`, `coverage.
 
 ## 9. Outcome
 
-Not built on master yet. The 27 October build's outcome is section 4 of the plan file on
-`attic/varka-489-descriptor`.
+The 27 October build's outcome is section 4 of the plan file on `attic/varka-489-descriptor`.
+
+**489a, 20 November 2026** (branch `varka-489-node-descriptor`, over `6ac76f86cb3`). Built as 8
+plans it, less the equivalence suite (decision 4): `VarkaNodeProps` with its seven components,
+`LongNarrowReader` moved into it from `VarkaKernelPlan`, `props()` on all 56 records with no
+default on the interface, and `VarkaNodePropsSuite` over a corpus of all eighteen grammars. No
+pass reads the descriptor yet, so no emitted byte can change, and the byte oracles and the
+fusion dump are owed with 489b, where they first can move.
+
+- **Where the plan was wrong:** it counted the per-record bodies at about 600 lines for 56
+  records, from the branch's 488 for 47; written from master's arms they are 495, because a
+  record states one constructor call of seven arguments and keeps its arm's comment, while the
+  branch had a line per argument.
+- **Measured:** `build/sbt catalyst/Test/compile` passes. The suite's time (prediction 2) is not
+  measured yet.
+
+**489b, 20 November 2026** (branch `varka-489b-switches`, stacked on 489a). Two commits, as 5
+asks. The first adds `VarkaNodePropsEquivalenceSuite` against every live switch, and widens
+`VarkaLoopEmitter.analyze`, `Analysis.isNarrowRing` and `VarkaKernelPlan.longNarrowReader` to
+package-private for it. Its corpus is every distinct node of 4000 shapes drawn from the eighteen
+grammars plus hand-built variants of every record over every lane, mode, operator, sign, level
+and guard bound the constructors admit; the word rules and the ring rule are compared inside a
+real analysis of each shape under both values of `checkIntOverflow`. One run
+(`build/sbt 'catalyst/testOnly *VarkaNodeProps*'`, on the laptop, in the window):
+
+- **97510 distinct nodes of all 56 record types** agree on `weightOf`, `kindOf`, `admits` for
+  every position, `restrictedOperands`, `inputOrdinal` and `longNarrowReader`; **7850 analyses**
+  (of 8000; 150 the analysis refuses, which the suite skips) agree on `isNarrowRing` for every
+  node and on the word owner and the pure word for **336564 entries**. The analysis half drew
+  its shapes only, and the record types it covered were not tallied; by a grep of
+  `VarkaIrGrammar` for constructors, the grammars never build `DecimalWord`, `BoundedDivide`,
+  `MathUnary`, `RoundToIntegral`, `CondConst`, `BoolCompare`, `CondIf`, `BoolNullSafeEq` or
+  `BoolOutput` (helpers may), so their word rules are unverified by this run and owed to the
+  emitter suites that build them. Prediction 1 holds: no
+  disagreement on any of the 56 types, so no `props()` needed a fix.
+- **Times:** the equivalence suite 8.6 s and `VarkaNodePropsSuite` 0.27 s, as JUnit reports
+  them. Prediction 2 holds for both (under 60 s and under 5 s).
+
+The second commit makes `weightOf`, `kindOf`, `admits`, `restrictedOperands`, `inputOrdinal` and
+`isNarrowRing` read the descriptor, inlines `longNarrowReader` at its one call site as
+`node.props().longNarrow()`, returns `isNarrowRing` to private, and deletes those switches'
+checks and the hand-built corpus from the equivalence suite, which keeps only the word rules for
+489c. Compiled; the byte oracles, the fusion dump (prediction 3) and the scoped suites are owed
+to CI, since a pass now reads the descriptor.
+
+(24 November 2026: a third commit applied that build's review, and the counts above are of the 56
+records then; the 61 after the rebase are under "Rebased onto master, 23 November 2026" below. The
+branch's own high review then moved `LiteralSlot`'s and the arithmetic's `fills` into exhaustive
+switches over the positions, `VarkaOperandPosition.LITERAL_FILLS` and `ARITH_FILLS`, so a new
+position is a compile error in those two sets again (elsewhere it is not, as before 489b), and made
+`isNarrowRing` read the mode its `Ring.Arith` states.)
+
+**489c, 20 November 2026** (branch `varka-489c-word-rules`, stacked on 489b). `Analysis.ownerOf`
+and `Analysis.pureOf` and `Slots.planWordRef` fold the node's `validity` over
+`VarkaVectorIR.childrenOf`, `andOwner` folds the operands' owners instead of taking two named
+ones, and `Slots.propagate` demands every operand that is not a condition. The equivalence suite
+is deleted: its word-rule checks passed over 336564 entries in 489b's run before any rule moved.
+`assertWordAlgebraAgrees` still compares the slot reference with the owner and the pure word on
+every emission, but the three now fold the same `validity`, so it can no longer catch a wrong
+`Validity`; that guard is now the emitter matrices' and the IR fuzzer's validity answers, owed
+to CI. `VarkaLoopEmitter.analyze` is private
+again. Compiled; the run of the emitter suites that exercises the folds is owed to CI.
+
+Prediction 4, checked by listing what a new record now touches, read from the code rather than
+from a new node: no line of `VarkaEmitBudget`, `VarkaEmitCost`, `VarkaOperandPosition` or
+`VarkaKernelPlan`'s long-lane reader, and no line of `ownerOf`, `pureOf`, `planWordRef` or
+`propagate`; its word rule is one `Validity`. It holds.
+
+### Adding a node, after 489c
+
+1. Write the record in `VarkaVectorIR` and add it to the `permits` list (or `Cond`'s or
+   `Chrono`'s).
+2. Implement `props()` in the record: its `Ring` (`NEVER` unless reduction modulo a narrow width
+   commutes with it; `PICK` for a blend; `Arith(mode)` for narrow ring arithmetic whose check the
+   options may drop), its `Validity` (`Input` for a leaf reading a column's word, `ALL_TRUE` for a
+   literal, `STRICT` where a null operand makes a null, `SKIPS_NULL` for an OR of the operands'
+   words, `OWN` for a word computed from values, `NO_WORD` for a condition, `Operand(index)` for
+   one operand's word aliased, as a hash step's seed), its weight in lane
+   operations with the comment that counts them, its cost feature (the record name and whatever
+   chooses its lowering), its restricted positions (`FILLS_NOTHING` and `RESTRICTS_NOTHING` unless
+   it is or has a day offset, month count, weekday or level), its `LongNarrowReader`, and
+   `intOverflowCheck`: true where its emission holds an int overflow check that
+   `checkIntOverflow` may drop, which `Analysis.readsCheckIntOverflow` returns. A narrow record
+   whose `Ring.Arith` can state `FAIL` or `NULL` states it; `VarkaNodePropsSuite` fails an
+   integral `Ring.Arith` record whose property differs from its mode.
+3. Add its arms to the switches the compiler then names: the structural ones in `VarkaVectorIR`
+   (`laneType`, `childrenOf`, `withChildren`, both canonical forms, the narrow walks),
+   `Analysis.collectRefusals` and `Analysis.analyze`, `Slots.visit`, the emission walk in
+   `VarkaVectorWalk`, `VarkaKernelPlan.longNarrowRole`, `VarkaRangeAnalysis`, and in the tests
+   `VarkaIrGrammar.boundsOf`, `VarkaReference` and `VarkaGuardSpecs`.
+4. Price its cost feature in `VarkaEmitCostTable` as `VarkaEmitCostSuite` says, and give the node
+   a row in `VarkaEmitterBudgetSuite`'s register.
+5. Give it the other per-node test fixtures. Each holds a sample or a reference walk of the node,
+   not a property of it, so `props()` cannot stand in for them: a draw in `VarkaIrGrammar` (read
+   by `VarkaWithChildrenSuite` and `VarkaIrFuzzSuite`) or an entry in those suites' undrawn and
+   unbuilt lists, an instance recipe in `VarkaLaneTypeSuite`, a round trip in
+   `VarkaReproductionSuite`, an encoding or a `REFUSED` entry in `VarkaSmtNodes` (for
+   `VarkaSmtNodesSuite`), and an arm in `VarkaRangeAnalysisSuite.admissible`. R1 of
+   `dev/varka_push_check.py` checks each of these and step 4's two as text for the record's name,
+   without a JVM and before the regen in `pre-pr.sh`, and runs every suite that enumerates node
+   types.
+
+A branch written before 489b or 489c rebases by deleting its arms from `weightOf`, `kindOf`,
+`admits`, `restrictedOperands`, `inputOrdinal`, `longNarrowReader`, `isNarrowRing`, `ownerOf`,
+`pureOf`, `planWordRef` and `propagate`, and moving each arm's answer into its record's `props()`;
+the compiler then names every record still missing one.
+
+**Rebased onto master, 23 November 2026** (`f3b97c0b503`). Master had added five records since
+the build, `ReinterpretLane`, `Fma`, `CanonicalFloat`, `CanonicalBits` and `HashStep`, each given
+its `props()` from master's switch arms. `HashStep`'s word is its seed's alone (a null word leaves
+the hash as it is), which none of the six validity kinds says, so a seventh, `Operand(index)`,
+aliases one operand's word; `ownerOf`, `pureOf`, `planWordRef` and `inputOrdinal` fold it in
+489b and 489c. The equivalence suite, with the five records added to its hand-built corpus, ran
+in a scratch tree at 489b's first commit: it first found `MathUnary`'s weight stale (master's
+per-lane calls weigh 16), then, fixed, **97536 distinct nodes of 61 record types** agreed, with
+**7850 analyses** and 336564 word entries. Master's options overload of `weightOf` (row 600's
+`L2F` forms) stays in `VarkaEmitBudget`, reading the descriptor for every other node.
+
+**Scope check, 23 November 2026.** Against the day's four failures from a new IR node: the stale
+`MathUnary` weight in 489a's own descriptor was drift between two copies, which 489b ends by
+deleting the switch (the equivalence suite caught it meanwhile, and after 489c the
+`VarkaEmitterBudgetSuite` register catches a wrongly stated weight). The registry suites that
+lacked `IntDivide` (30a1) and `InterleaveDecimal` (359b, 359c) hold per-node test fixtures, not
+node properties, so the descriptor cannot generate them; review caught them before any push, and
+`VarkaRangeAnalysisSuite`'s match the compiler, at a gate's regen. The row's scope stays as
+planned, three parts; the recipe for adding a node gains the test fixtures (step 5). Since #1687,
+R1 of `dev/varka_push_check.py` also reads `VarkaSmtNodes` and `VarkaRangeAnalysisSuite.admissible`
+and runs before the regen, so those two misses now fail in seconds. Because 489a merges master
+cleanly over a changed switch arm, every restack runs the equivalence suite and the budget and
+cost suites at 489b's tip before 489a's gate. The owner held the row on 23 November until the
+open pull requests merge, since it touches many files they touch.
+
+**Master merged again, 23 November 2026, late evening** (`c685d37b8eb`). Master's VARKA-611 had
+added a 62nd record, `GuardedProduct`, which merged into 489a without a textual conflict; its
+`props()` was written by hand from master's arms (ring `NEVER`, `STRICT`, weight
+`5 + 2 * XOR_SPLIT_CALLS`, the record name as its cost kind) and was not compared by the
+equivalence suite: its weight and kind checks went with 489b's second commit, and its corpus does
+not draw the node (the grammar draws it in a sequence of its own). 489b and 489c were restacked by
+merge, each keeping its own side in every switch master had given an arm. At 489b's tip
+`VarkaNodePropsEquivalenceSuite` (7850 analyses, 336564 word entries, unchanged),
+`VarkaNodePropsSuite`, `VarkaEmitterBudgetSuite` (whose register has a `GuardedProduct` row) and
+`VarkaEmitCostSuite` pass; at 489c's tip `catalyst/Test/compile` and `sql/Test/compile` pass and so do the last three.
+489c adds `drawGuardedProductShape` to `VarkaNodePropsSuite`'s corpus and raises its record floor
+to 62.
+
+**Master merged again, 24 November 2026** (`a55f82c2427`). Master's #1689 reverted VARKA-611, so
+`GuardedProduct` is gone. This corrects the paragraph above: 489a loses the node's `props()`, and
+489c drops `drawGuardedProductShape` and sets the record floor back to 61. 489a's review added the
+floating-arithmetic and canonical grammars to the corpus. 489b and 489c were restacked by merge,
+each keeping its own side in the switches the revert changed. At 489b's tip
+`VarkaNodePropsEquivalenceSuite` (7882 analyses, 282660 word entries: the corpus changed),
+`VarkaNodePropsSuite`, `VarkaEmitterBudgetSuite` and `VarkaEmitCostSuite` pass; at 489c's tip the
+last three pass. Owed for 489c: the emitter validity suites and the fuzzer on CI, which alone hold
+the validity of the records the equivalence suite's analysis half never drew.
+
+**Later on 24 November 2026.** 489c's review left a descriptor whose `Validity` does not fit its
+operands (`STRICT` with none, `Operand` over a condition) unchecked outside the drawn shapes; a
+record's constructor cannot check it, having no node. `VarkaNodePropsSuite.assertValidityShape`, the
+drawn shapes' check, now also runs over `VarkaLaneTypeSuite`'s instance of every record: the
+integral ones at INT and LONG where they build, the four floating ones at DOUBLE. This reaches the
+records no grammar draws. Its `Input` arm compares with `inputOrdinal`, which since 489b reads the
+same `Validity`, so a wrong input ordinal is held only by the emitter suites. The owed suites ran
+once at 489c's tip on the laptop, in one sbt JVM, and pass (636 tests; 34 cancelled, every one an
+opt-in sweep): `VarkaIrFuzzSuite`, `VarkaEmitterValiditySuite`, `VarkaEmitterNullSafeSuite`,
+`VarkaEmitterBoolSuite`, `VarkaEmitterHashSuite`, `VarkaEmitterFmaSuite`,
+`VarkaEmitterCanonicalFloatSuite`, `VarkaDecimalWordSuite`, `VarkaTwoLaneConditionSuite`,
+`VarkaEmitterDivisionSuite`, `VarkaEmitterRoundingSuite`, `VarkaEmitterFloatingArithSuite`,
+`VarkaEmitterFloatingCastSuite`, `VarkaEmitterMixedLaneSuite`, `VarkaSameAnswerContractSuite`,
+`VarkaConditionLiftSuite`, `VarkaExpressionCompilerSuite`, `VarkaVectorIRSharingSuite`,
+`VarkaWithChildrenSuite`, `VarkaReproductionSuite`, `VarkaEmitterChronoSuite`,
+`VarkaKernelPlanSuite`, with `VarkaNodePropsSuite`, `VarkaLaneTypeSuite`, `VarkaEmitterBudgetSuite`
+and `VarkaEmitCostSuite`. CI's option matrix is still owed.
+
+**Prediction 3, the evening of 24 November 2026.** `VarkaCoverageSuite`'s fusion dump
+(`VARKA_FUSION_DUMP`, 36379 lines) was taken on master at `6ec492b53cf` (489a merged), at 489b's
+head `4627ad60a4e` and at 489c's tree, one sbt JVM each on the laptop. The three agree byte for
+byte once each node's `hash=` field is masked, and that field alone differs. It is not stable
+from one JVM to the next: a second dump of `6ec492b53cf` prints other hashes and the same masked
+text, because `hashOf` reads the enum components' identity hashes. So no fusion decision moved
+in 489b or 489c, and the prediction holds. The byte oracles held at each gate: the regeneration
+of `emitted_bytes.json`, `coverage.json` and `width_audit.json` changed nothing.
+
+**The overflow check as a property, 24 November 2026** (branch `varka-489c-overflow-prop`).
+`Analysis.readsCheckIntOverflow`, an `instanceof` test of `IntArith` and `IntNeg`, now returns
+the new `VarkaNodeProps.intOverflowCheck`, which all 61 records state. `ring` cannot give it: an
+abs checks but is no ring node, and a floating division's `Ring.Arith(FAIL)` is its zero test.
+Before the switch a temporary check compared the two answers on 101569 nodes (5000 drawn shapes,
+and every `IntArith` and `IntNeg` the constructors admit; 6123 checked) and on
+`VarkaLaneTypeSuite`'s 94 instances: all agree. `assertOverflowCheckShape` stays: an integral
+`Ring.Arith` node states it exactly when its mode is not `WRAP`, a floating node never. After
+review `isNarrowRing` asks `checksIntOverflow`. Readers of `IntArith`'s own lowering stay
+(`Slots`, `VarkaKernelPlan.holdsCheckedNarrowMultiply`); a new record joins neither.

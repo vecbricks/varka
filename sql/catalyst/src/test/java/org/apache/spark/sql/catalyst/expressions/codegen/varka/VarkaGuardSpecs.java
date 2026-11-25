@@ -425,11 +425,6 @@ public final class VarkaGuardSpecs {
       BigInteger c = values.value(n.child());
       return c != null && outside(c.negate(), lane);
     }
-    if (node instanceof GuardedProduct n) {
-      BigInteger l = values.value(n.left());
-      BigInteger r = l == null ? null : values.value(n.right());
-      return r != null && outside(l.multiply(r), lane);
-    }
     return false;
   }
 
@@ -479,8 +474,8 @@ public final class VarkaGuardSpecs {
         }
         yield pair(g.lo(), g.hi());
       }
-      // The check reads the slots' high words, which a lane value does not carry: the slot table
-      // of VarkaDecimalLoadSuite is its oracle.
+      // The check reads the slots' high words, which a lane value does not carry: fires()
+      // answers it first, and the slot table of VarkaDecimalLoadSuite is its oracle.
       case DECIMAL_SLOT ->
           throw new IllegalArgumentException("no guard spec for a decimal slot on " + node);
     };
@@ -508,6 +503,12 @@ public final class VarkaGuardSpecs {
       boolean isLong, List<Shift> shifts) {
     if (reason == Analysis.Refusal.DIVIDE_BY_ZERO) {
       return zeroDivisor((IntArith) node, values);
+    }
+    if (reason == Analysis.Refusal.DECIMAL_SLOT) {
+      // A row's lane value is a decimal Spark holds, within its precision and so in a slot
+      // whose high word is its sign, which the check passes; a malformed slot, which a lane
+      // value cannot carry, is VarkaDecimalLoadSuite's.
+      return false;
     }
     BigInteger[] b = bound(node, reason, isLong, shifts);
     return switch (node) {
@@ -545,14 +546,6 @@ public final class VarkaGuardSpecs {
       }
       case GuardedDay n -> outside(values.value(n.days()), b);
       case GuardedRange n -> outside(values.value(n.child()), b);
-      // Not a bound but the kernel's own double test, which Java's doubles compute bit for bit
-      // as the lanes do: a row trips exactly where GuardedProduct.trips says, the rounding band
-      // below 2^62 included.
-      case GuardedProduct n -> {
-        BigInteger l = values.value(n.left());
-        BigInteger r = l == null ? null : values.value(n.right());
-        yield r != null && GuardedProduct.trips(l.longValue(), r.longValue());
-      }
       // No guard is placed on any other node; reaching one means the emitter placed a guard this
       // class does not know, which is the case to add.
       case ColumnRef _, DecimalColumn _, VarkaVectorIR.DecimalWord _, LiteralSlot _, DateDiff _,

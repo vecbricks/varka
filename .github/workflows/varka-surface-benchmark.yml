@@ -227,6 +227,33 @@ jobs:
         restore-keys: |
           varka-surface-
 
+    # The two Maven builds below read ~/.m2, which the cache above does not hold. These restore,
+    # and never save, the entries the Build's bench-driver job and the engine install save for the
+    # same poms (VARKA-639).
+    - name: Restore the bench drivers' local Maven repository
+      if: ${{ steps.jars.outputs.cache-hit != 'true' }}
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/.m2/repository
+        key: varka-bench-m2-${{ runner.os }}-${{ hashFiles('sql/varka/bench/pom.xml') }}
+        restore-keys: |
+          varka-bench-m2-${{ runner.os }}-
+    - name: Restore the engine's local Maven repository
+      if: ${{ steps.jars.outputs.cache-hit != 'true' }}
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/.m2/repository
+        key: varka-engine-m2-v1-${{ runner.os }}-build-${{ hashFiles('sql/varka/engine/pom.xml') }}
+        restore-keys: |
+          varka-engine-m2-v1-${{ runner.os }}-build-
+
+    - name: Add Google's mirror of Maven Central to the sbt launcher
+      if: ${{ steps.jars.outputs.cache-hit != 'true' }}
+      run: |
+        if [ -f sql/varka/ci/sbt-repositories ]; then
+          install -D -m 0644 sql/varka/ci/sbt-repositories ~/.sbt/repositories
+        fi
+
     - name: Build the fork, the driver jar and the engine jar
       if: ${{ steps.jars.outputs.cache-hit != 'true' }}
       run: |

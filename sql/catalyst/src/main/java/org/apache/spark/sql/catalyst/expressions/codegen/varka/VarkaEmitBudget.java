@@ -25,7 +25,6 @@ import java.util.TreeMap;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
  * What an emitted loop method may carry and what each node costs against it: the group budget
@@ -629,7 +628,7 @@ final class VarkaEmitBudget {
   /**
    * {@link VarkaVectorIR.ConstDivide}'s weight at the long lane: the fourteen lane operations
    * {@code emitMagicDivide} spends, the larger of the lane's two lowerings - the conversion form
-   * spends three. See the note at the call site in {@link #weightOf}.
+   * spends three. See the note in {@code ConstDivide.props()}.
    */
   static final int LONG_CONST_DIVIDE_WEIGHT = 14;
 
@@ -639,7 +638,7 @@ final class VarkaEmitBudget {
    * lowerings - the conversion through double lanes spends seven. Each int half widens,
    * multiplies, shifts and narrows, eight operations on {@code LongVector} and {@code Vector},
    * and an {@code or}, a shift and an {@code add} finish the quotient. A negative divisor adds a
-   * multiply by -1, which {@link #weightOf} counts on top.
+   * multiply by -1, which {@code ConstDivide.props()} counts on top.
    */
   static final int INT_CONST_DIVIDE_WEIGHT = 11;
 
@@ -672,10 +671,12 @@ final class VarkaEmitBudget {
    * is written as {@link #CHRONO_PREFIX_WEIGHT} plus a tail: {@code GroupOps} counts the prefix
    * once.
    *
-   * <p>Every node is named in the switch, so a node added to the IR has no weight until it is
-   * given one, rather than a default that would weigh a node emitting about sixteen ops as one
-   * (VARKA-254). {@code VarkaEmitterBudgetSuite}'s register holds each weight to its node's
-   * count.
+   * <p>Each record states its weight in its {@link VarkaVectorIR#props()}, beside the comment that
+   * derives it, and {@code props()} has no default, so a node added to the IR has no weight until
+   * it is given one, rather than a default that would weigh a node emitting about sixteen ops as
+   * one (VARKA-254). The one weight decided here is a long-to-float conversion's under the
+   * options' form, in the overload below. {@code VarkaEmitterBudgetSuite}'s register holds each
+   * weight to its node's count.
    *
    * <p>This is deliberately only about <i>grouping</i>: whether outputs share a loop method is
    * {@code groupOutputs}' question, and how many a kernel may fuse is the byte budget's, with
@@ -704,141 +705,7 @@ final class VarkaEmitBudget {
         case SCALAR -> VarkaConversionLowering.scalarCalls(SCALAR_WEIGHT_LANES);
       };
     }
-    return switch (node) {
-      // The leaves' loads and broadcasts are paid once per column and literal, not per node.
-      // A boolean column and a constant are leaves: a data word read and a constant, no lane call.
-      case ColumnRef _, LiteralSlot _, BoolColumn _, CondConst _ -> 0;
-      // Its broadcast zero; the all-clear word is a scalar store.
-      case NullValue _ -> 1;
-      // A column's load is paid as a leaf's, and the rest per node: the second of its two loads,
-      // the two shuffles that take the low and the high words, the sign shift and its compare,
-      // and the add and unsigned compare of the digit check. The OR that gathers the compares
-      // is a mask call, not a lane call.
-      case DecimalColumn _ -> 7;
-      // A 128-bit column's two words share one load a body, which the first visit of either
-      // emits whole: the second of its two loads, the two shuffles and the six compares of the
-      // digit check. Each word weighs the whole load, so that a body holding one word is never
-      // under-charged, and GroupOps takes it back from the second word of a column.
-      case VarkaVectorIR.DecimalWord _ -> DECIMAL_PAIR_LOAD_WEIGHT;
-      // The decimal store: the sign shift, the two interleaves and the second of its two stores;
-      // the first store is the one every value root pays.
-      case WidenDecimal _ -> 4;
-      // One lanewise op, plus the four the sign test costs where there is one. A wrapping narrow
-      // node is the op and, at the int lane where it reduces (Analysis.wrapAt), the shift pair:
-      // the larger form, as below, since the arm and the readers are not known here.
-      // A floating division: the divide, and under FAIL and NULL the zero test's compare.
-      case IntArith n when n.op() == VarkaVectorIR.IntOp.DIV ->
-          n.mode() == Overflow.WRAP ? 1 : 2;
-      case IntArith n -> n.mode() != Overflow.WRAP ? 5 : n.laneType().isNarrow() ? 3 : 1;
-      // The negation or abs, plus one compare where the mode checks, plus the shift pair a
-      // wrapping narrow one may reduce with. A long-lane abs, a decimal's, is the negation, a
-      // compare with zero and a blend: the larger of its two forms, as above, the lanewise ABS of
-      // `decimalAbsLanewise` being one call. A floating negation or abs is one lanewise call.
-      case IntNeg n -> n.mode() != Overflow.WRAP ? 2
-          : n.laneType().isNarrow()
-              || (n.abs() && n.laneType() == VarkaVectorIR.LaneType.LONG) ? 3 : 1;
-      // At a floating lane a compare is Spark's order built from IEEE compares and NaN tests,
-      // and a pick is that compare and its blend: about five lane calls each. An IEEE compare
-      // is the one call, as at an integral lane.
-      case Compare n when n.left().laneType().isFloating() && !n.op().isIeee() ->
-          FLOATING_ORDER_WEIGHT;
-      case NullSafeEqual n when n.left().laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
-      case Greatest n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
-      case Least n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
-      // A long converted to a floating lane: one convertShape at level 3, and below it the AVX2
-      // form, the larger, whose calls the weight counts as the long division's does: which one
-      // emits cannot be asked here. For L2D that is the largest of its forms, 343b1's split; for
-      // L2F the rounding to odd, the default; the options' form is weighed by the overload.
-      case ConvertLane n when n.child().laneType() == VarkaVectorIR.LaneType.LONG ->
-          n.target() == VarkaVectorIR.LaneType.FLOAT
-              ? VarkaConversionLowering.ODD_CALLS : VarkaConversionLowering.SPLIT_CALLS;
-      // One lanewise op each: the add or subtract, the min or max, the blend (its condition is a
-      // node of its own), the narrowing conversion, the compare (an unsigned one too: it is the
-      // lane's own compare operator, intrinsic at more than two long lanes, VARKA-376 9).
-      case AddDays _, SubDays _, DateDiff _, Greatest _, Least _, WidenLane _,
-          NarrowLane _, ConvertLane _, ReinterpretLane _, Compare _, NullSafeEqual _ -> 1;
-      // The blend, plus the shift pair a narrow pick may reduce with at the int lane.
-      case IfElse n -> n.laneType().isNarrow() ? 3 : 1;
-      // The broadcast 0 and the add of 1 under the known-true mask; its validity, the OR of the
-      // two known words, is scalar.
-      case CondValue _ -> 2;
-      // Its writes are the mask's toLong in the dense body (kt, a scalar, in the masked one) and
-      // two bitmap stores, none a lane call; 1 is the connectives' floor, so that it is never
-      // free to join a group.
-      case BoolOutput _ -> 1;
-      // The connectives emit only mask calls, which no weight counts; 1 is a floor, so that a
-      // connective is never free to join any group.
-      case And _, Or _, Not _, CrossLane _, IsNotNull _, BoolCompare _, BoolNullSafeEq _,
-          CondIf _ -> 1;
-      // Emitted as one loop whatever the number of ranges: a start mask and a body of scalar
-      // compares, three lane calls past the column's load. Its time grows with the ranges; its
-      // code does not.
-      case InRanges _ -> 3;
-      case GuardedDay _, GuardedRange _ -> GUARD_WEIGHT;
-      // The long and the double multiply, the sign's AND and the compare, and the two
-      // conversions at their AVX2 form, the larger, as a long ConvertLane is weighed, and one call
-      // more that the budget suite's recount found.
-      case VarkaVectorIR.GuardedProduct _ -> 5 + 2 * VarkaConversionLowering.XOR_SPLIT_CALLS;
-      case DayOfWeek _ -> DAY_OF_WEEK_WEIGHT;
-      case WeekDay _ -> WEEK_DAY_WEIGHT;
-      case DayOfWeekIso _ -> DAY_OF_WEEK_ISO_WEIGHT;
-      case NextDay _ -> NEXT_DAY_WEIGHT;
-      case ThursdayOf _ -> THURSDAY_OF_WEIGHT;
-      case MakeDate _ -> MAKE_DATE_WEIGHT;
-      case AddMonths _ -> ADD_MONTHS_WEIGHT;
-      case Year _ -> CHRONO_PREFIX_WEIGHT + YEAR_TAIL_WEIGHT;
-      case Month _ -> CHRONO_PREFIX_WEIGHT + MONTH_TAIL_WEIGHT;
-      case DayOfMonth _ -> CHRONO_PREFIX_WEIGHT + DAY_OF_MONTH_TAIL_WEIGHT;
-      case Quarter _ -> CHRONO_PREFIX_WEIGHT + QUARTER_TAIL_WEIGHT;
-      case DayOfYear _ -> DAY_OF_YEAR_WEIGHT;
-      case LastDay _ -> LAST_DAY_WEIGHT;
-      case WeekOfYear _ -> WEEK_OF_YEAR_WEIGHT;
-      case TruncDate n -> switch (n.level()) {
-        case MONTH -> TRUNC_MONTH_WEIGHT;
-        case YEAR -> TRUNC_YEAR_WEIGHT;
-        case QUARTER -> TRUNC_QUARTER_WEIGHT;
-      };
-      case TruncDateDynamic _ -> TRUNC_DYNAMIC_WEIGHT;
-      // Weight approximates lane ops, as every entry above does, counted over every vector type
-      // the lowering touches. Each lane has two forms, and which one emits cannot be asked here -
-      // `weightOf` runs while the groups are formed, before an `Analysis` exists - so the larger
-      // is used. Over-weighing costs an extra loop method on a host that did not need one;
-      // under-weighing puts more work in a method than the budget means, which the byte and
-      // call-site budgets correct only when the built class measures over them.
-      case ConstDivide n -> n.laneType() == VarkaVectorIR.LaneType.LONG
-          ? LONG_CONST_DIVIDE_WEIGHT
-          : INT_CONST_DIVIDE_WEIGHT + (n.divisor() < 0 ? 1 : 0);
-      // The single multiply-high and its shift.
-      case BoundedDivide _ -> 2;
-      // One lanewise op: the logical operation, or the shift by its count's vector.
-      case BitOp _ -> 1;
-      // The popcount alone at the long lane; at a narrower lane the popcount, the sign shift,
-      // the mask and the add of the high bits the widening to 64 gains (32, 48 or 56).
-      case BitCount n -> n.laneType() == VarkaVectorIR.LaneType.LONG ? 1 : 4;
-      // The lanewise square root: one call. A per-lane call extracts and inserts each lane, at
-      // most eight double lanes at 512 bits, the larger form as above; the scalar calls between
-      // them are no vector op.
-      case VarkaVectorIR.MathUnary n -> n.fn().laneCall() ? 16 : 1;
-      // The lanewise fused multiply-add: one call.
-      case VarkaVectorIR.Fma _ -> 1;
-      // The rint construction: the absolute value, the add and subtract of 2^52, the sign's AND
-      // and OR, the compare against 2^52 and the blend, and three reinterpretations, which the
-      // budget counts as calls though they emit no instruction; then the NaN's compare and
-      // blend, where the operand can hold a NaN other than the canonical one.
-      case VarkaVectorIR.RoundToIntegral n ->
-          VarkaRoundingLowering.mayHoldOtherNaN(n) ? 12 : 10;
-      // The canonicalisation: the add of zero, the NaN test and the blend.
-      case VarkaVectorIR.CanonicalFloat _ -> 3;
-      // A reinterpretation: one lane call, which C2 emits as nothing.
-      case VarkaVectorIR.CanonicalBits _ -> 1;
-      // The lane operations of each step (VARKA-337 2.4), the operand fetches not counted.
-      case VarkaVectorIR.HashStep n -> switch (n.mix()) {
-        case MURMUR3_INT, MURMUR3_HIGH -> 17;
-        case MURMUR3_LOW -> 8;
-        case XXH64_INT -> 15;
-        case XXH64_LONG -> 16;
-      };
-    };
+    return node.props().weight();
   }
 
   /** Whether {@code node} runs a civil-from-days decomposition, and so weighs

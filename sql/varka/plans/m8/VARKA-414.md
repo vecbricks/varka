@@ -253,3 +253,32 @@ row. 3: not scored; no test was added.
    is all row 414 has left. Option (b),
    Varka compiling its fallback and merge projections on the driver, is not taken. Until the
    sync, the defect is in the debt register (`PLAN.md` 11).
+
+   *25 November 2026, from the merged commit:* SPARK-61352 merged upstream on 24 November 2026
+   (00:17 CET) as `8621489fe80`, titled "Keep the query context of interval errors after
+   serialization and rewrites", and is also on apache/spark's branch-4.x as `f45fc0b9eb4` and on
+   the release branches 4.2 (`03c97420a67`), 4.3 (`c0f4aebcbcd`) and 4.4 (`aa2fc532952`); it is
+   not on Varka's master, and the next apache sync brings it. Two points above differ from what
+   merged:
+   * **`copyTagsFrom` goes the other way.** The merged rule copies the context of the node a rule
+     replaces whenever that node has one from an origin (`SupportQueryContext.hasOrigin`, a SQL
+     context with a text and a start index, or any other context), where it copied `None` too; the
+     replacement keeps its own only when the replaced node has none from an origin. Upstream's tests
+     fix the direction. `IntervalExpressionsSuite` "SPARK-61352: an interval error keeps its query
+     context" runs `SimplifyCasts` over a same-type cast and expects the cast's context under an
+     ANSI and a TRY cast, and the division's own under a LEGACY cast and under an ANSI cast built
+     outside an origin. `QueryExecutionAnsiErrorsSuite` "SPARK-61352: an interval division error
+     keeps its query context" expects, under ANSI and with whole-stage codegen on and off, the
+     fragment of the whole `CAST(... AS INTERVAL YEAR TO MONTH)` or `try_cast(...)` around
+     `CAST(CAST(id - 2147483648 AS INT) AS INTERVAL MONTH) / -1`, and the division's own when bare.
+     `QueryExecutionErrorsSuite` "SPARK-61352: an interval error keeps its query context in non-ANSI
+     mode" expects the division's own fragment under a non-ANSI `CAST` and the whole `try_cast(...)`
+     under a `try_cast`. So a fused `ym / -1` under a same-type ANSI cast or a `try_cast` must raise
+     with the cast's fragment, which the fallback gives it, since it evaluates Spark's expression
+     after `SimplifyCasts`.
+   * **What row 414 has left is three declines, not two.** Besides `ym / -1`
+     (`VarkaIntervalCompiler.divide`) and `dt / -1`, row 103's day-time division (#1644) declines
+     a decimal divisor under one in magnitude naming 414, since its quotient can leave the long
+     (`VarkaIntervalCompiler.dayTimeDivide`, `VARKA-103.md` 5). All three lift after the sync,
+     with the debt register's two tests (the mixed query of 9 and a residual `ym / 0`) and a
+     same-type cast case under ANSI for the fragment.
