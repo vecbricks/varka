@@ -185,10 +185,12 @@ ones.**
    close (552, the surfaces by 553), and the milestone closes on 354, which reads this list row by
    row.
 
-*25 November 2026:* by the owner's decision of the same day (`m9/PLAN.md` 1, decision 6), rows
-30, 95, 103, 351, 364 and 366 moved to milestone 9 with their numbers and their plans, which stay
-in this folder. Items 3, 4 and 6 above name work those rows hold; the close (354) reads them with
-that work counted as milestone 9's, not as owed here.
+*25 November 2026:* by the owner's decision of the same day (`m9/PLAN.md` 1, decision 6), rows 30,
+95, 103, 351, 364 and 366 moved to milestone 9 with their numbers and their plans, which stay here
+until the catalogue's move takes them to `m9/`. Items 2, 3, 4 and 6 above name work those rows hold
+(in the census, 174 of the unfused pairs name one of them): the close (354) reads them with that
+work counted as milestone 9's, not as owed here, and a pair whose reason names one of these rows of
+`m9/PLAN.md` carries its reason as item 2 asks of a named `m9/SCOPE.md` row.
 
 ## 2. Design
 
