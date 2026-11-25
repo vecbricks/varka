@@ -1008,7 +1008,8 @@ final class VarkaVectorTemplateWarmup {
      * reaches. The combined narrow store ({@code narrowGroupStore=COMBINED}, VARKA-603) runs at
      * this species too: each group's {@code I2B} at its own block, the negative part
      * {@code -part}, which the JDK takes by a slice rather than part 0's plain convert, the
-     * parts OR-ed into one vector and that stored whole.
+     * parts OR-ed into one vector and that stored whole. The epilogue's narrow rows one at a time
+     * (VARKA-550) call {@code withLane} here as well.
      */
     private static long widenedBytes(VectorSpecies<Byte> w, VectorSpecies<Integer> is,
         MemorySegment seg) {
@@ -1025,6 +1026,10 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.lanewise(VectorOperators.SADD, b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (byte) 0).toLong()
+            // withLane, which the epilogue's narrow rows one at a time call (VARKA-550). The
+            // reach check counts each narrow call at the preferred and the widened species, and
+            // a lane override bakes a byte kernel at this one.
+            + a.withLane(1, (byte) 3).lane(1)
             + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong()
             // A word mask's element select and bit test at this species, on the loaded vector
             // rather than a word broadcast as longs, which would add a long species of this shape.
@@ -1064,7 +1069,7 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.lanewise(VectorOperators.SADD, b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
-            // The epilogue's narrow rows one at a time (VARKA-550) at this species: withLane.
+            // withLane, as in widenedBytes: the reach check's two species and lane overrides.
             + a.withLane(1, (short) 3).lane(1)
             + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong()
             // A word mask's element select and bit test at this species, on the loaded vector
