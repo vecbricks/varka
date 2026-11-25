@@ -603,9 +603,9 @@ owner's word (decision 4).
 | 691 | each form measured in kernels at 256 and 128 bits; the defaults by width; G7 for `hour` and the cast to `DATE`; the family's outcome, section 9 | 685 to 690 | 1 |
 | 692 | a conversion shared across method groups: measured, and the store and load built only if it pays | 691 | 2 |
 
-The paths that set the length: 682, 657, then the rows that need only 657 (684 to 690) side by
-side, then 691. Row 683 needs no other row, and row 682 needs only row 683. Row 669's casts, row 670's zone functions
-and row 671's sums wait for row 690, and row 668's fields for row 657.
+The paths that set the length: 683, 682, 657, then the rows that need only 657 (684 to 690) side
+by side, then 691. Row 683 needs no other row, and row 682 needs only row 683. Row 669's casts,
+row 670's zone functions and row 671's sums wait for row 690, and row 668's fields for row 657.
 
 The refactorings are parts of their rows: the evaluator's list of kernels (685), `hourOf`,
 `minuteOf` and `secondOf` taking a local value (657), and a reproduction that records the arrays
