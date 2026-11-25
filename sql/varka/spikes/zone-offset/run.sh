@@ -20,6 +20,12 @@
 #                runners' AMD EPYC 7763 has no AVX-512) and with AVX2 at 128 bits;
 #                results/forms.txt is its output. Run it on an idle x86 machine: about eleven
 #                minutes.
+# run.sh kernels src/ZoneKernels.java at the same three widths: a whole field over a zoned
+#                instant and a local time back to an instant; results/kernels.txt is its
+#                output. About six minutes on an idle x86 machine.
+# run.sh resolve src/ZoneResolve.java over every zone of the JDK: one pair of local thresholds a
+#                change against java.time's three rules for a local time; results/resolve.txt
+#                is its output. Under a minute.
 # JAVA_HOME names the JDK; the plan's numbers are JDK 25's. The script fails when a run fails
 # or a probe's check does: a results file from a failed run is not a result.
 set -u
@@ -44,8 +50,18 @@ case "${1:-}" in
       probe --add-modules jdk.incubator.vector $flags "$D/src/ZoneForms.java"
     done
     ;;
+  kernels)
+    for flags in "" "-XX:UseAVX=2" "-XX:UseAVX=2 -XX:MaxVectorSize=16"; do
+      echo "# flags: ${flags:-none}"
+      # shellcheck disable=SC2086
+      probe --add-modules jdk.incubator.vector $flags "$D/src/ZoneKernels.java"
+    done
+    ;;
+  resolve)
+    probe "$D/src/ZoneResolve.java"
+    ;;
   *)
-    echo "usage: run.sh facts|forms" >&2
+    echo "usage: run.sh facts|forms|kernels|resolve" >&2
     exit 2
     ;;
 esac

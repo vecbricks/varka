@@ -1,0 +1,38 @@
+# 2026-11-25T21:46:44Z, commit 176db41f369
+# OpenJDK Runtime Environment (build 25.0.5.1+2-1-26.04.1-Ubuntu)
+# AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+# load before: 0.64 2.12 3.69 2/1955 2882967
+# flags: none
+# America/Los_Angeles, 8 lanes of 64 bits, batches of 4096 rows
+java.time, the hour of the day           a year, half near a change     best  25.276  median  25.397 ns a row  
+hour, steps of 2                         a year, half near a change     best   0.483  median   0.493 ns a row  every row equals java.time
+hour, steps of 2, no mask                a year, half near a change     best   0.516  median   0.516 ns a row  every row equals java.time
+hour, one offset                         a week of July                 best   0.476  median   0.476 ns a row  every row equals java.time
+java.time, LocalDateTime.atZone          a year, half near a change     best  43.669  median  43.917 ns a row  
+to an instant, earlier offset, steps of 2 a year, half near a change     best   0.084  median   0.084 ns a row  every row equals java.time
+java.time, ZonedDateTime.ofLocal         a year, half near a change     best  42.714  median  42.752 ns a row  
+to an instant, kept offset, steps of 2   a year, half near a change     best   0.251  median   0.253 ns a row  every row equals java.time
+# the kept offset changes the instant of 85 of 4096 rows
+# flags: -XX:UseAVX=2
+# America/Los_Angeles, 4 lanes of 64 bits, batches of 4096 rows
+java.time, the hour of the day           a year, half near a change     best  25.510  median  25.568 ns a row  
+hour, steps of 2                         a year, half near a change     best   0.716  median   0.736 ns a row  every row equals java.time
+hour, steps of 2, no mask                a year, half near a change     best   0.903  median   0.904 ns a row  every row equals java.time
+hour, one offset                         a week of July                 best   0.483  median   0.488 ns a row  every row equals java.time
+java.time, LocalDateTime.atZone          a year, half near a change     best  41.694  median  41.765 ns a row  
+to an instant, earlier offset, steps of 2 a year, half near a change     best   0.139  median   0.140 ns a row  every row equals java.time
+java.time, ZonedDateTime.ofLocal         a year, half near a change     best  43.134  median  44.711 ns a row  
+to an instant, kept offset, steps of 2   a year, half near a change     best   0.364  median   0.365 ns a row  every row equals java.time
+# the kept offset changes the instant of 85 of 4096 rows
+# flags: -XX:UseAVX=2 -XX:MaxVectorSize=16
+# America/Los_Angeles, 2 lanes of 64 bits, batches of 4096 rows
+java.time, the hour of the day           a year, half near a change     best  25.533  median  25.668 ns a row  
+hour, steps of 2                         a year, half near a change     best  15.890  median  16.081 ns a row  every row equals java.time
+hour, steps of 2, no mask                a year, half near a change     best   1.625  median   1.632 ns a row  every row equals java.time
+hour, one offset                         a week of July                 best   0.955  median   0.957 ns a row  every row equals java.time
+java.time, LocalDateTime.atZone          a year, half near a change     best  44.817  median  44.939 ns a row  
+to an instant, earlier offset, steps of 2 a year, half near a change     best  13.893  median  14.041 ns a row  every row equals java.time
+java.time, ZonedDateTime.ofLocal         a year, half near a change     best  42.746  median  42.791 ns a row  
+to an instant, kept offset, steps of 2   a year, half near a change     best  44.012  median  44.584 ns a row  every row equals java.time
+# the kept offset changes the instant of 85 of 4096 rows
+# load after: 1.54 1.69 3.07 2/1905 2883884
