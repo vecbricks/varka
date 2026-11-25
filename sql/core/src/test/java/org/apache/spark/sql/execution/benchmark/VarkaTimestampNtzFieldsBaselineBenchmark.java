@@ -62,9 +62,11 @@ import org.apache.spark.sql.types.TimeType;
  * does not ({@link VarkaSqlBenchmarkBase#requireBaseline}). No section is listed today; each step
  * lists the sections it fuses, so the same class and the same labels time the fused code. A listed
  * section must also run as a kernel over every batch, none handed back to the row path
- * ({@link VarkaSizeLadder#varkaFused}), or the run fails rather than time the row path under the
- * {@code varka on} label. That holds with {@value VarkaSqlBenchmarkBase#FUSE_CHECK_PROPERTY} set
- * to {@code false} too, which lifts only the plan check.
+ * ({@link VarkaSqlBenchmarkBase#requireKernel}, made by the fuse check), or the run fails rather
+ * than time the row path under the {@code varka on} label. With
+ * {@value VarkaSqlBenchmarkBase#FUSE_CHECK_PROPERTY} set to {@code false} the batch check is still
+ * made on every section that plans whole, and a section that hands batches to the row path is
+ * noted in the results file with its counts instead of failing the run.
  *
  * <p>The data reaches the cases the plan's kernels treat apart, and no value raises:
  * <ul>
@@ -234,14 +236,6 @@ public class VarkaTimestampNtzFieldsBaselineBenchmark extends VarkaSqlBenchmarkB
       // A section fuses exactly when it is listed, and a listed one runs every batch as a kernel.
       for (Section s : sections()) {
         requireBaseline(varka, s.title(), s.query(), s.fuses() ? Fusion.WHOLE : Fusion.NONE);
-        if (s.fuses()) {
-          try {
-            VarkaSizeLadder.varkaFused(varka, s.query());
-          } catch (RuntimeException e) {
-            throw new IllegalStateException(s.title() + " is listed as fusing but does not run "
-                + "fused, so its varka on arm would time the row path: " + s.query(), e);
-          }
-        }
       }
       for (Section s : sections()) {
         section(s.title(), () -> {
