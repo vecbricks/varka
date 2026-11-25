@@ -5000,7 +5000,7 @@ Varka: where the reading quotes a speed, it is a source comment in Polars.*
    using the batch as the bucket (a scalar lookup, then compare, blend and add) declines only a batch
    that spans two transitions. *Repeated on 25 November 2026 for `m9/PLAN.md` 2.2
    (`sql/varka/spikes/zone-offset/results/facts.txt`): the formula equals `LocalDateTime.atZone` at
-   253,686,729 local times around every change of every zone, `LT` rises strictly, and the closest
+   257,568,575 local times around every change of every zone, `LT` rises strictly, and the closest
    two changes are 601,200 s apart. A year of instants in no order spans two changes in every
    batch, so the batch as the bucket declines all of them; milestone 9's row 657 builds the forms
    that do not.*
