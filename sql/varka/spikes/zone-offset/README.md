@@ -8,7 +8,7 @@ launcher: no build and no Spark.
 | :--- | :--- | :--- |
 | `src/ZoneFacts.java` | What the JDK's time-zone data allows: how many changes of offset a zone has and how close they come, whether a step formula for a local time equals `java.time` under each of its three rules, when an offset stops being a whole minute, and how often a batch spans a change | `results/facts.txt` |
 | `src/ZoneForms.java` | What each way of turning a batch of instants into local times costs a row, checked against `java.time` on every row | `results/forms.txt` |
-| `src/ZoneKernels.java` | What a whole field over a zoned instant costs a row, and the way back, a local time to an instant, under the earlier-offset rule and the kept-offset rule, checked against `java.time` on every row | `results/kernels.txt` |
+| `src/ZoneKernels.java` | What a whole field over a zoned instant costs a row, and the way back, a local time to an instant, under the earlier-offset rule and the kept-offset rule, checked against `java.time` on every row | `results/kernels.txt`, and a second run in `results/kernels-2.txt` |
 | `src/ZoneResolve.java` | Whether one pair of local thresholds a change serves all three of `java.time`'s rules for a local time as formulas, the gap's-end rule among them, to the year 2400 | `results/resolve.txt` |
 
     JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./run.sh facts > results/facts.txt
@@ -52,12 +52,14 @@ The third probe, for row 657's plan (`sql/varka/plans/m9/VARKA-657.md` 2.3), on 
 and day:
 
 - **A whole `hour` kernel costs 0.7 ns a row at four lanes** where `java.time` pays 25: the two
-  steps are 0.23 of it. With no mask the same kernel costs 0.9.
+  steps are 0.236 of it, 0.715 less the 0.479 of one offset. With no mask the same kernel costs
+  0.9.
 - **The way back is cheaper still, and the row path's is dearer.** A local time to an instant
-  under the earlier-offset rule costs 0.14 ns a row at four lanes where `LocalDateTime.atZone`
-  pays 42, and under the kept-offset rule 0.36 where `ZonedDateTime.ofLocal` pays 43.
-- **At two lanes the masked kept-offset form does not beat `java.time`** (44 against 43 ns a
-  row); the masked `hour` does (16 against 25), and with no mask it costs 1.6.
+  under the earlier-offset rule costs 0.138 ns a row at four lanes where `LocalDateTime.atZone`
+  pays 43.764, and under the kept-offset rule 0.351 where `ZonedDateTime.ofLocal` pays 42.424.
+- **At two lanes the masked kept-offset form gains nothing:** by the minimums of the two runs it
+  costs 43.030 ns a row where `java.time` costs 42.319. The masked `hour` does gain there (16
+  against 25 ns a row), and with no mask it costs 1.6.
 
 The fourth probe, for the same plan's 2.4:
 
