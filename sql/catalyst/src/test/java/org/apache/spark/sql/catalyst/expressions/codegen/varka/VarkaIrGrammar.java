@@ -448,6 +448,9 @@ public final class VarkaIrGrammar {
       // The decimal store keeps every value: its child's magnitude, which its draw keeps within
       // eighteen digits.
       case WidenDecimal n -> boundsOf(n.child());
+      // The grammar draws no pair: a pair's words are the decimal compiler's.
+      case VarkaVectorIR.InterleaveDecimal n -> throw new IllegalArgumentException(
+          "the grammar draws no decimal pair output: " + n);
     };
   }
 

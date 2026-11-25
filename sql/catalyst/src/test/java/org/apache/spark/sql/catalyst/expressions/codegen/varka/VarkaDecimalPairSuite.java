@@ -37,10 +37,14 @@ import org.apache.arrow.vector.DecimalVector;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import scala.jdk.javaapi.CollectionConverters;
+
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
+import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaPredicate;
+import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
@@ -373,6 +377,171 @@ public final class VarkaDecimalPairSuite {
         check(sql, ta, wide);
       }
     }
+  }
+
+  /**
+   * Runs {@code p}'s one output, a decimal pair's store, over the columns {@code a} and {@code b}
+   * at {@code lanes}, emitted under {@code options}, and returns per row the unscaled value its
+   * sixteen-byte slot holds, or null where the output's validity is clear.
+   */
+  private static BigInteger[] stored(CompiledVarkaProjection p, List<Row> rows, DecimalType ta,
+      DecimalType tb, VarkaEmitOptions options, int lanes) {
+    assertEquals(1, p.outputs().size());
+    VarkaVectorIR root = p.outputs().get(0);
+    assertTrue(root instanceof VarkaVectorIR.InterleaveDecimal,
+        () -> "not the pair's store: " + VarkaVectorIR.canonical(root));
+    long[] lits = new long[p.longLiterals().size()];
+    for (int i = 0; i < lits.length; i++) {
+      lits[i] = p.longLiterals().get(i);
+    }
+    int[] intLits = p.literals().stream().mapToInt(Integer::intValue).toArray();
+    List<Integer> ordinals = p.inputOrdinals();
+    var emitted = VarkaEmitterFixtures.emit(List.of(root), ordinals.size(), lits.length,
+        options.withLanesOverride(lanes));
+    VarkaFusedKernel kernel = VarkaEmitterFixtures.load(emitted).kernel();
+    int length = rows.size();
+    int inputs = ordinals.size();
+    try (BufferAllocator allocator =
+        ArrowUtils.rootAllocator().newChildAllocator("varka-decimal-pair-store", 0,
+            Long.MAX_VALUE);
+        DecimalVector va = vector("a", rows, true, ta, allocator);
+        DecimalVector vb = vector("b", rows, false, tb, allocator);
+        var arena = Arena.ofConfined()) {
+      DecimalVector[] byOrdinal = {va, vb};
+      long[] srcData = new long[inputs];
+      long[] srcValidity = new long[inputs];
+      int[] nullCounts = new int[inputs];
+      long[] inStride = new long[inputs];
+      for (int i = 0; i < inputs; i++) {
+        DecimalVector v = byOrdinal[ordinals.get(i)];
+        srcData[i] = v.getDataBuffer().memoryAddress();
+        nullCounts[i] = v.getNullCount();
+        srcValidity[i] = nullCounts[i] == length ? 0L : v.getValidityBuffer().memoryAddress();
+        inStride[i] = 16L;
+      }
+      long wordBytes = ((length + 63) / 64) * 8L;
+      MemorySegment out = arena.allocate(length * 16L, 64);
+      MemorySegment outValid = arena.allocate(wordBytes, 64);
+      long[] outData = {out.address()};
+      long[] outValidity = {outValid.address()};
+      long[] outStride = {16L};
+      int status = VarkaKernelChecks.sanitized(kernel, length, inStride, outStride, srcData,
+          srcValidity, outData, outValidity,
+          scratch -> kernel.run(srcData, srcValidity, nullCounts, outData, outValidity,
+              intLits, lits, length, scratch));
+      assertEquals(0, status, "an in-precision batch runs");
+      var got = new BigInteger[length];
+      for (int i = 0; i < length; i++) {
+        boolean valid = (outValid.get(ValueLayout.JAVA_LONG, (i >>> 6) * 8L) >>> (i & 63) & 1L)
+            != 0;
+        got[i] = valid ? new DecimalWords(out.get(ValueLayout.JAVA_LONG, i * 16L),
+            out.get(ValueLayout.JAVA_LONG, i * 16L + 8)).value() : null;
+      }
+      return got;
+    }
+  }
+
+  /**
+   * Compiles {@code sql}, a decimal wider than 18 digits, as a projection's one output over
+   * {@code a} of {@code ta} and {@code b} of {@code tb}, runs its store over {@link #rows} at
+   * every width, and holds each row's slot to Spark's evaluation of the same expression, read as
+   * its unscaled value at the output's scale.
+   */
+  private static void checkStored(String sql, DecimalType ta, DecimalType tb) {
+    checkStored(sql, ta, tb, VarkaMatrixRuns.BASE);
+  }
+
+  private static void checkStored(String sql, DecimalType ta, DecimalType tb,
+      VarkaEmitOptions options) {
+    List<Attribute> columns =
+        List.of(VarkaSqlResolve.column("a", ta), VarkaSqlResolve.column("b", tb));
+    Expression e = VarkaSqlResolve.parse(sql, seq(columns));
+    var type = (DecimalType) e.dataType();
+    assertTrue(type.precision() > 18, () -> sql + " is not wide: " + type);
+    NamedExpression entry = VarkaSqlResolve.named(e, "c");
+    CompiledVarkaProjection p = VarkaExpressionCompiler.compile(
+        CollectionConverters.asScala(List.of(entry)).toSeq(), seq(columns), options)
+        .orElseThrow(() -> new AssertionError(sql + " does not fuse as an output"));
+    Expression bound = VarkaSqlResolve.bind(VarkaSqlResolve.replaced(e), seq(columns));
+    for (List<Row> rows : List.of(rows(ta, tb), denseRows(ta, tb))) {
+      checkStoredRows(sql, p, bound, type, rows, ta, tb, options);
+    }
+  }
+
+  private static void checkStoredRows(String sql, CompiledVarkaProjection p, Expression bound,
+      DecimalType type, List<Row> rows, DecimalType ta, DecimalType tb,
+      VarkaEmitOptions options) {
+    for (int lanes : WIDTHS) {
+      BigInteger[] got = stored(p, rows, ta, tb, options, lanes);
+      for (int i = 0; i < rows.size(); i++) {
+        Row r = rows.get(i);
+        Object spark = bound.eval(new GenericInternalRow(new Object[] {decimal(r.a(), ta),
+            decimal(r.b(), tb)}));
+        BigInteger want = spark == null ? null
+            : ((Decimal) spark).toJavaBigDecimal().setScale(type.scale()).unscaledValue();
+        int row = i;
+        assertEquals(want, got[i], () -> sql + " over " + ta.simpleString() + ", "
+            + tb.simpleString() + " " + label(lanes) + ", row " + row + ": " + r);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("a wide negation, abs, choice and pick are stored as their two words in Arrow's "
+      + "slot, as Spark answers, every null pattern and the word edges included")
+  void storedValues() {
+    var narrow = new DecimalType(20, 2);
+    var wide = new DecimalType(38, 2);
+    for (DecimalType ta : List.of(narrow, wide)) {
+      for (String sql : List.of("-b", "abs(b)", "IF(a < b, a, b)", "IF(a IS NULL, b, -b)",
+          "CASE WHEN a > 0 THEN a WHEN b > 0 THEN b END", "coalesce(a, b)", "nvl(b, a)",
+          "nullif(b, a)", "greatest(a, b)", "least(a, b, -b)", "-greatest(a, abs(b))")) {
+        checkStored(sql, ta, wide);
+      }
+      // A wide literal's two words beside a column: 2^64 + 5 at scale 2, a small negative one,
+      // and the 38-digit bound.
+      String top = new BigDecimal(bound(wide), wide.scale()).toPlainString();
+      for (String sql : List.of("coalesce(a, 18446744073709551621.00)",
+          "IF(a IS NULL, -0.01, a)", "greatest(a, " + top + ")", "least(a, -" + top + ")")) {
+        checkStored(sql, ta, wide);
+      }
+    }
+    // At 19 digits, the narrowest pair, and with a 64-bit side widened by its sign extension.
+    var nineteen = new DecimalType(19, 2);
+    checkStored("abs(a)", nineteen, nineteen);
+    checkStored("IF(a < b, -a, b)", new DecimalType(18, 2), wide);
+  }
+
+  @Test
+  @DisplayName("with the bitmap validity pass off, a pair store's per-group validity reads both "
+      + "words, so a choice's high-word blend is no dead word (validityOrFirst either way)")
+  void storedValuesWithoutTheBitmapPass() {
+    // The output's word is the low word's (Validity.Operand(0)); with the pass on only that word
+    // is read, and here the AND of both is. Both runs equal to Spark's nulls hold, for every
+    // producer of a pair (a column's words, a literal's, the negation, abs, a choice, coalesce,
+    // nullif and a pick), that the high word is valid wherever the low word is.
+    var wide = new DecimalType(38, 2);
+    for (boolean first : new boolean[] {false, true}) {
+      VarkaEmitOptions options = VarkaMatrixRuns.BASE.toBuilder().validityByBitmap(false)
+          .denseValidityOnce(false).validityOrFirst(first).build();
+      for (String sql : List.of("IF(a < b, a, b)", "CASE WHEN a > 0 THEN a END",
+          "coalesce(a, b)", "greatest(a, b)", "-b", "abs(a)", "nullif(a, b)", "least(a, b)",
+          "coalesce(a, 18446744073709551621.00)")) {
+        checkStored(sql, wide, wide, options);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("the decimal output's type admits every precision, and the pair's store renders "
+      + "apart from every other root")
+  void storeAdmission() {
+    var wide = new DecimalType(38, 2);
+    assertTrue(VarkaTypes.decimalOutputDeclineReason(wide).isEmpty());
+    VarkaVectorIR root = new VarkaVectorIR.InterleaveDecimal(
+        new VarkaVectorIR.DecimalWord(0, VarkaVectorIR.Word.LOW, 38),
+        new VarkaVectorIR.DecimalWord(0, VarkaVectorIR.Word.HIGH, 38));
+    assertEquals("(idec decw:0:lo:p38 decw:0:hi:p38)", VarkaVectorIR.canonical(root));
   }
 
   @Test

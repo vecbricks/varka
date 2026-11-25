@@ -100,6 +100,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InterleaveDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
@@ -379,7 +380,8 @@ final class Slots {
   int[] decimalShuffle;
 
   /**
-   * In a body that stores a {@link WidenDecimal} root, the decimal store's two interleaves built
+   * In a body that stores a {@link WidenDecimal} or an {@link InterleaveDecimal} root, the
+   * decimal store's two interleaves built
    * once in its prologue: the shuffles {@code Z0} and {@code Z1}, or under
    * {@code decimalStore=SELECT_FROM} the index vectors {@code I0} and {@code I1}
    * ({@code VarkaBodyEmitter.emitDecimalStore}). Null in every other body, which keeps its locals
@@ -389,7 +391,8 @@ final class Slots {
 
   /**
    * Per {@link WidenDecimal} root: its words {@code lo} and their sign extensions {@code hi},
-   * parked because each of the two interleaves reads both.
+   * parked because each of the two interleaves reads both; per {@link InterleaveDecimal} root,
+   * its low and its high words.
    */
   final Map<VarkaVectorIR, int[]> decimalStoreTmp = new HashMap<>();
 
@@ -1086,7 +1089,7 @@ final class Slots {
           if (node instanceof DecimalWord w && !s.decimalTmp.containsKey(w.low())) {
             s.decimalTmp.put(w.low(), new int[] {slot++, slot++, slot++, slot++});
           }
-          if (node instanceof WidenDecimal) {
+          if (node instanceof WidenDecimal || node instanceof InterleaveDecimal) {
             if (s.decimalZip == null) {
               s.decimalZip = new int[] {slot++, slot++};
             }
@@ -1196,7 +1199,7 @@ final class Slots {
       // A null-skipping pick ORs its operands' words, and every other own word is computed from
       // values: each needs a slot of its own.
       case Validity.SkipsNull _, Validity.Own _, Validity.NoWord _ -> Integer.MIN_VALUE;
-      // One operand's word, aliased: a hash step's is its seed's.
+      // One operand's word, aliased: a hash step's is its seed's, a pair store's its low word's.
       case Validity.Operand op -> s.wordRef.get(childrenOf(node)[op.index()]);
     };
   }
@@ -1307,7 +1310,9 @@ final class Slots {
    * The consumers, from VARKA-70.md 2.2 plus the one that inventory missed - the null-skipping
    * pick's value substitution, which blends by the operands' words whether or not its own word is
    * wanted: <ul> <li>a value root the pass does not serve: its own word, for the per-group
-   * write;</li> <li>a node in {@link Analysis#refusals}: its own word, which
+   * write (a pair store's high word is not demanded: its validity is the low word's, and only
+   * with the pass off, when every own word is computed, does the write read both);</li>
+   * <li>a node in {@link Analysis#refusals}: its own word, which
    * {@code emitGuardCollect} ANDs with the condemning mask;</li> <li>{@code MakeDate}: its own
    * word, always - it stores it unconditionally and its guard reads it - and so, by propagation,
    * its three inputs';</li> <li>{@code Greatest}/{@code Least}, emitted at all: both operands'
@@ -1480,7 +1485,8 @@ final class Slots {
       // A root that writes bitmaps stores nothing under the mask: the lane count truncates them.
       // Nor does a decimal store, which masks its two halves by the slots' longs.
       if (!VarkaVectorIR.writesBitmaps(root) && !(root instanceof NarrowLane)
-          && !(root instanceof WidenDecimal) && analysis.sameCount(analysis.laneOf(root))) {
+          && !(root instanceof WidenDecimal) && !(root instanceof InterleaveDecimal)
+          && analysis.sameCount(analysis.laneOf(root))) {
         return true;
       }
     }
@@ -1671,6 +1677,7 @@ final class Slots {
         case ReinterpretLane g -> { }
         case NarrowLane g -> { }
         case WidenDecimal g -> { }
+        case InterleaveDecimal g -> { }
         // The rest read no word here. A value node's own word, where it needs one, is
         // demanded by its root write, by a guard below, or by a consumer above it; a leaf
         // owns no word at all; and `IfElse`'s blend reads its branches' words through the

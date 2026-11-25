@@ -8750,6 +8750,80 @@
           "loopMasked0([J[J[I[J[J[I[JI)I" : "d7c73898040fd813",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "ecd9b4f4a4560eb8"
         },
+        "-d38" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "ede5ea9e8a8969e2",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "83c8de98d8c3a46c",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "940a232366c12127",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "41534e3681d844d5"
+        },
+        "abs(d38)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "709e338d2e63794f",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "2d818f84dfb611fc",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "c3b3e8d044741864",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "30182557cef5ffe5"
+        },
+        "IF(d18 > 0.00, d38, d38b)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d539e906046d8f86",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "58e4fa233a1c6a53",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "cfce379c19d921f8",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "3eea7108338c87e8",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "64de029a84dc5a4c"
+        },
+        "CASE WHEN d38 < 0.00 THEN d38b END" : {
+          "<class>" : "837e62d8f9fe9b7b",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "59e3c1c896847c1d",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "61e694a33ea47909",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "006424cc617f673a"
+        },
+        "coalesce(d38, d19)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "eeab5c3226f60d53",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "f80233fe524a635d",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "2ad852953216ae37",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "b490c9bb974cac01",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "7165bef4fbf356dd"
+        },
+        "greatest(d38, d38b)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "eeab5c3226f60d53",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "a8df28bbd32553e1",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "7bd4708921c0c28f",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "f6636b0dc29af8f0",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "1a52f1ebb69e4c98"
+        },
+        "least(d38, d38b, d19)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d539e906046d8f86",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "ddc4e2edb6e61e37",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "cff777bd5020e471",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "94980478e0cd30f6",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "653f0b48981adfa0"
+        },
         "d9 + d9b < d18" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -18025,6 +18099,80 @@
           "loopMasked0([J[J[I[J[J[I[JI)I" : "d07cbef100ec87ed",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "1b7b484eed9ef6d4"
         },
+        "-d38" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "22c73a28c3f79047",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "f8826246fdf9f6b0",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "adf9710f9d12bcd5",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "cd65d6c84f9522a0"
+        },
+        "abs(d38)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "e67e8c1e4436f093",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "a1fa1d0e9077c3e9",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "6303f4c26fe599a7",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "d78d1db9234cdacc"
+        },
+        "IF(d18 > 0.00, d38, d38b)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d539e906046d8f86",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "34852af3a839a06a",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "d5fb8294b6391908",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "6b1d159cf3a207d6",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "0ef391b9e9ba5ca9"
+        },
+        "CASE WHEN d38 < 0.00 THEN d38b END" : {
+          "<class>" : "837e62d8f9fe9b7b",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "59e3c1c896847c1d",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "ebac6b0667306e98",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "e40347d26f338cab"
+        },
+        "coalesce(d38, d19)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "eeab5c3226f60d53",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "4ecaccca848093cc",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "e93ab45abd23ade6",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "b5698ffded4d6f22",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "35c4969605c7a481"
+        },
+        "greatest(d38, d38b)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "eeab5c3226f60d53",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "336c7df424c58fa1",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "cfebc046fa56807e",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "661c51b4ba58b32c",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "db27758ffb03271f"
+        },
+        "least(d38, d38b, d19)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d539e906046d8f86",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "d79d49ee23e2b30b",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "d91cc181fedf7cd2",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "6a6f2effc7931108",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "e63c6456d6a965b7"
+        },
         "d9 + d9b < d18" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -18556,99 +18704,99 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "650fc6ed5788761a",
-      "16" : "972ab9cc30d75b00"
+      "4" : "4025f31736f88484",
+      "16" : "de852e4d844e566e"
     },
     "useAVX=0" : {
-      "4" : "42e8221b264a9fcd",
-      "16" : "2057198de34ece63"
+      "4" : "182b302b1a43c5dd",
+      "16" : "585cd1905f225380"
     },
     "useAVX=1" : {
-      "4" : "42e8221b264a9fcd",
-      "16" : "2057198de34ece63"
+      "4" : "182b302b1a43c5dd",
+      "16" : "585cd1905f225380"
     },
     "useAVX=2" : {
-      "4" : "42e8221b264a9fcd",
-      "16" : "2057198de34ece63"
+      "4" : "182b302b1a43c5dd",
+      "16" : "585cd1905f225380"
     },
     "useAVX=3" : {
-      "4" : "650fc6ed5788761a",
-      "16" : "972ab9cc30d75b00"
+      "4" : "4025f31736f88484",
+      "16" : "de852e4d844e566e"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "bd58e1d66f6a9d31",
-      "16" : "5c273fddb8f3d7ed"
+      "4" : "648811480a935210",
+      "16" : "56ca5e405d8f9423"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "8c5bcadc738ccd2e",
-      "16" : "d4956f5297c29eca"
+      "4" : "0e2541cd74635c88",
+      "16" : "088039b80e097a95"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "42e8221b264a9fcd",
-      "16" : "2057198de34ece63"
+      "4" : "182b302b1a43c5dd",
+      "16" : "585cd1905f225380"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "42e8221b264a9fcd",
-      "16" : "2057198de34ece63"
+      "4" : "182b302b1a43c5dd",
+      "16" : "585cd1905f225380"
     },
     "wideConversionForm=XOR_SPLIT over useAVX=2" : {
-      "4" : "42e8221b264a9fcd",
-      "16" : "2057198de34ece63"
+      "4" : "182b302b1a43c5dd",
+      "16" : "585cd1905f225380"
     },
     "roundToOddByShifts=true over useAVX=2" : {
-      "4" : "42e8221b264a9fcd",
-      "16" : "2057198de34ece63"
+      "4" : "182b302b1a43c5dd",
+      "16" : "585cd1905f225380"
     },
     "roundToOddByShifts=false over useAVX=2" : {
-      "4" : "42e8221b264a9fcd",
-      "16" : "2057198de34ece63"
+      "4" : "182b302b1a43c5dd",
+      "16" : "585cd1905f225380"
     },
     "narrowConversionForm=ROUND_TO_ODD over useAVX=2" : {
-      "4" : "42e8221b264a9fcd",
-      "16" : "2057198de34ece63"
+      "4" : "182b302b1a43c5dd",
+      "16" : "585cd1905f225380"
     },
     "narrowConversionForm=WINDOWED over useAVX=2" : {
-      "4" : "42e8221b264a9fcd",
-      "16" : "2057198de34ece63"
+      "4" : "182b302b1a43c5dd",
+      "16" : "585cd1905f225380"
     },
     "narrowConversionForm=SCALAR over useAVX=2" : {
-      "4" : "42e8221b264a9fcd",
-      "16" : "2057198de34ece63"
+      "4" : "182b302b1a43c5dd",
+      "16" : "585cd1905f225380"
     },
     "narrowGroupStore=MASKED over lanesOverride=4" : {
-      "4" : "eb28eacbfed377e8"
+      "4" : "ec4300b5da7c5922"
     },
     "narrowGroupStore=COMBINED over lanesOverride=4" : {
-      "4" : "75965d5c6cd03ef6"
+      "4" : "1efc29f0a023183a"
     },
     "narrowLanes=true" : {
-      "4" : "650fc6ed5788761a",
-      "16" : "972ab9cc30d75b00"
+      "4" : "4025f31736f88484",
+      "16" : "de852e4d844e566e"
     },
     "narrowLanes=false" : {
-      "4" : "813e2e6892388777",
-      "16" : "cbbfde3e171e93b9"
+      "4" : "b27fdecc622ae5f6",
+      "16" : "8417974fa028105f"
     },
     "narrowGroupStore=COMBINED" : {
       "2" : "b4a2f85877825dbd",
-      "4" : "383f2239b5344b02",
-      "16" : "972ab9cc30d75b00"
+      "4" : "9e789865eb2baf5f",
+      "16" : "de852e4d844e566e"
     },
     "groupLocalSlots=false" : {
-      "4" : "120816bc5ba952e4",
-      "16" : "023ce74660c1ece7"
+      "4" : "99d80286d100e008",
+      "16" : "665b4614a3b4661f"
     },
     "methodByteBudget=0" : {
-      "4" : "25d6837985fb9b63",
-      "16" : "12b6785b3a42718a"
+      "4" : "9f152ee6d686c497",
+      "16" : "a5efcacf318cddfa"
     },
     "mathUlpContract=true" : {
-      "4" : "650fc6ed5788761a",
-      "16" : "972ab9cc30d75b00"
+      "4" : "4025f31736f88484",
+      "16" : "de852e4d844e566e"
     },
     "maskFromWord=true" : {
-      "4" : "9371b9fa60b4a173",
-      "16" : "4b866b0aa798b714"
+      "4" : "f4ef71785b349214",
+      "16" : "99cce2ce3bfd2e28"
     }
   }
 }
