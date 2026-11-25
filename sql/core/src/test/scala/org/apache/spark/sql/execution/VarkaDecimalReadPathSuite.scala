@@ -45,12 +45,12 @@ import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch}
  * Arrow-cached table, on each path a query can take to the cast, with Varka off and on
  * (VARKA-365).
  *
- * `Decimal.roundToInt` has two rules, chosen by the value's backing. A long-backed value
- * truncates its unscaled long and checks the result exactly; a `BigDecimal`-backed one converts
- * to a double and range-checks its floor and ceiling. They part on the two values this suite
- * reads: `0.999999999999999999` as `DECIMAL(18, 18)`, which truncates to 0 but rounds to the
- * double 1.0, and `2147483647.99999999` as `DECIMAL(18, 8)`, which truncates to `Int.MaxValue`
- * but rounds to the double 2^31, past it.
+ * `Decimal.roundToInt` truncates exactly whatever the value's backing (SPARK-60843). Before it, a
+ * `BigDecimal`-backed value was converted to a double and its floor and ceiling range-checked,
+ * which parts from the truncation on the two values this suite reads: `0.999999999999999999` as
+ * `DECIMAL(18, 18)`, which truncates to 0 but rounds to the double 1.0, and
+ * `2147483647.99999999` as `DECIMAL(18, 8)`, which truncates to `Int.MaxValue` but rounds to the
+ * double 2^31, past it. Every path here now answers by the truncation, the exact rule.
  *
  * The backing is decided by the path, not by the data. `ArrowColumnVector` builds a
  * `BigDecimal`-backed value at every precision, and an `UnsafeRow` holding a decimal of
@@ -64,7 +64,8 @@ import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch}
  * alike - goes through `VarkaRowView`, which reads a small decimal as vanilla's row path does; so
  * Varka follows the exact rule on every path too, as `VARKA-365.md` 11 and 13 record. Over a
  * columnar input that is not the Arrow cache, vanilla's `ColumnarToRowExec` reads through the
- * accessor and follows the double rule, and so does Varka, which reads such a batch's own rows.
+ * accessor, `BigDecimal`-backed, and so does Varka, which reads such a batch's own rows; both
+ * truncate exactly too.
  *
  * Two more tables hold slots Spark's own writer never writes, planted in the cached bytes: `a`'s
  * low word is 10^18, a value with more digits than its precision, and `b`'s high word is not its
@@ -83,7 +84,6 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
   import VarkaDecimalReadPathSuite._
 
   private val ExactRule = "the exact rule"
-  private val DoubleRule = "the double rule"
   private val LowWords = "the row reader's low words"
   private val Raises = "the accessor's NUMERIC_VALUE_OUT_OF_RANGE"
   private val NoRow = "no row"
@@ -107,11 +107,8 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
 
   private val valid = (name: String) => Table(name, "(0, 2147483647)",
     asValue = Seq(
-      Reading(ExactRule, Seq("0", "2147483647", "0", "2147483647", "0", "2147483647")),
-      Reading(DoubleRule, Seq("0", "2147483647", "1", "CAST_OVERFLOW", "1", "null"))),
-    asFilter = Seq(
-      Reading(ExactRule, Seq.fill(6)("3")),
-      Reading(DoubleRule, Seq("3", "3", NoRow, "CAST_OVERFLOW", NoRow, NoRow))))
+      Reading(ExactRule, Seq("0", "2147483647", "0", "2147483647", "0", "2147483647"))),
+    asFilter = Seq(Reading(ExactRule, Seq.fill(6)("3"))))
 
   private val malformed = (name: String) => Table(name, "(1, 2147483647)",
     asValue = Seq(
@@ -329,9 +326,10 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
   /**
    * Fails if a Varka node in `plan` reads the Arrow cache's batches but
    * `VarkaColumnarRule.readsArrowCache` says it does not: a columnar node the walk does not pass
-   * between the node and the scan, which would leave the node reading the batch's own rows by the
-   * double rule. The cache's batches reach a node when every node below it down to the scan is a
-   * query stage or a unary columnar node; a node of another kind among them is named.
+   * between the node and the scan, which would leave the node reading the batch's own rows through
+   * the accessor, which raises on a malformed slot where the row reader takes its low word. The
+   * cache's batches reach a node when every node below it down to the scan is a query stage or a
+   * unary columnar node; a node of another kind among them is named.
    */
   private def checkCacheFlags(plan: SparkPlan): Unit = {
     // The nodes between `p` and an Arrow cache scan whose batches `p` hands up, or None.
@@ -544,7 +542,7 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
   }
 
   test("a columnar child that is not the Arrow cache: Varka on reads its rows as " +
-      "ColumnarToRowExec does, by the double rule") {
+      "ColumnarToRowExec does, by the exact rule") {
     val child = spark.withActive(ArrowDecimalBatchPlan())
     assert(!VarkaColumnarRule.readsArrowCache(child))
     val Seq(a, b, d, i) = child.output
@@ -561,9 +559,10 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     def vanillaPlan(cast: Expression): SparkPlan =
       CollapseCodegenStages().apply(ProjectExec(projectList(cast), ColumnarToRowExec(child)))
     val vanilla = all.map(c => spark.withActive(answer(values(vanillaPlan(c)))))
-    assert(vanilla === rule(DoubleRule))
+    assert(vanilla === rule(ExactRule))
     // Without whole-stage code the transition copies each row into an UnsafeRow first, which
-    // reads the value back long-backed; Varka's node reads the batch's rows as they are.
+    // reads the value back long-backed; Varka's node reads the batch's rows as they are. Both
+    // backings truncate exactly (SPARK-60843).
     val interpreted = all.map { c =>
       spark.withActive(answer(values(ProjectExec(projectList(c), ColumnarToRowExec(child)))))
     }
