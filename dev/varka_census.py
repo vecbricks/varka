@@ -917,7 +917,7 @@ def cast_rows(src, dst):
         return "103"
     if "dec" in lanes:
         if dst in ("byte", "short", "int"):
-            return "350,364,365"
+            return "350,364"
         if dst in ("float", "double"):
             return "350,364,366"
         if src in ("float", "double"):

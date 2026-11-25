@@ -40,7 +40,7 @@ import org.apache.spark.sql.types.{DataType, DecimalType, StructField, StructTyp
  * Varka node.
  */
 // varka-session-lint: allow the casts are held to vanilla Spark's answers over the Arrow cache,
-// whose read path decides each decimal's backing (VARKA-365), and to its errors
+// whose answers and errors are the ones a Varka-off read of that cache gives (VARKA-365)
 class VarkaDecimalCastQuerySuite extends VarkaMaybeThrows with VarkaTestWatchdog {
 
   private val view = "varka_decimal_casts"

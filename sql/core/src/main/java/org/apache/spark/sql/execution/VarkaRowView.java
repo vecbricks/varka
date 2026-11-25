@@ -56,9 +56,8 @@ import org.apache.spark.unsafe.types.UTF8String;
  * values, while a row of a columnar batch reads through {@code ArrowColumnVector}, whose
  * small-decimal accessor builds a {@code BigDecimal}-backed one. Spark's casts truncate both
  * backings exactly ({@code Decimal.roundToInt}), so over a well-formed slot the two give the same
- * answers; they part on a slot Spark's own writer never writes, which the row reader reads by its
- * low long and the accessor by all its bits (the two paths below). The view also builds one
- * {@code Decimal} per read where the accessor builds a {@code BigDecimal} and a {@code Decimal}.
+ * answers. They part on a slot outside the column's precision, which Spark's own writer never
+ * writes: the row reader answers its low word, and the accessor raises (the known limit below).
  *
  * <p>The view wraps a column only when it is an {@code ArrowColumnVector} over a
  * {@code DecimalVector}, Arrow Java's class for every decimal field narrower than 256 bits. A

@@ -60,8 +60,9 @@ import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch}
  * `UnsafeProjection` over the batch. So vanilla Spark follows the exact rule on every path here.
  * With Varka on, a Varka node reads the batches through `ArrowColumnVector`, and every row-by-row
  * read of a batch - residual outputs, fallbacks, the filters' copies, row and columnar output
- * alike - goes through `VarkaRowView`, which reads a small decimal as vanilla's row path does; so
- * Varka follows the exact rule on every path too, as `VARKA-365.md` 11 and 13 record. Over a
+ * alike - goes through `VarkaRowView`, which reads a small decimal as vanilla's row path does, so
+ * the two agree on the malformed slots below too; on the valid tables Varka follows the exact
+ * rule on every path whatever the backing. Over a
  * columnar input that is not the Arrow cache, vanilla's `ColumnarToRowExec` reads through the
  * accessor, `BigDecimal`-backed, and so does Varka, which reads such a batch's own rows; both
  * truncate exactly too.
