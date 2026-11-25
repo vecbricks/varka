@@ -614,16 +614,18 @@ public abstract class VarkaTypeConformance {
         if (fusedInPart(f)) {
           // The census marks the type fused in part: a form in the band that fuses is held to
           // the answers rather than called drift, and one the suite names as outside it is owed.
+          // A form that stores a pair fuses but is not held to the answers here: it is unverified,
+          // and so counts neither as fused nor as declined for declinesInPart.
+          if (compiled.isPresent() && storesPair(compiled.get())) {
+            pairStores.add(f.toString());
+            continue;
+          }
           boolean listed = declinesInPart().contains(f.register());
           if (listed) {
             listedDeclined.merge(f.register(), compiled.isEmpty(), Boolean::logicalOr);
           }
           if (compiled.isPresent()) {
-            if (storesPair(compiled.get())) {
-              pairStores.add(f.toString());
-            } else {
-              check(f, compiled.get());
-            }
+            check(f, compiled.get());
             continue;
           }
           if (!listed) {
@@ -667,12 +669,14 @@ public abstract class VarkaTypeConformance {
       fail("the registers have drifted from the compiler: " + String.join("; ", drift));
     }
     assumeTrue(owed.isEmpty(), "owed by the registers: " + String.join("; ", owed));
-    assumeTrue(pairStores.isEmpty(), "the decimal slot lane reads no output of the lane pair's "
-        + "store yet, so these fused forms are held to Spark by VarkaDecimalPairSuite instead: "
-        + String.join("; ", pairStores));
     assumeTrue(unbaked.isEmpty(), "this configuration bakes no lane count for a narrow value "
         + "these forms read or store, so the compiler declines them and the row engine answers "
         + "them: " + String.join("; ", unbaked));
+    // Last, so that a check's other cancellations are named first (`m8/VARKA-359.md` 10.8).
+    assumeTrue(pairStores.isEmpty(), "unverified here: these forms fuse as the lane pair's "
+        + "store, whose two words the slot lane's reference and oracle do not read (row 359 owes "
+        + "that harness; VarkaDecimalPairSuite holds the same shapes to Spark): "
+        + String.join("; ", pairStores));
   }
 
   /**

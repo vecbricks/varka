@@ -1110,6 +1110,15 @@ word rules are gone; `InterleaveDecimal.props()` states them once: ring `NEVER`,
 `Operand(0)` (the low word's, as the old arms read it), weight 3, its record name as the cost
 kind, no restricted position, `LongNarrowReader.NONE`.
 
+*25 November 2026, review of the merged branch:* the forms the pair's conformance suite
+(`VarkaDecimalConformanceSuite`, `DECIMAL(30, 4)`) leaves unchecked are every fused form whose
+output is a pair store: `if`, `CASE`, `coalesce`, `greatest`, `least`, `-x` and `abs(x)` as values,
+in the choice, round-trip and ordering checks. The suite counts them as unverified, neither fused
+nor declined, and cancels with their list after its other cancellations. Row 359 owes the harness
+that would check them (a reference over two words and an oracle answer above 18 digits);
+until then `VarkaDecimalPairSuite.storedValues` holds the same shapes to Spark by reading the
+sixteen-byte slots, at 20 and 38 digits rather than at 30.
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **359b before the pair-load node.** 10.5 names the node as the next part, but its only proof is
