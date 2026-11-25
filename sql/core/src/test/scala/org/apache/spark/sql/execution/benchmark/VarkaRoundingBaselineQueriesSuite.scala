@@ -20,17 +20,20 @@ package org.apache.spark.sql.execution.benchmark
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.VarkaSharedSessions
 import org.apache.spark.sql.execution.benchmark.VarkaRoundingBaselineBenchmark.NullRule
+import org.apache.spark.sql.execution.benchmark.VarkaSqlBenchmarkBase.Fusion
 import org.apache.spark.sql.internal.SQLConf
 
 /**
  * The rounding baseline's sections, run at a small scale on both sessions in every build, so a
  * section that no longer parses, raises, changes its result type or that the two sessions answer
  * differently fails a pull request rather than the runner dispatch that times it (VARKA-344 5).
- * Each section runs under its own SQL settings, its mode where it has one. It checks the answers
- * only: whether a section fuses is the benchmark's own check, made when it is timed, since row
- * 344 is meant to start fusing these queries.
+ * Each section runs under its own SQL settings, its mode where it has one. It also makes the
+ * benchmark's own fuse check, that a section the benchmark lists as fusing plans whole and runs
+ * every batch as a kernel and that an unlisted one plans no Varka node, so a step of row 344 that
+ * fuses a section lists it in the same pull request.
  *
  * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the id,
  * so these rows already reach the regions the benchmark's javadoc states, which the suite checks
@@ -69,7 +72,8 @@ class VarkaRoundingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
     }
   }
 
-  test("every section of the rounding baseline runs, and both sessions answer alike") {
+  /** Runs `body` with the benchmark's table over the fixture's rows, cached on both sessions. */
+  private def withTable(body: => Unit): Unit = {
     val view = VarkaRoundingBaselineBenchmark.VIEW
     val sessions = Seq(spark, varkaSpark)
     try {
@@ -77,6 +81,18 @@ class VarkaRoundingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
         session.sql(VarkaRoundingBaselineBenchmark.tableSql(rows)).createOrReplaceTempView(view)
         session.catalog.cacheTable(view)
       }
+      body
+    } finally {
+      for (session <- sessions if session.catalog.tableExists(view)) {
+        session.catalog.uncacheTable(view)
+        session.catalog.dropTempView(view)
+      }
+    }
+  }
+
+  test("every section of the rounding baseline runs, and both sessions answer alike") {
+    val view = VarkaRoundingBaselineBenchmark.VIEW
+    withTable {
       val r = spark.sql(
         s"""select count_if(abs(x) % 1 = 0.5),
            |       count_if(cast(x as string) = '0.0'), count_if(cast(x as string) = '-0.0'),
@@ -223,10 +239,33 @@ class VarkaRoundingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
           }
         }
       }
-    } finally {
-      for (session <- sessions if session.catalog.tableExists(view)) {
-        session.catalog.uncacheTable(view)
-        session.catalog.dropTempView(view)
+    }
+  }
+
+  test("each section of the rounding baseline fuses as its listing says", PinsDefaults) {
+    // The benchmark's own fuse check, made here too, so a change to how a section fuses fails a
+    // pull request rather than the runner dispatch that times it: a listed section plans WHOLE
+    // and runs every batch as a kernel, an unlisted one plans no Varka node, and the sections
+    // over xw and xwf, which time the bounded arm's fallback on purpose, are not held to the
+    // kernel check, as the benchmark does not hold them. Each section is planned under its own
+    // settings, under the emitter's default options, so the listing pins the defaults; the run
+    // that lifts the benchmark's check cancels it. The listing holds with the two-lane condition
+    // refusal (VARKA-503) off, as the shared sessions leave it, and on, as the benchmark's
+    // 128-bit companion runs, since the refusal declines a filter's condition and every section
+    // here is a projection; both are checked.
+    assume(VarkaSqlBenchmarkBase.fuseCheck(),
+      s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
+    withTable {
+      forEachTwoLaneRefusal { declines =>
+        for (s <- VarkaRoundingBaselineBenchmark.sections().asScala) {
+          withClue(s"${s.title}, refusal $declines") {
+            withSettings(s) {
+              val fusion = if (s.fuses) Fusion.WHOLE else Fusion.NONE
+              VarkaSqlBenchmarkBase.requireSection(
+                varkaSpark, s.title, s.query, fusion, s.timesFallback)
+            }
+          }
+        }
       }
     }
   }

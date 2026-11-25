@@ -2939,6 +2939,10 @@ there, before any Varka suite.
 
 ### Item 31. The timestamp types on the long lane
 
+*25 November 2026: the zoned `TIMESTAMP` is milestone 9's, as rows 656 and 657 of its task plan
+(`m9/PLAN.md` 2.2 and 2.3), and the nanosecond types, "not this item" below, are its rows 660 to
+662 (`m9/PLAN.md` 2.5).*
+
 *Moved out of milestone 5 on 17 September 2026, on the owner's decision while
 reading `VARKA-29.md`: "I didn't plan to support TIMESTAMP_NTZ during this
 milestone." Milestone 5's row 29 had carried both timestamp types since a 15
@@ -4994,7 +4998,12 @@ Varka: where the reading quotes a speed, it is a source comment in Polars.*
    `instant = l - O[#{LT <= l}]` matched `LocalDateTime.atZone` over 875,000 gap and overlap points;
    transitions are at least 601,200 s apart, so a bucket of 2^39 microseconds holds at most one; and
    using the batch as the bucket (a scalar lookup, then compare, blend and add) declines only a batch
-   that spans two transitions.
+   that spans two transitions. *Repeated on 25 November 2026 for `m9/PLAN.md` 2.2
+   (`sql/varka/spikes/zone-offset/results/facts.txt`): the formula equals `LocalDateTime.atZone` at
+   257,568,575 local times around every change of every zone, `LT` rises strictly, and the closest
+   two changes are 601,200 s apart. A year of instants in no order spans two changes in every
+   batch, so the batch as the bucket declines all of them; milestone 9's row 657 builds the forms
+   that do not.*
 8. **Kernel experiments to price** (the filter node and the emitter), each an A/B on the idle
    laptop with its verdict recorded, "no" included: compaction for the non-four-byte lanes by 64-bit
    mask word (skip a zero word, copy an all-ones word, walk up to 16 set bits, otherwise store and
@@ -5754,6 +5763,7 @@ and the owner has decided from it whether steps 2 and 3 use Lean.
 
 ### Item 117. A year-month `time_bucket` over `TIMESTAMP_NTZ`
 
+*Moved to milestone 9's task plan as row 664 on 25 November 2026 (`m9/PLAN.md` 1.1, G3).*
 *Added 27 October 2026 on the owner's word, from row 339's plan (`m8/VARKA-339.md` 8).* Row 339
 fuses `time_bucket` over a day-time width and declines a year-month width by name: the milestone
 plan names only the day-time form, and no coverage row, TPC query or fuzz grammar uses a month
@@ -5829,6 +5839,7 @@ to run), or shard each by family or row so that two rows touch different files. 
 pull requests that each add coverage rows merge with master in either order without a conflict in a
 generated file, and a stale file fails CI with its regeneration command.
 
+*Moved to milestone 9's task plan as row 653 on 25 November 2026 (`m9/PLAN.md` 2.6).*
 *Added 11 November 2026 by the owner's word; this part stays in milestone 9, outside row 546's
 done-when.* Row 546's merge driver (#1293) merges the generated files per key, and a merge of master
 into an open branch still pays for them: the driver leaves `option_arms`, the rows' places and the
@@ -5894,6 +5905,7 @@ width, and the record says which of items 60, 92 and 105 the numbers favour, or 
 
 ### Item 125. `TryEval` over a fused subtree
 
+*Moved to milestone 9's task plan as row 665 on 25 November 2026 (`m9/PLAN.md` 1.1, G3).*
 *Added 30 October 2026 from `m8/VARKA-103.md` 8 (open point 3).* Every `try_` function whose operand
 is not one of the arithmetic forms Spark rewrites into a `NULL`-returning node becomes
 `TryEval(child)` (`expressions/TryEval.scala:90-97`, `:135-141`, `:229-235`, `:268-274`), which
@@ -5908,6 +5920,7 @@ interval fuses with a coverage row, and a subtree with an inexact guard is shown
 
 ### Item 126. `d + dt` over a stored `INTERVAL DAY` column
 
+*Moved to milestone 9's task plan as row 666 on 25 November 2026 (`m9/PLAN.md` 1.1, G3).*
 *Added 30 October 2026 from `m8/VARKA-103.md` 8 (open point 4, its option (a)).* The date arm reads
 a stored `INTERVAL DAY` column as its day offset: row 103's day quotient, narrowed to an int under
 the date arm's day guard (`m8/VARKA-103.md` 2.3; `VarkaChronoCompiler.java:527`'s decline today,
@@ -6248,7 +6261,7 @@ its steps 2 and 3, the optional path tiers, `--replay` and the `auto` default.
 | 625 | A push check for an option change | the row | CI or tooling work: it moves no census cell and serves no new type |
 | 627 | One benchmark slug per CPU | the row | CI or tooling work: it moves no census cell and serves no new type |
 | 637 | Steps 2 and 3 only: a pull request's matrix runs what its diff can move (path tiers, `--replay`, the `auto` default) | `m8/VARKA-637.md` 3.2, 3.5 and 7 | CI or tooling work: it moves no census cell and serves no new type; step 1, the first stage, was returned to milestone 8 |
-| 642 | An emit option declared in one place | `VARKA-642.md` | CI or tooling work: it moves no census cell and serves no new type |
+| 642 | An emit option declared in one place | `VARKA-642.md` | CI or tooling work: it moves no census cell and serves no new type. *Moved to milestone 9's task plan on 25 November 2026 (`m9/PLAN.md` 3); its plan stays in `m9/`.* |
 
 Two findings of rows marked done the same day come here too, since neither moves a census cell:
 

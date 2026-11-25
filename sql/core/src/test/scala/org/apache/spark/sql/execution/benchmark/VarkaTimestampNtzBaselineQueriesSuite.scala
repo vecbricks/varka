@@ -17,8 +17,6 @@
 
 package org.apache.spark.sql.execution.benchmark
 
-import java.util.Optional
-
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
@@ -30,8 +28,9 @@ import org.apache.spark.sql.execution.VarkaSharedSessions
  * section that no longer parses or that the two sessions answer differently fails a pull request
  * rather than the runner dispatch that times it (VARKA-377 5). It also makes the benchmark's own
  * fuse check, that each section's plan on the Varka session has the section's fusion class, with
- * the two-lane condition refusal off and on, so a row that changes how a section fuses sets the
- * section's new class in the same pull request.
+ * the two-lane condition refusal off and on, and that a `WHOLE` section runs every batch as a
+ * kernel, so a row that changes how a section fuses sets the section's new class in the same pull
+ * request.
  */
 class VarkaTimestampNtzBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
@@ -74,8 +73,7 @@ class VarkaTimestampNtzBaselineQueriesSuite extends QueryTest with VarkaSharedSe
       forEachTwoLaneRefusal { declines =>
         for (s <- VarkaTimestampNtzBaselineBenchmark.sections(declines).asScala) {
           withClue(s"${s.title}, refusal $declines") {
-            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+            VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
           }
         }
       }
