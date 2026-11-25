@@ -1539,13 +1539,13 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `-d38` | none |  | lo' = -lo and hi' = ~hi + (lo = 0), stored as the two words | not audited |
-| `abs(d38)` | none |  |  | not audited |
-| `IF(d18 > 0.00, d38, d38b)` | `predicate`, `condition` |  | each word chosen under one condition | not audited |
-| `CASE WHEN d38 < 0.00 THEN d38b END` | `predicate`, `condition` |  | a missing ELSE is a null in each word | not audited |
-| `coalesce(d38, d19)` | `condition` |  |  | not audited |
-| `greatest(d38, d38b)` | `intArithmetic` |  |  | not audited |
-| `least(d38, d38b, d19)` | `intArithmetic` |  |  | not audited |
+| `-d38` | none |  | lo' = -lo and hi' = ~hi + (lo = 0), stored as the two words | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `abs(d38)` | none |  |  | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `IF(d18 > 0.00, d38, d38b)` | `predicate`, `condition` |  | each word chosen under one condition | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `CASE WHEN d38 < 0.00 THEN d38b END` | `predicate`, `condition` |  | a missing ELSE is a null in each word | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `coalesce(d38, d19)` | `condition` |  |  | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `greatest(d38, d38b)` | `intArithmetic` |  |  | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `least(d38, d38b, d19)` | `intArithmetic` |  |  | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
 
 #### DECIMAL arithmetic
 
@@ -1643,9 +1643,9 @@ operands (a row counts once for each type it reads):
 | `bool` | 39 | 0 | 0 | 0 | 13 | 0 | 26 |
 | `byte` | 57 | 0 | 0 | 0 | 0 | 8 | 49 |
 | `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
-| `dec` | 100 | 1 | 50 | 14 | 0 | 0 | 35 |
-| `double` | 97 | 0 | 0 | 1 | 0 | 0 | 96 |
-| `dt` | 36 | 2 | 0 | 4 | 0 | 0 | 30 |
+| `dec` | 112 | 1 | 50 | 16 | 0 | 0 | 45 |
+| `double` | 108 | 0 | 0 | 1 | 0 | 0 | 107 |
+| `dt` | 39 | 2 | 0 | 7 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
 | `int` | 186 | 14 | 0 | 5 | 1 | 1 | 165 |
 | `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
