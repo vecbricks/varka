@@ -54,8 +54,11 @@ LEGACY, ANSI and TRY collapse to one kernel per form, and TRY is item 12 (the ca
    `roundToLong(micros / (double) k, HALF_UP)` (`:874`); decimal `Decimal./`, to 39 fractional
    digits `DOWN`, then `HALF_UP` to scale 0 (`:870-872`; `Decimal.scala:526-533`).
    *25 November 2026:* the two classes are one on master since the apache/spark sync #1427 (9
-   November 2026), which brought SPARK-60746 (apache/spark#59956, upstream `ed83bbf762f`): both
-   paths call `IntervalMathUtils.divide`, which raises
+   November 2026), which brought SPARK-60746 (apache/spark#59956, upstream `ed83bbf762f`), and the
+   lines cited above (`intervalExpressions.scala:733-745`, `:889-893`) are those of the code
+   before it. Both paths now call the day-time long overload of `IntervalMathUtils.divide`
+   (`util/IntervalMathUtils.scala:83-89`; the year-month overloads at `:55-81`, the day-time
+   decimal and double ones at `:92-108`), which raises
    `INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION` with the query context on `Long.MIN_VALUE / -1`
    (`VARKA-414.md` 9). What `dt / -1` waits on now is the context itself: a declined batch's
    fallback raises it without the `== SQL ==` block until a sync brings SPARK-61352 (item 8's
@@ -758,13 +761,15 @@ None of the owner's. The lead settled the admission check's nine points on 30 Oc
    condition mismatch if the fallback and the oracle took different paths. That difference may be
    an upstream Spark defect, one input with an engine-dependent error class; the lead checks it on
    apache/master.
-   *25 November 2026:* it was, and both facts are settled. The class difference was filed and
-   fixed as SPARK-60746, on master since #1427 (item 4's note). The lost block is upstream's too
-   (`VARKA-414.md` 9: the fallback projection is compiled on the executor, where the division's
-   `origin` is empty), fixed as SPARK-61352 (apache/spark#60285, merged upstream on 24 November
-   2026 as `8621489fe80`), which is not on master yet. Until the sync that brings it, `dt / -1` and
-   a decimal divisor under one in magnitude decline naming 414 (`VarkaIntervalCompiler.java`,
-   `dayTimeDivide`).
+   *25 November 2026:* the second fact was an upstream defect, and the first was refuted. The
+   class difference was filed and fixed as SPARK-60746, on master since #1427 (item 4's note).
+   `VARKA-414.md` 9 found that the fallback evaluates Spark's own `DivideYMInterval`, not the
+   negation, so `negateExact`'s null context is not the cause: the block is lost because the
+   fallback projection is compiled on the executor from a deserialized copy, whose `origin` is
+   empty. That defect is upstream's too, fixed as SPARK-61352 (apache/spark#60285, merged upstream
+   on 24 November 2026 as `8621489fe80`), which is not on master yet. Until the sync that brings it,
+   `dt / -1` and a decimal divisor under one in magnitude decline naming 414
+   (`VarkaIntervalCompiler.java`, `dayTimeDivide`).
 9. **The G1 edges** are the lead's to edit; what they should be is under the open points below.
 
 ### Open points for the lead

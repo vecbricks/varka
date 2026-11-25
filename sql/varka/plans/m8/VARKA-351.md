@@ -86,12 +86,15 @@ nothing ran Spark. A claim marked **[I]** is inferred, not read or run.
    `DateTimeException` when `floorDiv(u, 10^6)` is negative or above `Int.MaxValue`, before
    `LocalDateTime.of` checks the other fields; every other value takes the path above, the
    60-second rollover included. So `4324.967296` is no longer read as 30 seconds: it is NULL
-   when `failOnError` is false (and from `try_make_timestamp_ntz`) and
-   `DATETIME_FIELD_OUT_OF_BOUNDS.WITHOUT_SUGGESTION` when true (upstream's `timestamp-ntz.sql`
-   golden file and `DateExpressionsSuite` "SPARK-60743: make_timestamp rejects out-of-range
-   seconds instead of wrapping them"). With an invalid month under ANSI, `-1` and `2147483648`
-   seconds are reported before the month, and `61` and `2147483647` after it, which changes the
-   message only: both are raised, and a Varka batch that holds one declines to Spark's row path.
+   when `failOnError` is false and `DATETIME_FIELD_OUT_OF_BOUNDS.WITHOUT_SUGGESTION` when true
+   (`DateExpressionsSuite` "SPARK-60743: make_timestamp rejects out-of-range seconds instead of
+   wrapping them", over `TimestampNTZType` too, and the `timestamp-ntz.sql` golden file), and
+   the TRY form, `failOnError = false`, is NULL as well (`try_make_timestamp(1, 1, 1, 1, 1,
+   4324.967296)` in `timestamp.sql`, whose `results/timestampNTZ/timestamp.sql.out:192-196` and
+   `timestamp-ansi.sql.out:227-231` answer NULL as a `timestamp_ntz`). With an invalid month under
+   ANSI, `-1` and `2147483648` seconds are reported before the month, and `61` and `2147483647`
+   after it, which changes the message only: both are raised, and a Varka batch that holds one
+   declines to Spark's row path.
 9. **`make_dt_interval(d, h, m, sec)`**, row 103's (below), casts its seconds to `DECIMAL(18, 6)`
    (`expressions/intervalExpressions.scala:537`), the shorter forms taking the literal
    `Decimal(0, 18, 6)` (`:523`), and computes `u + d * D`, then `+ h * 3.6 * 10^9`, then `+ m * 6 *
@@ -314,7 +317,14 @@ Spark does.
   note, SPARK-60743). The seconds stay on the long lane: `t = u`, bad where `u` is outside
   `[0, 6 * 10^7]`, which also holds every value whose whole seconds are negative or pass
   `Int.MaxValue`, so the band SPARK-60743 rejects is bad by the same test and disposed by the
-  same mode, `NULL` or `FAIL`. Re-read when the row starts.
+  same mode, `NULL` or `FAIL`. Without the narrowing, `u` reaches about `10^16` on a bad lane, so
+  the micros sum can overflow there, where Spark never computes it: `splitSecsAndMicros` and
+  `LocalDateTime.of` reject the fields before `localDateTimeToMicros` adds anything. So the
+  bad-field mask takes precedence over the add's `FAIL`: the add's overflow test reads only the
+  lanes whose fields are all good, and a bad lane is disposed by the fields' mode alone, `NULL`
+  under LEGACY and TRY, a declined batch under ANSI. Named test (3 item 3): the day edge
+  106751991 with a late time and `9999999999.999999` seconds is NULL under LEGACY and TRY, not
+  a raise. Re-read when the row starts.
 - **`extract(SECOND FROM ntz)`**: `Scaled(r, (8, 6))` with `r` the remainder of 340's
   `microsOfDay(t)` by `6 * 10^7` (`ConstDivide` over a dividend below `2^37`, one new proven
   divisor); `6 * 10^7` divides the day, so this is `floorMod(t, 6 * 10^7)`. 340's own sketch,
@@ -369,7 +379,9 @@ the five biases, held by `VarkaWarmupReachSuite`.
    *25 November 2026:* `4324.967296` is out of range in Spark since SPARK-60743 (item 0.8's
    note), so the case checks NULL under LEGACY and TRY and the raise under ANSI, and joins
    upstream's edges: `2147.483647`, `2147.483648`, `-0.5`, `-0.000001`, `9999999999.999999` and
-   `-9999999999.999999`, and `-1` and `2147483648` with an invalid month.
+   `-9999999999.999999`, and `-1` and `2147483648` with an invalid month; and the day edge
+   106751991 with a late time and `9999999999.999999` seconds, NULL under LEGACY and TRY, where
+   the micros sum would overflow but Spark rejects the seconds first (2.6's note).
 4. **SMT, over integers.** A file `sql/varka/proofs/decimal_round.smt2`, run under Z3 and cvc5:
    2.3's construction equals each mode of `u / 10^d` for every `|u| <= 10^18 - 1` and `d` from 1 to
    18, the wrap stated by `mod 2^64`, the bias's headroom and the dividend bounds; the negative
@@ -526,10 +538,6 @@ test (2.6, section 3 item 3). None is open. Flagged as the owner's text, not que
    merged on 10 November 2026) and on master since the sync #1482; nothing is copied or pinned,
    and the settlement above that the `(int)` narrowing "is copied and pinned by a test" is
    withdrawn (2.6 and section 3 item 3 carry the replacement).*
-5. *Added 25 November 2026:* **Row 351's text in `PLAN.md` still says the six-field
-   `make_timestamp_ntz` "narrows the unscaled seconds to an int as Spark does".** It no longer
-   does (item 0.8's note). The row line is left for a later plan edit, since an open pull request
-   (#1707) edits the adjacent row 350; this file is the record until then.
 
 ## 9. Done when
 

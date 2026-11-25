@@ -256,8 +256,9 @@ row. 3: not scored; no test was added.
 
    *25 November 2026, from the merged commit:* SPARK-61352 merged upstream on 24 November 2026
    (00:17 CET) as `8621489fe80`, titled "Keep the query context of interval errors after
-   serialization and rewrites", and is also on apache/spark's branch-4.2, 4.3 and 4.4; it is not
-   on Varka's master, and the next apache sync brings it. Two points above differ from what
+   serialization and rewrites", and is also on apache/spark's branch-4.x as `f45fc0b9eb4` and on
+   the release branches 4.2 (`03c97420a67`), 4.3 (`c0f4aebcbcd`) and 4.4 (`aa2fc532952`); it is
+   not on Varka's master, and the next apache sync brings it. Two points above differ from what
    merged:
    * **`copyTagsFrom` goes the other way.** The merged rule copies the context of the node a rule
      replaces whenever that node has one from an origin (`SupportQueryContext.hasOrigin`, a SQL
