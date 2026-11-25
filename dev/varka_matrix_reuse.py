@@ -312,9 +312,10 @@ MATRIX_WORKFLOW = "varka-option-matrix.yml"
 BIN_JOB = re.compile(r"Option matrix: (b\d{3})")
 FAILED = ("failure", "timed_out")
 # The branch's runs looked through, newest first: one page. With `--pr` every pull request's runs
-# share master as their branch, so a page of the most the API gives is read instead.
+# share master as their branch, so pages of the most the API gives are read, up to PR_PAGES of
+# them, until one holds a run named for the pull request.
 LOOK_BACK = 20
-PR_LOOK_BACK = 100
+PR_PAGES = 5
 # A matrix run's jobs come 50 to a page: a page of 100 of them, steps and all, has answered 502
 # three times running (dev/varka_matrix_stragglers.py reads them 50 to a page too).
 JOB_PAGE = 50
@@ -335,12 +336,20 @@ def last_failed(repository, branch, run, pr=None):
     failed bin, whatever the run's own conclusion, so a run cancelled after a red bin counts; or
     (None, []) when none of its last `LOOK_BACK` runs has one. Run ids grow with time, so the
     runs from `run` on, this one among them, are passed over. With `pr`, only the runs named for
-    that pull request count, among the branch's last `PR_LOOK_BACK`."""
+    that pull request count, from the first page of `PAGE` that holds one, up to `PR_PAGES`."""
     path = f"repos/{repository}/actions/workflows/{MATRIX_WORKFLOW}/runs"
-    size = LOOK_BACK if pr is None else PR_LOOK_BACK
-    runs = gh(f"{path}?branch={quote(branch, safe='')}&per_page={size}")["workflow_runs"]
-    if pr is not None:
-        runs = [r for r in runs if pr_title(pr) in (r.get("display_title") or "")]
+    path += f"?branch={quote(branch, safe='')}"
+    if pr is None:
+        runs = gh(f"{path}&per_page={LOOK_BACK}")["workflow_runs"]
+    else:
+        runs = []
+        for page in range(1, PR_PAGES + 1):
+            got = gh(f"{path}&per_page={PAGE}&page={page}")["workflow_runs"]
+            runs = [r for r in got if pr_title(pr) in (r.get("display_title") or "")]
+            if runs or len(got) < PAGE:
+                break
+        if not runs:
+            print(f"no run of the last {page} page(s) is named for #{pr}", file=sys.stderr)
     for earlier in sorted((r["id"] for r in runs if r["id"] < int(run)), reverse=True):
         jobs = gh_all(f"repos/{repository}/actions/runs/{earlier}/jobs", "jobs", JOB_PAGE)
         bins = sorted(
@@ -683,16 +692,38 @@ class SelfTest(unittest.TestCase):
         jobs = {20: [bin_job("b001")], 10: [bin_job("b002")], 5: [bin_job("b003")]}
         asked = []
 
+        # Page 1 is full of other runs, so the lookup reads on to page 2, which holds all three.
+        other = [{"id": 40 + i, "display_title": "Varka option matrix"} for i in range(PAGE)]
+
         def api(path):
             asked.append(path)
             if "/workflows/" in path:
-                return {"workflow_runs": [{"id": i, "display_title": t} for i, t in titles.items()]}
+                if path.endswith("&page=1"):
+                    return {"workflow_runs": other}
+                runs = [{"id": i, "display_title": t} for i, t in titles.items()]
+                return {"workflow_runs": runs if path.endswith("&page=2") else []}
             return {"jobs": jobs[int(path.split("/runs/")[1].split("/")[0])]}
 
         got, _ = self.run_with(api, lambda sleep, now: last_failed("o/r", "master", 30, pr=16))
         self.assertEqual(got, (10, ["b002"]))
-        self.assertIn(f"per_page={PR_LOOK_BACK}", asked[0])
+        self.assertIn(f"per_page={PAGE}&page=1", asked[0])
+        self.assertIn("&page=2", asked[1])
         self.assertFalse(any("/runs/20/" in a or "/runs/5/" in a for a in asked))
+        # A pull request with no run named for it reads up to the first short page, then gives
+        # up; with only full pages it stops after PR_PAGES.
+        asked.clear()
+        got, _ = self.run_with(api, lambda sleep, now: last_failed("o/r", "master", 30, pr=99))
+        self.assertEqual(got, (None, []))
+        self.assertEqual(sum("/workflows/" in a for a in asked), 2)
+
+        def full(path):
+            asked.append(path)
+            return {"workflow_runs": other}
+
+        asked.clear()
+        got, _ = self.run_with(full, lambda sleep, now: last_failed("o/r", "master", 30, pr=99))
+        self.assertEqual(got, (None, []))
+        self.assertEqual(sum("/workflows/" in a for a in asked), PR_PAGES)
 
     def test_reach_retries_a_failed_poll_and_gives_up_after_three(self):
         done = {"name": "Run / Varka suites: sql 1 of 3", "status": "completed"}

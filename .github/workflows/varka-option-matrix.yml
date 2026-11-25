@@ -19,8 +19,9 @@
 # rerun once per configuration - the emit defaults with one option changed, carried by every kernel
 # they emit - fanned out (VARKA-507): one job builds the test classes, or takes them from the
 # pull request's Build of the same commit, and plans the bins, about a hundred jobs of eight
-# minutes' work each run one bin of (configuration, module, suites) runner JVMs, at most 30 at a
-# time, and one job merges their runs and reports, the declining check comparing every
+# minutes' work each run one bin of (configuration, module, suites) runner JVMs, at most `slots`
+# at a time in each stage (38 on the fork, 16 on vecbricks/varka), and one job merges their runs
+# and reports, the declining check comparing every
 # configuration's fused batches with the defaults' (dev/varka_matrix_bins.py). A bin that frees a
 # slot hands it to the next, so a slow runner holds back only its own bin. A pull request runs one
 # configuration in its varka-scoped jobs; this runs all of them on dispatch. See
@@ -332,6 +333,8 @@ jobs:
     # plan puts only the changed suites first. With `pr` every run's branch is master, so the
     # lookup takes only the runs named for that pull request (`run-name`). It reads this
     # repository's runs only: a red run of the same branch on the other repository is not seen.
+    # The step holds the token, so with `pr` it runs the dispatched commit's copy of the script,
+    # not the pull request's: no pull request code gets the token or picks the run read.
     - name: Find the bins the branch's last red run failed
       id: failed
       env:
@@ -339,7 +342,18 @@ jobs:
         BRANCH: ${{ github.ref_name }}
         PR: ${{ inputs.pr }}
       run: |
-        ./dev/varka_matrix_reuse.py failed "$GITHUB_REPOSITORY" "$BRANCH" "$GITHUB_RUN_ID" \
+        script=dev/varka_matrix_reuse.py
+        if [ -n "$PR" ]; then
+          script=$RUNNER_TEMP/varka_matrix_reuse.py
+          if ! { git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" &&
+            git show "$GITHUB_SHA:dev/varka_matrix_reuse.py" > "$script"; }; then
+            echo "::warning::The dispatched commit's lookup script did not load, so no failed bin"
+            echo "of an earlier run goes first."
+            printf 'failed_run=\nfailed_bins=\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        fi
+        python3 "$script" failed "$GITHUB_REPOSITORY" "$BRANCH" "$GITHUB_RUN_ID" \
           ${PR:+--pr "$PR"} >> "$GITHUB_OUTPUT" ||
           printf 'failed_run=\nfailed_bins=\n' >> "$GITHUB_OUTPUT"
     - name: Download the plan of the branch's last red run
@@ -356,6 +370,9 @@ jobs:
     # failed bins' units, and `rest`, every other unit. The summary's first line gives each
     # list's units and bins. A cut past a matrix's 256 jobs fails the step with the planner's
     # error printed. The record the configurations ran by drops the suites `first` ran whole.
+    # With `pr` this workflow is master's but the planner is the pull request's: a head from
+    # before the two stages has a planner without `--stages`, which plans one list with the old
+    # arguments. That list becomes `rest` and `first` is empty, so the run is a one-stage run.
     - name: Plan the bins
       id: plan
       env:
@@ -370,15 +387,31 @@ jobs:
         reach=()
         [ -s target/varka-matrix/reach.tsv ] && reach=(--reach target/varka-matrix/reach.tsv)
         mkdir -p target/varka-ran-by
-        python3 dev/varka_matrix_bins.py plan \
-          --configurations target/varka-matrix/configurations \
-          --suites sql=target/varka-bins/sql --suites catalyst=target/varka-bins/catalyst \
-          --platforms "${reach[@]}" --stages "${STAGES:-two}" \
-          --changed-suites target/varka-bins/changed --failed-plan target/varka-failed/plan.json \
-          --failed-bins "$FAILED_BINS" --failed-run "$FAILED_RUN" \
-          --ran-by target/varka-ran-by/reach.tsv \
-          > target/varka-bins/plan.json 2> target/varka-bins/plan.txt \
-          || { cat target/varka-bins/plan.txt; exit 1; }
+        help=$(python3 dev/varka_matrix_bins.py plan --help 2>/dev/null || true)
+        if [[ "$help" != *--stages* ]]; then
+          echo "::warning::The head's planner predates the two stages, so all bins run in one."
+          python3 dev/varka_matrix_bins.py plan \
+            --configurations target/varka-matrix/configurations \
+            --suites sql=target/varka-bins/sql --suites catalyst=target/varka-bins/catalyst \
+            --platforms "${reach[@]}" > target/varka-bins/bins.json \
+            2> target/varka-bins/plan.txt || { cat target/varka-bins/plan.txt; exit 1; }
+          jq -c '{first: [], rest: .include}' target/varka-bins/bins.json \
+            > target/varka-bins/plan.json
+          if [ -s target/varka-matrix/reach.tsv ]; then
+            cp target/varka-matrix/reach.tsv target/varka-ran-by/reach.tsv
+          fi
+        else
+          python3 dev/varka_matrix_bins.py plan \
+            --configurations target/varka-matrix/configurations \
+            --suites sql=target/varka-bins/sql --suites catalyst=target/varka-bins/catalyst \
+            --platforms "${reach[@]}" --stages "${STAGES:-two}" \
+            --changed-suites target/varka-bins/changed \
+            --failed-plan target/varka-failed/plan.json \
+            --failed-bins "$FAILED_BINS" --failed-run "$FAILED_RUN" \
+            --ran-by target/varka-ran-by/reach.tsv \
+            > target/varka-bins/plan.json 2> target/varka-bins/plan.txt \
+            || { cat target/varka-bins/plan.txt; exit 1; }
+        fi
         cat target/varka-bins/plan.txt | tee -a "$GITHUB_STEP_SUMMARY"
         echo "first=$(jq -c .first target/varka-bins/plan.json)" >> "$GITHUB_OUTPUT"
         echo "rest=$(jq -c .rest target/varka-bins/plan.json)" >> "$GITHUB_OUTPUT"
