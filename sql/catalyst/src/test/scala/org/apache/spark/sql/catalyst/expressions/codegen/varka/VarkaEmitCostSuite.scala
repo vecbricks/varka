@@ -89,7 +89,8 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // too (`VARKA-345.md` 10.2).
     val awaitingRefit = Set("NullSafeEqual", "BoolColumn", "CondConst", "BoolCompare", "CondIf",
       "BoolNullSafeEq", "CondValue", "BoolOutput", "DecimalColumn", "DecimalWord", "NullValue",
-      "WidenDecimal", "MathUnary", "Fma", "RoundToIntegral", "CanonicalFloat", "ConvertLane",
+      "WidenDecimal", "InterleaveDecimal", "MathUnary", "Fma", "RoundToIntegral",
+      "CanonicalFloat", "ConvertLane",
       "CrossLane", "CanonicalBits", "HashStep", "ReinterpretLane", "Compare/ULT",
       "Compare/ULE", "Compare/UGT", "Compare/UGE")
     assert(awaitingRefit.forall(t => !expected.exists(f => f == t || f.startsWith(t + "/"))),

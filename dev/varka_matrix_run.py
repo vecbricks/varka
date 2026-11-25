@@ -40,6 +40,7 @@ import argparse
 import collections
 import json
 import os
+import re
 import shutil
 import statistics
 import subprocess
@@ -126,7 +127,8 @@ def report(repo, run, top, named, root):
             break
         page += 1
     done = [j for j in jobs if j.get("started_at") and j.get("completed_at")]
-    bins = [j for j in done if j["name"].startswith("Option matrix: b")]
+    # A bin's job is "Option matrix: b003"; "Option matrix: build and plan" is not one.
+    bins = [j for j in done if re.fullmatch(r"Option matrix: b\d+", j["name"])]
     build = [j for j in done if "build" in j["name"].lower()]
     rep = [j for j in done if j["name"].endswith(": report")]
     start = parse_time(info["run_started_at"])

@@ -671,11 +671,13 @@ public final class VarkaKernelChecks {
   public static int runLoadedDecimal(String context, VarkaFusedKernel kernel,
       List<VarkaVectorIR> roots, int numInputs, long[] lits, int[] intLits, LongBatch batch,
       BigInteger[] values, boolean declineAllowed, SparkAnswers spark, CallHook hook) {
-    // The slot lane writes long and decimal-store outputs and conditions: a narrowing root and a
-    // kernel of both lanes need the long lane's handling of them, which it does not carry yet.
-    if (holdsBothLanes(roots) || roots.stream().anyMatch(r -> r instanceof NarrowLane)) {
+    // The slot lane writes long and one-word decimal-store outputs and conditions: a pair store,
+    // a narrowing root and a kernel of both lanes need the long lane's handling of them, which it
+    // does not carry yet.
+    if (holdsBothLanes(roots) || roots.stream().anyMatch(r -> r instanceof NarrowLane
+        || r instanceof VarkaVectorIR.InterleaveDecimal)) {
       throw new IllegalArgumentException(context + ": the decimal slot lane checks long, "
-          + "decimal-store and condition outputs only, not " + roots);
+          + "one-word decimal-store and condition outputs only, not " + roots);
     }
     return runLoaded(context, kernel, roots, numInputs,
         new DecimalSlotLane(batch, lits, intLits, values, numInputs, new IdentityHashMap<>()),
@@ -1071,7 +1073,8 @@ public final class VarkaKernelChecks {
     }
 
     @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
-      return root instanceof WidenDecimal ? DECIMAL_SLOT : stride();
+      return root instanceof WidenDecimal || root instanceof VarkaVectorIR.InterleaveDecimal
+          ? DECIMAL_SLOT : stride();
     }
 
     @Override public void putOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane,
@@ -1348,7 +1351,8 @@ public final class VarkaKernelChecks {
     }
 
     @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
-      if (root instanceof WidenDecimal) {
+      // A pair's store writes the same sixteen-byte slot, which a warm-up's buffers must hold.
+      if (root instanceof WidenDecimal || root instanceof VarkaVectorIR.InterleaveDecimal) {
         return DECIMAL_SLOT;
       }
       return width(laidOut(rootLane));

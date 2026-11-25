@@ -1059,12 +1059,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
   }
 
-  test("a decimal output above precision 18 declines naming row 359 at plan time") {
-    // The output's type is asked before the value is compiled (VarkaDecimalCompiler.output), so
-    // a wide decimal projection never reaches the allocator's assertion.
+  test("a decimal output above precision 18 is the lane pair's, and a form it lacks declines " +
+      "naming its row at plan time") {
+    // A wide output is the value's two words (VarkaDecimalCompiler.output, VARKA-359); a wide
+    // sum is row 360's, so the projection never reaches the allocator's assertion.
     val wide = AttributeReference("wide", DecimalType(19, 2))()
     val reason = declineReason(Add(wide, wide), childOutput :+ wide)
-    assert(reason.contains("row 359's"), reason)
+    assert(reason.contains("360"), reason)
   }
 
   test("a decimal output fuses beside a long-lane output, and beside an int one apart") {
@@ -1080,12 +1081,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(partial.declines.isEmpty, partial.declines)
   }
 
-  test("a decimal output root is admitted up to precision 18, and a wider one declines naming " +
-      "row 359 before it fuses") {
+  test("a decimal output root is admitted up to precision 18, and a wider one is refused as " +
+      "no long's store") {
     // The admission 157b's producers call where a decimal-valued root meets its output's type
     // (VarkaDecimalCompiler.outputRoot), held here over every type rather than only the TIME
-    // producers' two. The store writes a long and its sign extension, so a wider type would be
-    // written wrongly, and the evaluator's allocator only asserts what this refuses.
+    // producers' two. The store writes a long and its sign extension, so a wider type, whose
+    // output is the lane pair's store of its own two words (VARKA-359), is a caller's error.
     val value = new ColumnRef(0, LaneType.LONG)
     for (t <- Seq(DecimalType(1, 0), DecimalType(10, 2), DecimalType(18, 6))) {
       val sink = new DeclineSink(childOutput, VarkaEmitOptions.DEFAULTS.withRangeSets(false))
@@ -1095,10 +1096,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
     for (t <- Seq(DecimalType(19, 0), DecimalType(30, 4), DecimalType(38, 18))) {
       val sink = new DeclineSink(childOutput, VarkaEmitOptions.DEFAULTS.withRangeSets(false))
-      assert(VarkaDecimalCompiler.outputRoot(Literal.create(null, t), value, sink).isEmpty, t)
-      val reason = sink.take().get.reason
-      assert(reason.contains(s"a ${t.simpleString} output"), reason)
-      assert(reason.contains("row 359's"), reason)
+      intercept[IllegalArgumentException](
+        VarkaDecimalCompiler.outputRoot(Literal.create(null, t), value, sink))
     }
     intercept[IllegalArgumentException](VarkaDecimalCompiler.outputRoot(
       Literal(1L), value,

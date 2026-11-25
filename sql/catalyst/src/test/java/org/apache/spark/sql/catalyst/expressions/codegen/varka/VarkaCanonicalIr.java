@@ -207,6 +207,7 @@ public final class VarkaCanonicalIr {
       case "bits" -> new ReinterpretLane(node(), lane(parts));
       case "narrow" -> new NarrowLane(node(), lane(parts));
       case "wdec" -> new WidenDecimal(node());
+      case "idec" -> new VarkaVectorIR.InterleaveDecimal(node(), node());
       case "dateDiff" -> new DateDiff(node(), node());
       case "cmp" -> new Compare(CompareOp.valueOf(parts[1]), node(), node());
       case "nullSafeEq" -> new NullSafeEqual(node(), node());

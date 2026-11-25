@@ -452,7 +452,10 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       // isnotnull reads only it) or the high one.
       (new IntNeg(Overflow.WRAP, new DecimalWord(0, Word.LOW, 38)), 1, 0, VarkaMatrix.base),
       (new IntNeg(Overflow.WRAP, new DecimalWord(0, Word.HIGH, 38)), 1, 0, VarkaMatrix.base),
-      (new WidenDecimal(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base))
+      (new WidenDecimal(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base),
+      // A 128-bit output stored from its two words (VARKA-359).
+      (new VarkaVectorIR.InterleaveDecimal(new DecimalWord(0, Word.LOW, 38),
+        new DecimalWord(0, Word.HIGH, 38)), 1, 0, VarkaMatrix.base))
     // The calendar nodes whose own tail reads no month, so their prefix elides the month step.
     def elidesMonthStep(n: VarkaVectorIR): Boolean =
       VarkaEmitBudget.isChrono(n) && !VarkaChronoLowering.tailReadsMarchMonth(n)
@@ -486,7 +489,9 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       // as a leaf's load is, by no weight: per part an iota (zero, addIndex), the second part's
       // offset, its half, its parity times the lane count and their sum, and under
       // REARRANGE the conversion to a shuffle (VarkaBodyEmitter.emitDecimalZip).
-      val zip = if (!all.exists(_.isInstanceOf[WidenDecimal])) 0
+      val zipsDecimal = all.exists(n => n.isInstanceOf[WidenDecimal] ||
+        n.isInstanceOf[VarkaVectorIR.InterleaveDecimal])
+      val zip = if (!zipsDecimal) 0
         else 2 * 6 + 1 + (if (options.decimalStore() == DecimalStore.REARRANGE) 2 else 0)
       val overhead = loads + lits + store + zip
       val pairedColumns = all.toSeq.collect { case w: DecimalWord => w }

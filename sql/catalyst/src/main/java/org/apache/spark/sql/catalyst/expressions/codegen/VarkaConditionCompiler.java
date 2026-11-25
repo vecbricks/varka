@@ -1134,7 +1134,7 @@ final class VarkaConditionCompiler {
     sink.enterDecimal();
     try {
       Optional<VarkaDecimalCompiler.Pair> compiled =
-          VarkaDecimalCompiler.wideInValue(value, inputs, literals, sink);
+          VarkaDecimalCompiler.wideOperand(value, inputs, literals, sink);
       if (compiled.isEmpty()) {
         return Optional.empty();
       }

@@ -377,7 +377,11 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * Whether {@code operators} are a split filter's, as {@link Fusion#SPLIT} names it: one row
    * operator, a {@code FilterExec}, whose child is the one Varka node, read through the input
    * adapter whole-stage codegen puts between them, and that node a to-row filter split off a whole
-   * condition whose own conjuncts are not only null tests.
+   * condition whose own conjuncts are not only null tests. The split is read from the conjuncts:
+   * the node's whole condition is exactly its own conjuncts and the {@code FilterExec}'s, with at
+   * least one of the latter. A whole condition alone does not say so, since the rule passes one
+   * too where nothing is residual but the condition is not its conjuncts' left fold (VARKA-608),
+   * and that node may sit under some other row filter.
    */
   private static boolean isSplit(List<SparkPlan> operators) {
     List<SparkPlan> rowWork =
@@ -392,7 +396,41 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
     SparkPlan below = residual.child() instanceof InputAdapter adapter
         ? adapter.child() : residual.child();
     return below == fused && fused.wholeCondition().isDefined()
+        && splitInto(fused.wholeCondition().get(), fused.condition(), residual.condition())
         && !onlyNullTests(fused.condition());
+  }
+
+  /**
+   * Whether the conjuncts of {@code whole} are those of {@code fused} and {@code residual}
+   * together, each used once, so that {@code residual}, never empty, holds conjuncts beyond
+   * {@code fused}'s.
+   */
+  private static boolean splitInto(Expression whole, Expression fused, Expression residual) {
+    List<Expression> left = conjuncts(whole);
+    List<Expression> parts = conjuncts(fused);
+    parts.addAll(conjuncts(residual));
+    for (Expression part : parts) {
+      if (!left.remove(part)) {
+        return false;
+      }
+    }
+    return left.isEmpty();
+  }
+
+  /** The conjuncts of {@code condition}'s {@code AND} tree, left to right. */
+  private static List<Expression> conjuncts(Expression condition) {
+    var out = new ArrayList<Expression>();
+    addConjuncts(condition, out);
+    return out;
+  }
+
+  private static void addConjuncts(Expression condition, List<Expression> out) {
+    if (condition instanceof And and) {
+      addConjuncts(and.left(), out);
+      addConjuncts(and.right(), out);
+    } else {
+      out.add(condition);
+    }
   }
 
   /**
