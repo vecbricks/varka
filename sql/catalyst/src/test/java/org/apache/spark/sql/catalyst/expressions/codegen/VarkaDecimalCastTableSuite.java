@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import scala.jdk.javaapi.CollectionConverters;
@@ -44,7 +45,12 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Bit
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 
@@ -57,7 +63,8 @@ import org.apache.spark.sql.types.DecimalType;
  * 18 digits; the integral sources and the narrow targets join it with the parts that build them.
  * It also holds the divisions the compiler builds to the table {@code decimal_casts.smt2} is
  * rendered from ({@link VarkaDecimalCastProofFile#divisions()}), so the proof cannot go on stating
- * a division, a bound or a guard the compiler no longer builds.
+ * a division, a bound or a guard the compiler no longer builds. Both tests read types and IR
+ * built before any emit option chooses a lowering, so they run at the defaults only.
  */
 @VarkaSuite
 public final class VarkaDecimalCastTableSuite {
@@ -87,6 +94,7 @@ public final class VarkaDecimalCastTableSuite {
   }
 
   @Test
+  @Tag(VarkaSuite.PINS_DEFAULTS)
   @DisplayName("a decimal into a decimal is guarded exactly where Spark's precision change of the "
       + "widest source value overflows, and never left unguarded where Spark's null-safe rule "
       + "says it can fail")
@@ -135,9 +143,40 @@ public final class VarkaDecimalCastTableSuite {
     return out;
   }
 
+  /** The literal {@code v} reads, or null where it is no literal slot. */
+  private static Long literal(VarkaVectorIR v, DeclineSink sink) {
+    return v instanceof LiteralSlot s && sink.longLiteralAt(s.index()).isPresent()
+        ? sink.longLiteralAt(s.index()).getAsLong() : null;
+  }
+
+  /**
+   * What {@code decimal_casts.smt2} states of a division beyond its {@link Division} record: the
+   * half added is {@code 10^k / 2} and only in the {@code HALF_UP} form, the magnitude form
+   * shifts by {@code k}, puts the sign back at its root and fails a batch past its guard.
+   */
+  private static boolean sameSteps(Division want, VarkaVectorIR built, List<VarkaVectorIR> nodes,
+      DeclineSink sink) {
+    long half = Decimal.POW_10()[want.k()] / 2;
+    for (VarkaVectorIR n : nodes) {
+      if (n instanceof IntArith a && (a.op() == IntOp.ADD || a.op() == IntOp.SUB)
+          && literal(a.right(), sink) instanceof Long h && (!want.halfUp() || h != half)) {
+        return false;
+      }
+      if (n instanceof BitOp b && b.op() == BitOpKind.USHR
+          && !Long.valueOf(want.k()).equals(literal(b.right(), sink))) {
+        return false;
+      }
+      if (n instanceof GuardedRange g && g.mode() != Overflow.FAIL) {
+        return false;
+      }
+    }
+    return !want.magnitude() || built instanceof IfElse;
+  }
+
   @Test
+  @Tag(VarkaSuite.PINS_DEFAULTS)
   @DisplayName("every division by a power of ten the compiler builds is the one decimal_casts.smt2 "
-      + "states: its divisor, its dividend bound, its form and its guard")
+      + "states: its divisor, its dividend bound, its form, its half, its shift and its guard")
   void divisionsAreTheProofs() {
     var failures = new ArrayList<String>();
     List<Attribute> none = List.of();
@@ -159,7 +198,8 @@ public final class VarkaDecimalCastTableSuite {
       var got = divides.size() != 1 || guards.size() > 1 ? null : new Division(want.p(),
           want.k(), want.halfUp(), magnitude, divides.get(0).divisor(),
           divides.get(0).dividendBound(), guard);
-      if (!want.equals(got) || guards.stream().anyMatch(g -> g.lo() != 0)) {
+      if (!want.equals(got) || guards.stream().anyMatch(g -> g.lo() != 0)
+          || !sameSteps(want, built, nodes, sink)) {
         failures.add("the proof states " + want + ", the compiler builds " + built);
       }
     }

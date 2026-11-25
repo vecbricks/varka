@@ -834,7 +834,7 @@ form's divisors), which `long_divide.smt2` did not state. #1700 now adds the thr
 **What it proves.** `VarkaDecimalCastProofFile` renders two files from the compiler's constants
 (`Decimal.POW_10`, `ConstDivide.EXACT_DIVIDEND_BOUND`) and from its division table, `divisions()`:
 
-- `decimal_casts.smt2` (1094 checks): per division of a `p`-digit value by `10^k`, truncating
+- `decimal_casts.smt2` (1109 checks): per division of a `p`-digit value by `10^k`, truncating
   (the cast to `BIGINT`) and `HALF_UP` (the rescale down), all 342, the dividend under the bound
   stated to `ConstDivide` and the answer Spark's (Java's `/`; `changePrecision`'s `HALF_UP`); the
   magnitude form's logical shift, its division by `5^k` and the sign put back; at the twelve
@@ -844,7 +844,7 @@ form's divisors), which `long_divide.smt2` did not state. #1700 now adds the thr
   `|u| <= 10^(P - k) - 1` exactly the target's precision with no wrap, one wider refuted; and the
   other order, the check after the multiply, wrong at Trino's `184467440737095517`.
 - `decimal_divide.smt2` (2352 checks): both lowered forms of the constant division exact below
-  `2^52` for the 21 divisors `long_divide.smt2` does not state, with #1700's three in it, by
+  `2^52` for the 21 divisors `long_divide.smt2` does not state (it now holds #1700's three), by
   `VarkaProofFiles`'s own `conversionExact` and `magicExact`.
 
 **The tests.** `VarkaDecimalCastTableSuite` builds each of the 342 divisions with the compiler's
@@ -880,4 +880,14 @@ check after, was a static field in `VarkaDecimalCastFault`; VARKA-548's `global-
 refuses a JVM-wide fault and wants it as a `VarkaEmitOptions` fault option, as `IntervalFault`
 is. That is a main-code change to the options (and their matrix configurations) in a part that is
 otherwise tests and proofs, so it is left for its own change; `decimal_casts.smt2` refutes the
-order meanwhile. The cast rows' refinement in `decimal_refinement.smt2` is still owed as well.
+order meanwhile. Also owed: the cast rows' refinement in `decimal_refinement.smt2`; the coverage
+rows' `verified` field, still `differential`, pointed at `decimal_casts.smt2`; and section 3 item
+1's sample of each class run against `Cast.eval` per mode, which the table suite does not do (the
+query suite runs each cast against vanilla Spark in the three modes).
+
+**The review's fix round** (`/code-review high`, nine nits, no defect): the table test now also
+checks each division's half, shift count, sign restore and guard mode, and both its tests pin
+the defaults; the half-one-less neighbours are stated where each form runs, the signed half at
+precision 15 and the magnitude's half at 18; the divisor suite names `decimal_divide.smt2`; the
+lint's time is restated where the minute was claimed. Kept: the 24 s cvc5 figure, measured with
+nothing else running (only the 24-divisor re-measure overlapped an sbt run).

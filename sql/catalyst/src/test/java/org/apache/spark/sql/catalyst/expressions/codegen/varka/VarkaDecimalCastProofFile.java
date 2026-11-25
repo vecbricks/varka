@@ -63,6 +63,9 @@ public final class VarkaDecimalCastProofFile {
   /** The exclusive bound on a long-lane constant division's dividend magnitude. */
   private static final long BOUND = VarkaVectorIR.ConstDivide.EXACT_DIVIDEND_BOUND;
 
+  /** The widest precision whose {@code HALF_UP} division adds a signed half below {@code 2^52}. */
+  private static final int SIGNED_HALF_MAX = 15;
+
   /** No guard. */
   public static final long NO_GUARD = -1L;
 
@@ -251,11 +254,21 @@ public final class VarkaDecimalCastProofFile {
     check(out, "p = 18, k = 1: an arithmetic shift of the signed value floors, and is not the "
         + "truncation (-19 gives -2)", "sat", U, in(pow[MAX] - 1),
         "(assert (not (= (jlong.div (jlong.shr u 1) 5) (jlong.div u 10))))");
+    // The signed half runs below 2^52, up to 15 digits; the magnitude's half above, at 18.
+    for (int k = 1; k <= SIGNED_HALF_MAX; k++) {
+      long half = pow[k] / 2;
+      check(out, "p = " + SIGNED_HALF_MAX + ", k = " + k + ": with the signed half one less the "
+          + "rounding is not HALF_UP", "sat", U, in(pow[SIGNED_HALF_MAX] - 1),
+          "(assert (not (= (jlong.div (ite (< u 0) (- u " + (half - 1) + ") (+ u " + (half - 1)
+              + ")) " + pow[k] + ") (spark.halfUp u " + pow[k] + "))))");
+    }
     for (int k = 1; k <= MAX; k++) {
       long half = pow[k] / 2;
-      check(out, "p = 18, k = " + k + ": with the half one less the rounding is not HALF_UP",
-          "sat", U, in(pow[MAX] - 1), "(assert (not (= (jlong.div (ite (< u 0) (- u " + (half - 1)
-              + ") (+ u " + (half - 1) + ")) " + pow[k] + ") (spark.halfUp u " + pow[k] + "))))");
+      check(out, "p = 18, k = " + k + ": with the magnitude's half one less the rounding is not "
+          + "HALF_UP", "sat", U, in(pow[MAX] - 1),
+          "(assert (not (= (dec.signed u (jlong.div (jlong.ushr (jlong.add (dec.abs u) "
+              + (half - 1) + ") " + k + ") " + fivePow(k) + ")) (spark.halfUp u " + pow[k]
+              + "))))");
     }
   }
 

@@ -51,7 +51,7 @@ import org.apache.spark.sql.types.TimeType;
 
 /**
  * Every long-lane divisor the compiler builds is one {@code long_divide.smt2} or
- * {@code decimal_casts.smt2} proves (VARKA-496). The first is rendered per divisor from
+ * {@code decimal_divide.smt2} proves (VARKA-496). The first is rendered per divisor from
  * {@link VarkaProofFiles#LONG_DIVISORS}, a list kept by hand, the second from
  * {@link VarkaDecimalCastProofFile#DIVISORS}, the decimal casts' powers of ten and five; so a
  * compiler change that divides by a new constant would ship a division no proof states and
@@ -239,7 +239,7 @@ public final class VarkaDivisorProofSuite {
   @Test
   @Tag(VarkaSuite.PINS_DEFAULTS)
   @DisplayName("every long-lane divisor the coverage rows and the cast matrix compile is one "
-      + "long_divide.smt2 or decimal_casts.smt2 proves, and every divisor they prove is "
+      + "long_divide.smt2 or decimal_divide.smt2 proves, and every divisor they prove is "
       + "compiled or named")
   void everyDivisorProven() {
     Collected collected = corpus();
@@ -247,8 +247,9 @@ public final class VarkaDivisorProofSuite {
     List<String> unproven = collected.unproven(proven);
     assertTrue(unproven.isEmpty(), "the compiler builds a long-lane ConstDivide by a divisor "
         + "neither proof file states; add it to VarkaProofFiles.LONG_DIVISORS, or for a decimal "
-        + "cast's division to VarkaDecimalCastProofFile.divisions(), regenerate the proof and run "
-        + "dev/varka_prove.sh:\n  " + String.join("\n  ", unproven));
+        + "cast's division make VarkaDecimalCastProofFile.divisions() build it as the compiler "
+        + "does, regenerate the proofs and run dev/varka_prove.sh:\n  "
+        + String.join("\n  ", unproven));
     var stale = new TreeSet<Long>(proven);
     stale.removeAll(collected.divisors().keySet());
     assertEquals(new TreeSet<>(PROVEN_ONLY), stale, "the proof's divisors no compiled kernel "

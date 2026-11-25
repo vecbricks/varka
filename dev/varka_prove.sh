@@ -88,7 +88,8 @@ fetch_delays=(10 30 60)
 linux_x86_64() { [ "$(uname -s)-$(uname -m)" = Linux-x86_64 ]; }
 # Whether this runs in GitHub Actions, which bounds a download's time and keeps its archives.
 in_ci() { [ -n "${GITHUB_ACTIONS:-}" ]; }
-# The proofs the linters' job runs under cvc5 rather than Z3, to keep the step inside its minute:
+# The proofs the linters' job runs under cvc5 rather than Z3, the faster solver on them, to keep
+# the step short (57 s on the laptop before decimal_divide.smt2, 87 s with it):
 # long_divide.smt2 takes Z3 59 s on the runner and cvc5 a third of that (VARKA-241.md 9.5);
 # decimal_divide.smt2, the decimal casts' other 21 divisors, Z3 83 s and cvc5 24 s on the laptop
 # (VARKA-350.md 10.4).

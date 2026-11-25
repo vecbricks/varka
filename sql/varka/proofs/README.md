@@ -145,8 +145,8 @@ serves; before, it was assumed, and a cached far day was served wrong.
    are rendered: a method in `VarkaProofFiles`, and the file in its `render()`.
 2. The claim as `unsat` checks, and `sat` checks that its domain admits its boundary inputs and
    that a constant changed by one is refuted.
-3. `dev/varka_prove.sh --solver both` holds, in seconds: the linters' job allows a minute for all of
-   them. The runner is about twice the laptop. `--lint` runs a file under Z3 unless the script's
+3. `dev/varka_prove.sh --solver both` holds, in seconds: the linters' job meant a minute for all of
+   them, and `--lint` takes 87 s on the laptop since `decimal_divide.smt2` (VARKA-350). The runner is about twice the laptop. `--lint` runs a file under Z3 unless the script's
    `CVC5_IN_LINT` names it, which it does for a file one solver proves much faster than the other:
    `long_divide.smt2` takes Z3 85 s on the laptop and cvc5 27 s (2479 checks, 25 November 2026,
    after VARKA-350 added the decimal casts' `5^k` divisors; 72 s and 23 s at 2143 checks before;
