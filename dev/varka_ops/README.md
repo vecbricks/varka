@@ -85,8 +85,6 @@ too, and so does every line on which the branch differs from `origin/master`, si
 ran its matrix with it. A line both sides carry is master's to keep true: rerunning every skip
 line of the suites that read `coverage.json` on each coverage change would be hundreds of runs.
 A deleted line whose option the sources no longer declare went with the option and is not rerun.
-When `sql/varka/coverage.json` changed, `VarkaGroupingBoundSuite` also reruns under
-`driverOutputTable=false`, since a new draw can make a passing test fail there (row 644).
 
 **The tree-equal path.** `PRE_PR_TREE_EQUAL=<sha>` serves a stacked branch whose parent
 squash-merged after a rehearsed merge of the two had passed the full gate. When HEAD, after the

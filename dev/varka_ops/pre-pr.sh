@@ -295,11 +295,9 @@ fi
 # head carried a line master had deleted). A line both sides carry is master's to keep true. A dry
 # run reads the merge it predicts. A deleted line whose configuration names an option that
 # VarkaEmitOption.java and VarkaMatrixRuns.java no longer declare went with that option and is not
-# rerun. When sql/varka/coverage.json changed, the suites of DRAWN_ANYWAY also rerun under
-# driverOutputTable=false with or without a skip line, since a new draw can make a passing test
-# fail there (row 644; removable once its verdict stops depending on the draw). A stale or failing
-# line fails the gate here.
-DRAWN_ANYWAY='VarkaGroupingBoundSuite'
+# rerun. A stale or failing line fails the gate here. (Until #1695, VarkaGroupingBoundSuite also
+# reran under driverOutputTable=false on each change of coverage.json; its verdict no longer
+# depends on the coverage table's draw, row 644.)
 tab=$'\t'
 from=$base
 [ -z "$prev" ] || [ "$prev" = none ] || from=$prev
@@ -319,10 +317,6 @@ gone=$(echo "$sk" | grep '^-' | cut -c2- | while IFS=$tab read -r cfg suite; do
   declared "$cfg" || printf '%s\t%s\n' "$cfg" "$suite"; done)
 [ -z "$gone" ] || say "skip recheck: not rerun, their options are gone: $(short "$gone")"
 sk=$(echo "$sk" | cut -c2- | grep -vxF -f <(echo "$gone" | grep . || echo $'\x01'))
-if ! git diff --quiet "$from" "$to" -- sql/varka/coverage.json; then
-  sk=$(echo "$sk"
-       for s in ${DRAWN_ANYWAY//|/ }; do printf 'driverOutputTable=false\t%s\n' "$s"; done)
-fi
 sk=$(echo "$sk" | grep -v '^$' | sort -u)
 if [ -n "$sk" ]; then
   while IFS=$tab read -r cfg suite; do
