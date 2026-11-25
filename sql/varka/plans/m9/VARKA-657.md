@@ -24,8 +24,9 @@ bar, five times the row path where a kernel reads the zone.
 3. *Regular rows, not lettered parts.* The draft had 23 parts under this row. Row 657 keeps the
    first kernels end to end, and rows 682 to 692 hold the rest (section 8).
 4. *Milestone 9 has not started.* While milestone 8 runs, this family is planned and not built.
-   So this file holds no build sheet: a row writes its sheets when it starts, against the tree
-   of that day, because a sheet names lines that move.
+   This file is the family's design. Each row's own plan stands alone and holds its parts and
+   their sheets; a sheet's first step is a grep of its premises, because the code facts here
+   are of this day and the rows start later.
 
 `m9/PLAN.md` 2.2 holds the design the milestone plan chose and the first probes' numbers
 (`sql/varka/spikes/zone-offset`). This plan keeps that design and makes it exact in three places,
@@ -153,16 +154,16 @@ no rule. Which Spark function takes which rule (`DateTimeUtils`, `SparkDateTimeU
 
 ### 2.5 What the zone data must not assume
 
-From RFC 9636 (TZif), the tz database's theory file and the JDK's data (tzdata 2026f): an offset
-need not be a whole minute (`Africa/Monrovia` until 1972, 502 ids have had one with seconds); a
-change can be 4 seconds or 24 hours (`Pacific/Apia` 2011 skips a day; 12 ids have a 24-hour gap
-and 16 a 24-hour overlap); a year can hold four changes (`Africa/Casablanca`, which has no
-recurring rule after its last stored change in 2026); a standard offset can change with no
-daylight saving (`Asia/Qostanay` 2024); offsets run from -15:56:08 to +15:13:42; and after its
-last stored change a zone follows up to 16 recurring rules, periodic over 400 years, which
-`java.time` works out again on every call for a year from 2100 on. `ZoneRules` does not promise
-that the local windows of two changes are apart, so row 678 checks each zone when it builds it
-and a zone that fails the check is not served.
+From RFC 9636 (TZif), the tz database's theory file, `java.time`'s contracts and the committed
+facts of the JDK's data (`results/facts.txt`, tzdata 2026f): an offset need not be a whole
+minute (the last such ended in 1972, in `Africa/Monrovia`), though `ZoneOffset` holds every
+offset within 18 hours; a change can skip or repeat a whole day (`Pacific/Apia` skipped 30
+December 2011); a zone can change 5 times in 365 days (`Africa/Casablanca`); a standard offset
+can change with no daylight saving (`Asia/Qostanay` 2024); and after its last stored change a
+zone follows recurring rules (`ZoneRules` allows 16), periodic over 400 years, which `java.time`
+works out again on every call for a year from 2100 on. `ZoneRules` does not promise that the
+local windows of two changes are apart, so row 678 checks each zone when it builds it, prints
+the counts that its check reads, and a zone that fails the check is not served.
 
 ### 2.6 The cache's statistics stop at the scan
 
@@ -320,7 +321,9 @@ literals.
   first probe priced the pass at 0.058, 0.232 and 0.393 ns a row at eight, four and two lanes
   (`results/forms.txt`). It is exact, so no batch runs twice (row 683).
 - **A cached column:** the cache has the two values already; row 687 hands them to the evaluator
-  and the pass is skipped. A null row's storage is not read by either source.
+  and the pass is skipped. A null row's storage is not read by either source, but its lane
+  still runs in the kernel with whatever the storage holds. The steps give such a lane a value
+  that the output's validity hides; the table form must not index with it (3.5).
 - **A computed operand,** `hour(ts + INTERVAL '1' HOUR)` or the local time that `ToInstant`
   reads: its range for a batch is interval arithmetic over the ranges of the batch's columns,
   with the transfer functions `VarkaRangeAnalysis` has and one for each zone node (row 688).
@@ -352,6 +355,10 @@ needed, compiled when first needed, and takes for each batch the least form that
 range of every program. The choice is exact; nothing is timed and no batch runs twice (2.8). A
 forced form, a matrix arm, sends a batch that it does not cover to the row path.
 
+The table form reads a bucket by an index made from the operand, and a null row's storage can
+hold any long. Its lowering clamps the index into the table, and row 686's fixtures hold null
+rows over storage outside the table's range.
+
 Only one threshold is a cost question: from how many changes the table beats the steps. The
 first probe put it near nine at four lanes and near twenty at eight. Row 691 measures it in
 kernels on the runners and sets it per width, which the house allows since row 600.
@@ -365,11 +372,21 @@ gain.
 
 ### 3.6 Ranges and overflow
 
-A `TIMESTAMP` is within Spark's range, years 0001 to 9999, and an offset within 18 hours, so an
-instant plus an offset cannot leave a long and the lowering emits no check. `VarkaRangeAnalysis`
-gets one arm for each record: the operand's range widened by 18 hours each way. It reads no
-batch value. The local value then meets the guards the `TIMESTAMP_NTZ` arms already hold
-(`ntzDay`'s range on the day), so a batch outside them declines as it does for `TIMESTAMP_NTZ`.
+An offset is within 18 hours (`ZoneOffset`'s contract), so an instant plus an offset leaves a
+long only within 18 hours of a long's ends. Spark's own range, years 0001 to 9999, ends far
+inside, but nothing holds a stored value to it: `timestamp_micros` takes any long, and the row
+path answers such a value without a wrap.
+
+- A program's `fill` declines a batch whose least or greatest value is within 18 hours of an
+  end. It has the range already, and the batch takes the row path.
+- The sum of a fixed offset has no program. It sits under a `GuardedRange` over the same
+  bounds, which declines the batch (its `FAIL` mode).
+- With those two the lowering emits its sums with no check. The sweep's fixtures hold both ends
+  of a long, beside both ends of Spark's range.
+
+`VarkaRangeAnalysis` gets one arm for each record: the operand's range widened by 18 hours each
+way. It reads no batch value. Where an arm's path holds a guard on the local value, as the
+calendar path's `ntzDay` does, a batch outside it declines as it does for `TIMESTAMP_NTZ`.
 
 ### 3.7 To an instant: the three rules
 
@@ -462,17 +479,21 @@ Every suite runs at both vector widths through the matrix, and with the memory s
 | `VarkaLongRangeOpsSuite` (catalyst, JUnit) | the pass equals a scalar loop over random columns, null patterns, lengths around a vector and the long extremes | a null row's storage read as a value |
 | `VarkaBatchArgRunnerSuite` (sql/core) | two batches with two values give two answers from one class; two tasks do not see each other's values; a warm-up job and a reproduction hold the batch's values | a stale argument, which is a wrong answer no fallback catches |
 | `VarkaEmitterZoneSuite` (catalyst, JUnit) | each record in each form, masked and with no mask, against `VarkaReference` over fixture zones and null patterns | a form whose lowering differs from the node's definition |
-| `VarkaZoneSweepSuite` (catalyst, JUnit) | every distinct set of rules of the JVM (349 for its 604 ids), Spark's short names and a sample of fixed offsets: each change, two hours either side at one second, the edges of every gap and overlap, the first and last stored change, the rule era to the year 9999, both ends of Spark's range; the emitted kernel with its filled arguments against `java.time`, for `ToLocal` and for each rule as its row lands | a zone whose data differs from `java.time` |
+| `VarkaZoneSweepSuite` (catalyst, JUnit) | every distinct set of rules of the JVM (349 for its 604 ids), Spark's short names and a sample of fixed offsets: each change, two hours either side at one second, the edges of every gap and overlap, the first and last stored change, the edges of each change of the rule era to the year 9999, both ends of Spark's range and of a long; the emitted kernel with its filled arguments against `java.time`, for `ToLocal` and for each rule as its row lands | a zone whose data differs from `java.time` |
 | `VarkaTimestampZoneSuite` (sql/core) | each kernel against Spark's row engine under UTC, a fixed offset and the zones of 2.5; a fixture whose rows straddle both changes of a year, in time order and in no order, with nulls; batches that span 0, 1, `K` and `K + 1` changes, a range that ends on a change, one row, all rows equal | a kernel that agrees with Spark on rows that cross no change and on no others |
-| the metamorphic checks, in the sweep | `ToInstantKept` of `ToLocal(x)` with the offset of `x` is `x` for every instant; `ToLocal` rises strictly inside a segment; every form that covers a batch gives the same rows | a rule error both the kernel and a wrong oracle would share |
-| `VarkaZonePlantedFaultSuite` (catalyst, JUnit) | each planted fault fails a named test: a threshold one microsecond off, `>` for `>=`, `min` for `max` in a local threshold, the kept offset ignored, a delta's sign, an argument not refilled, the driver's rules read | a test that passes for another reason |
+| the metamorphic checks, in the sweep | `ToLocal` rises strictly inside a segment; every form that covers a batch gives the same rows; and, with row 690, `ToInstantKept` of `ToLocal(x)` with the offset of `x` is `x` for every instant | a rule error both the kernel and a wrong oracle would share |
+| `VarkaZonePlantedFaultSuite` (catalyst, JUnit) | each planted fault fails a named test: a threshold one microsecond off, `>` for `>=`, a delta's sign, an argument not refilled, the driver's rules read; and, with row 690, `min` for `max` in a local threshold and the kept offset ignored | a test that passes for another reason |
 | `VarkaIrFuzzSuite`, through `VarkaIrGrammar` | zone nodes drawn inside random trees, with a drawn zone and drawn ranges, against `VarkaReference` | a zone node that is wrong under a parent no written test has |
 | `VarkaSparkFuzzSuite` | the session zone is a drawn setting of a case, from UTC, a fixed offset, `America/Los_Angeles`, `Australia/Lord_Howe`, `Asia/Kathmandu`, `Pacific/Apia` and `Africa/Casablanca`; a reproducer prints it | a zone-dependent answer in a shape no suite lists |
 | `VarkaZoneArgsPropertySuite` (catalyst, JUnit) | a random zone, a random range, random instants biased to the changes: the filled arguments against `java.time`, by seed | a range the sweep's fixed windows do not hold |
 
-The sweep's time is a budget: the oracle is `java.time` at 25 to 43 ns a call (2.3), so the
-suite reads each set of rules once, and row 684 registers its measured time in the Build's
-slowest bin. Over the budget of prediction 9, the one-second step moves to the nightly and the
+The sweep's time is a budget. Its stored changes are 65,794 before 2100 over the 604 ids
+(`results/facts.txt`), fewer with each of the 349 sets of rules read once, and two hours either
+side at one second is 14,400 instants a change: at most 947 million instants. `java.time`'s
+offset costs 10 ns (`results/forms.txt`) and a rule about 42 (2.3), so one core pays about 10 s
+for `ToLocal` and about 120 s for the three rules; the kernel's side is under a tenth of that.
+The suite runs the sets of rules as a parallel stream, as the calendar sweep of VARKA-281 does.
+Prediction 9 registers the time; over it, the one-second step moves to the nightly and the
 Build keeps the edges.
 
 Coverage and mutation: JaCoCo over `VarkaZoneLowering`, `VarkaBatchArgs`, `VarkaZoneCompiler`
@@ -522,8 +543,13 @@ method group and in two.
    the laptop's cross-over.
 7. Ten years in no order under `America/Los_Angeles` decline no batch once row 686 has merged,
    and before row 685 they decline every batch.
-8. The family takes 12 rows in at most 32 pull requests, none over 1000 counted lines.
-9. `VarkaZoneSweepSuite` adds under 120 s to the slowest catalyst bin of a Build at 256 bits.
+8. The family takes 12 rows in at most 32 pull requests, none over 1000 counted lines; a part
+   that would be larger is split by meaning.
+9. `VarkaZoneSweepSuite` adds under 10 s of test time to a Build's bin for `ToLocal` (row 684)
+   and under 60 s with the three rules (row 690), on a runner's four cores. One core would pay
+   about 10 s and 120 s (section 5). The calibration table's nearest row is the calendar sweep
+   of VARKA-281, which ran at 0.08 of its one-core price on the laptop's cores; a runner has
+   four, so this takes a half of the one-core price and not 0.08 of it.
 
 ## 7. Risks
 
@@ -538,8 +564,8 @@ method group and in two.
    kernel and the row engine read one version; the sweep names its tzdata version.
 5. **The pass costs more than the steps** on the cheapest kernels (0.23 against 0.23 ns a row at
    four lanes). Prediction 2 bounds it; row 687 removes it for a cached column.
-6. **A zone with many changes in a year** (`Africa/Casablanca`) needs 8 steps or the table from
-   the first batch; the fixture list holds it.
+6. **A zone with many changes in a year** (`Africa/Casablanca`, 5 in 365 days) needs 8 steps or
+   the table from the first batch; the fixture list holds it.
 7. **The rule era.** Past the last stored change the data comes from recurring rules. The sweep
    reads every year to 9999, and the table covers 1900 to 2100: an instant outside declines to
    the steps, and a batch of such instants in no order to the row path.
@@ -556,26 +582,27 @@ method group and in two.
 ## 8. The rows
 
 Row 657 keeps the first kernels end to end. Each other piece is a row of `m9/PLAN.md` with its
-own done-when, so that a row which needs one piece names it by number. A row is one to five pull
-requests; none starts before milestone 8's close (decision 4).
+own done-when, so that a row which needs one piece names it by number. "Needs" means that the
+named row's kernels have merged. A row is one to five pull requests; none starts before the
+owner's word (decision 4).
 
 | row | what it builds | needs | pull requests |
 | :--- | :--- | :--- | ---: |
-| 657 | this plan and its probes (two pull requests, now); then the first kernels end to end: the zone's index and the fold of a fixed zone, `hour`, `minute`, `second` and `CAST(ts AS DATE)`, the zone programs over row 678's data, `VarkaTimestampZoneSuite`, the coverage rows, census cells, docs and benchmark sections; the family's outcome | 682, 683, rows 656, 678 and 655 | 2 and 5 |
-| 682 | `ToLocal` and its batch arguments: the record and its registries; the layout, the emitter's read and the runner's fill; the lowering of one offset and of the steps | - | 4 |
+| 657 | this plan and its probes (two pull requests, now); then the first kernels end to end: the zone's index and the fold of a fixed zone, `hour`, `minute`, `second` and `CAST(ts AS DATE)`, the zone programs over row 678's data, `VarkaTimestampZoneSuite`, the coverage rows, census cells, docs and benchmark sections | 682, 683, rows 656, 678 and 655 | 2 and 4 |
+| 682 | `ToLocal` and its batch arguments: the record and its registries; the layout, the emitter's read and the runner's fill; the lowering of one offset and of the steps | 683, for the runner's fill | 4 |
 | 683 | `LongRangeOps`: the range of a long column | - | 1 |
-| 684 | the proof: the sweep and the metamorphic checks; `zone_step.smt2` and the planted faults; the fuzzers' zone and the property suite | 657 | 3 |
+| 684 | the proof, for `ToLocal`: the sweep and the metamorphic checks; `zone_step.smt2` and the planted faults; the fuzzers' zone and the property suite | 657 | 3 |
 | 685 | a kernel for each batch: the evaluator owns a list of kernels, a refactoring that moves no emitted byte; then the ladder; last, the fields that need no offset, if they gain (3.5) | 657 | 2 |
-| 686 | the table form: its lowering with a packed bucket, `zone_bucket.smt2`, and the form as the ladder's last | 685 | 3 |
+| 686 | the table form: its lowering with a packed bucket and a clamped index, `zone_bucket.smt2`, and the form as the ladder's last | 685 | 3 |
 | 687 | the cache's statistics reach the evaluator and replace the pass | 657 | 1 |
 | 688 | the range of a computed operand for each batch | 657 | 2 |
 | 689 | steps with no mask at two lanes; the recorded refusal where a form loses | 657 | 1 |
-| 690 | `ToInstant` and `ToInstantKept`: the records and their registries; `CAST(ntz AS TIMESTAMP)`; `CAST(d AS TIMESTAMP)`; `ts + INTERVAL DAY`; each rule in the sweep with its kernel | 657, and 688 for the last two | 5 |
-| 691 | each form measured in kernels at 256 and 128 bits; the defaults by width; G7 for `hour` and the cast to `DATE` | 685 to 690 | 1 |
+| 690 | `ToInstant` and `ToInstantKept`: the records and their registries; `CAST(ntz AS TIMESTAMP)`; `CAST(d AS TIMESTAMP)`; `ts + INTERVAL DAY`; each rule in the sweep, with its planted faults and the there-and-back check | 657, and 688 for the last two | 5 |
+| 691 | each form measured in kernels at 256 and 128 bits; the defaults by width; G7 for `hour` and the cast to `DATE`; the family's outcome, section 9 | 685 to 690 | 1 |
 | 692 | a conversion shared across method groups: measured, and the store and load built only if it pays | 691 | 2 |
 
 The paths that set the length: 682, 657, then the rows that need only 657 (684 to 690) side by
-side, then 691. Rows 682 and 683 need no other row. Row 669's casts, row 670's zone functions
+side, then 691. Row 683 needs no other row, and row 682 needs only row 683. Row 669's casts, row 670's zone functions
 and row 671's sums wait for row 690, and row 668's fields for row 657.
 
 The refactorings are parts of their rows: the evaluator's list of kernels (685), `hourOf`,
