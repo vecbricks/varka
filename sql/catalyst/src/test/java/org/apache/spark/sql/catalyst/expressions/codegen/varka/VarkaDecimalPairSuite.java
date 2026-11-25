@@ -381,11 +381,11 @@ public final class VarkaDecimalPairSuite {
 
   /**
    * Runs {@code p}'s one output, a decimal pair's store, over the columns {@code a} and {@code b}
-   * at {@code lanes}, and returns per row the unscaled value its sixteen-byte slot holds, or null
-   * where the output's validity is clear.
+   * at {@code lanes}, emitted under {@code options}, and returns per row the unscaled value its
+   * sixteen-byte slot holds, or null where the output's validity is clear.
    */
   private static BigInteger[] stored(CompiledVarkaProjection p, List<Row> rows, DecimalType ta,
-      DecimalType tb, int lanes) {
+      DecimalType tb, VarkaEmitOptions options, int lanes) {
     assertEquals(1, p.outputs().size());
     VarkaVectorIR root = p.outputs().get(0);
     assertTrue(root instanceof VarkaVectorIR.InterleaveDecimal,
@@ -397,7 +397,7 @@ public final class VarkaDecimalPairSuite {
     int[] intLits = p.literals().stream().mapToInt(Integer::intValue).toArray();
     List<Integer> ordinals = p.inputOrdinals();
     var emitted = VarkaEmitterFixtures.emit(List.of(root), ordinals.size(), lits.length,
-        VarkaMatrixRuns.BASE.withLanesOverride(lanes));
+        options.withLanesOverride(lanes));
     VarkaFusedKernel kernel = VarkaEmitterFixtures.load(emitted).kernel();
     int length = rows.size();
     int inputs = ordinals.size();
@@ -464,14 +464,15 @@ public final class VarkaDecimalPairSuite {
         .orElseThrow(() -> new AssertionError(sql + " does not fuse as an output"));
     Expression bound = VarkaSqlResolve.bind(VarkaSqlResolve.replaced(e), seq(columns));
     for (List<Row> rows : List.of(rows(ta, tb), denseRows(ta, tb))) {
-      checkStoredRows(sql, p, bound, type, rows, ta, tb);
+      checkStoredRows(sql, p, bound, type, rows, ta, tb, options);
     }
   }
 
   private static void checkStoredRows(String sql, CompiledVarkaProjection p, Expression bound,
-      DecimalType type, List<Row> rows, DecimalType ta, DecimalType tb) {
+      DecimalType type, List<Row> rows, DecimalType ta, DecimalType tb,
+      VarkaEmitOptions options) {
     for (int lanes : WIDTHS) {
-      BigInteger[] got = stored(p, rows, ta, tb, lanes);
+      BigInteger[] got = stored(p, rows, ta, tb, options, lanes);
       for (int i = 0; i < rows.size(); i++) {
         Row r = rows.get(i);
         Object spark = bound.eval(new GenericInternalRow(new Object[] {decimal(r.a(), ta),
@@ -497,6 +498,13 @@ public final class VarkaDecimalPairSuite {
           "nullif(b, a)", "greatest(a, b)", "least(a, b, -b)", "-greatest(a, abs(b))")) {
         checkStored(sql, ta, wide);
       }
+      // A wide literal's two words beside a column: 2^64 + 5 at scale 2, a small negative one,
+      // and the 38-digit bound.
+      String top = new BigDecimal(bound(wide), wide.scale()).toPlainString();
+      for (String sql : List.of("coalesce(a, 18446744073709551621.00)",
+          "IF(a IS NULL, -0.01, a)", "greatest(a, " + top + ")", "least(a, -" + top + ")")) {
+        checkStored(sql, ta, wide);
+      }
     }
     // At 19 digits, the narrowest pair, and with a 64-bit side widened by its sign extension.
     var nineteen = new DecimalType(19, 2);
@@ -508,12 +516,17 @@ public final class VarkaDecimalPairSuite {
   @DisplayName("with the bitmap validity pass off, a pair store's per-group validity reads both "
       + "words, so a choice's high-word blend is no dead word (validityOrFirst either way)")
   void storedValuesWithoutTheBitmapPass() {
+    // The output's word is the low word's (Validity.Operand(0)); with the pass on only that word
+    // is read, and here the AND of both is. Both runs equal to Spark's nulls hold, for every
+    // producer of a pair (a column's words, a literal's, the negation, abs, a choice, coalesce,
+    // nullif and a pick), that the high word is valid wherever the low word is.
     var wide = new DecimalType(38, 2);
     for (boolean first : new boolean[] {false, true}) {
       VarkaEmitOptions options = VarkaMatrixRuns.BASE.toBuilder().validityByBitmap(false)
           .denseValidityOnce(false).validityOrFirst(first).build();
       for (String sql : List.of("IF(a < b, a, b)", "CASE WHEN a > 0 THEN a END",
-          "coalesce(a, b)", "greatest(a, b)", "-b")) {
+          "coalesce(a, b)", "greatest(a, b)", "-b", "abs(a)", "nullif(a, b)", "least(a, b)",
+          "coalesce(a, 18446744073709551621.00)")) {
         checkStored(sql, wide, wide, options);
       }
     }
