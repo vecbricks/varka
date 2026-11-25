@@ -21,12 +21,19 @@
 #   1. merge origin/master (stops on a conflict: resolve by hand, commit, rerun), then the push
 #      check's R1 text check alone (seconds, no JVM): a test registry or match that lacks a new IR
 #      node fails here, not after the regen's compile (23 Nov 2026)
+#  1a. with PRE_PR_TREE_EQUAL=<sha>, between the merge and the R1 check: stamp HEAD and stop,
+#      running nothing, when HEAD's tree equals that of a commit this worktree's gate stamped and
+#      HEAD contains origin/master (a stacked branch after its parent squash-merged, when a
+#      rehearsed merge of the two passed the full gate); otherwise log why and go on
 #   2. dev/varka_regen_generated.sh --all, and commit what it changed (a clean text merge can leave
 #      generated files stale: 348's push check, 22 Nov); skipped for a branch that changes no
 #      input of the generated files (below). The width audit's probes get
 #      PRE_PR_WIDTH_AUDIT_TIMEOUT seconds each (2400; the suite's own default is 600)
 #   3. extra-gate.sh: lint-java, Error Prone, lint-scala, invariant and proof suites
 #   4. dev/varka_push_check.py (its suites and the size cap)
+#  4b. the skip-line recheck: every line of sql/varka/matrix/skips.tsv added or deleted since the
+#      last stamp (or the merge base) reruns its suite under its configuration, and a change to
+#      sql/varka/coverage.json reruns the suites drawn from it (below)
 #   5. the arm sweep: every test suite the branch adds or changes, under the defaults, useAVX=2,
 #      useAVX=3 and each configuration with an option a changed line of VarkaEmitOption.java,
 #      VarkaEmitOptions.java or VarkaMatrixRuns.java names (23 Nov 2026: the sweep of every
@@ -38,12 +45,13 @@
 # the branch's last stamp is either a merge of origin/master whose code files are exactly git's own
 # merge, or a commit touching only plans, prose and generated files (NONCODE below). It runs
 # steps 1-4 and sql/Test/compile for a branch touching catalyst or sql, since a clean merge can
-# still break compilation (#1258, #1261). PRE_PR_FULL=1 or PRE_PR_SWEEP=all runs the sweep anyway.
+# still break compilation (#1258, #1261), and step 4b. PRE_PR_FULL=1 or PRE_PR_SWEEP=all runs the
+# sweep anyway.
 # PRE_PR_DRY=1 prints the steps and the sweep configurations a run would choose and changes
 # nothing: no fetch, merge, commit, log or stamp. PRE_PR_DRY_SINCE=<rev> makes a dry run decide
 # from that commit instead of the last stamp, to check the decision on older history.
 # On success it writes $VARKA_OPS_HOME/stamps/<dir> with HEAD, and appends "<sha> <time> <mode>" to
-# stamps/<dir>.history, where the merge-only check finds the earlier stamps; open-pr.sh,
+# stamps/<dir>.history, where the merge-only check and step 1a find the earlier stamps; open-pr.sh,
 # push-ci.sh and push-no-ci.sh refuse a head without the stamp. Log: logs/pre-pr-<dir>.log
 set -u
 . "$(dirname "$0")/common.sh"
@@ -81,6 +89,9 @@ case $SWEEP in ''|all) ;; *) echo "pre-pr: PRE_PR_SWEEP is empty or all, not $SW
 audit_s=${PRE_PR_WIDTH_AUDIT_TIMEOUT:-2400}
 [[ $audit_s =~ ^[1-9][0-9]*$ ]] \
   || { echo "pre-pr: PRE_PR_WIDTH_AUDIT_TIMEOUT is whole seconds, not $audit_s"; exit 2; }
+TE=${PRE_PR_TREE_EQUAL:-}
+[ -z "$TE" ] || git rev-parse --verify -q "$TE^{commit}" > /dev/null \
+  || { echo "pre-pr: PRE_PR_TREE_EQUAL names no commit: $TE"; exit 2; }
 short() { echo "$*" | tr '\n' ' ' | cut -c1-200; }
 
 # why_full <commit>: why the commit needs the full gate; nothing when it may be merge-only. A merge
@@ -152,6 +163,33 @@ elif [ $merge = 1 ]; then
 $TRAILER" origin/master >> "$L" 2>&1 \
       || { git diff --name-only --diff-filter=U; die "merge: conflict; resolve, commit, rerun"; }
     say "merged master $(git rev-parse --short origin/master)"
+  fi
+fi
+
+# 1a. the tree-equal path (24 Nov 2026). PRE_PR_TREE_EQUAL=<sha> names a commit this worktree's
+# full gate already passed (a line of stamps/<dir>.history whose mode is full). It serves a
+# stacked branch whose parent squash-merged after a rehearsed merge of the two had passed the full
+# gate: when HEAD, after the merge above, holds exactly that commit's tree and contains
+# origin/master, there is nothing new to check, so the gate logs the match and stamps HEAD with the
+# mode
+# "tree-equal:<sha>". In any other case it says why and runs the gate. A dry run ignores it, and
+# PRE_PR_FULL=1 or PRE_PR_SWEEP=all overrides it.
+if [ -n "$TE" ] && [ "$DRY" != 1 ]; then
+  te=$(git rev-parse "$TE^{commit}")
+  if [ "${PRE_PR_FULL:-0}" = 1 ] || [ "$SWEEP" = all ]; then
+    say "tree-equal: ignored, PRE_PR_FULL=1 or PRE_PR_SWEEP=all asks for the gate; running it"
+  elif ! grep -qE "^$te [^ ]+ full$" "$OPS/stamps/$n.history" 2>/dev/null; then
+    say "tree-equal: ${te:0:11} never passed the full gate here; running the gate"
+  elif [ "$(git rev-parse "HEAD^{tree}")" != "$(git rev-parse "$te^{tree}")" ]; then
+    say "tree-equal: HEAD's tree differs from ${te:0:11}'s" \
+      "($(git diff --name-only "$te" HEAD | head -5 | paste -sd' ' -)); running the gate"
+  elif ! git merge-base --is-ancestor origin/master HEAD; then
+    say "tree-equal: HEAD lacks origin/master; running the gate"
+  else
+    git rev-parse HEAD > "$OPS/stamps/$n"
+    echo "$(git rev-parse HEAD) $(date +%F_%H:%M) tree-equal:${te:0:11}" >> "$OPS/stamps/$n.history"
+    say "tree-equal to stamped ${te:0:11}: no step run; passed on $(git rev-parse --short HEAD)"
+    exit 0
   fi
 fi
 
@@ -245,6 +283,58 @@ else
   python3 dev/varka_push_check.py >> "$L" 2>&1 || die "push check (see $L)"
   rm -f none
   say "push check passed ($(grep -o 'pull request size: [0-9]* counted lines' "$L" | tail -1))"
+fi
+
+# 4b. the skip-line recheck (24 Nov 2026), in a merge-only re-gate too. A clean merge of master
+# keeps a branch's old green matrix, but master's skip-list edits, or its coverage rows, can make
+# a line stale that no matrix has run with the branch: #1644 re-added a line #1643 had deleted,
+# both merged clean, and #1693's option matrix failed it. So every sql/varka/matrix/skips.tsv
+# line added or deleted since the last stamp (with none, since the merge base) reruns its suite
+# under its configuration, and so does every line on which HEAD differs from origin/master: master
+# never ran its matrix with that line, and the branch's matrix may predate the merge (b135: #1644's
+# head carried a line master had deleted). A line both sides carry is master's to keep true. A dry
+# run reads the merge it predicts. A deleted line whose configuration names an option that
+# VarkaEmitOption.java and VarkaMatrixRuns.java no longer declare went with that option and is not
+# rerun. A stale or failing line fails the gate here. (Until #1695, VarkaGroupingBoundSuite also
+# reran under driverOutputTable=false on each change of coverage.json; its verdict no longer
+# depends on the coverage table's draw, row 644.)
+tab=$'\t'
+from=$base
+[ -z "$prev" ] || [ "$prev" = none ] || from=$prev
+to=HEAD
+[ "$DRY" = 1 ] && [ $clean_merge = 1 ] && to=$(echo "$mt" | head -1)
+skips=sql/varka/matrix/skips.tsv
+declared() {
+  local k
+  for k in $(echo "$1" | tr ',' ' ' | sed 's/=[^ ]*//g'); do
+    git grep -q "\"$k\"" -- 'sql/*/src/*/VarkaEmitOption.java' 'sql/*/src/*/VarkaMatrixRuns.java' \
+      || return 1
+  done
+}
+sk=$(for f in "$from" origin/master; do git diff -U0 --no-renames "$f" "$to" -- "$skips"; done \
+  | grep -E '^[-+][^-+#]' | cut -f1,2 | sort -u)
+gone=$(echo "$sk" | grep '^-' | cut -c2- | while IFS=$tab read -r cfg suite; do
+  declared "$cfg" || printf '%s\t%s\n' "$cfg" "$suite"; done)
+[ -z "$gone" ] || say "skip recheck: not rerun, their options are gone: $(short "$gone")"
+sk=$(echo "$sk" | cut -c2- | grep -vxF -f <(echo "$gone" | grep . || echo $'\x01'))
+sk=$(echo "$sk" | grep -v '^$' | sort -u)
+if [ -n "$sk" ]; then
+  while IFS=$tab read -r cfg suite; do
+    [ -n "$suite" ] || continue
+    f=$(git ls-files "sql/*/src/test/*/$suite.scala" "sql/*/src/test/*/$suite.java" | head -1)
+    case $f in
+      sql/catalyst/*) m=catalyst;;
+      sql/core/*) m=sql;;
+      *) say "skip recheck: $suite has no catalyst or sql source; not rerun"; continue;;
+    esac
+    if [ "$DRY" = 1 ]; then would "recheck the skip line: $suite under $cfg ($m)"; continue; fi
+    say "skip recheck: $suite under $cfg ($m)"
+    dev/varka_matrix.sh --module "$m" --config "$cfg" --suites "$suite" \
+      --out target/pre-pr-skip-recheck >> "$L" 2>&1 \
+      || { grep -E "FAILED|stale entry" "$L" | tail -6
+           die "skip recheck: $suite under $cfg (see $L)"; }
+  done <<< "$sk"
+  [ "$DRY" = 1 ] || say "skip recheck passed ($(echo "$sk" | grep -c .) line(s))"
 fi
 
 stamp() {
