@@ -52,12 +52,22 @@ import org.apache.spark.util.ArrayImplicits._
  * than `condition`: Spark stops at the first false conjunct, so a fused conjunct that can raise
  * under ANSI - `make_date(2021, i, 1) < d` after `s = 'x'` - must not run on a row an earlier
  * residual conjunct rejects. The residual `FilterExec` above then passes every row it gets.
+ *
+ * The rule passes `wholeCondition` too where nothing is residual but the filter's condition is
+ * not the left fold of its conjuncts, as in `a AND (b AND c)` (VARKA-608). Spark's uncompiled
+ * predicate keeps an `AND` of that tree which is itself a common subexpression as one conjunct,
+ * and with subexpression elimination on calls the subexpressions inside it before its first
+ * operand (SPARK-61197); the fold `(a AND b) AND c` has no such `AND`, so the two could differ
+ * on which conjunct runs first. The fallback evaluates the tree Spark evaluates.
  */
 private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelper {
 
   def condition: Expression
 
-  /** The filter's whole condition when the rule split residual conjuncts off it. */
+  /**
+   * The filter's own condition wherever the per-row fallback needs it rather than `condition`:
+   * when the rule split residual conjuncts off it, or when it is not its conjuncts' left fold.
+   */
   def wholeCondition: Option[Expression]
 
   /**
@@ -68,17 +78,18 @@ private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelpe
   def sessionEmit: VarkaSessionEmit
 
   /**
-   * What the per-row fallback evaluates: the whole condition where the rule split one, and the
-   * fused conjuncts otherwise, in the order Spark's own `FilterExec` would evaluate them here
-   * (VARKA-380). The generated predicate evaluates an `AND` tree as written, which is Spark's
-   * order when the filter is not whole-stage compiled; when it is, codegen moves the `IsNotNull`
-   * tests, and an `isnotnull(d)` written first would drop a row before a conjunct that raises on
-   * it in Spark. Whether Spark compiles the filter is `CollapseCodegenStages.supportCodegen`'s
-   * test, asked of this node: codegen on, no expression that falls back, and no more columns
-   * than `spark.sql.codegen.maxFields`. A compiled filter goes on past a NULL conjunct, as the
-   * `AND` tree does, unless `spark.sql.legacy.filterShortCircuitOnNullConjunct` makes it drop the
-   * row there (SPARK-60315); the setting is read as `FilterExec` reads it, from the session's conf
-   * when the plan executes, and has no effect on a filter Spark does not compile.
+   * What the per-row fallback evaluates: the filter's own condition where the rule passed it,
+   * and the fused conjuncts' fold otherwise, in the order Spark's own `FilterExec` would
+   * evaluate them here (VARKA-380). The generated predicate evaluates an `AND` tree as written,
+   * which is Spark's order when the filter is not whole-stage compiled; when it is, codegen moves
+   * the `IsNotNull` tests, and an `isnotnull(d)` written first would drop a row before a conjunct
+   * that raises on it in Spark. Whether Spark compiles the filter is
+   * `CollapseCodegenStages.supportCodegen`'s test, asked of this node: codegen on, no expression
+   * that falls back, and no more columns than `spark.sql.codegen.maxFields`. A compiled filter goes
+   * on past a NULL conjunct, as the `AND` tree does, unless
+   * `spark.sql.legacy.filterShortCircuitOnNullConjunct` makes it drop the row there (SPARK-60315);
+   * the setting is read as `FilterExec` reads it, from the session's conf when the plan executes,
+   * and has no effect on a filter Spark does not compile.
    */
   protected def fallbackCondition: Expression =
     fallbackConditionUnder(conf.legacyFilterShortCircuitOnNullConjunct)

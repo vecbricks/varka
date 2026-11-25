@@ -174,7 +174,9 @@ Built on branch `varka-601-split-filter-row-copy`, the four files of section 4 b
   before: the plan holds a row operator, some Varka node fuses more than null tests, and then
   exactly one row operator, a `FilterExec`, sits directly above (through whole-stage codegen's
   `InputAdapter`) the plan's one Varka node, a `VarkaFilterColumnarToRowExec` whose
-  `wholeCondition` is set and whose own condition is not only null tests. `NULL_TESTS` is decided
+  `wholeCondition` is set, with exactly the node's conjuncts and the `FilterExec`'s (a set
+  `wholeCondition` alone no longer means a split since VARKA-608), and whose own condition is
+  not only null tests. `NULL_TESTS` is decided
   first, so a split whose fused part is only an `IS NULL` stays `NULL_TESTS`. `requireBaseline`
   notes a `SPLIT` section.
 * `VarkaSplitFilterBaselineBenchmark`, the table and sections of 3.1. Two departures from 3.1,
