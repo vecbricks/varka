@@ -1104,6 +1104,12 @@ suite's owed entries left with #1628, which made those outputs fuse, so it lists
 suite owes only the sums and differences (row 360), its choices, picks, negation and `abs` now
 fusing as two-word outputs. The record above describes the tree before that rebuild.
 
+*25 November 2026, merged with master after row 489 (#1692, #1693, #1696):* the node's arms in
+the budget, the cost model, the operand positions, the long-lane reader, the ring rule and the
+word rules are gone; `InterleaveDecimal.props()` states them once: ring `NEVER`, validity
+`Operand(0)` (the low word's, as the old arms read it), weight 3, its record name as the cost
+kind, no restricted position, `LongNarrowReader.NONE`.
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **359b before the pair-load node.** 10.5 names the node as the next part, but its only proof is
