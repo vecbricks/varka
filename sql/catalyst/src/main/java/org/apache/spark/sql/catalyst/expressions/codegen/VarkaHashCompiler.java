@@ -136,7 +136,8 @@ final class VarkaHashCompiler {
       any = true;
     }
     if (!any) {
-      return sink.decline("a hash of no column, a constant Spark's optimizer folds", whole);
+      return sink.decline("a hash whose every child is null, a constant Spark's optimizer "
+          + "folds", whole);
     }
     return Optional.of(h);
   }
@@ -149,9 +150,14 @@ final class VarkaHashCompiler {
       VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
     DataType t = child.dataType();
     return switch (t) {
-      // A boolean's word is the int 1 or 0, which is its cast to INT.
-      case BooleanType b -> lane(new Cast(child, DataTypes.IntegerType, Option.empty(),
-          EvalMode$.MODULE$.LEGACY()), LaneType.INT, inputs, literals, sink);
+      // A boolean's word is the int 1 or 0: a literal's is that int's slot, and a computed or
+      // read boolean's is its cast to INT, built under the integral cast family's switch.
+      case BooleanType b when child instanceof Literal l ->
+          Optional.of(VarkaNodeCompiler.intSlot(Boolean.TRUE.equals(l.value()) ? 1 : 0, literals));
+      case BooleanType b -> sink.off(VarkaFamily.INTEGRAL_CAST)
+          ? sink.decline(VarkaFamily.INTEGRAL_CAST.offReason(), child)
+          : lane(new Cast(child, DataTypes.IntegerType, Option.empty(),
+              EvalMode$.MODULE$.LEGACY()), LaneType.INT, inputs, literals, sink);
       case ByteType b -> narrow(child, inputs, literals, sink);
       case ShortType s -> narrow(child, inputs, literals, sink);
       // A bare int column is a leaf only where an int operand is read, as arithmetic's are.
@@ -211,7 +217,7 @@ final class VarkaHashCompiler {
   static Set<VarkaFamily> childFamilies(Expression e) {
     var out = EnumSet.noneOf(VarkaFamily.class);
     for (Expression child : CollectionConverters.asJava(e.children())) {
-      // A null child is skipped by the fold, and a boolean literal's cast folds to a slot, so
+      // A null child is skipped by the fold, and a boolean literal's word is an int slot, so
       // neither builds a node of another family.
       if (child.dataType() instanceof NullType
           || (child instanceof Literal l && l.value() == null)) {

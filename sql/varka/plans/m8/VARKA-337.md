@@ -626,8 +626,8 @@ byte lengths 1, 2, 8, 9, 15 and 16 are 337b's, after row 359a, and the row's don
 
 (Written when the work lands.)
 
-**337a1, the canonicalisation** (20 November 2026, branch `varka-337-float-normalize`, local,
-built while the owner was away; the decisions are in the section below). Built: the IR node
+**337a1, the canonicalisation** (20 November 2026, merged as #1566 on 20 November 2026, built
+while the owner was away; the decisions are in the section below). Built: the IR node
 `CanonicalFloat` (2.1) with `CanonicalFloat.of` as its structural idempotence rule, its constructor
 refusing an integral child and a canonicalisation child; its lowering `blend(x + 0.0, NaN,
 isNaN(x))` in `VarkaVectorWalk.emitCanonicalFloat`, one scratch local, the canonical NaN a
@@ -668,8 +668,8 @@ table's text in `docs/sql-varka.md` (the widened `covers`) and the laptop's JDK 
 `width_audit.json`. The side sequence is unpinned, so no committed fuzz block moved. Predictions 1
 to 4 and 6 are the hash's and stay open.
 
-**337a2, the hash steps** (20 November 2026, branch `varka-337a2-hash`, stacked on 337a1, local,
-built while the owner was away; decisions 11 to 15 below). Built: `HashStep(mix, seed, word)` with
+**337a2, the hash steps** (20 November 2026, merged as #1573 on 20 November 2026, built while
+the owner was away; decisions 11 to 15 below). Built: `HashStep(mix, seed, word)` with
 `HashMix`'s five primitive tails (decision 13) and `CanonicalBits`, a canonical value's bits
 (decision 12); their lowering in `VarkaHashLowering`, Spark's constants and operator order, the
 word's half emitted before the seed, `h * 5` as `(h << 2) + h`, and the null skip inside the step
@@ -700,32 +700,47 @@ of 3.4, and the planted faults of 3.9's second and third bullets. Then, by secti
 baseline (its build sheet below) and the spike, and the measurement that scores predictions 1 to 4;
 the PR build and the option matrix (3.8).
 
-**337a3, the compiler** (20 November 2026, branch `varka-337a3-hash-compiler`, stacked on 337a2,
-#1573; decision 16 below). Built: the `HASH` family with its switch and `VarkaHashCompiler`, last
+**337a3, the compiler** (built 20 November 2026, brought up to master on 25 November 2026, this pull
+request; decision 16 below). Built: the `HASH` family with its switch and `VarkaHashCompiler`, last
 in the chain, claiming `Murmur3Hash` and `XxHash64` by exact class, so the collation-aware variants
-and `HiveHash` stay on the row engine; the fold of the children in order from the expression's
-seed, each child's word by 2.3's table: a bare int column through the int operand rule, a boolean
-as its cast to `INT`, the narrow types widened, the floating types canonicalised under the
-floating arithmetic family's switch, a decimal of precision 18 or less as its unscaled long, a
-null literal or `NullType` child skipped, a decimal above 18 declined naming 337b, and a hash of
-no column left declined as the constant Spark's optimizer folds; `floatingDecline` admits both
-classes; 33 coverage rows in a family "Hash" over every column type of the fixtures but the wide
-decimals; the census notes say what is built. `dev/varka_regen_generated.sh --all` added the rows
-to `coverage.json` and `docs/sql-varka.md` (and the family's switch to its table), their shapes to
-`emitted_bytes.json` and `width_audit.json`, and moved no existing shape: prediction 5 of section
-4, **held** for this part too. `census.tsv` counts the 24 pairs of section 6 as fused.
+and `HiveHash` stay on the row engine; the fold of the children in order from the expression's seed,
+each child's word by 2.3's table: a bare int column through the int operand rule, a boolean as its
+cast to `INT` (a boolean literal as the int slot 1 or 0), the narrow types widened, the floating
+types canonicalised under the floating arithmetic family's switch, a decimal of precision 18 or less
+as its unscaled long, a null literal or `NullType` child skipped, a decimal above 18 declined naming
+337b, and a hash whose every child is null declined as the constant Spark's optimizer folds;
+`floatingDecline` admits both classes; 34 coverage rows in a family "Hash" over every column type of
+the fixtures but the wide decimals; the census notes say what is built.
+`dev/varka_regen_generated.sh --all` added the rows to `coverage.json` and `docs/sql-varka.md` (and
+the family's switch to its table), their shapes to `emitted_bytes.json` and `width_audit.json`, and
+moved no existing shape: prediction 5 of section 4, **held** for this part too. `census.tsv` counts
+the 24 pairs of section 6 as fused.
 
 Tests: `VarkaExpressionCompilerSuite` pins the trees the compiler builds for one column of each
 lane to `VarkaEmitterHashSuite`'s, which hold them to Spark's functions; a normalised key hashed as
 the column is; two children and a null literal as three steps; the two switches' declines; the
 decimal above 18 naming 337b; the collation-aware form unclaimed. `VarkaCoverageSuite` compiles
-the 33 rows and checks their domains (none guarded), and `VarkaCoverageHarnessSuite` runs them
+the 34 rows and checks their domains (none guarded), and `VarkaCoverageHarnessSuite` runs them
 against Spark's row engine: 2658 cases, no failure. The width audit under `-XX:UseAVX=2` emits
 every shape with a lowering for every call; its census differs from the committed AVX-512 file in
 136 cells, 337a1's 134 (masked `BYTE` stores and 64-bit masks at two lanes) and two new ones,
 `hash(d9)` and `xxhash64(d18)` at 128 bits, both the decimal slot check's 64-bit masks at two
 lanes. None is a hash step's: the multiplies, rotates and reinterpretations lower at both
 instruction sets. The committed file stays the AVX-512 host's, as decision 10 has it.
+
+**The two-lane x86 hash kernels are admitted** (25 November 2026). At 128 bits the committed
+`width_audit.json` lists no Java fallback for the `hash` rows on the int lane alone (`hash(i)`,
+`hash(b)`, `hash(y1, s1, b)` and the like). A row read on the long lane lists the long lane's masked
+load and mask broadcast, as every long kernel at two lanes does, and the `xxhash64` rows and the
+double ones add the null skip's or the canonicalisation's 64-bit blend (`op=blend vlen=2`); the
+steps' multiplies, rotates and reinterpretations lower. Row 612's refusal (`VARKA-612.md` 3.1)
+refuses only a raising or nulling check on a 64-bit lane: an `IntArith` or `IntNeg` in `FAIL` or
+`NULL` on `LONG`, or a `GuardedRange` over a long. A hash holds none, so `VARKA-612-refused.txt`
+lists none of its rows. That is the rule's intent, not a gap: blends were measured winning at two
+lanes (`VARKA-612.md` 2 item 4, row 503), and the same fallback lines appear for the admitted
+long-lane `CASE WHEN` rows. Whether a hash at two lanes wins is for the measurement of section 5's
+order to score at 128 bits (the `xxhash64` AVX2 arm); if it loses, the refusal gains a case then,
+under row 612's rule.
 
 ## Decisions taken while the owner was away (20 November 2026)
 
@@ -799,7 +814,10 @@ Taken for part 337a2, the hash steps (branch `varka-337a2-hash`, stacked on 337a
    `hash.smt2` and the step and fold planted faults of 3.9.
 16. **A `BOOLEAN` child is compiled as `CAST(b AS INT)`**, which is the 1 or 0 Spark hashes, so
    it is under the integral cast family's switch as well as the hash family's, as a floating child
-   is under the floating arithmetic family's.
+   is under the floating arithmetic family's. A boolean literal is the int slot 1 or 0 instead, no
+   cast node, so no switch but the hash family's keeps it off (`hash(i, true)`, a coverage row,
+   holds this in `VarkaFamilySwitchSuite`). With the integral cast family off, a boolean child's
+   decline is noted against the child, since the cast is the hash's word and not the user's.
 
 ## Build sheet (11 November 2026)
 

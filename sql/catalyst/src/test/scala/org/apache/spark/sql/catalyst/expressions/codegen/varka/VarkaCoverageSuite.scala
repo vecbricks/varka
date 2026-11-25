@@ -1546,6 +1546,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("xxhash64(f, i, x, l)"),
       Row("hash(y1, s1, b)"),
       Row("hash(i, 7)", "a literal child is hashed as its type is"),
+      Row("hash(i, true)", "a boolean literal is the int 1, a slot and not a cast"),
       Row("xxhash64(i ^ 5, l & 255)", "a child is any expression the chain compiles"))),
     // A floating value as a boolean (VARKA-343 2.5): Spark's x != 0 in every mode, the negation
     // of the lane's EQ against zero, so a NaN is true and both zeros false; never an error.

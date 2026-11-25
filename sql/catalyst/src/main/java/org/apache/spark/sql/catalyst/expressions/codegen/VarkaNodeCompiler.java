@@ -227,10 +227,10 @@ final class VarkaNodeCompiler {
   /**
    * The chain, in order: the date leaves, the four families, then the int arithmetic and the
    * picks, then the floating arithmetic, which claims only floating-valued nodes, then the
-   * floating casts, the integral casts row 28's arms do not hold, the rounding functions, the
-   * math functions and last the two hashes. The int arithmetic comes after the calendar family
-   * so that the {@code Add(WeekDay, 1)} shape keeps its dedicated node, and its guard says so as
-   * well.
+   * floating casts, the integral casts row 28's arms do not hold, the decimal casts, the rounding
+   * functions, the math functions and last the two hashes. The int arithmetic comes after the
+   * calendar family so that the {@code Add(WeekDay, 1)} shape keeps its dedicated node, and its
+   * guard says so as well.
    */
   private static final List<Family> FAMILIES = List.of(
       new Family("date leaves", VarkaNodeCompiler::leafArm),
