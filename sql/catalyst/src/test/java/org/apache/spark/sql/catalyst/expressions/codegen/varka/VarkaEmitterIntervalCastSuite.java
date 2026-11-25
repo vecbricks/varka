@@ -22,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -29,6 +31,7 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 
@@ -39,15 +42,24 @@ import scala.Enumeration;
 import scala.Option;
 import scala.jdk.javaapi.CollectionConverters;
 
+import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.DateAddYMInterval;
+import org.apache.spark.sql.catalyst.expressions.DivideDTInterval;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.ExtractANSIIntervalDays;
+import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
+import org.apache.spark.sql.catalyst.expressions.InterpretedUnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.catalyst.expressions.MultiplyDTInterval;
+import org.apache.spark.sql.catalyst.expressions.UnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
+import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaIntervalCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.Batch;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.LongBatch;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.SparkAnswers;
@@ -60,6 +72,7 @@ import org.apache.spark.sql.catalyst.util.DateTimeConstants;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DayTimeIntervalType;
+import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.YearMonthIntervalType;
 
 /**
@@ -74,8 +87,10 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * batch declines only for the {@code 2^52} microsecond guard of the HOUR, MINUTE and SECOND ends
  * (the DAY end is exact over every long), whatever the mode, and the row engine then divides.
  *
- * <p>Beside them, one form over the same nodes (VARKA-103): {@code extract(DAY FROM dt)}, the
- * DAY end's division narrowed to an int.
+ * <p>Beside them, forms over the same nodes (VARKA-103): {@code extract(DAY FROM dt)}, the
+ * DAY end's division narrowed to an int; and {@code dt / k} by a divisor of a day and the decimal
+ * literal products and quotients, the day division's split with a {@code HALF_UP} step, where
+ * Spark's interpreted and generated code are both held to the same answers.
  *
  * <p>In its own JVM: the year cast runs at the int lane and the division at the long lane.
  */
@@ -348,6 +363,159 @@ public final class VarkaEmitterIntervalCastSuite {
     var failure = assertThrows(IllegalStateException.class,
         () -> k.answers(new long[] {Long.MIN_VALUE}), "the planted fault passes at MIN");
     assertTrue(failure.getMessage().contains("disagree"), failure.getMessage());
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // dt / k by a divisor of a day, and the decimal literal forms (VARKA-103 2.4)
+  // -------------------------------------------------------------------------------------------
+
+  private static final long DAY = DateTimeConstants.MICROS_PER_DAY;
+
+  private static final DayTimeIntervalType DT = new DayTimeIntervalType((byte) 0, (byte) 3);
+
+  /**
+   * The cells every quotient and product runs on: the long's ends and one in, the day and one
+   * either side of it, both signs, the ties of 3.3 ({@code +-5 / 2}, {@code +-1}, {@code +-3}),
+   * {@code 2^53} and its neighbours, and the double factor's long edges ({@code MAX - 511},
+   * {@code MAX - 512}).
+   */
+  private static long[] namedCells() {
+    var out = new ArrayList<Long>();
+    for (long v : new long[] {0, 1, 3, 5, 7, DAY - 1, DAY, DAY + 1, (1L << 53) - 1, 1L << 53,
+        (1L << 53) + 1, Long.MAX_VALUE - 512, Long.MAX_VALUE - 511, Long.MAX_VALUE - 1,
+        Long.MAX_VALUE}) {
+      out.add(v);
+      out.add(-v);
+    }
+    out.add(Long.MIN_VALUE);
+    return out.stream().mapToLong(Long::longValue).toArray();
+  }
+
+  /** Values about the multiples of {@code m}: each tie {@code j * m + m / 2}, one either side. */
+  private static long[] aboutMultiples(long m, Random rnd) {
+    var out = new ArrayList<Long>();
+    for (int i = 0; i < 200; i++) {
+      // At most 2^62 in magnitude, so a multiple plus less than m stays a long.
+      long base = (rnd.nextLong() >> (1 + rnd.nextInt(63))) / m * m;
+      for (long off : new long[] {0, m / 2 - 1, m / 2, m / 2 + 1, m - 1}) {
+        out.add(base + off);
+        out.add(-(base + off));
+      }
+    }
+    return out.stream().mapToLong(Long::longValue).toArray();
+  }
+
+  private static long[] drawn(Random rnd, int n) {
+    return LongStream.generate(() -> rnd.nextLong() >> rnd.nextInt(64)).limit(n).toArray();
+  }
+
+  private static Literal decimal(String v) {
+    var bd = new BigDecimal(v);
+    return new Literal(Decimal.apply(bd),
+        DataTypes.createDecimalType(Math.max(bd.precision(), bd.scale()), bd.scale()));
+  }
+
+  /**
+   * Spark's generated and interpreted projections of {@code form} over one day-time input
+   * agree on every value: the same long, or the same error class and message. The kernel is
+   * held to the interpreted {@code eval}, so this holds the generated code, which a whole-stage
+   * query runs, to the same answers.
+   */
+  private static void sparkPathsAgree(Function<Expression, Expression> form, long[] values) {
+    Expression bound = form.apply(new BoundReference(0, DT, true));
+    scala.collection.immutable.Seq<Expression> exprs =
+        CollectionConverters.asScala(List.of(bound)).toSeq();
+    UnsafeProjection generated = GenerateUnsafeProjection.generate(exprs, false);
+    UnsafeProjection interpreted = InterpretedUnsafeProjection.createProjection(exprs);
+    for (long v : values) {
+      InternalRow row = new GenericInternalRow(new Object[] {v});
+      assertEquals(evaluated(interpreted, row), evaluated(generated, row),
+          bound.sql() + " at " + v);
+    }
+  }
+
+  private static String evaluated(UnsafeProjection p, InternalRow row) {
+    try {
+      return Long.toString(p.apply(row).getLong(0));
+    } catch (RuntimeException e) {
+      if (e instanceof ArithmeticException || e instanceof org.apache.spark.SparkThrowable) {
+        return e.getClass().getName() + ": " + e.getMessage();
+      }
+      throw e;
+    }
+  }
+
+  @Test
+  @DisplayName("dt / k by a divisor of a day answers as Spark does over every long: the ties, "
+      + "the long's ends, values about the multiples of k and drawn values, both signs")
+  void dayTimeByDivisorOfADay() {
+    var rnd = new Random(1032);
+    Attribute dt = VarkaSqlResolve.column("dt", DT);
+    for (long k : new long[] {2, -2, 3, 5, 24, -24, 1000, 8192, DAY, -DAY}) {
+      Literal divisor = k == (int) k && k != 3 ? new Literal((int) k, DataTypes.IntegerType)
+          : new Literal(k, DataTypes.LongType);
+      Function<Expression, Expression> form = x -> new DivideDTInterval(x, divisor);
+      Kernel kernel = kernel(form.apply(dt), List.of(dt));
+      long[] values = LongStream.concat(LongStream.concat(LongStream.of(namedCells()),
+          LongStream.of(aboutMultiples(Math.abs(k), rnd))), LongStream.of(drawn(rnd, 2000)))
+          .toArray();
+      assertTrue(kernel.answers(values), "dt / " + k);
+      sparkPathsAgree(form, values);
+    }
+  }
+
+  @Test
+  @DisplayName("the day split with the non-negative bias for a negative value too fails the "
+      + "negative tie of dt / 2")
+  void halfUpBiasUnsignedFails() {
+    // Compiled and emitted under the fault's own options, never through the class cache.
+    var faulty = VarkaMatrixRuns.BASE
+        .withIntervalFault(VarkaEmitOptions.IntervalFault.HALF_UP_BIAS_UNSIGNED);
+    Attribute dt = VarkaSqlResolve.column("dt", DT);
+    Kernel k = kernel(new DivideDTInterval(dt, new Literal(2, DataTypes.IntegerType)),
+        List.of(dt), faulty);
+    assertTrue(k.answers(new long[] {0, 3, -2, -4, 5, Long.MAX_VALUE}),
+        "the fault is wrong only at a negative tie");
+    // A failed comparison with Spark throws, naming the row (VarkaKernelChecks).
+    var failure = assertThrows(IllegalStateException.class,
+        () -> k.answers(new long[] {-3}), "the planted fault passes at -3 / 2");
+    assertTrue(failure.getMessage().contains("disagree"), failure.getMessage());
+  }
+
+  @Test
+  @DisplayName("dt times or divided by a decimal literal answers as Spark's Decimal arithmetic "
+      + "wherever its guard admits, and declines where the product by the reduced numerator "
+      + "leaves the long")
+  void dayTimeByDecimalLiteral() {
+    var rnd = new Random(1033);
+    Attribute dt = VarkaSqlResolve.column("dt", DT);
+    String[][] cases = {{"0.5", "*"}, {"-0.5", "*"}, {"1.5", "*"}, {"-1.5", "*"}, {"0.70", "*"},
+        {"1.0", "*"}, {"-1.0", "*"}, {"2.0", "*"}, {"0.0", "*"}, {"2.0", "/"}, {"1.5", "/"},
+        {"-1.5", "/"}, {"24.0", "/"}, {"2.5", "/"}, {"1.00", "/"}};
+    long[] values = LongStream.concat(LongStream.of(namedCells()), LongStream.of(drawn(rnd,
+        2000))).toArray();
+    for (String[] c : cases) {
+      Literal lit = decimal(c[0]);
+      boolean product = c[1].equals("*");
+      Function<Expression, Expression> form = x -> product ? new MultiplyDTInterval(x, lit)
+          : new DivideDTInterval(x, lit);
+      Kernel kernel = kernel(form.apply(dt), List.of(dt));
+      BigInteger u = new BigDecimal(c[0]).unscaledValue();
+      BigInteger p = BigInteger.TEN.pow(new BigDecimal(c[0]).scale());
+      long[] f = VarkaIntervalCompiler.dayTimeFraction(product ? u : p.multiply(
+          BigInteger.valueOf(u.signum())), product ? p : u.abs());
+      long n = f[1] == 1 ? f[0] : Math.abs(f[0]);
+      long[] b = n == 0 || n == 1 ? new long[] {Long.MIN_VALUE, Long.MAX_VALUE}
+          : VarkaIntervalCompiler.dayTimeProductBounds(n);
+      long[] inside = LongStream.of(values).filter(v -> b[0] <= v && v <= b[1]).toArray();
+      assertTrue(kernel.answers(inside), "dt " + c[1] + " " + c[0]);
+      for (long v : LongStream.of(values).filter(v -> v < b[0] || v > b[1]).limit(40)
+          .toArray()) {
+        assertNotEquals(0, kernel.status(new long[] {0, v}),
+            "dt " + c[1] + " " + c[0] + " answered " + v + ", outside its guard");
+      }
+      sparkPathsAgree(form, values);
+    }
   }
 
   // -------------------------------------------------------------------------------------------

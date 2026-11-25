@@ -119,8 +119,8 @@ final class DeclineSink {
 
   /**
    * A projection's sink under the session's admission settings: its families off, and whether a
-   * checked {@code BIGINT} operation declines on a host whose 64-bit species have two lanes
-   * ({@link #declinesTwoLaneChecks}).
+   * checked {@code BIGINT} operation and the measured day-time interval arithmetic decline on a
+   * host whose 64-bit species have two lanes ({@link #declinesTwoLaneChecks}).
    */
   DeclineSink(Seq<Attribute> childOutput, VarkaEmitOptions options, VarkaAdmission admission) {
     this.childOutput = childOutput;
@@ -146,9 +146,10 @@ final class DeclineSink {
   }
 
   /**
-   * Whether a checked {@code BIGINT} operation - one that raises or nulls on overflow - declines,
-   * on an x86 host whose 64-bit species have two lanes or fewer (VARKA-104, the setting row 503
-   * keys its filter refusal on). Its overflow test is a long-lane mask, which C2 does not lower
+   * Whether a checked {@code BIGINT} operation - one that raises or nulls on overflow - and the
+   * checked day-time interval arithmetic measured slower there (VARKA-612) decline, on an x86
+   * host whose 64-bit species have two lanes or fewer (VARKA-104, the setting row 503 keys its
+   * filter refusal on). Its overflow test is a long-lane mask, which C2 does not lower
    * there, so the kernel would run the Vector API's Java fallback; a wrapping operation, a check
    * the range lattice took off and the bit operations make no such mask and stay fused.
    */

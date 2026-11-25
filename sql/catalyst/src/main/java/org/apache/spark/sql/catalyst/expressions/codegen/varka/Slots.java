@@ -40,6 +40,7 @@ import java.util.TreeMap;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.WordExpr;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.WordOwner;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowGroupStore;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaNodeProps.Validity;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
@@ -1181,61 +1182,22 @@ final class Slots {
    * child alias that child; literal-only subtrees are the all-true constant.
    */
   private static int planWordRef(VarkaVectorIR node, Slots s) {
-    return switch (node) {
-      case ColumnRef c -> s.word[c.ordinal()];
-      case DecimalColumn c -> s.word[c.ordinal()];
-      case DecimalWord c -> s.word[c.ordinal()];
-      case LiteralSlot l -> WORD_ALL_TRUE;
-      case AddDays n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
-      case SubDays n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
-      case DayOfWeek n -> s.wordRef.get(n.days());
-      case WeekDay n -> s.wordRef.get(n.days());
-      case DayOfWeekIso n -> s.wordRef.get(n.days());
-      case NextDay n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
-      case ThursdayOf n -> s.wordRef.get(n.days());
-      case GuardedDay n -> s.wordRef.get(n.days());
-      // A FAIL guard forwards its child's word; a NULL one clears lanes from a copy of it, so,
-      // like a NULL IntArith, it needs a slot of its own.
-      case GuardedRange n -> n.mode() == Overflow.NULL
-          ? Integer.MIN_VALUE
-          : s.wordRef.get(n.child());
-      case WidenLane n -> s.wordRef.get(n.child());
-      case ConvertLane n -> s.wordRef.get(n.child());
-      case ReinterpretLane n -> s.wordRef.get(n.child());
-      case NarrowLane n -> s.wordRef.get(n.child());
-      case WidenDecimal n -> s.wordRef.get(n.child());
-      case Year n -> s.wordRef.get(n.days());
-      case Month n -> s.wordRef.get(n.days());
-      case DayOfMonth n -> s.wordRef.get(n.days());
-      case Quarter n -> s.wordRef.get(n.days());
-      case DayOfYear n -> s.wordRef.get(n.days());
-      case LastDay n -> s.wordRef.get(n.days());
-      case TruncDate n -> s.wordRef.get(n.days());
-      case TruncDateDynamic n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.level()));
-      case WeekOfYear n -> s.wordRef.get(n.days());
-      case AddMonths n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.months()));
-      case DateDiff n -> andRef(s.wordRef.get(n.end()), s.wordRef.get(n.start()));
-      // WRAP and FAIL alias the operands' AND like any null-intolerant node; NULL narrows that
-      // AND with its overflow mask afterwards, so it needs a slot of its own to narrow.
-      case IntArith n -> n.mode() == Overflow.NULL
-          ? Integer.MIN_VALUE
-          : andRef(s.wordRef.get(n.left()), s.wordRef.get(n.right()));
-      case IntNeg n -> s.wordRef.get(n.child());
-      case ConstDivide n -> s.wordRef.get(n.child());
-      case BoundedDivide n -> s.wordRef.get(n.child());
-      case BitOp n -> andRef(s.wordRef.get(n.left()), s.wordRef.get(n.right()));
-      case BitCount n -> s.wordRef.get(n.child());
-      case MathUnary n -> s.wordRef.get(n.child());
-      // The three operands' AND, folded as Analysis.ownerOf folds their owners.
-      case Fma n -> andRef(andRef(s.wordRef.get(n.a()), s.wordRef.get(n.b())),
-          s.wordRef.get(n.c()));
-      case RoundToIntegral n -> s.wordRef.get(n.child());
-      case CanonicalFloat n -> s.wordRef.get(n.child());
-      case CanonicalBits n -> s.wordRef.get(n.child());
-      // The seed's word: a step skips a null word rather than nulling its lane.
-      case HashStep n -> s.wordRef.get(n.seed());
-      // Greatest/Least (OR) and IfElse (blend) always compute their own word.
-      default -> Integer.MIN_VALUE;
+    return switch (node.props().validity()) {
+      case Validity.Input in -> s.word[in.ordinal()];
+      case Validity.AllTrue _ -> WORD_ALL_TRUE;
+      case Validity.Strict _ -> {
+        VarkaVectorIR[] operands = childrenOf(node);
+        int ref = s.wordRef.get(operands[0]);
+        for (int i = 1; i < operands.length; i++) {
+          ref = andRef(ref, s.wordRef.get(operands[i]));
+        }
+        yield ref;
+      }
+      // A null-skipping pick ORs its operands' words, and every other own word is computed from
+      // values: each needs a slot of its own.
+      case Validity.SkipsNull _, Validity.Own _, Validity.NoWord _ -> Integer.MIN_VALUE;
+      // One operand's word, aliased: a hash step's is its seed's.
+      case Validity.Operand op -> s.wordRef.get(childrenOf(node)[op.index()]);
     };
   }
 
@@ -1256,11 +1218,11 @@ final class Slots {
    * operands with different owners can have equal expressions, and then a pick's {@code l | r}
    * folds to an AND, which the fuzzer found a check by operator refusing -
    * while an owner that is an input or the constant must be exactly what the algebra says, and
-   * a computed word can never be either. What this leaves unchecked - an arm whose
-   * {@code pureOf} rule was changed to the wrong operator - produces a wrong bitmap, which
-   * {@code checkMatrix}'s byte-for-byte validity comparison and the fuzzer catch at run time.
-   * An {@code IllegalStateException} here means one side moved without the other, which is the
-   * drift the bitmap pass cannot be allowed to inherit.
+   * a computed word can never be either. Both views fold the same
+   * {@link VarkaNodeProps#validity()}, so a wrong descriptor passes here; its wrong bitmap is
+   * what {@code checkMatrix}'s byte-for-byte validity comparison and the fuzzer catch at run
+   * time. An {@code IllegalStateException} here means the two folds' code diverged, which is
+   * the drift the bitmap pass cannot be allowed to inherit.
    */
   private static void assertWordAlgebraAgrees(VarkaVectorIR node, int ref, Slots s,
       Analysis analysis) {
@@ -1776,94 +1738,15 @@ final class Slots {
 
     /** Propagation to the operands each own word's computation loads. */
     private void propagate(VarkaVectorIR n) {
-      // Exhaustive for the reason the walk's switch above is. Only a node whose owner is its
-      // own word ever reaches this queue, so the arms below it are unreachable rather than
-      // no-ops - but they are written out, not defaulted, so that a new node type has to say
-      // which it is.
-      switch (n) {
-        case AddDays x -> { demand(analysis.wordOwner.get(x.days()));
-          demand(analysis.wordOwner.get(x.offset())); }
-        case GuardedDay x -> demand(analysis.wordOwner.get(x.days()));
-        case GuardedRange x -> demand(analysis.wordOwner.get(x.child()));
-        case WidenLane x -> demand(analysis.wordOwner.get(x.child()));
-        case ConvertLane x -> demand(analysis.wordOwner.get(x.child()));
-        case ReinterpretLane x -> demand(analysis.wordOwner.get(x.child()));
-        case NarrowLane x -> demand(analysis.wordOwner.get(x.child()));
-        case WidenDecimal x -> demand(analysis.wordOwner.get(x.child()));
-        case SubDays x -> { demand(analysis.wordOwner.get(x.days()));
-          demand(analysis.wordOwner.get(x.offset())); }
-        case NextDay x -> { demand(analysis.wordOwner.get(x.days()));
-          demand(analysis.wordOwner.get(x.offset())); }
-        case TruncDateDynamic x -> { demand(analysis.wordOwner.get(x.days()));
-          demand(analysis.wordOwner.get(x.level())); }
-        case AddMonths x -> { demand(analysis.wordOwner.get(x.days()));
-          demand(analysis.wordOwner.get(x.months())); }
-        case DateDiff x -> { demand(analysis.wordOwner.get(x.end()));
-          demand(analysis.wordOwner.get(x.start())); }
-        case Greatest x -> { demand(analysis.wordOwner.get(x.left()));
-          demand(analysis.wordOwner.get(x.right())); }
-        case Least x -> { demand(analysis.wordOwner.get(x.left()));
-          demand(analysis.wordOwner.get(x.right())); }
-        case IfElse x -> { demand(analysis.wordOwner.get(x.thenNode()));
-          demand(analysis.wordOwner.get(x.elseNode())); }
-        // Computed from the condition's masks, which load the words its leaves demand already.
-        case CondValue x -> { }
-        case BoolOutput x -> { }
-        case MakeDate x -> { demand(analysis.wordOwner.get(x.year()));
-          demand(analysis.wordOwner.get(x.month()));
-          demand(analysis.wordOwner.get(x.day())); }
-        // A leaf owns no word; every unary node aliases its child's, so its owner is that
-        // child's and the child, not the alias, is what the queue holds; a `Cond` has no
-        // entry in `wordOwner` at all.
-        case ColumnRef x -> { }
-        case DecimalColumn x -> { }
-        case DecimalWord x -> { }
-        case LiteralSlot x -> { }
-        case VarkaVectorIR.NullValue x -> { }
-        case DayOfWeek x -> { }
-        case WeekDay x -> { }
-        case DayOfWeekIso x -> { }
-        case ThursdayOf x -> { }
-        case Year x -> { }
-        case Month x -> { }
-        case DayOfMonth x -> { }
-        case Quarter x -> { }
-        case DayOfYear x -> { }
-        case LastDay x -> { }
-        case TruncDate x -> { }
-        case WeekOfYear x -> { }
-        case IntArith x -> { demand(analysis.wordOwner.get(x.left()));
-          demand(analysis.wordOwner.get(x.right())); }
-        // IntNeg aliases its child's word (ownerOf), so it never reaches this queue - the
-        // child does. Written out rather than defaulted, per this switch's own rule.
-        case IntNeg x -> { }
-        case ConstDivide x -> { }
-        case BoundedDivide x -> { }
-        case BitOp x -> { demand(analysis.wordOwner.get(x.left()));
-          demand(analysis.wordOwner.get(x.right())); }
-        case BitCount x -> { }
-        case MathUnary x -> { }
-        case Fma x -> { demand(analysis.wordOwner.get(x.a()));
-          demand(analysis.wordOwner.get(x.b()));
-          demand(analysis.wordOwner.get(x.c())); }
-        case RoundToIntegral x -> { }
-        case CanonicalFloat x -> { }
-        case CanonicalBits x -> { }
-        // Its word aliases the seed's (ownerOf), so it never reaches this queue.
-        case HashStep x -> { }
-        case Compare x -> { }
-        case NullSafeEqual x -> { }
-        case BoolColumn x -> { }
-        case CondConst x -> { }
-        case BoolCompare x -> { }
-        case CondIf x -> { }
-        case BoolNullSafeEq x -> { }
-        case And x -> { }
-        case Or x -> { }
-        case Not x -> { }
-        case CrossLane x -> { }
-        case IsNotNull x -> { }
-        case InRanges x -> { }
+      // Only a node whose owner is its own word reaches this queue, and its word is computed
+      // from its value operands' words, so it demands each of them. A condition operand has no
+      // word: its masks load the words its own leaves demand already. So an own or null-skipping
+      // node's word reads every value operand's word and never a condition's, not even the word
+      // of a boolean column.
+      for (VarkaVectorIR operand : childrenOf(n)) {
+        if (!(operand instanceof Cond)) {
+          demand(analysis.wordOwner.get(operand));
+        }
       }
     }
   }
