@@ -238,10 +238,10 @@ public final class VarkaLoopEmitter {
 
   /**
    * Whether a kernel over {@code outputs} is emitted differently with
-   * {@link VarkaEmitOptions#checkIntOverflow} on and off: some node under them is one whose
-   * emission reads the option ({@link Analysis#readsCheckIntOverflow}, the test every read of the
-   * emitter's but {@code isNarrowRing}'s goes through, and which names every narrow node whose
-   * {@code Ring.Arith} states {@code FAIL} or {@code NULL}).
+   * {@link VarkaEmitOptions#checkIntOverflow} on and off: some node under them states that its
+   * emission reads the option ({@link VarkaNodeProps#intOverflowCheck()}, which
+   * {@link Analysis#readsCheckIntOverflow} returns, the test every read of the emitter's goes
+   * through).
    * For a differential that runs such a kernel with the check on where its configuration turns it
    * off, and every other kernel as the configuration has it.
    */
@@ -268,11 +268,9 @@ public final class VarkaLoopEmitter {
    * The analysis of {@code outputs} every emission starts from, in the one order its passes
    * run: the roots, the arm contexts, the refusals and the arm cycles they leave, the word
    * algebra and the bitmap pass. What depends on the grouping, the materialized prefixes, is
-   * planned by the caller once it has one. Package-private for
-   * {@code VarkaNodePropsEquivalenceSuite}, which compares the analysis's word rules with the
-   * nodes' descriptors.
+   * planned by the caller once it has one.
    */
-  static Analysis analyze(List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
+  private static Analysis analyze(List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
       VarkaEmitOptions options) {
     Analysis analysis = new Analysis(numInputs, numLiterals, options, planOf(outputs, options));
     for (VarkaVectorIR root : outputs) {

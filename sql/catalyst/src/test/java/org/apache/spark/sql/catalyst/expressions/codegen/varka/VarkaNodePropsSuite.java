@@ -30,9 +30,11 @@ import java.util.Random;
 import java.util.Set;
 import java.util.function.Function;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaNodeProps.Ring;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaNodeProps.Validity;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -40,7 +42,8 @@ import org.junit.jupiter.api.Test;
  * Every IR node answers its own {@link VarkaNodeProps}: the interface method has no default, so a
  * new record that forgets it does not compile, and these tests keep that guarantee from being
  * softened by a default added later, on the interface or on one of its sealed families. The
- * second test holds the validity rules to the operand shapes the passes that fold them assume.
+ * second test holds the validity rules to the operand shapes the passes that fold them assume,
+ * and the third the overflow check to the ring's mode.
  */
 @VarkaSuite
 public final class VarkaNodePropsSuite {
@@ -129,28 +132,78 @@ public final class VarkaNodePropsSuite {
   void validityShapes() {
     Set<VarkaVectorIR> nodes = nodesOf(drawnShapes(500));
     for (VarkaVectorIR n : nodes) {
-      String at = VarkaVectorIR.canonical(n);
-      VarkaVectorIR[] children = VarkaVectorIR.childrenOf(n);
-      switch (n.props().validity()) {
-        case Validity.Strict _, Validity.SkipsNull _ -> {
-          assertTrue(children.length > 0, at);
-          for (VarkaVectorIR c : children) {
-            assertFalse(c instanceof Cond, at);
-          }
-        }
-        case Validity.Input in -> {
-          assertEquals(0, children.length, at);
-          assertEquals(in.ordinal(), VarkaVectorIR.inputOrdinal(n), at);
-        }
-        case Validity.AllTrue _ -> assertEquals(0, children.length, at);
-        case Validity.NoWord _ -> assertTrue(n instanceof Cond, at);
-        case Validity.Own _ -> assertFalse(n instanceof Cond, at);
-        case Validity.Operand op -> {
-          assertTrue(op.index() < children.length, at);
-          assertFalse(children[op.index()] instanceof Cond, at);
-        }
-      }
+      assertValidityShape(n);
     }
     assertTrue(nodes.size() > 1000, "drew only " + nodes.size() + " distinct nodes");
+  }
+
+  @Test
+  @DisplayName("a node states its overflow check where its ring mode checks, a floating one never")
+  void overflowCheckShapes() {
+    int checked = 0;
+    int narrowRing = 0;
+    for (VarkaVectorIR n : nodesOf(drawnShapes(500))) {
+      assertOverflowCheckShape(n);
+      checked += n.props().intOverflowCheck() ? 1 : 0;
+      narrowRing += n.laneType().isNarrow() && n.props().ring() instanceof Ring.Arith a
+          && a.mode() != Overflow.WRAP ? 1 : 0;
+    }
+    assertTrue(checked > 0 && narrowRing > 0, "drew " + checked + " checked nodes, "
+        + narrowRing + " of them narrow ring arithmetic");
+    // The one checked node the ring cannot name: an abs is never a ring node.
+    var abs = new VarkaVectorIR.IntNeg(Overflow.FAIL, new VarkaVectorIR.ColumnRef(0), true);
+    assertTrue(abs.props().intOverflowCheck());
+    assertEquals(Ring.NEVER, abs.props().ring());
+  }
+
+  /**
+   * That {@code n} states the overflow check exactly where its {@code Ring.Arith} states a
+   * checking mode at an integral lane, never at a floating lane, whose checks are not the
+   * option's, and never on a blend. A node that is never a ring node may state it: an abs. Like
+   * {@link #assertValidityShape}, {@code VarkaLaneTypeSuite} asks it of its instance of every
+   * record.
+   */
+  static void assertOverflowCheckShape(VarkaVectorIR n) {
+    String at = VarkaVectorIR.canonical(n);
+    boolean check = n.props().intOverflowCheck();
+    if (n.laneType().isFloating()) {
+      assertFalse(check, at);
+      return;
+    }
+    switch (n.props().ring()) {
+      case Ring.Arith a -> assertEquals(a.mode() != Overflow.WRAP, check, at);
+      case Ring.Pick _ -> assertFalse(check, at);
+      case Ring.Never _ -> { }
+    }
+  }
+
+  /**
+   * That {@code n}'s {@link Validity} fits its operands as the word folds assume. The record's
+   * constructor cannot check it, since it has no node; {@code VarkaLaneTypeSuite} also asks it of
+   * its instance of every record (the integral ones at INT and LONG where they build, the floating
+   * ones at DOUBLE), which reaches the records no grammar draws.
+   */
+  static void assertValidityShape(VarkaVectorIR n) {
+    String at = VarkaVectorIR.canonical(n);
+    VarkaVectorIR[] children = VarkaVectorIR.childrenOf(n);
+    switch (n.props().validity()) {
+      case Validity.Strict _, Validity.SkipsNull _ -> {
+        assertTrue(children.length > 0, at);
+        for (VarkaVectorIR c : children) {
+          assertFalse(c instanceof Cond, at);
+        }
+      }
+      case Validity.Input in -> {
+        assertEquals(0, children.length, at);
+        assertEquals(in.ordinal(), VarkaVectorIR.inputOrdinal(n), at);
+      }
+      case Validity.AllTrue _ -> assertEquals(0, children.length, at);
+      case Validity.NoWord _ -> assertTrue(n instanceof Cond, at);
+      case Validity.Own _ -> assertFalse(n instanceof Cond, at);
+      case Validity.Operand op -> {
+        assertTrue(op.index() < children.length, at);
+        assertFalse(children[op.index()] instanceof Cond, at);
+      }
+    }
   }
 }

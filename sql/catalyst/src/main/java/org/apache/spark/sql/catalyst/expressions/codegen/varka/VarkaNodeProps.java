@@ -42,6 +42,12 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
  *
  * @param ring whether reduction modulo a narrow lane's width commutes with the node, which is
  *     what {@code Analysis.isNarrowRing} asks
+ * @param intOverflowCheck whether the node's emission holds an int overflow check, which
+ *     {@code VarkaEmitOptions.checkIntOverflow} emits or leaves out: an integral add, subtract,
+ *     multiply of mode {@code FAIL} or {@code NULL}, or a negation or abs of mode {@code FAIL}.
+ *     A floating division's zero test is not one. It is what
+ *     {@code Analysis.readsCheckIntOverflow} asks, and it is stated apart from {@link #ring()}
+ *     because an abs checks but is never a ring node
  * @param validity how the node's validity word follows from its operands' words, and whether
  *     it is a pure function of input bitmaps; whether the analysis counts a node as skipping a
  *     null input stays {@code Analysis.analyze}'s own switch
@@ -57,9 +63,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
  * @param longNarrow what the node reads of its narrow children in a kernel driven at the long
  *     lane ({@code VarkaKernelPlan.loweredAtLong})
  */
-public record VarkaNodeProps(Ring ring, Validity validity, int weight, String costKind,
-    Set<VarkaOperandPosition> fills, List<VarkaOperandPosition.Restricted> restricted,
-    LongNarrowReader longNarrow) {
+public record VarkaNodeProps(Ring ring, boolean intOverflowCheck, Validity validity, int weight,
+    String costKind, Set<VarkaOperandPosition> fills,
+    List<VarkaOperandPosition.Restricted> restricted, LongNarrowReader longNarrow) {
 
   /** For a node that may stand in no restricted position. */
   public static final Set<VarkaOperandPosition> FILLS_NOTHING = Set.of();
@@ -111,7 +117,8 @@ public record VarkaNodeProps(Ring ring, Validity validity, int weight, String co
   /**
    * How a node's validity word is made: the one rule that the analysis's word owners
    * ({@code Analysis.ownerOf}), its pure word algebra ({@code Analysis.pureOf}) and the slot
-   * planner's word references ({@code Slots.planWordRef}) each apply to the node. Folded over
+   * planner's word references ({@code Slots.planWordRef}) all fold, so the three agree by
+   * construction. Folded over
    * the node's operands in {@code VarkaVectorIR.childrenOf} order, a {@link Strict} word is the
    * AND of the operands' words (a unary node's is its operand's), a {@link SkipsNull} word their
    * OR, computed in a slot of the node's own, an {@link Own} word the node's own slot,

@@ -17,7 +17,6 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -99,7 +98,8 @@ public enum VarkaOperandPosition {
         set.add(p);
       }
     }
-    return Collections.unmodifiableSet(set);
+    // Set.copyOf, so that VarkaNodeProps' own copy returns it rather than copying it again
+    return Set.copyOf(set);
   }
 
   /** Whether this position takes {@code node}. */
