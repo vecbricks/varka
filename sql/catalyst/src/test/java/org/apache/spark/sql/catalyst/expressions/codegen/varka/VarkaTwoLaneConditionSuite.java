@@ -194,4 +194,18 @@ public final class VarkaTwoLaneConditionSuite {
     var lt = new Compare(CompareOp.LT, L, L2);
     assertTrue(VarkaKernelPlan.of(List.of(lt), VarkaMatrixRuns.BASE).refusal().isEmpty());
   }
+
+  @Test
+  @DisplayName("a decimal output of the lane pair is refused on the two-lane host and admitted "
+      + "elsewhere: its store's interleaves are the Java fallback there")
+  void decimalPairOutput() {
+    var lo = new DecimalWord(0, Word.LOW, 38);
+    var hi = new DecimalWord(0, Word.HIGH, 38);
+    var negated = new VarkaVectorIR.InterleaveDecimal(DecimalWords.negatedLow(lo), hi);
+    Optional<Refusal> refused = admit(negated, true);
+    assertTrue(refused.isPresent(), negated.toString());
+    assertEquals(Kind.TWO_LANE_CONDITION, refused.get().kind());
+    assertEquals(VarkaKernelPlan.TWO_LANE_DECIMAL_PAIR_OUTPUT_REASON, refused.get().reason());
+    assertTrue(admit(negated, false).isEmpty(), negated.toString());
+  }
 }

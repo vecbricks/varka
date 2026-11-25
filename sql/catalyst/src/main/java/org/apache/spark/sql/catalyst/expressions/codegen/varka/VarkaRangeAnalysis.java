@@ -291,6 +291,7 @@ public final class VarkaRangeAnalysis {
       case DecimalColumn c -> VarkaValueRange.UNKNOWN;
       case VarkaVectorIR.DecimalWord c -> VarkaValueRange.UNKNOWN;
       case WidenDecimal n -> VarkaValueRange.UNKNOWN;
+      case VarkaVectorIR.InterleaveDecimal n -> VarkaValueRange.UNKNOWN;
       // A day column is the column bound, which the answer rests on: the caller that relies on
       // the answer has the kernel check it per batch (`columns` names the column to it).
       case ColumnRef c -> {

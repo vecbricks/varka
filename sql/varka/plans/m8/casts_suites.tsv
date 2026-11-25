@@ -8,10 +8,10 @@ VarkaCastWithAnsiOffSuite	bigint	bool	BIGINT	BOOLEAN	legacy	fused
 VarkaCastWithAnsiOffSuite	bigint	byte	BIGINT	TINYINT	legacy	fused	
 VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(10,0)	legacy	declined	a cast from bigint to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(2,0)	legacy	declined	a cast from bigint to a decimal is row 350's
-VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(20,5)	legacy	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(3,0)	legacy	declined	a cast from bigint to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(3,1)	legacy	declined	a cast from bigint to a decimal is row 350's
-VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	bigint	dec	BIGINT	DECIMAL(38,18)	legacy	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOffSuite	bigint	double	BIGINT	DOUBLE	legacy	declined	a BIGINT conversion to DOUBLE at an unknown emit level, which may be a host's without AVX512DQ (row 343)
 VarkaCastWithAnsiOffSuite	bigint	dt	BIGINT	INTERVAL DAY	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	bigint	dt	BIGINT	INTERVAL HOUR	legacy	declined	unsupported expression
@@ -28,8 +28,8 @@ VarkaCastWithAnsiOffSuite	byte	bigint	TINYINT	BIGINT	legacy	fused
 VarkaCastWithAnsiOffSuite	byte	bool	TINYINT	BOOLEAN	legacy	fused	
 VarkaCastWithAnsiOffSuite	byte	byte	TINYINT	TINYINT	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	byte	dec	TINYINT	DECIMAL(10,0)	legacy	declined	a cast from tinyint to a decimal is row 350's
-VarkaCastWithAnsiOffSuite	byte	dec	TINYINT	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	byte	dec	TINYINT	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	byte	dec	TINYINT	DECIMAL(20,5)	legacy	declined	a decimal wider than 18 digits is row 359's
+VarkaCastWithAnsiOffSuite	byte	dec	TINYINT	DECIMAL(38,18)	legacy	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOffSuite	byte	double	TINYINT	DOUBLE	legacy	fused	
 VarkaCastWithAnsiOffSuite	byte	float	TINYINT	FLOAT	legacy	fused	
 VarkaCastWithAnsiOffSuite	byte	int	TINYINT	INT	legacy	fused	
@@ -48,8 +48,8 @@ VarkaCastWithAnsiOffSuite	date	byte	DATE	TINYINT	legacy	declined	unsupported exp
 VarkaCastWithAnsiOffSuite	date	date	DATE	DATE	legacy	fused	
 VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(10,0)	legacy	declined	a cast from date to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(10,2)	legacy	declined	a cast from date to a decimal is row 350's
-VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(20,5)	legacy	declined	a decimal wider than 18 digits is row 359's
+VarkaCastWithAnsiOffSuite	date	dec	DATE	DECIMAL(38,18)	legacy	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOffSuite	date	double	DATE	DOUBLE	legacy	declined	a cast of DATE to a floating type, always null (row 343)
 VarkaCastWithAnsiOffSuite	date	float	DATE	FLOAT	legacy	declined	a cast of DATE to a floating type, always null (row 343)
 VarkaCastWithAnsiOffSuite	date	int	DATE	INT	legacy	declined	unsupported expression
@@ -77,11 +77,11 @@ VarkaCastWithAnsiOffSuite	dec	byte	DECIMAL(2,1)	TINYINT	legacy	declined	a cast o
 VarkaCastWithAnsiOffSuite	dec	byte	DECIMAL(20,5)	TINYINT	legacy	declined	a cast of a decimal wider than 18 digits to an integral type is row 364's
 VarkaCastWithAnsiOffSuite	dec	byte	DECIMAL(38,18)	TINYINT	legacy	declined	a cast of a decimal wider than 18 digits to an integral type is row 364's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(10,0)	DECIMAL(10,0)	legacy	fused	
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(10,0)	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(10,0)	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(10,0)	DECIMAL(20,5)	legacy	declined	a rescale to a decimal wider than 18 digits is rows 359 and 360's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(10,0)	DECIMAL(38,18)	legacy	declined	a rescale to a decimal wider than 18 digits is rows 359 and 360's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(20,5)	DECIMAL(10,0)	legacy	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(20,5)	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(20,5)	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(20,5)	DECIMAL(20,5)	legacy	fused	
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(20,5)	DECIMAL(38,18)	legacy	declined	a rescale to a decimal wider than 18 digits is rows 359 and 360's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,0)	DECIMAL(1,-2)	legacy	declined	a decimal(1,-2) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,0)	DECIMAL(2,-1)	legacy	declined	a decimal(2,-1) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,0)	DECIMAL(2,-2)	legacy	declined	a decimal(2,-2) output: a negative scale is declined everywhere (the milestone plan's 2.8)
@@ -90,14 +90,14 @@ VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,0)	DECIMAL(3,0)	legacy	fused
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,2)	DECIMAL(1,0)	legacy	fused	
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(3,2)	DECIMAL(3,1)	legacy	fused	
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(38,18)	DECIMAL(10,0)	legacy	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(38,18)	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(38,18)	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(38,18)	DECIMAL(20,5)	legacy	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(38,18)	DECIMAL(38,18)	legacy	fused	
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(1,-2)	legacy	declined	a decimal(1,-2) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(2,-1)	legacy	declined	a decimal(2,-1) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(2,-2)	legacy	declined	a decimal(2,-2) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(3,-1)	legacy	declined	a decimal(3,-1) output: a negative scale is declined everywhere (the milestone plan's 2.8)
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(3,0)	legacy	fused	
-VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(38,18)	legacy	declined	a rescale to a decimal wider than 18 digits is rows 359 and 360's
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,0)	DECIMAL(4,0)	legacy	fused	
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,2)	DECIMAL(3,1)	legacy	fused	
 VarkaCastWithAnsiOffSuite	dec	dec	DECIMAL(4,2)	DECIMAL(3,2)	legacy	fused	
@@ -139,10 +139,10 @@ VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(1,0)	legacy	declined	a cast 
 VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(10,0)	legacy	declined	a cast from double to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(2,0)	legacy	declined	a cast from double to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(2,1)	legacy	declined	a cast from double to a decimal is row 350's
-VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(20,5)	legacy	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(3,1)	legacy	declined	a cast from double to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(3,2)	legacy	declined	a cast from double to a decimal is row 350's
-VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(38,18)	legacy	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOffSuite	double	dec	DOUBLE	DECIMAL(4,2)	legacy	declined	a cast from double to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	double	double	DOUBLE	DOUBLE	legacy	fused	
 VarkaCastWithAnsiOffSuite	double	float	DOUBLE	FLOAT	legacy	fused	
@@ -232,8 +232,8 @@ VarkaCastWithAnsiOffSuite	float	bool	FLOAT	BOOLEAN	legacy	fused
 VarkaCastWithAnsiOffSuite	float	byte	FLOAT	TINYINT	legacy	declined	a cast from a floating type (row 343's second part)
 VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(10,0)	legacy	declined	a cast from float to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(2,1)	legacy	declined	a cast from float to a decimal is row 350's
-VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(20,5)	legacy	declined	a decimal wider than 18 digits is row 359's
+VarkaCastWithAnsiOffSuite	float	dec	FLOAT	DECIMAL(38,18)	legacy	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOffSuite	float	double	FLOAT	DOUBLE	legacy	fused	
 VarkaCastWithAnsiOffSuite	float	float	FLOAT	FLOAT	legacy	fused	
 VarkaCastWithAnsiOffSuite	float	int	FLOAT	INT	legacy	declined	a cast from a floating type (row 343's second part)
@@ -247,10 +247,10 @@ VarkaCastWithAnsiOffSuite	int	bool	INT	BOOLEAN	legacy	fused
 VarkaCastWithAnsiOffSuite	int	byte	INT	TINYINT	legacy	fused	
 VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(10,0)	legacy	declined	a cast from int to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(2,0)	legacy	declined	a cast from int to a decimal is row 350's
-VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(20,5)	legacy	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(3,0)	legacy	declined	a cast from int to a decimal is row 350's
 VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(3,1)	legacy	declined	a cast from int to a decimal is row 350's
-VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	int	dec	INT	DECIMAL(38,18)	legacy	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOffSuite	int	double	INT	DOUBLE	legacy	fused	
 VarkaCastWithAnsiOffSuite	int	dt	INT	INTERVAL DAY	legacy	declined	unsupported expression
 VarkaCastWithAnsiOffSuite	int	dt	INT	INTERVAL HOUR	legacy	declined	unsupported expression
@@ -287,8 +287,8 @@ VarkaCastWithAnsiOffSuite	short	bigint	SMALLINT	BIGINT	legacy	fused
 VarkaCastWithAnsiOffSuite	short	bool	SMALLINT	BOOLEAN	legacy	fused	
 VarkaCastWithAnsiOffSuite	short	byte	SMALLINT	TINYINT	legacy	fused	
 VarkaCastWithAnsiOffSuite	short	dec	SMALLINT	DECIMAL(10,0)	legacy	declined	a cast from smallint to a decimal is row 350's
-VarkaCastWithAnsiOffSuite	short	dec	SMALLINT	DECIMAL(20,5)	legacy	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOffSuite	short	dec	SMALLINT	DECIMAL(38,18)	legacy	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOffSuite	short	dec	SMALLINT	DECIMAL(20,5)	legacy	declined	a decimal wider than 18 digits is row 359's
+VarkaCastWithAnsiOffSuite	short	dec	SMALLINT	DECIMAL(38,18)	legacy	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOffSuite	short	double	SMALLINT	DOUBLE	legacy	fused	
 VarkaCastWithAnsiOffSuite	short	float	SMALLINT	FLOAT	legacy	fused	
 VarkaCastWithAnsiOffSuite	short	int	SMALLINT	INT	legacy	fused	
@@ -365,9 +365,9 @@ VarkaCastWithAnsiOnSuite	bigint	bigint	BIGINT	BIGINT	ansi	declined	unsupported e
 VarkaCastWithAnsiOnSuite	bigint	bool	BIGINT	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	bigint	byte	BIGINT	TINYINT	ansi	fused	
 VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(10,0)	ansi	declined	a cast from bigint to a decimal is row 350's
-VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(20,5)	ansi	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(3,0)	ansi	declined	a cast from bigint to a decimal is row 350's
-VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	bigint	dec	BIGINT	DECIMAL(38,18)	ansi	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOnSuite	bigint	double	BIGINT	DOUBLE	ansi	declined	a BIGINT conversion to DOUBLE at an unknown emit level, which may be a host's without AVX512DQ (row 343)
 VarkaCastWithAnsiOnSuite	bigint	float	BIGINT	FLOAT	ansi	declined	a BIGINT conversion to FLOAT at an unknown emit level, which may be a host's without AVX512DQ (row 343)
 VarkaCastWithAnsiOnSuite	bigint	int	BIGINT	INT	ansi	fused	
@@ -377,8 +377,8 @@ VarkaCastWithAnsiOnSuite	byte	bigint	TINYINT	BIGINT	ansi	fused
 VarkaCastWithAnsiOnSuite	byte	bool	TINYINT	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	byte	byte	TINYINT	TINYINT	ansi	declined	unsupported expression
 VarkaCastWithAnsiOnSuite	byte	dec	TINYINT	DECIMAL(10,0)	ansi	declined	a cast from tinyint to a decimal is row 350's
-VarkaCastWithAnsiOnSuite	byte	dec	TINYINT	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	byte	dec	TINYINT	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	byte	dec	TINYINT	DECIMAL(20,5)	ansi	declined	a decimal wider than 18 digits is row 359's
+VarkaCastWithAnsiOnSuite	byte	dec	TINYINT	DECIMAL(38,18)	ansi	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOnSuite	byte	double	TINYINT	DOUBLE	ansi	fused	
 VarkaCastWithAnsiOnSuite	byte	float	TINYINT	FLOAT	ansi	fused	
 VarkaCastWithAnsiOnSuite	byte	int	TINYINT	INT	ansi	fused	
@@ -418,14 +418,14 @@ VarkaCastWithAnsiOnSuite	dec	byte	DECIMAL(20,5)	TINYINT	ansi	declined	a cast of 
 VarkaCastWithAnsiOnSuite	dec	byte	DECIMAL(3,0)	TINYINT	ansi	declined	a cast of a decimal to TINYINT, SMALLINT or INT narrows the decimal slots' long lane, and is row 350's next part (350a1n)
 VarkaCastWithAnsiOnSuite	dec	byte	DECIMAL(38,18)	TINYINT	ansi	declined	a cast of a decimal wider than 18 digits to an integral type is row 364's
 VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(10,0)	DECIMAL(10,0)	ansi	fused	
-VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(10,0)	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(10,0)	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(10,0)	DECIMAL(20,5)	ansi	declined	a rescale to a decimal wider than 18 digits is rows 359 and 360's
+VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(10,0)	DECIMAL(38,18)	ansi	declined	a rescale to a decimal wider than 18 digits is rows 359 and 360's
 VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(20,5)	DECIMAL(10,0)	ansi	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
-VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(20,5)	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(20,5)	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(20,5)	DECIMAL(20,5)	ansi	fused	
+VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(20,5)	DECIMAL(38,18)	ansi	declined	a rescale to a decimal wider than 18 digits is rows 359 and 360's
 VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(38,18)	DECIMAL(10,0)	ansi	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
-VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(38,18)	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(38,18)	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(38,18)	DECIMAL(20,5)	ansi	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
+VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(38,18)	DECIMAL(38,18)	ansi	fused	
 VarkaCastWithAnsiOnSuite	dec	dec	DECIMAL(5,2)	DECIMAL(3,2)	ansi	fused	
 VarkaCastWithAnsiOnSuite	dec	double	DECIMAL(10,0)	DOUBLE	ansi	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
 VarkaCastWithAnsiOnSuite	dec	double	DECIMAL(2,1)	DOUBLE	ansi	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
@@ -470,9 +470,9 @@ VarkaCastWithAnsiOnSuite	double	bigint	DOUBLE	BIGINT	ansi	declined	a cast from a
 VarkaCastWithAnsiOnSuite	double	bool	DOUBLE	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	double	byte	DOUBLE	TINYINT	ansi	declined	a cast from a floating type (row 343's second part)
 VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(10,0)	ansi	declined	a cast from double to a decimal is row 350's
-VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(20,5)	ansi	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(3,2)	ansi	declined	a cast from double to a decimal is row 350's
-VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	double	dec	DOUBLE	DECIMAL(38,18)	ansi	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOnSuite	double	double	DOUBLE	DOUBLE	ansi	fused	
 VarkaCastWithAnsiOnSuite	double	float	DOUBLE	FLOAT	ansi	fused	
 VarkaCastWithAnsiOnSuite	double	int	DOUBLE	INT	ansi	declined	a cast from a floating type (row 343's second part)
@@ -519,8 +519,8 @@ VarkaCastWithAnsiOnSuite	float	bigint	FLOAT	BIGINT	ansi	declined	a cast from a f
 VarkaCastWithAnsiOnSuite	float	bool	FLOAT	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	float	byte	FLOAT	TINYINT	ansi	declined	a cast from a floating type (row 343's second part)
 VarkaCastWithAnsiOnSuite	float	dec	FLOAT	DECIMAL(10,0)	ansi	declined	a cast from float to a decimal is row 350's
-VarkaCastWithAnsiOnSuite	float	dec	FLOAT	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	float	dec	FLOAT	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	float	dec	FLOAT	DECIMAL(20,5)	ansi	declined	a decimal wider than 18 digits is row 359's
+VarkaCastWithAnsiOnSuite	float	dec	FLOAT	DECIMAL(38,18)	ansi	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOnSuite	float	double	FLOAT	DOUBLE	ansi	fused	
 VarkaCastWithAnsiOnSuite	float	float	FLOAT	FLOAT	ansi	fused	
 VarkaCastWithAnsiOnSuite	float	int	FLOAT	INT	ansi	declined	a cast from a floating type (row 343's second part)
@@ -532,9 +532,9 @@ VarkaCastWithAnsiOnSuite	int	bigint	INT	BIGINT	ansi	fused
 VarkaCastWithAnsiOnSuite	int	bool	INT	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	int	byte	INT	TINYINT	ansi	fused	
 VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(10,0)	ansi	declined	a cast from int to a decimal is row 350's
-VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(20,5)	ansi	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(3,0)	ansi	declined	a cast from int to a decimal is row 350's
-VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	int	dec	INT	DECIMAL(38,18)	ansi	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOnSuite	int	double	INT	DOUBLE	ansi	fused	
 VarkaCastWithAnsiOnSuite	int	float	INT	FLOAT	ansi	fused	
 VarkaCastWithAnsiOnSuite	int	int	INT	INT	ansi	declined	unsupported expression
@@ -564,8 +564,8 @@ VarkaCastWithAnsiOnSuite	short	bigint	SMALLINT	BIGINT	ansi	fused
 VarkaCastWithAnsiOnSuite	short	bool	SMALLINT	BOOLEAN	ansi	fused	
 VarkaCastWithAnsiOnSuite	short	byte	SMALLINT	TINYINT	ansi	fused	
 VarkaCastWithAnsiOnSuite	short	dec	SMALLINT	DECIMAL(10,0)	ansi	declined	a cast from smallint to a decimal is row 350's
-VarkaCastWithAnsiOnSuite	short	dec	SMALLINT	DECIMAL(20,5)	ansi	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaCastWithAnsiOnSuite	short	dec	SMALLINT	DECIMAL(38,18)	ansi	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaCastWithAnsiOnSuite	short	dec	SMALLINT	DECIMAL(20,5)	ansi	declined	a decimal wider than 18 digits is row 359's
+VarkaCastWithAnsiOnSuite	short	dec	SMALLINT	DECIMAL(38,18)	ansi	declined	a decimal wider than 18 digits is row 359's
 VarkaCastWithAnsiOnSuite	short	double	SMALLINT	DOUBLE	ansi	fused	
 VarkaCastWithAnsiOnSuite	short	float	SMALLINT	FLOAT	ansi	fused	
 VarkaCastWithAnsiOnSuite	short	int	SMALLINT	INT	ansi	fused	
@@ -628,9 +628,9 @@ VarkaTryCastSuite	bigint	bigint	BIGINT	BIGINT	try	declined	unsupported expressio
 VarkaTryCastSuite	bigint	bool	BIGINT	BOOLEAN	try	fused	
 VarkaTryCastSuite	bigint	byte	BIGINT	TINYINT	try	fused	
 VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(10,0)	try	declined	a cast from bigint to a decimal is row 350's
-VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(20,5)	try	declined	a decimal wider than 18 digits is row 359's
 VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(3,0)	try	declined	a cast from bigint to a decimal is row 350's
-VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	bigint	dec	BIGINT	DECIMAL(38,18)	try	declined	a decimal wider than 18 digits is row 359's
 VarkaTryCastSuite	bigint	double	BIGINT	DOUBLE	try	declined	a BIGINT conversion to DOUBLE at an unknown emit level, which may be a host's without AVX512DQ (row 343)
 VarkaTryCastSuite	bigint	float	BIGINT	FLOAT	try	declined	a BIGINT conversion to FLOAT at an unknown emit level, which may be a host's without AVX512DQ (row 343)
 VarkaTryCastSuite	bigint	int	BIGINT	INT	try	fused	
@@ -640,8 +640,8 @@ VarkaTryCastSuite	byte	bigint	TINYINT	BIGINT	try	fused
 VarkaTryCastSuite	byte	bool	TINYINT	BOOLEAN	try	fused	
 VarkaTryCastSuite	byte	byte	TINYINT	TINYINT	try	declined	unsupported expression
 VarkaTryCastSuite	byte	dec	TINYINT	DECIMAL(10,0)	try	declined	a cast from tinyint to a decimal is row 350's
-VarkaTryCastSuite	byte	dec	TINYINT	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	byte	dec	TINYINT	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	byte	dec	TINYINT	DECIMAL(20,5)	try	declined	a decimal wider than 18 digits is row 359's
+VarkaTryCastSuite	byte	dec	TINYINT	DECIMAL(38,18)	try	declined	a decimal wider than 18 digits is row 359's
 VarkaTryCastSuite	byte	double	TINYINT	DOUBLE	try	fused	
 VarkaTryCastSuite	byte	float	TINYINT	FLOAT	try	fused	
 VarkaTryCastSuite	byte	int	TINYINT	INT	try	fused	
@@ -681,14 +681,14 @@ VarkaTryCastSuite	dec	byte	DECIMAL(20,5)	TINYINT	try	declined	a cast of a decima
 VarkaTryCastSuite	dec	byte	DECIMAL(3,0)	TINYINT	try	declined	a cast of a decimal to TINYINT, SMALLINT or INT narrows the decimal slots' long lane, and is row 350's next part (350a1n)
 VarkaTryCastSuite	dec	byte	DECIMAL(38,18)	TINYINT	try	declined	a cast of a decimal wider than 18 digits to an integral type is row 364's
 VarkaTryCastSuite	dec	dec	DECIMAL(10,0)	DECIMAL(10,0)	try	fused	
-VarkaTryCastSuite	dec	dec	DECIMAL(10,0)	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	dec	dec	DECIMAL(10,0)	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	dec	dec	DECIMAL(10,0)	DECIMAL(20,5)	try	declined	a rescale to a decimal wider than 18 digits is rows 359 and 360's
+VarkaTryCastSuite	dec	dec	DECIMAL(10,0)	DECIMAL(38,18)	try	declined	a rescale to a decimal wider than 18 digits is rows 359 and 360's
 VarkaTryCastSuite	dec	dec	DECIMAL(20,5)	DECIMAL(10,0)	try	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
-VarkaTryCastSuite	dec	dec	DECIMAL(20,5)	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	dec	dec	DECIMAL(20,5)	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	dec	dec	DECIMAL(20,5)	DECIMAL(20,5)	try	fused	
+VarkaTryCastSuite	dec	dec	DECIMAL(20,5)	DECIMAL(38,18)	try	declined	a rescale to a decimal wider than 18 digits is rows 359 and 360's
 VarkaTryCastSuite	dec	dec	DECIMAL(38,18)	DECIMAL(10,0)	try	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
-VarkaTryCastSuite	dec	dec	DECIMAL(38,18)	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	dec	dec	DECIMAL(38,18)	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	dec	dec	DECIMAL(38,18)	DECIMAL(20,5)	try	declined	a cast, a negation, a choice or a pick over decimals wider than 18 digits is rows 350, 359 and 363's
+VarkaTryCastSuite	dec	dec	DECIMAL(38,18)	DECIMAL(38,18)	try	fused	
 VarkaTryCastSuite	dec	dec	DECIMAL(5,2)	DECIMAL(3,2)	try	fused	
 VarkaTryCastSuite	dec	double	DECIMAL(10,0)	DOUBLE	try	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
 VarkaTryCastSuite	dec	double	DECIMAL(2,1)	DOUBLE	try	declined	a decimal cast with a floating side (rows 346, 350, 364 and 366)
@@ -733,9 +733,9 @@ VarkaTryCastSuite	double	bigint	DOUBLE	BIGINT	try	declined	a cast from a floatin
 VarkaTryCastSuite	double	bool	DOUBLE	BOOLEAN	try	fused	
 VarkaTryCastSuite	double	byte	DOUBLE	TINYINT	try	declined	a cast from a floating type (row 343's second part)
 VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(10,0)	try	declined	a cast from double to a decimal is row 350's
-VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(20,5)	try	declined	a decimal wider than 18 digits is row 359's
 VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(3,2)	try	declined	a cast from double to a decimal is row 350's
-VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	double	dec	DOUBLE	DECIMAL(38,18)	try	declined	a decimal wider than 18 digits is row 359's
 VarkaTryCastSuite	double	double	DOUBLE	DOUBLE	try	fused	
 VarkaTryCastSuite	double	float	DOUBLE	FLOAT	try	fused	
 VarkaTryCastSuite	double	int	DOUBLE	INT	try	declined	a cast from a floating type (row 343's second part)
@@ -783,8 +783,8 @@ VarkaTryCastSuite	float	bigint	FLOAT	BIGINT	try	declined	a cast from a floating 
 VarkaTryCastSuite	float	bool	FLOAT	BOOLEAN	try	fused	
 VarkaTryCastSuite	float	byte	FLOAT	TINYINT	try	declined	a cast from a floating type (row 343's second part)
 VarkaTryCastSuite	float	dec	FLOAT	DECIMAL(10,0)	try	declined	a cast from float to a decimal is row 350's
-VarkaTryCastSuite	float	dec	FLOAT	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	float	dec	FLOAT	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	float	dec	FLOAT	DECIMAL(20,5)	try	declined	a decimal wider than 18 digits is row 359's
+VarkaTryCastSuite	float	dec	FLOAT	DECIMAL(38,18)	try	declined	a decimal wider than 18 digits is row 359's
 VarkaTryCastSuite	float	double	FLOAT	DOUBLE	try	fused	
 VarkaTryCastSuite	float	float	FLOAT	FLOAT	try	fused	
 VarkaTryCastSuite	float	int	FLOAT	INT	try	declined	a cast from a floating type (row 343's second part)
@@ -796,9 +796,9 @@ VarkaTryCastSuite	int	bigint	INT	BIGINT	try	fused
 VarkaTryCastSuite	int	bool	INT	BOOLEAN	try	fused	
 VarkaTryCastSuite	int	byte	INT	TINYINT	try	fused	
 VarkaTryCastSuite	int	dec	INT	DECIMAL(10,0)	try	declined	a cast from int to a decimal is row 350's
-VarkaTryCastSuite	int	dec	INT	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	int	dec	INT	DECIMAL(20,5)	try	declined	a decimal wider than 18 digits is row 359's
 VarkaTryCastSuite	int	dec	INT	DECIMAL(3,0)	try	declined	a cast from int to a decimal is row 350's
-VarkaTryCastSuite	int	dec	INT	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	int	dec	INT	DECIMAL(38,18)	try	declined	a decimal wider than 18 digits is row 359's
 VarkaTryCastSuite	int	double	INT	DOUBLE	try	fused	
 VarkaTryCastSuite	int	float	INT	FLOAT	try	fused	
 VarkaTryCastSuite	int	int	INT	INT	try	declined	unsupported expression
@@ -828,8 +828,8 @@ VarkaTryCastSuite	short	bigint	SMALLINT	BIGINT	try	fused
 VarkaTryCastSuite	short	bool	SMALLINT	BOOLEAN	try	fused	
 VarkaTryCastSuite	short	byte	SMALLINT	TINYINT	try	fused	
 VarkaTryCastSuite	short	dec	SMALLINT	DECIMAL(10,0)	try	declined	a cast from smallint to a decimal is row 350's
-VarkaTryCastSuite	short	dec	SMALLINT	DECIMAL(20,5)	try	declined	a decimal(20,5) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
-VarkaTryCastSuite	short	dec	SMALLINT	DECIMAL(38,18)	try	declined	a decimal(38,18) output: precision above 18 does not fit the long a slot's low word holds, and its two-word store is row 359's
+VarkaTryCastSuite	short	dec	SMALLINT	DECIMAL(20,5)	try	declined	a decimal wider than 18 digits is row 359's
+VarkaTryCastSuite	short	dec	SMALLINT	DECIMAL(38,18)	try	declined	a decimal wider than 18 digits is row 359's
 VarkaTryCastSuite	short	double	SMALLINT	DOUBLE	try	fused	
 VarkaTryCastSuite	short	float	SMALLINT	FLOAT	try	fused	
 VarkaTryCastSuite	short	int	SMALLINT	INT	try	fused	

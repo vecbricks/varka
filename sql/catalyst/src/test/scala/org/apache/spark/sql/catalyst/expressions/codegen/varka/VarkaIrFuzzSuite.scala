@@ -1221,8 +1221,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
       "BoolOutput" - "DecimalColumn" - "DecimalWord" - "NullValue" - "WidenDecimal" - "MathUnary" -
-      "Fma" - "RoundToIntegral" - "CanonicalFloat" - "HashStep" - "CanonicalBits" -
-      "ConvertLane" - "CrossLane" - "ReinterpretLane"
+      "Fma" - "RoundToIntegral" - "InterleaveDecimal" - "CanonicalFloat" - "HashStep" -
+      "CanonicalBits" - "ConvertLane" - "CrossLane" - "ReinterpretLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")
@@ -1239,7 +1239,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    */
   private val outOfTheLongCorpora = Set("NullSafeEqual", "BoolColumn", "CondConst",
     "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue", "BoolOutput", "WidenDecimal",
-    "NullValue")
+    "NullValue", "InterleaveDecimal")
 
   test("the long-lane generator reaches every node type that admits 64-bit lanes") {
     // The same assertion for the second corpus, against the set the IR itself defines: a node

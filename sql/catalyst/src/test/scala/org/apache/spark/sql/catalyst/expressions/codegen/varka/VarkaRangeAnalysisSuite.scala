@@ -437,6 +437,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
         case x: NarrowLane => value(x.child(), kind)
         // A decimal output root stores its long-lane child's value unchanged.
         case x: WidenDecimal => value(x.child(), kind)
+        case x: InterleaveDecimal => value(x.lo(), kind); value(x.hi(), kind)
         case x: Greatest => value(x.left(), kind); value(x.right(), kind)
         case x: Least => value(x.left(), kind); value(x.right(), kind)
         case x: IfElse => cond(x.cond()); value(x.thenNode(), kind); value(x.elseNode(), kind)
@@ -527,6 +528,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: NarrowLane => go(x.child(), armed)
       // The decimal store declines no row: it writes the child's word and its sign extension.
       case x: WidenDecimal => go(x.child(), armed)
+      case x: InterleaveDecimal => go(x.lo(), armed) && go(x.hi(), armed)
       case x: AddMonths =>
         within(v(x.days()), VarkaChrono.NARROW_MIN_DAYS, VarkaChrono.NARROW_DECOMPOSE_MAX_DAYS) &&
           (x.months().isInstanceOf[LiteralSlot] || within(v(x.months()),

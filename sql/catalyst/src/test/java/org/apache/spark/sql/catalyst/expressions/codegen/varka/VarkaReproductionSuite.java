@@ -113,6 +113,10 @@ public final class VarkaReproductionSuite {
         new IntArith(IntOp.ADD, Overflow.WRAP,
             new VarkaVectorIR.DecimalWord(2, VarkaVectorIR.Word.LOW, 38),
             new VarkaVectorIR.DecimalWord(2, VarkaVectorIR.Word.HIGH, 38)),
+        // A 128-bit decimal output stored from its two words (VARKA-359).
+        new VarkaVectorIR.InterleaveDecimal(
+            new VarkaVectorIR.DecimalWord(2, VarkaVectorIR.Word.LOW, 38),
+            new VarkaVectorIR.DecimalWord(2, VarkaVectorIR.Word.HIGH, 38)),
         // A decimal output over a long column's arithmetic.
         new WidenDecimal(new IntArith(IntOp.ADD, Overflow.WRAP, x,
             new LiteralSlot(0, LaneType.LONG))),
