@@ -275,3 +275,16 @@ all passed on the run (the decimal suite's later sections were re-run after the 
 
 - The twelve baseline dry runs at 256 and 128 bits of section 5 (24 runs), with prediction 3.
 - The full `*BaselineQueriesSuite` run of section 8 on CI, with prediction 2.
+
+### 9.4 A second baseline that times a fallback (25 November 2026)
+
+After the merge with master's #1700 (VARKA-350), CI's fuse check (Build 45605120696) failed on
+`DECIMAL(18, 4) CAST(x AS DECIMAL(18, 2)), no nulls`: `WHOLE`, but 0 kernel batches and 2 handed
+to the row engine. Its rounding division at precision 18 and `k = 2` guards the magnitude below
+`2^54` and declines the batch past it, and `x18` reaches `5 * 10^16`, past `2^54` on 64% of its
+rows, so every batch declines; `VARKA-350.md` prediction 3 expects this. So the decimal
+baseline's `Section` gains `timesFallback` too, true for that section at both densities, and its
+runner and suite pass it, as the rounding baseline does: section 3.1's "every other baseline
+keeps the four-argument form" no longer holds for the decimal baseline. The column's values are
+unchanged, since the committed results time them. The other guarded fused cast, `CAST(x AS
+BIGINT)` at `DECIMAL(18, 4)` (`k = 4`, bound `2^56`), stays below its bound on every row.

@@ -167,6 +167,10 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           assert(s.fusion === expected, s.title)
         }
       }
+      // The one fused section whose guard declines every batch of its values, at each density.
+      assert(sections.filter(_.timesFallback).map(_.title).toSeq ===
+        Seq("no nulls", "one row in ten null").map(d =>
+          s"DECIMAL(18, 4) CAST(x AS DECIMAL(18, 2)), $d"))
       var types = Seq.empty[DataType]
       for (s <- sections) {
         withSettings(s)(types :+= spark.sql(s.query).schema.head.dataType)
@@ -285,7 +289,8 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           for (s <- VarkaDecimalBaselineBenchmark.sections(declines).asScala) {
             withClue(s"${s.title}, refusal $declines") {
               withSettings(s) {
-                VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
+                VarkaSqlBenchmarkBase.requireSection(
+                  varkaSpark, s.title, s.query, s.fusion, s.timesFallback)
               }
             }
           }
@@ -309,7 +314,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
     assume(VarkaSqlBenchmarkBase.fuseCheck(), "the fuse check is lifted")
     withTable(100) {
       val whole = VarkaDecimalBaselineBenchmark.sections(false).asScala
-        .filter(_.fusion == VarkaSqlBenchmarkBase.Fusion.WHOLE)
+        .filter(s => s.fusion == VarkaSqlBenchmarkBase.Fusion.WHOLE && !s.timesFallback)
       val planted = Seq(
         whole.find(_.query.contains(" WHERE ")).getOrElse(fail("no WHOLE filter section")),
         whole.find(!_.query.contains(" WHERE ")).getOrElse(fail("no WHOLE projection section")))
