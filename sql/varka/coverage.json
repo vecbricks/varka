@@ -9686,18 +9686,6 @@
     "note" : "at (18, 2) the magnitude is guarded below 2^54 before its shift, past which the row engine divides",
     "verified" : "differential"
   }, {
-    "sql" : "CAST(d9 AS INT)",
-    "executable" : "CAST(d9 AS INT)",
-    "family" : "Decimal casts",
-    "form" : "projection",
-    "catalyst" : [ "Cast" ],
-    "casts" : [ "dec>int:ansi" ],
-    "operands" : [ "Cast:dec" ],
-    "switches" : [ "spark.sql.codegen.varka.family.decimalCast.enabled" ],
-    "domain" : "",
-    "note" : "truncated, then narrowed: seven integral digits always fit an int, so no mode checks it",
-    "verified" : "differential"
-  }, {
     "sql" : "CAST(-d9 AS BIGINT)",
     "executable" : "CAST(-d9 AS BIGINT)",
     "family" : "Decimal casts",
@@ -9708,54 +9696,6 @@
     "switches" : [ "spark.sql.codegen.varka.family.decimalCast.enabled" ],
     "domain" : "",
     "note" : "the cast of a computed value, the negation's unscaled long divided as a column's is",
-    "verified" : "differential"
-  }, {
-    "sql" : "CAST(d18 AS INT)",
-    "executable" : "CAST(d18 AS INT)",
-    "family" : "Decimal casts",
-    "form" : "projection",
-    "catalyst" : [ "Cast" ],
-    "casts" : [ "dec>int:ansi" ],
-    "operands" : [ "Cast:dec" ],
-    "switches" : [ "spark.sql.codegen.varka.family.decimalCast.enabled" ],
-    "domain" : "d18 > -2147483649 AND d18 < 2147483648",
-    "note" : "the low bits under the legacy mode; under ANSI and TRY the exact rule, the truncated long checked against the int range, as Spark answers a decimal of eighteen digits read from the cache",
-    "verified" : "differential"
-  }, {
-    "sql" : "CAST(d9 AS SMALLINT)",
-    "executable" : "CAST(d9 AS SMALLINT)",
-    "family" : "Decimal casts",
-    "form" : "projection",
-    "catalyst" : [ "Cast" ],
-    "casts" : [ "dec>short:ansi" ],
-    "operands" : [ "Cast:dec" ],
-    "switches" : [ "spark.sql.codegen.varka.family.decimalCast.enabled" ],
-    "domain" : "d9 > -32769 AND d9 < 32768",
-    "note" : "the short twin",
-    "verified" : "differential"
-  }, {
-    "sql" : "CAST(d9s4 AS TINYINT)",
-    "executable" : "CAST(d9s4 AS TINYINT)",
-    "family" : "Decimal casts",
-    "form" : "projection",
-    "catalyst" : [ "Cast" ],
-    "casts" : [ "dec>byte:ansi" ],
-    "operands" : [ "Cast:dec" ],
-    "switches" : [ "spark.sql.codegen.varka.family.decimalCast.enabled" ],
-    "domain" : "d9s4 > -129 AND d9s4 < 128",
-    "note" : "the byte twin, at scale 4",
-    "verified" : "differential"
-  }, {
-    "sql" : "try_cast(d18 AS INT)",
-    "executable" : "try_cast(d18 AS INT)",
-    "family" : "Decimal casts",
-    "form" : "projection",
-    "catalyst" : [ "Cast" ],
-    "casts" : [ "dec>int:try" ],
-    "operands" : [ "Cast:dec" ],
-    "switches" : [ "spark.sql.codegen.varka.family.decimalCast.enabled" ],
-    "domain" : "abs(d18) * 100 < 18014398509481984",
-    "note" : "the range guard's nulling mode; only the division's guard declines a batch",
     "verified" : "differential"
   }, {
     "sql" : "CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)",
