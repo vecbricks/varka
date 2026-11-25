@@ -238,10 +238,12 @@ public final class VarkaLoopEmitter {
 
   /**
    * Whether a kernel over {@code outputs} is emitted differently with
-   * {@link VarkaEmitOptions#checkIntOverflow} on and off: some node under them is one whose
-   * emission reads the option ({@link Analysis#readsCheckIntOverflow}, the test the emitter's own
-   * reads go through). For a differential that runs such a kernel with the check on where its
-   * configuration turns it off, and every other kernel as the configuration has it.
+   * {@link VarkaEmitOptions#checkIntOverflow} on and off: some node under them states that its
+   * emission reads the option ({@link VarkaNodeProps#intOverflowCheck()}, which
+   * {@link Analysis#readsCheckIntOverflow} returns, the test every read of the emitter's goes
+   * through).
+   * For a differential that runs such a kernel with the check on where its configuration turns it
+   * off, and every other kernel as the configuration has it.
    */
   public static boolean readsCheckIntOverflowForTest(List<VarkaVectorIR> outputs) {
     return Analysis.anyReadsCheckIntOverflow(List.copyOf(outputs));

@@ -117,9 +117,10 @@ import org.apache.spark.sql.types.DecimalType;
  * <p>What declines, each naming its row: any other form of a type wider than 18 digits (row 359,
  * and row 360 where a rescale is needed); a sum or difference past 18 digits (row 360, and 363
  * past 38), a product past 18 digits (row 361, and 362 and 363 past 38 or over an operand past
- * 18); a cast that
- * lowers the scale or the integral digits, or one from an integral type (row 350); a negative
- * scale (the milestone plan's 2.8); and every operator no arm here claims yet.
+ * 18); a negative scale (the milestone plan's 2.8); and every operator no arm here claims yet.
+ * A cast between two decimals that rounds or can overflow is {@link VarkaDecimalCastCompiler}'s,
+ * under its family's switch (VARKA-350); one from an integral type or {@code BOOLEAN} declines
+ * naming row 350.
  *
  * <p>A decimal-valued output root is any {@link #value}, compiled by {@link #output}, which the
  * projection's root binding calls, and admitted by {@link #outputRoot}.
@@ -1101,7 +1102,14 @@ final class VarkaDecimalCompiler {
           new DecimalWord(inputs.intern(br.ordinal()), Word.LOW,
               ((DecimalType) br.dataType()).precision())));
       case BoundReference br -> Optional.of(new VarkaVectorIR.IsNotNull(leaf(br, inputs)));
-      case Cast c -> valid(c.child(), inputs, literals, sink);
+      // A cast with no guard - a widening rescale, or one the types prove cannot overflow - is
+      // valid where its operand is. One with a guard is left to the row engine: under LEGACY and
+      // TRY the guard nulls lanes this validity would not see, and under ANSI the guard's
+      // failure, the error Spark raises, is in the value the null test does not keep (VARKA-350).
+      case Cast c when VarkaDecimalCastCompiler.unguardedIntoDecimal(c) ->
+          valid(c.child(), inputs, literals, sink);
+      case Cast c -> sink.decline("the validity of a decimal cast that can overflow: its null "
+          + "test is left to the row engine (VARKA-350)", c);
       case UnaryMinus m -> valid(m.child(), inputs, literals, sink);
       case Abs a -> valid(a.child(), inputs, literals, sink);
       case If i -> condition(i.predicate(), i, inputs, literals, sink).flatMap(k ->
@@ -1366,7 +1374,9 @@ final class VarkaDecimalCompiler {
    * lower the scale ({@code S >= s}), since {@code changePrecision} then multiplies by
    * {@code 10^(S - s)} and its precision check passes; within 18 digits that is
    * {@link #rescale}. Such a cast is the only one type coercion puts over a decimal operand of a
-   * comparison or a choice within 18 digits, so every other cast declines naming its row.
+   * comparison or a choice within 18 digits, and it is no family's. Every other cast from a
+   * decimal is the decimal cast family's ({@link VarkaDecimalCastCompiler#intoDecimal}); a cast
+   * from any other type declines naming its row.
    */
   private static Optional<Scaled> cast(Cast c, DecimalType to, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
@@ -1381,8 +1391,8 @@ final class VarkaDecimalCompiler {
       return sink.decline(wideArithmeticBelow(c).orElseThrow(), c);
     }
     if (!keepsDigits(from, to)) {
-      return sink.decline("a decimal cast that lowers the scale or the integral digits rounds "
-          + "or can overflow, and is row 350's", c);
+      return VarkaNodeCompiler.inFamily(VarkaFamily.DECIMAL_CAST,
+          () -> VarkaDecimalCastCompiler.intoDecimal(c, to, inputs, literals, sink), c, sink);
     }
     return value(c.child(), inputs, literals, sink)
         .map(x -> new Scaled(rescale(x, k, sink).unscaled(), to));
@@ -1392,7 +1402,7 @@ final class VarkaDecimalCompiler {
    * Whether a cast from {@code from} to {@code to} keeps the scale or raises it and keeps every
    * integral digit, so that it multiplies by {@code 10^(S - s)} and cannot round or overflow.
    */
-  private static boolean keepsDigits(DecimalType from, DecimalType to) {
+  static boolean keepsDigits(DecimalType from, DecimalType to) {
     return to.scale() >= from.scale()
         && to.precision() - to.scale() >= from.precision() - from.scale();
   }

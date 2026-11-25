@@ -96,6 +96,13 @@ public enum VarkaFamily {
       + " bigint and boolean that the int arithmetic family does not hold: the narrowings to"
       + " tinyint and smallint (wrapping, or checked under ANSI), a tinyint or smallint widened"
       + " to smallint or bigint, a number cast to boolean and a boolean cast to a number"),
+  /** {@code VarkaDecimalCastCompiler}, its condition arm reached from {@code compileCond}. */
+  DECIMAL_CAST("decimal cast", "decimalCast", "the casts of a decimal of precision 18 or less to"
+      + " bigint and boolean, and into such a decimal from another,"
+      + " rounding half up where the scale drops (checked under ANSI, null on overflow under"
+      + " LEGACY and TRY); the casts to tinyint, smallint and int are claimed and decline, naming"
+      + " row 350's next part; the widening rescale between two decimals that type coercion puts"
+      + " under a comparison is not the family's"),
   /** {@code VarkaRoundingCompiler}. */
   ROUNDING("rounding", "rounding", "rint over a double; floor, ceil and ceiling over bigint"
       + " and int operands; and round, bround and truncate over tinyint, smallint and int at a"

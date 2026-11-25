@@ -141,24 +141,31 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
       def fused(list: Seq[VarkaDayTimeIntervalBaselineBenchmark.Section]): Seq[(String, String)] =
         list.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
           .map(s => (s.title, s.fusion.toString))
-      // The projections row 103 fuses, at both widths: the refusal below is a filter's. The
-      // four extracts together are not among them: only the DAY field would fuse, and a
-      // projection under a row consumer whose residual entries outnumber its fused ones is left
-      // to Spark (VARKA-613).
-      val projections = Seq("dt + dt2 - dt", "abs(dt)", "dt * 3", "extract(DAY FROM dt)")
+      // The projections row 103 fuses. The four extracts together are not among them: only the
+      // DAY field would fuse, and a projection under a row consumer whose residual entries
+      // outnumber its fused ones is left to Spark (VARKA-613). The three checked arms hold a
+      // check on the long lane, which the refusal below leaves to the row path (VARKA-612). The
+      // others fuse at both widths: the extract has no check, and the range guard of dt * 1.5 is
+      // under its half-up divide, a form the refusal leaves fused until it is measured.
+      val checked = Seq("dt + dt2 - dt", "abs(dt)", "dt * 3")
+      val projections = checked ++ Seq("dt * 1.5", "dt / 24", "extract(DAY FROM dt)")
       def density(d: String): Seq[(String, String)] = projections.map(p => (s"$p, $d", "WHOLE"))
+      def refusedDensity(d: String): Seq[(String, String)] =
+        density(d).filterNot { case (title, _) => checked.exists(c => title == s"$c, $d") }
       val blend = "CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths"
       assert(fused(sections) === density("no nulls") ++ Seq(
         ("filter dt > dt2, control, fuses today, no nulls", "WHOLE"),
         (s"$blend, no nulls", "WHOLE")) ++ density("one row in ten null") ++ Seq(
         ("filter dt > dt2, control, fuses today, one row in ten null", "WHOLE"),
         (s"$blend, one row in ten null", "WHOLE")))
-      // Under the refusal only the projections and the blend control fuse, so the 128-bit run
-      // still has a WHOLE control; the list's titles and queries are the same either way.
+      // Under the refusal only the other projections and the blend control fuse, so the
+      // 128-bit run still has a WHOLE control; the list's titles and queries are the same either
+      // way.
       val refused = VarkaDayTimeIntervalBaselineBenchmark.sections(true).asScala.toSeq
       assert(refused.map(s => (s.title, s.query)) === sections.map(s => (s.title, s.query)))
-      assert(fused(refused) === density("no nulls") ++ Seq((s"$blend, no nulls", "WHOLE")) ++
-        density("one row in ten null") ++ Seq((s"$blend, one row in ten null", "WHOLE")))
+      assert(fused(refused) === refusedDensity("no nulls") ++
+        Seq((s"$blend, no nulls", "WHOLE")) ++ refusedDensity("one row in ten null") ++
+        Seq((s"$blend, one row in ten null", "WHOLE")))
       for ((s, index) <- sections.zipWithIndex) {
         withClue(s.title) {
           withSettings(s) {

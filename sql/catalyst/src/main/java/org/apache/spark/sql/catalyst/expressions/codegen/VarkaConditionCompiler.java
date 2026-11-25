@@ -672,10 +672,13 @@ final class VarkaConditionCompiler {
           new VarkaVectorIR.WidenLane(c.right())));
       case VarkaVectorIR.NullSafeEqual c -> Optional.of(new VarkaVectorIR.NullSafeEqual(
           new VarkaVectorIR.WidenLane(c.left()), new VarkaVectorIR.WidenLane(c.right())));
-      // Over a condition the test lifts with it; over a column it reads the column widened.
+      // Over a condition the test lifts with it; over a column it reads the column widened,
+      // once: a test the int lift already widened (onIntLane) reads the column, not the
+      // widening, so the kernel holds no int node for it (VARKA-619).
       case VarkaVectorIR.IsNotNull n -> n.child() instanceof Cond c
           ? onLongLane(c, memo).map(l -> (Cond) new VarkaVectorIR.IsNotNull(l))
-          : Optional.of(new VarkaVectorIR.IsNotNull(new VarkaVectorIR.WidenLane(n.child())));
+          : Optional.of(new VarkaVectorIR.IsNotNull(
+              new VarkaVectorIR.WidenLane(VarkaVectorIR.unwidened(n.child()))));
       case VarkaVectorIR.And a -> onLongLane(a.left(), memo).flatMap(l ->
           onLongLane(a.right(), memo).map(r -> (Cond) new VarkaVectorIR.And(l, r)));
       case VarkaVectorIR.Or o -> onLongLane(o.left(), memo).flatMap(l ->
@@ -896,6 +899,12 @@ final class VarkaConditionCompiler {
         sink);
     if (cast != null) {
       return VarkaNodeCompiler.inFamily(VarkaFamily.INTEGRAL_CAST, cast, expr, sink);
+    }
+    // A decimal cast to BOOLEAN is the decimal cast family's (VARKA-350).
+    Supplier<Optional<Cond>> decimalCast = VarkaDecimalCastCompiler.condArm(expr, inputs,
+        literals, sink);
+    if (decimalCast != null) {
+      return VarkaNodeCompiler.inFamily(VarkaFamily.DECIMAL_CAST, decimalCast, expr, sink);
     }
     Supplier<Optional<Cond>> arm;
     try {
