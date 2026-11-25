@@ -293,7 +293,9 @@ public final class VarkaAnsiForm {
         "timestampadd(YEAR, l, ntz)", "add_months(ntz, i)", "round(i, -1)", "bround(i, -1)",
         "round(y1, -1)", "bround(y1, -1)", "round(s1, -1)", "bround(s1, -2)", "l + 1",
         "l - l2", "dt - dt2", "dt + INTERVAL '1' DAY", "dt * 3", "-2 * dt", "dt * 1.5",
-        "dt / 1.5", "bit_get(i, i)", "bit_get(s1, i)", "bit_get(l, i)")) {
+        "dt / 1.5", "bit_get(i, i)", "bit_get(s1, i)", "bit_get(l, i)", "CAST(d18 AS BIGINT)",
+        "CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)",
+        "CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     // A bigint narrowed to a narrow type, or the TINYINT bit of a bigint, as a COALESCE argument
@@ -324,6 +326,8 @@ public final class VarkaAnsiForm {
       Map.entry("DIVIDE_BY_ZERO", "x / x2"),
       Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"),
       Map.entry("INVALID_PARAMETER_VALUE.BIT_POSITION_RANGE", "bit_get(i, i)"),
+      Map.entry("NUMERIC_VALUE_OUT_OF_RANGE.WITH_SUGGESTION",
+          "CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)"),
       Map.entry("java.lang.ArithmeticException", "dt * 3"));
 
   /**

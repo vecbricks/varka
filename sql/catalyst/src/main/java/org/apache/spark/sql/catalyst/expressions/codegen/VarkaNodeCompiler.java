@@ -240,6 +240,7 @@ final class VarkaNodeCompiler {
       new Family(VarkaFamily.FLOATING_ARITHMETIC, VarkaFloatingCompiler::arm),
       new Family(VarkaFamily.FLOATING_CAST, VarkaFloatingCastCompiler::arm),
       new Family(VarkaFamily.INTEGRAL_CAST, VarkaIntegralCastCompiler::arm),
+      new Family(VarkaFamily.DECIMAL_CAST, VarkaDecimalCastCompiler::arm),
       new Family(VarkaFamily.ROUNDING, VarkaRoundingCompiler::arm),
       new Family(VarkaFamily.MATH, VarkaMathCompiler::arm));
 
@@ -265,6 +266,16 @@ final class VarkaNodeCompiler {
   private static final Family CAST_CONDITIONS = new Family("integral cast conditions",
       VarkaFamily.INTEGRAL_CAST, (e, inputs, literals, sink) -> {
         var arm = VarkaIntegralCastCompiler.condArm(e, inputs, literals, sink);
+        return arm == null ? null : () -> arm.get().map(cond -> cond);
+      });
+
+  /**
+   * The decimal cast family's condition claim, a decimal cast to {@code BOOLEAN}, beside
+   * {@link #CAST_CONDITIONS} for the same suites (VARKA-350).
+   */
+  private static final Family DECIMAL_CAST_CONDITIONS = new Family("decimal cast conditions",
+      VarkaFamily.DECIMAL_CAST, (e, inputs, literals, sink) -> {
+        var arm = VarkaDecimalCastCompiler.condArm(e, inputs, literals, sink);
         return arm == null ? null : () -> arm.get().map(cond -> cond);
       });
 
@@ -477,6 +488,11 @@ final class VarkaNodeCompiler {
   /** The integral cast family's condition claim, which the chain does not dispatch to either. */
   static Family castConditions() {
     return CAST_CONDITIONS;
+  }
+
+  /** The decimal cast family's condition claim, which the chain does not dispatch to either. */
+  static Family decimalCastConditions() {
+    return DECIMAL_CAST_CONDITIONS;
   }
 
   /** The names of the families of {@code chain} that claim {@code expr}, in chain order. */

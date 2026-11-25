@@ -1713,6 +1713,39 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("try_subtract(d9, d9s4)", "DECIMAL(12, 4), row 349's difference stored by the same "
         + "path: no difference within 18 digits overflows, so TRY's null never fires"))),
 
+    // The 64-bit decimal casts (VARKA-350): integer arithmetic on the unscaled long, the
+    // division by 10^k one constant division below 2^52 and the magnitude shifted by k and
+    // divided by 5^k above it, guarded below 2^(52 + k) where the shifted magnitude still
+    // reaches 2^52 (precision 16 to 18 at the small k).
+    Family("Decimal casts", predicates = false, Seq(
+      Row("CAST(d9 AS BIGINT)", "the unscaled long divided by 10^2, truncating toward zero as "
+        + "Decimal.toLong does, one constant division"),
+      Row("CAST(d16s9 AS BIGINT)", "at sixteen digits the magnitude is shifted right by 9 and "
+        + "divided by 5^9, and the sign put back"),
+      Row("CAST(d18 AS BIGINT)", "at (18, 2) the magnitude is guarded below 2^54 before its "
+        + "shift, past which the row engine divides",
+        domain = Some("abs(d18) * 100 < 18014398509481984")),
+      Row("CAST(-d9 AS BIGINT)", "the cast of a computed value, the negation's unscaled long "
+        + "divided as a column's is"),
+      // A guarded cast into a decimal is read through BIGINT: its null test declines by design
+      // (VarkaDecimalCompiler.valid), so it is no predicate row's operand.
+      Row("CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)", "the precision check alone, which "
+        + "declines under ANSI the batch Spark raises on and nulls the lane under the legacy "
+        + "mode and TRY, then the truncation", domain = Some("abs(d18) < 10000000000")),
+      Row("CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)", "a rescale up guarded before its "
+        + "multiply: the target's precision check moved onto the operand, so the multiply "
+        + "never wraps", domain = Some("abs(d9) < 100000")))),
+
+    Family("Decimal cast predicates", predicates = true, Seq(
+      Row("CAST(d9 AS BOOLEAN)", "the unscaled value against zero, which cannot fail"),
+      Row("CAST(d18 AS BOOLEAN)", "the eighteen-digit twin: the unscaled long against zero, "
+        + "no division"),
+      Row("CAST(d9s4 AS DECIMAL(9, 2)) < d9", "a rescale down by two digits, rounding half up: "
+        + "the half added with the value's sign, then one constant division; seven integral "
+        + "digits always fit, so no check"),
+      Row("CAST(d16s9 AS DECIMAL(10, 2)) > d9", "a rescale down by seven digits at sixteen: the "
+        + "half added to the magnitude, shifted by 7 and divided by 5^7, the sign put back"))),
+
     Family("Time arithmetic", predicates = false, Seq(
       Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),
       Row("time_diff('HOUR', t, t2)",
