@@ -740,7 +740,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // A leaf: its load is paid once per column, not per node. A column stands in every
       // restricted position.
-      return new VarkaNodeProps(NEVER, new Validity.Input(ordinal), 0,
+      return new VarkaNodeProps(NEVER, false, new Validity.Input(ordinal), 0,
           getClass().getSimpleName() + '/' + lane, EnumSet.allOf(VarkaOperandPosition.class),
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -803,7 +803,7 @@ public sealed interface VarkaVectorIR
       // compare, and the add and unsigned compare of the digit check. The OR that gathers
       // the compares is a mask call, not a lane call. An unscaled decimal is no day count,
       // month count, weekday or level.
-      return new VarkaNodeProps(NEVER, new Validity.Input(ordinal), 7,
+      return new VarkaNodeProps(NEVER, false, new Validity.Input(ordinal), 7,
           getClass().getSimpleName() + '/' + lane, FILLS_NOTHING, RESTRICTS_NOTHING,
           LongNarrowReader.NONE);
     }
@@ -861,7 +861,7 @@ public sealed interface VarkaVectorIR
       // The two words share one load a body, which the first visit of either emits whole;
       // each word weighs the whole load, so that a body holding one word is never
       // under-charged, and GroupOps takes it back from the second word of a column.
-      return new VarkaNodeProps(NEVER, new Validity.Input(ordinal),
+      return new VarkaNodeProps(NEVER, false, new Validity.Input(ordinal),
           VarkaEmitBudget.DECIMAL_PAIR_LOAD_WEIGHT, getClass().getSimpleName() + '/' + word,
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -890,7 +890,7 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // A leaf: its broadcast is paid once per literal, not per node.
-      return new VarkaNodeProps(NEVER, ALL_TRUE, 0, getClass().getSimpleName() + '/' + lane,
+      return new VarkaNodeProps(NEVER, false, ALL_TRUE, 0, getClass().getSimpleName() + '/' + lane,
           VarkaOperandPosition.LITERAL_FILLS, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -917,7 +917,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // Its broadcast zero; the all-clear word is a scalar store, written by the node
       // itself and so not a function of the input bitmaps.
-      return new VarkaNodeProps(NEVER, OWN, 1, getClass().getSimpleName() + '/' + lane,
+      return new VarkaNodeProps(NEVER, false, OWN, 1, getClass().getSimpleName() + '/' + lane,
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -960,7 +960,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT, VarkaEmitBudget.GUARD_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaEmitBudget.GUARD_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -1029,7 +1029,7 @@ public sealed interface VarkaVectorIR
       // A FAIL guard forwards its child's word; a NULL one clears lanes from a copy of it,
       // a word that follows the values. The two modes lower differently, so NULL is a
       // cost feature of its own.
-      return new VarkaNodeProps(NEVER, mode == Overflow.NULL ? OWN : STRICT,
+      return new VarkaNodeProps(NEVER, false, mode == Overflow.NULL ? OWN : STRICT,
           VarkaEmitBudget.GUARD_WEIGHT,
           getClass().getSimpleName() + (mode == Overflow.NULL ? "/NULL/" : "/") + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
@@ -1081,7 +1081,7 @@ public sealed interface VarkaVectorIR
       Set<VarkaOperandPosition> fills = target == LaneType.INT
           && child instanceof ColumnRef c && c.laneType().isNarrow()
           ? Set.of(VarkaOperandPosition.DAY_OFFSET) : FILLS_NOTHING;
-      return new VarkaNodeProps(NEVER, STRICT, 1, getClass().getSimpleName(), fills,
+      return new VarkaNodeProps(NEVER, false, STRICT, 1, getClass().getSimpleName(), fills,
           RESTRICTS_NOTHING, LongNarrowReader.VALUE);
     }
   }
@@ -1142,7 +1142,7 @@ public sealed interface VarkaVectorIR
           && g.lo() >= VarkaChrono.MONTH_ARITH_MIN_MONTHS
           && g.hi() <= VarkaChrono.MONTH_ARITH_MAX_MONTHS
           ? Set.of(VarkaOperandPosition.MONTH_COUNT) : FILLS_NOTHING;
-      return new VarkaNodeProps(NEVER, STRICT, 1, getClass().getSimpleName(), fills,
+      return new VarkaNodeProps(NEVER, false, STRICT, 1, getClass().getSimpleName(), fills,
           RESTRICTS_NOTHING, LongNarrowReader.VALUE);
     }
   }
@@ -1192,8 +1192,8 @@ public sealed interface VarkaVectorIR
       int weight = child.laneType() != LaneType.LONG ? 1
           : target == LaneType.FLOAT
               ? VarkaConversionLowering.ODD_CALLS : VarkaConversionLowering.SPLIT_CALLS;
-      return new VarkaNodeProps(NEVER, STRICT, weight, getClass().getSimpleName(), FILLS_NOTHING,
-          RESTRICTS_NOTHING, LongNarrowReader.NONE);
+      return new VarkaNodeProps(NEVER, false, STRICT, weight, getClass().getSimpleName(),
+          FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
 
@@ -1234,7 +1234,7 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // A reinterpretation: one lane call, which C2 emits as nothing; its word is its child's.
-      return new VarkaNodeProps(NEVER, STRICT, 1, getClass().getSimpleName(), FILLS_NOTHING,
+      return new VarkaNodeProps(NEVER, false, STRICT, 1, getClass().getSimpleName(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -1275,7 +1275,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // The decimal store: the sign shift, the two interleaves and the second of its two
       // stores; the first store is the one every value root pays.
-      return new VarkaNodeProps(NEVER, STRICT, 4, getClass().getSimpleName(), FILLS_NOTHING,
+      return new VarkaNodeProps(NEVER, false, STRICT, 4, getClass().getSimpleName(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -1285,7 +1285,7 @@ public sealed interface VarkaVectorIR
    * does. {@code offset} is a {@link LiteralSlot} for a foldable day count, or a {@link ColumnRef}
    * for an {@code IntegerType} column - a nullable one makes the result's
    * validity the AND of both children's, not just {@code days}' (see
-   * {@code VarkaLoopEmitter.planWordRef}).
+   * {@code Slots.planWordRef}).
    */
   record AddDays(VarkaVectorIR days, VarkaVectorIR offset, int hash) implements VarkaVectorIR {
     public AddDays {
@@ -1301,7 +1301,7 @@ public sealed interface VarkaVectorIR
       // One lanewise op, the add.
       var restricted = List.of(new VarkaOperandPosition.Restricted(
           VarkaOperandPosition.DAY_OFFSET, offset, "date_add's day offset"));
-      return new VarkaNodeProps(NEVER, STRICT, 1, getClass().getSimpleName(), FILLS_NOTHING,
+      return new VarkaNodeProps(NEVER, false, STRICT, 1, getClass().getSimpleName(), FILLS_NOTHING,
           restricted, LongNarrowReader.NONE);
     }
   }
@@ -1321,7 +1321,7 @@ public sealed interface VarkaVectorIR
       // One lanewise op, the subtract.
       var restricted = List.of(new VarkaOperandPosition.Restricted(
           VarkaOperandPosition.DAY_OFFSET, offset, "date_sub's day offset"));
-      return new VarkaNodeProps(NEVER, STRICT, 1, getClass().getSimpleName(), FILLS_NOTHING,
+      return new VarkaNodeProps(NEVER, false, STRICT, 1, getClass().getSimpleName(), FILLS_NOTHING,
           restricted, LongNarrowReader.NONE);
     }
   }
@@ -1344,7 +1344,7 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // One lanewise op, the subtract.
-      return new VarkaNodeProps(NEVER, STRICT, 1, getClass().getSimpleName(), FILLS_NOTHING,
+      return new VarkaNodeProps(NEVER, false, STRICT, 1, getClass().getSimpleName(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -1413,8 +1413,11 @@ public sealed interface VarkaVectorIR
       // test's compare.
       int weight = op == IntOp.DIV ? (mode == Overflow.WRAP ? 1 : 2)
           : mode != Overflow.WRAP ? 5 : laneType().isNarrow() ? 3 : 1;
-      return new VarkaNodeProps(new Ring.Arith(mode), mode == Overflow.NULL ? OWN : STRICT, weight,
-          getClass().getSimpleName() + '/' + op + '/' + mode + '/' + laneType(),
+      // An integral node's FAIL and NULL modes are its overflow check; a floating division's
+      // are its zero test, which checkIntOverflow does not drop.
+      boolean checked = mode != Overflow.WRAP && !laneType().isFloating();
+      return new VarkaNodeProps(new Ring.Arith(mode), checked, mode == Overflow.NULL ? OWN : STRICT,
+          weight, getClass().getSimpleName() + '/' + op + '/' + mode + '/' + laneType(),
           VarkaOperandPosition.ARITH_FILLS, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -1481,8 +1484,9 @@ public sealed interface VarkaVectorIR
       // negation or abs is one lanewise call.
       int weight = mode != Overflow.WRAP ? 2
           : laneType().isNarrow() || (abs && laneType() == LaneType.LONG) ? 3 : 1;
-      return new VarkaNodeProps(abs ? NEVER : new Ring.Arith(mode), STRICT, weight,
-          getClass().getSimpleName() + (abs ? "/abs/" : "/") + mode + '/' + laneType(),
+      // An abs is no ring node, but it checks the negation's overflow as the negation does.
+      return new VarkaNodeProps(abs ? NEVER : new Ring.Arith(mode), mode != Overflow.WRAP, STRICT,
+          weight, getClass().getSimpleName() + (abs ? "/abs/" : "/") + mode + '/' + laneType(),
           VarkaOperandPosition.ARITH_FILLS, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -1661,7 +1665,7 @@ public sealed interface VarkaVectorIR
       int weight = laneType() == LaneType.LONG
           ? VarkaEmitBudget.LONG_CONST_DIVIDE_WEIGHT
           : VarkaEmitBudget.INT_CONST_DIVIDE_WEIGHT + (divisor < 0 ? 1 : 0);
-      return new VarkaNodeProps(NEVER, STRICT, weight,
+      return new VarkaNodeProps(NEVER, false, STRICT, weight,
           getClass().getSimpleName() + '/' + laneType() + (divisor < 0 ? "/neg" : "/pos"),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -1745,7 +1749,7 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // The single multiply-high and its shift.
-      return new VarkaNodeProps(NEVER, STRICT, 2, getClass().getSimpleName(), FILLS_NOTHING,
+      return new VarkaNodeProps(NEVER, false, STRICT, 2, getClass().getSimpleName(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -1782,7 +1786,7 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // One lanewise op: the logical operation, or the shift by its count's vector.
-      return new VarkaNodeProps(NEVER, STRICT, 1,
+      return new VarkaNodeProps(NEVER, false, STRICT, 1,
           getClass().getSimpleName() + '/' + op + '/' + laneType(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -1812,7 +1816,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // The popcount alone at the long lane; at a narrower lane the popcount, the sign
       // shift, the mask and the add of the high bits the widening to 64 gains.
-      return new VarkaNodeProps(NEVER, STRICT, laneType() == LaneType.LONG ? 1 : 4,
+      return new VarkaNodeProps(NEVER, false, STRICT, laneType() == LaneType.LONG ? 1 : 4,
           getClass().getSimpleName() + '/' + laneType(), FILLS_NOTHING, RESTRICTS_NOTHING,
           LongNarrowReader.NONE);
     }
@@ -1845,7 +1849,7 @@ public sealed interface VarkaVectorIR
       // The lanewise square root: one call. A per-lane call extracts and inserts each lane, at
       // most eight double lanes at 512 bits, the larger form; the scalar calls between them are
       // no vector op.
-      return new VarkaNodeProps(NEVER, STRICT, fn.laneCall() ? 16 : 1,
+      return new VarkaNodeProps(NEVER, false, STRICT, fn.laneCall() ? 16 : 1,
           getClass().getSimpleName() + '/' + fn + '/' + laneType(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -1882,7 +1886,8 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // The lanewise fused multiply-add: one call, null where any of its three operands is.
-      return new VarkaNodeProps(NEVER, STRICT, 1, getClass().getSimpleName() + '/' + laneType(),
+      return new VarkaNodeProps(NEVER, false, STRICT, 1,
+          getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -1918,7 +1923,7 @@ public sealed interface VarkaVectorIR
       // reinterpretations, which the budget counts as calls though they emit no
       // instruction; then the NaN's compare and blend, where the operand can hold a NaN
       // other than the canonical one.
-      return new VarkaNodeProps(NEVER, STRICT,
+      return new VarkaNodeProps(NEVER, false, STRICT,
           VarkaRoundingLowering.mayHoldOtherNaN(this) ? 12 : 10,
           getClass().getSimpleName() + '/' + mode + '/' + laneType(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
@@ -1965,7 +1970,8 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // The canonicalisation: the add of zero, the NaN test and the blend.
-      return new VarkaNodeProps(NEVER, STRICT, 3, getClass().getSimpleName() + '/' + laneType(),
+      return new VarkaNodeProps(NEVER, false, STRICT, 3,
+          getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
 
@@ -2000,7 +2006,8 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // A reinterpretation: one lane call, which C2 emits as nothing.
-      return new VarkaNodeProps(NEVER, STRICT, 1, getClass().getSimpleName() + '/' + laneType(),
+      return new VarkaNodeProps(NEVER, false, STRICT, 1,
+          getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
 
@@ -2050,7 +2057,7 @@ public sealed interface VarkaVectorIR
         case XXH64_INT -> 15;
         case XXH64_LONG -> 16;
       };
-      return new VarkaNodeProps(NEVER, new Validity.Operand(0), weight,
+      return new VarkaNodeProps(NEVER, false, new Validity.Operand(0), weight,
           getClass().getSimpleName() + '/' + mix, FILLS_NOTHING, RESTRICTS_NOTHING,
           LongNarrowReader.NONE);
     }
@@ -2088,7 +2095,7 @@ public sealed interface VarkaVectorIR
       // compares and NaN tests.
       int weight = left.laneType().isFloating() && !op.isIeee()
           ? VarkaEmitBudget.FLOATING_ORDER_WEIGHT : 1;
-      return new VarkaNodeProps(NEVER, NO_WORD, weight,
+      return new VarkaNodeProps(NEVER, false, NO_WORD, weight,
           getClass().getSimpleName() + '/' + op + '/' + laneType(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.VALUE);
     }
@@ -2121,7 +2128,7 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // One lanewise op, the compare, or Spark's floating order at a floating lane.
-      return new VarkaNodeProps(NEVER, NO_WORD,
+      return new VarkaNodeProps(NEVER, false, NO_WORD,
           left.laneType().isFloating() ? VarkaEmitBudget.FLOATING_ORDER_WEIGHT : 1,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.VALUE);
     }
@@ -2153,7 +2160,7 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // A leaf: a data word read, no lane call; its validity word is the column's.
-      return new VarkaNodeProps(NEVER, new Validity.Input(ordinal), 0,
+      return new VarkaNodeProps(NEVER, false, new Validity.Input(ordinal), 0,
           getClass().getSimpleName() + '/' + lane, FILLS_NOTHING, RESTRICTS_NOTHING,
           LongNarrowReader.NONE);
     }
@@ -2179,7 +2186,7 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // A constant: no lane call.
-      return new VarkaNodeProps(NEVER, NO_WORD, 0, getClass().getSimpleName() + '/' + lane,
+      return new VarkaNodeProps(NEVER, false, NO_WORD, 0, getClass().getSimpleName() + '/' + lane,
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2212,7 +2219,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // The connectives emit only mask calls, which no weight counts; 1 is a floor, so that
       // a connective is never free to join a group.
-      return new VarkaNodeProps(NEVER, NO_WORD, 1,
+      return new VarkaNodeProps(NEVER, false, NO_WORD, 1,
           getClass().getSimpleName() + '/' + op + '/' + laneType(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -2237,7 +2244,8 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // The connectives emit only mask calls, which no weight counts; 1 is a floor, so that
       // a connective is never free to join a group.
-      return new VarkaNodeProps(NEVER, NO_WORD, 1, getClass().getSimpleName() + '/' + laneType(),
+      return new VarkaNodeProps(NEVER, false, NO_WORD, 1,
+          getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2262,7 +2270,8 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // The connectives emit only mask calls, which no weight counts; 1 is a floor, so that
       // a connective is never free to join a group.
-      return new VarkaNodeProps(NEVER, NO_WORD, 1, getClass().getSimpleName() + '/' + laneType(),
+      return new VarkaNodeProps(NEVER, false, NO_WORD, 1,
+          getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2284,7 +2293,8 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // The connectives emit only mask calls, which no weight counts; 1 is a floor, so that
       // a connective is never free to join a group.
-      return new VarkaNodeProps(NEVER, NO_WORD, 1, getClass().getSimpleName() + '/' + laneType(),
+      return new VarkaNodeProps(NEVER, false, NO_WORD, 1,
+          getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.COND);
     }
   }
@@ -2303,7 +2313,8 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // The connectives emit only mask calls, which no weight counts; 1 is a floor, so that
       // a connective is never free to join a group.
-      return new VarkaNodeProps(NEVER, NO_WORD, 1, getClass().getSimpleName() + '/' + laneType(),
+      return new VarkaNodeProps(NEVER, false, NO_WORD, 1,
+          getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.COND);
     }
   }
@@ -2321,7 +2332,8 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // The connectives emit only mask calls, which no weight counts; 1 is a floor, so that
       // a connective is never free to join a group.
-      return new VarkaNodeProps(NEVER, NO_WORD, 1, getClass().getSimpleName() + '/' + laneType(),
+      return new VarkaNodeProps(NEVER, false, NO_WORD, 1,
+          getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.COND);
     }
   }
@@ -2357,7 +2369,7 @@ public sealed interface VarkaVectorIR
       // The connectives emit only mask calls, which no weight counts; 1 is a floor, so that
       // a connective is never free to join a group. The cost feature names
       // both lanes of the cast or the word round trip.
-      return new VarkaNodeProps(NEVER, NO_WORD, 1,
+      return new VarkaNodeProps(NEVER, false, NO_WORD, 1,
           getClass().getSimpleName() + '/' + child.laneType() + '/' + lane, FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.COND);
     }
@@ -2400,7 +2412,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // The connectives emit only mask calls, which no weight counts; 1 is a floor, so that
       // a connective is never free to join a group.
-      return new VarkaNodeProps(NEVER, NO_WORD, 1,
+      return new VarkaNodeProps(NEVER, false, NO_WORD, 1,
           getClass().getSimpleName() + (overCondition() ? "/cond/" : "/") + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.VALUE_OR_COND);
     }
@@ -2483,7 +2495,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // Emitted as one loop whatever the number of ranges: a start mask and a body of
       // scalar compares, three lane calls past the column's load.
-      return new VarkaNodeProps(NEVER, NO_WORD, 3, getClass().getSimpleName(), FILLS_NOTHING,
+      return new VarkaNodeProps(NEVER, false, NO_WORD, 3, getClass().getSimpleName(), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2510,7 +2522,7 @@ public sealed interface VarkaVectorIR
       // A blend picks lanes, so reduction modulo a narrow width commutes with it. Its word
       // is a blend by the known-true mask, its own. The weight is the blend, plus the
       // shift pair a narrow pick may reduce with at the int lane.
-      return new VarkaNodeProps(PICK, OWN, laneType().isNarrow() ? 3 : 1,
+      return new VarkaNodeProps(PICK, false, OWN, laneType().isNarrow() ? 3 : 1,
           getClass().getSimpleName() + '/' + laneType(), FILLS_NOTHING, RESTRICTS_NOTHING,
           LongNarrowReader.NONE);
     }
@@ -2545,7 +2557,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // The broadcast 0 and the add of 1 under the known-true mask; its word is the
       // condition's known words ORed, a function of the condition's operands' values.
-      return new VarkaNodeProps(NEVER, OWN, 2, getClass().getSimpleName() + '/' + lane,
+      return new VarkaNodeProps(NEVER, false, OWN, 2, getClass().getSimpleName() + '/' + lane,
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2572,7 +2584,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       // Its writes are the mask's toLong and two bitmap stores, none a lane call; 1 is
       // the connectives' floor. Its validity is its condition's known word, kt | kf.
-      return new VarkaNodeProps(NEVER, OWN, 1, getClass().getSimpleName() + '/' + laneType(),
+      return new VarkaNodeProps(NEVER, false, OWN, 1, getClass().getSimpleName() + '/' + laneType(),
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.COND);
     }
   }
@@ -2594,7 +2606,7 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // The max, or Spark's floating order and its blend at a floating lane.
-      return new VarkaNodeProps(NEVER, SKIPS_NULL,
+      return new VarkaNodeProps(NEVER, false, SKIPS_NULL,
           laneType().isFloating() ? VarkaEmitBudget.FLOATING_ORDER_WEIGHT : 1,
           getClass().getSimpleName() + '/' + laneType(), FILLS_NOTHING, RESTRICTS_NOTHING,
           LongNarrowReader.NONE);
@@ -2614,7 +2626,7 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // The min, or Spark's floating order and its blend at a floating lane.
-      return new VarkaNodeProps(NEVER, SKIPS_NULL,
+      return new VarkaNodeProps(NEVER, false, SKIPS_NULL,
           laneType().isFloating() ? VarkaEmitBudget.FLOATING_ORDER_WEIGHT : 1,
           getClass().getSimpleName() + '/' + laneType(), FILLS_NOTHING, RESTRICTS_NOTHING,
           LongNarrowReader.NONE);
@@ -2637,7 +2649,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT, VarkaEmitBudget.DAY_OF_WEEK_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaEmitBudget.DAY_OF_WEEK_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2654,7 +2666,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT, VarkaEmitBudget.WEEK_DAY_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaEmitBudget.WEEK_DAY_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2677,7 +2689,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT, VarkaEmitBudget.DAY_OF_WEEK_ISO_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaEmitBudget.DAY_OF_WEEK_ISO_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2707,7 +2719,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       var restricted = List.of(new VarkaOperandPosition.Restricted(
           VarkaOperandPosition.WEEKDAY, offset, "next_day's weekday"));
-      return new VarkaNodeProps(NEVER, STRICT, VarkaEmitBudget.NEXT_DAY_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaEmitBudget.NEXT_DAY_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, restricted, LongNarrowReader.NONE);
     }
   }
@@ -2732,7 +2744,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT, VarkaEmitBudget.THURSDAY_OF_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaEmitBudget.THURSDAY_OF_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2776,7 +2788,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       var restricted = List.of(new VarkaOperandPosition.Restricted(
           VarkaOperandPosition.MONTH_COUNT, months, "add_months' month count"));
-      return new VarkaNodeProps(NEVER, STRICT, VarkaEmitBudget.ADD_MONTHS_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaEmitBudget.ADD_MONTHS_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, restricted, LongNarrowReader.NONE);
     }
   }
@@ -2808,7 +2820,7 @@ public sealed interface VarkaVectorIR
     @Override
     public VarkaNodeProps props() {
       // Its word is computed from the values: an invalid date is null, or fails.
-      return new VarkaNodeProps(NEVER, OWN, VarkaEmitBudget.MAKE_DATE_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, OWN, VarkaEmitBudget.MAKE_DATE_WEIGHT,
           getClass().getSimpleName() + (failOnError ? "/ansi" : "/null"), FILLS_NOTHING,
           RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -2841,7 +2853,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT,
+      return new VarkaNodeProps(NEVER, false, STRICT,
           VarkaEmitBudget.CHRONO_PREFIX_WEIGHT + VarkaEmitBudget.YEAR_TAIL_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -2859,7 +2871,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT,
+      return new VarkaNodeProps(NEVER, false, STRICT,
           VarkaEmitBudget.CHRONO_PREFIX_WEIGHT + VarkaEmitBudget.MONTH_TAIL_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -2877,7 +2889,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT,
+      return new VarkaNodeProps(NEVER, false, STRICT,
           VarkaEmitBudget.CHRONO_PREFIX_WEIGHT + VarkaEmitBudget.DAY_OF_MONTH_TAIL_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -2895,7 +2907,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT,
+      return new VarkaNodeProps(NEVER, false, STRICT,
           VarkaEmitBudget.CHRONO_PREFIX_WEIGHT + VarkaEmitBudget.QUARTER_TAIL_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
@@ -2917,7 +2929,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT, VarkaEmitBudget.DAY_OF_YEAR_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaEmitBudget.DAY_OF_YEAR_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2938,7 +2950,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT, VarkaEmitBudget.LAST_DAY_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaEmitBudget.LAST_DAY_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2967,7 +2979,8 @@ public sealed interface VarkaVectorIR
         case YEAR -> VarkaEmitBudget.TRUNC_YEAR_WEIGHT;
         case QUARTER -> VarkaEmitBudget.TRUNC_QUARTER_WEIGHT;
       };
-      return new VarkaNodeProps(NEVER, STRICT, weight, getClass().getSimpleName() + '/' + level,
+      return new VarkaNodeProps(NEVER, false, STRICT, weight,
+          getClass().getSimpleName() + '/' + level,
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
@@ -2998,7 +3011,7 @@ public sealed interface VarkaVectorIR
     public VarkaNodeProps props() {
       var restricted = List.of(new VarkaOperandPosition.Restricted(
           VarkaOperandPosition.TRUNC_LEVEL, level, "trunc's level"));
-      return new VarkaNodeProps(NEVER, STRICT, VarkaEmitBudget.TRUNC_DYNAMIC_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaEmitBudget.TRUNC_DYNAMIC_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, restricted, LongNarrowReader.NONE);
     }
   }
@@ -3023,7 +3036,7 @@ public sealed interface VarkaVectorIR
 
     @Override
     public VarkaNodeProps props() {
-      return new VarkaNodeProps(NEVER, STRICT, VarkaEmitBudget.WEEK_OF_YEAR_WEIGHT,
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaEmitBudget.WEEK_OF_YEAR_WEIGHT,
           getClass().getSimpleName(), FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
