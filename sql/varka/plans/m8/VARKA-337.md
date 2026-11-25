@@ -709,7 +709,7 @@ cast to `INT` (a boolean literal as the int slot 1 or 0), the narrow types widen
 types canonicalised under the floating arithmetic family's switch, a decimal of precision 18 or less
 as its unscaled long, a null literal or `NullType` child skipped, a decimal above 18 declined naming
 337b, and a hash whose every child is null declined as the constant Spark's optimizer folds;
-`floatingDecline` admits both classes; 34 coverage rows in a family "Hash" over every column type of
+`floatingDecline` admits both classes; 36 coverage rows in a family "Hash" over every column type of
 the fixtures but the wide decimals; the census notes say what is built.
 `dev/varka_regen_generated.sh --all` added the rows to `coverage.json` and `docs/sql-varka.md` (and
 the family's switch to its table), their shapes to `emitted_bytes.json` and `width_audit.json`, and
@@ -720,13 +720,25 @@ Tests: `VarkaExpressionCompilerSuite` pins the trees the compiler builds for one
 lane to `VarkaEmitterHashSuite`'s, which hold them to Spark's functions; a normalised key hashed as
 the column is; two children and a null literal as three steps; the two switches' declines; the
 decimal above 18 naming 337b; the collation-aware form unclaimed. `VarkaCoverageSuite` compiles
-the 34 rows and checks their domains (none guarded), and `VarkaCoverageHarnessSuite` runs them
-against Spark's row engine: 2658 cases, no failure. The width audit under `-XX:UseAVX=2` emits
+the 36 rows and checks their domains (none guarded), and `VarkaCoverageHarnessSuite` runs them
+against Spark's row engine: 2832 cases at the pull request's last head, 72 of them over
+the hash rows, no failure. The width audit under `-XX:UseAVX=2` emits
 every shape with a lowering for every call; its census differs from the committed AVX-512 file in
 136 cells, 337a1's 134 (masked `BYTE` stores and 64-bit masks at two lanes) and two new ones,
 `hash(d9)` and `xxhash64(d18)` at 128 bits, both the decimal slot check's 64-bit masks at two
 lanes. None is a hash step's: the multiplies, rotates and reinterpretations lower at both
 instruction sets. The committed file stays the AVX-512 host's, as decision 10 has it.
+
+**A computed decimal child** (25 November 2026, from the pull request's second review). The hash
+enters and leaves the decimal compiler around a decimal child, as a decimal cast does around its
+operand. Without that, a nested decimal comparison ended the decimal compiler's call for the hash
+too and dropped the conditions it had kept: `hash(coalesce(if(i > 5, if(a > b, a, b), b), a))`
+compiled 3 conditions for its 2, and `VarkaExpressionCompilerSuite` now counts 2. The coverage row
+`hash(coalesce(if(d9 > d9b, d9, d9b), d9))` runs a computed decimal child against the row engine.
+Two of the review's points stay as they are. A decimal literal whose value's scale is not its
+type's would hash at the type's scale here and at the value's in Spark; no SQL or DataFrame route
+builds one, since `Literal.create` and constant folding give a literal its type's scale.
+`childFamilies` stays beside `word()`, whose comment now names it.
 
 **The two-lane x86 hash kernels are admitted** (25 November 2026). At 128 bits the committed
 `width_audit.json` lists no Java fallback for the `hash` rows on the int lane alone (`hash(i)`,

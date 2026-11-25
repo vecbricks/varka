@@ -8558,6 +8558,18 @@
     "note" : "",
     "verified" : "differential"
   }, {
+    "sql" : "hash(coalesce(if(d9 > d9b, d9, d9b), d9))",
+    "executable" : "hash(coalesce(if(d9 > d9b, d9, d9b), d9))",
+    "family" : "Hash",
+    "form" : "projection",
+    "catalyst" : [ "Coalesce", "GreaterThan", "If", "Murmur3Hash" ],
+    "casts" : [ ],
+    "operands" : [ "Coalesce:dec", "GreaterThan:dec", "If:dec", "Murmur3Hash:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled", "spark.sql.codegen.varka.family.hash.enabled" ],
+    "domain" : "",
+    "note" : "a computed decimal child, compiled in one call of the decimal compiler",
+    "verified" : "differential"
+  }, {
     "sql" : "hash(i, l)",
     "executable" : "hash(i, l)",
     "family" : "Hash",

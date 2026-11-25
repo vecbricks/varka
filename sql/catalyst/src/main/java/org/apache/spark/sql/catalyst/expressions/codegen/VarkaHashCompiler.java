@@ -144,7 +144,8 @@ final class VarkaHashCompiler {
 
   /**
    * The word Spark's rule hashes for {@code child}: an int-lane value for {@code hashInt}, a
-   * long-lane one for {@code hashLong}, or empty with the reason noted.
+   * long-lane one for {@code hashLong}, or empty with the reason noted. A child kind whose word
+   * is another family's node is named in {@link #childFamilies} too.
    */
   private static Optional<VarkaVectorIR> word(Expression whole, Expression child,
       VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
@@ -172,13 +173,28 @@ final class VarkaHashCompiler {
       case FloatType f -> floating(whole, child, LaneType.FLOAT, inputs, literals, sink);
       case DoubleType d -> floating(whole, child, LaneType.DOUBLE, inputs, literals, sink);
       case DecimalType d when d.precision() <= Decimal.MAX_LONG_DIGITS() ->
-          VarkaDecimalCompiler.value(child, inputs, literals, sink)
-              .map(VarkaDecimalCompiler.Scaled::unscaled);
+          unscaled(child, inputs, literals, sink);
       case DecimalType d -> sink.decline("a hash of a decimal above precision 18, whose word is "
           + "its unscaled value's byte array (row 337b)", child);
       default -> sink.decline("a hash of a " + t.simpleString() + " child, outside the types "
           + "Varka hashes (VARKA-337)", child);
     };
+  }
+
+  /**
+   * A decimal child's unscaled long, compiled from outside the decimal compiler: the call is
+   * entered and left as a decimal cast's operand is, so that a choice's condition is compiled once
+   * and none outlives the call.
+   */
+  private static Optional<VarkaVectorIR> unscaled(Expression child, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    sink.enterDecimal();
+    try {
+      return VarkaDecimalCompiler.value(child, inputs, literals, sink)
+          .map(VarkaDecimalCompiler.Scaled::unscaled);
+    } finally {
+      sink.exitDecimal();
+    }
   }
 
   /** A {@code TINYINT} or {@code SMALLINT} child sign-extended to the int lane. */

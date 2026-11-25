@@ -1,7 +1,7 @@
 # The coverage table's value rows a two-lane x86 host refuses as projection entries
 # (VARKA-612), rendered by VarkaCoverageSuite; regenerate with
 #   VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite'
-# 19 of 539 value rows refused; family, row, reason:
+# 19 of 540 value rows refused; family, row, reason:
 Day-time interval arithmetic	dt + dt2	a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback
 Day-time interval arithmetic	dt - dt2	a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback
 Day-time interval arithmetic	abs(dt)	a checked operation on a 64-bit lane, on an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's Java fallback

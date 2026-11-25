@@ -1356,6 +1356,16 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(declineReason(new Murmur3Hash(Seq(wide)), childOutput :+ wide).contains("337b"))
     assert(declineReason(new CollationAwareMurmur3Hash(Seq(i)), childOutput :+ i) ===
       "unsupported expression")
+    // A computed decimal child is one call of the decimal compiler, as a cast's operand is
+    // (VARKA-348). The coalesce reads its operand's conditions for the value and again for the
+    // validity, and the inner comparison is a call of the decimal compiler of its own: left
+    // unentered, the hash's call would drop `i > 5` when that one ends and compile it twice.
+    val a = AttributeReference("a", DecimalType(9, 2))()
+    val b = AttributeReference("b", DecimalType(9, 2))()
+    val picked = Coalesce(Seq(If(GreaterThan(i, Literal(5)), If(GreaterThan(a, b), a, b), b), a))
+    VarkaExpressionCompiler.decimalConditionsCompiledForTesting()
+    assert(outputs(new Murmur3Hash(Seq(picked)), Seq(i, a, b)).size === 1)
+    assert(VarkaExpressionCompiler.decimalConditionsCompiledForTesting() === 2)
   }
 
   private def declineReason(e: Expression, output: Seq[Attribute] = childOutput): String = {

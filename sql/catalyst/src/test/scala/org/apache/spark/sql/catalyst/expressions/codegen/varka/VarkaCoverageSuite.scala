@@ -1540,6 +1540,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("xxhash64(f)"),
       Row("hash(d9)", "a decimal of precision 18 or less is its unscaled long"),
       Row("xxhash64(d18)"),
+      Row("hash(coalesce(if(d9 > d9b, d9, d9b), d9))", "a computed decimal child, compiled in "
+        + "one call of the decimal compiler"),
       Row("hash(i, l)", "each child's step takes the previous step's value as its seed"),
       Row("xxhash64(l, i)"),
       Row("hash(i, l, x, f)", "four children over both widths and both floating lanes"),

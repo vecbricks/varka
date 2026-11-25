@@ -291,7 +291,7 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `LongType` (`bigint`) | LONG | 85 | 62 | 2 | plumbing 5, semantics 16 | 0 | 97 |
 | `FloatType` (`float`) | FLOAT | 66 | 38 | 2 | plumbing 5, semantics 21 | 0 | 66 |
 | `DoubleType` (`double`) | DOUBLE | 102 | 64 | 2 | plumbing 4, semantics 22, ulp 10 | 0 | 97 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 32 | plumbing 3, semantics 27 | 3 | 105: 80 to precision 18, 25 at precision 19 to 38 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 32 | plumbing 3, semantics 27 | 3 | 106: 81 to precision 18, 25 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 51 | 1 | plumbing 1, semantics 10 | 0 | 109 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 51 | 0 | plumbing 1, semantics 2 | 0 | 77 |
 | `TimeType` (`time`) | LONG | 49 | 36 | 3 | plumbing 1, semantics 9 | 0 | 49 |
@@ -1436,6 +1436,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `xxhash64(f)` | `floatingArithmetic`, `hash` |  |  | per-lane: blend, mask broadcast, mask test |
 | `hash(d9)` | `hash` |  | a decimal of precision 18 or less is its unscaled long | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
 | `xxhash64(d18)` | `hash` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `hash(coalesce(if(d9 > d9b, d9, d9b), d9))` | `predicate`, `condition`, `hash` |  | a computed decimal child, compiled in one call of the decimal compiler | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
 | `hash(i, l)` | `hash` |  | each child's step takes the previous step's value as its seed | per-lane: mask broadcast, load or store |
 | `xxhash64(l, i)` | `hash` |  |  | per-lane: blend, mask broadcast, load or store, mask test |
 | `hash(i, l, x, f)` | `floatingArithmetic`, `hash` |  | four children over both widths and both floating lanes | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store |
@@ -1671,7 +1672,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 42 | 0 | 0 | 0 | 13 | 0 | 29 |
 | `byte` | 60 | 0 | 0 | 0 | 0 | 8 | 52 |
 | `date` | 130 | 17 | 0 | 0 | 1 | 0 | 112 |
-| `dec` | 107 | 1 | 50 | 14 | 0 | 0 | 42 |
+| `dec` | 108 | 1 | 50 | 14 | 0 | 0 | 43 |
 | `double` | 112 | 0 | 0 | 1 | 0 | 0 | 111 |
 | `dt` | 41 | 2 | 0 | 7 | 0 | 0 | 32 |
 | `float` | 67 | 0 | 0 | 0 | 0 | 0 | 67 |
