@@ -1,7 +1,7 @@
-# 2026-11-25T22:28:02Z, commit 8c0b0f5cef8
+# 2026-11-25T22:40:09Z, commit d64215dc4dd
 # OpenJDK Runtime Environment (build 25.0.5.1+2-1-26.04.1-Ubuntu)
 # AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
-# load before: 0.22 0.77 1.26 1/1964 2897473
+# load before: 0.40 0.58 0.90 1/2071 2900321
 zone ids: 604
 an instant to its offset: 2362182 checks, 0 mismatches
 (a) the earlier offset, atZone: 3095758 checks, 0 mismatches
@@ -15,4 +15,4 @@ midnights where (a) and (c) differ: 6
   America/Thunder_Bay 1919-03-31: the earlier offset 1919-03-31T05:00:00Z, the gap's end 1919-03-31T04:30:00Z
   America/Toronto 1919-03-31: the earlier offset 1919-03-31T05:00:00Z, the gap's end 1919-03-31T04:30:00Z
   Canada/Eastern 1919-03-31: the earlier offset 1919-03-31T05:00:00Z, the gap's end 1919-03-31T04:30:00Z
-# load after: 0.28 0.78 1.26 1/1993 2897569
+# load after: 0.40 0.58 0.90 1/2066 2900374
