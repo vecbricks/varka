@@ -89,6 +89,9 @@ case $SWEEP in ''|all) ;; *) echo "pre-pr: PRE_PR_SWEEP is empty or all, not $SW
 audit_s=${PRE_PR_WIDTH_AUDIT_TIMEOUT:-2400}
 [[ $audit_s =~ ^[1-9][0-9]*$ ]] \
   || { echo "pre-pr: PRE_PR_WIDTH_AUDIT_TIMEOUT is whole seconds, not $audit_s"; exit 2; }
+TE=${PRE_PR_TREE_EQUAL:-}
+[ -z "$TE" ] || git rev-parse --verify -q "$TE^{commit}" > /dev/null \
+  || { echo "pre-pr: PRE_PR_TREE_EQUAL names no commit: $TE"; exit 2; }
 short() { echo "$*" | tr '\n' ' ' | cut -c1-200; }
 
 # why_full <commit>: why the commit needs the full gate; nothing when it may be merge-only. A merge
@@ -168,11 +171,13 @@ fi
 # whose parent squash-merged after a rehearsed merge of the two had passed the full gate: when
 # HEAD, after the merge above, holds exactly that commit's tree and contains origin/master, there
 # is nothing new to check, so the gate logs the match and stamps HEAD with the mode
-# "tree-equal:<sha>". In any other case it says why and runs the gate. A dry run ignores it.
-if [ -n "${PRE_PR_TREE_EQUAL:-}" ] && [ "$DRY" != 1 ]; then
-  te=$(git rev-parse --verify -q "$PRE_PR_TREE_EQUAL^{commit}") \
-    || die "tree-equal: no commit $PRE_PR_TREE_EQUAL"
-  if ! grep -q "^$te " "$OPS/stamps/$n.history" 2>/dev/null; then
+# "tree-equal:<sha>". In any other case it says why and runs the gate. A dry run ignores it, and
+# PRE_PR_FULL=1 or PRE_PR_SWEEP=all overrides it.
+if [ -n "$TE" ] && [ "$DRY" != 1 ]; then
+  te=$(git rev-parse "$TE^{commit}")
+  if [ "${PRE_PR_FULL:-0}" = 1 ] || [ "$SWEEP" = all ]; then
+    say "tree-equal: ignored, PRE_PR_FULL=1 or PRE_PR_SWEEP=all asks for the gate; running it"
+  elif ! grep -q "^$te " "$OPS/stamps/$n.history" 2>/dev/null; then
     say "tree-equal: ${te:0:11} was never stamped here; running the gate"
   elif [ "$(git rev-parse "HEAD^{tree}")" != "$(git rev-parse "$te^{tree}")" ]; then
     say "tree-equal: HEAD's tree differs from ${te:0:11}'s" \
@@ -284,21 +289,38 @@ fi
 # a line stale that no matrix has run with the branch: #1644 re-added a line #1643 had deleted,
 # both merged clean, and #1693's option matrix failed it. So every sql/varka/matrix/skips.tsv
 # line added or deleted since the last stamp (with none, since the merge base) reruns its suite
-# under its configuration. When sql/varka/coverage.json changed too, the suites that draw their
-# cases from the coverage table (COVERAGE_DRAWN, '|' between names) rerun under each
-# configuration a skip line names for them and under driverOutputTable=false, with or without a
-# skip line, since a new draw can make a passing test fail. A stale or failing line fails here.
-COVERAGE_DRAWN='VarkaGroupingBoundSuite'
+# under its configuration, and so does every line on which HEAD differs from origin/master: master
+# never ran its matrix with that line, and the branch's matrix may predate the merge (b135: #1644's
+# head carried a line master had deleted). A line both sides carry is master's to keep true. A dry
+# run reads the merge it predicts. A deleted line whose configuration names an option that
+# VarkaEmitOption.java and VarkaMatrixRuns.java no longer declare went with that option and is not
+# rerun. When sql/varka/coverage.json changed, the suites of DRAWN_ANYWAY also rerun under
+# driverOutputTable=false with or without a skip line, since a new draw can make a passing test
+# fail there (row 644; removable once its verdict stops depending on the draw). A stale or failing
+# line fails the gate here.
+DRAWN_ANYWAY='VarkaGroupingBoundSuite'
 tab=$'\t'
 from=$base
 [ -z "$prev" ] || [ "$prev" = none ] || from=$prev
+to=HEAD
+[ "$DRY" = 1 ] && [ $clean_merge = 1 ] && to=$(echo "$mt" | head -1)
 skips=sql/varka/matrix/skips.tsv
-sk=$(git diff -U0 --no-renames "$from" HEAD -- "$skips" | grep -E '^[-+][^-+#]' | cut -c2- \
-  | cut -f1,2)
-if ! git diff --quiet "$from" HEAD -- sql/varka/coverage.json; then
+declared() {
+  local k
+  for k in $(echo "$1" | tr ',' ' ' | sed 's/=[^ ]*//g'); do
+    git grep -q "\"$k\"" -- 'sql/*/src/*/VarkaEmitOption.java' 'sql/*/src/*/VarkaMatrixRuns.java' \
+      || return 1
+  done
+}
+sk=$(for f in "$from" origin/master; do git diff -U0 --no-renames "$f" "$to" -- "$skips"; done \
+  | grep -E '^[-+][^-+#]' | cut -f1,2 | sort -u)
+gone=$(echo "$sk" | grep '^-' | cut -c2- | while IFS=$tab read -r cfg suite; do
+  declared "$cfg" || printf '%s\t%s\n' "$cfg" "$suite"; done)
+[ -z "$gone" ] || say "skip recheck: not rerun, their options are gone: $(short "$gone")"
+sk=$(echo "$sk" | cut -c2- | grep -vxF -f <(echo "$gone" | grep . || echo $'\x01'))
+if ! git diff --quiet "$from" "$to" -- sql/varka/coverage.json; then
   sk=$(echo "$sk"
-       grep -E "^[^#].*$tab($COVERAGE_DRAWN)$tab" "$skips" | cut -f1,2
-       for s in ${COVERAGE_DRAWN//|/ }; do printf 'driverOutputTable=false\t%s\n' "$s"; done)
+       for s in ${DRAWN_ANYWAY//|/ }; do printf 'driverOutputTable=false\t%s\n' "$s"; done)
 fi
 sk=$(echo "$sk" | grep -v '^$' | sort -u)
 if [ -n "$sk" ]; then
