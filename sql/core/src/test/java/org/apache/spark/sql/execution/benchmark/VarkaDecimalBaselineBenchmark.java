@@ -133,7 +133,7 @@ import org.apache.spark.sql.internal.SQLConf;
  * kernel's masks; the narrow and floating targets and the BIGINT casts into a decimal run on the
  * row path. Of the fused ones, {@code CAST(x AS DECIMAL(18, 2))} at {@code DECIMAL(18, 4)} times
  * the fallback: its rounding division guards the magnitude below {@code 2^54}, which most of
- * {@code x18}'s values pass, so its kernel declines every batch to the row engine.
+ * {@code x18}'s values lie past, so its kernel declines every batch to the row engine.
  *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -170,7 +170,7 @@ import org.apache.spark.sql.internal.SQLConf;
  * filter and the two casts between decimals are {@code WHOLE} where the session takes a 64-bit
  * condition and {@code NONE} where it refuses one, a decimal cast's value declining there with
  * the condition; the cast to {@code DECIMAL(18, 2)} times the fallback (above), so its kernel
- * check is not made. Every
+ * check is that no batch runs as a kernel. Every
  * other section is {@code NONE}. A row that fuses more of a section sets its new class,
  * so that its fusion cannot turn a baseline section into a fused one unnoticed, and the results
  * file notes the class of each section that fuses.
@@ -199,8 +199,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * the SQL settings both sessions run it under, an evaluation mode for the casts that have more
    * than one answer. Last, whether the section times a fallback on purpose: one that fuses whole
    * but whose values its kernel's guard declines at every batch, so that the kernel check a
-   * {@code WHOLE} section otherwise passes is not made on it
-   * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion, boolean)}).
+   * {@code WHOLE} section otherwise passes is replaced by the check that no batch runs as a
+   * kernel ({@link VarkaSqlBenchmarkBase.BatchCheck#ALL_FALL_BACK}).
    */
   record Section(String title, String query, Fusion fusion, Map<String, String> conf,
       boolean timesFallback) {
@@ -213,6 +213,11 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     /** A section whose kernel, where it fuses whole, computes its batches. */
     Section(String title, String query, Fusion fusion, Map<String, String> conf) {
       this(title, query, fusion, conf, false);
+    }
+
+    /** The kernel check of the section where it plans {@code WHOLE}. */
+    BatchCheck batchCheck() {
+      return timesFallback ? BatchCheck.ALL_FALL_BACK : BatchCheck.KERNEL;
     }
   }
 
@@ -755,7 +760,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     // declines a batch past it; x18's unscaled values reach 5 * 10^16, past 2^54 on most rows,
     // so every batch goes to the row engine and the varka on arm times the fallback.
     out.add(new Section(d18 + "CAST(x AS DECIMAL(18, 2))" + tail,
-        "SELECT CAST(" + x18 + " AS DECIMAL(18, 2))" + value, fused, Map.of(), true));
+        "SELECT CAST(" + x18 + " AS DECIMAL(18, 2))" + value, fused, Map.of(),
+        fused == Fusion.WHOLE));
     out.add(new Section("DECIMAL(15, 4) CAST(x AS FLOAT)" + tail,
         "SELECT CAST(" + x15s4 + " AS FLOAT)" + value, Fusion.NONE));
     out.add(new Section(d18s14 + "CAST(x AS INT), ANSI" + tail,
@@ -900,7 +906,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
           VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
       for (Section s : sections) {
         withConf(varka, s.conf(),
-            () -> requireBaseline(varka, s.title(), s.query(), s.fusion(), s.timesFallback()));
+            () -> requireBaseline(varka, s.title(), s.query(), s.fusion(), s.batchCheck()));
       }
       for (Section s : sections) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),

@@ -167,10 +167,15 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           assert(s.fusion === expected, s.title)
         }
       }
-      // The one fused section whose guard declines every batch of its values, at each density.
-      assert(sections.filter(_.timesFallback).map(_.title).toSeq ===
-        Seq("no nulls", "one row in ten null").map(d =>
-          s"DECIMAL(18, 4) CAST(x AS DECIMAL(18, 2)), $d"))
+      // The one fused section whose guard declines every batch of its values, at each density,
+      // and none where the session refuses a 64-bit kernel's masks, which leaves it NONE.
+      for (declines <- Seq(false, true)) {
+        val fallbacks = VarkaDecimalBaselineBenchmark.sections(declines).asScala
+          .filter(_.timesFallback).map(_.title).toSeq
+        val expected = if (declines) Seq.empty else Seq("no nulls", "one row in ten null")
+          .map(d => s"DECIMAL(18, 4) CAST(x AS DECIMAL(18, 2)), $d")
+        assert(fallbacks === expected, s"refusal $declines")
+      }
       var types = Seq.empty[DataType]
       for (s <- sections) {
         withSettings(s)(types :+= spark.sql(s.query).schema.head.dataType)
@@ -290,7 +295,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
             withClue(s"${s.title}, refusal $declines") {
               withSettings(s) {
                 VarkaSqlBenchmarkBase.requireSection(
-                  varkaSpark, s.title, s.query, s.fusion, s.timesFallback)
+                  varkaSpark, s.title, s.query, s.fusion, s.batchCheck)
               }
             }
           }

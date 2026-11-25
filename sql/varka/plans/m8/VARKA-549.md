@@ -288,3 +288,11 @@ runner and suite pass it, as the rounding baseline does: section 3.1's "every ot
 keeps the four-argument form" no longer holds for the decimal baseline. The column's values are
 unchanged, since the committed results time them. The other guarded fused cast, `CAST(x AS
 BIGINT)` at `DECIMAL(18, 4)` (`k = 4`, bound `2^56`), stays below its bound on every row.
+
+The flag is checked rather than trusted: the base class's `BatchCheck.ALL_FALL_BACK`, which the
+decimal section takes, runs the section once and fails unless no batch ran as a kernel and at
+least one was handed back (`requireFallback`), so a section that stops falling back drops its
+flag and has its results regenerated. The rounding sections keep `MAY_FALL_BACK`, no check:
+whether their batches decline depends on which of 344b's arms the host or an option picks, and
+they plan `NONE` today. Owed: the committed decimal results, 256- and 128-bit, predate #1700 and
+note no fused cast section, so their notes need a regeneration after the merge with #1700.

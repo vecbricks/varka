@@ -334,6 +334,17 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
   public enum Fusion { NONE, NULL_TESTS, SPLIT, PARTIAL, WHOLE }
 
   /**
+   * What the kernel check of a section that plans {@code WHOLE} expects of its batches:
+   * {@code KERNEL}, that its kernel computes every one ({@link #requireKernel});
+   * {@code MAY_FALL_BACK}, that it times a fallback on purpose where the arm the host or an
+   * option picks declines its data, which no check reads, since another arm computes the same
+   * batches; and {@code ALL_FALL_BACK}, that a guard of its kernel declines every batch of its
+   * data on any host, so that a kernel batch means the section no longer times the fallback
+   * ({@link #requireFallback}).
+   */
+  public enum BatchCheck { KERNEL, MAY_FALL_BACK, ALL_FALL_BACK }
+
+  /**
    * The {@link Fusion} class of {@code plan}, or empty when it fits none, a row operator deciding
    * first as {@link Fusion} says. A row operator counts wherever it is in the plan, which for a
    * baseline's single filter or projection over a cached scan is above the Varka node. The plan
@@ -567,10 +578,21 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * {@link #requireBaseline(SparkSession, String, String, Fusion)}, for a section that times a
    * fallback on purpose when {@code timesFallback} is true: one whose batches its kernel declines
    * by design, so that what its varka on arm measures is the fallback. Such a section's kernel
-   * check is not made, and the results file notes that the arm times the fallback.
+   * check is not made ({@link BatchCheck#MAY_FALL_BACK}), and the results file notes that the
+   * arm times the fallback.
    */
   protected final void requireBaseline(SparkSession varka, String title, String query,
       Fusion expected, boolean timesFallback) {
+    requireBaseline(varka, title, query, expected,
+        timesFallback ? BatchCheck.MAY_FALL_BACK : BatchCheck.KERNEL);
+  }
+
+  /**
+   * {@link #requireBaseline(SparkSession, String, String, Fusion)}, with the kernel check of a
+   * {@code WHOLE} section as {@code check} says.
+   */
+  protected final void requireBaseline(SparkSession varka, String title, String query,
+      Fusion expected, BatchCheck check) {
     SparkPlan plan = varka.sql(query).queryExecution().executedPlan();
     Optional<Fusion> measured = fusion(plan);
     if (fuseCheck() && !measured.equals(Optional.of(expected))) {
@@ -590,18 +612,30 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
           + "filter over them");
       case PARTIAL -> note(title + ": fuses in part on the varka on arm, so it times a kernel "
           + "there beside the row path's evaluation of the entries the kernel declined");
-      case WHOLE -> noteWhole(varka, title, query, timesFallback);
+      case WHOLE -> noteWhole(varka, title, query, check);
     }
   }
 
   /** The note of a section that plans {@code WHOLE}, after its kernel check where it has one. */
-  private void noteWhole(SparkSession varka, String title, String query, boolean timesFallback) {
-    if (timesFallback) {
+  private void noteWhole(SparkSession varka, String title, String query, BatchCheck check) {
+    if (check == BatchCheck.MAY_FALL_BACK) {
       note(title + ": fuses whole on the varka on arm, and its kernel declines its batches by "
           + "design, so it times the fallback there");
       return;
     }
     KernelRun run = kernelRun(varka, query);
+    if (check == BatchCheck.ALL_FALL_BACK) {
+      if (run.ranAsFallback()) {
+        note(title + ": fuses whole on the varka on arm, and its kernel's guard declines every "
+            + "batch of its data, so it times the fallback there (" + run.counts() + ")");
+      } else if (fuseCheck()) {
+        throw run.kernelFailure(title, query);
+      } else {
+        note(title + ": fuses whole on the varka on arm and is listed as timing the fallback, "
+            + "but its kernel ran " + run.batches() + " batches (" + run.counts() + ")");
+      }
+      return;
+    }
     if (run.ranAsKernel()) {
       note(title + ": fuses whole on the varka on arm, so it times a kernel there, "
           + "not the row path");
@@ -655,13 +689,39 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    */
   public static void requireSection(SparkSession varka, String title, String query,
       Fusion expected, boolean timesFallback) {
+    requireSection(varka, title, query, expected,
+        timesFallback ? BatchCheck.MAY_FALL_BACK : BatchCheck.KERNEL);
+  }
+
+  /**
+   * {@link #requireSection(SparkSession, String, String, Fusion)}, with the kernel check of a
+   * {@code WHOLE} section as {@code check} says.
+   */
+  public static void requireSection(SparkSession varka, String title, String query,
+      Fusion expected, BatchCheck check) {
     SparkPlan plan = varka.sql(query).queryExecution().executedPlan();
     Optional<Fusion> measured = fusion(plan);
     if (!measured.equals(Optional.of(expected))) {
       throw fuseMismatch(title, query, expected, measured, plan);
     }
-    if (expected == Fusion.WHOLE && !timesFallback) {
-      requireKernel(varka, title, query);
+    if (expected == Fusion.WHOLE) {
+      switch (check) {
+        case KERNEL -> requireKernel(varka, title, query);
+        case MAY_FALL_BACK -> { }
+        case ALL_FALL_BACK -> requireFallback(varka, title, query);
+      }
+    }
+  }
+
+  /**
+   * Runs {@code query} once on {@code varka} and fails unless its Varka nodes handed every batch
+   * to another path and ran none as a kernel: the check of a section whose kernel's guard
+   * declines every batch of its data ({@link BatchCheck#ALL_FALL_BACK}).
+   */
+  public static void requireFallback(SparkSession varka, String title, String query) {
+    KernelRun run = kernelRun(varka, query);
+    if (!run.ranAsFallback()) {
+      throw run.kernelFailure(title, query);
     }
   }
 
@@ -711,6 +771,11 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
       return !nodes.isEmpty() && batches() > 0 && fallbacks() == 0;
     }
 
+    /** At least one Varka node, no kernel batch, and at least one batch handed elsewhere. */
+    boolean ranAsFallback() {
+      return !nodes.isEmpty() && batches() == 0 && fallbacks() > 0;
+    }
+
     /** The counts, node by node, as a failure or a note states them. */
     String counts() {
       if (nodes.isEmpty()) {
@@ -727,6 +792,12 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
     IllegalStateException failure(String title, String query) {
       return new IllegalStateException(title + " is WHOLE but its varka on arm would time the "
           + "row path: " + counts() + ": " + query);
+    }
+
+    IllegalStateException kernelFailure(String title, String query) {
+      return new IllegalStateException(title + " is listed as timing the fallback, but its "
+          + "varka on arm no longer hands every batch to another path, so its flag is to be "
+          + "removed and its results regenerated: " + counts() + ": " + query);
     }
   }
 }
