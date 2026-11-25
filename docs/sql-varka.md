@@ -284,19 +284,19 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 
 | Type | Lanes | Entries | Fused | In part | Left, by need | Declined | Coverage rows |
 | :--- | :--- | ---: | ---: | ---: | :--- | ---: | :--- |
-| `BooleanType` (`bool`) | bitmap | 41 | 29 | 2 | plumbing 4, semantics 6 | 0 | 40 |
-| `ByteType` (`byte`) | BYTE, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 57 |
-| `ShortType` (`short`) | SHORT, INT | 75 | 52 | 2 | plumbing 4, semantics 17 | 0 | 55 |
-| `IntegerType` (`int`) | INT | 90 | 66 | 2 | plumbing 4, semantics 18 | 0 | 128 |
-| `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
-| `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
-| `DoubleType` (`double`) | DOUBLE | 102 | 62 | 2 | plumbing 4, semantics 24, ulp 10 | 0 | 93 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 30 | plumbing 3, semantics 29 | 3 | 103: 78 to precision 18, 25 at precision 19 to 38 |
-| `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
-| `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
-| `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
-| `YearMonthIntervalType` (`ym`) | INT | 55 | 36 | 3 | plumbing 3, semantics 13 | 0 | 37 |
-| `DayTimeIntervalType` (`dt`) | LONG | 57 | 35 | 2 | plumbing 5, semantics 15 | 0 | 36 |
+| `BooleanType` (`bool`) | bitmap | 41 | 31 | 2 | plumbing 4, semantics 4 | 0 | 43 |
+| `ByteType` (`byte`) | BYTE, INT | 75 | 54 | 2 | plumbing 4, semantics 15 | 0 | 60 |
+| `ShortType` (`short`) | SHORT, INT | 75 | 54 | 2 | plumbing 4, semantics 15 | 0 | 58 |
+| `IntegerType` (`int`) | INT | 90 | 68 | 2 | plumbing 4, semantics 16 | 0 | 136 |
+| `LongType` (`bigint`) | LONG | 85 | 62 | 2 | plumbing 5, semantics 16 | 0 | 97 |
+| `FloatType` (`float`) | FLOAT | 66 | 38 | 2 | plumbing 5, semantics 21 | 0 | 66 |
+| `DoubleType` (`double`) | DOUBLE | 102 | 64 | 2 | plumbing 4, semantics 22, ulp 10 | 0 | 97 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 32 | plumbing 3, semantics 27 | 3 | 105: 80 to precision 18, 25 at precision 19 to 38 |
+| `DateType` (`date`) | INT | 63 | 51 | 1 | plumbing 1, semantics 10 | 0 | 109 |
+| `TimestampNTZType` (`ntz`) | LONG | 54 | 51 | 0 | plumbing 1, semantics 2 | 0 | 77 |
+| `TimeType` (`time`) | LONG | 49 | 36 | 3 | plumbing 1, semantics 9 | 0 | 49 |
+| `YearMonthIntervalType` (`ym`) | INT | 55 | 38 | 3 | plumbing 3, semantics 11 | 0 | 39 |
+| `DayTimeIntervalType` (`dt`) | LONG | 57 | 37 | 2 | plumbing 5, semantics 13 | 0 | 38 |
 
 #### By family
 
@@ -309,7 +309,7 @@ One row per section of Spark's function registry, and per family of the operator
 | math | 59 | 25 | 41 | 8 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
 | bitwise | 13 | 13 | 13 | 0 |  |  |
 | datetime | 41 | 27 | 36 | 0 | byte, short, int, bigint, float, double, dec, ntz, time, ym, dt | 103, 329, 339, 340, 343, 351 |
-| hash | 2 | 0 | 0 | 0 | bool, byte, short, int, bigint, float, double, dec, date, ntz, time, ym, dt | 337, 359, 368 |
+| hash | 2 | 0 | 2 | 2 | dec | 337, 359, 368 |
 | conversion | 11 | 1 | 10 | 5 | bool, byte, short, int, bigint, float, double, dec, date, time, ym, dt | 28, 332, 338, 340, 343, 350, 364, 365, 366, 368 |
 | misc | 2 | 2 | 2 | 0 |  |  |
 | conversion, no registry entry | 1 | 0 | 1 | 1 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 332, 343, 350, 364, 365, 366, 368 |
@@ -1373,6 +1373,39 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `bround(s1, -2)` | `rounding` | `s1 BETWEEN -32749 AND 32749` |  | vector |
 | `truncate(s1, -2)` | `rounding` |  |  | vector |
 
+#### Math functions
+
+| Expression | Switches | Domain | Notes | Form | 128-bit lanes |
+|---|---|---|---|---|---|
+| `sin(x)` | `math` |  | exact: a per-lane Math.sin call, the host's answer as Spark's | exact: per-lane Math call | vector |
+| `cos(x)` | `math` |  | exact: a per-lane Math.cos call | exact: per-lane Math call | vector |
+| `tan(x)` | `math` |  | exact: a per-lane Math.tan call | exact: per-lane Math call | vector |
+| `asin(x)` | `math` |  | exact: a per-lane StrictMath.asin call, which Math.asin delegates to | exact: per-lane StrictMath call | vector |
+| `acos(x)` | `math` |  | exact: a per-lane StrictMath.acos call | exact: per-lane StrictMath call | vector |
+| `atan(x)` | `math` |  | exact: a per-lane StrictMath.atan call | exact: per-lane StrictMath call | vector |
+| `sec(x)` | `math` |  | 1 / Math.cos(x) as Spark writes it: Java's division, so a zero cosine is an infinity and no null | exact: per-lane Math call | vector |
+| `csc(x)` | `math` |  | 1 / Math.sin(x): csc(0.0) is +inf and csc(-0.0) -inf | exact: per-lane Math call | vector |
+| `cot(x)` | `math` |  | 1 / Math.tan(x) | exact: per-lane Math call | vector |
+| `sin(x) * 2.0D + cos(x2)` | `floatingArithmetic`, `math` |  | the arithmetic around the calls in the kernel | exact: per-lane Math call | vector |
+| `sin(i)` | `floatingCast`, `math` |  | the int converted exactly, then the call | exact: per-lane Math call | per-lane: mask broadcast, mask test |
+| `exp(x)` | `math` |  | exact: a per-lane StrictMath.exp call, as Spark's code makes | exact: per-lane StrictMath call | vector |
+| `expm1(x)` | `math` |  | exact: a per-lane StrictMath.expm1 call | exact: per-lane StrictMath call | vector |
+| `cbrt(x)` | `math` |  | exact: a per-lane Math.cbrt call, the host's answer as Spark's | exact: per-lane Math call | vector |
+| `ln(x)` | `math` |  | exact: a per-lane StrictMath.log call, null at x <= 0.0 by Java's <=, so at -0.0 and not at NaN | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(x)` | `math` |  | the one-argument log as parsed: ln's call and null, with no divide; once the optimizer folds e, the divide by StrictMath.log(e) that Spark's code then makes | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log10(x)` | `math` |  | exact: a per-lane StrictMath.log10 call, null at x <= 0.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log1p(x)` | `math` |  | exact: a per-lane StrictMath.log1p call, null at x <= -1.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log2(x)` | `math` |  | ln(x) / StrictMath.log(2) as Spark writes it, the divisor folded | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(2.0D, x)` | `math` |  | a constant base: StrictMath.log(2.0) folded as the divisor | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `log(x2, x)` | `math` |  | StrictMath.log(x) / StrictMath.log(x2), null where either is at or below 0.0 | exact: per-lane StrictMath call | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `exp(x) * 2.0D + 1.0D` | `floatingArithmetic`, `math` |  | the arithmetic around the call in the kernel | exact: per-lane StrictMath call | vector |
+
+#### Math functions as conditions
+
+| Predicate | Switches | Domain | Notes | Form | 128-bit lanes |
+|---|---|---|---|---|---|
+| `sin(x) < 0.5D` | `predicate`, `math` |  | the call, then the floating compare in Spark's order | exact: per-lane Math call | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+
 #### Hash
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -1632,19 +1665,19 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | rendered | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 102 | 0 | 0 | 2 | 0 | 2 | 98 |
-| `bool` | 39 | 0 | 0 | 0 | 13 | 0 | 26 |
-| `byte` | 57 | 0 | 0 | 0 | 0 | 8 | 49 |
-| `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
-| `dec` | 105 | 1 | 50 | 14 | 0 | 0 | 40 |
-| `double` | 108 | 0 | 0 | 1 | 0 | 0 | 107 |
-| `dt` | 39 | 2 | 0 | 7 | 0 | 0 | 30 |
-| `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
-| `int` | 186 | 14 | 0 | 5 | 1 | 1 | 165 |
-| `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
-| `short` | 55 | 0 | 0 | 0 | 0 | 8 | 47 |
-| `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
-| `ym` | 40 | 7 | 0 | 2 | 0 | 2 | 29 |
+| `bigint` | 109 | 0 | 0 | 2 | 0 | 2 | 105 |
+| `bool` | 42 | 0 | 0 | 0 | 13 | 0 | 29 |
+| `byte` | 60 | 0 | 0 | 0 | 0 | 8 | 52 |
+| `date` | 130 | 17 | 0 | 0 | 1 | 0 | 112 |
+| `dec` | 107 | 1 | 50 | 14 | 0 | 0 | 42 |
+| `double` | 112 | 0 | 0 | 1 | 0 | 0 | 111 |
+| `dt` | 41 | 2 | 0 | 7 | 0 | 0 | 32 |
+| `float` | 67 | 0 | 0 | 0 | 0 | 0 | 67 |
+| `int` | 194 | 14 | 0 | 5 | 1 | 1 | 173 |
+| `ntz` | 77 | 0 | 0 | 7 | 0 | 0 | 70 |
+| `short` | 58 | 0 | 0 | 0 | 0 | 8 | 50 |
+| `time` | 50 | 6 | 0 | 1 | 1 | 2 | 40 |
+| `ym` | 42 | 7 | 0 | 2 | 0 | 2 | 31 |
 <!-- END generated verification counts -->
 
 ## Glossary
@@ -2521,7 +2554,7 @@ coverage table, and regenerated by the same command:
 | `spark.sql.codegen.varka.family.decimalCast.enabled` | `true` | The decimal cast family: the casts of a decimal of precision 18 or less to bigint and boolean, and into such a decimal from another, rounding half up where the scale drops (checked under ANSI, null on overflow under LEGACY and TRY); the casts to tinyint, smallint and int are claimed and decline, naming row 350's next part; the widening rescale between two decimals that type coercion puts under a comparison is not the family's. |
 | `spark.sql.codegen.varka.family.rounding.enabled` | `true` | The rounding family: rint over a double; floor, ceil and ceiling over bigint and int operands; and round, bround and truncate over tinyint, smallint and int at a constant scale, and over bigint at a scale of zero or more. |
 | `spark.sql.codegen.varka.family.math.enabled` | `true` | The math family: the math functions over double operands (sin, cos, tan, asin, acos, atan, atan2, sec, csc, cot, sinh, cosh, tanh, asinh, acosh, atanh, exp, expm1, ln, log, log10, log1p, log2, pow, hypot and cbrt), each bit for bit Spark's unless spark.sql.codegen.varka.math.ulpContract.enabled is true; none fuses yet, and each declines naming the row of the plan that fuses it. |
-| `spark.sql.codegen.varka.family.hash.enabled` | `true` | The hash family: hash and xxhash64 over boolean, tinyint, smallint, int, bigint, float, double, date, timestamp_ntz, time, the interval types and a decimal of precision 18 or less, Spark's seed folded through the children and a null child skipped; a float or double child is canonicalised by the floating arithmetic family, whose switch it asks too. |
+| `spark.sql.codegen.varka.family.hash.enabled` | `true` | The hash family: hash and xxhash64 over boolean, tinyint, smallint, int, bigint, float, double, date, timestamp_ntz, time, the interval types and a decimal of precision 18 or less, Spark's seed folded through the children and a null child skipped; a float or double child is canonicalised by the floating arithmetic family and a boolean child cast to int by the integral cast family, whose switches it asks too. |
 <!-- END generated family switches -->
 
 The rule is registered on every `SparkSession` but does nothing while the
