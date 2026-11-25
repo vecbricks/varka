@@ -187,7 +187,7 @@ ones.**
 
 *25 November 2026:* by the owner's decision of the same day (`m9/PLAN.md` 1, decision 6), rows 30,
 95, 103, 351, 364 and 366 moved to milestone 9 with their numbers and their plans, which stay here
-until the catalogue's move takes them to `m9/`. Items 2, 3, 4 and 6 above name work those rows hold
+until the catalogue's move takes them to `m9/` (it did, later the same day). Items 2, 3, 4 and 6 above name work those rows hold
 (in the census, 174 of the unfused pairs name one of them): the close (354) reads them with that
 work counted as milestone 9's, not as owed here, and a pair whose reason names one of these rows of
 `m9/PLAN.md` carries its reason as item 2 asks of a named `m10/SCOPE.md` row.
@@ -765,7 +765,7 @@ the math reading's corrections:
   coverage table says so beside the bound.
 * **The register records it.** `SCOPE_STANDARD_MODE.md` 3.4 is the first deliberate departure from
   "row answers follow Spark", with the reason, the bound and the configuration.
-* **A scope item for milestone 9** (`m10/SCOPE.md` 98): an emitted SLEEF-shaped `exp` and `log`,
+* **A scope item for milestone 9** (now milestone 10's catalogue, `m10/SCOPE.md` item 98): an emitted SLEEF-shaped `exp` and `log`,
   about 20 to 35 lane operations for `exp` and 40 for the u35 `log` (the u10 `log` the JDK binds is
   about 70; hand counts, `READING_SLEEF.md` 2), as the route to one bit pattern on every host and,
   later, to correct rounding - not an alternative to the contract, since fdlibm itself is not
@@ -1739,7 +1739,9 @@ Every structural row cites the proof its row names:
   default (row 638 and row 637's step 1 moved too and were returned the same day by the owner,
   so row 637 and its plan file are here). The owner moved them under 12.3's rule: each moves no
   census cell and serves none of the milestone's types, casts or math. Each keeps its text and
-  number here; its own plan file moved beside the catalogue, to `m9/`.
+  number here; its own plan file moved beside the catalogue, to `m9/`. *25 November 2026:* the
+  catalogue moved on to `m10/` and these plans with it, but for the plans of rows 590 and 642,
+  which milestone 9's task plan takes and which stay in `m9/`.
 
 ## 9. Read and not taken
 

@@ -85,7 +85,7 @@ plan's table, with 2.8's "The proofs (359 to 364)" and risk 5.
    Row 490 has each coverage row name its verification (a refinement section, a proof file, an
    exhaustive suite, `differential` or an owing row), and `VarkaCoverageSuite` fails one that
    does not.
-10. **m9 item 90** (`m10/SCOPE.md` 4906) is translation validation: the emitted class read back,
+10. **Item 90 of the scope catalogue** (`m10/SCOPE.md`) is translation validation: the emitted class read back,
     one lane group executed symbolically, its outputs checked against the IR's reference
     semantics, over the bytes oracle's corpus; a spike first, not a row in this milestone.
 11. **The solvers.** Neither `z3` nor `cvc5` is on the laptop's `PATH` and this worktree has no

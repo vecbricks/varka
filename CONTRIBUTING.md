@@ -45,7 +45,7 @@ are mirrored as [issues labelled `task`](https://github.com/vecbricks/varka/issu
 one per open row, by `dev/varka_issues.py` on every change to the plan; the
 ones a newcomer can finish in a day carry `good first issue`. The table is the
 source of truth and the issues follow it, so a row is edited in the plan and
-never in the issue. The next milestone's scope catalogue is
+never in the issue. The scope catalogue, the work no milestone has taken yet, is
 [`m10/SCOPE.md`](sql/varka/plans/m10/SCOPE.md), and design
 input there is as welcome as code.
 

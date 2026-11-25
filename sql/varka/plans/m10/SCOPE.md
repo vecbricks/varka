@@ -5,7 +5,8 @@ every time zone, on the owner's choice, and got a task plan of its own (`m9/PLAN
 rule moves the furthest-out catalogue forward, and this is that move: the file left milestone 9's
 folder for this one with its reading note (`READING_LAYOUTS.md`) and the plans of the rows it
 holds, the item numbers are unchanged, and every inbound reference was rewritten by
-`dev/varka_catalogue_move.sh 9 10`, so every `item <n>` citation resolves. Read "milestone 9"
+`dev/varka_catalogue_move.sh 9 10`, so every `item <n>` citation resolves (a citation by line
+number does not follow a move). Read "milestone 9"
 below as "this milestone" except where a sentence is dated, as the notes below already ask for
 milestones 8, 7 and 6.*
 
@@ -15,7 +16,7 @@ nanosecond types), 50 (only if SPARK-57853 merges before its close), 89 (bullet 
 the runners' two widths), 121 (its part of 11 November), 123, 125, 126 and 132 (for the timestamp
 surface); and, from the tables of items 39 and 138, the `make_ym_interval` rule of row 96 and
 rows 590 and 642, whose plans stay in milestone 9's folder. Rows 30, 95 and 103, which milestone 8
-took from the tables of items 15 and 39, are milestone 9's now too. `m9/PLAN.md` names each with
+took from item 39's table, are milestone 9's now too. `m9/PLAN.md` names each with
 the number it has here. Everything else moved here, and nothing is withdrawn.
 
 *Renumbered from milestone 8 on 14 October 2026, when milestone 8 became every numeric and

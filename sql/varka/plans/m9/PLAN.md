@@ -149,7 +149,7 @@ entries and rows 654 and 661 add the new types.
   and `make_timestamp` take the zone as a `STRING`, so a literal zone is in and a zone column is
   out under the same decision.
 - Casts to and from `STRING`; aggregates and window functions; the coverage spine (TPC-H q6 and
-  q1), which moves with the catalogue to milestone 10.
+  q1), which moved with the catalogue to milestone 10.
 - A function Spark rejects over the nanosecond types (today `ts - ts`, `months_between` and
   `timestampdiff`): Varka follows Spark as Spark's support moves.
 
@@ -552,8 +552,8 @@ Read on 25 November 2026 in the local checkouts of ClickHouse, QuestDB, Trino, D
 Gluten, Comet, DuckDB, StarRocks, Arrow, DataFusion and abseil's cctz. None of them converts a
 named zone in vector code: each reads the zone a value at a time. ClickHouse was read directly
 and the others by a survey; a row checks a claim again before it leans on it. The reading note
-behind this table follows the catalogue's move, since `dev/varka_catalogue_move.sh` takes every
-reading note of this folder with the catalogue until then.
+behind this table comes after the catalogue's move, since `dev/varka_catalogue_move.sh` took every
+reading note of this folder with the catalogue.
 
 | engine | how it reads a zone | what this plan takes |
 | :--- | :--- | :--- |

@@ -4,6 +4,8 @@
 `PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
 unless that plan moved too (`SCOPE.md` item 138).*
 
+*25 November 2026: the catalogue moved on to milestone 10's folder, and this plan with it.*
+
 *Rows 431 and 432 of `m8/PLAN.md` share this file. Both are grammar gaps in `VarkaIrGrammar`,
 both are "taken with 352's refit" in their cells, and both follow the same draw discipline
 (`VARKA-352.md` 2.2). Row 431 adds `NullSafeEqual` at both lanes. Row 432 adds the long `BitOp`

@@ -6,7 +6,8 @@
 > (the date family and the emitter under it, done), `m5/PLAN.md` (64-bit lanes and
 > TIME, done), `m6/PLAN.md` (the compiler's foundation, closed 3 October 2026),
 > `m7/PLAN.md` (trust and maintainability, closed 17 October 2026), `m8/PLAN.md` (every
-> numeric and temporal type, in flight) and `m10/SCOPE.md` (coverage - what the benchmark
+> numeric and temporal type, in flight), `m9/PLAN.md` (every timestamp in every time zone,
+> opened 25 November 2026) and `m10/SCOPE.md` (coverage - what the benchmark
 > corpora say is missing); `CHANGELOG.md` at the repository
 > root records each milestone's close.
 > Sections 7 and 12 carry their own status notes; `docs/sql-varka.md` describes what is
@@ -202,8 +203,8 @@ spark-submit \
 > never routed, and deliberately deleted in milestone 2 - `VARKA-9.md` section 5.4).
 > The steps since are milestones 3 to 7, all closed (`m3/PLAN.md` to
 > `m7/PLAN.md`, and `CHANGELOG.md`); milestone 8 (`m8/PLAN.md`) is in
-> flight, adding the numeric and temporal types, and
-> `m10/SCOPE.md` scopes benchmark coverage beyond that.
+> flight, adding the numeric and temporal types, milestone 9 (`m9/PLAN.md`) is planned for the
+> timestamps with a time zone, and `m10/SCOPE.md` scopes benchmark coverage beyond that.
 
 When proceeding to implementation:
 1. **Write `VarkaMorsel`:** Helper to map `ArrowVector` to `MemorySegment`.

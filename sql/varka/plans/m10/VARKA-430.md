@@ -4,6 +4,8 @@
 `PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
 unless that plan moved too (`SCOPE.md` item 138).*
 
+*25 November 2026: the catalogue moved on to milestone 10's folder, and this plan with it.*
+
 *Rows 430 and 437 of `m8/PLAN.md` share this file. Both come from the 21 October 2026 review of
 row 401, both are in `VarkaMemorySanitizer`, and both matter only under
 `-Dvarka.sanitizeMemory=true`. Row 430 is about the check's branch profile. Row 437 is about the

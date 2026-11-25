@@ -4,6 +4,8 @@
 `PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
 unless that plan moved too (`SCOPE.md` item 138).*
 
+*25 November 2026: the catalogue moved on to milestone 10's folder, and this plan with it.*
+
 *Planned 31 October 2026. The row was added on 30 October by the owner's word, from the plans of
 rows 30, 157 and 481. Evidence not in the code is in `results/VARKA-537-admission.txt`: the
 gate's sweep step as it last ran, the five gates' step times, and where the nightly runs.*
