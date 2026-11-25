@@ -1,0 +1,56 @@
+# 2026-11-25T17:35:37Z, commit e93f9feb83e
+# OpenJDK Runtime Environment (build 25.0.5.1+2-1-26.04.1-Ubuntu)
+# AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+# load before: 0.97 1.26 1.11 2/2102 2620100
+# flags: none
+# America/Los_Angeles, 8 lanes of 64 bits, batches of 4096 rows
+java.time, the offset              a year, no order             changes  2  best  10.239  median  10.329 ns a row  every row equals java.time
+java.time, the hour of the day     a year, no order             changes  2  best  26.446  median  26.638 ns a row  
+one offset                         a week, no order             changes  0  best   0.092  median   0.092 ns a row  every row equals java.time
+the pass for least and greatest    a year, no order             changes  2  best   0.057  median   0.058 ns a row  
+steps of 2, checked by range       a year, no order             changes  2  best   0.106  median   0.112 ns a row  every row equals java.time
+steps of 2, checked by an OR       a year, no order             changes  2  best   0.101  median   0.105 ns a row  every row equals java.time
+steps of 2, no mask, by an OR      a year, no order             changes  2  best   0.142  median   0.145 ns a row  every row equals java.time
+steps, written out                 1 years, no order            changes  1  best   0.087  median   0.090 ns a row  every row equals java.time
+steps, written out                 1 years, no order            changes  2  best   0.088  median   0.089 ns a row  every row equals java.time
+steps, written out                 2 years, no order            changes  4  best   0.145  median   0.145 ns a row  every row equals java.time
+steps, written out                 4 years, no order            changes  8  best   0.280  median   0.284 ns a row  every row equals java.time
+steps, read in a loop              4 years, no order            changes  8  best   1.238  median   1.260 ns a row  every row equals java.time
+steps, read in a loop              8 years, no order            changes 16  best   2.314  median   2.343 ns a row  every row equals java.time
+table, three gathers               a year, no order             changes  2  best   0.779  median   0.831 ns a row  every row equals java.time
+table, three gathers               ten years, no order          changes 20  best   0.780  median   0.794 ns a row  every row equals java.time
+# flags: -XX:UseAVX=2
+# America/Los_Angeles, 4 lanes of 64 bits, batches of 4096 rows
+java.time, the offset              a year, no order             changes  2  best  10.350  median  10.428 ns a row  every row equals java.time
+java.time, the hour of the day     a year, no order             changes  2  best  25.937  median  26.165 ns a row  
+one offset                         a week, no order             changes  0  best   0.077  median   0.078 ns a row  every row equals java.time
+the pass for least and greatest    a year, no order             changes  2  best   0.233  median   0.233 ns a row  
+steps of 2, checked by range       a year, no order             changes  2  best   0.225  median   0.229 ns a row  every row equals java.time
+steps of 2, checked by an OR       a year, no order             changes  2  best   0.165  median   0.166 ns a row  every row equals java.time
+steps of 2, no mask, by an OR      a year, no order             changes  2  best   0.260  median   0.261 ns a row  every row equals java.time
+steps, written out                 1 years, no order            changes  1  best   0.087  median   0.087 ns a row  every row equals java.time
+steps, written out                 1 years, no order            changes  2  best   0.142  median   0.142 ns a row  every row equals java.time
+steps, written out                 2 years, no order            changes  4  best   0.394  median   0.396 ns a row  every row equals java.time
+steps, written out                 4 years, no order            changes  8  best   0.742  median   0.749 ns a row  every row equals java.time
+steps, read in a loop              4 years, no order            changes  8  best   1.445  median   1.467 ns a row  every row equals java.time
+steps, read in a loop              8 years, no order            changes 16  best   2.678  median   2.805 ns a row  every row equals java.time
+table, three gathers               a year, no order             changes  2  best   0.874  median   0.875 ns a row  every row equals java.time
+table, three gathers               ten years, no order          changes 20  best   0.870  median   0.877 ns a row  every row equals java.time
+# flags: -XX:UseAVX=2 -XX:MaxVectorSize=16
+# America/Los_Angeles, 2 lanes of 64 bits, batches of 4096 rows
+java.time, the offset              a year, no order             changes  2  best  10.329  median  10.420 ns a row  every row equals java.time
+java.time, the hour of the day     a year, no order             changes  2  best  25.935  median  26.033 ns a row  
+one offset                         a week, no order             changes  0  best   0.088  median   0.089 ns a row  every row equals java.time
+the pass for least and greatest    a year, no order             changes  2  best   0.394  median   0.395 ns a row  
+steps of 2, checked by range       a year, no order             changes  2  best  14.751  median  14.828 ns a row  every row equals java.time
+steps of 2, checked by an OR       a year, no order             changes  2  best  14.764  median  15.066 ns a row  every row equals java.time
+steps of 2, no mask, by an OR      a year, no order             changes  2  best   0.668  median   0.669 ns a row  every row equals java.time
+steps, written out                 1 years, no order            changes  1  best   7.121  median   7.206 ns a row  every row equals java.time
+steps, written out                 1 years, no order            changes  2  best  13.242  median  13.258 ns a row  every row equals java.time
+steps, written out                 2 years, no order            changes  4  best  28.863  median  29.161 ns a row  every row equals java.time
+steps, written out                 4 years, no order            changes  8  best  62.822  median  63.891 ns a row  every row equals java.time
+steps, read in a loop              4 years, no order            changes  8  best  51.545  median  51.977 ns a row  every row equals java.time
+steps, read in a loop              8 years, no order            changes 16  best  98.068  median  98.137 ns a row  every row equals java.time
+table, three gathers               a year, no order             changes  2  best  39.052  median  39.084 ns a row  every row equals java.time
+table, three gathers               ten years, no order          changes 20  best  39.384  median  39.512 ns a row  every row equals java.time
+# load after: 1.16 1.20 1.13 2/1754 2625974
