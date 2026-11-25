@@ -90,32 +90,33 @@ registers the counts of its lowering.
 ### 2.3 What a whole kernel costs, and the way back
 
 The probe of whole kernels, `sql/varka/spikes/zone-offset/src/ZoneKernels.java` (`run.sh
-kernels`, `results/kernels.txt`): `America/Los_Angeles`, batches of 4096, a year of values in no
-order with half of them within three hours of a change, on the laptop (an AMD Ryzen AI 9 HX PRO
-370, JDK 25). Every form equals `java.time` on every row. Nanoseconds a row:
+kernels`, `results/kernels.txt`, run twice): `America/Los_Angeles`, batches of 4096, a year of
+values in no order with half of them within three hours of a change, on the laptop (an AMD Ryzen
+AI 9 HX PRO 370, JDK 25). Every form equals `java.time` on every row. Nanoseconds a row:
 
 | form | 8 lanes | 4 lanes, AVX2 | 2 lanes, AVX2 |
 | :--- | ---: | ---: | ---: |
-| `java.time`: the hour of the day, as the row engine reads it | 25.276 | 25.510 | 25.533 |
-| `hour`: 2 steps, then the hour | 0.483 | 0.716 | 15.890 |
-| `hour`: 2 steps with no mask, then the hour | 0.516 | 0.903 | 1.625 |
-| `hour`: one offset, then the hour | 0.476 | 0.483 | 0.955 |
-| `java.time`: `LocalDateTime.atZone` | 43.669 | 41.694 | 44.817 |
-| local to instant, the earlier offset, 2 steps | 0.084 | 0.139 | 13.893 |
-| `java.time`: `ZonedDateTime.ofLocal` | 42.714 | 43.134 | 42.746 |
-| local to instant, the kept offset, 2 steps | 0.251 | 0.364 | 44.012 |
+| `java.time`: the hour of the day, as the row engine reads it | 26.815 | 25.409 | 25.360 |
+| `hour`: 2 steps, then the hour | 0.482 | 0.715 | 15.679 |
+| `hour`: 2 steps with no mask, then the hour | 0.514 | 0.906 | 1.597 |
+| `hour`: one offset, then the hour | 0.477 | 0.479 | 0.947 |
+| `java.time`: `LocalDateTime.atZone` | 43.163 | 43.764 | 43.752 |
+| local to instant, the earlier offset, 2 steps | 0.085 | 0.138 | 13.936 |
+| `java.time`: `ZonedDateTime.ofLocal` | 44.484 | 42.424 | 42.319 |
+| local to instant, the kept offset, 2 steps | 0.248 | 0.351 | 43.030 |
 
 - At four lanes the body of an `hour` kernel costs 0.7 ns a row where `java.time` pays 25, and
-  the two steps are 0.23 of it.
-- The way back is where the row path is slowest, about 42 ns a row, and the kernel's step is the
+  the two steps are 0.236 of it, 0.715 less the 0.479 of one offset.
+- The way back is where the row path is slowest, about 43 ns a row, and the kernel's step is the
   cheapest: the casts to `TIMESTAMP` and the sums gain most.
 - The kept-offset rule works in vector code: a step is two compares, an AND and an OR of masks,
   and a masked add. Of the 4096 rows, 85 keep an offset that changes their instant.
 - At two lanes the masked forms run as Java loops, as `sql/varka/skills/the-jit.md` says of every
   mask at two 64-bit lanes. The masked `hour` still beats `java.time` (16 against 25 ns), and the
-  form with no mask costs 1.6. The masked kept-offset form does not beat it (44 against 43 ns),
-  so that form needs its own steps with no mask at two lanes, or it declines there (the owner's
-  decision 15 of `m9/PLAN.md`).
+  form with no mask costs 1.6. The masked kept-offset form gains nothing: by the minimums of two
+  runs (`results/kernels.txt` and `results/kernels-2.txt`) it costs 43.030 ns a row where
+  `java.time` costs 42.319. So that form needs its own steps with no mask at two lanes, or it
+  declines there (the owner's decision 15 of `m9/PLAN.md`).
 - The probe's hour is a quotient in doubles that holds on these rows only. A kernel takes
   `VarkaNodeCompiler.floorDivLong` and its proof; the probe prices the shape, not that lowering.
 
@@ -490,7 +491,7 @@ Every suite runs at both vector widths through the matrix, and with the memory s
 The sweep's time is a budget. Its stored changes are 65,794 before 2100 over the 604 ids
 (`results/facts.txt`), fewer with each of the 349 sets of rules read once, and two hours either
 side at one second is 14,400 instants a change: at most 947 million instants. `java.time`'s
-offset costs 10 ns (`results/forms.txt`) and a rule about 42 (2.3), so one core pays about 10 s
+offset costs 10 ns (`results/forms.txt`) and a rule about 43 (2.3), so one core pays about 10 s
 for `ToLocal` and about 120 s for the three rules; the kernel's side is under a tenth of that.
 The suite runs the sets of rules as a parallel stream, as the calendar sweep of VARKA-281 does.
 Prediction 9 registers the time; over it, the one-second step moves to the nightly and the
@@ -543,8 +544,8 @@ method group and in two.
    the laptop's cross-over.
 7. Ten years in no order under `America/Los_Angeles` decline no batch once row 686 has merged,
    and before row 685 they decline every batch.
-8. The family takes 12 rows in at most 32 pull requests, none over 1000 counted lines; a part
-   that would be larger is split by meaning.
+8. The family takes 12 rows in at most 32 pull requests, none over 1000 counted lines; a
+   part that would be larger is split by meaning.
 9. `VarkaZoneSweepSuite` adds under 10 s of test time to a Build's bin for `ToLocal` (row 684)
    and under 60 s with the three rules (row 690), on a runner's four cores. One core would pay
    about 10 s and 120 s (section 5). The calibration table's nearest row is the calendar sweep
@@ -562,8 +563,9 @@ method group and in two.
    "the driver's rules read" plants a second zone data on the compile side.
 4. **Zone data newer or older than the oracle's.** The data is built from the running JVM, so a
    kernel and the row engine read one version; the sweep names its tzdata version.
-5. **The pass costs more than the steps** on the cheapest kernels (0.23 against 0.23 ns a row at
-   four lanes). Prediction 2 bounds it; row 687 removes it for a cached column.
+5. **The pass costs what the steps cost** on the cheapest kernels: 0.232 ns a row at four lanes
+   (`results/forms.txt`) against the 0.236 of two steps (2.3). Prediction 2 bounds it; row 687
+   removes it for a cached column.
 6. **A zone with many changes in a year** (`Africa/Casablanca`, 5 in 365 days) needs 8 steps or
    the table from the first batch; the fixture list holds it.
 7. **The rule era.** Past the last stored change the data comes from recurring rules. The sweep
