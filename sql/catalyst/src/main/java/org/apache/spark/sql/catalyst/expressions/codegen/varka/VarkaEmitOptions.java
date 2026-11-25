@@ -559,6 +559,17 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        or one holding a math port, 16 for any other); any other value is the cap on every
  *        lane, so one below 64 lowers the int lane's cap too. A measurement knob (VARKA-620): a
  *        benchmark sets it to price depths past a cap, and no session conf sets it.
+ * @param uncountedMainLoop whether the main lane-group loop, and the epilogue loop of a kernel
+ *        that converts between lanes or whose narrowing load spans more than one group, step by a
+ *        value C2 cannot fold ({@link VarkaLoopStride#one()} times the lane count) rather than by
+ *        the bytecode constant, so that C2 does not compile them as counted loops
+ *        ({@code VARKA-383.md} 9.5). False,
+ *        the default, steps by the constant: C2 then counts the loop and, because its Arrow
+ *        accesses carry {@code long} range checks, nests it to eliminate them, adding the nest's
+ *        loop predicates under the back edge's state with no per-bytecode trap limit; a profiled
+ *        one of them that fails is recompiled and fails again until the method's trap limit, and
+ *        the warm-up releases the kernel still allocating. True keeps every range check in the
+ *        loop and every answer the same.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -620,7 +631,8 @@ public record VarkaEmitOptions(
     NarrowGroupStore narrowGroupStore,
     FloatingFault floatingFault,
     IntervalFault intervalFault,
-    int maxChainDepth) {
+    int maxChainDepth,
+    boolean uncountedMainLoop) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -746,7 +758,13 @@ public record VarkaEmitOptions(
      * first differs from Spark's answer for {@code sin}, {@code cos} and {@code tan} on thousands
      * of inputs in a million, and the second never does, since {@code Math} delegates there.
      */
-    MATH_OTHER_CLASS;
+    MATH_OTHER_CLASS,
+    /**
+     * The log family's domain null at {@code x < threshold} rather than Spark's {@code <=}
+     * ({@link VarkaMathDomain}): {@code ln(0.0)} answers {@code -inf} where Spark answers null, and
+     * every other input agrees.
+     */
+    MATH_DOMAIN_LT;
   }
 
   /**
@@ -762,7 +780,13 @@ public record VarkaEmitOptions(
      * magnitude {@code (x ^ (x >> 63)) - (x >> 63)} by an arithmetic shift: it wraps at
      * {@code Long.MIN_VALUE}, where the day count comes out positive.
      */
-    DAY_BY_MAGNITUDE;
+    DAY_BY_MAGNITUDE,
+    /**
+     * {@code dt / k} by an even divisor of a day with a non-negative {@code x}'s bias,
+     * {@code |k| >> 1}, for a negative one too: a negative half then rounds toward zero, so
+     * {@code -3 / 2} answers {@code -1} for Guava's {@code -2}.
+     */
+    HALF_UP_BIAS_UNSIGNED;
   }
 
   /**
@@ -861,7 +885,7 @@ public record VarkaEmitOptions(
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
           false, false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
           NarrowConversionForm.ROUND_TO_ODD, false, NarrowGroupStore.MASKED, FloatingFault.NONE,
-          IntervalFault.NONE, VarkaEmitBudget.AUTO_CHAIN_DEPTH);
+          IntervalFault.NONE, VarkaEmitBudget.AUTO_CHAIN_DEPTH, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -997,6 +1021,7 @@ public record VarkaEmitOptions(
       b.floatingFault = floatingFault;
       b.intervalFault = intervalFault;
       b.maxChainDepth = maxChainDepth;
+      b.uncountedMainLoop = uncountedMainLoop;
     return b;
   }
 
@@ -1062,6 +1087,7 @@ public record VarkaEmitOptions(
     private FloatingFault floatingFault;
     private IntervalFault intervalFault;
     private int maxChainDepth;
+    private boolean uncountedMainLoop;
 
     private Builder() {
     }
@@ -1366,6 +1392,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder uncountedMainLoop(boolean uncounted) {
+      this.uncountedMainLoop = uncounted;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1383,7 +1414,7 @@ public record VarkaEmitOptions(
           decimalStore, wideConversionForm, roundToOddByShifts, narrowConversionForm,
           mathUlpContract,
           narrowGroupStore,
-          floatingFault, intervalFault, maxChainDepth);
+          floatingFault, intervalFault, maxChainDepth, uncountedMainLoop);
     }
   }
 
@@ -1641,6 +1672,10 @@ public record VarkaEmitOptions(
    */
   public VarkaEmitOptions withIntervalFault(IntervalFault fault) {
     return toBuilder().intervalFault(fault).build();
+  }
+
+  public VarkaEmitOptions withUncountedMainLoop(boolean uncounted) {
+    return toBuilder().uncountedMainLoop(uncounted).build();
   }
 
   public boolean isDefault() {

@@ -23,21 +23,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOp;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDate;
 
 /**
  * A prediction of what a loop-method group will measure once emitted - each of its four
@@ -110,57 +97,7 @@ final class VarkaEmitCost {
    * left out, so the feature set stays finite over the IR.
    */
   static String kindOf(VarkaVectorIR node) {
-    String name = node.getClass().getSimpleName();
-    return switch (node) {
-      case ColumnRef n -> name + '/' + n.lane();
-      case DecimalColumn n -> name + '/' + n.lane();
-      case VarkaVectorIR.DecimalWord n -> name + '/' + n.word();
-      case LiteralSlot n -> name + '/' + n.lane();
-      case IntArith n -> name + '/' + n.op() + '/' + n.mode() + '/' + n.laneType();
-      case IntNeg n -> name + (n.abs() ? "/abs/" : "/") + n.mode() + '/' + n.laneType();
-      case ConstDivide n -> name + '/' + n.laneType() + (n.divisor() < 0 ? "/neg" : "/pos");
-      case BitOp n -> name + '/' + n.op() + '/' + n.laneType();
-      case BitCount n -> name + '/' + n.laneType();
-      case VarkaVectorIR.MathUnary n -> name + '/' + n.fn() + '/' + n.laneType();
-      case VarkaVectorIR.Fma n -> name + '/' + n.laneType();
-      case VarkaVectorIR.RoundToIntegral n -> name + '/' + n.mode() + '/' + n.laneType();
-      case VarkaVectorIR.CanonicalFloat n -> name + '/' + n.laneType();
-      case VarkaVectorIR.CanonicalBits n -> name + '/' + n.laneType();
-      case VarkaVectorIR.HashStep n -> name + '/' + n.mix();
-      // A failing guard collects into the batch's status and a nulling one clears its own word:
-      // two lowerings, so the NULL mode is its own feature, the FAIL key unchanged beside it.
-      case GuardedRange n -> name + (n.mode() == Overflow.NULL ? "/NULL/" : "/") + n.laneType();
-      case Compare n -> name + '/' + n.op() + '/' + n.laneType();
-      case VarkaVectorIR.BoolColumn n -> name + '/' + n.lane();
-      case VarkaVectorIR.CondConst n -> name + '/' + n.lane();
-      case VarkaVectorIR.CondValue n -> name + '/' + n.lane();
-      case VarkaVectorIR.NullValue n -> name + '/' + n.lane();
-      case VarkaVectorIR.BoolOutput n -> name + '/' + n.laneType();
-      case VarkaVectorIR.BoolCompare n -> name + '/' + n.op() + '/' + n.laneType();
-      case VarkaVectorIR.IsNotNull n when n.overCondition() ->
-          name + "/cond/" + n.laneType();
-      case TruncDate n -> name + '/' + n.level();
-      case MakeDate n -> name + (n.failOnError() ? "/ansi" : "/null");
-      // The lane-generic nodes whose lowering follows their lane, beyond those named above.
-      case VarkaVectorIR.Greatest _, VarkaVectorIR.Least _, VarkaVectorIR.IfElse _,
-          VarkaVectorIR.IsNotNull _, VarkaVectorIR.And _, VarkaVectorIR.Or _, VarkaVectorIR.Not _,
-          VarkaVectorIR.CondIf _, VarkaVectorIR.BoolNullSafeEq _ -> name + '/' + node.laneType();
-      // The cast or the word round trip between the two lanes, which both name.
-      case VarkaVectorIR.CrossLane n ->
-          name + '/' + n.child().laneType() + '/' + n.lane();
-      // One lowering whatever their operands: the record name alone.
-      case VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _,
-          VarkaVectorIR.GuardedDay _, VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _,
-          VarkaVectorIR.ConvertLane _, VarkaVectorIR.ReinterpretLane _,
-          VarkaVectorIR.WidenDecimal _,
-          VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _,
-          VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _,
-          VarkaVectorIR.Year _, VarkaVectorIR.Month _, VarkaVectorIR.DayOfMonth _,
-          VarkaVectorIR.Quarter _, VarkaVectorIR.DayOfYear _, VarkaVectorIR.LastDay _,
-          VarkaVectorIR.TruncDateDynamic _, VarkaVectorIR.WeekOfYear _,
-          VarkaVectorIR.BoundedDivide _, VarkaVectorIR.NullSafeEqual _,
-          VarkaVectorIR.InRanges _ -> name;
-    };
+    return node.props().costKind();
   }
 
   /**

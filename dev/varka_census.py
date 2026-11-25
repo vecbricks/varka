@@ -961,7 +961,11 @@ FUSED_MODES = ["legacy", "ansi", "try"]
 # bare leaves this list.
 CONTEXT_CASTS = {
     ("int", "dt"): "only as date_add's offset: d + CAST(i AS INTERVAL DAY)",
-    ("dec", "dec"): "only a comparison's operand widened at one scale: d9 < d18, d9 = 0.42",
+    # A decimal value has no output of its own until row 157's store admits it (348b), so a cast
+    # into a decimal fuses only as a comparison's operand (VARKA-348, VARKA-350).
+    ("dec", "dec"): "only a comparison's operand: widened at one scale (d9 < d18, d9 = 0.42), "
+    "rounded down to a lower scale or cut to a lower precision (CAST(d9s4 AS DECIMAL(9, 2)) < d9), "
+    "or raised in scale behind its precision guard (CAST(d9 AS DECIMAL(9, 4)) > 0)",
 }
 
 # The pairs that fuse only from a form the coverage table has no column of, so that no row over
@@ -1127,6 +1131,87 @@ def cast_errors(cov, probe):
         if (src, dst) not in probe:
             errors.append(f"cast {src} to {dst} is in UNSHOWN_CASTS and the probe never emits it")
     return errors
+
+
+# The verdicts of Spark's cast suites run under Varka, per suite, form pair and mode, written by
+# the VarkaCastWithAnsiOffSuite, VarkaCastWithAnsiOnSuite and VarkaTryCastSuite subclasses
+# (VARKA-368): a second witness beside the matrix, over the forms Spark's own tests reach.
+CASTS_SUITES = "sql/varka/plans/m8/casts_suites.tsv"
+
+
+def casts_suites(root=ROOT):
+    """The record's lines as (suite, from, to, from_type, to_type, mode, verdict, reason), or
+    none when the file is absent."""
+    path = os.path.join(root, CASTS_SUITES)
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        return [tuple(line.split("\t")) for line in f.read().splitlines()[1:] if line]
+
+
+def fused_forms(root=ROOT):
+    """casts_fused.tsv's answer per (from_type, to_type, mode): fused, declined or illegal."""
+    out = {}
+    with open(os.path.join(root, CASTS_FUSED), encoding="utf-8") as f:
+        for line in f.read().splitlines()[1:]:
+            _, _, src, dst, *answers = line.split("\t")
+            for mode, answer in zip(FUSED_MODES, answers):
+                out[(src, dst, mode)] = answer
+    return out
+
+
+def suites_errors(lines, forms, probe):
+    """The suites' record against the matrix (VARKA-368 2.7). A form casts_fused.tsv calls fused
+    in a mode, which the suites exercise bare in that mode, is fused there in the record; and a
+    pair whose every form fuses in a mode ("all" in casts.tsv's fused_forms) has no form, inside
+    the matrix or outside it, that the suites find declined in that mode. A cast of a form to
+    itself is not held to the pair's claim: the analyzer removes it before a cast exists, so the
+    matrix never asks about it. Returns (errors, warnings); a warning is a form the suites find
+    fused that the matrix calls declined, which can only mean the two compiled different
+    expressions.
+
+    >>> forms = {("INT", "BIGINT", "ansi"): "fused", ("INT", "SMALLINT", "ansi"): "declined"}
+    >>> probe = {("int", "bigint"): ({"ansi": 1}, {"ansi": 1})}
+    >>> def line(f, t, v):
+    ...     return ("S", "int", "bigint", f, t, "ansi", v, "" if v == "fused" else "why")
+    >>> e, w = suites_errors([line("INT", "BIGINT", "declined")], forms, probe)
+    >>> e[0].startswith("S: CAST(INT AS BIGINT) in ansi is fused in casts_fused.tsv"), w
+    (True, [])
+    >>> e, w = suites_errors([line("INT", "INTx", "declined")], forms, probe)
+    >>> "every form of int to bigint fuses in ansi: why" in e[0]
+    True
+    >>> suites_errors([line("INT", "INT", "declined")], forms, probe)
+    ([], [])
+    >>> suites_errors([line("INT", "SMALLINT", "fused")], forms, probe)[1][0].endswith("tsv")
+    True
+    """
+    errors, warnings = [], []
+    for suite, src, dst, src_type, dst_type, mode, verdict, reason in lines:
+        cast = f"{suite}: CAST({src_type} AS {dst_type}) in {mode}"
+        matrix = forms.get((src_type, dst_type, mode))
+        if verdict != "fused" and matrix == "fused":
+            errors.append(
+                f"{cast} is fused in casts_fused.tsv, and the suites find it {verdict}: " + reason
+            )
+        elif verdict == "fused" and matrix == "declined":
+            warnings.append(f"{cast} is fused in the suites and declined in casts_fused.tsv")
+        elif (
+            verdict != "fused"
+            and matrix is None
+            and src_type != dst_type
+            and "-"
+            not in (
+                src,
+                dst,
+            )
+        ):
+            modes, claim = fused_cells(probe, src, dst)
+            if claim == "all" and mode.upper() in modes.split(","):
+                errors.append(
+                    f"{cast} is {verdict} in the suites, and every form of {src} to "
+                    f"{dst} fuses in {mode}: {reason}"
+                )
+    return errors, warnings
 
 
 CAST_HEADER = ["from", "to", "legacy", "ansi", "try", "kind", "semantics", "proof"]
@@ -1667,7 +1752,14 @@ def main():
         if failed or args.self_test:
             return 1 if failed else 0
     out, errors = build()
+    # A census that read no registry or no curated row would agree with an empty committed file.
+    if not any(r[3] == "in" for r in out):
+        errors.append("no entry is in scope: the census read nothing")
     errors += cast_errors(coverage_index(), casts_fused())
+    suite_errors, suite_warnings = suites_errors(casts_suites(), fused_forms(), casts_fused())
+    errors += suite_errors
+    for w in suite_warnings:
+        print("census: warning: " + w, file=sys.stderr)
     errors += conformance_errors()
     if errors:
         for e in errors:

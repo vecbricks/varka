@@ -113,7 +113,10 @@ public final class VarkaAnsiForm {
    * non-null on both rows. Varka compiles a bare int column as no value, so the int CASE's other
    * arm is {@code year(d2)}; the int COALESCE keeps the bare column, and the declined list says
    * why it is not fused. A narrow CASE arm is the int guard and a narrow branch, which the
-   * compiler widens to the int lane and stores narrow (VARKA-329).
+   * compiler widens to the int lane and stores narrow (VARKA-329). A decimal's is a typed null,
+   * for want of a column of every decimal type: the optimizer drops it from a COALESCE, so that
+   * position runs the expression as Spark does alone, and folds a comparison with it, so the
+   * false AND compares with {@link #comparand} instead.
    */
   static Optional<String> standIn(DataType t, boolean caseArm) {
     if (t instanceof DateType) {
@@ -152,6 +155,18 @@ public final class VarkaAnsiForm {
   }
 
   /**
+   * What an expression of type {@code t} is compared with on the right side of a false AND: its
+   * {@link #standIn}, but a typed zero for a decimal. A comparison with the typed null is null,
+   * so the optimizer folds the filter to an empty relation and no kernel would see it.
+   */
+  static Optional<String> comparand(DataType t) {
+    if (t instanceof DecimalType) {
+      return Optional.of("CAST(0 AS " + t.sql() + ")");
+    }
+    return standIn(t, false);
+  }
+
+  /**
    * A position's query over {@code t}, and for a projection {@code SELECT <x> AS v FROM t} its
    * {@code x}, which {@link #check} plans beside the row's other projections.
    */
@@ -179,8 +194,9 @@ public final class VarkaAnsiForm {
   /**
    * A row's positions and their queries over {@code t}, empty where a position cannot be written
    * for the row. A projection {@code e} runs alone, in the untaken arm of
-   * {@code CASE WHEN rid < 0}, after a column in a COALESCE, and compared with a column behind
-   * {@code rid < 0}; a predicate {@code p} behind {@code rid < 0 AND} and {@code rid >= 0 OR}.
+   * {@code CASE WHEN rid < 0}, after a column in a COALESCE, and compared with its
+   * {@link #comparand} behind {@code rid < 0}; a predicate {@code p} behind {@code rid < 0 AND}
+   * and {@code rid >= 0 OR}.
    * {@code rid} is 0 and 1, so each guard decides every row and Spark never evaluates the guarded
    * side. Where the guard and the guarded side form one Varka expression, the guard is at the
    * expression's lane.
@@ -206,8 +222,8 @@ public final class VarkaAnsiForm {
           Written.projection("CASE WHEN " + guard + " < 0 THEN " + e + " ELSE " + c + " END")));
       out.put(COALESCE_TAIL, standIn(t, false).map(c ->
           Written.projection("coalesce(" + c + ", " + e + ")")));
-      // e = <column>, not e IS NOT NULL: Varka fuses no IS NOT NULL over a computed value.
-      out.put(FALSE_AND, standIn(t, false).map(c ->
+      // e = <comparand>, not e IS NOT NULL: Varka fuses no IS NOT NULL over a computed value.
+      out.put(FALSE_AND, comparand(t).map(c ->
           Written.filter(guard + " < 0 AND (" + e + ") = " + c)));
     }
     return out;
@@ -276,8 +292,10 @@ public final class VarkaAnsiForm {
         "timestampadd(QUARTER, l, ntz)", "timestampadd(YEAR, i, ntz)",
         "timestampadd(YEAR, l, ntz)", "add_months(ntz, i)", "round(i, -1)", "bround(i, -1)",
         "round(y1, -1)", "bround(y1, -1)", "round(s1, -1)", "bround(s1, -2)", "l + 1",
-        "l - l2", "dt - dt2", "dt + INTERVAL '1' DAY", "dt * 3", "-2 * dt", "bit_get(i, i)",
-        "bit_get(s1, i)", "bit_get(l, i)")) {
+        "l - l2", "dt - dt2", "dt + INTERVAL '1' DAY", "dt * 3", "-2 * dt", "dt * 1.5",
+        "dt / 1.5", "bit_get(i, i)", "bit_get(s1, i)", "bit_get(l, i)", "CAST(d18 AS BIGINT)",
+        "CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)",
+        "CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     // A bigint narrowed to a narrow type, or the TINYINT bit of a bigint, as a COALESCE argument
@@ -289,16 +307,6 @@ public final class VarkaAnsiForm {
         "try_cast(l AS TINYINT)", "try_cast(l AS SMALLINT)", "bit_get(l, i)",
         "getbit(l, 63)")) {
       out.put(sql + "\t" + COALESCE_TAIL, narrowChoice);
-    }
-    // A TIME function's decimal fuses only as an output root; in a CASE arm or a comparison it
-    // is an operand, which row 348 consumes (VARKA-157.md 2.1). The COALESCE form fuses: the
-    // optimizer drops the typed null standing in for its first argument.
-    String decimalOperand = "a TIME function's decimal fuses only as an output root; anywhere "
-        + "else it is an operand, row 348's (VARKA-157.md 2.1)";
-    for (String sql : List.of("time_to_seconds(t)", "extract(SECOND FROM t)")) {
-      for (String position : List.of(CASE_ARM, FALSE_AND)) {
-        out.put(sql + "\t" + position, decimalOperand);
-      }
     }
     return Map.copyOf(out);
   }
@@ -318,6 +326,8 @@ public final class VarkaAnsiForm {
       Map.entry("DIVIDE_BY_ZERO", "x / x2"),
       Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"),
       Map.entry("INVALID_PARAMETER_VALUE.BIT_POSITION_RANGE", "bit_get(i, i)"),
+      Map.entry("NUMERIC_VALUE_OUT_OF_RANGE.WITH_SUGGESTION",
+          "CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)"),
       Map.entry("java.lang.ArithmeticException", "dt * 3"));
 
   /**
@@ -370,23 +380,48 @@ public final class VarkaAnsiForm {
       Set.of("addExact", "subtractExact", "multiplyExact", "negateExact");
 
   /**
+   * Whether {@code trace} is {@code BigDecimal.longValueExact}'s overflow raised for a Catalyst
+   * expression: its frames inside {@code java.math} end in that method, and the first frame
+   * past them is the expression's.
+   */
+  private static boolean fromLongValueExact(StackTraceElement[] trace) {
+    int i = 0;
+    while (i < trace.length && trace[i].getClassName().startsWith("java.math.")) {
+      i++;
+    }
+    return i > 0 && i < trace.length
+        && trace[i - 1].getClassName().equals("java.math.BigDecimal")
+        && trace[i - 1].getMethodName().equals("longValueExact")
+        && trace[i].getClassName().startsWith("org.apache.spark.sql.catalyst.expressions.");
+  }
+
+  /**
    * Whether {@code e} is the overflow of {@code Math}'s exact long arithmetic: the message
-   * {@code long overflow}, thrown from one of {@link #EXACT_LONG_METHODS}. Or the JVM's
-   * preallocated {@code ArithmeticException}, with no message and no stack trace: once such a
-   * site has trapped often enough, C2 throws that shared instance in place of the overflow
-   * ({@code inline_math_mathExact}, under the default {@code OmitStackTraceInFastThrow}), as
-   * {@code VarkaMaybeThrows.sameError} records. That instance is also what a hot implicit
-   * division by zero throws, so it cannot be told apart; a {@code / by zero} with its message,
-   * an int overflow, or a long overflow thrown anywhere but {@code Math} is the harness's own.
+   * {@code long overflow}, thrown from one of {@link #EXACT_LONG_METHODS}, or {@code Overflow}
+   * from {@code BigDecimal.longValueExact} called by a Catalyst expression, {@code dt * c}'s
+   * decimal product. Or the JVM's preallocated {@code ArithmeticException}, with no message and
+   * no stack trace: once such a site has trapped often enough, C2 throws that shared instance in
+   * place of the overflow ({@code inline_math_mathExact}, under the default
+   * {@code OmitStackTraceInFastThrow}), as {@code VarkaMaybeThrows.sameError} records. That
+   * instance is also what a hot implicit division by zero throws, so it cannot be told apart; a
+   * {@code / by zero} with its message, an int overflow, or a long overflow thrown anywhere but
+   * {@code Math} is the harness's own.
+   * {@code VarkaUpstreamPinsSuite} pins the dropped message.
    */
   static boolean isExactLongOverflow(ArithmeticException e) {
     StackTraceElement[] trace = e.getStackTrace();
     if (e.getMessage() == null) {
       return trace.length == 0;
     }
-    return e.getMessage().equals("long overflow") && trace.length > 0
-        && trace[0].getClassName().equals("java.lang.Math")
-        && EXACT_LONG_METHODS.contains(trace[0].getMethodName());
+    return switch (e.getMessage()) {
+      case "long overflow" -> trace.length > 0
+          && trace[0].getClassName().equals("java.lang.Math")
+          && EXACT_LONG_METHODS.contains(trace[0].getMethodName());
+      // A day-time interval times a decimal, rounded to a long by BigDecimal.longValueExact,
+      // which throws itself or from its LongOverflow.check, for a 19-digit value.
+      case "Overflow" -> fromLongValueExact(trace);
+      default -> false;
+    };
   }
 
   /**

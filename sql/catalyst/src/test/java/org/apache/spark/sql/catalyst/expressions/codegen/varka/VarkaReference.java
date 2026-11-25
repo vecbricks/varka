@@ -21,7 +21,9 @@ import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.temporal.IsoFields;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -820,7 +822,8 @@ public final class VarkaReference {
 
   /**
    * {@code fn} as Spark's generated code computes it: {@code java.lang.Math}'s method, which for
-   * {@code asin}, {@code acos} and {@code atan} is {@code StrictMath}'s on every host. Called by
+   * {@code asin}, {@code acos} and {@code atan} is {@code StrictMath}'s on every host, and
+   * {@code StrictMath}'s for the exponentials and logarithms, which Spark's code calls. Called by
    * name here, never by the class a lowering names, so a lowering calling the wrong class is
    * caught.
    */
@@ -833,6 +836,12 @@ public final class VarkaReference {
       case ASIN -> Math.asin(v);
       case ACOS -> Math.acos(v);
       case ATAN -> Math.atan(v);
+      case EXP -> StrictMath.exp(v);
+      case EXPM1 -> StrictMath.expm1(v);
+      case LOG -> StrictMath.log(v);
+      case LOG10 -> StrictMath.log10(v);
+      case LOG1P -> StrictMath.log1p(v);
+      case CBRT -> Math.cbrt(v);
     };
   }
 
@@ -840,8 +849,8 @@ public final class VarkaReference {
   private static float mathFloat(MathFn fn, float v) {
     return switch (fn) {
       case SQRT -> (float) Math.sqrt(v);
-      case SIN, COS, TAN, ASIN, ACOS, ATAN -> throw VarkaErrors.illegalArgument(
-          fn + " takes a DOUBLE operand only");
+      case SIN, COS, TAN, ASIN, ACOS, ATAN, EXP, EXPM1, LOG, LOG10, LOG1P, CBRT ->
+          throw VarkaErrors.illegalArgument(fn + " takes a DOUBLE operand only");
     };
   }
 
@@ -943,6 +952,12 @@ public final class VarkaReference {
   private static final class MixedRow {
     private final List<Long> values = new ArrayList<>();
     private final List<Boolean> nulls = new ArrayList<>();
+    /**
+     * Each node's flattened form, by identity: a tree shares its subtrees, and without this a
+     * conversion under a shared node is answered again at every path to it, which for a math
+     * port's nested bit views is exponential in their depth.
+     */
+    private final Map<VarkaVectorIR, VarkaVectorIR> flattened = new IdentityHashMap<>();
 
     MixedRow(long[] row, boolean[] isNull) {
       for (int c = 0; c < row.length; c++) {
@@ -953,6 +968,15 @@ public final class VarkaReference {
 
     /** {@code node} with every conversion replaced by a column holding its answer. */
     VarkaVectorIR flatten(VarkaVectorIR node, int[] intLits, long[] longLits) {
+      VarkaVectorIR known = flattened.get(node);
+      if (known == null) {
+        known = flattenOnce(node, intLits, longLits);
+        flattened.put(node, known);
+      }
+      return known;
+    }
+
+    private VarkaVectorIR flattenOnce(VarkaVectorIR node, int[] intLits, long[] longLits) {
       if (node instanceof WidenLane w) {
         // Exact: the child's value, which `mixedValue` already sign-extends, at the target's lane
         // (the int lane for a narrow column under a null test, the long lane for an int).

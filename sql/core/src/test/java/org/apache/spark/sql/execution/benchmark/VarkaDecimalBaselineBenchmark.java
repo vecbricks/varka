@@ -127,7 +127,10 @@ import org.apache.spark.sql.internal.SQLConf;
  * {@code DECIMAL(18, 14)} {@code CAST(x AS INT)} under ANSI, {@code try_cast(x AS INT)},
  * {@code CAST(x AS DOUBLE)} and {@code CAST(x AS FLOAT)}; and over the {@code BIGINT} column
  * {@code l16}, below {@code 10^16} in magnitude, {@code CAST(l AS DECIMAL(18, 2))} under LEGACY
- * and ANSI. Their columns come last, after {@code l}.
+ * and ANSI. Their columns come last, after {@code l}. The casts to {@code BIGINT}, the casts
+ * between decimals and the filter fuse whole (VARKA-350) where the session takes a 64-bit
+ * kernel's masks; the narrow and floating targets and the BIGINT casts into a decimal run on the
+ * row path.
  *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -156,8 +159,14 @@ import org.apache.spark.sql.internal.SQLConf;
  * VARKA-503), the 128-bit companion's host by default, leaves every fused filter to the
  * row path, the lane pair's among them, since its words are on the long lane, and the projected
  * {@code x < y} sections too, a boolean output over a decimal column (VARKA-596), so they are
- * {@code NONE} there; the time producers stay {@code WHOLE}.
- * Every other section is {@code NONE}. A row that fuses more of a section sets its new class,
+ * {@code NONE} there; the time producers stay {@code WHOLE}. The decimal store writes every 64-bit
+ * decimal value (VARKA-348b), so the choice at precisions 9 and 18, the cast from 9 to
+ * {@code DECIMAL(18, 4)} and the three arithmetic projections at precision 9 are {@code WHOLE}
+ * as well, in either session, since a value root is no condition.
+ * The cast sections to {@code BIGINT} (VARKA-350) and their {@code CAST(x AS BOOLEAN)}
+ * filter are {@code WHOLE} where the session takes a 64-bit condition and {@code NONE} where it
+ * refuses one, a decimal cast's value declining there with the condition. Every
+ * other section is {@code NONE}. A row that fuses more of a section sets its new class,
  * so that its fusion cannot turn a baseline section into a fused one unnoticed, and the results
  * file notes the class of each section that fuses.
  *
@@ -574,11 +583,16 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
             Fusion.NONE));
         String castTo = p.castTo().orElseThrow(() -> new IllegalStateException(p.type()
             + " has no cast type, so its cast section has nothing to cast to"));
+        // A decimal value within 18 digits is an output through the decimal store (VARKA-348b),
+        // a value root and no condition, so it fuses whole in either session: the choice at
+        // precisions 9 and 18, and the cast from 9 to DECIMAL(18, 4), which only rescales.
+        boolean longLane = p.precision() <= 18;
         out.add(new Section(type + " cast to " + castTo + ", " + density,
-            "SELECT CAST(" + x + " AS " + castTo + ") AS a FROM varka_decimal", Fusion.NONE));
+            "SELECT CAST(" + x + " AS " + castTo + ") AS a FROM varka_decimal",
+            p.precision() == 9 ? Fusion.WHOLE : Fusion.NONE));
         out.add(new Section(type + " choice, " + density,
             "SELECT CASE WHEN " + x + " < " + y + " THEN " + x + " ELSE " + y
-                + " END AS a FROM varka_decimal", Fusion.NONE));
+                + " END AS a FROM varka_decimal", longLane ? Fusion.WHOLE : Fusion.NONE));
       }
     }
     for (Density d : Density.values()) {
@@ -628,8 +642,9 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = d.words();
       String type = p9.type();
       String from = " FROM varka_decimal WHERE ";
-      // The three filters fuse whole, the arithmetic under the comparison (VARKA-349); the
-      // projections run on the row path, since no lowering writes a decimal output yet.
+      // The three filters fuse whole, the arithmetic under the comparison (VARKA-349), and so
+      // do the three projections, each value written by the decimal store (VARKA-348b), in
+      // either session, since a value root is no condition.
       out.add(new Section(type + " x + y < z filter, " + density,
           "SELECT " + x + from + x + " + " + y + " < " + z, fusedFilter));
       out.add(new Section(type + " x - w > 0 filter, w at another scale, " + density,
@@ -637,11 +652,11 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       out.add(new Section(type + " x8 * y < z filter, x8 a DECIMAL(8, 2), " + density,
           "SELECT " + x + from + x8 + " * " + y + " < " + z, fusedFilter));
       out.add(new Section(type + " x + y as a value, " + density,
-          "SELECT " + x + " + " + y + " AS a FROM varka_decimal", Fusion.NONE));
+          "SELECT " + x + " + " + y + " AS a FROM varka_decimal", Fusion.WHOLE));
       out.add(new Section(type + " x - w as a value, w at another scale, " + density,
-          "SELECT " + x + " - " + w + " AS a FROM varka_decimal", Fusion.NONE));
+          "SELECT " + x + " - " + w + " AS a FROM varka_decimal", Fusion.WHOLE));
       out.add(new Section(type + " x8 * y as a value, x8 a DECIMAL(8, 2), " + density,
-          "SELECT " + x8 + " * " + y + " AS a FROM varka_decimal", Fusion.NONE));
+          "SELECT " + x8 + " * " + y + " AS a FROM varka_decimal", Fusion.WHOLE));
     }
     // The remainders by a column (VARKA-577): no decimal remainder fuses at any precision.
     for (Precision p : REMAINDER_PRECISIONS) {
@@ -659,18 +674,21 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       addWidening(out, d);
     }
     for (Density d : Density.values()) {
-      addCasts(out, d);
+      addCasts(out, d, fusedFilter);
     }
     return out;
   }
 
   /**
    * Adds the cast sections at density {@code d} (VARKA-350, VARKA-366), in the order the class
-   * javadoc lists them. No decimal cast but coercion's widening rescale fuses yet, so every
-   * section is {@code NONE}. The ANSI and LEGACY sections name their mode, and the filter runs
-   * with constraint propagation off, so that it is the cast alone.
+   * javadoc lists them. The casts to {@code BIGINT}, the casts between decimals and the filter
+   * are {@code fused}: whole (VARKA-350), but {@code NONE} on a session that refuses a 64-bit
+   * kernel's masks, where a decimal cast's value declines too; a cast to a narrow integral or a
+   * floating type, or of a BIGINT into a decimal, runs on the row path, {@code NONE}. The ANSI
+   * and LEGACY sections name their mode, and the filter runs with constraint propagation off, so
+   * that it is the cast alone.
    */
-  private static void addCasts(List<Section> out, Density d) {
+  private static void addCasts(List<Section> out, Density d, Fusion fused) {
     Map<String, String> legacy = Map.of(SQLConf.ANSI_ENABLED().key(), "false");
     Map<String, String> ansi = Map.of(SQLConf.ANSI_ENABLED().key(), "true");
     Map<String, String> noConstraints =
@@ -686,7 +704,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     String d18 = "DECIMAL(18, 4) ";
     String d18s14 = "DECIMAL(18, 14) ";
     out.add(new Section(d9 + "CAST(x AS BIGINT)" + tail,
-        "SELECT CAST(" + x9 + " AS BIGINT)" + value, Fusion.NONE));
+        "SELECT CAST(" + x9 + " AS BIGINT)" + value, fused));
     out.add(new Section(d9 + "CAST(x AS INT), LEGACY" + tail,
         "SELECT CAST(" + x9 + " AS INT)" + value, Fusion.NONE, legacy));
     out.add(new Section(d9 + "CAST(x AS INT), ANSI" + tail,
@@ -698,12 +716,12 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     out.add(new Section(d9 + "CAST(x AS FLOAT)" + tail,
         "SELECT CAST(" + x9 + " AS FLOAT)" + value, Fusion.NONE));
     out.add(new Section(d9 + "CAST(x AS DECIMAL(9, 0))" + tail,
-        "SELECT CAST(" + x9 + " AS DECIMAL(9, 0))" + value, Fusion.NONE));
+        "SELECT CAST(" + x9 + " AS DECIMAL(9, 0))" + value, fused));
     out.add(new Section(d9 + "filter CAST(x AS BOOLEAN)" + tail,
-        "SELECT " + x9 + " FROM varka_decimal WHERE CAST(" + x9 + " AS BOOLEAN)", Fusion.NONE,
+        "SELECT " + x9 + " FROM varka_decimal WHERE CAST(" + x9 + " AS BOOLEAN)", fused,
         noConstraints));
     out.add(new Section(d18 + "CAST(x AS BIGINT)" + tail,
-        "SELECT CAST(" + x18 + " AS BIGINT)" + value, Fusion.NONE));
+        "SELECT CAST(" + x18 + " AS BIGINT)" + value, fused));
     out.add(new Section(d18 + "CAST(x AS INT), LEGACY" + tail,
         "SELECT CAST(" + x18 + " AS INT)" + value, Fusion.NONE, legacy));
     out.add(new Section(d18 + "CAST(x AS DOUBLE)" + tail,
@@ -711,7 +729,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     out.add(new Section(d18 + "CAST(x AS FLOAT)" + tail,
         "SELECT CAST(" + x18 + " AS FLOAT)" + value, Fusion.NONE));
     out.add(new Section(d18 + "CAST(x AS DECIMAL(18, 2))" + tail,
-        "SELECT CAST(" + x18 + " AS DECIMAL(18, 2))" + value, Fusion.NONE));
+        "SELECT CAST(" + x18 + " AS DECIMAL(18, 2))" + value, fused));
     out.add(new Section("DECIMAL(15, 4) CAST(x AS FLOAT)" + tail,
         "SELECT CAST(" + x15s4 + " AS FLOAT)" + value, Fusion.NONE));
     out.add(new Section(d18s14 + "CAST(x AS INT), ANSI" + tail,

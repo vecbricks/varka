@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaNodeProps.LongNarrowReader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
@@ -238,6 +239,16 @@ public final class VarkaKernelPlan {
       + "and the compare would run the Vector API's Java fallback, slower than the row engine";
 
   /**
+   * The reason the compiler records where it declines a checked operation on a 64-bit lane on
+   * the two-lane host: a checked {@code BIGINT} operation (VARKA-104) and the day-time interval
+   * arithmetic measured slower there (VARKA-612, {@code VarkaIntervalCompiler.twoLaneMeasured}).
+   */
+  public static final String TWO_LANE_CHECK_REASON = "a checked operation on a 64-bit lane, on "
+      + "an x86 host whose 64-bit species have two lanes or fewer: its overflow test is a "
+      + "long-lane mask, which C2 does not lower there, so the kernel would run the Vector API's "
+      + "Java fallback";
+
+  /**
    * Whether {@code host}, read on this JVM, runs every mask of a 64-bit species as the Vector
    * API's Java fallback: {@link #twoLaneMasksFallBack(VarkaHostIsa.Reading, int)} of the reading
    * and this JVM's preferred long species. The lane count is the running JVM's own,
@@ -340,6 +351,11 @@ public final class VarkaKernelPlan {
    * {@code BIGINT}, whose load is one plain vector, ran at 1.6X and more, and {@code x < x2} over
    * {@code DOUBLE} tied ({@code m8/results/VARKA-596/}). A refused output leaves the other entries
    * to fuse.
+   *
+   * <p>A check on the long lane is not refused here: the compiler declines the families whose
+   * checked forms were measured slower than the row path at two lanes, a checked {@code BIGINT}
+   * operation and the day-time interval arithmetic ({@code VarkaIntervalCompiler.twoLaneMeasured},
+   * VARKA-612), so that a family not measured there keeps fusing.
    */
   private static Optional<Refusal> hostRefusal(List<VarkaVectorIR> roots, VarkaKernelPlan plan) {
     if (plan.drive.bits() != 64) {
@@ -599,10 +615,12 @@ public final class VarkaKernelPlan {
     return Optional.empty();
   }
 
-  /** Whether {@code n} tests a narrow column, bare or widened, and nothing else narrow. */
+  /**
+   * Whether {@code n} tests a column, bare or through a chain of widenings. A narrow widening in
+   * the chain is not checked here: the caller's walk visits it as a node of its own.
+   */
   private static boolean readsColumnWord(VarkaVectorIR.IsNotNull n) {
-    VarkaVectorIR child = n.child() instanceof VarkaVectorIR.WidenLane w ? w.child() : n.child();
-    return child instanceof VarkaVectorIR.ColumnRef;
+    return VarkaVectorIR.unwidened(n.child()) instanceof VarkaVectorIR.ColumnRef;
   }
 
   /**
@@ -610,8 +628,8 @@ public final class VarkaKernelPlan {
    * word alone, and the root itself is not narrow: the narrow nodes a double kernel lowers, a
    * value through the long kernel's narrow load and a null test through the word, a bit per row
    * at every lane. The test is {@code IS NOT NULL} of a narrow column, as the optimizer infers
-   * it on a cast's source: the column widened to the int lane or bare, and nothing narrow below
-   * it but that column.
+   * it on a cast's source: the column bare or under widenings, and nothing narrow below the test
+   * but that column.
    */
   private static boolean narrowColumnsOnly(VarkaVectorIR root) {
     if (root.laneType().isNarrow()) {
@@ -729,7 +747,7 @@ public final class VarkaKernelPlan {
   /**
    * Whether every narrow node of {@code root} is one {@link #longNarrowRefusal} names, read by a
    * node it names: the root by {@link LongNarrowRole#atRoot}, every other narrow node by what its
-   * reader takes ({@link #longNarrowReader}).
+   * reader takes ({@link VarkaNodeProps#longNarrow}).
    */
   private static boolean loweredAtLong(VarkaVectorIR root) {
     if (root.laneType().isNarrow() && !longNarrowRole(root).atRoot()) {
@@ -742,7 +760,7 @@ public final class VarkaKernelPlan {
       if (!seen.add(node)) {
         continue;
       }
-      LongNarrowReader reader = longNarrowReader(node);
+      LongNarrowReader reader = node.props().longNarrow();
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
         if (child.laneType().isNarrow() && !reader.takes(longNarrowRole(child))) {
           return false;
@@ -829,61 +847,6 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _, VarkaVectorIR.NullValue _,
           ConvertLane _, ReinterpretLane _ ->
           LongNarrowRole.NONE;
-    };
-  }
-
-  /** What a node reads of its narrow children in a kernel driven at the long lane. */
-  private enum LongNarrowReader {
-    /** A widening, a comparison or a narrowing: a narrow value. */
-    VALUE,
-    /** A connective or a boolean output: a narrow condition. */
-    COND,
-    /** A null test: either. */
-    VALUE_OR_COND,
-    /** Any other node: no narrow child. */
-    NONE;
-
-    boolean takes(LongNarrowRole child) {
-      return switch (this) {
-        case VALUE -> child.isValue();
-        case COND -> child == LongNarrowRole.COND;
-        case VALUE_OR_COND -> child.isValue() || child == LongNarrowRole.COND;
-        case NONE -> false;
-      };
-    }
-  }
-
-  /** {@code node}'s {@link LongNarrowReader}. */
-  private static LongNarrowReader longNarrowReader(VarkaVectorIR node) {
-    return switch (node) {
-      case WidenLane w -> LongNarrowReader.VALUE;
-      case NarrowLane n -> LongNarrowReader.VALUE;
-      case VarkaVectorIR.Compare c -> LongNarrowReader.VALUE;
-      case VarkaVectorIR.NullSafeEqual e -> LongNarrowReader.VALUE;
-      case VarkaVectorIR.IsNotNull n -> LongNarrowReader.VALUE_OR_COND;
-      case VarkaVectorIR.And a -> LongNarrowReader.COND;
-      case VarkaVectorIR.Or o -> LongNarrowReader.COND;
-      case VarkaVectorIR.Not n -> LongNarrowReader.COND;
-      case VarkaVectorIR.CrossLane c -> LongNarrowReader.COND;
-      case VarkaVectorIR.BoolOutput b -> LongNarrowReader.COND;
-      // Every other node, each named so that a new one is a compile error until it is placed.
-      case VarkaVectorIR.InRanges _, VarkaVectorIR.BoolColumn _, VarkaVectorIR.CondConst _,
-          VarkaVectorIR.BoolCompare _, VarkaVectorIR.CondIf _, VarkaVectorIR.BoolNullSafeEq _,
-          VarkaVectorIR.Chrono _, VarkaVectorIR.ColumnRef _, VarkaVectorIR.DecimalColumn _,
-          VarkaVectorIR.DecimalWord _,
-          VarkaVectorIR.LiteralSlot _, VarkaVectorIR.GuardedDay _, VarkaVectorIR.GuardedRange _,
-          VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _,
-          IntArith _, VarkaVectorIR.IntNeg _, VarkaVectorIR.ConstDivide _,
-          VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
-          VarkaVectorIR.MathUnary _, VarkaVectorIR.Fma _, VarkaVectorIR.RoundToIntegral _,
-          VarkaVectorIR.IfElse _, VarkaVectorIR.CanonicalFloat _, VarkaVectorIR.CanonicalBits _,
-          VarkaVectorIR.HashStep _, VarkaVectorIR.CondValue _,
-          VarkaVectorIR.Greatest _,
-          VarkaVectorIR.Least _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,
-          VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _,
-          VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _,
-          VarkaVectorIR.NullValue _, ConvertLane _, ReinterpretLane _ ->
-          LongNarrowReader.NONE;
     };
   }
 

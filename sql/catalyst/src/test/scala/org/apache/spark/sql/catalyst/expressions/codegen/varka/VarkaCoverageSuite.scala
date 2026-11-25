@@ -520,6 +520,17 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("-2 * dt", "the factor on the left is the same node; a negative factor swaps the "
         + "guard's ends, which are not symmetric",
         domain = Some(tryDomain("try_multiply(-2, dt)", "dt"))),
+      Row("dt / 24", "LongMath.divide HALF_UP by a divisor of a day: the floor quotient by a "
+        + "day and its remainder in [0, D), biased by half the divisor (one less for a negative "
+        + "value and an even divisor), give the quotient by 24 exactly over every long; a "
+        + "divisor that does not divide a day declines"),
+      Row("dt * 1.5", "Spark's Decimal product, HALF_UP(3x / 2): the operand guarded to the longs "
+        + "whose product by 3 fits, then the day split by 2; the guard declines some lanes "
+        + "Spark answers, which the row engine then does",
+        domain = Some(tryDomain("try_multiply(dt, 3)", "dt"))),
+      Row("dt / 1.5", "HALF_UP(2x / 3), the quotient by a decimal at least one in magnitude, "
+        + "which cannot raise; a divisor under one declines (VARKA-414)",
+        domain = Some(tryDomain("try_multiply(dt, 2)", "dt"))),
       Row("extract(DAY FROM dt)", "Java's truncating division by a day, exact over every long "
         + "and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines "
         + "(`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset"))),
@@ -1306,7 +1317,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("b BETWEEN b2 AND b", "false before true: two orderings and an AND"),
       Row("equal_null(b, b2)"))),
     // The null family over DECIMAL columns within 18 digits (VARKA-578), under a comparison or a
-    // null test, since a decimal value is no output yet (row 348's part 348b). Coercion gives
+    // null test; the family "DECIMAL values" holds the choices as outputs. Coercion gives
     // every operand of a function one type, widerDecimalType's, so a column of the smaller scale
     // carries its rescale. The null of nullif, nullifzero and a CASE without an ELSE is the long
     // lane's NullValue, and its null test is false. The int zero's cast is a constant, which the
@@ -1442,10 +1453,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         domain = Some("s1 BETWEEN -32764 AND 32764")),
       Row("bround(s1, -2)", "", domain = Some("s1 BETWEEN -32749 AND 32749")),
       Row("truncate(s1, -2)"))),
-    // The math functions (VARKA-345, VARKA-356), exact by default: each lane is passed to the
-    // scalar method Spark's generated code calls, so the bits are that method's on this host -
-    // Math's for sin, cos and tan, StrictMath's for asin, acos and atan, which Math delegates
-    // to - and the work around the call stays in the kernel.
+    // The math functions (VARKA-345, VARKA-356, VARKA-358), exact by default: each lane is
+    // passed to the scalar method Spark's generated code calls, so the bits are that method's on
+    // this host - Math's for sin, cos, tan and cbrt, StrictMath's for asin, acos and atan, which
+    // Math delegates to, and for the exponentials and logarithms, which Spark's code names - and
+    // the work around the call stays in the kernel.
     Family("Math functions", predicates = false, Seq(
       Row("sin(x)", "exact: a per-lane Math.sin call, the host's answer as Spark's",
         math = Some(MathCell(exactForms(2), operator = Some(VarkaMathBinding.Operator.SIN)))),
@@ -1467,7 +1479,32 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("sin(x) * 2.0D + cos(x2)", "the arithmetic around the calls in the kernel",
         math = Some(MathCell(exactForms(2)))),
       Row("sin(i)", "the int converted exactly, then the call",
-        math = Some(MathCell(exactForms(2)))))),
+        math = Some(MathCell(exactForms(2)))),
+      Row("exp(x)", "exact: a per-lane StrictMath.exp call, as Spark's code makes",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.EXP)))),
+      Row("expm1(x)", "exact: a per-lane StrictMath.expm1 call",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.EXPM1)))),
+      Row("cbrt(x)", "exact: a per-lane Math.cbrt call, the host's answer as Spark's",
+        math = Some(MathCell(exactForms(2), operator = Some(VarkaMathBinding.Operator.CBRT)))),
+      Row("ln(x)", "exact: a per-lane StrictMath.log call, null at x <= 0.0 by Java's <=, "
+        + "so at -0.0 and not at NaN",
+        math = Some(MathCell(exactForms.head,
+          operator = Some(VarkaMathBinding.Operator.LOG)))),
+      Row("log(x)", "the one-argument log as parsed: ln's call and null, with no divide; once "
+        + "the optimizer folds e, the divide by StrictMath.log(e) that Spark's code then makes",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.LOG)))),
+      Row("log10(x)", "exact: a per-lane StrictMath.log10 call, null at x <= 0.0",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.LOG10)))),
+      Row("log1p(x)", "exact: a per-lane StrictMath.log1p call, null at x <= -1.0",
+        math = Some(MathCell(exactForms.head, operator = Some(VarkaMathBinding.Operator.LOG1P)))),
+      Row("log2(x)", "ln(x) / StrictMath.log(2) as Spark writes it, the divisor folded",
+        math = Some(MathCell(exactForms.head))),
+      Row("log(2.0D, x)", "a constant base: StrictMath.log(2.0) folded as the divisor",
+        math = Some(MathCell(exactForms.head))),
+      Row("log(x2, x)", "StrictMath.log(x) / StrictMath.log(x2), null where either is at or "
+        + "below 0.0", math = Some(MathCell(exactForms.head))),
+      Row("exp(x) * 2.0D + 1.0D", "the arithmetic around the call in the kernel",
+        math = Some(MathCell(exactForms.head))))),
     Family("Math functions as conditions", predicates = true, Seq(
       Row("sin(x) < 0.5D", "the call, then the floating compare in Spark's order",
         math = Some(MathCell(exactForms(2)))))),
@@ -1695,6 +1732,58 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("-(d9 + d9b) = d9s4", "the negation of a sum, compared at DECIMAL(12, 4)"),
       Row("try_multiply(d8, d9) IS NULL", "null only where an operand is: no product within "
         + "18 digits overflows, so TRY's null past the precision never fires"))),
+
+    // DECIMAL values within 18 digits as a projection's output (VARKA-348b): each is the value a
+    // comparison reads, written by the decimal store (VARKA-157), the low word and its sign
+    // extension per sixteen-byte slot. Every value is within its type's precision, so the store
+    // needs no check, and each kernel checks the slots it loads as the predicates' do.
+    Family("DECIMAL values", predicates = false, Seq(
+      Row("CASE WHEN d9 < d9b THEN d9 ELSE d9b END", "a DECIMAL(9, 2) choice, the comparison "
+        + "and the blend on the long lane"),
+      Row("if(d9 < d9b, d18, d18b)", "a DECIMAL(18, 2) choice under a DECIMAL(9, 2) condition"),
+      Row("coalesce(d9, d9s4)", "DECIMAL(11, 4): d9 times 10^2, then the first valid operand"),
+      Row("greatest(d18, d18b)", "the null-skipping pick, of one scale"),
+      Row("least(d9, d9s4)", "the null-skipping pick at DECIMAL(11, 4), d9 carrying its "
+        + "rescale"),
+      Row("-d18", "a negation, which cannot overflow: an unscaled value within 18 digits is "
+        + "never the long lane's minimum"),
+      Row("abs(d18)", "a compare with zero, a negation and a blend; the lanewise ABS is the "
+        + "decimalAbsLanewise option"),
+      Row("try_subtract(d9, d9s4)", "DECIMAL(12, 4), row 349's difference stored by the same "
+        + "path: no difference within 18 digits overflows, so TRY's null never fires"))),
+
+    // The 64-bit decimal casts (VARKA-350): integer arithmetic on the unscaled long, the
+    // division by 10^k one constant division below 2^52 and the magnitude shifted by k and
+    // divided by 5^k above it, guarded below 2^(52 + k) where the shifted magnitude still
+    // reaches 2^52 (precision 16 to 18 at the small k).
+    Family("Decimal casts", predicates = false, Seq(
+      Row("CAST(d9 AS BIGINT)", "the unscaled long divided by 10^2, truncating toward zero as "
+        + "Decimal.toLong does, one constant division"),
+      Row("CAST(d16s9 AS BIGINT)", "at sixteen digits the magnitude is shifted right by 9 and "
+        + "divided by 5^9, and the sign put back"),
+      Row("CAST(d18 AS BIGINT)", "at (18, 2) the magnitude is guarded below 2^54 before its "
+        + "shift, past which the row engine divides",
+        domain = Some("abs(d18) * 100 < 18014398509481984")),
+      Row("CAST(-d9 AS BIGINT)", "the cast of a computed value, the negation's unscaled long "
+        + "divided as a column's is"),
+      // A guarded cast into a decimal is read through BIGINT: its null test declines by design
+      // (VarkaDecimalCompiler.valid), so it is no predicate row's operand.
+      Row("CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)", "the precision check alone, which "
+        + "declines under ANSI the batch Spark raises on and nulls the lane under the legacy "
+        + "mode and TRY, then the truncation", domain = Some("abs(d18) < 10000000000")),
+      Row("CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)", "a rescale up guarded before its "
+        + "multiply: the target's precision check moved onto the operand, so the multiply "
+        + "never wraps", domain = Some("abs(d9) < 100000")))),
+
+    Family("Decimal cast predicates", predicates = true, Seq(
+      Row("CAST(d9 AS BOOLEAN)", "the unscaled value against zero, which cannot fail"),
+      Row("CAST(d18 AS BOOLEAN)", "the eighteen-digit twin: the unscaled long against zero, "
+        + "no division"),
+      Row("CAST(d9s4 AS DECIMAL(9, 2)) < d9", "a rescale down by two digits, rounding half up: "
+        + "the half added with the value's sign, then one constant division; seven integral "
+        + "digits always fit, so no check"),
+      Row("CAST(d16s9 AS DECIMAL(10, 2)) > d9", "a rescale down by seven digits at sixteen: the "
+        + "half added to the magnitude, shifted by 7 and divided by 5^7, the sign put back"))),
 
     Family("Time arithmetic", predicates = false, Seq(
       Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),
@@ -2134,6 +2223,45 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(read.map(a => a.name -> a.dataType) === columns.map(a => a.name -> a.dataType))
   }
 
+  // --- the two-lane census (VARKA-612) --------------------------------------------------------
+
+  /**
+   * The value rows a host whose 64-bit masks fall back leaves to the row engine, one line each
+   * with its family and reason, under the defaults the table documents: every value row compiled
+   * as a projection entry with the two-lane refusal on, against the fused kernel it compiles to
+   * with it off, which the first test checks. The reasoning of row 612 refuses an entry by its
+   * tree, so which rows it reaches is this file's, not a reading of the compiler's.
+   */
+  private def renderTwoLaneCensus(): String = {
+    val twoLane = new VarkaAdmission(java.util.Set.of(), true)
+    val valueRows = families.filterNot(_.predicates).flatMap(f => f.rows.map(f -> _))
+    val refused = valueRows.flatMap { case (family, row) =>
+      VarkaExpressionCompiler.declines(Seq(out(expressionOf(row))), columns,
+        VarkaEmitOptions.DEFAULTS, twoLane).asScala.values.headOption
+        .map(d => s"${family.title}\t${row.sql}\t${d.reason}")
+    }
+    val header = Seq(
+      "# The coverage table's value rows a two-lane x86 host refuses as projection entries",
+      "# (VARKA-612), rendered by VarkaCoverageSuite; regenerate with",
+      "#   VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite'",
+      s"# ${refused.size} of ${valueRows.size} value rows refused; family, row, reason:")
+    (header ++ refused).mkString("", "\n", "\n")
+  }
+
+  test("the two-lane census of the value rows is the committed one") {
+    val file = getWorkspaceFilePath("sql", "varka", "plans", "m8", "results",
+      "VARKA-612-refused.txt")
+    val rendered = renderTwoLaneCensus()
+    if (regen) {
+      Files.writeString(file, rendered)
+      logInfo(s"regenerated $file")
+    } else {
+      assert(Files.exists(file) && Files.readString(file) === rendered,
+        s"$file is not what this suite renders. Regenerate it with\n" +
+          "  VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite'")
+    }
+  }
+
   // --- what the table's kernels reach of the emitter (VARKA-280) ------------------------------
 
   /**
@@ -2352,7 +2480,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "DECIMAL lane pair" -> Proved("decimal128.smt2"),
     // The 64-bit decimal rows, each refined whole from the IR the compiler builds (VARKA-506).
     "DECIMAL columns" -> Rendered,
-    "DECIMAL arithmetic" -> Rendered)
+    "DECIMAL arithmetic" -> Rendered,
+    "DECIMAL values" -> Rendered)
 
   // The pair's null tests and its null-safe equality: decimal128.smt2 models the words' values,
   // not their validity, so these rows are checked by the differential suites alone.
@@ -2409,6 +2538,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "CAST(dt AS BIGINT)" -> Proved("long_divide.smt2"),
     "dt * 3" -> Proved("dt_arith.smt2"),
     "-2 * dt" -> Proved("dt_arith.smt2"),
+    "dt / 24" -> Proved("dt_arith.smt2"),
+    "dt * 1.5" -> Proved("dt_arith.smt2"),
+    "dt / 1.5" -> Proved("dt_arith.smt2"),
     "extract(DAY FROM dt)" -> Proved("long_divide.smt2"),
     "ym / 12" -> Proved("ym_divide.smt2"),
     "ym / -7" -> Proved("ym_divide.smt2"),
