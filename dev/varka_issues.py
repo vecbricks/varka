@@ -294,13 +294,14 @@ def title_of(text):
     return prefix + title
 
 
-# The bold words a row's status opens with: "Done", "Started", "Planned", "Filed", "Built",
+# The bold words a row's status opens with: "Done", "Started", "Planned", "Built",
 # "Moved to milestone 7", "Step 1 done", "From milestone 7" and the like, but not "Done when",
 # which opens the row's done-when clause. Any other bold at the row's start is its own title.
 STATUS_WORD = re.compile(
-    r"(?i)(done|started|planned|filed|built|scoped|moved|withdrawn|step|from milestone)"
-    r"(?=$|[\s,;:.])"
+    r"(?i)(done|started|planned|built|scoped|moved|withdrawn|step|from milestone)(?=$|[\s,;:.])"
 )
+# "Filed" is a status only as the whole bold: "**Filed reports keep their number**" is a title.
+FILED = re.compile(r"(?i)filed$")
 DONE_WHEN = re.compile(r"(?i)done when\b")
 
 # An italic label ending in a colon, such as "*Earlier:*" before a row's earlier text, or a
@@ -319,7 +320,9 @@ def skip_status(body):
     sentence that is not a status is the row's title and is returned unbolded. When nothing
     but status is left (the row is one marker and its parenthetical, or the text after it is
     the done-when), the title falls back on the first parenthetical's own words, after a
-    short "<date>, from <source>:" lead-in.
+    short "<date>, from <source>:" lead-in. After a status, a bold that carries a date is a
+    note and is skipped to the next bold, and a bold that ends in a colon is a label whose own
+    text names the task.
 
     >>> skip_status("**Done** (`VARKA-28.md` 9): both lanes fit. A kernel per lane")
     'A kernel per lane'
@@ -335,14 +338,23 @@ def skip_status(body):
     'left: y. The real task'
     >>> skip_status("**Started**. **Done when** it fuses"), title_of("**Started**")
     ('', 'Started')
+    >>> skip_status("**Filed** (x) **Each row in its own file.** Section 3's rows move")
+    'Each row in its own file.'
+    >>> skip_status("**Filed reports keep their number**: one record a report")
+    'Filed reports keep their number'
+    >>> skip_status("**Filed** (x) **Cause, read on 21 November 2026 (`f.txt`)**: a note. More. "
+    ...             "**What to do:** make the decline cover it. **Done when** it does")
+    'Make the decline cover it. **Done when** it does'
     """
     first_paren = None
+    after_status = False
     while True:
         m = BOLD.match(body)
         marker = m.group(1).strip() if m else ""
         if m and DONE_WHEN.match(marker):
             break
-        if m and STATUS_WORD.match(marker):
+        if m and (STATUS_WORD.match(marker) or FILED.match(marker)):
+            after_status = True
             body = body[m.end() :].lstrip()
             if body.startswith("("):
                 end = paren_end(body)
@@ -353,6 +365,13 @@ def skip_status(body):
                 i = first_sentence_end(body)
                 body = body[i + 1 :] if i != -1 else ""
             body = body.lstrip(" .;,")
+            continue
+        if m and after_status and marker.endswith(":"):
+            task = body[m.end() :].lstrip()
+            return task[:1].upper() + task[1:]
+        if m and after_status and DATED.search(marker):
+            following = body.find("**", m.end())
+            body = body[following:] if following != -1 else ""
             continue
         if m:
             return marker
@@ -595,16 +614,26 @@ def stale_milestone_labels(issue, row):
     return [n for n in names if MILESTONE_LABEL.fullmatch(n) and n != own]
 
 
-def opening_milestones(plans_read):
-    """The milestones whose rows open issues: the current plan's and the one before it, of the
-    plans read, which come highest first.
+def opening_milestones(plans_read, issues):
+    """The milestones whose rows open issues: the current plan's, and the one before it while it
+    still runs, which is while one of its open rows has an issue. A finished milestone has
+    none, so an edit to one of its rows opens nothing.
 
-    >>> sorted(opening_milestones([("P9.md", 9, []), ("P8.md", 8, []), ("P7.md", 7, [])]))
+    >>> running = Row(5, "Still in work. **Started** (x)", "o", "s")
+    >>> done = Row(6, "Finished. **Done** (y)", "o", "s")
+    >>> plans = [("P9.md", 9, []), ("P8.md", 8, [running]), ("P7.md", 7, [done])]
+    >>> sorted(opening_milestones(plans, {5: {"number": 11}}))
     [8, 9]
-    >>> sorted(opening_milestones([("P6.md", 6, [])]))
-    [6]
+    >>> sorted(opening_milestones(plans, {}))
+    [9]
+    >>> sorted(opening_milestones(plans[1:], {5: {"number": 11}}))
+    [8]
     """
-    return {milestone for _, milestone, _ in plans_read[:2]}
+    opening = {plans_read[0][1]}
+    for _, milestone, plan_rows in plans_read[1:2]:
+        if any(r.number in issues and classify(r.text).kind == "open" for r in plan_rows):
+            opening.add(milestone)
+    return opening
 
 
 def plan_actions(rows, issues, opening, good_first):
@@ -735,10 +764,16 @@ def report(actions, plans_read, current, opening, good_first):
         if action in ("create", "update", "reopen"):
             print(f"        {issue_title(row)}")
     print("\n" + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())))
-    opening_rows = {r.number for _, m, rows in plans_read if m in opening for r in rows}
-    unknown = [n for n in good_first if n not in opening_rows]
+    open_rows = {
+        r.number
+        for _, m, rows in plans_read
+        if m in opening
+        for r in rows
+        if classify(r.text).kind == "open"
+    }
+    unknown = [n for n in good_first if n not in open_rows]
     if unknown:
-        print(f"good-first list names rows not in a table that opens issues: {unknown}")
+        print(f"good-first list names rows not open in a table that opens issues: {unknown}")
 
 
 def main():
@@ -760,13 +795,15 @@ def main():
             plans_read.append(
                 (os.path.relpath(plan_path, PLANS_DIR), milestone, parse_rows(handle.read()))
             )
+    if not any(plan_rows for _, _, plan_rows in plans_read):
+        sys.exit("no plan has a task table")
     if not plans_read[0][2]:
-        sys.exit(f"{plans_read[0][0]} has no task table")
+        print(f"{plans_read[0][0]} has no task row yet; the earlier plans are mirrored")
     current = plans_read[0][1]
     rows = rows_of_plans(plans_read)
     good_first = good_first_tasks()
     issues = existing_issues(args.repo)
-    opening = opening_milestones(plans_read)
+    opening = opening_milestones(plans_read, issues)
     actions = plan_actions(rows, issues, opening, good_first)
     report(actions, plans_read, current, opening, good_first)
     if args.apply:
