@@ -55,6 +55,14 @@ cheaper models from written task plans?
 12. The pilot's first task goes to one of the three models, not to all three (2.7).
 13. The batch forms of `java.time` get a library of their own, as vfdlibm is for the math: the
     first implementation of a form, and what Varka's tests check against (2.10).
+14. The milestone takes five more items of the scope catalogue, each for a goal (2.11): the gate
+    that no fused shape is slower than the row path (row 680), the register of upstream
+    behaviours (row 681), a pull request's Build merged with master (row 590), a stock arm over
+    the Arrow cache (in row 655) and `make_ym_interval` over plain int columns (in row 672). The
+    rest of the catalogue moves to milestone 10.
+15. At two 64-bit lanes on x86 a section that would run slower than the row path declines
+    there, as G7 has it. The catalogue's lowering without masks for every long-lane kernel (its
+    item 101) is not this milestone's; row 657 builds that form for the zone step alone.
 
 ### 1.1 Goals
 
@@ -577,6 +585,34 @@ a test-scope dependency of `sql/catalyst`, and never a runtime dependency of a k
 - **What does not wait.** No row of this plan waits on a release of the library: a suite reads
   `java.time` alone until the release holds what it calls.
 
+### 2.11 What the scope catalogue gives this plan
+
+The catalogue (`m9/SCOPE.md` until its move) was read item by item on 25 November 2026 against
+the goals. An item is this milestone's when it serves one: the datetime surface (G1 to G4), the
+speed of the long-lane kernels the timestamps run on and the comparison with stock Spark (G7),
+or what the fan-out's rate and safety rest on (G5).
+
+- **Taken** (decision 14). Item 120 as row 680; item 123 as row 681; row 590 of item 138's
+  table, which tests a pull request merged with master, item 129's subject; item 132 as a part of
+  row 655; and, from item 39's table, `make_ym_interval` over plain int columns as a part of row
+  672. Items 31, 50, 117, 121, 125 and 126, bullet 7 of item 89 and row 642 were taken when this
+  plan opened.
+- **Read by a row's plan, with no row of their own.** Row 657 reads three: where a form is
+  chosen (item 127 wants each CPU-dependent form chosen on the executor that runs it, and
+  today's three are chosen on the driver); how the session zone reaches the compiler (item
+  106's one value for the per-compile settings); and the range from the cache's statistics (the
+  statistics-directed guards of item 15's table and the batch bounds of item 39's). Row 678
+  reads item 10, where one table entry holds a day's fields beside its offset. Row 662 reads
+  item 11, which makes a physical representation the compiler's decision. Row 658 reads the
+  checks of item 112.
+- **Related, and left in the catalogue.** The mechanisms for a choice by host (items 73, 101,
+  118, 119, 131 and 134), by decision 15. The levers that a missed bar of G7 would call for
+  (items 13, 14, 37 and 99). The tuning of calendar kernels that already fuse (item 87, and the
+  calendar rows of item 15's table). Fork-only date functions (item 12) and a date column's
+  bound past the year 9999 (item 102), which are not Spark's surface and not Spark's data. CI
+  throughput (item 122 and the matrix and harness rows of item 138's table): the length of
+  section 4 needs about four merges a working day, and the last 200 merges took 17 days.
+
 ## 3. Tasks
 
 Sizes are the house's small, medium and large. A row opens **Filed** and has no plan file until
@@ -593,10 +629,11 @@ generated plan.
 | 351 | **Planned** (carried over from milestone 8 on 25 November 2026; state and record: `m8/PLAN.md` row 351 and its plan). Decimals in the existing types' functions, and the rounding functions | milestone 8, `VARKA-351.md` | large |
 | 364 | **Planned** (carried over from milestone 8 on 25 November 2026; state and record: `m8/PLAN.md` row 364 and its plan). The 128-bit decimal casts | milestone 8, `VARKA-364.md` | medium |
 | 366 | **Planned** (carried over from milestone 8 on 25 November 2026; state and record: `m8/PLAN.md` row 366 and its plan). The exact decimal-to-floating arm | milestone 8, `VARKA-366.md` | medium |
+| 590 | **Planned** (taken from the scope catalogue on 25 November 2026, decision 14; its state and record are `m8/PLAN.md` row 590 and its plan). A pull request's Build tests it merged with Varka's master | the catalogue's item 138, `VARKA-590.md` | medium |
 | 642 | **Planned** (`m9/SCOPE.md` item 138). Declare an emit option in one place, so parallel option rows stop conflicting | milestone 8 by item 138, `VARKA-642.md` | small to medium |
 | 653 | The files every type row appends to or regenerates, one file an entry. **Filed** (25 November 2026; the admission check: #1434 touched 23 files, 18 of them shared, and on 25 November five open pull requests conflicted with master in generated files that the merge driver resolves only in a local clone) Section 2.6. **Done when** three branches that each add a sibling entry of one family, as the pilot's second round will, and two that add entries of different families, merge with master in either order under `git merge-tree` with no merge driver, with no conflict and no regeneration owed; a stale generated file fails CI with its command; and every tool and suite that reads the lists gives the same output before and after | `m9/SCOPE.md` item 121, its part of 11 November 2026; row 546 | medium |
 | 654 | The census and the cast matrix by milestone, with `TIMESTAMP_LTZ`. **Filed** (25 November 2026; the admission check: the tool and six other readers name milestone 8's census and cast files by fixed paths, and 20 entries carry the zoned reason) Section 2.4. **Done when** the summary for milestone 9 prints the pairs admitted and fused for each type, and every reader of the census and cast files reads the milestone's; `ltz` is a census type and each of the 18 entries that come into scope has a row or a reason; the cast table holds the 23 pairs and `VarkaCastMatrixSuite` passes; and milestone 8's census files are as its close left them | owner's decisions 1, 2 and 11; milestone 8's close and row 663 first | medium to large |
-| 655 | Baselines for `TIMESTAMP_LTZ` and the nanosecond types before their kernels, and the timestamp surface. **Filed** (25 November 2026; the admission check: the `TIMESTAMP_NTZ` baseline classes exist and no class reads a `TIMESTAMP`; the three `TIMESTAMP_NTZ` results files still hold their runs from before the kernels) One class a family, as row 377 built them: the zone-free sections, the fields, the casts, the arithmetic and the zone functions, each under UTC, a fixed offset and a daylight-saving zone, over instants in time order and in no order across one and ten years; and timestamp cases in the surface that runs against the newest stock Spark release. **Done when** each class and both widths' results from the EPYC 7763 are committed before the type's first kernel, each later row's measurement diffs against them, and the `TIMESTAMP_NTZ` files are run again so that milestone 8's kernels have their numbers | owner's decision 8; the house rule for a baseline; row 377 | medium |
+| 655 | Baselines for `TIMESTAMP_LTZ` and the nanosecond types before their kernels, and the timestamp surface. **Filed** (25 November 2026; the admission check: the `TIMESTAMP_NTZ` baseline classes exist and no class reads a `TIMESTAMP`; the three `TIMESTAMP_NTZ` results files still hold their runs from before the kernels) One class a family, as row 377 built them: the zone-free sections, the fields, the casts, the arithmetic and the zone functions, each under UTC, a fixed offset and a daylight-saving zone, over instants in time order and in no order across one and ten years; and timestamp cases in the surface that runs against the newest stock Spark release, with a stock arm over the Arrow cache that release ships (the catalogue's item 132), so that the kernels' share is read apart from the cache format's. **Done when** each class and both widths' results from the EPYC 7763 are committed before the type's first kernel, each later row's measurement diffs against them, and the `TIMESTAMP_NTZ` files are run again so that milestone 8's kernels have their numbers | owner's decision 8; the house rule for a baseline; row 377 | medium |
 | 656 | `TIMESTAMP_LTZ` on the long lane. **Filed** (25 November 2026; the admission check: the registry declines the type, and `types.tsv` reads `TIMESTAMP declined`) Section 2.3. **Done when** the registry has the type on the long lane; a `TimeStampMicroTZVector` is read and written, with the session zone in the output's field; the load, the comparisons, the null tests, `IN`, `greatest`, `least`, the choices and the output fuse with coverage rows; the conformance suite passes; `dev/varka_new_lane.py --check` passes; and no existing shape's bytes move | `m9/SCOPE.md` item 31, its zoned type; owner's decision 11; rows 654 and 655 first | medium |
 | 657 | The session time zone in a kernel. **Filed** (25 November 2026; the admission check: a literal slot is filled once a query, an input bound can only decline, and in the probe one offset a batch declines 1000 of 1000 batches of a year of instants in no order) Section 2.2: its plan first; then the slots the evaluator fills from the batch, with `hour` and `minute`; the steps written out, their range from the cache's statistics or carried and checked in the loop; the form with no mask at two lanes; the sweep and the fixtures; the local-to-instant node with a cast from `TIMESTAMP_NTZ`, a cast from `DATE` and `ts + INTERVAL DAY`; and the table. **Done when** the sweep passes in every Build under the three rules; the first kernels of each direction fuse with tests whose rows straddle both changes of a year; ten years of instants in no order decline no batch; each form of 2.2's table is measured in a kernel on row 655's classes at 256 and 128 bits, and the default at each width is the fastest; and G7's bar holds for `hour` and for the cast to `DATE` | `m9/SCOPE.md` items 31 and 89; rows 656 and 678 first, each form from row 679's | large |
 | 658 | The fan-out task: its template, generator, oracle and ledger. **Filed** (25 November 2026; the admission check: `sql/varka/ADDING_AN_EXPRESSION.md` describes milestone 4's int-lane engine, and no command says of one entry and one type whether the work is done) Section 2.7. **Done when** a plan generated for a merged entry names every file that entry's pull request touched; the oracle passes on that entry and fails with its kernel reverted; the oracle's time on the laptop is measured; the ledger has its columns and one line; and the guide describes today's tree | owner's decisions 3, 4 and 10; rows 642 and 646 and row 653's layout first | medium |
@@ -613,7 +650,7 @@ generated plan.
 | 669 | Fan-out: `TIMESTAMP_LTZ`'s casts. **Filed** (25 November 2026) The 16 pairs with a number or a boolean, which read no zone and wait for row 656 alone; then `DATE`, `TIMESTAMP_NTZ` and `TIME` in both directions behind row 657's nodes. **Done when** each of the 23 pairs is fused under each mode it admits, with its proof kind and its line in the cast table, or carries its reason | owner's decision 3; rows 656, 657 and 659 first | medium |
 | 670 | `TIMESTAMP_LTZ`'s zone functions. **Filed** (25 November 2026) `from_utc_timestamp`, `to_utc_timestamp` and `convert_timezone` over a literal zone, `date_trunc`, `months_between`, and `make_timestamp`, `make_timestamp_ltz` and their `try_` forms, at full strength. **Done when** each is fused with its tests across both changes and a benchmark section at G7's bar, or carries its reason; a zone column declines by name | owner's decisions 1 and 8; row 657 first | large |
 | 671 | `TIMESTAMP_LTZ`'s arithmetic. **Filed** (25 November 2026) `ts - ts`, `ts` plus and minus a day-time and a year-month interval, `timestampadd` and `datetime_sub`, at full strength: both directions of the conversion and the kept-offset rule. **Done when** each is fused with tests across both changes, in both signs, and a benchmark section at G7's bar | owner's decisions 1 and 8; row 657 first | large |
-| 672 | Fan-out: the existing temporal types' tail. **Filed** (25 November 2026; the admission check: 75 of the 278 temporal pairs are unfused, and 32 of the 42 temporal casts) The five always-null casts from `DATE`; the casts between the intervals and the integral and decimal types, after row 103's; `try_abs` and `try_negative` over the intervals, after row 663; the three interval-division declines SPARK-61352 ends; and each pair milestone 8's close leaves with this row's name. **Done when** 1.2's item 3 holds | owner's decisions 1 and 6; row 659 first | large |
+| 672 | Fan-out: the existing temporal types' tail. **Filed** (25 November 2026; the admission check: 75 of the 278 temporal pairs are unfused, and 32 of the 42 temporal casts) The five always-null casts from `DATE`; the casts between the intervals and the integral and decimal types, after row 103's; `try_abs` and `try_negative` over the intervals, after row 663; `make_ym_interval` over int columns that no date gives, if its admission check finds it still declined (from the catalogue's item 39); the three interval-division declines SPARK-61352 ends; and each pair milestone 8's close leaves with this row's name. **Done when** 1.2's item 3 holds | owner's decisions 1 and 6; row 659 first | large |
 | 673 | Fan-out: the nanosecond fields. **Filed** (25 November 2026) The fields Spark accepts over the two types, on the microsecond word; a nanosecond `TIMESTAMP_LTZ` behind row 657's node. **Done when** each is fused with a coverage row and a benchmark section, or carries the reason that Spark rejects it | owner's decision 3; row 662 first | medium |
 | 674 | Fan-out: the nanosecond casts. **Filed** (25 November 2026) The pairs with `DATE`, `TIME`, the microsecond timestamps and each other, and the changes of precision. **Done when** each pair row 661 lists is fused or carries its reason | owner's decision 3; row 662 first | medium |
 | 675 | The nanosecond functions. **Filed** (25 November 2026) What Spark accepts over the two types at the last sync: `date_trunc`, `timestampadd`, `from_utc_timestamp`, `to_utc_timestamp`, `convert_timezone`, the `unix_*` functions and `timestamp_nanos`; the units below a microsecond and the sums that carry into the microsecond word at full strength. **Done when** each is fused or carries its reason | owner's decision 1; row 662 first | medium |
@@ -621,6 +658,8 @@ generated plan.
 | 677 | The close. **Filed** (25 November 2026) Section 1.2 read item by item against the tree, G5's report from the ledger, and the house's close: documents only, its numbers quoted from CI's committed runs. **Done when** every item of 1.2 is answered and the milestone's tag is set | the house's close | small |
 | 678 | The time-zone database for vector code. **Filed** (25 November 2026, on the owner's word of that day; the admission check: `java.time` answers one lookup at a time by a binary search, and the probe's sorted changes gave every row `java.time`'s answer under each of the three rules) Section 2.2: a zone's class, its changes on both time lines with each gap's and overlap's window, the instants from which its offsets are whole minutes and whole hours, the rule years written out as they are needed, and the bucket table; built once a zone in each JVM, from that JVM's `ZoneRules`; ids with the same rules share an entry. **Done when** every zone id the session accepts has an entry; the steps and the table read from it equal `java.time` over the sweep's instants on both time lines; the time to build an entry and its size are measured and recorded; and no entry crosses from the driver to an executor | the owner's word of 25 November 2026; `m9/SCOPE.md` item 89; row 679's first | medium |
 | 679 | A library of its own for the batch forms of `java.time`. **Filed** (25 November 2026, the owner's decision 13; the admission check: none of the eleven engines read converts a named zone in vector code, and vfdlibm is on Maven Central and read by `sql/catalyst` in test scope) Section 2.10: its repository; the zone database, the offset forms and the three rules first, from the probes of 2.2; then the fields, the sums and the nanosecond forms as their rows come. **Done when** the repository builds and tests in its own CI; the every-zone sweep and the forms' benchmarks at each vector width are in it; a release is on Maven Central; and a Varka suite checks a kernel against it in test scope | owner's decision 13; vfdlibm's precedent | medium |
+| 680 | Never slower than Spark: a gate at each width. **Filed** (25 November 2026, decision 14, from the catalogue's item 120; the admission check: no benchmark class reads `coverage.json` and no nightly times a coverage row against the row path, and the item's case, `(d < d2) AND (l < l2)` at 0.8X at 128 bits, was found because a filter control happened to time it) One benchmark class driven by `coverage.json` times each coverage row's kernel against the row path, nightly, at 128 and 256 bits on the EPYC 7763, and fails a row under 1.0X by more than the band its own reruns give. **Done when** the nightly runs and its results are committed for each width; each row of the temporal families under 1.0X is made faster or declined by a recorded refusal (decision 15); and a row of another family under 1.0X is listed with the row that owns it | owner's decisions 8 and 14 | medium |
+| 681 | A register of the upstream behaviours Varka depends on or works around. **Filed** (25 November 2026, decision 14, from the catalogue's item 123; the admission check: no such file exists, and 2.4 leans on it) One file, each entry with the version that has the behaviour, the upstream issue, the Varka code that depends on it and the test that pins it: the item's four entries, and this milestone's, which are the nanosecond preview (SPARK-56822) and its rejections (SPARK-60335), SPARK-57853, SPARK-61352, SPARK-61538 and the JDK's time-zone data. **Done when** the register exists, each entry names its pinning test, and the steps of the upstream sync and of a JDK upgrade read it | owner's decision 14 | small |
 
 ### 3.1 Goals to rows
 
@@ -628,11 +667,11 @@ generated plan.
 | :--- | :--- |
 | G1 `TIMESTAMP_LTZ` | 654, 656, 678, 657, 667 to 671 |
 | G2 every zone | 679, 678, 657, and the tests of 668 to 671 |
-| G3 remaining features | 30, 95, 103, 351, 364, 366, 664 to 666, 672 |
-| G4 nanoseconds | 660 to 662, 673 to 675 |
-| G5 cheaper models | 653, 658, 659, the fan-out rows (667 to 669 and 672 to 674), the library's functions (679), and 642 and 646 under them |
+| G3 remaining features | 30, 95, 103, 351, 364, 366, 664 to 666, 672, and 681 for the upstream they wait on |
+| G4 nanoseconds | 660 to 662, 673 to 675, and 681 |
+| G5 cheaper models | 653, 658, 659, 590, the fan-out rows (667 to 669 and 672 to 674), the library's functions (679), and 642 and 646 under them |
 | G6 the post | 676 |
-| G7 speed | 655, 678, 657, and a benchmark section in every `TIMESTAMP_LTZ` row |
+| G7 speed | 655, 678, 657, 680, and a benchmark section in every `TIMESTAMP_LTZ` row |
 
 ### 3.2 What the carried rows hold
 
@@ -649,12 +688,14 @@ master, a review, a push and CI, in the merge queue's order; the parts over the 
 catalogue's move; rows 646 and 642, which are milestone 8's throughput work too; the plans of
 rows 653, 657 and 660; the library's start (row 679) and row 678, which are new classes and
 their tests; row 655's `TIMESTAMP_LTZ` classes and the second run of the `TIMESTAMP_NTZ` ones;
-the carried rows' built parts; row 663 once #1708 and #1675 have merged. The carried parts and
+the carried rows' built parts; rows 590 and 681, which move no census cell; row 663 once #1708
+and #1675 have merged. The carried parts and
 the sync move cells of milestone 8's census while it is open, as its own rows do; its note of 25
 November 2026 says how its close reads them.
 
 **Wave 1, from milestone 8's close** (decision 11): the census opens to the new type. Rows 654
-and 656; row 653's code; row 658.
+and 656; row 653's code; row 658; and row 680, whose findings before the close would fall on
+rows milestone 8 is still building.
 
 **Wave 2.** Row 657; the pilot (row 659); then the fan-out that reads no zone: row 672, row 667
 and the first 16 pairs of row 669.
@@ -675,7 +716,9 @@ carried decimals: milestone 8's 128-bit rows, then 351, 364 and 366.
 
 **The length.** About 130 pull requests and about seven working weeks from the sync's merge
 (section 6), at the rate of 9 to 25 November 2026, when the last 200 merges took 17 days and 37
-of them were plans, and with milestone 8's tail sharing the slots.
+of them were plans, and with milestone 8's tail sharing the slots. Decision 14's five additions
+are about eight pull requests more; prediction 1 of section 6 stays as registered and is scored
+so.
 
 ## 5. Risks
 
@@ -706,6 +749,8 @@ of them were plans, and with milestone 8's tail sharing the slots.
 - **A library of its own** (decision 13) is a second repository to keep. vfdlibm's rule is the
   control: a port here is paired with the pull request there, and nothing here waits on a
   release.
+- **The gate finds losers outside the datetime families.** Row 680 lists each with the row that
+  owns it and fixes none of them here.
 - **A benchmark's runner.** Every G7 number needs an EPYC 7763; a run on another CPU is
   dispatched again, as the house does.
 
