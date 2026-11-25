@@ -812,4 +812,8 @@ the first item of "What was built" are its, and #1700 declines those casts with
 #1700 keeps the casts to `BIGINT` and `BOOLEAN` and between decimals in every mode, ten coverage
 rows, and the query suite's narrow-target tests (the `INT` cases of section 3 item 2 and
 `CAST_OVERFLOW`) go with 350a1n. With the cast residual again the two order tests pass unchanged,
-and the conformance suite's cast row builds no narrow form.
+and the conformance suite's cast row builds no narrow form. *The stack's order, by the owner's word the same day:* #1700,
+then 350a2's proof file `decimal_casts.smt2` (branch `varka-350a2-proofs`) covering only #1700's
+rules - the casts to `BIGINT` and `BOOLEAN` and between decimals - then 350a1n, then 350a1b
+(branch `varka-350a1b-integral-sources`). This replaces "The parts" above, where 350a1b came
+before the proofs.
