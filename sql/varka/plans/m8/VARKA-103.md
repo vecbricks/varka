@@ -53,6 +53,13 @@ LEGACY, ANSI and TRY collapse to one kernel per form, and TRY is item 12 (the ca
    truncated quotient moved one step away from zero when `2|r| >= |k|`); floating
    `roundToLong(micros / (double) k, HALF_UP)` (`:874`); decimal `Decimal./`, to 39 fractional
    digits `DOWN`, then `HALF_UP` to scale 0 (`:870-872`; `Decimal.scala:526-533`).
+   *25 November 2026:* the two classes are one on master since the apache/spark sync #1427 (9
+   November 2026), which brought SPARK-60746 (apache/spark#59956, upstream `ed83bbf762f`): both
+   paths call `IntervalMathUtils.divide`, which raises
+   `INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION` with the query context on `Long.MIN_VALUE / -1`
+   (`VARKA-414.md` 9). What `dt / -1` waits on now is the context itself: a declined batch's
+   fallback raises it without the `== SQL ==` block until a sync brings SPARK-61352 (item 8's
+   note).
 5. **The extracts** (`intervalExpressions.scala:100-123`, parsed at `:139-158`, the unit admitted
    only inside the type's start and end fields) call `IntervalUtils` (`util/IntervalUtils.scala:
    47-68`): `getDays = (int) (x / D)`, `getHours = (byte) ((x % D) / H)`, `getMinutes = (byte)
@@ -751,6 +758,13 @@ None of the owner's. The lead settled the admission check's nine points on 30 Oc
    condition mismatch if the fallback and the oracle took different paths. That difference may be
    an upstream Spark defect, one input with an engine-dependent error class; the lead checks it on
    apache/master.
+   *25 November 2026:* it was, and both facts are settled. The class difference was filed and
+   fixed as SPARK-60746, on master since #1427 (item 4's note). The lost block is upstream's too
+   (`VARKA-414.md` 9: the fallback projection is compiled on the executor, where the division's
+   `origin` is empty), fixed as SPARK-61352 (apache/spark#60285, merged upstream on 24 November
+   2026 as `8621489fe80`), which is not on master yet. Until the sync that brings it, `dt / -1` and
+   a decimal divisor under one in magnitude decline naming 414 (`VarkaIntervalCompiler.java`,
+   `dayTimeDivide`).
 9. **The G1 edges** are the lead's to edit; what they should be is under the open points below.
 
 ### Open points for the lead

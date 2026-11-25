@@ -79,6 +79,19 @@ nothing ran Spark. A claim marked **[I]** is inferred, not read or run.
    from the code, not run]**. The micros come from `localDateTimeToMicros`, whose
    `multiplyExact` raises an `ArithmeticException` past the long in every mode
    (`sql/api/.../SparkDateTimeUtils.scala:136-145`, `:212-214`).
+   *25 November 2026:* the narrowing is gone from master since the apache/spark sync #1482 (11
+   November 2026), which brought SPARK-60743 (apache/spark#59955, upstream `dbea6d2f6e9`).
+   `makeTimestampMicros` (`DateTimeExpressionUtils.java:98-121`) now splits the seconds with
+   `DateTimeUtils.splitSecsAndMicros` (`util/DateTimeUtils.scala:1126-1141`), which raises a
+   `DateTimeException` when `floorDiv(u, 10^6)` is negative or above `Int.MaxValue`, before
+   `LocalDateTime.of` checks the other fields; every other value takes the path above, the
+   60-second rollover included. So `4324.967296` is no longer read as 30 seconds: it is NULL
+   when `failOnError` is false (and from `try_make_timestamp_ntz`) and
+   `DATETIME_FIELD_OUT_OF_BOUNDS.WITHOUT_SUGGESTION` when true (upstream's `timestamp-ntz.sql`
+   golden file and `DateExpressionsSuite` "SPARK-60743: make_timestamp rejects out-of-range
+   seconds instead of wrapping them"). With an invalid month under ANSI, `-1` and `2147483648`
+   seconds are reported before the month, and `61` and `2147483647` after it, which changes the
+   message only: both are raised, and a Varka batch that holds one declines to Spark's row path.
 9. **`make_dt_interval(d, h, m, sec)`**, row 103's (below), casts its seconds to `DECIMAL(18, 6)`
    (`expressions/intervalExpressions.scala:537`), the shorter forms taking the literal
    `Decimal(0, 18, 6)` (`:523`), and computes `u + d * D`, then `+ h * 3.6 * 10^9`, then `+ m * 6 *
@@ -297,6 +310,11 @@ Spark does.
   exact under the guard, plus `h * 3.6 * 10^9 + mi * 6 * 10^7 + t` by `IntArith(ADD, FAIL)`: 338's
   day guard and 339's checked add, `FAIL` in every mode since Spark's `ArithmeticException` is
   raised in every mode (item 0.8).
+  *25 November 2026:* the `NarrowLane` is superseded, since Spark no longer narrows (item 0.8's
+  note, SPARK-60743). The seconds stay on the long lane: `t = u`, bad where `u` is outside
+  `[0, 6 * 10^7]`, which also holds every value whose whole seconds are negative or pass
+  `Int.MaxValue`, so the band SPARK-60743 rejects is bad by the same test and disposed by the
+  same mode, `NULL` or `FAIL`. Re-read when the row starts.
 - **`extract(SECOND FROM ntz)`**: `Scaled(r, (8, 6))` with `r` the remainder of 340's
   `microsOfDay(t)` by `6 * 10^7` (`ConstDivide` over a dividend below `2^37`, one new proven
   divisor); `6 * 10^7` divides the day, so this is `floorMod(t, 6 * 10^7)`. 340's own sketch,
@@ -348,6 +366,10 @@ the five biases, held by `VarkaWarmupReachSuite`.
    the `(int)` narrowing) and the day edges 106751991 and 106751992 with late times, in the three
    modes; `extract(SECOND FROM ntz)` over `Long.MIN_VALUE`, `Long.MAX_VALUE`, -1 and the minute's
    edges.
+   *25 November 2026:* `4324.967296` is out of range in Spark since SPARK-60743 (item 0.8's
+   note), so the case checks NULL under LEGACY and TRY and the raise under ANSI, and joins
+   upstream's edges: `2147.483647`, `2147.483648`, `-0.5`, `-0.000001`, `9999999999.999999` and
+   `-9999999999.999999`, and `-1` and `2147483648` with an invalid month.
 4. **SMT, over integers.** A file `sql/varka/proofs/decimal_round.smt2`, run under Z3 and cvc5:
    2.3's construction equals each mode of `u / 10^d` for every `|u| <= 10^18 - 1` and `d` from 1 to
    18, the wrap stated by `mod 2^64`, the bias's headroom and the dividend bounds; the negative
@@ -500,6 +522,14 @@ test (2.6, section 3 item 3). None is open. Flagged as the owner's text, not que
    `4324.967296` seconds, is narrowed to `30000000` and accepted as 30 seconds
    (`DateTimeExpressionUtils.java:99`, item 0.8; `results/VARKA-351-admission.txt` item 5). The
    kernel reproduces it whatever the answer.
+   *25 November 2026: answered. Filed and fixed upstream as SPARK-60743 (apache/spark#59955,
+   merged on 10 November 2026) and on master since the sync #1482; nothing is copied or pinned,
+   and the settlement above that the `(int)` narrowing "is copied and pinned by a test" is
+   withdrawn (2.6 and section 3 item 3 carry the replacement).*
+5. *Added 25 November 2026:* **Row 351's text in `PLAN.md` still says the six-field
+   `make_timestamp_ntz` "narrows the unscaled seconds to an int as Spark does".** It no longer
+   does (item 0.8's note). The row line is left for a later plan edit, since an open pull request
+   (#1707) edits the adjacent row 350; this file is the record until then.
 
 ## 9. Done when
 
