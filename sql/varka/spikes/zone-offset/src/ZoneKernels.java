@@ -350,11 +350,11 @@ public class ZoneKernels {
     long[] out = new long[N];
     long from = micros(2025, 1, 1);
     long until = micros(2026, 1, 1);
-    Steps year = Steps.of(from, until - 1);
-    if (year.at.length != 2) {
+    Steps found = Steps.of(from, until - 1);
+    if (found.at.length != 2) {
       throw new IllegalStateException("the year has not two changes in " + ZONE);
     }
-    Steps steps = year.padded(2);
+    Steps steps = found.padded(2);
 
     // The hour of the day: a year of instants in no order, half of them near a change.
     long[] year = nearChanges(random, between(random, from, until), steps.at);
