@@ -565,6 +565,13 @@ jobs:
             --out "$out/$BIN-u$k" --leaf-suffix "$BIN-$k" --module "$module" --suites "$suites" \
             "${mode[@]}" --jvm-arg -Dvarka.series.size=4 > "$out/$BIN-u$k.log" 2>&1 || status=$?
           echo "$((SECONDS - t0))" > "$out/$BIN-u$k.seconds"
+          # For the stage gate, at once, so that a job stopped later by its timeout or a cancel
+          # still uploads it: a unit that failed. A straggler or a setup step leaves none, since
+          # a unit the watchdog stops never gets here.
+          if [ "$status" != 0 ]; then
+            mkdir -p "$out/$BIN-failed"
+            echo "exit $status: $config|$module|$suites" >> "$out/$BIN-failed/units.txt"
+          fi
           echo "$status" > "$out/$BIN-u$k.exit"
         }
         # Signals every unit still without an exit file, by its process group.
@@ -655,10 +662,6 @@ jobs:
           [ -e "$f" ] || continue
           if [ "$(cat "$f")" != 0 ]; then
             echo "== ${f%.exit}.log:"; tail -40 "${f%.exit}.log"; status=1
-            # For the stage gate: a unit that failed, where a straggler or a setup step leaves
-            # none, since a unit the watchdog stops writes no exit file.
-            mkdir -p "$out/$BIN-failed"
-            echo "exit $(cat "$f"): $(cat "${f%.exit}.unit")" >> "$out/$BIN-failed/units.txt"
           fi
         done
         if [ -e "$strag/straggler.txt" ]; then
@@ -692,8 +695,11 @@ jobs:
   # stop of a slow runner (VARKA-570) or on a setup step that failed twice, and only the first
   # writes <bin>-failed/units.txt; so the second stage goes on after stragglers and setup
   # failures, whose run still ends red, and stops after a failed unit. Records that do not
-  # download stop it too. A bin past its job timeout writes no record either, so it counts as a
-  # setup failure when the stage's result is `failure`; a stage `cancelled` stops the second.
+  # download stop it too. A bin stopped by its job timeout has uploaded the units that failed
+  # before the stop, which stop the second stage; with none it counts as a setup failure when
+  # the stage's result is `failure`, and a stage `cancelled` stops the second. Only the first
+  # stage's bins are read: a rerun of failed jobs downloads the earlier attempt's second-stage
+  # bins too, whose records say nothing of this stage.
   gate:
     name: "Option matrix: stage gate"
     needs: [build, first]
@@ -715,23 +721,32 @@ jobs:
       id: judge
       env:
         DOWNLOAD: ${{ steps.records.outcome }}
+        FIRST: ${{ needs.build.outputs.first }}
       run: |
+        failed=() stragglers=()
+        for b in $(jq -r '.[].bin' <<< "$FIRST"); do
+          f=target/varka-bins/$b-failed/units.txt
+          [ -e "$f" ] && failed+=("$f")
+          f=target/varka-bins/$b-straggler/straggler.txt
+          [ -e "$f" ] && stragglers+=("$f")
+        done
         if [ "$DOWNLOAD" != success ]; then
           echo "::error::The first stage's records did not download, so the second stage waits."
           echo "tests=unknown" >> "$GITHUB_OUTPUT"
-        elif compgen -G "target/varka-bins/*-failed/units.txt" > /dev/null; then
+        elif [ "${#failed[@]}" -gt 0 ]; then
           echo "== the first stage's failed units, so the second stage does not run:"
-          cat target/varka-bins/*-failed/units.txt
+          cat "${failed[@]}"
           echo "tests=failed" >> "$GITHUB_OUTPUT"
         else
           echo "== no unit of the first stage failed, so the second stage runs; its stragglers:"
-          cat target/varka-bins/*-straggler/straggler.txt 2>/dev/null || echo "none"
+          if [ "${#stragglers[@]}" -gt 0 ]; then cat "${stragglers[@]}"; else echo "none"; fi
           echo "tests=passed" >> "$GITHUB_OUTPUT"
         fi
 
   # The second stage: every other unit. It runs when the first succeeded, was skipped for an
-  # empty list, or failed with no unit failed (the gate), and not after a failed unit or a first
-  # stage whose bin timed out. A plain `needs` would skip it with a skipped first, and a diff
+  # empty list, or failed with no unit failed (the gate), and not after a failed unit or a
+  # cancelled first stage (a bin past its job timeout is judged by the gate as above). A plain
+  # `needs` would skip it with a skipped first, and a diff
   # that changes no suite would end green with no bins.
   rest:
     name: "Option matrix: ${{ matrix.bin }}"
@@ -807,10 +822,14 @@ jobs:
             esac
             echo "The second stage did not run, since $why: this report and the suite seconds"
             echo "cover the first stage's bins only."
-          elif [ "$FIRST" = failure ]; then
+          elif [ "$FIRST" = failure ] && [ "$REST" != skipped ]; then
             echo "The first stage's failed bins failed no unit - stragglers or setup steps, listed"
             echo "below - so the second ran. Their units have no answer here: dispatch again for"
             echo "them; a rerun of the failed jobs reruns the whole second stage too."
+          elif [ "$FIRST" = failure ]; then
+            echo "The first stage's failed bins failed no unit - stragglers or setup steps, listed"
+            echo "below - and the second stage had no bins. Their units have no answer here:"
+            echo "dispatch again for them."
           fi
           echo '```'
           sed -n '/^configuration/,$p' target/varka-matrix-report.txt 2>/dev/null || echo "no report"

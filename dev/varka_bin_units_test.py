@@ -425,14 +425,16 @@ def bin_records(dst, name, units, stub=STUB, **env):
         return done.returncode
 
 
-def judge(records, download="success"):
-    """Runs the gate's judging step over the merged `records`: (its `tests` output, its stdout)."""
+def judge(records, download="success", first=("b000", "b001", "b002")):
+    """Runs the gate's judging step over the merged `records`, the first stage being the bins
+    `first`: (its `tests` output, its stdout)."""
     doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     script = next(s["run"] for s in doc["jobs"]["gate"]["steps"] if s.get("id") == "judge")
     with tempfile.TemporaryDirectory() as tmp:
         shutil.copytree(records, Path(tmp, "target/varka-bins"))
         out = Path(tmp, "output")
         env = {"PATH": os.environ["PATH"], "DOWNLOAD": download, "GITHUB_OUTPUT": str(out)}
+        env["FIRST"] = json.dumps([{"bin": b} for b in first])
         done = subprocess.run(["bash", "-e", "-c", script], cwd=tmp, env=env, capture_output=True)
         assert done.returncode == 0, done
         return out.read_text(encoding="utf-8").split("tests=")[1].strip(), done.stdout.decode()
@@ -475,6 +477,42 @@ class StageGate(unittest.TestCase):
         self.assertIn("exit 3: x=1|sql|FAIL1", stdout)
         self.assertNotIn("defaults|sql|OK", stdout)
         self.assertFalse(job_runs("rest", "failure", tests))
+
+    def test_an_earlier_attempts_second_stage_bin_does_not_stop_a_rerun(self):
+        # b005 is a second-stage bin of the run's first attempt, which a rerun downloads too.
+        self.assertEqual(bin_records(self.records, "b005", ["x=1|sql|FAIL1"]), 1)
+        tests, _ = judge(self.records, first=("b000",))
+        self.assertEqual(tests, "passed")
+        self.assertEqual(judge(self.records, first=("b000", "b005"))[0], "failed")
+
+    def test_a_failed_unit_is_recorded_before_the_bin_ends(self):
+        # The failing unit ends at once and the other sleeps 5 s; a job timeout then would stop
+        # the bin before the step's end, so the record must be written while the step runs.
+        fail_at_once = SLEEP_STUB.replace(
+            'touch "$out.started"\n',
+            'touch "$out.started"\ncase "$suites" in *FAIL*) exit 3 ;; esac\n',
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "dev").mkdir()
+            stub = Path(tmp, "dev/varka_matrix.sh")
+            stub.write_text(fail_at_once, encoding="utf-8")
+            stub.chmod(0o755)
+            env = dict(STEP_ENV, UNITS="cse=false|sql|FAIL1\nx=1|sql|S5\n")
+            step = subprocess.Popen(
+                ["bash", "-e", "-c", step_script()],
+                cwd=tmp,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            record = Path(tmp, "target/varka-units/b000/b000-failed/units.txt")
+            deadline = time.monotonic() + 4
+            while not record.exists() and time.monotonic() < deadline:
+                time.sleep(0.1)
+            seen, running = record.exists(), step.poll() is None
+            self.assertEqual(step.wait(timeout=60), 1)
+            self.assertTrue(seen and running, "no record while the step still ran")
+            self.assertEqual(record.read_text(), "exit 3: cse=false|sql|FAIL1\n")
 
     def test_records_that_do_not_download_or_a_cancelled_first_stop_it(self):
         tests, _ = judge(self.records, download="failure")

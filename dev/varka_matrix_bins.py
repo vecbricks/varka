@@ -498,8 +498,6 @@ def over_cap(out, target, cap=MATRIX_CAP):
 # ---------------------------------------------------------------------------------------------
 
 STAGES = ("two", "one")
-# The plan artifact's two lists, in the order they run.
-STAGE_LISTS = ("first", "rest")
 # The `reach` field of a bin whose units run every test, without the Build's record: the
 # changed suites' bins of the first stage. The bin step reads it.
 WHOLE = "off"
@@ -522,10 +520,9 @@ def stage_plan(changed=(), stages="two", notes=None, cap=MATRIX_CAP, **planned):
 
     `first` runs the changed suites under every configuration and platform without the reach
     record, so a configuration runs every test of them. `rest` runs every other triple of today's
-    plan,
-    so the two lists together run everything today's plan does, the changed suites' part runs
-    made whole. With `stages="one"`, `first` is empty and `rest` is today's plan. The bins are
-    numbered on from `first` into `rest`, since a bin's name keys its job and its artifact. A
+    plan, so the two lists together run everything today's plan does, the changed suites' part
+    runs made whole. With `stages="one"`, `first` is empty and `rest` is today's plan. The bins
+    are numbered on from `first` into `rest`, since a bin's name keys its job and its artifact. A
     list over GitHub's `cap` of jobs a matrix, which the changed suites run whole can make
     `first`, falls back to one stage too. A warning goes to `notes`, a list, or else to stderr."""
     today = plan(**planned)["include"]
@@ -737,7 +734,9 @@ def read_bin_jobs(path):
     .../actions/runs/RUN/jobs?filter=all --paginate`, with or without `--jq '.jobs[]'`
     (`json_jobs`): for each bin its last attempt's created, started and completed times and its
     units step's start and end, as seconds. Bins whose last attempts differ, after a re-run of
-    some jobs, are refused: the run's phase and slots would span both attempts."""
+    some jobs, are refused: the run's phase and slots would span both attempts. So is a run of
+    two stages (VARKA-637), whose second stage's jobs are created only after the first stage
+    ends: the replay models one queue, not two phases with the gate between them."""
     try:
         jobs = json_jobs(Path(path).read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
@@ -772,6 +771,15 @@ def read_bin_jobs(path):
             f"replay: the bin jobs in {path} come from more than one attempt ({kept}), so their"
             " phase and slots would span them; replay a run none of whose jobs was re-run"
         )
+    if out:
+        last = max(out, key=lambda b: out[b]["created"])
+        done = min(out, key=lambda b: out[b]["completed"])
+        if out[last]["created"] > out[done]["completed"]:
+            raise SystemExit(
+                f"replay: bin {last} of {path} was created after bin {done} completed, so the run"
+                " had two stages, which the replay does not model; replay a run of one stage"
+                " (the `stages` input `one`)"
+            )
     return out
 
 
@@ -1901,6 +1909,15 @@ class SelfTest(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertEqual({j["attempt"] for j in read_bin_jobs(f).values()}, {2})
+
+    def test_a_run_of_two_stages_is_refused(self):
+        # b001, of the second stage, was created after b000, of the first, completed.
+        jobs = self._jobs({"b000": (0, 2, 32, 52, 55), "b001": (70, 72, 87, 97, 100)})
+        with tempfile.TemporaryDirectory() as root:
+            f = Path(root, "jobs.jsonl")
+            f.write_text("".join(json.dumps(j) + "\n" for j in jobs), encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "bin b001 .* after bin b000 completed"):
+                read_bin_jobs(f)
 
     def test_a_unit_a_cancel_killed_is_reported_and_inputs_that_match_nothing_refused(self):
         with tempfile.TemporaryDirectory() as root:

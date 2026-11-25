@@ -286,7 +286,8 @@ the weekly full run is traced to its tier.
   `varka-option-matrix-reach` artifact now carries, so `times` counts their whole runs as whole.
 * *25 November 2026:* step 1 lands in two parts, to keep each pull request under the size cap:
   637a (#1679) is the two stages and the changed suites; 637b
-  (`varka-637b-failed-bins-first`) adds the last red run's bins to `first`.
+  (`varka-637b-failed-bins-first`) adds the last red run's bins to `first`, and with them the
+  dry plan of two real heads, which was made with both.
 * The build job fetches about a thousand commits of each side without blobs to find the merge
   base. The two bin jobs, `first` and `rest`, share their steps through a YAML anchor and carry
   the `if:` conditions of 3.1. The plan step's summary opens with the stage line. The `stages`
@@ -298,11 +299,14 @@ the weekly full run is traced to its tier.
   so the summary points to a new dispatch. A stage over 256 jobs falls back to one stage.
 * *25 November 2026, merge of #1678:* the cron still fires, but the build job's `if` skips it,
   so only a dispatch runs the matrix. On vecbricks/varka, with `pr` and `sha`, the changed
-  suites diff `sha` against the merge base, and the first stage has no reach record to cut. `slots` caps both stages. A head whose planner has no `--stages` plans one
-  list with the old arguments, which runs as `rest` with an empty `first`, after a warning.
-* The dry plan of `results/VARKA-637-dry-plan.txt`: #1626's head plans 20 `first` bins and 220
-  `rest` bins against 235 in one list, the `first` bins running 27 triples the reach record cut,
-  and #1659's head, which changes no suite, plans no `first` bin and the one-list plan in `rest`.
+  suites diff `sha` against the merge base, and the first stage has no reach record to cut.
+  `slots` caps both stages. A head whose planner has no `--stages` plans one list with the old
+  arguments, which runs as `rest` with an empty `first`, after a warning.
+* *25 November 2026, from review:* a unit's failure is recorded as soon as the unit ends, so a
+  bin stopped later by its job timeout still uploads it; the gate reads only the first stage's
+  bins, by the names in the build job's `first`, so a rerun's download of an earlier attempt's
+  second-stage bins does not stop it; and `replay` refuses a run of two stages, whose second
+  stage's jobs are created after the first ends, since it models one queue.
 
 Still owed for step 1's done-when (7): the two dispatches of 5, which also prove that a job's
 `if:` reads the build job's outputs before its matrix expands, the live week of 4, and the
