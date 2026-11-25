@@ -287,7 +287,7 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `BooleanType` (`bool`) | bitmap | 41 | 31 | 2 | plumbing 4, semantics 4 | 0 | 43 |
 | `ByteType` (`byte`) | BYTE, INT | 75 | 54 | 2 | plumbing 4, semantics 15 | 0 | 60 |
 | `ShortType` (`short`) | SHORT, INT | 75 | 54 | 2 | plumbing 4, semantics 15 | 0 | 58 |
-| `IntegerType` (`int`) | INT | 90 | 68 | 2 | plumbing 4, semantics 16 | 0 | 136 |
+| `IntegerType` (`int`) | INT | 90 | 68 | 2 | plumbing 4, semantics 16 | 0 | 137 |
 | `LongType` (`bigint`) | LONG | 85 | 62 | 2 | plumbing 5, semantics 16 | 0 | 97 |
 | `FloatType` (`float`) | FLOAT | 66 | 38 | 2 | plumbing 5, semantics 21 | 0 | 66 |
 | `DoubleType` (`double`) | DOUBLE | 102 | 64 | 2 | plumbing 4, semantics 22, ulp 10 | 0 | 97 |
@@ -1442,6 +1442,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `xxhash64(f, i, x, l)` | `floatingArithmetic`, `hash` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store, mask test |
 | `hash(y1, s1, b)` | `integralCast`, `hash` |  |  | vector |
 | `hash(i, 7)` | `hash` |  | a literal child is hashed as its type is | vector |
+| `hash(i, true)` | `hash` |  | a boolean literal is the int 1, a slot and not a cast | vector |
 | `xxhash64(i ^ 5, l & 255)` | `intArithmetic`, `hash` |  | a child is any expression the chain compiles | per-lane: blend, mask broadcast, load or store, mask test |
 
 #### Floating casts to BOOLEAN
@@ -1673,7 +1674,7 @@ operands (a row counts once for each type it reads):
 | `double` | 112 | 0 | 0 | 1 | 0 | 0 | 111 |
 | `dt` | 41 | 2 | 0 | 7 | 0 | 0 | 32 |
 | `float` | 67 | 0 | 0 | 0 | 0 | 0 | 67 |
-| `int` | 194 | 14 | 0 | 5 | 1 | 1 | 173 |
+| `int` | 195 | 14 | 0 | 5 | 1 | 1 | 174 |
 | `ntz` | 77 | 0 | 0 | 7 | 0 | 0 | 70 |
 | `short` | 58 | 0 | 0 | 0 | 0 | 8 | 50 |
 | `time` | 50 | 6 | 0 | 1 | 1 | 2 | 40 |

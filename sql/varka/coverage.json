@@ -8630,6 +8630,18 @@
     "note" : "a literal child is hashed as its type is",
     "verified" : "differential"
   }, {
+    "sql" : "hash(i, true)",
+    "executable" : "hash(i, true)",
+    "family" : "Hash",
+    "form" : "projection",
+    "catalyst" : [ "Murmur3Hash" ],
+    "casts" : [ ],
+    "operands" : [ "Murmur3Hash:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.hash.enabled" ],
+    "domain" : "",
+    "note" : "a boolean literal is the int 1, a slot and not a cast",
+    "verified" : "differential"
+  }, {
     "sql" : "xxhash64(i ^ 5, l & 255)",
     "executable" : "xxhash64(i ^ 5, l & 255)",
     "family" : "Hash",
