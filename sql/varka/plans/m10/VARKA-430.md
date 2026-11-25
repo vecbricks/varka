@@ -149,7 +149,7 @@ not build that.
 | `VarkaMemorySanitizer.java` | 1 | the class comment's paragraph |
 | `VarkaSanitizedWarmupSuite.scala` | 1, 2 | the source scan (1), or the inverted control (2) |
 | `dev/varka_matrix.sh`, `varka_emit.sh`, `varka_pit.sh`, `varka_new_tests.py` | 2 | the flag |
-| `sql/varka/plans/m9/VARKA-430.md` | both | the outcome |
+| `sql/varka/plans/m10/VARKA-430.md` | both | the outcome |
 
 One pull request, verified by its PR Build and, for arm 2, an option-matrix dispatch. Size:
 small (arm 1 about half a day, arm 2 about a day).

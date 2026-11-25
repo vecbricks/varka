@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 256 of `m7/PLAN.md`, from `m9/SCOPE.md` item 72 and `m7/READING.md` 9. A runner regeneration of
+Row 256 of `m7/PLAN.md`, from `m10/SCOPE.md` item 72 and `m7/READING.md` 9. A runner regeneration of
 a benchmark class rewrites its whole results file on whichever CPU the pool assigns, so a PR that
 adds one section replaces every other section's numbers with that machine's: VARKA-200's run on an
 EPYC 7763 rewrote `VarkaWideKernelBenchmark`'s VARKA-190 sections, measured on an EPYC 9V45, and

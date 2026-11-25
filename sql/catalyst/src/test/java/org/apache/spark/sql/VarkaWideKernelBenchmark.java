@@ -93,7 +93,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Yea
  * last. See {@code VARKA-190.md} 11 and {@code
  * VARKA-236.md} 6 and 9.3.
  *
- * <p>The last section is item 71's ({@code m9/SCOPE.md}): the planned grouping, the prediction
+ * <p>The last section is item 71's ({@code m10/SCOPE.md}): the planned grouping, the prediction
  * closing groups with the fit's margins, against the weights' and against the prediction without
  * the margins, on the cheap tails, the mixed family and the ladder.
  *
@@ -700,7 +700,7 @@ public class VarkaWideKernelBenchmark extends VarkaBenchmarkBase {
             runCases(benchmark);
           });
 
-      // Item 71 of m9/SCOPE.md, brought into VARKA-236 (VARKA-236.md 3.5): what the
+      // Item 71 of m10/SCOPE.md, brought into VARKA-236 (VARKA-236.md 3.5): what the
       // predicted grouping costs at run time against the weights', and the planned grouping
       // with the fit's margins, on the families the prediction closes groups on. The weights
       // run first and again last as the control.

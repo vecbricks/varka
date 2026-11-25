@@ -24,7 +24,7 @@ not kept in the repository.
 ## Why this paper is here
 
 This is the paper behind the Eisel-Lemire algorithm, and `plans/m8/PLAN.md` row
-366 (the exact decimal-to-floating arm, `plans/m8/VARKA-366.md` sections 2.1 to
+366 (the exact decimal-to-floating arm, `plans/m9/VARKA-366.md` sections 2.1 to
 2.2) rests on it. A Spark `DECIMAL(p, s)` with unscaled long `u` is the number
 `u * 10^q` with `q = -s`, which is this paper's problem with the decimal
 exponent a per-column constant. What the row takes from it:

@@ -1,11 +1,11 @@
 # VARKA-637: a pull request's option matrix stops a red run early, then runs what its diff can move
 
-*Moved to milestone 9 on 23 November 2026 with row 637 (`m9/SCOPE.md` item 138). Step 1 was
+*Moved to milestone 9 on 23 November 2026 with row 637 (`m10/SCOPE.md` item 138). Step 1 was
 returned to m8 by the owner on 23 November 2026: row 638 plans from its
 `dev/varka_matrix_scope.py`, and the fork's slots are the other throughput limit. Steps 2 and 3
 (7), the optional path tiers, `--replay` and the `auto` default, stay in m9 under item 138, and
 with them 3.2, 3.5, prediction 5 and the tiers' parts of 3.4, 4, 5 and 6. Row 522 stays in
-milestone 9, so its plan is `m9/VARKA-522.md`.*
+milestone 9, so its plan is `m10/VARKA-522.md`.*
 
 ## 1. Where this came from
 
@@ -155,7 +155,7 @@ references do not see (reflection, resources, a class loaded by name), and a too
 a suite runs without naming it. The full matrix on master catches both. **It does not run
 today:** the weekly schedule is disabled on vecbricks/varka, and row 522, which moves it to the
 fork, is Planned. So the tiers are not built until row 522's weekly runs on the fork. A miss
-reaches the owner through `report-failure` on the fork (`m9/VARKA-522.md` 7 question 5). The
+reaches the owner through `report-failure` on the fork (`m10/VARKA-522.md` 7 question 5). The
 issue lists the pull requests merged since the last green full run, each with the tier its matrix
 ran, so a miss is traced to the tier that let it through and the rule is widened.
 

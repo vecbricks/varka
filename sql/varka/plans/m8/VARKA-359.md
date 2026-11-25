@@ -273,7 +273,7 @@ kernel is long-driven, so row 503's rule applies as it stands: a decimal compari
 conjunct or a selection output declines there by construction, and a projection - a choice, a
 negation, `abs`, a comparison as a value - fuses and is measured against the row path, which costs
 365 ns a row at `(38, 10)` (item 0.12). If a projection loses there, it declines by the same
-mechanism with its measured reason, a recorded refusal with `m9/SCOPE.md` item 101 as its scope
+mechanism with its measured reason, a recorded refusal with `m10/SCOPE.md` item 101 as its scope
 item. On aarch64 the pair fuses at 128 bits (the N2's cells all intrinsic).
 
 ### 2.7 Compiler, reference, cost, warm-up
@@ -1257,7 +1257,7 @@ verdicts as expected.
    only form that fuses well there. Under the owner's answer (a) to question 3 it is a row of its
    own. *Recommended:* open that row now (a scalar subtree in the kernel's loop feeding the
    selection word), owned outside 359a, placed in this milestone only if its done-when claims x86
-   hosts at 128 bits, otherwise as a scope item beside `m9/SCOPE.md` item 101.
+   hosts at 128 bits, otherwise as a scope item beside `m10/SCOPE.md` item 101.
 4. **Row 489** is ordered "before 359" and not started. *Recommended:* do not wait. 359a adds one
    leaf and four compare members; 489 moves them with every other node when it lands.
 5. **Measuring 359a's sections on its own head.** Section 5 puts the measurement in 359b, but

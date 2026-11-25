@@ -84,7 +84,7 @@ then declines every losing shape without declining a winning one, so the row's d
 shape that loses declines whole") cannot be met by plan-time syntax. That outcome goes to the
 owner (question 10.1). Until he answers, the plan builds nothing for it, and the row stays open
 with the loss recorded here, not closed under (a). A run-time choice is the cure
-(`m9/SCOPE.md` item 119, the same idea for null tests).
+(`m10/SCOPE.md` item 119, the same idea for null tests).
 
 ### 3.3 What is deliberately unchanged
 

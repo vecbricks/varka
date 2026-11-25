@@ -1,4 +1,22 @@
-# Varka Milestone 9 Scope: coverage
+# Varka Milestone 10 Scope: coverage
+
+*Renumbered from milestone 9 on 25 November 2026, when milestone 9 became every timestamp in
+every time zone, on the owner's choice, and got a task plan of its own (`m9/PLAN.md`). The house
+rule moves the furthest-out catalogue forward, and this is that move: the file left milestone 9's
+folder for this one with its reading note (`READING_LAYOUTS.md`) and the plans of the rows it
+holds, the item numbers are unchanged, and every inbound reference was rewritten by
+`dev/varka_catalogue_move.sh 9 10`, so every `item <n>` citation resolves. Read "milestone 9"
+below as "this milestone" except where a sentence is dated, as the notes below already ask for
+milestones 8, 7 and 6.*
+
+**Items and rows milestone 9 takes.** The catalogue was read item by item against milestone 9's
+goals on 25 November 2026 (`m9/PLAN.md` 2.11). It takes items 31 (the zoned `TIMESTAMP` and the
+nanosecond types), 50 (only if SPARK-57853 merges before its close), 89 (bullet 7), 117, 120 (for
+the runners' two widths), 121 (its part of 11 November), 123, 125, 126 and 132 (for the timestamp
+surface); and, from the tables of items 39 and 138, the `make_ym_interval` rule of row 96 and
+rows 590 and 642, whose plans stay in milestone 9's folder. Rows 30, 95 and 103, which milestone 8
+took from the tables of items 15 and 39, are milestone 9's now too. `m9/PLAN.md` names each with
+the number it has here. Everything else moved here, and nothing is withdrawn.
 
 *Renumbered from milestone 8 on 14 October 2026, when milestone 8 became every numeric and
 temporal type, on the owner's choice, and got a task plan of its own (`m8/PLAN.md`). The house
@@ -5912,7 +5930,7 @@ width, and the record says which of items 60, 92 and 105 the numbers favour, or 
 ### Item 125. `TryEval` over a fused subtree
 
 *Moved to milestone 9's task plan as row 665 on 25 November 2026 (`m9/PLAN.md` 1.1, G3).*
-*Added 30 October 2026 from `m8/VARKA-103.md` 8 (open point 3).* Every `try_` function whose operand
+*Added 30 October 2026 from `m9/VARKA-103.md` 8 (open point 3).* Every `try_` function whose operand
 is not one of the arithmetic forms Spark rewrites into a `NULL`-returning node becomes
 `TryEval(child)` (`expressions/TryEval.scala:90-97`, `:135-141`, `:229-235`, `:268-274`), which
 turns any exception raised in its subtree into a null. Rows 342 and 340 decline it by name, and row
@@ -5927,9 +5945,9 @@ interval fuses with a coverage row, and a subtree with an inexact guard is shown
 ### Item 126. `d + dt` over a stored `INTERVAL DAY` column
 
 *Moved to milestone 9's task plan as row 666 on 25 November 2026 (`m9/PLAN.md` 1.1, G3).*
-*Added 30 October 2026 from `m8/VARKA-103.md` 8 (open point 4, its option (a)).* The date arm reads
+*Added 30 October 2026 from `m9/VARKA-103.md` 8 (open point 4, its option (a)).* The date arm reads
 a stored `INTERVAL DAY` column as its day offset: row 103's day quotient, narrowed to an int under
-the date arm's day guard (`m8/VARKA-103.md` 2.3; `VarkaChronoCompiler.java:527`'s decline today,
+the date arm's day guard (`m9/VARKA-103.md` 2.3; `VarkaChronoCompiler.java:527`'s decline today,
 where `ExtractANSIIntervalDays` fuses only inside `d + CAST(i AS INTERVAL DAY)`). The form is not in
 `m5/PLAN.md` 2.38's list, so it is a scope item rather than a milestone 8 row, by the rule that a
 finding becomes a row only when it serves the milestone's done-when. **Done when** `d + dt` over a

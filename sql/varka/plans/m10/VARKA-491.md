@@ -13,7 +13,7 @@ are needed, and a select by the result takes its ELSE branch on every true lane.
 body meets it wherever it turns a condition word back into a mask: the known-true word
 `kT = toLong(compare) & v0 & v1` folds to `toLong(compare)` when the columns have no nulls (their
 validity words are the constant `-1`). The owner chose to keep the emitter off the pattern
-(24 October 2026) rather than decline the hosts; JDK 27's rewritten rule (`m9/SCOPE.md` item 114)
+(24 October 2026) rather than decline the hosts; JDK 27's rewritten rule (`m10/SCOPE.md` item 114)
 is the longer road.
 
 ## 1. The sites (reviewed 24 October 2026)
@@ -57,7 +57,7 @@ no zero-extension: on AVX2 the guard costs one `and` a site. Where `OPEN` is all
 folds to `word` and the kernel compiles as base's. Elsewhere than x86 the rule cannot apply
 either: C2 has `fromLong` on aarch64 only with SVE2 bitperm and on RISC-V only with RVV, both with
 mask registers. An AVX-512 host without AVX512VL or AVX512BW (Knights Landing) types some masks
-as vectors yet reports `UseAVX` 3; `m9/SCOPE.md` item 115 tests that case.
+as vectors yet reports `UseAVX` 3; `m10/SCOPE.md` item 115 tests that case.
 
 The guard goes on every word a `fromLong` reads, not only on those that can carry a `toLong`: the
 bytes of a site then do not depend on its operands, which the emit cost model needs, and the

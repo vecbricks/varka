@@ -15,7 +15,7 @@ version and runs Spark's suites with Comet loaded; 47 tests are excluded in its 
 each with a reason. Gluten subclasses about 480 of Spark's suites and keeps about 450 per-test
 excludes. Its known-failures gate fails on a new failure and also when a listed failure starts
 to pass, so the list cannot go stale. The record called this "the widest differential available
-and not yet in the record as a row" (`m9/SCOPE.md` item 24, 16 September 2026). The plan review
+and not yet in the record as a row" (`m10/SCOPE.md` item 24, 16 September 2026). The plan review
 added row 271 to milestone 7. The owner chose it as the next test-strength row on 13 October
 2026, and on the same day proposed the literal-lifting step of 3.3.
 

@@ -5,7 +5,7 @@ measured 17 September 2026 in an idle machine window.*
 
 ## 1. Where this came from
 
-`m9/SCOPE.md` item 27 found that `dev/varka_bench_surface.sh`'s one
+`m10/SCOPE.md` item 27 found that `dev/varka_bench_surface.sh`'s one
 `varka` token sets two things - `spark.sql.codegen.varka.enabled` and the Arrow
 cache serializer - while the README said the third and fourth arms "differ only
 by that flag". They differ by two. The engine cannot run without the columnar

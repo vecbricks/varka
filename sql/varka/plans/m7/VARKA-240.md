@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 240 of `m7/PLAN.md`, item 58 step 1 of `m9/SCOPE.md` as `m7/READING.md` 11 refined it: the proof
+Row 240 of `m7/PLAN.md`, item 58 step 1 of `m10/SCOPE.md` as `m7/READING.md` 11 refined it: the proof
 tooling - SMT-LIB files under `sql/varka/proofs/`, run by `dev/varka_prove.sh` in the linters' job -
 and its first proof, the int-lane multiply-high division of VARKA-149. That lowering is checked
 today by exhaustion: `VarkaEmitterDivisionSuite`'s opt-in sweep runs the form over all 2^32
@@ -243,7 +243,7 @@ raised shift changes a constant, not an operation.
 | `.github/workflows/build_and_test.yml` | the linters' step |
 | `dev/varka_nightly.sh` | the `prove` step |
 | `sql/varka/skills/testing-and-debugging.md`, `SKILLS.md` | the lesson of sections 2.1 and 2.5 |
-| `m7/PLAN.md`, `m9/SCOPE.md` | row 240, open question 1's answer, item 58's correction |
+| `m7/PLAN.md`, `m10/SCOPE.md` | row 240, open question 1's answer, item 58's correction |
 
 ## 5. Tests, and what each is for
 

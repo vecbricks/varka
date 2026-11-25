@@ -82,7 +82,7 @@ Non-goal:
 - a guard's condemnation, which keeps the long mask, since its compare is refused anyway;
 - the filters' long conditions (row 503, PR #1262);
 - the floating lanes at two lanes (row 543);
-- `m9/SCOPE.md` item 101's two-lane mask design.
+- `m10/SCOPE.md` item 101's two-lane mask design.
 
 ### A.3 The design
 

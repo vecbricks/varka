@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 257 of `m7/PLAN.md`, from scope item 62 (`m9/SCOPE.md`) and `m7/READING.md` 11. Every JIT
+Row 257 of `m7/PLAN.md`, from scope item 62 (`m10/SCOPE.md`) and `m7/READING.md` 11. Every JIT
 verdict the project takes forks a fresh JVM per class - the deopt guard, the inlining-cliff probe,
 the warm-up probe - because that is the only way to pin an outcome on one class. But a production
 JVM runs many kernels, and the record has two kinds of slow kernel that only a history shows.

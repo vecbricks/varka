@@ -143,7 +143,7 @@ No pinned fixture moves: `emitted_bytes.json`, `emit_cost_audit.json`, the reach
 | `VarkaIrGrammar.java` | `GAP_FUZZ_SEED`, the flag, the three draws, 2.2 and 2.3's arms |
 | `VarkaIrFuzzSuite.scala` | tests 1 and 2, the comment of test 3 |
 | `VarkaWithChildrenSuite.scala` | the comment of test 3 |
-| `sql/varka/plans/m9/VARKA-431.md` | the outcome |
+| `sql/varka/plans/m10/VARKA-431.md` | the outcome |
 
 One pull request, verified by its PR Build and an option-matrix dispatch. The new tests are
 seeded, so they join row 499(c)'s seeded set if that has landed. Then refit A (352a) folds the

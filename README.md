@@ -692,7 +692,7 @@ The milestones:
   expressions and casts over all thirteen, counted by a census of the function
   registry.
 * **Milestone 9**: *coverage* - the scope catalogue is in
-  [`sql/varka/plans/m9/SCOPE.md`](sql/varka/plans/m9/SCOPE.md),
+  [`sql/varka/plans/m10/SCOPE.md`](sql/varka/plans/m10/SCOPE.md),
   driven by a census of TPC-DS, TPC-H and the New York taxi benchmark. What that
   census says: `DateType`, the only type Varka has today, is 3.1% of the columns
   in TPC-DS and TPC-H; `DECIMAL` is the most-aggregated type and strings are 60%

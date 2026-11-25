@@ -46,7 +46,7 @@ one per open row, by `dev/varka_issues.py` on every change to the plan; the
 ones a newcomer can finish in a day carry `good first issue`. The table is the
 source of truth and the issues follow it, so a row is edited in the plan and
 never in the issue. The next milestone's scope catalogue is
-[`m9/SCOPE.md`](sql/varka/plans/m9/SCOPE.md), and design
+[`m10/SCOPE.md`](sql/varka/plans/m10/SCOPE.md), and design
 input there is as welcome as code.
 
 Before writing code for a task, open a GitHub issue with the "Varka: take a

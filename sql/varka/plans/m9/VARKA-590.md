@@ -1,8 +1,8 @@
 # VARKA-590: a pull request's Build tests its head merged with Varka's master
 
-*Moved to milestone 9 on 23 November 2026 with row 590 (`SCOPE.md` item 138). A bare
+*Moved to milestone 9 on 23 November 2026 with row 590 (`m10/SCOPE.md` item 138). A bare
 `PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
-unless that plan moved too (`SCOPE.md` item 138).*
+unless that plan moved too (`m10/SCOPE.md` item 138).*
 
 *25 November 2026: milestone 9's task plan takes the row (`m9/PLAN.md` 3).*
 

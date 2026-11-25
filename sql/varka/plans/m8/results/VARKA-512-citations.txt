@@ -12,7 +12,7 @@ the other 167 are held to the files their passage cites.
 Quotes the stricter check rejected on master: 54, in 17 documents, every one of which had passed
 on an uncited file whose digits matched.
   given their citation: 13, in 6 passages of 5 documents
-    sql/varka/plans/m9/VARKA-64.md       4 (the 128-bit parity companion, named in full) and
+    sql/varka/plans/m10/VARKA-64.md       4 (the 128-bit parity companion, named in full) and
                                          1 (the 128-bit throughput companion)
     sql/varka/plans/m4/VARKA-54.md       1 (the parity file the control was read from)
     sql/varka/plans/m5/PLAN.md           2 (the TIME surface's engine-off and stock files)

@@ -703,7 +703,7 @@ public final class VarkaTypes {
           List.of(LaneType.LONG), new Conformance.Suite("DayTimeInterval"));
       // The zoned type is the same eight bytes as the others on the long lane, but its
       // differences and interval additions are computed on local date-times in the session time
-      // zone, which is not lane arithmetic (`m9/SCOPE.md` item 31).
+      // zone, which is not lane arithmetic (`m10/SCOPE.md` item 31).
       case TIMESTAMP -> new Info(id, null, "TIMESTAMP",
           new Admission.Declined("its arithmetic is in the session time zone, which is not lane "
               + "arithmetic"),

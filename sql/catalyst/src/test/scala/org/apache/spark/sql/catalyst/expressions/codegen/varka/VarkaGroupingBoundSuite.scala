@@ -182,7 +182,7 @@ class VarkaGroupingBoundSuite extends VarkaEmitterTestBase {
     // one group more for fewer ops, and that group's two calls (52 bytes in the masked driver)
     // can put the driver over, which the fallback answers by dropping the exact grouping. The
     // corpus shapes are not cut to the greedy driver and get no excuse (`m8/PLAN.md` row 644;
-    // the capped retry that would remove the fallback is `m9/SCOPE.md` item 139).
+    // the capped retry that would remove the fallback is `m10/SCOPE.md` item 139).
     val excused = if (options.driverOutputTable) 0 else 1
     val exactOptions = options.withExactGrouping(true)
     val totals = scala.collection.mutable.LinkedHashMap[String, (Int, Int)]()

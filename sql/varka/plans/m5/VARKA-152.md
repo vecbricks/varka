@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-`m9/SCOPE.md` item 11 argues that which physical form a value lives in
+`m10/SCOPE.md` item 11 argues that which physical form a value lives in
 should be a compiler decision, and on 19 September 2026 it named the first case
 that needs no engine to test: a `TIME` held as `(seconds of day: int32,
 nanoseconds within the second: int32)` instead of Spark's nanoseconds of day in
@@ -85,7 +85,7 @@ Committed with the benchmark and before the first regeneration.
   `-128bit-results.txt`, `-provenance.txt` - written by
   `dev/varka_bench_regen.sh catalyst VarkaTimeBenchmark`
 * `dev/varka_bench_ids.sh` - the new file in the default list
-* `m5/PLAN.md` row 152 and section 2.88; `m9/SCOPE.md`
+* `m5/PLAN.md` row 152 and section 2.88; `m10/SCOPE.md`
   item 11's `TIME` row points here once the numbers exist.
 
 ## 5. What this task does not do

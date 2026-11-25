@@ -8,7 +8,7 @@ its expected errors and its reducers offer that Varka does not have? Paths are r
 for reading only; `docs/` is the repository's. Varka's side was read at this worktree's base,
 `5c660201b35`. **[V]** means the author read the code; **[I]** means inferred. Nothing was built
 or run, and no code is copied. `m7/READING.md` 254-274 (PQS, NoREC, TLP and QPG from the papers),
-`m5/PLAN.md` 3058-3069 (TLP needs no second engine) and `m9/SCOPE.md` 4528 (TLP's aggregate,
+`m5/PLAN.md` 3058-3069 (TLP needs no second engine) and `m10/SCOPE.md` 4528 (TLP's aggregate,
 GROUP BY, DISTINCT and HAVING oracles) are not repeated.
 
 ## 1. What SQLancer is
@@ -180,7 +180,7 @@ reports performance; DQE needs UPDATE and DELETE. CODDTest replaces an expressio
 constant (`SQLite3CODDTestOracle.java:127-138`), and at the Spark level `ConstantFolding` would
 hand the constant to Spark's `eval` before Varka saw it, which the IR fuzzer's literals-in-columns
 variant already covers from the other side. QPG's steering (section 3 point 1). TLP's aggregate
-oracles stay `m9/SCOPE.md` 4528; DuckDB's form, `AVG` as `SUM` over `COUNT` across the three parts
+oracles stay `m10/SCOPE.md` 4528; DuckDB's form, `AVG` as `SUM` over `COUNT` across the three parts
 (`duckdb/test/DuckDBQueryPartitioningAggregateTester.java:120-145`), is its reference when taken.
 
 ## 7. Proposed actions

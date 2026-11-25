@@ -90,7 +90,7 @@ merge, and the milestone's **Done** rows already hold the material.
 Run on 3 October 2026, after row 236 closed with #611:
 
 * **Step 2, the documents.** Every file naming a milestone as current was grepped for
-  (`milestone in flight`, `PLAN_MILESTONE_<n>.md`, `m9/SCOPE.md`): the README named
+  (`milestone in flight`, `PLAN_MILESTONE_<n>.md`, `m10/SCOPE.md`): the README named
   milestone 6 as in flight in its Contributing section and described it as open in its status
   list; `CONTRIBUTING.md` named it "as this is written"; `VISION.md` named milestone 5 as the
   next step in two status notes. Five places, all corrected to milestone 7 in flight and

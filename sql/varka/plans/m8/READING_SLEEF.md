@@ -1,7 +1,7 @@
 # Reading for milestone 8: what SLEEF offers the math family
 
 Read on 15 October 2026 at the owner's request: what do SLEEF's sources and tests give rows 345,
-346, 357, 358, 367 and `m9/SCOPE.md` 98? Paths are relative to `/home/max/proj/sleef` at commit
+346, 357, 358, 367 and `m10/SCOPE.md` 98? Paths are relative to `/home/max/proj/sleef` at commit
 `7623d6c` (25 December 2025). **The clone is not what the JDK binds**: its `CMakeLists.txt` says
 `SLEEF_VERSION 4.0.0` (development, after 3.9); the JDK 25 binds 3.6.1; the clone is shallow, so
 no diff against 3.6.1 was possible. `CHANGELOG.adoc` names 3.8 "Fix oflow bound in log1p(f), exp
