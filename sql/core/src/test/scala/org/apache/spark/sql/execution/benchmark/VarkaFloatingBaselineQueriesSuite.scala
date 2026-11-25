@@ -17,8 +17,6 @@
 
 package org.apache.spark.sql.execution.benchmark
 
-import java.util.Optional
-
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
@@ -29,8 +27,9 @@ import org.apache.spark.sql.execution.VarkaSharedSessions
  * The floating baseline's sections, run at a small scale on both sessions in every build, so a
  * section that no longer parses or that the two sessions answer differently fails a pull request
  * rather than the runner dispatch that times it (VARKA-377 5). It also makes the benchmark's own
- * fuse check, that each section's plan on the Varka session has the section's fusion class, so a
- * row that changes how a section fuses sets the section's new class in the same pull request.
+ * fuse check, that each section's plan on the Varka session has the section's fusion class and
+ * that a `WHOLE` section runs every batch as a kernel, so a row that changes how a section fuses
+ * sets the section's new class in the same pull request.
  */
 class VarkaFloatingBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
@@ -77,8 +76,7 @@ class VarkaFloatingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
       forEachTwoLaneRefusal { declines =>
         for (s <- VarkaFloatingBaselineBenchmark.sections(declines).asScala) {
           withClue(s"${s.title}, refusal $declines") {
-            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+            VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
           }
         }
       }

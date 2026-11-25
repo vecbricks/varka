@@ -20,11 +20,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
-import org.apache.spark.sql.execution.SparkPlan;
 import org.apache.spark.sql.execution.VarkaSessionEmit;
 
 /**
@@ -69,9 +66,10 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * {@code extract(HOUR FROM dt) >= 12} at both densities: of it only the {@code IS NOT NULL}
  * Spark infers of the column would fuse, and a filter fusing nothing else stays whole on the row
  * path (VARKA-598), so both arms time the row path. Each
- * {@code WHOLE} control is also checked to run every batch as a kernel ({@link #requireKernel}),
- * so that a batch handed back to the row path fails the run rather than time the row path as the
- * control. A session that refuses a filter's condition in a kernel driven at 64 bits
+ * {@code WHOLE} control is also checked to run every batch as a kernel
+ * ({@link VarkaSqlBenchmarkBase#requireKernel}, which the fuse check makes on every {@code WHOLE}
+ * section), so that a batch handed back to the row path fails the run rather than time the row
+ * path as the control. A session that refuses a filter's condition in a kernel driven at 64 bits
  * ({@code declinesLongConditions}, VARKA-503), the 128-bit companion's host by default, leaves
  * the filter control to the row path too, so both filters are {@code NONE} there and both arms
  * of each time the row path. The same refusal leaves the checked day-time arithmetic measured
@@ -226,37 +224,6 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
     return out;
   }
 
-  /**
-   * Runs {@code s} once on the Varka session and fails unless its Varka nodes ran a kernel batch
-   * and handed none to another path: a kernel's guard gives a batch it cannot compute to Spark's
-   * row path, and a timing of such batches is the row path's. This is the check of
-   * {@link VarkaSizeLadder#varkaFused}, which reads only a projection's node, so the filter
-   * control's {@code VarkaFilterColumnarToRowExec} needs its own; the blend control's projection
-   * node passes the same check. The plan's operators come from
-   * {@link VarkaSqlBenchmarkBase#operators}, and a Varka node is one with the kernel counter.
-   */
-  static void requireKernel(SparkSession varka, Section s) {
-    Dataset<Row> df = varka.sql(s.query());
-    df.queryExecution().toRdd().count();
-    List<SparkPlan> nodes = operators(df.queryExecution().executedPlan()).stream()
-        .filter(p -> p.metrics().contains("numVarkaBatches")).toList();
-    long batches = 0;
-    long fallbacks = 0;
-    for (SparkPlan node : nodes) {
-      batches += node.metrics().apply("numVarkaBatches").value();
-      for (String name : VarkaSizeLadder.FALLBACK_METRICS) {
-        if (node.metrics().contains(name)) {
-          fallbacks += node.metrics().apply(name).value();
-        }
-      }
-    }
-    if (nodes.isEmpty() || batches == 0 || fallbacks != 0) {
-      throw new IllegalStateException(s.title() + " is WHOLE but its varka on arm would time "
-          + "the row path: " + nodes.size() + " Varka nodes ran " + batches + " kernel batches and "
-          + "handed " + fallbacks + " to another path: " + s.query());
-    }
-  }
-
   @Override
   public void runBenchmarkSuite(String[] mainArgs) {
     stopLeftoverSessions();
@@ -276,12 +243,7 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
       List<Section> sections = sections(
           VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
       for (Section s : sections) {
-        withConf(varka, s.conf(), () -> {
-          requireBaseline(varka, s.title(), s.query(), s.fusion());
-          if (s.fusion() == Fusion.WHOLE) {
-            requireKernel(varka, s);
-          }
-        });
+        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fusion()));
       }
       for (Section s : sections) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),

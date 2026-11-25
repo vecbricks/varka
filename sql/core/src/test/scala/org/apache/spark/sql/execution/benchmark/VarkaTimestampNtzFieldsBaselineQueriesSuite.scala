@@ -23,6 +23,7 @@ import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.VarkaSharedSessions
+import org.apache.spark.sql.execution.benchmark.VarkaSqlBenchmarkBase.Fusion
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DateType, TimestampNTZType, TimeType}
 
@@ -47,8 +48,8 @@ import org.apache.spark.sql.types.{DateType, TimestampNTZType, TimeType}
  *
  * The fuse check is the benchmark's own, made here too: a section fuses exactly when its class
  * lists it as fusing, and none is listed while the class is a baseline. A step of VARKA-340 that
- * fuses a section lists it, and this check follows the list; with the benchmark's fuse check
- * property set to false it is skipped, as the benchmark's plan check is.
+ * fuses a section lists it, and this check follows the list, a listed section running every batch
+ * as a kernel too; with the benchmark's fuse check property set to false it is skipped.
  */
 class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
@@ -178,7 +179,8 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
           s"SELECT ntz FROM $VIEW WHERE ntz < ntzn").isPresent === !declines)
         for (s <- sections().asScala) {
           withClue(s"${s.title}, refusal $declines") {
-            assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s.query).isPresent === s.fuses)
+            val fusion = if (s.fuses) Fusion.WHOLE else Fusion.NONE
+            VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, fusion)
           }
         }
       }

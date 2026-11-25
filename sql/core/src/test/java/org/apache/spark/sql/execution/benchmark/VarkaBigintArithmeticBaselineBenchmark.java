@@ -65,10 +65,11 @@ import org.apache.spark.sql.internal.SQLConf;
  * columns would fuse beside a conjunct left on the row path (VARKA-598) does not move the
  * filter: where its sum fuses, nothing is left on the row path and it is {@code WHOLE}; where
  * the refusal applies, it declines every conjunct over a long column, the inferred null tests
- * among them, and the filter is {@code NONE}, as before that rule. A {@code WHOLE} projection
- * must also run every batch as a kernel ({@link VarkaSizeLadder#varkaFused}); the filter's node
- * is no projection. A row that fuses more of a section sets its new class, so that its fusion
- * cannot turn a baseline section into a fused one unnoticed.
+ * among them, and the filter is {@code NONE}, as before that rule. A {@code WHOLE} section, the
+ * filter among them, must also run every batch as a kernel
+ * ({@link VarkaSqlBenchmarkBase#requireKernel}, made by the fuse check). A row that fuses more of
+ * a section sets its new class, so that its fusion cannot turn a baseline section into a fused
+ * one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -101,16 +102,7 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
    * against before it times anything. The control {@code l ^ l2} cannot overflow either, but is
    * pinned to ANSI all the same, so that its plan does not follow the session's default.
    */
-  record Section(String title, String query, Map<String, String> conf, Fusion fusion) {
-
-    /**
-     * Whether the run checks every batch ran as a kernel: a {@code WHOLE} projection's, which
-     * {@link VarkaSizeLadder#varkaFused} reads; the filter's node is no projection.
-     */
-    boolean checksKernels() {
-      return fusion == Fusion.WHOLE && !query.contains(" WHERE ");
-    }
-  }
+  record Section(String title, String query, Map<String, String> conf, Fusion fusion) {}
 
   /**
    * The table: {@code l}, {@code l2} and {@code m} {@code BIGINT}s with no null, {@code l_n}
@@ -244,15 +236,9 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
       // The refusal as the Varka session resolves it, as VarkaBooleanOutputBenchmark reads it.
       List<Section> sections = sections(
           VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
-      // Each section fuses as its class lists it, and a WHOLE projection runs every batch as a
-      // kernel.
+      // Each section fuses as its class lists it, and a WHOLE one runs every batch as a kernel.
       for (Section s : sections) {
-        withConf(varka, s.conf(), () -> {
-          requireBaseline(varka, s.title(), s.query(), s.fusion());
-          if (s.checksKernels()) {
-            VarkaSizeLadder.varkaFused(varka, s.query());
-          }
-        });
+        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fusion()));
       }
       for (Section s : sections) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),
