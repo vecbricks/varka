@@ -489,8 +489,9 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       // as a leaf's load is, by no weight: per part an iota (zero, addIndex), the second part's
       // offset, its half, its parity times the lane count and their sum, and under
       // REARRANGE the conversion to a shuffle (VarkaBodyEmitter.emitDecimalZip).
-      val zip = if (!all.exists(n => n.isInstanceOf[WidenDecimal] ||
-          n.isInstanceOf[VarkaVectorIR.InterleaveDecimal])) 0
+      val zipsDecimal = all.exists(n => n.isInstanceOf[WidenDecimal] ||
+        n.isInstanceOf[VarkaVectorIR.InterleaveDecimal])
+      val zip = if (!zipsDecimal) 0
         else 2 * 6 + 1 + (if (options.decimalStore() == DecimalStore.REARRANGE) 2 else 0)
       val overhead = loads + lits + store + zip
       val pairedColumns = all.toSeq.collect { case w: DecimalWord => w }
