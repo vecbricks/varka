@@ -58,12 +58,14 @@ ops_fork() {
 
 # ops_regen_inputs <worktree>: the files the branch changes against its merge base with
 # origin/master that are inputs of the generated files. Inputs are everything but tooling, CI,
-# plans, bench and prose; the generator scripts and the generated docs table always count.
+# plans, bench, committed benchmark results (sql/<module>/benchmarks/*.txt) and prose; the
+# generator scripts and the generated docs table always count.
 ops_regen_inputs() {
   local own
   own=$(git -C "$1" diff --name-only --no-renames \
     "$(git -C "$1" merge-base HEAD origin/master)" HEAD 2>/dev/null)
-  echo "$own" | grep -vE '^(\.github/|sql/varka/(plans|bench|matrix|skills|ci)/)|^dev/.*\.(py|sh|tsv|json)$|\.md$'
+  echo "$own" | grep -vE '^(\.github/|sql/varka/(plans|bench|matrix|skills|ci)/)|^dev/.*\.(py|sh|tsv|json)$|\.md$' \
+    | grep -vE '^sql/[a-z]+/benchmarks/[^/]+\.txt$'
   echo "$own" | grep -E '^dev/(varka_regen_generated\.sh|varka_generated_merge\.py|varka_census\.py|varka_coverage[a-z_]*\.py)$|^docs/sql-varka\.md$'
   return 0
 }
