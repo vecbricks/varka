@@ -23,34 +23,104 @@
 # time, and one job merges their runs and reports, the declining check comparing every
 # configuration's fused batches with the defaults' (dev/varka_matrix_bins.py). A bin that frees a
 # slot hands it to the next, so a slow runner holds back only its own bin. A pull request runs one
-# configuration in its varka-scoped jobs; this runs all of them once a week and on dispatch. See
+# configuration in its varka-scoped jobs; this runs all of them on dispatch. See
 # dev/varka_matrix.sh.
+#
+# On vecbricks/varka a dispatch must name a pull request, `pr` and `sha`, and tests that head, so
+# its runners can take a pull request's matrix beside the fork's (MaxGekk/spark), whose dispatches
+# test the dispatched branch. It runs at most 16 bins at a time there by default and compiles the
+# test classes itself, since the fork's Build artifacts need a token it lacks. Runs there do not
+# queue against each other: ~/varka-ops' dispatcher starts one at a time. There is no weekly run
+# until row 522 (m9/VARKA-522.md 2.1) moves the schedule to the fork.
 name: Varka option matrix
+run-name: >-
+  ${{ inputs.pr != '' && format('Varka option matrix of #{0} at {1}', inputs.pr, inputs.sha)
+  || 'Varka option matrix' }}
 
 on:
   schedule:
     # Sunday 03:00 UTC, after the weekly full Spark matrix has started and before Monday's
-    # pull requests.
+    # pull requests. The build job admits it nowhere until row 522 turns it to the fork.
     - cron: '0 3 * * 0'
   workflow_dispatch:
+    inputs:
+      pr:
+        description: 'On vecbricks/varka only, and required there: a pull request number of vecbricks/varka, whose head, the sha input, the run tests instead of the dispatched ref.'
+        required: false
+        default: ''
+      sha:
+        description: 'With pr: the head commit of the pull request, all 40 hex digits. The build job fails when refs/pull/<pr>/head is another commit.'
+        required: false
+        default: ''
+      slots:
+        description: 'At most this many bins at once. Blank for 16 on vecbricks/varka, which leaves its benchmarks two of its 20 runners, and 38 elsewhere.'
+        required: false
+        default: ''
+      plant-straggler:
+        description: 'A bin (bNNN) whose units step sleeps past its deadline, to test the stop'
+        required: false
+        default: ''
+
+# Read-only: with `pr` the jobs build and run a pull request's code. `actions: read` lets the
+# build job read the Build runs and artifacts it reuses. report-failure keeps a wider block.
+permissions:
+  contents: read
+  actions: read
+
+env:
+  # The repository whose pull requests `pr` names, also on the fork, whose own pull requests are
+  # apache/spark's.
+  VARKA_BASE_REPO: vecbricks/varka
 
 jobs:
   build:
     name: "Option matrix: build and plan"
-    # Never on apache/spark, whose tree has no Varka. The Sunday schedule runs on vecbricks/varka
-    # only: the fork's master follows this project's (varka-fork-sync.yml) and carries this file,
-    # and a schedule there does nothing. A dispatch runs on either repository. The jobs after
+    # Never on apache/spark, whose tree has no Varka, and never on the schedule: vecbricks/varka
+    # has 20 runners and no Build to reuse, and the fork's turn waits for row 522. The jobs after
     # this one need it, so they are skipped with it.
-    if: >-
-      github.repository != 'apache/spark'
-      && (github.event_name != 'schedule' || github.repository == 'vecbricks/varka')
+    if: github.repository != 'apache/spark' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
       bins: ${{ steps.plan.outputs.bins }}
     steps:
+    # vecbricks/varka, with 20 runners and no Build to reuse, tests only a pull request's head,
+    # which the run's name gives, so the head must still be that commit. The fork tests the
+    # dispatched branch: there the commit is the run's own, which the CI tools read
+    # (dev/varka_ci_ledger.py), so `pr` is refused.
+    - name: Check the inputs
+      env:
+        PR: ${{ inputs.pr }}
+        SHA: ${{ inputs.sha }}
+        SLOTS: ${{ inputs.slots }}
+      run: |
+        if [ -n "$SLOTS" ] && ! [[ "$SLOTS" =~ ^[1-9][0-9]?$ && "$SLOTS" -le 38 ]]; then
+          echo "::error::slots must be a number from 1 to 38, not '$SLOTS'"; exit 1
+        fi
+        if [ "$GITHUB_REPOSITORY" != "$VARKA_BASE_REPO" ]; then
+          if [ -n "$PR$SHA" ]; then
+            echo "::error::pr and sha are for $VARKA_BASE_REPO; dispatch the branch here"; exit 1
+          fi
+          exit 0
+        fi
+        if ! [[ "$PR" =~ ^[1-9][0-9]*$ && "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::pr must be a number and sha 40 hex digits, not '$PR' and '$SHA'"; exit 1
+        fi
+        head=$(git ls-remote "https://github.com/$VARKA_BASE_REPO.git" "refs/pull/$PR/head" |
+          cut -f1)
+        if [ "$head" != "$SHA" ]; then
+          echo "::error::refs/pull/$PR/head of $VARKA_BASE_REPO is ${head:-missing}, not $SHA"
+          exit 1
+        fi
     - name: Checkout
       uses: actions/checkout@v6
+      with:
+        repository: ${{ inputs.pr != '' && env.VARKA_BASE_REPO || github.repository }}
+        ref: ${{ inputs.pr != '' && inputs.sha || '' }}
+        persist-credentials: false
+    # A pull request's code writes these directories, and its run saves them in the dispatched
+    # ref's scope, master's, so its keys start with `pr-`, which no other run's restore-keys
+    # match, and the engine's own cache is not saved.
     - name: Cache SBT and Maven
       uses: actions/cache@v4
       with:
@@ -58,14 +128,16 @@ jobs:
           build/apache-maven-*
           build/*.jar
           ~/.sbt
-        key: build-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
+        key: ${{ inputs.pr != '' && 'pr-' || '' }}build-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
         restore-keys: |
           build-
     - name: Cache Coursier local repository
       uses: actions/cache@v4
       with:
         path: ~/.cache/coursier
-        key: varka-option-matrix-coursier-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
+        key: >-
+          ${{ inputs.pr != '' && 'pr-' || '' }}varka-option-matrix-coursier-${{
+          hashFiles('**/pom.xml', '**/plugins.sbt') }}
         restore-keys: |
           varka-option-matrix-coursier-
     - name: Add Google's mirror of Maven Central to the sbt launcher
@@ -80,17 +152,26 @@ jobs:
         java-version: '25'
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
+      with:
+        cache: ${{ inputs.pr == '' }}
     # A push that builds catalyst or sql runs the Build's varka-scoped jobs, beside Spark's
     # matrix when it changes files outside Varka's, and their classes job archives the test
     # classes of its commit: this takes that archive, waiting for it while the Build may still
     # upload it, and compiles them itself only when no Build of the commit will
     # (dev/varka_matrix_reuse.py), whose `missing` output says why. Any failure of the lookup or
-    # the download leaves the compile.
+    # the download leaves the compile. A run with `pr`, on vecbricks/varka, compiles: its Build is
+    # the fork's, whose artifacts this job's token has not been shown to download.
     - name: Find the Build's test classes
       id: reuse
       env:
         GH_TOKEN: ${{ github.token }}
+        PR: ${{ inputs.pr }}
       run: |
+        if [ -n "$PR" ]; then
+          printf 'run=\nmissing=pr\nreason=%s\n' "a run of pull request #$PR reuses no Build" \
+            >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
         ./dev/varka_matrix_reuse.py "$GITHUB_REPOSITORY" "$GITHUB_SHA" >> "$GITHUB_OUTPUT" ||
           printf 'run=\nmissing=error\n' >> "$GITHUB_OUTPUT"
     - name: Download the Build's test classes
@@ -173,6 +254,8 @@ jobs:
             why="$REUSE_REASON; wait for it, then dispatch this again"
           elif [ "$REUSE_MISSING" = admit ]; then
             why="$REUSE_REASON; dispatch the matrix after the Build finishes"
+          elif [ "$REUSE_MISSING" = pr ]; then
+            why="$REUSE_REASON"
           elif [ "$REUSE_MISSING" = none ]; then
             why="$REUSE_REASON: a change that builds neither catalyst nor sql, a Build held by"
             why+=" ci-hold, or no Build yet; dispatch this again once the Build's Varka jobs"
@@ -258,11 +341,12 @@ jobs:
         if-no-files-found: ignore
         retention-days: 30
 
-  # The matrix's own bins take 30 slots and the platform bins (VARKA-505: the defaults under
-  # `isa=avx2`, `isa=w128` and `isa=arm`, dev/varka_matrix_bins.py PLATFORMS) 8 more, which is the
-  # fork's 40 less the build and report jobs; a bin's `runner` is its job's. One job holds both,
-  # so max-parallel is the sum; the planner lists the platform bins first, so they start at once
-  # and the matrix's bins take the other slots. A run has about a hundred bin jobs, 11 of them
+  # On the fork the matrix's own bins take 30 slots and the platform bins (VARKA-505: the defaults
+  # under `isa=avx2`, `isa=w128` and `isa=arm`, dev/varka_matrix_bins.py PLATFORMS) 8 more, which
+  # is the fork's 40 less the build and report jobs; a bin's `runner` is its job's. One job holds
+  # both, so max-parallel is the sum; the planner lists the platform bins first, so they start at
+  # once and the matrix's bins take the other slots. On vecbricks/varka all bins share 16 slots,
+  # the `slots` input, of its 20. A run has about a hundred bin jobs, 11 of them
   # platform bins (7 on x86, 4 on Arm) in run 42187218199, which took 39 minutes. A push chain's
   # job ceiling is 40 less the platform bins' 11, and the rows that run beside a matrix wait for
   # it.
@@ -273,7 +357,9 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 38
+      max-parallel: >-
+        ${{ fromJSON(inputs.slots != '' && inputs.slots
+        || (github.repository == 'vecbricks/varka' && '16' || '38')) }}
       matrix: ${{ fromJSON(needs.build.outputs.bins) }}
     steps:
     # The run's wall time is its slowest bin's, so a setup step that stalls holds back the whole
@@ -285,10 +371,18 @@ jobs:
       uses: actions/checkout@v6
       timeout-minutes: 3
       continue-on-error: true
+      with:
+        repository: ${{ inputs.pr != '' && env.VARKA_BASE_REPO || github.repository }}
+        ref: ${{ inputs.pr != '' && inputs.sha || '' }}
+        persist-credentials: false
     - name: Checkout, again
       if: steps.checkout.outcome != 'success'
       uses: actions/checkout@v6
       timeout-minutes: 5
+      with:
+        repository: ${{ inputs.pr != '' && env.VARKA_BASE_REPO || github.repository }}
+        ref: ${{ inputs.pr != '' && inputs.sha || '' }}
+        persist-credentials: false
     - name: Install Java 25
       id: java
       uses: actions/setup-java@v5
@@ -352,17 +446,37 @@ jobs:
     # directory of its own named by the bin, so that the report job can merge every bin's runs.
     # The small-tree series at size 4, which pull requests no longer run (VARKA-269 9): every
     # configuration meets every tree to size 4, IfElse included.
+    #
+    # A runner can be many times slower than the pool: run 40942811546's b021 ran 91 minutes on an
+    # EPYC 9V74 against a median bin of 8, and a job keeps the runner it was given. So a watchdog
+    # beside the units stops them at three times the bin's planned seconds, floored at four of
+    # the planner's 480 s lanes, 32 minutes: the longest green units step of 19 runs took 24.3
+    # (m8/results/VARKA-570-units-history.txt). It writes what ran to
+    # <bin>-straggler/straggler.txt and fails the step with a `Straggler`
+    # annotation and exit 3, so the run completes and its failed jobs can be rerun on other
+    # runners. Each unit runs in a process group of its own, so that it is stopped by its group
+    # and never by a pattern. dev/varka_bin_units_test.py runs this text.
     - name: Run this bin's units
       env:
         UNITS: ${{ matrix.units }}
         BIN: ${{ matrix.bin }}
+        PLAN_SECONDS: ${{ matrix.seconds }}
+        PLANT: ${{ inputs.plant-straggler }}
+        DEADLINE_FLOOR: '1920'
+        GRACE: '30'
       run: |
         out=target/varka-units/$BIN
+        strag=$out/$BIN-straggler
         mkdir -p "$out"
+        deadline=$((3 * PLAN_SECONDS))
+        [ "$deadline" -ge "$DEADLINE_FLOOR" ] || deadline=$DEADLINE_FLOOR
+        STARTED=$(date +%s)
+        export out strag deadline STARTED
         # The step's shell is bash -e: a unit's status is captured, so that a failing unit
         # neither ends the step before the others run nor goes unrecorded.
+        # shellcheck disable=SC2329 # run in its own group, by bash -c
         run_unit() {
-          local k=$1 config=$2 module=$3 suites=$4 flags=$5 mode status=0 flag
+          local k=$1 config=$2 module=$3 suites=$4 flags=$5 mode status=0 flag t0=$SECONDS
           if [ "$config" = defaults ]; then
             mode=(--defaults)
           elif [ -n "$flags" ] || [[ "$config" == isa=* ]]; then
@@ -386,23 +500,106 @@ jobs:
           ./dev/varka_matrix.sh --skip-build --build-dir target/varka-matrix --runs-only \
             --out "$out/$BIN-u$k" --leaf-suffix "$BIN-$k" --module "$module" --suites "$suites" \
             "${mode[@]}" --jvm-arg -Dvarka.series.size=4 > "$out/$BIN-u$k.log" 2>&1 || status=$?
+          echo "$((SECONDS - t0))" > "$out/$BIN-u$k.seconds"
           echo "$status" > "$out/$BIN-u$k.exit"
         }
-        k=0 running=0
+        # Signals every unit still without an exit file, by its process group.
+        # shellcheck disable=SC2329 # run in its own group, by bash -c
+        stop_units() {
+          local f
+          for f in "$out"/*-u*.pgid; do
+            [ -e "$f" ] && [ ! -e "${f%.pgid}.exit" ] && kill "-$1" -- "-$(cat "$f")" 2>/dev/null
+          done
+          return 0
+        }
+        # shellcheck disable=SC2329 # run in its own group, by bash -c
+        watchdog() {
+          local f now cpu
+          sleep "$deadline"
+          # From here it finishes what it starts: the TERM the step sends its group once the
+          # units end no longer stops it, nor the sleep of its grace.
+          trap '' TERM
+          now=$(date +%s)
+          cpu=$(grep -h -m1 '^CPU' "$out/$BIN-platform/platform.txt" 2>/dev/null)
+          cpu=${cpu#CPU: }
+          mkdir -p "$strag"
+          {
+            echo "$BIN: planned $PLAN_SECONDS s, deadline $deadline s, stopped at" \
+              "$((now - STARTED)) s"
+            echo "CPU: ${cpu:-unknown}"
+            for f in "$out"/*-u*.unit; do
+              [ -e "$f" ] || continue
+              if [ -e "${f%.unit}.exit" ]; then
+                echo "finished, exit $(cat "${f%.unit}.exit") in $(cat "${f%.unit}.seconds") s:" \
+                  "$(cat "$f")"
+              else
+                echo "running, stopped: $(cat "$f")"
+              fi
+            done
+          } > "$strag/straggler.tmp"
+          mv "$strag/straggler.tmp" "$strag/straggler.txt"
+          stop_units TERM
+          sleep "$GRACE"
+          stop_units KILL
+          echo "::error title=Straggler::$BIN ran $(((now - STARTED) / 60)) min against a plan" \
+            "of $(((PLAN_SECONDS + 30) / 60)) min on ${cpu:-an unknown CPU}; stopped"
+        }
+        export -f run_unit stop_units watchdog
+        # setsid execs in place, since a background job of a shell without job control is never
+        # a group leader, so $! is the new group's id.
+        setsid bash -c watchdog &
+        wpid=$!
+        # The dispatch input plant-straggler: this bin sleeps past its deadline, as a slow runner
+        # would, and the watchdog stops it.
+        if [ -n "$PLANT" ] && [ "$PLANT" = "$BIN" ]; then
+          echo "planted straggler: sleep past the deadline" > "$out/$BIN-uplanted.unit"
+          setsid sleep $((deadline + 600)) &
+          echo "$!" > "$out/$BIN-uplanted.pgid"
+          wait "$!" || true
+        fi
+        # The units' PIDs, so that neither wait waits on the watchdog.
+        running=()
+        reap_one() {
+          local done_pid="" p keep=()
+          wait -n -p done_pid "${running[@]}" || true
+          for p in "${running[@]}"; do
+            if [ "$p" != "$done_pid" ] && kill -0 "$p" 2>/dev/null; then keep+=("$p"); fi
+          done
+          running=("${keep[@]}")
+        }
+        k=0
         while IFS='|' read -r config module suites flags; do
           [ -n "$config" ] || continue
-          run_unit "$k" "$config" "$module" "$suites" "$flags" &
-          k=$((k + 1)) running=$((running + 1))
-          if [ "$running" -ge 2 ]; then wait -n || true; running=$((running - 1)); fi
+          if [ -e "$strag/straggler.txt" ]; then
+            echo "not run: $config|$module|$suites" >> "$strag/straggler.txt"
+          else
+            echo "$config|$module|$suites" > "$out/$BIN-u$k.unit"
+            setsid bash -c 'run_unit "$@"' _ "$k" "$config" "$module" "$suites" "$flags" &
+            echo "$!" > "$out/$BIN-u$k.pgid"
+            running+=("$!")
+            if [ "${#running[@]}" -ge 2 ]; then reap_one; fi
+          fi
+          k=$((k + 1))
         done <<< "$UNITS"
-        wait || true
+        while [ "${#running[@]}" -gt 0 ]; do reap_one; done
+        # A bin on time ends with its units: the watchdog, still asleep, is stopped with its
+        # sleep; one that has fired ignores this and is waited for.
+        kill -TERM -- "-$wpid" 2>/dev/null || true
+        wait "$wpid" || true
         status=0
         for f in "$out"/*-u*.exit; do
+          [ -e "$f" ] || continue
           if [ "$(cat "$f")" != 0 ]; then
             echo "== ${f%.exit}.log:"; tail -40 "${f%.exit}.log"; status=1
           fi
         done
+        if [ -e "$strag/straggler.txt" ]; then
+          echo "== $strag/straggler.txt:"; cat "$strag/straggler.txt"; status=3
+        fi
         exit "$status"
+    # A rerun's upload of the same name keeps the earlier attempt's artifact, a straggler's record
+    # among them, and the report's download takes the newest of each name: run 40942811546's
+    # attempt 2 found two varka-option-matrix-b021 and downloaded the rerun's alone.
     - name: Upload the bin's runs
       if: always()
       uses: actions/upload-artifact@v4
@@ -411,6 +608,7 @@ jobs:
         path: |
           target/varka-units/${{ matrix.bin }}/*-platform/platform.txt
           target/varka-units/${{ matrix.bin }}/*-setup/retries.txt
+          target/varka-units/${{ matrix.bin }}/*-straggler/straggler.txt
           target/varka-units/${{ matrix.bin }}/*-u*.log
           target/varka-units/${{ matrix.bin }}/*-u*/runs/*/name
           target/varka-units/${{ matrix.bin }}/*-u*/runs/*/*/exit
@@ -430,6 +628,10 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v6
+      with:
+        repository: ${{ inputs.pr != '' && env.VARKA_BASE_REPO || github.repository }}
+        ref: ${{ inputs.pr != '' && inputs.sha || '' }}
+        persist-credentials: false
     - name: Download every bin's runs
       uses: actions/download-artifact@v4
       with:
@@ -438,6 +640,11 @@ jobs:
         merge-multiple: true
     # Every unit's runs/ into one: a configuration's directory gathers the JVM directories of all
     # its units, which their bin names keep apart; the report then reads one run of the matrix.
+    # A straggler's units are merged too. The group TERM ends dev/varka_matrix.sh before it writes
+    # a stopped JVM's exit file, or the configuration's name file when that JVM was its only one,
+    # so the report lists the JVM as not finished or leaves the configuration out, and fails on
+    # neither; a unit that finished before the stop is judged as any other, so a test it failed
+    # still fails the report.
     - name: Merge the runs
       run: |
         mkdir -p target/varka-merged/runs
@@ -479,6 +686,12 @@ jobs:
               "$(grep -h '^JVM' "$file")"
           done | sort | uniq -c
           echo '```'
+          # The bins the watchdog stopped at three times their plan (VARKA-570): the runner's
+          # CPU, and each unit's state; a unit stopped or not run has no answer in this report.
+          echo "Stragglers (stopped; rerun the run's failed jobs to run them on other runners):"
+          echo '```'
+          cat target/varka-bins/*-straggler/straggler.txt 2>/dev/null || echo "none"
+          echo '```'
           # The bins a setup step held back, each retried once (VARKA-513).
           echo "Setup steps retried:"
           echo '```'
@@ -515,6 +728,7 @@ jobs:
 
   report-failure:
     name: Report a failed run
+    # The build job admits no scheduled run until row 522 turns the schedule to the fork.
     # Only a scheduled run, since a person who dispatches one sees its result; only on the
     # project's own repository, where issues are on; and when a job failed or was cancelled.
     # The script lists every failed, timed-out or cancelled job, a cancelled one with a note.
