@@ -961,7 +961,11 @@ FUSED_MODES = ["legacy", "ansi", "try"]
 # bare leaves this list.
 CONTEXT_CASTS = {
     ("int", "dt"): "only as date_add's offset: d + CAST(i AS INTERVAL DAY)",
-    ("dec", "dec"): "only a comparison's operand widened at one scale: d9 < d18, d9 = 0.42",
+    # A decimal value has no output of its own until row 157's store admits it (348b), so a cast
+    # into a decimal fuses only as a comparison's operand (VARKA-348, VARKA-350).
+    ("dec", "dec"): "only a comparison's operand: widened at one scale (d9 < d18, d9 = 0.42), "
+    "rounded down to a lower scale or cut to a lower precision (CAST(d9s4 AS DECIMAL(9, 2)) < d9), "
+    "or raised in scale behind its precision guard (CAST(d9 AS DECIMAL(9, 4)) > 0)",
 }
 
 # The pairs that fuse only from a form the coverage table has no column of, so that no row over

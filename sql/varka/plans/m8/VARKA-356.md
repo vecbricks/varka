@@ -639,3 +639,95 @@ wrote coverage, docs, emitted bytes, width audit and census; no existing shape's
    ported to `vfdlibm` from its committed C, never the JDK, any departure proven in `PROOFS.md`,
    and Varka's kernel is cross-checked lane for lane against `VFdlibm.<fn>`. Varka's side needs
    345b's `PORT` frame and the `exp` template first.
+
+### 10.2 358a1: the exponentials, logarithms and `cbrt` in `LANE_CALL` (20 November 2026)
+
+Built on branch `varka-358-math-family`, stacked on `varka-356-trig` (356a1's `LANE_CALL`
+lowering), while the owner was away; row 358's decisions are listed below, apart from 356's.
+
+**As built.** `MathFn` gains `EXP`, `EXPM1`, `LOG`, `LOG10`, `LOG1P` (`java.lang.StrictMath`, the
+class Spark's code names) and `CBRT` (`java.lang.Math`); each lowers through 356a1's unrolled
+call with no emitter change beyond the operator switch. The log family's null (2.3) is
+`VarkaMathDomain.nullAtOrBelow`: `IfElse(Compare(IEEE_LE, x, t), NullValue(DOUBLE),
+MathUnary(fn, x))`, `t` a literal slot holding `0.0`, or `-1.0` for `log1p`. `IEEE_LE` is Java's
+`<=`, so `-0.0` is null and NaN reaches the call, as in Spark (item 0.2). `VarkaMathCompiler`
+lowers `exp`, `expm1` and `cbrt` to the call, and `ln`, `log10` and `log1p` to the call under the
+null. `log2` is `DIV WRAP(ln, StrictMath.log(2))`. `log` with `EulerNumber` on the left is `ln`,
+with no divide, as Spark's code generator writes it. With a foldable base it is `ln(x)` divided
+by `StrictMath.log(b)` folded, and a base at or below `0.0`, or null, declines by name. That
+includes the optimizer's `Literal(Math.E)`, which Spark's code then divides by too. With a column
+base it is `DIV WRAP(ln(x), ln(b))`, null where either is. `pow` and `hypot` still decline as
+"... is row 358's: not fused yet". A test-only `FloatingFault.MATH_DOMAIN_LT` plants `<` for
+`<=`.
+
+**Tests written.** `VarkaMathExactSuite` covers the 18 functions and compositions of rows 356 and
+358. It now reads the output validity in both checks: a lane Spark nulls must be null, every
+other lane valid with Spark's bits. It gains a second column for `log(b, x)`, Spark's order
+`log(x) / log(b)`. Its own draws are `[-750, 712]` for the exponentials, and for the log family
+subnormals, `[0.5, 2]`, the non-positive half and both zeros, with the same about `-1` for
+`log1p`. The fixed vectors gain `exp`'s overflow, subnormal and underflow edges, `2.0` and `0.5`.
+The other-class plant is expected to fail for `exp`, `ln`, `log10`, `cbrt` and the compositions
+over `ln`, and to change nothing for `expm1` and `log1p` (item 0.3). The new `MATH_DOMAIN_LT`
+plant must fail the fixed vectors for every function with the domain null and move no other
+function. `VarkaMathCompilerSuite`'s fused table gains the nine functions, `log(2.0D, x)`, `log(y, x)` and
+`exp(i)`, and a constant base at or below `0.0` declines by name. Coverage gains 11 "Math
+functions" rows. `VarkaMathBaselineBenchmark` marks `cbrt`, `exp`, `expm1`, `log`, `log10`,
+`ln`, `log1p`, `log2`, `log(2.0, p)`, `log(c, p)`, `ln(q)` and `exp(x) * 2 + 1` `WHOLE`; 358's eight census lines wait for the regeneration (decision 5).
+
+**Run in the window**: `catalyst/Test/compile` and `sql/Test/compile`, both clean, and one
+targeted run of `VarkaMathExactSuite` and `VarkaMathCompilerSuite`: 11 tests, all passed
+(the exact suite's five in 443 s, the compiler suite's six in 20 s, at a load average of 31
+from other worktrees' jobs). Owed:
+`dev/varka_regen_generated.sh --all` (coverage, docs, emitted bytes, width audit, census), the
+`-XX:UseAVX=2` width audit, the coverage and Spark-level differentials, the fuzz, the option
+matrix, the Arm runner's cell and every runner measurement of section 4.
+
+**Predictions.** 1 (no existing shape's bytes move) holds by construction: no emitter path
+changed, and only new shapes are added. It is unchecked until the regeneration. 2 to 6 wait for
+the runner. 7, the suite's time, was scored at 33 s for nine functions in 356a1. For 18 it is
+predicted at 70 s, twice that, since the sampled differential is linear in the functions.
+Measured: 443 s on a laptop at a load average of 31, so the prediction missed by six times. The
+load explains some of it: 356a1's 33 s was measured on a quieter machine. The other-class plant
+also reruns the sampled differential for all 18 functions. A quiet rerun is owed before this
+joins the calibration table.
+
+**Left of 358a.** `pow` and `hypot` (358a2: the `MathBinary` node, which 356's `atan2` needs
+too, with the registry suites a new node owes); the IR fuzz productions; the vectors files; the
+warm-up reach and cost register entries; the runner measurement.
+
+**Rebuilt on master (22 November 2026).** 356 merged as #1567 in a different form from the
+branch 358a1 stood on, so 358a1 was rebuilt on master as branch `varka-358a-r`: the plant moves
+into `VarkaEmitOptions.FloatingFault.MATH_DOMAIN_LT`, read from the compiler's options, since
+master has no `VarkaMathFault`; the coverage rows carry master's math cells; the benchmark's
+newer sections over these functions turn `WHOLE`; `skips.tsv` gains the 11 rows under
+`validityByWidth=false` and `lanesOverride=16`. The high review found that a constant base
+whose evaluation throws failed the query at planning; it now declines. Owed: the regeneration,
+the targeted suites, the gate and every runner measurement.
+
+### Decisions taken while the owner was away (20 November 2026), row 358
+
+1. **358a1 is stacked on 356a1, not on 345b.** The 345b branches add the bit view and `exp`'s
+   `PORT` expansion (`VarkaMathPort`) with no `MathFn` member and no compiler arm. 358a's
+   `LANE_CALL` form needs only 356a1's lowering, so the stacks are disjoint. 358b, which measures
+   the port against this form, needs both.
+2. **The log family's null is composed from existing nodes, not the `nullAtOrBelow` field of
+   open point 1 (a).** That recommendation rested on the call skipping null lanes by itself, and
+   on (b) needing a new node with its own production and reference case. Neither holds as built.
+   356a1's lowering calls every lane (`emitMathLaneCall`), so the field would skip
+   nothing. And `IfElse`, the IEEE
+   `<=` and `NullValue` exist already, so the composition adds no node, no emitter path, no
+   reference case and no shape-key field. Admission is the same at two lanes: the two-lane
+   refusal is a filter root's (`VarkaKernelPlan.hostRefusal`), and a projection over a
+   `NullValue` fuses there, as `if(x IS NULL, x2, NULL)` does. If the live-word narrowing of 345b
+   (2.9) lands, it can read the `IfElse`'s mask, or the field can replace the composition then.
+3. **`pow` and `hypot` are the next part, 358a2**, on a branch stacked on this one: `MathBinary`
+   is a new sealed record, which every exhaustive switch over the IR and the registry suites
+   must take, and this part's size leaves no room for it.
+4. **A foldable base is folded by Catalyst's own `eval`** at compile time, the double Spark
+   computes a row, and a null base declines with every row null. 2.1's rule covers the literal
+   base; the generalisation covers `log(2, x)`, whose int literal arrives under a cast.
+5. **The census lines' rewrite to `done` waits for the regeneration** (open point 5). The
+   pre-commit hook runs `dev/varka_census.py --check`, which fails a curated `done` line until
+   `coverage.json` holds a row with the class, and regeneration is not run in this window. The
+   eight lines are written (`double|done|358` with the form named) and are committed with the
+   regenerated files.
