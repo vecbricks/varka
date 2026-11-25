@@ -796,3 +796,20 @@ path's work. The decimal casts are the first decimal values a projection writes 
 decimal form is a comparison's operand, refused at two lanes as a condition), and their load is
 the one row 596 measured at 0.2X, so they decline with it. The runner pair at 128 bits can
 confirm it once the benchmark runs.
+
+**The narrow targets move out (25 November 2026, by the owner's choice).** #1700's CI failed three
+tests, all 350a1's own: `VarkaDecimalLongConformanceSuite`'s cast row, whose decimal slot check
+reads long, decimal-store and condition outputs and not the `NarrowLane` root a cast to `INT`
+lowers to, and two order tests (`VarkaConjunctOrderSuite.castInBeforeDateAdd`, the
+`VarkaDifferentialSuite` test of a residual decimal cast) that take `CAST(x AS INT)` over a
+`DECIMAL(18, s)` as residual, which 350a1 fused. Before the split, with the cast fused, every
+conjunct of both tests fused and both engines answered or raised alike, a null date ahead of the
+raising cast included, so the order rule held and only the tests' premise was stale. The pull
+request was at 997 of its 1000 counted lines, so the casts to `TINYINT`, `SMALLINT` and `INT` move
+to the next stacked part, 350a1n, on branch `varka-350a1n-narrow-targets`: decision 1 above and
+the first item of "What was built" are its, and #1700 declines those casts with
+`VarkaDecimalCastCompiler.NARROW_REASON`. This corrects "What was built" and the counts of "Tests":
+#1700 keeps the casts to `BIGINT` and `BOOLEAN` and between decimals in every mode, ten coverage
+rows, and the query suite's narrow-target tests (the `INT` cases of section 3 item 2 and
+`CAST_OVERFLOW`) go with 350a1n. With the cast residual again the two order tests pass unchanged,
+and the conformance suite's cast row builds no narrow form.

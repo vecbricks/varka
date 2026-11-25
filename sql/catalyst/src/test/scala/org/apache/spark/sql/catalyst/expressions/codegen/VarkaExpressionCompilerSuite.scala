@@ -3535,7 +3535,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // which run as the Java fallback at two 64-bit lanes (VARKA-350.md 10.3).
     val x = AttributeReference("x", DecimalType(16, 9))()
     val columns = withLong :+ x
-    val casts = Seq(Cast(x, LongType), Cast(x, IntegerType, evalMode = EvalMode.ANSI),
+    val casts = Seq(Cast(x, LongType), Cast(x, LongType, evalMode = EvalMode.ANSI),
       Cast(Cast(x, DecimalType(10, 2)), LongType))
     for (e <- casts) {
       def reasons(admission: VarkaAdmission): Seq[String] =

@@ -1725,20 +1725,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(d18 AS BIGINT)", "at (18, 2) the magnitude is guarded below 2^54 before its "
         + "shift, past which the row engine divides",
         domain = Some("abs(d18) * 100 < 18014398509481984")),
-      Row("CAST(d9 AS INT)", "truncated, then narrowed: seven integral digits always fit an int, "
-        + "so no mode checks it"),
       Row("CAST(-d9 AS BIGINT)", "the cast of a computed value, the negation's unscaled long "
         + "divided as a column's is"),
-      Row("CAST(d18 AS INT)", "the low bits under the legacy mode; under ANSI and TRY the exact "
-        + "rule, the truncated long checked against the int range, as Spark answers a decimal "
-        + "of eighteen digits read from the cache",
-        domain = Some("d18 > -2147483649 AND d18 < 2147483648")),
-      Row("CAST(d9 AS SMALLINT)", "the short twin",
-        domain = Some("d9 > -32769 AND d9 < 32768")),
-      Row("CAST(d9s4 AS TINYINT)", "the byte twin, at scale 4",
-        domain = Some("d9s4 > -129 AND d9s4 < 128")),
-      Row("try_cast(d18 AS INT)", "the range guard's nulling mode; only the division's guard "
-        + "declines a batch", domain = Some("abs(d18) * 100 < 18014398509481984")),
       // A guarded cast into a decimal is read through BIGINT: its null test declines by design
       // (VarkaDecimalCompiler.valid), so it is no predicate row's operand.
       Row("CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)", "the precision check alone, which "

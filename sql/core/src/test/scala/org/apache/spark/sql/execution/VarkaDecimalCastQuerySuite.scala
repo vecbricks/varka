@@ -19,12 +19,12 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
-import org.apache.spark.sql.execution.VarkaMaybeThrows.{Answered, Raised}
 import org.apache.spark.sql.types.{DataType, DecimalType, StructField, StructType}
 
 /**
- * The 64-bit decimal casts (VARKA-350) over an Arrow-cached table, Varka against vanilla Spark in
- * LEGACY, ANSI and TRY: the rows both answer, or the error both raise. Each column holds the
+ * The 64-bit decimal casts (VARKA-350) to BIGINT, BOOLEAN and between decimals over an
+ * Arrow-cached table, Varka against vanilla Spark in LEGACY, ANSI and TRY: the rows both answer,
+ * or the error both raise; the narrow integral targets decline. Each column holds the
  * named cases of `VARKA-350.md` 3 item 2 for its type - the values where the exact rule and the
  * double rule part (`0.999999999999999999` as `DECIMAL(18, 18)`, `2147483647.99999999` as
  * `DECIMAL(18, 8)` and the three first differences of item 0.14), each target's bounds and one
@@ -142,35 +142,26 @@ class VarkaDecimalCastQuerySuite extends VarkaMaybeThrows with VarkaTestWatchdog
     }
   }
 
-  test("a decimal cast to each integral type truncates toward zero in every mode, the narrow " +
-      "targets checked under ANSI and TRY by the exact rule at every precision") {
-    for (c <- decimalColumns; target <- Seq("BIGINT", "INT", "SMALLINT", "TINYINT")) {
-      checkProjection(s"CAST($c AS $target)")
+  test("a decimal cast to BIGINT truncates toward zero in every mode") {
+    for (c <- decimalColumns) {
+      checkProjection(s"CAST($c AS BIGINT)")
     }
   }
 
-  test("0.999999999999999999 as DECIMAL(18, 18) casts to INT as 0, the exact rule, and " +
-      "2147483647.99999999 as DECIMAL(18, 8) to Int.MaxValue, as vanilla Spark reads the cache") {
-    withAnsi(true) {
-      val outcome = checkSparkAnswerMaybeThrows(s"SELECT CAST(a AS INT) AS a FROM $view")
-      assert(outcome.asInstanceOf[Answered].rows.take(2) === Seq(Row(0), Row(0)))
-      val wide = checkSparkAnswerMaybeThrows(
-        s"SELECT try_cast(b AS INT) AS a FROM $view").asInstanceOf[Answered]
-      assert(wide.rows.take(4) === Seq(Row(Int.MaxValue), Row(Int.MinValue), Row(null), Row(null)))
-    }
-  }
-
-  test("an ANSI narrowing past the target's range raises CAST_OVERFLOW from the row engine") {
-    withAnsi(true) {
-      checkSparkAnswerMaybeThrows(s"SELECT CAST(g AS INT) AS a FROM $view") match {
-        case r: Raised => assert(r.condition === "CAST_OVERFLOW", r)
-        case a => fail(s"expected CAST_OVERFLOW, both answered $a")
-      }
-      // The guard is the target's range: Int.MinValue as DECIMAL(10, 0) casts, one past raises.
-      checkSparkAnswerMaybeThrows(s"SELECT CAST(g AS INT) AS a FROM $view WHERE g >= -2147483648" +
-        " AND g <= 2147483647") match {
-        case Answered(rows) => assert(rows.map(_.get(0)).contains(Int.MinValue))
-        case r => fail(s"expected an answer, both raised $r")
+  test("a decimal cast to TINYINT, SMALLINT or INT runs on the row engine, as row 350's next " +
+      "part's") {
+    // VarkaDecimalCastCompiler.NARROW_REASON, which is package-private to the compiler.
+    val reason = "a cast of a decimal to TINYINT, SMALLINT or INT narrows the decimal slots' " +
+      "long lane, and is row 350's next part (350a1n)"
+    for (target <- Seq("TINYINT", "SMALLINT", "INT"); (mode, ansi) <- modes) {
+      withAnsi(ansi.toBoolean) {
+        val query = s"SELECT CAST(c AS $target) AS a FROM $view"
+        withClue(s"$mode: $query") {
+          checkSparkAnswerMaybeThrows(query)
+          val explained = varkaSpark.sql(query).queryExecution
+            .explainString(org.apache.spark.sql.execution.ExplainMode.fromString("formatted"))
+          assert(explained.contains(s"a: residual ($reason"), explained)
+        }
       }
     }
   }

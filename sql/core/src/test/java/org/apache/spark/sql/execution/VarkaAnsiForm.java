@@ -294,19 +294,18 @@ public final class VarkaAnsiForm {
         "round(y1, -1)", "bround(y1, -1)", "round(s1, -1)", "bround(s1, -2)", "l + 1",
         "l - l2", "dt - dt2", "dt + INTERVAL '1' DAY", "dt * 3", "-2 * dt", "dt * 1.5",
         "dt / 1.5", "bit_get(i, i)", "bit_get(s1, i)", "bit_get(l, i)", "CAST(d18 AS BIGINT)",
-        "CAST(d18 AS INT)", "CAST(d9 AS SMALLINT)", "CAST(d9s4 AS TINYINT)",
-        "try_cast(d18 AS INT)", "CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)",
+        "CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)",
         "CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
-    // A bigint or a decimal narrowed to a narrow type, or the TINYINT bit of a bigint, as a
-    // COALESCE argument beside a narrow column: a narrow choice in a long kernel, which has no
-    // lowering there (VARKA-332.md 10.1).
+    // A bigint narrowed to a narrow type, or the TINYINT bit of a bigint, as a COALESCE argument
+    // beside a narrow column: a narrow choice in a long kernel, which has no lowering there
+    // (VARKA-332.md 10.1).
     String narrowChoice = "a narrow choice beside a bigint value has no lowering in a long "
         + "kernel (VARKA-332.md 10.1)";
     for (String sql : List.of("CAST(l AS TINYINT)", "CAST(l AS SMALLINT)",
         "try_cast(l AS TINYINT)", "try_cast(l AS SMALLINT)", "bit_get(l, i)",
-        "getbit(l, 63)", "CAST(d9 AS SMALLINT)", "CAST(d9s4 AS TINYINT)")) {
+        "getbit(l, 63)")) {
       out.put(sql + "\t" + COALESCE_TAIL, narrowChoice);
     }
     return Map.copyOf(out);

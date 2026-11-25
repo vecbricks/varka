@@ -98,7 +98,7 @@ public enum VarkaFamily {
       + " to smallint or bigint, a number cast to boolean and a boolean cast to a number"),
   /** {@code VarkaDecimalCastCompiler}, its condition arm reached from {@code compileCond}. */
   DECIMAL_CAST("decimal cast", "decimalCast", "the casts of a decimal of precision 18 or less to"
-      + " tinyint, smallint, int, bigint and boolean, and into such a decimal from another,"
+      + " bigint and boolean, and into such a decimal from another,"
       + " rounding half up where the scale drops (checked under ANSI, null on overflow under"
       + " LEGACY and TRY); the widening rescale between two decimals that type coercion puts"
       + " under a comparison is not the family's"),

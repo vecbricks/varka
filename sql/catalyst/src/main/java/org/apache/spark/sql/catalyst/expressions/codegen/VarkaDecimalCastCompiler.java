@@ -39,7 +39,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Int
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.types.DataType;
@@ -48,20 +47,17 @@ import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 
 /**
- * The casts from a decimal of precision 18 or less to the integral types, another such decimal
- * and {@code BOOLEAN} (VARKA-350), the {@link
+ * The casts from a decimal of precision 18 or less to {@code BIGINT}, another such decimal and
+ * {@code BOOLEAN} (VARKA-350), the {@link
  * org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily#DECIMAL_CAST} family. Each
  * is integer arithmetic on the unscaled long of {@link Scaled}, with Spark's answer in every mode
  * as the row engine reads a decimal of precision 18 or less, long-backed (`VARKA-365.md` 11):
  *
  * <ul>
- *   <li><b>to an integral type</b>: {@code t = trunc(u / 10^s)} ({@link #truncated}), Spark's
+ *   <li><b>to {@code BIGINT}</b>: {@code t = trunc(u / 10^s)} ({@link #truncated}), Spark's
  *       {@code Decimal.toLong} in every mode, which at precision 18 or less cannot leave a long.
- *       {@code BIGINT} is {@code t}. The three narrow targets are {@code NarrowLane(t)} under
- *       LEGACY, the low bits of the long as Spark's {@code toInt} keeps them, and under ANSI and
- *       TRY {@code NarrowLane(GuardedRange(t, MIN, MAX))}, the exact rule of
- *       {@code roundToNumeric} over a long-backed value, the guard declining the batch under
- *       ANSI, where Spark raises {@code CAST_OVERFLOW}, and nulling the lane under TRY;
+ *       The narrow targets {@code TINYINT}, {@code SMALLINT} and {@code INT} are claimed and
+ *       decline naming row 350's next part ({@link #NARROW_REASON});
  *   <li><b>to {@code BOOLEAN}</b>: {@code NOT(u = 0)} as a condition, which cannot fail;
  *   <li><b>to a decimal</b> of scale {@code S} and precision {@code P}, from {@code (p, s)}: a
  *       rescale up by {@code k = S - s} digits is a multiply by {@code 10^k} behind a guard of
@@ -76,9 +72,9 @@ import org.apache.spark.sql.types.DecimalType;
  * <p>A guard into a decimal fails under ANSI, where Spark raises
  * {@code NUMERIC_VALUE_OUT_OF_RANGE}, so the row engine raises it, and nulls the lane under
  * LEGACY and TRY, where Spark answers null. Each guard is left out where the types prove it can
- * never fire: a narrow target whose range holds {@code 10^(p - s) - 1}, a rescale up with
- * {@code p + k <= P} (coercion's widening rescale, which stays {@code VarkaDecimalCompiler}'s and
- * so outside this family's switch), and a rescale down with {@code p - k < P}.
+ * never fire: a rescale up with {@code p + k <= P} (coercion's widening rescale, which stays
+ * {@code VarkaDecimalCompiler}'s and so outside this family's switch), and a rescale down with
+ * {@code p - k < P}.
  *
  * <p>The casts from and to the floating types are rows 346, 350b, 350c and 366's and decline in
  * {@code VarkaNodeCompiler.floatingDecline}; a decimal wider than 18 digits is rows 359 and 364's,
@@ -110,6 +106,14 @@ final class VarkaDecimalCastCompiler {
       + "two lanes or fewer: C2 lowers no mask or two-vector rearrange there, so the decimal "
       + "load, the division's sign and the guards would run the Vector API's Java fallback";
 
+  /**
+   * Why a decimal cast to {@code TINYINT}, {@code SMALLINT} or {@code INT} declines: it lowers to
+   * a narrowed lane over the decimal slots, which the next stacked part of row 350 (350a1n) builds
+   * with its checks.
+   */
+  static final String NARROW_REASON = "a cast of a decimal to TINYINT, SMALLINT or INT narrows "
+      + "the decimal slots' long lane, and is row 350's next part (350a1n)";
+
   private VarkaDecimalCastCompiler() {
   }
 
@@ -118,11 +122,11 @@ final class VarkaDecimalCastCompiler {
   // ---------------------------------------------------------------------------------------
 
   /**
-   * The value arm: a decimal cast to an integral type, or {@code null}. A cast into a decimal
-   * is claimed too, so that the family's switch holds it wherever it sits, but its value is
-   * read only by the decimal compiler's readers - a comparison, an {@code IN}, a choice - and as
-   * an output it declines naming row 157's store; coercion's widening rescale, which this family
-   * does not hold, is not claimed.
+   * The value arm: a decimal cast to an integral type, or {@code null}, the narrow targets
+   * declining. A cast into a decimal is claimed too, so that the family's switch holds it
+   * wherever it sits, but its value is read only by the decimal compiler's readers - a
+   * comparison, an {@code IN}, a choice - and as an output it declines naming row 157's store;
+   * coercion's widening rescale, which this family does not hold, is not claimed.
    */
   static @Nullable VarkaFamilyArm arm(
       Expression e,
@@ -192,8 +196,8 @@ final class VarkaDecimalCastCompiler {
   }
 
   /**
-   * {@code CAST(x AS target)} for a decimal {@code x} of {@code from}: the truncated quotient,
-   * narrowed for a narrow target, under ANSI and TRY behind the target's range.
+   * {@code CAST(x AS target)} for a decimal {@code x} of {@code from}: the truncated quotient, for
+   * {@code BIGINT}; a narrow target declines.
    */
   private static Optional<VarkaVectorIR> toIntegral(Cast c, DecimalType from, LaneType target,
       VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
@@ -201,26 +205,14 @@ final class VarkaDecimalCastCompiler {
       return sink.decline("a cast of a decimal wider than " + MAX_PRECISION + " digits to an "
           + "integral type is row 364's", c);
     }
+    if (target != LaneType.LONG) {
+      return sink.decline(NARROW_REASON, c);
+    }
     if (sink.declinesTwoLaneChecks()) {
       return sink.decline(TWO_LANE_REASON, c);
     }
-    Overflow mode = VarkaNodeCompiler.overflowOf(c.evalMode());
-    return operand(c, inputs, literals, sink).map(x -> {
-      VarkaVectorIR t = truncated(x.unscaled(), x.type().precision(), x.type().scale(), sink);
-      if (target == LaneType.LONG) {
-        return t;
-      }
-      VarkaTypes.IntegralRange range = VarkaTypes.integralRange(target);
-      VarkaVectorIR guarded = mode == Overflow.WRAP || fits(x.type(), target)
-          ? t : new GuardedRange(t, range.min(), range.max(), mode);
-      return new NarrowLane(guarded, target);
-    });
-  }
-
-  /** Whether every truncated value of {@code from} fits the integral {@code target}'s range. */
-  static boolean fits(DecimalType from, LaneType target) {
-    return Decimal.POW_10()[from.precision() - from.scale()] - 1L
-        <= VarkaTypes.integralRange(target).max();
+    return operand(c, inputs, literals, sink).map(x ->
+        truncated(x.unscaled(), x.type().precision(), x.type().scale(), sink));
   }
 
   /** {@code NOT(u = 0)}, Spark's {@code !isZero}. */
