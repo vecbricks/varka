@@ -28,7 +28,6 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
@@ -66,7 +65,7 @@ public class ZoneFacts {
   static Changes load(String id) {
     ZoneId zone = ZoneId.of(id, ZoneId.SHORT_IDS);
     ZoneRules rules = zone.getRules();
-    List<ZoneOffsetTransition> list = new ArrayList<>();
+    var list = new ArrayList<ZoneOffsetTransition>();
     Instant at = Instant.MIN;
     while (true) {
       ZoneOffsetTransition tr = rules.nextTransition(at);
@@ -109,7 +108,7 @@ public class ZoneFacts {
   }
 
   public static void main(String[] args) {
-    List<Changes> zones = new ArrayList<>();
+    var zones = new ArrayList<Changes>();
     for (String id : new TreeSet<>(ZoneId.getAvailableZoneIds())) {
       zones.add(load(id));
     }
@@ -170,11 +169,11 @@ public class ZoneFacts {
       for (int i = -1; i < c.n(); i++) {
         int off = i < 0 ? c.offsetAt(Long.MIN_VALUE) : c.after[i];
         long until = i + 1 < c.n() ? c.t[i + 1] : END;
-        if (off % 60 != 0 && until > lastOddMinute && i + 1 < c.n()) {
+        if (off % 60 != 0 && until > lastOddMinute) {
           lastOddMinute = until;
           lastOddMinuteAt = c.id;
         }
-        if (off % 900 != 0 && until > lastOddQuarter && i + 1 < c.n()) {
+        if (off % 900 != 0 && until > lastOddQuarter) {
           lastOddQuarter = until;
           lastOddQuarterAt = c.id;
         }
@@ -191,7 +190,7 @@ public class ZoneFacts {
         + " a whole hour in 2026: %d%n", wholeHourSince1970, zones.size(), notWholeHourIn2026);
 
     // 3. What a zone database laid out for vector code can lean on.
-    Set<String> rules = new HashSet<>();
+    var rules = new HashSet<String>();
     int quiet = 0;
     long closestLocal = Long.MAX_VALUE;
     String closestLocalAt = "";
@@ -200,7 +199,7 @@ public class ZoneFacts {
     for (Changes c : zones) {
       rules.add(c.offsetAt(Long.MIN_VALUE) + Arrays.toString(c.t) + Arrays.toString(c.after));
       quiet += c.n() > 0 && c.t[c.n() - 1] < at2026 ? 1 : 0;
-      Set<Integer> offsets = new TreeSet<>(List.of(c.offsetAt(Long.MIN_VALUE)));
+      var offsets = new TreeSet<Integer>(List.of(c.offsetAt(Long.MIN_VALUE)));
       for (int i = 0; i < c.n(); i++) {
         offsets.add(c.after[i]);
         if (i > 0 && c.lt(i) - c.lt(i - 1) < closestLocal) {
@@ -222,15 +221,17 @@ public class ZoneFacts {
         closestLocal, closestLocalAt);
     System.out.printf("most distinct offsets in one zone: %d (%s)%n", mostOffsets, mostOffsetsAt);
     System.out.printf("a table of 2^39-microsecond buckets from 1900 to 2100: %d buckets,"
-        + " %d KB at 8 bytes a bucket%n", buckets, buckets * 8 / 1024);
+        + " %d KB at 8 bytes a bucket, %d KB as ZoneForms' three arrays%n",
+        buckets, buckets * 8 / 1024, buckets * 24 / 1024);
 
     // 4. The step formula for a local time, against java.time's three rules.
     long points = 0;
     long wrong = 0;
     long keptPoints = 0;
+    long keptPairs = 0;
     long keptWrong = 0;
     boolean rising = true;
-    TreeMap<String, Integer> midnights = new TreeMap<>();
+    var midnights = new TreeMap<String, Integer>();
     long midnightWrong = 0;
     for (Changes c : zones) {
       long[] lt = new long[c.n()];
@@ -242,7 +243,7 @@ public class ZoneFacts {
         long lo = c.t[i] + Math.min(c.before[i], c.after[i]);
         long hi = lt[i];
         boolean gap = c.after[i] > c.before[i];
-        for (long l = lo - 7200; l <= hi + 7200; l += l < lo - 3 || l > hi + 3 ? 60 : 1) {
+        for (long l = lo - 7200; l <= hi + 7200; l += l < lo - 60 || l > hi + 3 ? 60 : 1) {
           // The earlier offset: LocalDateTime.atZone.
           LocalDateTime local = LocalDateTime.ofEpochSecond(l, 0, ZoneOffset.UTC);
           int k = Arrays.binarySearch(lt, l);
@@ -253,7 +254,9 @@ public class ZoneFacts {
           if (l < lo || l >= hi) {
             continue;
           }
-          // The offset kept: ZonedDateTime.ofLocal with the offset the source had.
+          // The offset kept: ZonedDateTime.ofLocal with the offset the source had, which is
+          // the offset before the change, the one after it, or neither.
+          keptPoints++;
           for (int kept : new int[] {c.before[i], c.after[i], c.before[i] + 1800}) {
             if (Math.abs(kept) > 64800) {
               continue;
@@ -261,7 +264,7 @@ public class ZoneFacts {
             boolean valid = !gap && (kept == c.before[i] || kept == c.after[i]);
             long expected = ZonedDateTime.ofLocal(local, c.zone, ZoneOffset.ofTotalSeconds(kept))
                 .toEpochSecond();
-            keptPoints++;
+            keptPairs++;
             keptWrong += expected != l - (valid ? kept : c.before[i]) ? 1 : 0;
           }
         }
@@ -278,16 +281,18 @@ public class ZoneFacts {
         + " %b%n", rising);
     System.out.printf("earlier-offset rule: %d local times around every change, %d differ from"
         + " LocalDateTime.atZone%n", points, wrong);
-    System.out.printf("kept-offset rule: %d local times in a gap or an overlap, %d differ from"
-        + " ZonedDateTime.ofLocal%n", keptPoints, keptWrong);
+    System.out.printf("kept-offset rule: %d local times in a gap or an overlap, each with up to"
+        + " three kept offsets, %d pairs, %d differ from ZonedDateTime.ofLocal%n",
+        keptPoints, keptPairs, keptWrong);
     System.out.printf("midnight strictly inside a gap: %d days over %d zone ids, %d where"
         + " atStartOfDay is not the gap's end%n", midnights.size(),
         midnights.values().stream().mapToInt(Integer::intValue).sum(), midnightWrong);
     midnights.forEach((day, n) -> System.out.printf("  %s, %d zone ids%n", day, n));
+    boolean failed = !rising || wrong + keptWrong + midnightWrong != 0;
 
     // 5. How often a batch spans a change, in a zone with daylight saving.
     Changes la = load("America/Los_Angeles");
-    Random random = new Random(42);
+    var random = new Random(42);
     for (int[] span : new int[][] {{2025, 2026}, {2016, 2026}}) {
       long from = LocalDate.of(span[0], 1, 1).toEpochDay() * DAY;
       long to = LocalDate.of(span[1], 1, 1).toEpochDay() * DAY;
@@ -322,6 +327,10 @@ public class ZoneFacts {
               ordered ? "in time order" : "in no order", rows, spanning, batches, mostSpanned);
         }
       }
+    }
+    if (failed) {
+      System.out.println("A CHECK FAILED");
+      System.exit(1);
     }
   }
 }

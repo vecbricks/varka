@@ -42,7 +42,8 @@ public class ZoneForms {
       VectorSpecies.of(int.class, VectorShape.forBitSize(S.vectorBitSize() / 2));
   static final int N = Integer.getInteger("n", 4096);
   static final long MICROS = 1_000_000L;
-  static final ZoneId ZONE = ZoneId.of(System.getProperty("zone", "America/Los_Angeles"));
+  /** A zone with two changes a year: the rows below are written for that. */
+  static final ZoneId ZONE = ZoneId.of("America/Los_Angeles");
   static final ZoneRules RULES = ZONE.getRules();
   /** A bucket of the table is 2^39 microseconds, 6.4 days: at most one change falls in one. */
   static final int BUCKET = 39;
@@ -55,9 +56,13 @@ public class ZoneForms {
   static final long[] TABLE_START;
   static final long[] TABLE_CHANGE;
   static final long[] TABLE_END;
+  /** Takes the result of a form that writes no batch, so that its work is not dead code. */
+  static long sink;
+  /** Set when a form's rows differ from java.time; the run then exits non-zero. */
+  static boolean failed;
 
   static {
-    List<ZoneOffsetTransition> list = new ArrayList<>();
+    var list = new ArrayList<ZoneOffsetTransition>();
     Instant at = Instant.ofEpochSecond(BASE / MICROS);
     long end = LocalDate.of(2100, 1, 1).toEpochDay() * 86400L;
     FIRST = RULES.getOffset(at).getTotalSeconds() * MICROS;
@@ -309,7 +314,7 @@ public class ZoneForms {
   /**
    * {@link #stepsOf2ByRange} with its check as one OR a vector: every instant is in
    * {@code [from, from + 2^bits)} exactly when the OR of every {@code instant - from} has no bit
-   * at or above {@code bits}.
+   * at or above {@code bits}. The steps must be those of that whole window, not of the batch.
    */
   static boolean stepsOf2ByOr(long[] in, long[] out, Steps s, long from, int bits) {
     LongVector base = LongVector.broadcast(S, s.base);
@@ -405,6 +410,13 @@ public class ZoneForms {
     }
   }
 
+  /** A carried form's own check must pass on the data it is timed on. */
+  static void inRange(boolean checked) {
+    if (!checked) {
+      throw new IllegalStateException("a batch left the range its steps cover");
+    }
+  }
+
   static long[] instants(Random random, long from, long until) {
     long[] in = new long[N];
     for (int i = 0; i < N; i++) {
@@ -437,6 +449,8 @@ public class ZoneForms {
     Arrays.sort(window);
     String check = "";
     if (local) {
+      Arrays.fill(out, Long.MIN_VALUE);
+      run.run();
       long[] expected = new long[N];
       javaTime(in, expected);
       int wrong = 0;
@@ -444,6 +458,7 @@ public class ZoneForms {
         wrong += out[i] != expected[i] ? 1 : 0;
       }
       check = wrong == 0 ? "every row equals java.time" : wrong + " ROWS DIFFER";
+      failed |= wrong != 0;
     }
     System.out.printf("%-34s %-28s changes %2d  best %7.3f  median %7.3f ns a row  %s%n",
         form, data, changes, window[0], window[2], check);
@@ -451,31 +466,42 @@ public class ZoneForms {
 
   public static void main(String[] args) {
     System.out.printf("# %s, %d lanes of 64 bits, batches of %d rows%n", ZONE, S.length(), N);
-    Random random = new Random(42);
+    var random = new Random(42);
     long[] out = new long[N];
     int[] index = new int[SI.length()];
+    long day = 86400L * MICROS;
 
     long[] week = instants(random, micros(2025, 7, 7), micros(2025, 7, 14));
     long[] year = instants(random, micros(2025, 1, 1), micros(2026, 1, 1));
     long[] decade = instants(random, micros(2016, 1, 1), micros(2026, 1, 1));
     Steps weekSteps = Steps.of(micros(2025, 7, 7), micros(2025, 7, 14));
-    Steps yearSteps = Steps.of(micros(2025, 1, 1), micros(2026, 1, 1));
+    // The carried steps are those of a window of 2^45 microseconds, 407 days, from the first
+    // instant of 2025: the whole window the OR check admits, and two changes in this zone.
+    long from = micros(2025, 1, 1);
+    int bits = 45;
+    Steps yearSteps = Steps.of(from, from + (1L << bits) - 1);
+    int two = yearSteps.at.length;
 
-    time("java.time, the offset", "a year, no order", 2, year, out,
+    time("java.time, the offset", "a year, no order", two, year, out,
         () -> javaTime(year, out), true);
-    time("java.time, the hour of the day", "a year, no order", 2, year, out,
+    time("java.time, the hour of the day", "a year, no order", two, year, out,
         () -> javaTimeHour(year, out), false);
     time("one offset", "a week, no order", 0, week, out,
         () -> oneOffset(week, out, weekSteps.base), true);
-    time("the pass for least and greatest", "a year, no order", 2, year, out,
-        () -> leastAndGreatest(year), false);
-    time("steps of 2, checked by range", "a year, no order", 2, year, out,
-        () -> stepsOf2ByRange(year, out, yearSteps, micros(2025, 1, 1), micros(2026, 1, 1)), true);
-    // 2^45 microseconds are 407 days: the year of 2025 from its first instant.
-    time("steps of 2, checked by an OR", "a year, no order", 2, year, out,
-        () -> stepsOf2ByOr(year, out, yearSteps, micros(2025, 1, 1), 45), true);
-    time("steps of 2, no mask, by an OR", "a year, no order", 2, year, out,
-        () -> stepsOf2NoMaskByOr(year, out, yearSteps, micros(2025, 1, 1), 45), true);
+    time("the pass for least and greatest", "a year, no order", two, year, out,
+        () -> sink ^= leastAndGreatest(year), false);
+    // The plain steps and the OR-checked ones on the same instants, each twice in turn: their
+    // difference is a ratio under 1.3, which is read by the minimums of two runs.
+    for (int pass = 0; pass < 2; pass++) {
+      time("steps of 2, written out", "a year, no order", two, year, out,
+          () -> stepsOf2(year, out, yearSteps), true);
+      time("steps of 2, checked by an OR", "a year, no order", two, year, out,
+          () -> inRange(stepsOf2ByOr(year, out, yearSteps, from, bits)), true);
+    }
+    time("steps of 2, checked by range", "a year, no order", two, year, out,
+        () -> inRange(stepsOf2ByRange(year, out, yearSteps, from, from + (1L << bits))), true);
+    time("steps of 2, no mask, by an OR", "a year, no order", two, year, out,
+        () -> inRange(stepsOf2NoMaskByOr(year, out, yearSteps, from, bits)), true);
 
     // Batches that span exactly k changes: from a month before the first of them to a month
     // after the last, counted from the first change of 2016.
@@ -483,13 +509,12 @@ public class ZoneForms {
     while (CHANGE[first] < micros(2016, 1, 1)) {
       first++;
     }
-    long month = 30 * 86400L * MICROS;
     for (int k : new int[] {1, 2, 4, 8, 16}) {
-      long from = CHANGE[first] - month;
-      long until = CHANGE[first + k - 1] + month;
-      long[] in = instants(random, from, until);
-      Steps s = Steps.of(from, until);
-      String data = (k + 1) / 2 + " years, no order";
+      long least = CHANGE[first] - 30 * day;
+      long greatest = CHANGE[first + k - 1] + 30 * day;
+      long[] in = instants(random, least, greatest);
+      Steps s = Steps.of(least, greatest);
+      String data = (greatest - least) / day + " days, no order";
       switch (k) {
         case 1 -> time("steps, written out", data, k, in, out, () -> stepsOf1(in, out, s), true);
         case 2 -> time("steps, written out", data, k, in, out, () -> stepsOf2(in, out, s), true);
@@ -502,9 +527,12 @@ public class ZoneForms {
       }
     }
 
-    time("table, three gathers", "a year, no order", 2, year, out,
+    time("table, three gathers", "a year, no order", two, year, out,
         () -> table(year, out, index), true);
     time("table, three gathers", "ten years, no order", 20, decade, out,
         () -> table(decade, out, index), true);
+    if (failed) {
+      System.exit(1);
+    }
   }
 }
