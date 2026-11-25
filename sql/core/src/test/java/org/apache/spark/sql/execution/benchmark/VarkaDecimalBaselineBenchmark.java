@@ -69,15 +69,16 @@ import org.apache.spark.sql.internal.SQLConf;
  * it on.
  *
  * <p>Twenty-four more sections time the operators of the 128-bit lane pair (VARKA-359) that the
- * four above leave out, at {@code DECIMAL(38, 10)} and at {@code DECIMAL(20, 2)}, a precision
- * just past a long, each with no nulls and with one row in ten null: {@code x IN (c1, c2,
- * c3)}, {@code x <=> y}, {@code x IS NULL}, {@code -x < y} and {@code abs(x) < y} as filters, and
- * {@code x < y} as a projected value. A negation or {@code abs} is timed under a comparison, since
- * alone it is as fast as a copy. The three literals of {@code IN} are of the column's scale, so
- * coercion leaves the column as it is; like {@code x <=> y} over independent columns, the filter
- * selects next to no row, and the time is the test's. The {@code DECIMAL(20, 2)} columns are an
- * {@code x} and a {@code y} whose integer parts reach five times ten to the seventeenth, so most
- * unscaled values are past a long and the high word holds real bits there too.
+ * four above leave out, at {@code DECIMAL(38, 10)} and at {@code DECIMAL(20, 2)}, a precision just
+ * past a long, each with no nulls and with one row in ten null: {@code x IN (c1, c2, c3)}, {@code x
+ * <=> y}, {@code x IS NULL} (over the column with no null with the scan's batch pruning off),
+ * {@code -x < y} and {@code abs(x) < y} as filters, and {@code x < y} as a projected value. A
+ * negation or {@code abs} is timed under a comparison, since alone it is as fast as a copy. The
+ * three literals of {@code IN} are of the column's scale, so coercion leaves the column as it is;
+ * like {@code x <=> y} over independent columns, the filter selects next to no row, and the time is
+ * the test's. The {@code DECIMAL(20, 2)} columns are an {@code x} and a {@code y} whose integer
+ * parts reach five times ten to the seventeenth, so most unscaled values are past a long and the
+ * high word holds real bits there too.
  *
  * <p>Thirty-six more sections time the 64-bit decimal forms the equal-scale comparison leaves out
  * (VARKA-348, VARKA-349), each with no nulls and with one row in ten null. At {@code DECIMAL(9,
@@ -130,7 +131,9 @@ import org.apache.spark.sql.internal.SQLConf;
  * and ANSI. Their columns come last, after {@code l}. The casts to {@code BIGINT}, the casts
  * between decimals and the filter fuse whole (VARKA-350) where the session takes a 64-bit
  * kernel's masks; the narrow and floating targets and the BIGINT casts into a decimal run on the
- * row path.
+ * row path. Of the fused ones, {@code CAST(x AS DECIMAL(18, 2))} at {@code DECIMAL(18, 4)} times
+ * the fallback: its rounding division guards the magnitude below {@code 2^54}, which most of
+ * {@code x18}'s values lie past, so its kernel declines every batch to the row engine.
  *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -163,9 +166,11 @@ import org.apache.spark.sql.internal.SQLConf;
  * decimal value (VARKA-348b), so the choice at precisions 9 and 18, the cast from 9 to
  * {@code DECIMAL(18, 4)} and the three arithmetic projections at precision 9 are {@code WHOLE}
  * as well, in either session, since a value root is no condition.
- * The cast sections to {@code BIGINT} (VARKA-350) and their {@code CAST(x AS BOOLEAN)}
- * filter are {@code WHOLE} where the session takes a 64-bit condition and {@code NONE} where it
- * refuses one, a decimal cast's value declining there with the condition. Every
+ * The cast sections to {@code BIGINT} (VARKA-350), their {@code CAST(x AS BOOLEAN)}
+ * filter and the two casts between decimals are {@code WHOLE} where the session takes a 64-bit
+ * condition and {@code NONE} where it refuses one, a decimal cast's value declining there with
+ * the condition; the cast to {@code DECIMAL(18, 2)} times the fallback (above), so its kernel
+ * check is that no batch runs as a kernel. Every
  * other section is {@code NONE}. A row that fuses more of a section sets its new class,
  * so that its fusion cannot turn a baseline section into a fused one unnoticed, and the results
  * file notes the class of each section that fuses.
@@ -182,16 +187,37 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
   static final int NUM_ROWS = 2_000_000;
 
   /**
+   * The in-memory scan's batch pruning off, so that a filter no cached batch's statistics pass
+   * still reads every row.
+   */
+  static final Map<String, String> NO_PRUNING =
+      Map.of("spark.sql.inMemoryColumnarStorage.partitionPruning", "false");
+
+  /**
    * A section: its title, its query, how much of it the Varka session fuses today, the
    * {@link VarkaSqlBenchmarkBase.Fusion} class the run checks its plan against before timing, and
    * the SQL settings both sessions run it under, an evaluation mode for the casts that have more
-   * than one answer.
+   * than one answer. Last, whether the section times a fallback on purpose: one that fuses whole
+   * but whose values its kernel's guard declines at every batch, so that the kernel check a
+   * {@code WHOLE} section otherwise passes is replaced by the check that no batch runs as a
+   * kernel ({@link VarkaSqlBenchmarkBase.BatchCheck#ALL_FALL_BACK}).
    */
-  record Section(String title, String query, Fusion fusion, Map<String, String> conf) {
+  record Section(String title, String query, Fusion fusion, Map<String, String> conf,
+      boolean timesFallback) {
 
     /** A section run under the sessions' own settings. */
     Section(String title, String query, Fusion fusion) {
       this(title, query, fusion, Map.of());
+    }
+
+    /** A section whose kernel, where it fuses whole, computes its batches. */
+    Section(String title, String query, Fusion fusion, Map<String, String> conf) {
+      this(title, query, fusion, conf, false);
+    }
+
+    /** The kernel check of the section where it plans {@code WHOLE}. */
+    BatchCheck batchCheck() {
+      return timesFallback ? BatchCheck.ALL_FALL_BACK : BatchCheck.KERNEL;
     }
   }
 
@@ -683,7 +709,9 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * Adds the cast sections at density {@code d} (VARKA-350, VARKA-366), in the order the class
    * javadoc lists them. The casts to {@code BIGINT}, the casts between decimals and the filter
    * are {@code fused}: whole (VARKA-350), but {@code NONE} on a session that refuses a 64-bit
-   * kernel's masks, where a decimal cast's value declines too; a cast to a narrow integral or a
+   * kernel's masks, where a decimal cast's value declines too. The rescale of {@code x18} to
+   * {@code DECIMAL(18, 2)} times the fallback, its division's guard declining every batch of
+   * the column's values. A cast to a narrow integral or a
    * floating type, or of a BIGINT into a decimal, runs on the row path, {@code NONE}. The ANSI
    * and LEGACY sections name their mode, and the filter runs with constraint propagation off, so
    * that it is the cast alone.
@@ -728,8 +756,12 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
         "SELECT CAST(" + x18 + " AS DOUBLE)" + value, Fusion.NONE));
     out.add(new Section(d18 + "CAST(x AS FLOAT)" + tail,
         "SELECT CAST(" + x18 + " AS FLOAT)" + value, Fusion.NONE));
+    // The rounding division at precision 18 and k = 2 guards the magnitude below 2^54 and
+    // declines a batch past it; x18's unscaled values reach 5 * 10^16, past 2^54 on most rows,
+    // so every batch goes to the row engine and the varka on arm times the fallback.
     out.add(new Section(d18 + "CAST(x AS DECIMAL(18, 2))" + tail,
-        "SELECT CAST(" + x18 + " AS DECIMAL(18, 2))" + value, fused));
+        "SELECT CAST(" + x18 + " AS DECIMAL(18, 2))" + value, fused, Map.of(),
+        fused == Fusion.WHOLE));
     out.add(new Section("DECIMAL(15, 4) CAST(x AS FLOAT)" + tail,
         "SELECT CAST(" + x15s4 + " AS FLOAT)" + value, Fusion.NONE));
     out.add(new Section(d18s14 + "CAST(x AS INT), ANSI" + tail,
@@ -805,7 +837,10 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * c2, c3)}, {@code x <=> y}, {@code -x < y} and {@code abs(x) < y} as filters, and {@code x <
    * y} as a value, with one more shape. Given {@code rescaled}, the column at another scale, the
    * first section is {@code x < w} over it as a filter; without it, the third is {@code x IS
-   * NULL} as a filter, the lane pair's order. {@code fusion} gives each shape's class.
+   * NULL} as a filter, the lane pair's order, which over the column with no null runs with the
+   * in-memory scan's batch pruning off, since the scan would otherwise prune every cached batch of
+   * that filter by its null count and both arms would time an empty scan.
+   * {@code fusion} gives each shape's class.
    */
   private static void addComparisons(List<Section> out, Precision p,
       Optional<OperandColumn> rescaled, Function<ComparisonShape, Fusion> fusion) {
@@ -834,8 +869,12 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
               filter + x + " IN (" + literals + ")", expected);
           case NULL_SAFE -> new Section(head + "<=> filter" + tail,
               filter + x + " <=> " + y, expected);
+          // Over a column with no null the in-memory scan would prune every cached batch of an
+          // IS NULL filter by its null count, so both arms would time an empty scan: the section
+          // runs with that pruning off, on both sessions, so each arm reads every row.
           case IS_NULL -> new Section(head + "IS NULL filter" + tail,
-              filter + x + " IS NULL", expected);
+              filter + x + " IS NULL", expected,
+              d == Density.NO_NULLS ? NO_PRUNING : Map.of());
           case NEGATED -> new Section(head + "-x < y filter" + tail,
               filter + "-" + x + " < " + y, expected);
           case ABS -> new Section(head + "abs(x) < y filter" + tail,
@@ -866,7 +905,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       List<Section> sections = sections(
           VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
       for (Section s : sections) {
-        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fusion()));
+        withConf(varka, s.conf(),
+            () -> requireBaseline(varka, s.title(), s.query(), s.fusion(), s.batchCheck()));
       }
       for (Section s : sections) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),

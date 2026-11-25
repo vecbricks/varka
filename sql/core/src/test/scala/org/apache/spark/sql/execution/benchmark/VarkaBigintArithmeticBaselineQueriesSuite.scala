@@ -17,8 +17,6 @@
 
 package org.apache.spark.sql.execution.benchmark
 
-import java.util.Optional
-
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
@@ -33,8 +31,8 @@ import org.apache.spark.sql.types._
  * (VARKA-104). Each section runs under its own SQL settings, its mode where it has one. It also
  * makes the benchmark's own fuse check, that each section's plan on the Varka session has the
  * section's fusion class under the section's settings, and its kernel check on each `WHOLE`
- * projection, so a row that changes how a section fuses sets the section's new class in the same
- * pull request.
+ * section, the filter's included, so a row that changes how a section fuses sets the section's new
+ * class in the same pull request.
  *
  * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the
  * id, so these rows already reach the regions the benchmark's javadoc states, which the suite
@@ -158,12 +156,7 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
       for (s <- VarkaBigintArithmeticBaselineBenchmark.sections(declines).asScala) {
         withClue(s.title) {
           withSettings(s) {
-            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
-            // The benchmark's kernel check too: a WHOLE projection hands no batch to the row path.
-            if (s.checksKernels) {
-              VarkaSizeLadder.varkaFused(varkaSpark, s.query)
-            }
+            VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
           }
         }
       }

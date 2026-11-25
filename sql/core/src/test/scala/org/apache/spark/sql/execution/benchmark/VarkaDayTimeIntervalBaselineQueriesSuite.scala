@@ -17,8 +17,6 @@
 
 package org.apache.spark.sql.execution.benchmark
 
-import java.util.Optional
-
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
@@ -215,12 +213,7 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
         for (s <- VarkaDayTimeIntervalBaselineBenchmark.sections(declines).asScala) {
           withClue(s"${s.title}, refusal $declines") {
             withSettings(s) {
-              val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-              assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
-              // The benchmark's kernel check too: a WHOLE section hands no batch to the row path.
-              if (s.fusion == VarkaSqlBenchmarkBase.Fusion.WHOLE) {
-                VarkaDayTimeIntervalBaselineBenchmark.requireKernel(varkaSpark, s)
-              }
+              VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
             }
           }
         }

@@ -1,0 +1,31 @@
+# 2026-11-25T18:20:52Z, commit 28464598302
+# OpenJDK Runtime Environment (build 25.0.5.1+2-1-26.04.1-Ubuntu)
+# AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+# load before: 1.74 1.53 1.29 1/1859 2649484
+time-zone data 2026f, 604 zone ids, 555 with a change before 2100
+changes before 2100: 65794 (33063 gaps, 32731 overlaps), at most 400 in a zone (SystemV/AST4ADT)
+closest two changes of one zone: 601200 s apart (America/Boa_Vista 2000)
+most changes in any 365 days: 5 (Africa/Casablanca); since 1970: 5
+most changes in any 10 years: 42; since 1970: 42
+last offset that is no whole minute ends in 1972 (Africa/Monrovia)
+last offset that is no whole quarter hour ends in 1979 (Pacific/Kiritimati)
+zones whose every offset since 1970 is whole hours: 562 of 604; zones not on a whole hour in 2026: 23
+distinct sets of rules among the 604 zone ids: 349
+zones with changes, and none after 2025: 348; with no change at all: 49
+closest two local thresholds of one zone: 601200 s apart (America/Boa_Vista 2000)
+most distinct offsets in one zone: 8 (America/Goose_Bay)
+a table of 2^39-microsecond buckets from 1900 to 2100: 11482 buckets, 89 KB at 8 bytes a bucket, 269 KB as ZoneForms' three arrays
+LT = T + max(offset before, offset after) rises strictly in every zone: true
+earlier-offset rule: 257568575 local times around every change, 0 differ from LocalDateTime.atZone
+kept-offset rule: 237632993 local times in a gap or an overlap, each with up to three kept offsets, 712898979 pairs, 0 differ from ZonedDateTime.ofLocal
+midnight strictly inside a gap: 1 days over 6 zone ids, 0 where atStartOfDay is not the gap's end
+  1919-03-31 gap of 3600 s, 6 zone ids
+America/Los_Angeles 2025 to 2025, in no order, batches of 4096 rows: 1000 of 1000 span a change, at most 2 changes
+America/Los_Angeles 2025 to 2025, in time order, batches of 4096 rows: 2 of 1000 span a change, at most 1 changes
+America/Los_Angeles 2025 to 2025, in no order, batches of 10000 rows: 1000 of 1000 span a change, at most 2 changes
+America/Los_Angeles 2025 to 2025, in time order, batches of 10000 rows: 2 of 1000 span a change, at most 1 changes
+America/Los_Angeles 2016 to 2025, in no order, batches of 4096 rows: 1000 of 1000 span a change, at most 20 changes
+America/Los_Angeles 2016 to 2025, in time order, batches of 4096 rows: 20 of 1000 span a change, at most 1 changes
+America/Los_Angeles 2016 to 2025, in no order, batches of 10000 rows: 1000 of 1000 span a change, at most 20 changes
+America/Los_Angeles 2016 to 2025, in time order, batches of 10000 rows: 20 of 1000 span a change, at most 1 changes
+# load after: 2.24 1.66 1.34 2/1892 2650073

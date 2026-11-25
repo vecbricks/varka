@@ -17,8 +17,6 @@
 
 package org.apache.spark.sql.execution.benchmark
 
-import java.util.Optional
-
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
@@ -41,8 +39,9 @@ import org.apache.spark.sql.types.{DayTimeIntervalType, IntegerType, TimestampNT
  *
  * The fuse check is the benchmark's own, made here too: each section's plan has the fusion class
  * the section lists, `NONE` for every section while the class was step 1's baseline. A step of
- * VARKA-339 that fuses a section sets its class, and this check follows it; with the benchmark's
- * fuse check property set to false it is skipped, as the benchmark's plan check is.
+ * VARKA-339 that fuses a section sets its class, and this check follows it, a `WHOLE` section
+ * running every batch as a kernel too; with the benchmark's fuse check property set to false it
+ * is skipped.
  */
 class VarkaTimestampNtzArithmeticBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
@@ -106,8 +105,7 @@ class VarkaTimestampNtzArithmeticBaselineQueriesSuite extends QueryTest with Var
           "SELECT ntz FROM varka_ntz_arith WHERE ntz < ntz2").isPresent === !declines)
         for (s <- sections().asScala) {
           withClue(s"${s.title}, refusal $declines") {
-            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+            VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
           }
         }
       }

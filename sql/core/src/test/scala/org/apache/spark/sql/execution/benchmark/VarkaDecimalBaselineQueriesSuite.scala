@@ -40,8 +40,10 @@ import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, DoubleTyp
  * The decimal baseline's sections, run at a small scale on both sessions in every build, so a
  * section that no longer parses or that the two sessions answer differently fails a pull request
  * rather than the runner dispatch that times it (VARKA-377 5). It also makes the benchmark's own
- * fuse check, that each section's plan on the Varka session has the section's fusion class, so a
- * row that changes how a section fuses sets the section's new class in the same pull request.
+ * fuse check, that each section's plan on the Varka session has the section's fusion class and
+ * that a `WHOLE` section, a filter's included, runs every batch as a kernel, so a row that changes
+ * how a section fuses sets the section's new class in the same pull request; and it shows the
+ * kernel check failing a section whose batches all fall back.
  *
  * Two further checks keep the table what the benchmark claims: every column has the declared
  * precision and scale, and a section over the columns with no null returns no null, nor does
@@ -165,6 +167,15 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           assert(s.fusion === expected, s.title)
         }
       }
+      // The one fused section whose guard declines every batch of its values, at each density,
+      // and none where the session refuses a 64-bit kernel's masks, which leaves it NONE.
+      for (declines <- Seq(false, true)) {
+        val fallbacks = VarkaDecimalBaselineBenchmark.sections(declines).asScala
+          .filter(_.timesFallback).map(_.title).toSeq
+        val expected = if (declines) Seq.empty else Seq("no nulls", "one row in ten null")
+          .map(d => s"DECIMAL(18, 4) CAST(x AS DECIMAL(18, 2)), $d")
+        assert(fallbacks === expected, s"refusal $declines")
+      }
       var types = Seq.empty[DataType]
       for (s <- sections) {
         withSettings(s)(types :+= spark.sql(s.query).schema.head.dataType)
@@ -283,8 +294,8 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           for (s <- VarkaDecimalBaselineBenchmark.sections(declines).asScala) {
             withClue(s"${s.title}, refusal $declines") {
               withSettings(s) {
-                val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-                assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+                VarkaSqlBenchmarkBase.requireSection(
+                  varkaSpark, s.title, s.query, s.fusion, s.batchCheck)
               }
             }
           }
@@ -294,6 +305,41 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           case Some(v) => varkaSpark.conf.set(key, v)
           case None => varkaSpark.conf.unset(key)
         }
+      }
+    }
+  }
+
+  test("a WHOLE section whose batches fall back fails the kernel check", PinsDefaults) {
+    // The kernel check's own test. With every kernel invocation declining its batch, a WHOLE
+    // filter section and a WHOLE projection section of this baseline plan as before but run every
+    // batch on the row path, and the check fails each, counting the batches handed back; without
+    // the hook the same sections pass. The filter is the case the check exists for: its Varka
+    // node is no projection, which the size ladders' run-time check reads alone. The sections
+    // are listed at the two-lane refusal the shared sessions leave off.
+    assume(VarkaSqlBenchmarkBase.fuseCheck(), "the fuse check is lifted")
+    withTable(100) {
+      val whole = VarkaDecimalBaselineBenchmark.sections(false).asScala
+        .filter(s => s.fusion == VarkaSqlBenchmarkBase.Fusion.WHOLE && !s.timesFallback)
+      val planted = Seq(
+        whole.find(_.query.contains(" WHERE ")).getOrElse(fail("no WHOLE filter section")),
+        whole.find(!_.query.contains(" WHERE ")).getOrElse(fail("no WHOLE projection section")))
+      val handed = """handed (\d+) to another path""".r
+      for (s <- planted) {
+        withClue(s.title)(withSettings(s) {
+          VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
+          VarkaColumnarToRowExec.setDeclineKernelForTesting(true)
+          val e = try {
+            intercept[IllegalStateException] {
+              VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
+            }
+          } finally {
+            VarkaColumnarToRowExec.setDeclineKernelForTesting(false)
+          }
+          assert(e.getMessage.contains("is WHOLE but its varka on arm would time the row path"))
+          assert(handed.findAllMatchIn(e.getMessage).map(_.group(1).toLong).sum > 0,
+            e.getMessage)
+          VarkaSqlBenchmarkBase.requireSection(varkaSpark, s.title, s.query, s.fusion)
+        })
       }
     }
   }
