@@ -5820,7 +5820,8 @@ without nulls. No planning rule declines a filter kernel of null tests alone tod
 
 ### Item 120. Never slower than Spark: a gate per width
 
-*Moved to milestone 9's task plan as row 680 on 25 November 2026 (`m9/PLAN.md` 2.11).*
+*Moved to milestone 9's task plan as row 680 on 25 November 2026 (`m9/PLAN.md` 2.11), for the
+runners' two widths; the laptop's widths stay here.*
 *Added 27 October 2026 on the owner's word, from the day's review of what Varka should improve.*
 The rule that a fused shape is not slower than Spark's row path lives only in reviewers' heads:
 row 27's baseline found `(d < d2) AND (l < l2)` at 0.8X on the EPYC 7763 at 128 bits only because
