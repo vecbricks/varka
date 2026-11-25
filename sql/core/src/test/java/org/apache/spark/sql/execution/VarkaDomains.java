@@ -59,6 +59,8 @@ import org.apache.spark.sql.types.ByteType;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DateType;
 import org.apache.spark.sql.types.DayTimeIntervalType;
+import org.apache.spark.sql.types.Decimal;
+import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.DoubleType;
 import org.apache.spark.sql.types.FloatType;
 import org.apache.spark.sql.types.IntegerType;
@@ -673,6 +675,9 @@ public final class VarkaDomains {
       return Double.doubleToRawLongBits(row.getDouble(o));
     } else if (t instanceof FloatType) {
       return Float.floatToRawIntBits(row.getFloat(o));
+    } else if (t instanceof DecimalType d && d.precision() <= Decimal.MAX_LONG_DIGITS()) {
+      // A decimal of 18 digits or fewer is its unscaled long on the long lane (VARKA-347).
+      return row.getDecimal(o, d.precision(), d.scale()).toUnscaledLong();
     }
     throw new IllegalArgumentException("no lane reads a " + t + " input");
   }

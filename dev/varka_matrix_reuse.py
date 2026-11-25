@@ -55,11 +55,12 @@ matrix lists more jobs than one page holds.
 prints `failed_run=<id>` and `failed_bins=b003,b017` for the branch's newest matrix run before RUN
 that has a failed bin job, or both empty, and the workflow takes those bins' units from that
 run's `varka-option-matrix-plan` artifact. An API failure prints both empty: the run then puts
-only its changed suites first.
+only its changed suites first. With `--pr N`, for a vecbricks/varka run of a pull request, whose
+runs all have master as their branch, only the runs the workflow named for pull request N count.
 
   dev/varka_matrix_reuse.py REPOSITORY SHA [--wait MINUTES]    # in a step, with GH_TOKEN set
   dev/varka_matrix_reuse.py reach REPOSITORY RUN [--wait MINUTES]
-  dev/varka_matrix_reuse.py failed REPOSITORY BRANCH RUN
+  dev/varka_matrix_reuse.py failed REPOSITORY BRANCH RUN [--pr N]
   dev/varka_matrix_reuse.py --selftest
 """
 
@@ -310,20 +311,36 @@ def reach(repository, run, wait_minutes, sleep=time.sleep, now=time.monotonic):
 MATRIX_WORKFLOW = "varka-option-matrix.yml"
 BIN_JOB = re.compile(r"Option matrix: (b\d{3})")
 FAILED = ("failure", "timed_out")
-# The branch's runs looked through, newest first: one page.
+# The branch's runs looked through, newest first: one page. With `--pr` every pull request's runs
+# share master as their branch, so a page of the most the API gives is read instead.
 LOOK_BACK = 20
+PR_LOOK_BACK = 100
 # A matrix run's jobs come 50 to a page: a page of 100 of them, steps and all, has answered 502
 # three times running (dev/varka_matrix_stragglers.py reads them 50 to a page too).
 JOB_PAGE = 50
 
 
-def last_failed(repository, branch, run):
+def pr_title(pr):
+    """The part of a run's name, from the workflow's `run-name`, that marks a run of `pr`; the
+    trailing " at " keeps #16 from matching #167.
+
+    >>> pr_title(16) in "Varka option matrix of #167 at 0abc"
+    False
+    """
+    return f"of #{pr} at "
+
+
+def last_failed(repository, branch, run, pr=None):
     """(run id, its failed bins) for the branch's newest matrix run before `run` that has a
     failed bin, whatever the run's own conclusion, so a run cancelled after a red bin counts; or
     (None, []) when none of its last `LOOK_BACK` runs has one. Run ids grow with time, so the
-    runs from `run` on, this one among them, are passed over."""
+    runs from `run` on, this one among them, are passed over. With `pr`, only the runs named for
+    that pull request count, among the branch's last `PR_LOOK_BACK`."""
     path = f"repos/{repository}/actions/workflows/{MATRIX_WORKFLOW}/runs"
-    runs = gh(f"{path}?branch={quote(branch, safe='')}&per_page={LOOK_BACK}")["workflow_runs"]
+    size = LOOK_BACK if pr is None else PR_LOOK_BACK
+    runs = gh(f"{path}?branch={quote(branch, safe='')}&per_page={size}")["workflow_runs"]
+    if pr is not None:
+        runs = [r for r in runs if pr_title(pr) in (r.get("display_title") or "")]
     for earlier in sorted((r["id"] for r in runs if r["id"] < int(run)), reverse=True):
         jobs = gh_all(f"repos/{repository}/actions/runs/{earlier}/jobs", "jobs", JOB_PAGE)
         bins = sorted(
@@ -656,6 +673,27 @@ class SelfTest(unittest.TestCase):
         got, _ = self.run_with(api, lambda sleep, now: last_failed("o/r", "a/b", 30))
         self.assertEqual(got, (None, []))
 
+    def test_a_pull_request_run_reads_only_the_runs_named_for_it(self):
+        def bin_job(name):
+            return {"name": f"Option matrix: {name}", "conclusion": "failure"}
+
+        # All on master: 20 is #167's, 10 is #16's, 5 is a run without `pr`.
+        titles = {20: "Varka option matrix of #167 at 1a", 10: "Varka option matrix of #16 at 2b"}
+        titles[5] = "Varka option matrix"
+        jobs = {20: [bin_job("b001")], 10: [bin_job("b002")], 5: [bin_job("b003")]}
+        asked = []
+
+        def api(path):
+            asked.append(path)
+            if "/workflows/" in path:
+                return {"workflow_runs": [{"id": i, "display_title": t} for i, t in titles.items()]}
+            return {"jobs": jobs[int(path.split("/runs/")[1].split("/")[0])]}
+
+        got, _ = self.run_with(api, lambda sleep, now: last_failed("o/r", "master", 30, pr=16))
+        self.assertEqual(got, (10, ["b002"]))
+        self.assertIn(f"per_page={PR_LOOK_BACK}", asked[0])
+        self.assertFalse(any("/runs/20/" in a or "/runs/5/" in a for a in asked))
+
     def test_reach_retries_a_failed_poll_and_gives_up_after_three(self):
         done = {"name": "Run / Varka suites: sql 1 of 3", "status": "completed"}
         done["conclusion"] = "success"
@@ -688,11 +726,12 @@ def main(argv):
         parser.add_argument("repository")
         parser.add_argument("branch")
         parser.add_argument("run", help="this run's id")
+        parser.add_argument("--pr", type=int, help="only the runs named for this pull request")
         args = parser.parse_args(argv[1:])
         run, bins = None, []
         for attempt in range(RETRIES + 1):
             try:
-                run, bins = last_failed(args.repository, args.branch, args.run)
+                run, bins = last_failed(args.repository, args.branch, args.run, args.pr)
                 break
             except TRANSIENT as e:
                 print(f"no failed run read ({e!r}), attempt {attempt + 1}", file=sys.stderr)

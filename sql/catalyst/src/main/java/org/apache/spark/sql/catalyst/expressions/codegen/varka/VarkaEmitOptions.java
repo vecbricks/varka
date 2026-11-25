@@ -758,7 +758,13 @@ public record VarkaEmitOptions(
      * first differs from Spark's answer for {@code sin}, {@code cos} and {@code tan} on thousands
      * of inputs in a million, and the second never does, since {@code Math} delegates there.
      */
-    MATH_OTHER_CLASS;
+    MATH_OTHER_CLASS,
+    /**
+     * The log family's domain null at {@code x < threshold} rather than Spark's {@code <=}
+     * ({@link VarkaMathDomain}): {@code ln(0.0)} answers {@code -inf} where Spark answers null, and
+     * every other input agrees.
+     */
+    MATH_DOMAIN_LT;
   }
 
   /**
@@ -774,7 +780,13 @@ public record VarkaEmitOptions(
      * magnitude {@code (x ^ (x >> 63)) - (x >> 63)} by an arithmetic shift: it wraps at
      * {@code Long.MIN_VALUE}, where the day count comes out positive.
      */
-    DAY_BY_MAGNITUDE;
+    DAY_BY_MAGNITUDE,
+    /**
+     * {@code dt / k} by an even divisor of a day with a non-negative {@code x}'s bias,
+     * {@code |k| >> 1}, for a negative one too: a negative half then rounds toward zero, so
+     * {@code -3 / 2} answers {@code -1} for Guava's {@code -2}.
+     */
+    HALF_UP_BIAS_UNSIGNED;
   }
 
   /**

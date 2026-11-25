@@ -34,6 +34,8 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.sql.catalyst.expressions.Alias;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.catalyst.expressions.MultiplyDTInterval;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSqlResolve;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
@@ -42,6 +44,8 @@ import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
 import org.apache.spark.sql.catalyst.plans.logical.Project;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.test.TestSparkSession;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DayTimeIntervalType;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -265,8 +269,8 @@ public final class VarkaHarnessParitySuite {
   }
 
   @Test
-  @DisplayName("an ArithmeticException is a raised condition only as Math's exact long overflow, "
-      + "and any other is thrown as the harness's own")
+  @DisplayName("an ArithmeticException is a raised condition only as Math's exact long overflow or "
+      + "longValueExact's, and any other is thrown as the harness's own")
   void onlyMathsLongOverflowIsAConditionlessRaise() {
     String name = ArithmeticException.class.getName();
     assertEquals(Optional.of(name), VarkaAnsiForm.condition(() -> {
@@ -277,6 +281,16 @@ public final class VarkaHarnessParitySuite {
       Math.negateExact(Long.MIN_VALUE);
       return List.of();
     }));
+    // dt * c's decimal product past the long, from BigDecimal.longValueExact: a 20-digit
+    // product, and a 19-digit one, which its LongOverflow.check throws.
+    for (long micros : new long[] {Long.MAX_VALUE, 6_500_000_000_000_000_000L}) {
+      assertEquals(Optional.of(name), VarkaAnsiForm.condition(() -> {
+        new MultiplyDTInterval(Literal.create(micros, new DayTimeIntervalType((byte) 0,
+            (byte) 3)), Literal.create(new java.math.BigDecimal("1.5"),
+            DataTypes.createDecimalType(2, 1))).eval(null);
+        return List.of();
+      }));
+    }
     // C2's preallocated instance, which stands in for a hot site's overflow.
     var preallocated = new ArithmeticException();
     preallocated.setStackTrace(new StackTraceElement[0]);

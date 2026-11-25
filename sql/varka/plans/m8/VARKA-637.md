@@ -298,6 +298,10 @@ the weekly full run is traced to its tier.
   for a unit that exited non-zero; a `gate` job reads the first stage's artifacts, and `rest`
   also runs when it outputs `tests=passed`. A rerun of a straggler's job reruns `rest` with it,
   so the summary points to a new dispatch. A stage over 256 jobs falls back to one stage.
+* *25 November 2026, merge of #1678:* the schedule no longer runs, so a run is a dispatch. On
+  vecbricks/varka, with `pr` and `sha`, the changed suites diff `sha` against the merge base,
+  the last red run is the newest earlier run named for that pull request in that repository
+  (`failed --pr N`), and the first stage has no reach record to cut. `slots` caps both stages.
 * The dry plan of `results/VARKA-637-dry-plan.txt`: #1626's head plans 20 `first` bins and 220
   `rest` bins against 235 in one list, the `first` bins running 27 triples the reach record cut,
   and #1659's head, which changes no suite, plans no `first` bin and the one-list plan in `rest`.
