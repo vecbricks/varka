@@ -25,6 +25,7 @@ import org.apache.spark.sql.catalyst.analysis.Star
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.catalyst.analysis.resolver.ExplicitlyUnsupportedResolverFeature
 import org.apache.spark.sql.catalyst.expressions.{
+  Alias,
   Cast,
   CodegenObjectFactoryMode,
   Collate,
@@ -39,6 +40,7 @@ import org.apache.spark.sql.catalyst.plans.logical.{Filter, Join}
 import org.apache.spark.sql.connector.ConstantStringOfAnyArity
 import org.apache.spark.sql.connector.catalog.{Identifier, InMemoryCatalog}
 import org.apache.spark.sql.execution.{ProjectExec, WholeStageCodegenExec}
+import org.apache.spark.sql.functions.{call_function, expr, lit}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{ArrayType, CharType, GeographyType, GeometryType, IntegerType, MapType, StringType, StructType, VarcharType}
@@ -694,6 +696,37 @@ world'))"""))
       Seq((Literal("k"), Literal(1))), Seq(false), Seq(false),
       JsonConstructorNullBehavior.Null, StringType)
     assert(default.sql == "JSON_OBJECT('k' VALUE 1 NULL ON NULL)")
+  }
+
+  test("SPARK-59243: SQL of a raw aliased value drops the alias") {
+    val inner = JsonObjectExpr(
+      Seq((Literal("b"), Literal(1))), Seq(false), Seq(false), JsonConstructorNullBehavior.Null,
+      StringType)
+    val aliased = JsonObjectExpr(
+      Seq((Literal("a"), Alias(inner, "x")())), Seq(true), Seq(false),
+      JsonConstructorNullBehavior.Null, StringType)
+    assert(aliased.sql ==
+      "JSON_OBJECT('a' VALUE JSON_OBJECT('b' VALUE 1 NULL ON NULL) NULL ON NULL)")
+    checkAnswer(sql(s"SELECT ${aliased.sql}"), Row("""{"a":{"b":1}}"""))
+    val literal = JsonObjectExpr(
+      Seq((Literal("a"), Alias(Literal("[1]"), "x")())), Seq(true), Seq(true),
+      JsonConstructorNullBehavior.Null, StringType)
+    assert(literal.sql == "JSON_OBJECT('a' VALUE '[1]' FORMAT JSON NULL ON NULL)")
+    checkAnswer(sql(s"SELECT ${literal.sql}"), Row("""{"a":[1]}"""))
+    val collated = JsonObjectExpr(
+      Seq((Literal("a"), Collate(Alias(inner, "x")(), Literal("UTF8_BINARY")))), Seq(true),
+      Seq(false), JsonConstructorNullBehavior.Null, StringType)
+    assert(collated.sql == aliased.sql)
+    // The column name drops the alias too; a user cast still quotes and keeps it.
+    val df = spark.range(1).select(
+      call_function("json_object", lit("a"), expr("json_object('b', 1)").as("x")))
+    assert(!df.columns.head.contains(" AS ") && !df.columns.head.contains("FORMAT JSON"),
+      df.columns.head)
+    checkAnswer(df, Row("""{"a":{"b":1}}"""))
+    val quoted = spark.range(1).select(call_function(
+      "json_object", lit("a"), expr("CAST(json_object('b', 1) AS STRING)").as("x")))
+    assert(quoted.columns.head.contains(" AS x"), quoted.columns.head)
+    checkAnswer(quoted, Row("""{"a":"{\"b\":1}"}"""))
   }
 
   test("SQL renders a raw nested value spliced back to raw even after collation wrapping") {
@@ -1391,11 +1424,16 @@ world'))"""))
         sql(s"CREATE OR REPLACE FUNCTION perm_json_fn() RETURNS STRING RETURN $body")
         checkAnswer(sql("SELECT perm_json_fn()"), Row("""{"a":{"b":1}}"""))
       }
-      // The flat call is still rejected by name, as before.
-      val e = intercept[AnalysisException] {
-        sql("CREATE OR REPLACE FUNCTION perm_json_fn() RETURNS STRING RETURN json_object('a', 1)")
+      // The built-in owns the flat call too. Earlier versions rejected it by name, as the legacy
+      // flag does.
+      val flat = "CREATE OR REPLACE FUNCTION perm_json_fn() RETURNS STRING " +
+        "RETURN json_object('a', 1)"
+      sql(flat)
+      checkAnswer(sql("SELECT perm_json_fn()"), Row("""{"a":1}"""))
+      withSQLConf(SQLConf.LEGACY_ALLOW_TEMP_FUNCTION_IN_PERSISTED_SQL_FUNCTION.key -> "true") {
+        val e = intercept[AnalysisException](sql(flat))
+        assert(e.getCondition == "INVALID_TEMP_OBJ_REFERENCE")
       }
-      assert(e.getCondition == "INVALID_TEMP_OBJ_REFERENCE")
     } finally {
       sql("DROP FUNCTION IF EXISTS perm_json_fn")
       sql("DROP TEMPORARY FUNCTION IF EXISTS json_object")

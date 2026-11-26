@@ -499,7 +499,7 @@ To enable authorization in the SHS, a few extra options are used:
   <td>
     Specifies whether ACLs should be checked to authorize users viewing the applications in
     the history server. If enabled, access control checks are performed regardless of what the
-    individual applications had set for <code>spark.ui.acls.enable</code>. The application owner
+    individual applications had set for <code>spark.acls.enable</code>. The application owner
     will always have authorization to view their own application and any users specified via
     <code>spark.ui.view.acls</code> and groups specified via <code>spark.ui.view.acls.groups</code>
     when the application was run will also have authorization to view that application.
@@ -1039,8 +1039,8 @@ The following options provides finer-grained control for this feature:
   <td>(none)</td>
   <td>
     A comma-separated list of secure Hadoop filesystems your Spark application is going to access. For
-    example, <code>spark.kerberos.access.hadoopFileSystems=hdfs://nn1.com:8032,hdfs://nn2.com:8032,
-    webhdfs://nn3.com:50070</code>. The Spark application must have access to the filesystems listed
+    example, <code>spark.kerberos.access.hadoopFileSystems=hdfs://nn1.example.com:8032,hdfs://nn2.example.com:8032,
+    webhdfs://nn3.example.com:50070</code>. The Spark application must have access to the filesystems listed
     and Kerberos must be properly configured to be able to access them (either in the same realm
     or in a trusted realm). Spark acquires security tokens for each of the filesystems so that
     the Spark application can access those remote Hadoop filesystems.

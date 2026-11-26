@@ -20,6 +20,7 @@ package org.apache.spark.sql.errors
 import java.io.{File, IOException}
 import java.lang.reflect.InvocationTargetException
 import java.net.{URISyntaxException, URL}
+import java.sql.SQLException
 import java.time.DateTimeException
 import java.util.Locale
 import java.util.concurrent.TimeoutException
@@ -34,6 +35,7 @@ import org.codehaus.commons.compiler.{CompileException, InternalCompilerExceptio
 import org.apache.spark._
 import org.apache.spark.launcher.SparkLauncher
 import org.apache.spark.memory.SparkOutOfMemoryError
+import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.UnresolvedGenerator
@@ -1193,6 +1195,39 @@ private[sql] object QueryExecutionErrors extends QueryErrorsBase with ExecutionE
     new SparkIllegalArgumentException(
       errorClass = "_LEGACY_ERROR_TEMP_2087",
       messageParameters = Map("n" -> n.toString(), "jdbcNumPartitions" -> jdbcNumPartitions))
+  }
+
+  def jdbcExternalEngineSyntaxError(
+      jdbcQuery: String,
+      cause: SQLException,
+      isSchemaResolution: Boolean): SparkException = {
+    jdbcExternalEngineError(
+      "JDBC_EXTERNAL_ENGINE_SYNTAX_ERROR", jdbcQuery, cause, isSchemaResolution)
+  }
+
+  def jdbcExternalEnginePermissionError(
+      jdbcQuery: String,
+      cause: SQLException,
+      isSchemaResolution: Boolean): SparkException = {
+    jdbcExternalEngineError(
+      "JDBC_EXTERNAL_ENGINE_PERMISSION_ERROR", jdbcQuery, cause, isSchemaResolution)
+  }
+
+  private def jdbcExternalEngineError(
+      condition: String,
+      jdbcQuery: String,
+      cause: SQLException,
+      isSchemaResolution: Boolean): SparkException = {
+    val subClass =
+      if (isSchemaResolution) "DURING_OUTPUT_SCHEMA_RESOLUTION" else "DURING_QUERY_EXECUTION"
+    new SparkException(
+      errorClass = s"$condition.$subClass",
+      messageParameters = Map(
+        "jdbcQuery" -> jdbcQuery,
+        "externalEngineError" -> cause.getMessage.replaceAll("\\.+$", ""),
+        "externalEngineSqlState" ->
+          Option(cause.getSQLState).filter(_.nonEmpty).getOrElse("unknown")),
+      cause = cause)
   }
 
   def multiActionAlterError(tableName: String): Throwable = {
@@ -2925,6 +2960,36 @@ private[sql] object QueryExecutionErrors extends QueryErrorsBase with ExecutionE
       summary = "")
   }
 
+  def nextDayOverflowError(days: Int, dayOfWeek: String): SparkArithmeticException = {
+    new SparkArithmeticException(
+      errorClass = "DATETIME_OVERFLOW",
+      messageParameters = Map(
+        "operation" -> (s"find the next $dayOfWeek after " +
+          s"${toSQLValue(DateTimeUtils.daysToLocalDate(days), DateType)}")),
+      context = Array.empty,
+      summary = "")
+  }
+
+  def lastDayOverflowError(days: Int): SparkArithmeticException = {
+    new SparkArithmeticException(
+      errorClass = "DATETIME_OVERFLOW",
+      messageParameters = Map(
+        "operation" -> (s"find the last day of the month of " +
+          s"${toSQLValue(DateTimeUtils.daysToLocalDate(days), DateType)}")),
+      context = Array.empty,
+      summary = "")
+  }
+
+  def truncDateOverflowError(days: Int, unit: String): SparkArithmeticException = {
+    new SparkArithmeticException(
+      errorClass = "DATETIME_OVERFLOW",
+      messageParameters = Map(
+        "operation" -> (s"truncate ${toSQLValue(DateTimeUtils.daysToLocalDate(days), DateType)} " +
+          s"to $unit")),
+      context = Array.empty,
+      summary = "")
+  }
+
   def calendarIntervalArrowNanosOverflowError(
       interval: CalendarInterval): SparkArithmeticException = {
     new SparkArithmeticException(
@@ -3401,6 +3466,12 @@ private[sql] object QueryExecutionErrors extends QueryErrorsBase with ExecutionE
         "invalidValue" -> pos.toString))
   }
 
+  def variantConstructorSizeLimitError(sizeLimit: Int): Throwable = {
+    new SparkRuntimeException(
+      errorClass = "VARIANT_CONSTRUCTOR_SIZE_LIMIT",
+      messageParameters = Map("sizeLimit" -> s"${ByteUnit.BYTE.toMiB(sizeLimit)} MiB"))
+  }
+
   def variantSizeLimitError(sizeLimit: Int, functionName: String): Throwable = {
     new SparkRuntimeException(
       errorClass = "VARIANT_SIZE_LIMIT",
@@ -3583,6 +3654,23 @@ private[sql] object QueryExecutionErrors extends QueryErrorsBase with ExecutionE
       errorClass = "NULL_DATA_SOURCE_OPTION",
       messageParameters = Map("option" -> option)
     )
+  }
+
+  def storagePartitionJoinKeyTypeMismatchError(
+      transform: String,
+      columnType: DataType,
+      inputTypes: Seq[DataType],
+      key: Expression,
+      cause: Throwable): Throwable = {
+    new SparkException(
+      errorClass = "STORAGE_PARTITION_JOIN_KEY_TYPE_MISMATCH",
+      messageParameters = Map(
+        "transform" -> transform,
+        "columnType" -> toSQLType(columnType),
+        "inputTypes" -> inputTypes.map(toSQLType).mkString("(", ", ", ")"),
+        "key" -> toSQLExpr(key),
+        "keyType" -> toSQLType(key.dataType)),
+      cause = cause)
   }
 
   def storagePartitionJoinIncompatibleReducedTypesError(
@@ -3825,5 +3913,14 @@ private[sql] object QueryExecutionErrors extends QueryErrorsBase with ExecutionE
     new SparkRuntimeException(
       errorClass = "PARSE_SQL_ANALYZE_UNSUPPORTED_SCRIPT",
       messageParameters = Map("functionName" -> toSQLId("parse_sql")))
+  }
+
+  def invalidDataSourceExternalLookupError(
+      table: String,
+      errorSubClass: String,
+      messageParameters: Map[String, String] = Map.empty): Throwable = {
+    new SparkRuntimeException(
+      errorClass = s"DATA_SOURCE_INVALID_EXTERNAL_LOOKUP.$errorSubClass",
+      messageParameters = Map("table" -> toSQLFreeFormId(table)) ++ messageParameters)
   }
 }
