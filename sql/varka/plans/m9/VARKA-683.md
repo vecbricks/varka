@@ -1,8 +1,9 @@
 # VARKA-683: The range of a long column
 
 *Planned on 26 November 2026. This plan stands alone: a builder needs it and the repository's
-`AGENTS.md` files, and nothing else. Not started: milestone 9 waits for the owner's word
-(`m9/PLAN.md` decision 18). Its code facts were checked on master `176db41f369`.*
+`AGENTS.md` files, with `m8/BUILD_SHEETS.md`, which the sheet names. Not started: milestone 9
+waits for the owner's word (`m9/PLAN.md` decision 18). Its code facts were checked on master
+`176db41f369`.*
 
 ## 1. What this row is
 
@@ -17,7 +18,8 @@ vector and the long extremes at both widths, and its cost a row is recorded.
         int length, long[] out)
 
 It writes the least live value of a 64-bit column to `out[0]` and the greatest to `out[1]`. It
-returns false when no row is live. It allocates nothing. Two suites and a benchmark class come
+returns false when no row is live. It allocates nothing a row: a call maps one or two segments,
+which stays inside the allocation sampler's allowance. Two suites and a benchmark class come
 with it.
 
 **What it gives the rows after it.** Row 682 calls it from `VarkaKernelRunner.fill`, once a
@@ -158,7 +160,7 @@ The class follows `IntRangeOps`: `public final`, a private constructor, static m
 fields and its rule, in this order, shown one a line (the file wraps them the house's way):
 
     private static final VectorSpecies<Long> SPECIES = LongVector.SPECIES_PREFERRED;
-    static { VarkaVectorTemplateWarmup.beforeVectorCode(); }      // with IntRangeOps's comment
+    static { VarkaVectorTemplateWarmup.beforeVectorCode(); }      // say: the class runs vector code
     private static final ByteOrder ORDER = ByteOrder.LITTLE_ENDIAN;
     private static final ValueLayout.OfLong WORD = ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ORDER);
     private static final int LANES = SPECIES.length();
@@ -273,14 +275,15 @@ a `max`. None makes or reads a `VectorMask`.
 
 ### 4.6 The comments
 
-The class comment says, in this order: what the pass returns, who calls it and why (the
-evaluator, once a batch, VARKA-682); that it lives beside `IntRangeOps` for that class's reason;
-the shape (raw addresses, the validity read only when `0 < srcNullCount < length`, a loop of
-whole lane groups, a scalar tail); that a null lane's storage is undefined, so it takes the
-identity before it meets the accumulators; why there are two null-skipping loops and which runs
-where (4.2); why the fold is `lane(j)` (4.5); what a call with no live row returns (4.1). The
-public method's comment has the sibling's `@param` lines, one for `out`, and a `@return`. A
-comment describes the code as it is: no history, and no cost.
+The class comment says, in this order: what the pass returns and what it is for (the range of a
+batch, which VARKA-682's caller will read; this row adds no caller, and the comment names none);
+that it lives beside `IntRangeOps` for that class's reason; the shape (raw addresses, the validity
+read only when `0 < srcNullCount < length`, a loop of whole lane groups, a scalar tail); that a
+null lane's storage is undefined, so it takes the identity before it meets the accumulators; why
+there are two null-skipping loops and which runs where (4.2); why the fold is `lane(j)` (4.5);
+what a call with no live row returns (4.1). The public method's comment has the sibling's `@param`
+lines, one for `out`, and a `@return`. A comment describes the code as it is: no history, and no
+cost.
 
 ### 4.7 What this row does not build
 
@@ -295,7 +298,8 @@ comment describes the code as it is: no history, and no cost.
 One part, one pull request.
 
 - **Title:** `[VARKA-683] Find the least and greatest live value of a long column`
-- **Branch:** `varka-683`, in a worktree of its own, from `origin/master`.
+- **Branch:** `varka-683-build`, in a worktree of its own, from `origin/master`. The branch
+  `varka-683` exists: it held this plan.
 - **Size:** about 760 counted lines: the class 210, the suite 240, the allocation suite 100, the
   benchmark 180, this file's outcome 30.
 
@@ -309,8 +313,10 @@ Follow `sql/varka/plans/m8/BUILD_SHEETS.md`. In short: read this sheet first; ru
 
 where `<slot>` is the lock slot the lead named, or `heavy` (the laptop also has JDK 26, and
 `dev/varka_errorprone.sh` refuses any JDK but 25); run one sbt command at a time, each under
-`flock "$VARKA_HEAVY_LOCK"`; run `dev/varka_push_check.py` bare; stop at a local commit. Where
-that file and this sheet disagree, stop and report.
+`flock "$VARKA_HEAVY_LOCK"`; run `dev/varka_push_check.py` bare; stop at a local commit. This
+sheet differs from that file in three places, and here the sheet wins: it has four exports, with
+`JAVA_HOME`; the plan lint takes `sql/varka/plans/m9/PLAN.md` as its argument; and the row to
+edit is in `m9/PLAN.md`. On any other difference, stop and report.
 
 ### B0. The premises
 
@@ -319,7 +325,7 @@ Each command prints what the table says, or the builder stops and reports it.
 | command | prints |
 | :--- | :--- |
 | `git show origin/master:sql/varka/plans/m9/VARKA-683.md`, its first line | `# VARKA-683: The range of a long column` |
-| `grep -c 'The range of a long column. \*\*Filed\*\*' sql/varka/plans/m9/PLAN.md` | `1` |
+| `grep -c 'The range of a long column. \*\*Planned\*\* (`VARKA-683.md`' sql/varka/plans/m9/PLAN.md` | `1` |
 | `git grep -c LongRangeOps -- sql/catalyst/src sql/core/src` | nothing |
 | `grep -c 'public static boolean allWithin(long srcData, long srcValidity, int srcNullCount, int length,' <main>/IntRangeOps.java` | `1` |
 | `grep -c 'static void beforeVectorCode()' <main>/VarkaVectorTemplateWarmup.java` | `1` |
@@ -377,6 +383,10 @@ Each command prints what the table says, or the builder stops and reports it.
   Where `VarkaMemorySanitizer.ENABLED`, `n > 0` and `nulls < n`, `checked()` must have grown
   across the call. `entry` 0 is the public method, 1 the six-argument one with `noMask` true, 2
   the same with false.
+- `rangeClaimed(long[] values, boolean[] isNull, int claimedNulls, int entry, long[] out)`: the
+  same layout and the same sanitizer calls, but the validity address is always the real one and
+  the null count is `claimedNulls`, whatever the bitmap holds. `range` is this helper with the
+  counted nulls and with the address `0L` where the contract allows it.
 - `check(values, isNull, what)`: for each of the three entries, `out` starts as `{7L, 7L}`; the
   return value and `out` equal `scalar`'s; the message holds `what` and the entry's name.
 
@@ -385,7 +395,7 @@ Each command prints what the table says, or the builder stops and reports it.
 | `random columns agree with a scalar loop at every length and null pattern` | lengths 0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 129, 1000, 4096, 4097; nine patterns: no nulls, every other row, one row in ten, only the first, only the last, all but the first, all but the last, a random half, every row; values and the storage of null rows from `new Random(683L * 1_000_003L + length)`; `check` | a lane group or a tail row counted twice or not at all; validity bits read at the wrong shift |
 | `an end of a long is a value where it is live and is not read under a null row` | lengths 1, 2, 3, 4, 5, 8, 9, 16, 17, 33, 64, 65; position first, middle, last; values `(i * 37L) % 2001 - 1000`; each end of a long live at the position; then null there; then the other end live beside it; then every live value one end, the other end under every other row; `check`, and for the last case the pair asserted by value | a null row's storage read as a value; an identity taken for "no value" |
 | `no row, and every row null, give false and the empty range, and read no address` | each entry with both addresses `0L`: length 0; length 5 with null count 5; `out` from `{7L, 7L}` | a buffer read where the contract promises none |
-| `a bitmap with no live row gives false, whatever the null count says` | lengths 2, 9, 17, 65, 129; every row's bit clear, the stale bits set; null count 1; each entry | a return value taken from the null count, not from the rows; a stale bit read as a row |
+| `a bitmap with no live row gives false, whatever the null count says` | lengths 2, 9, 17, 65, 129; every row's bit clear, the stale bits set; through `rangeClaimed` with null count 1, so that the bitmap is read; each entry | a return value taken from the null count, not from the rows; a stale bit read as a row |
 | `nulls are skipped with a mask on x86 above two long lanes, and nowhere else` | `noMask(true, 1)`, `(true, 2)`, `(false, 2)`, `(false, 4)` are true; `(true, 4)`, `(true, 8)` are false; `NO_MASK` equals `noMask` of this host's `os.arch` and `LongVector.SPECIES_PREFERRED.length()` | the rule moved by one lane count |
 
 **`VarkaLongRangeAllocationSuite`**, in the same package, holds the failure that no answer test
@@ -578,8 +588,8 @@ thirds of the laptop's work. Predictions 1 and 2 scale the probe's costs by that
 8. `VarkaLongRangeOpsSuite` takes under 2 s of test time alone in a JVM, the template warm-up
    included, and under 1 s after another Varka suite. The nearest rows of the calibration table
    (`python3 dev/varka_calibration.py`): VARKA-328, a JUnit class with no session, 0.15 s
-   against 5 s predicted; and the siblings' committed times, 0.0 and 0.1 s
-   (`sql/varka/ci/suite-times.tsv`).
+   against 5 s predicted; and the one sibling with a committed time,
+   `VarkaSelectionVectorOpsSuite` at 0.1 s (`sql/varka/ci/suite-times.tsv`).
 9. `VarkaLongRangeAllocationSuite` takes under 15 s in its own JVM, about 5 s: the JVM's start,
    the template warm-up and two paths that settle in a round or two. The nearest rows:
    VARKA-342, an own-JVM suite at half its estimate, and `VarkaTwoLaneHost128Suite` at 1.7 s
