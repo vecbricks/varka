@@ -1411,41 +1411,41 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
 | `hash(i)` | `hash` |  | Murmur3's hashInt, its seed 42 | vector |
-| `xxhash64(i)` | `hash` |  | XXH64's hashInt: the int widened to the long lane, its low 32 bits hashed | per-lane: blend, mask broadcast, mask test |
-| `hash(l)` | `hash` |  | Murmur3's hashLong: the low int, then the high one, in the int lane of the long kernel | per-lane: mask broadcast, load or store |
-| `xxhash64(l)` | `hash` |  | XXH64's hashLong | per-lane: blend, mask broadcast |
+| `xxhash64(i)` | `hash` |  | XXH64's hashInt: the int widened to the long lane, its low 32 bits hashed | per-lane: blend, mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `hash(l)` | `hash` |  | Murmur3's hashLong: the low int, then the high one, in the int lane of the long kernel | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `xxhash64(l)` | `hash` |  | XXH64's hashLong | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 | `hash(b)` | `integralCast`, `hash` |  | a boolean is the int 1 or 0 | vector |
-| `xxhash64(b)` | `integralCast`, `hash` |  |  | per-lane: blend, mask broadcast, mask test |
+| `xxhash64(b)` | `integralCast`, `hash` |  |  | per-lane: blend, mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `hash(y1)` | `hash` |  | a tinyint is sign-extended to an int | vector |
-| `xxhash64(y1)` | `hash` |  |  | per-lane: blend, mask broadcast, mask test |
+| `xxhash64(y1)` | `hash` |  |  | per-lane: blend, mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `hash(s1)` | `hash` |  | a smallint is sign-extended to an int | vector |
-| `xxhash64(s1)` | `hash` |  |  | per-lane: blend, mask broadcast, mask test |
+| `xxhash64(s1)` | `hash` |  |  | per-lane: blend, mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `hash(d)` | `hash` |  | a date is its day count | vector |
-| `xxhash64(d)` | `hash` |  |  | per-lane: blend, mask broadcast, mask test |
+| `xxhash64(d)` | `hash` |  |  | per-lane: blend, mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `hash(ym)` | `hash` |  | a year-month interval is its month count | vector |
-| `xxhash64(ym)` | `hash` |  |  | per-lane: blend, mask broadcast, mask test |
-| `hash(dt)` | `hash` |  | a day-time interval is its microseconds | per-lane: mask broadcast, load or store |
-| `xxhash64(dt)` | `hash` |  |  | per-lane: blend, mask broadcast |
-| `hash(t)` | `hash` |  | a time is its nanoseconds of the day | per-lane: mask broadcast, load or store |
-| `xxhash64(t)` | `hash` |  |  | per-lane: blend, mask broadcast |
-| `hash(ntz)` | `hash` |  | a TIMESTAMP_NTZ is its microseconds | per-lane: mask broadcast, load or store |
-| `xxhash64(ntz)` | `hash` |  |  | per-lane: blend, mask broadcast |
-| `hash(x)` | `floatingArithmetic`, `hash` |  | the bits of the canonical double: -0.0 hashes as 0.0 and every NaN as the one NaN, Spark's genHashDouble | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store |
-| `xxhash64(x)` | `floatingArithmetic`, `hash` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `xxhash64(ym)` | `hash` |  |  | per-lane: blend, mask broadcast, other, mask logic, mask test, compare to mask, load or store |
+| `hash(dt)` | `hash` |  | a day-time interval is its microseconds | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `xxhash64(dt)` | `hash` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `hash(t)` | `hash` |  | a time is its nanoseconds of the day | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `xxhash64(t)` | `hash` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `hash(ntz)` | `hash` |  | a TIMESTAMP_NTZ is its microseconds | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `xxhash64(ntz)` | `hash` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `hash(x)` | `floatingArithmetic`, `hash` |  | the bits of the canonical double: -0.0 hashes as 0.0 and every NaN as the one NaN, Spark's genHashDouble | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `xxhash64(x)` | `floatingArithmetic`, `hash` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
 | `hash(f)` | `floatingArithmetic`, `hash` |  | the bits of the canonical float, Spark's genHashFloat | vector |
-| `xxhash64(f)` | `floatingArithmetic`, `hash` |  |  | per-lane: blend, mask broadcast, mask test |
+| `xxhash64(f)` | `floatingArithmetic`, `hash` |  |  | per-lane: blend, mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `hash(d9)` | `hash` |  | a decimal of precision 18 or less is its unscaled long | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
-| `xxhash64(d18)` | `hash` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `xxhash64(d18)` | `hash` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
 | `hash(coalesce(if(d9 > d9b, d9, d9b), d9))` | `predicate`, `condition`, `hash` |  | a computed decimal child, compiled in one call of the decimal compiler | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test, load or store |
-| `hash(i, l)` | `hash` |  | each child's step takes the previous step's value as its seed | per-lane: mask broadcast, load or store |
-| `xxhash64(l, i)` | `hash` |  |  | per-lane: blend, mask broadcast, load or store, mask test |
-| `hash(i, l, x, f)` | `floatingArithmetic`, `hash` |  | four children over both widths and both floating lanes | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store |
-| `xxhash64(f, i, x, l)` | `floatingArithmetic`, `hash` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store, mask test |
+| `hash(i, l)` | `hash` |  | each child's step takes the previous step's value as its seed | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `xxhash64(l, i)` | `hash` |  |  | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `hash(i, l, x, f)` | `floatingArithmetic`, `hash` |  | four children over both widths and both floating lanes | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
+| `xxhash64(f, i, x, l)` | `floatingArithmetic`, `hash` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, other, mask logic, load or store, mask test |
 | `hash(y1, s1, i)` | `hash` |  | narrow children beside an int one, all in the int lane | vector |
 | `hash(b, i)` | `integralCast`, `hash` |  | a boolean child beside an int one | vector |
 | `hash(i, 7)` | `hash` |  | a literal child is hashed as its type is | vector |
 | `hash(i, true)` | `hash` |  | a boolean literal is the int 1, a slot and not a cast | vector |
-| `xxhash64(i ^ 5, l & 255)` | `intArithmetic`, `hash` |  | a child is any expression the chain compiles | per-lane: blend, mask broadcast, load or store, mask test |
+| `xxhash64(i ^ 5, l & 255)` | `intArithmetic`, `hash` |  | a child is any expression the chain compiles | per-lane: blend, mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 
 #### Floating casts to BOOLEAN
 
@@ -1469,7 +1469,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `try_cast(i AS FLOAT)` | `floatingCast` |  | the same rounding: a cast to a floating type never fails | vector |
 | `CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)` | `intArithmetic`, `floatingCast` |  | a product of two widened bytes | vector |
 | `CAST(i AS DOUBLE)` | `floatingCast` |  | exact: an int's 32 bits fit the double's 53 | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
-| `CAST(y1 AS FLOAT)` | `floatingCast` |  | the byte widened at its load, then converted, exact | vector |
+| `CAST(y1 AS FLOAT)` | `floatingCast` |  | the byte widened at its load, then converted, exact | per-lane: mask cast |
 | `CAST(s1 AS FLOAT)` | `floatingCast` |  | the short twin | vector |
 | `CAST(y1 AS DOUBLE)` | `floatingCast` |  | the byte loaded as a bigint kernel loads it, into the low half of the int species, then converted | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
 | `CAST(s1 AS DOUBLE)` | `floatingCast` |  | the short twin | per-lane: mask broadcast, other, mask logic, mask test, compare to mask, load or store |
