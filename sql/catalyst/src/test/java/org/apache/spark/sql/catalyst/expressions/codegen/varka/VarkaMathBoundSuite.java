@@ -21,16 +21,25 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.SplittableRandom;
+import javax.tools.ToolProvider;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * The opt-in mode's comparator ({@code VARKA-345.md} 3.5): {@link VarkaMathBound} counts the
  * representable doubles between two values of one sign, and refuses at every bound the pairs a
- * multiple of {@code Math.ulp} or the probe's raw-bit distance wrongly admit.
+ * multiple of {@code Math.ulp} or the probe's raw-bit distance wrongly admit; and the canary's
+ * copy of it, {@code dev/varka_canary/MathSteps.java}, answers as it does.
  */
 @VarkaSuite
 public final class VarkaMathBoundSuite {
@@ -120,5 +129,41 @@ public final class VarkaMathBoundSuite {
     assertEquals(1, VarkaMathBound.steps(Double.MIN_VALUE, 0.0));
     assertEquals(1, VarkaMathBound.steps(-Double.MIN_VALUE, -0.0));
     assertEquals(1, VarkaMathBound.steps(Math.nextDown(Double.MAX_VALUE), Double.MAX_VALUE));
+  }
+
+  @Test
+  @DisplayName("the canary's copy MathSteps.steps answers as VarkaMathBound.steps on every pair")
+  void canaryCopyAgrees(@TempDir Path classes) throws Throwable {
+    // The extended math probe runs with no Spark build, so it carries a copy; compile it here.
+    String home = System.getProperty("spark.test.home", System.getenv("SPARK_HOME"));
+    assertTrue(home != null, "spark.test.home or SPARK_HOME is not set.");
+    Path source = Path.of(home, "dev", "varka_canary", "MathSteps.java");
+    assertEquals(0, ToolProvider.getSystemJavaCompiler().run(null, null, null, "-d",
+        classes.toString(), source.toString()), "MathSteps.java does not compile");
+    try (var loader = new URLClassLoader(new URL[] {classes.toUri().toURL()}, null)) {
+      MethodHandle copy = MethodHandles.publicLookup().findStatic(loader.loadClass("MathSteps"),
+          "steps", MethodType.methodType(long.class, double.class, double.class));
+      var random = new SplittableRandom(367);
+      double[] fixed = {Double.NaN, Double.longBitsToDouble(0xfff8000000000001L), 0.0, -0.0,
+          Double.MIN_VALUE, -Double.MIN_VALUE, 1.0, -1.0, Double.MAX_VALUE,
+          Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY};
+      for (double a : fixed) {
+        for (double b : fixed) {
+          assertEquals(VarkaMathBound.steps(a, b), (long) copy.invokeExact(a, b), a + " " + b);
+        }
+      }
+      for (int i = 0; i < 1 << 24; i++) {
+        // Half the pairs a few steps apart, the rest any two bit patterns.
+        long bits = random.nextLong();
+        long other = i % 2 == 0 ? bits + random.nextInt(-8, 9) : random.nextLong();
+        double a = Double.longBitsToDouble(bits);
+        double b = Double.longBitsToDouble(other);
+        long expected = VarkaMathBound.steps(a, b);
+        long actual = (long) copy.invokeExact(a, b);
+        if (expected != actual) {
+          assertEquals(expected, actual, Long.toHexString(bits) + " " + Long.toHexString(other));
+        }
+      }
+    }
   }
 }

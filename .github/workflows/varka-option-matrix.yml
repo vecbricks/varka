@@ -19,12 +19,15 @@
 # rerun once per configuration - the emit defaults with one option changed, carried by every kernel
 # they emit - fanned out (VARKA-507): one job builds the test classes, or takes them from the
 # pull request's Build of the same commit, and plans the bins, about a hundred jobs of eight
-# minutes' work each run one bin of (configuration, module, suites) runner JVMs, at most 30 at a
-# time, and one job merges their runs and reports, the declining check comparing every
+# minutes' work each run one bin of (configuration, module, suites) runner JVMs, at most `slots`
+# at a time in each stage (38 on the fork, 16 on vecbricks/varka), and one job merges their runs
+# and reports, the declining check comparing every
 # configuration's fused batches with the defaults' (dev/varka_matrix_bins.py). A bin that frees a
 # slot hands it to the next, so a slow runner holds back only its own bin. A pull request runs one
 # configuration in its varka-scoped jobs; this runs all of them on dispatch. See
-# dev/varka_matrix.sh.
+# dev/varka_matrix.sh. The bins run in two stages (VARKA-637 3.1): the suites the branch changed,
+# under every configuration, then every other unit, so a red first stage ends the run early and a
+# green run runs every unit a single stage would.
 #
 # On vecbricks/varka a dispatch must name a pull request, `pr` and `sha`, and tests that head, so
 # its runners can take a pull request's matrix beside the fork's (MaxGekk/spark), whose dispatches
@@ -44,6 +47,11 @@ on:
     - cron: '0 3 * * 0'
   workflow_dispatch:
     inputs:
+      stages:
+        description: "two: the changed suites first, then the rest; one: all at once"
+        type: choice
+        options: [two, one]
+        default: two
       pr:
         description: 'On vecbricks/varka only, and required there: a pull request number of vecbricks/varka, whose head, the sha input, the run tests instead of the dispatched ref.'
         required: false
@@ -82,7 +90,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
-      bins: ${{ steps.plan.outputs.bins }}
+      first: ${{ steps.plan.outputs.first }}
+      rest: ${{ steps.plan.outputs.rest }}
     steps:
     # vecbricks/varka, with 20 runners and no Build to reuse, tests only a pull request's head,
     # which the run's name gives, so the head must still be that commit. The fork tests the
@@ -140,6 +149,11 @@ jobs:
           hashFiles('**/pom.xml', '**/plugins.sbt') }}
         restore-keys: |
           varka-option-matrix-coursier-
+    - name: Add Google's mirror of Maven Central to the sbt launcher
+      run: |
+        if [ -f sql/varka/ci/sbt-repositories ]; then
+          install -D -m 0644 sql/varka/ci/sbt-repositories ~/.sbt/repositories
+        fi
     - name: Install Java 25
       uses: actions/setup-java@v5
       with:
@@ -293,26 +307,77 @@ jobs:
             "${#files[@]} files," \
             "$(du -sh target/varka-matrix/harness-store | cut -f1)"
         fi
-    # The bins, from the configurations the build listed and each module's suites; one line of
-    # the summary says how many and how long. A cut past a matrix's 256 jobs fails the step with
-    # the planner's error printed.
+    # The first stage's suites: those the branch adds or changes since its merge base with
+    # Varka's master. The head is the checked-out commit: the dispatched one, or with `pr` the
+    # pull request's `sha`, whose `origin` is then vecbricks/varka. Both repositories are public,
+    # so no token is needed. The history comes without blobs, about ten megabytes for a thousand
+    # commits a side. A failure lists no suite, and the second stage then runs everything.
+    - name: Find the changed suites
+      env:
+        HEAD_SHA: ${{ inputs.pr != '' && inputs.sha || github.sha }}
+      run: |
+        mkdir -p target/varka-bins
+        : > target/varka-bins/changed
+        if git fetch -q --no-tags --filter=blob:none --depth=1000 origin "$HEAD_SHA" &&
+          git remote add varka "https://github.com/$VARKA_BASE_REPO.git" &&
+          git fetch -q --no-tags --filter=blob:none --depth=1000 varka master &&
+          base=$(git merge-base varka/master "$HEAD_SHA"); then
+          if ./dev/varka_matrix_scope.py "$base" "$HEAD_SHA" --suites > target/varka-bins/changed
+          then
+            echo "== changed suites since $base: $(paste -sd, target/varka-bins/changed)"
+          else
+            echo "::warning::The changed suites were not listed, so none runs first."
+            : > target/varka-bins/changed
+          fi
+        else
+          echo "::warning::No merge base with Varka's master, so no changed suite runs first."
+        fi
+    # The bins, from the configurations the build listed and each module's suites, in two lists:
+    # `first`, the changed suites under every configuration without the reach record, and
+    # `rest`, every other unit. The summary's first line gives each
+    # list's units and bins. A cut past a matrix's 256 jobs fails the step with the planner's
+    # error printed. The record the configurations ran by drops the suites `first` ran whole.
+    # With `pr` this workflow is master's but the planner is the pull request's: a head from
+    # before the two stages has a planner without `--stages`, which plans one list with the old
+    # arguments. That list becomes `rest` and `first` is empty, so the run is a one-stage run.
     - name: Plan the bins
       id: plan
+      env:
+        STAGES: ${{ inputs.stages }}
       run: |
         set -o pipefail
-        mkdir -p target/varka-bins
         for module in sql catalyst; do
           ./dev/varka_matrix.sh --list-suites --module "$module" > "target/varka-bins/$module"
         done
         reach=()
         [ -s target/varka-matrix/reach.tsv ] && reach=(--reach target/varka-matrix/reach.tsv)
-        python3 dev/varka_matrix_bins.py plan \
-          --configurations target/varka-matrix/configurations \
-          --suites sql=target/varka-bins/sql --suites catalyst=target/varka-bins/catalyst \
-          --platforms "${reach[@]}" > target/varka-bins/bins.json 2> target/varka-bins/plan.txt \
-          || { cat target/varka-bins/plan.txt; exit 1; }
+        mkdir -p target/varka-ran-by
+        help=$(python3 dev/varka_matrix_bins.py plan --help 2>/dev/null || true)
+        if [[ "$help" != *--stages* ]]; then
+          echo "::warning::The head's planner predates the two stages, so all bins run in one."
+          python3 dev/varka_matrix_bins.py plan \
+            --configurations target/varka-matrix/configurations \
+            --suites sql=target/varka-bins/sql --suites catalyst=target/varka-bins/catalyst \
+            --platforms "${reach[@]}" > target/varka-bins/bins.json \
+            2> target/varka-bins/plan.txt || { cat target/varka-bins/plan.txt; exit 1; }
+          jq -c '{first: [], rest: .include}' target/varka-bins/bins.json \
+            > target/varka-bins/plan.json
+          if [ -s target/varka-matrix/reach.tsv ]; then
+            cp target/varka-matrix/reach.tsv target/varka-ran-by/reach.tsv
+          fi
+        else
+          python3 dev/varka_matrix_bins.py plan \
+            --configurations target/varka-matrix/configurations \
+            --suites sql=target/varka-bins/sql --suites catalyst=target/varka-bins/catalyst \
+            --platforms "${reach[@]}" --stages "${STAGES:-two}" \
+            --changed-suites target/varka-bins/changed \
+            --ran-by target/varka-ran-by/reach.tsv \
+            > target/varka-bins/plan.json 2> target/varka-bins/plan.txt \
+            || { cat target/varka-bins/plan.txt; exit 1; }
+        fi
         cat target/varka-bins/plan.txt | tee -a "$GITHUB_STEP_SUMMARY"
-        echo "bins=$(cat target/varka-bins/bins.json)" >> "$GITHUB_OUTPUT"
+        echo "first=$(jq -c .first target/varka-bins/plan.json)" >> "$GITHUB_OUTPUT"
+        echo "rest=$(jq -c .rest target/varka-bins/plan.json)" >> "$GITHUB_OUTPUT"
     # Every entry of the test classpath, the build's class directories and the dependencies' jars
     # alike, archived at its absolute path, which is the same on every runner, with the classpath
     # and JVM options the bins read.
@@ -332,7 +397,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: varka-option-matrix-reach
-        path: target/varka-matrix/reach.tsv
+        path: target/varka-ran-by/reach.tsv
         if-no-files-found: ignore
         retention-days: 30
 
@@ -341,13 +406,18 @@ jobs:
   # is the fork's 40 less the build and report jobs; a bin's `runner` is its job's. One job holds
   # both, so max-parallel is the sum; the planner lists the platform bins first, so they start at
   # once and the matrix's bins take the other slots. On vecbricks/varka all bins share 16 slots,
-  # the `slots` input, of its 20. A run has about a hundred bin jobs, 11 of them
+  # the `slots` input, of its 20. The two stages run one after the other, so each takes all the
+  # slots. A run has about a hundred bin jobs, 11 of them
   # platform bins (7 on x86, 4 on Arm) in run 42187218199, which took 39 minutes. A push chain's
   # job ceiling is 40 less the platform bins' 11, and the rows that run beside a matrix wait for
   # it.
-  bins:
+  #
+  # The first stage. GitHub refuses an empty matrix, so an empty list skips the job. Its bins and
+  # the second stage's are numbered as one list, so the job names and artifacts stay unique.
+  first:
     name: "Option matrix: ${{ matrix.bin }}"
     needs: build
+    if: needs.build.outputs.first != '[]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -355,8 +425,10 @@ jobs:
       max-parallel: >-
         ${{ fromJSON(inputs.slots != '' && inputs.slots
         || (github.repository == 'vecbricks/varka' && '16' || '38')) }}
-      matrix: ${{ fromJSON(needs.build.outputs.bins) }}
-    steps:
+      matrix:
+        include: ${{ fromJSON(needs.build.outputs.first) }}
+    # The second stage's job runs these same steps.
+    steps: &bin-steps
     # The run's wall time is its slowest bin's, so a setup step that stalls holds back the whole
     # run: in run 40855387471 one bin spent 16.3 minutes installing Java, where the median bin took
     # 8 seconds (VARKA-513). Each setup step of a bin has a timeout a few times its usual length
@@ -455,6 +527,7 @@ jobs:
       env:
         UNITS: ${{ matrix.units }}
         BIN: ${{ matrix.bin }}
+        REACH: ${{ matrix.reach }}
         PLAN_SECONDS: ${{ matrix.seconds }}
         PLANT: ${{ inputs.plant-straggler }}
         DEADLINE_FLOOR: '1920'
@@ -482,8 +555,9 @@ jobs:
           else
             mode=(--config "$config")
           fi
-          # A configuration runs only the tests the Build's record says it moves.
-          if [ "$config" != defaults ] && [[ "$config" != isa=* ]] && \
+          # A configuration runs only the tests the Build's record says it moves, but in a bin
+          # of the first stage's changed suites, whose `reach` is `off`.
+          if [ "$config" != defaults ] && [[ "$config" != isa=* ]] && [ "$REACH" != off ] && \
               [ -s target/varka-matrix/reach.tsv ]; then
             mode+=(--jvm-arg "-Dvarka.matrix.reachFile=$PWD/target/varka-matrix/reach.tsv")
           fi
@@ -496,6 +570,13 @@ jobs:
             --out "$out/$BIN-u$k" --leaf-suffix "$BIN-$k" --module "$module" --suites "$suites" \
             "${mode[@]}" --jvm-arg -Dvarka.series.size=4 > "$out/$BIN-u$k.log" 2>&1 || status=$?
           echo "$((SECONDS - t0))" > "$out/$BIN-u$k.seconds"
+          # For the stage gate, at once, so that a job stopped later by its timeout or a cancel
+          # still uploads it: a unit that failed. A straggler or a setup step leaves none, since
+          # a unit the watchdog stops never gets here.
+          if [ "$status" != 0 ]; then
+            mkdir -p "$out/$BIN-failed"
+            echo "exit $status: $config|$module|$suites" >> "$out/$BIN-failed/units.txt"
+          fi
           echo "$status" > "$out/$BIN-u$k.exit"
         }
         # Signals every unit still without an exit file, by its process group.
@@ -604,6 +685,7 @@ jobs:
           target/varka-units/${{ matrix.bin }}/*-platform/platform.txt
           target/varka-units/${{ matrix.bin }}/*-setup/retries.txt
           target/varka-units/${{ matrix.bin }}/*-straggler/straggler.txt
+          target/varka-units/${{ matrix.bin }}/*-failed/units.txt
           target/varka-units/${{ matrix.bin }}/*-u*.log
           target/varka-units/${{ matrix.bin }}/*-u*/runs/*/name
           target/varka-units/${{ matrix.bin }}/*-u*/runs/*/*/exit
@@ -614,9 +696,85 @@ jobs:
         if-no-files-found: ignore
         retention-days: 30
 
+  # Whether a red first stage failed a test. A bin fails on a unit that failed, on the watchdog's
+  # stop of a slow runner (VARKA-570) or on a setup step that failed twice, and only the first
+  # writes <bin>-failed/units.txt; so the second stage goes on after stragglers and setup
+  # failures, whose run still ends red, and stops after a failed unit. Records that do not
+  # download stop it too. A bin stopped by its job timeout has uploaded the units that failed
+  # before the stop, which stop the second stage; with none it counts as a setup failure when
+  # the stage's result is `failure`, and a stage `cancelled` stops the second. Only the first
+  # stage's bins are read: a rerun of failed jobs downloads the earlier attempt's second-stage
+  # bins too, whose records say nothing of this stage.
+  gate:
+    name: "Option matrix: stage gate"
+    needs: [build, first]
+    if: ${{ !cancelled() && needs.first.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tests: ${{ steps.judge.outputs.tests }}
+    steps:
+    - name: Download the first stage's records
+      id: records
+      continue-on-error: true
+      uses: actions/download-artifact@v4
+      with:
+        pattern: varka-option-matrix-b[0-9]*
+        path: target/varka-bins
+        merge-multiple: true
+    - name: Judge the first stage's failures
+      id: judge
+      env:
+        DOWNLOAD: ${{ steps.records.outcome }}
+        FIRST: ${{ needs.build.outputs.first }}
+      run: |
+        failed=() stragglers=()
+        for b in $(jq -r '.[].bin' <<< "$FIRST"); do
+          f=target/varka-bins/$b-failed/units.txt
+          [ -e "$f" ] && failed+=("$f")
+          f=target/varka-bins/$b-straggler/straggler.txt
+          [ -e "$f" ] && stragglers+=("$f")
+        done
+        if [ "$DOWNLOAD" != success ]; then
+          echo "::error::The first stage's records did not download, so the second stage waits."
+          echo "tests=unknown" >> "$GITHUB_OUTPUT"
+        elif [ "${#failed[@]}" -gt 0 ]; then
+          echo "== the first stage's failed units, so the second stage does not run:"
+          cat "${failed[@]}"
+          echo "tests=failed" >> "$GITHUB_OUTPUT"
+        else
+          echo "== no unit of the first stage failed, so the second stage runs; its stragglers:"
+          if [ "${#stragglers[@]}" -gt 0 ]; then cat "${stragglers[@]}"; else echo "none"; fi
+          echo "tests=passed" >> "$GITHUB_OUTPUT"
+        fi
+
+  # The second stage: every other unit. It runs when the first succeeded, was skipped for an
+  # empty list, or failed with no unit failed (the gate), and not after a failed unit or a
+  # cancelled first stage (a bin past its job timeout is judged by the gate as above). A plain
+  # `needs` would skip it with a skipped first, and a diff
+  # that changes no suite would end green with no bins.
+  rest:
+    name: "Option matrix: ${{ matrix.bin }}"
+    needs: [build, first, gate]
+    if: >-
+      ${{ !cancelled() && needs.build.result == 'success'
+      && (needs.first.result == 'success' || needs.first.result == 'skipped'
+      || (needs.first.result == 'failure' && needs.gate.outputs.tests == 'passed'))
+      && needs.build.outputs.rest != '[]' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: >-
+        ${{ fromJSON(inputs.slots != '' && inputs.slots
+        || (github.repository == 'vecbricks/varka' && '16' || '38')) }}
+      matrix:
+        include: ${{ fromJSON(needs.build.outputs.rest) }}
+    steps: *bin-steps
+
   report:
     name: "Option matrix: report"
-    needs: [build, bins]
+    needs: [build, first, gate, rest]
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -653,9 +811,31 @@ jobs:
         ./dev/varka_matrix.sh --report-only target/varka-merged | tee target/varka-matrix-report.txt
     - name: Summary
       if: always()
+      env:
+        FIRST: ${{ needs.first.result }}
+        REST: ${{ needs.rest.result }}
+        TESTS: ${{ needs.gate.outputs.tests }}
       run: |
         {
           echo "## Option matrix"
+          if [ "$REST" = skipped ] && [ "$FIRST" != success ] && [ "$FIRST" != skipped ] &&
+            [ "$TESTS" != passed ]; then
+            case "$TESTS" in
+              failed) why="a unit of it failed" ;;
+              unknown) why="its records did not download" ;;
+              *) why="it ended $FIRST" ;;
+            esac
+            echo "The second stage did not run, since $why: this report and the suite seconds"
+            echo "cover the first stage's bins only."
+          elif [ "$FIRST" = failure ] && [ "$REST" != skipped ]; then
+            echo "The first stage's failed bins failed no unit - stragglers or setup steps, listed"
+            echo "below - so the second ran. Their units have no answer here: dispatch again for"
+            echo "them; a rerun of the failed jobs reruns the whole second stage too."
+          elif [ "$FIRST" = failure ]; then
+            echo "The first stage's failed bins failed no unit - stragglers or setup steps, listed"
+            echo "below - and the second stage had no bins. Their units have no answer here:"
+            echo "dispatch again for them."
+          fi
           echo '```'
           sed -n '/^configuration/,$p' target/varka-matrix-report.txt 2>/dev/null || echo "no report"
           echo '```'
@@ -727,7 +907,7 @@ jobs:
     # Only a scheduled run, since a person who dispatches one sees its result; only on the
     # project's own repository, where issues are on; and when a job failed or was cancelled.
     # The script lists every failed, timed-out or cancelled job, a cancelled one with a note.
-    needs: [build, bins, report]
+    needs: [build, first, gate, rest, report]
     if: >-
       always() && github.event_name == 'schedule' && github.repository == 'vecbricks/varka'
       && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))

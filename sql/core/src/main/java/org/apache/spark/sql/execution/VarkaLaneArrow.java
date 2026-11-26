@@ -143,11 +143,11 @@ final class VarkaLaneArrow {
 
   /**
    * A decimal output's destination, from Spark's field as {@link #fromField} builds the long
-   * lane's: {@code Decimal(p, s, 128)}. The store writes a long and its sign extension into each
-   * slot, so only a precision a long holds can be written. The plan refuses a wider output
-   * before it fuses ({@code VarkaTypes.decimalOutputDeclineReason}, naming row 359); asked again
-   * here, it is an assertion that none got through, rather than a vector the kernel would fill
-   * wrongly.
+   * lane's: {@code Decimal(p, s, 128)}. Every precision is written: within 18 digits a long and
+   * its sign extension into each slot, and wider the value's two words (VARKA-359). The plan
+   * refuses a negative scale before it fuses ({@code VarkaTypes.decimalOutputDeclineReason});
+   * asked again here, it is an assertion that none got through, rather than a vector the kernel
+   * would fill wrongly.
    */
   private static ValueVector decimalFromField(String name, DataType type,
       BufferAllocator allocator) {

@@ -436,7 +436,8 @@ final class VarkaVariants {
    * caller may hand {@link #untakenArm} a pool of its own:
    * <ul>
    *   <li>a condition, which is no value an arm can hold;</li>
-   *   <li>{@code WidenDecimal} and {@code BoolOutput}, a decimal and a boolean output, which the
+   *   <li>{@code WidenDecimal}, {@code InterleaveDecimal} and {@code BoolOutput}, the decimal and
+   *   the boolean outputs, which the
    *   emitter's analysis refuses anywhere but at a root;</li>
    *   <li>{@code NarrowLane}, which the emitter takes below a root as well: the variants have
    *   left it out since they were written (VARKA-278), when the series drew one at a root
@@ -444,7 +445,8 @@ final class VarkaVariants {
    * </ul>
    */
   private static boolean excludedFromPool(VarkaVectorIR node) {
-    return node instanceof Cond || node instanceof WidenDecimal || node instanceof BoolOutput
+    return node instanceof Cond || node instanceof WidenDecimal
+        || node instanceof VarkaVectorIR.InterleaveDecimal || node instanceof BoolOutput
         || node instanceof NarrowLane;
   }
 

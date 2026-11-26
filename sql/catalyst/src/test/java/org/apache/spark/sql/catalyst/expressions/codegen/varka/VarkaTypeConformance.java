@@ -700,6 +700,7 @@ public abstract class VarkaTypeConformance {
     var owed = new ArrayList<String>();
     var drift = new ArrayList<String>();
     var unbaked = new ArrayList<String>();
+    var pairStores = new ArrayList<String>();
     // Each declinesInPart() entry this check runs a form of, and whether one of them declined.
     var listedDeclined = new HashMap<String, Boolean>();
     for (Form f : forms) {
@@ -710,6 +711,12 @@ public abstract class VarkaTypeConformance {
         if (fusedInPart(f)) {
           // The census marks the type fused in part: a form in the band that fuses is held to
           // the answers rather than called drift, and one the suite names as outside it is owed.
+          // A form that stores a pair fuses but is not held to the answers here: it is unverified,
+          // and so counts neither as fused nor as declined for declinesInPart.
+          if (compiled.isPresent() && storesPair(compiled.get())) {
+            pairStores.add(f.toString());
+            continue;
+          }
           boolean listed = declinesInPart().contains(f.register());
           if (listed) {
             listedDeclined.merge(f.register(), compiled.isEmpty(), Boolean::logicalOr);
@@ -742,6 +749,10 @@ public abstract class VarkaTypeConformance {
             + f.register() + declineReason(f, expr));
         continue;
       }
+      if (storesPair(compiled.get())) {
+        pairStores.add(f.toString());
+        continue;
+      }
       check(f, compiled.get());
     }
     listedDeclined.forEach((register, declined) -> {
@@ -758,6 +769,19 @@ public abstract class VarkaTypeConformance {
     assumeTrue(unbaked.isEmpty(), "this configuration bakes no lane count for a narrow value "
         + "these forms read or store, so the compiler declines them and the row engine answers "
         + "them: " + String.join("; ", unbaked));
+    // Last, so that a check's other cancellations are named first (`m8/VARKA-359.md` 10.8).
+    assumeTrue(pairStores.isEmpty(), "unverified here: these forms fuse as the lane pair's "
+        + "store, whose two words the slot lane's reference and oracle do not read (row 359 owes "
+        + "that harness; VarkaDecimalPairSuite holds the same shapes to Spark): "
+        + String.join("; ", pairStores));
+  }
+
+  /**
+   * Whether {@code c} stores a decimal wider than 18 digits as its two words
+   * ({@code InterleaveDecimal}, VARKA-359), an output the slot lane's harness does not read.
+   */
+  private static boolean storesPair(Compiled c) {
+    return c.roots().stream().anyMatch(r -> r instanceof VarkaVectorIR.InterleaveDecimal);
   }
 
   /** Why the compiler declines a value form, as it reports it, for a message; empty otherwise. */

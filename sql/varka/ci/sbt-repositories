@@ -1,0 +1,36 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# The sbt launcher's repositories for Varka's CI jobs (VARKA-639). Each job that runs sbt copies
+# this file to ~/.sbt/repositories, the launcher's default `sbt.repository.config`, before its
+# first sbt call. The list is the one built into sbt-launch-1.13.0.jar (sbt/sbt.boot.properties)
+# with Google's mirror of Maven Central added first among the remote repositories, the order
+# project/SparkBuild.scala gives the Spark projects. The mirror serves the same files as Maven
+# Central. A module is fetched, pom and jar, from the first repository in the list that serves
+# its pom, so with the mirror first repo1.maven.org, and an HTTP 429 from it, is reached only for
+# a module whose pom the mirror failed to serve; such a module falls through to Maven Central.
+# The file reaches the launcher's download of sbt and Scala and the BOM lookups the sbt-bom plugin
+# makes while the build loads; the meta-build's plugins resolve from Maven Central without it.
+# A checkout without this file (a dispatch on an older ref) skips the copy and keeps the
+# launcher's built-in list.
+[repositories]
+  local
+  gcs-maven-central-mirror: https://maven-central.storage-download.googleapis.com/maven2/
+  maven-central
+  sbt-maven-releases: https://repo.scala-sbt.org/scalasbt/maven-releases/, bootOnly
+  sbt-maven-snapshots: https://repo.scala-sbt.org/scalasbt/maven-snapshots/, bootOnly
+  typesafe-ivy-releases: https://repo.typesafe.com/typesafe/ivy-releases/, [organization]/[module]/[revision]/[type]s/[artifact](-[classifier]).[ext], bootOnly
+  sbt-ivy-snapshots: https://repo.scala-sbt.org/scalasbt/ivy-snapshots/, [organization]/[module]/[revision]/[type]s/[artifact](-[classifier]).[ext], bootOnly

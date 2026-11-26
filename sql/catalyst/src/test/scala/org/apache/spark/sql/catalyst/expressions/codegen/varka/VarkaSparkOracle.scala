@@ -101,9 +101,10 @@ class VarkaSparkOracle(outputs: Seq[Expression], inputs: Seq[Attribute]) {
         // long at the output's scale (VARKA-157), which the producers build at that scale.
         case d: Decimal if outputs(o).dataType.isInstanceOf[DecimalType] &&
             outputs(o).dataType.asInstanceOf[DecimalType].precision > Decimal.MAX_LONG_DIGITS =>
-          // Not a raise: no kernel stores a value above 18 digits yet, so none is compared.
+          // Not a raise: the lane pair's store has no one long to compare, and the suites that
+          // run one read its slots against Spark themselves (VarkaDecimalPairSuite).
           throw new IllegalArgumentException(
-            s"output $o is a ${outputs(o).dataType.sql}, whose two-word store is row 359's")
+            s"output $o is a ${outputs(o).dataType.sql}, whose two words this oracle does not read")
         case d: Decimal if outputs(o).dataType.isInstanceOf[DecimalType] =>
           val scale = outputs(o).dataType.asInstanceOf[DecimalType].scale
           VarkaSparkOracle.Value(d.toJavaBigDecimal.setScale(scale).unscaledValue.longValueExact)
