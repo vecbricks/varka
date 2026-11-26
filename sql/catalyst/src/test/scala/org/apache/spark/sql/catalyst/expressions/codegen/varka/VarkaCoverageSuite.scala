@@ -1508,6 +1508,49 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Family("Math functions as conditions", predicates = true, Seq(
       Row("sin(x) < 0.5D", "the call, then the floating compare in Spark's order",
         math = Some(MathCell(exactForms(2)))))),
+    // Spark's hash and xxhash64 (VARKA-337 2.3): the seed folded through the children in order,
+    // each child's word Spark's per-type rule, a null child skipped, so no answer is null.
+    Family("Hash", predicates = false, Seq(
+      Row("hash(i)", "Murmur3's hashInt, its seed 42"),
+      Row("xxhash64(i)",
+        "XXH64's hashInt: the int widened to the long lane, its low 32 bits hashed"),
+      Row("hash(l)", "Murmur3's hashLong: the low int, then the high one, in the int lane of "
+        + "the long kernel"),
+      Row("xxhash64(l)", "XXH64's hashLong"),
+      Row("hash(b)", "a boolean is the int 1 or 0"),
+      Row("xxhash64(b)"),
+      Row("hash(y1)", "a tinyint is sign-extended to an int"),
+      Row("xxhash64(y1)"),
+      Row("hash(s1)", "a smallint is sign-extended to an int"),
+      Row("xxhash64(s1)"),
+      Row("hash(d)", "a date is its day count"),
+      Row("xxhash64(d)"),
+      Row("hash(ym)", "a year-month interval is its month count"),
+      Row("xxhash64(ym)"),
+      Row("hash(dt)", "a day-time interval is its microseconds"),
+      Row("xxhash64(dt)"),
+      Row("hash(t)", "a time is its nanoseconds of the day"),
+      Row("xxhash64(t)"),
+      Row("hash(ntz)", "a TIMESTAMP_NTZ is its microseconds"),
+      Row("xxhash64(ntz)"),
+      Row("hash(x)", "the bits of the canonical double: -0.0 hashes as 0.0 and every NaN as "
+        + "the one NaN, Spark's genHashDouble"),
+      Row("xxhash64(x)"),
+      Row("hash(f)", "the bits of the canonical float, Spark's genHashFloat"),
+      Row("xxhash64(f)"),
+      Row("hash(d9)", "a decimal of precision 18 or less is its unscaled long"),
+      Row("xxhash64(d18)"),
+      Row("hash(coalesce(if(d9 > d9b, d9, d9b), d9))", "a computed decimal child, compiled in "
+        + "one call of the decimal compiler"),
+      Row("hash(i, l)", "each child's step takes the previous step's value as its seed"),
+      Row("xxhash64(l, i)"),
+      Row("hash(i, l, x, f)", "four children over both widths and both floating lanes"),
+      Row("xxhash64(f, i, x, l)"),
+      Row("hash(y1, s1, i)", "narrow children beside an int one, all in the int lane"),
+      Row("hash(b, i)", "a boolean child beside an int one"),
+      Row("hash(i, 7)", "a literal child is hashed as its type is"),
+      Row("hash(i, true)", "a boolean literal is the int 1, a slot and not a cast"),
+      Row("xxhash64(i ^ 5, l & 255)", "a child is any expression the chain compiles"))),
     // A floating value as a boolean (VARKA-343 2.5): Spark's x != 0 in every mode, the negation
     // of the lane's EQ against zero, so a NaN is true and both zeros false; never an error.
     Family("Floating casts to BOOLEAN", predicates = false, Seq(
