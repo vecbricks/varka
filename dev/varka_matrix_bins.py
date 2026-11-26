@@ -41,6 +41,8 @@ writes the measured files from a fanned-out run's JUnit reports.
 
   dev/varka_matrix_bins.py plan --configurations FILE --suites MODULE=FILE... \\
       [--target SECONDS] [--part-weight share|part-seconds|alone] > bins.json  # {"include": [...]}
+  dev/varka_matrix_bins.py plan ... --stages two|one [--changed-suites FILE] \\
+      [--ran-by FILE] > plan.json
   dev/varka_matrix_bins.py times [--reach FILE] [--per-configuration FILE] [--part-runs FILE] \\
       JUNIT_DIR... > suite-seconds.tsv
   dev/varka_matrix_bins.py select --base DIR --pr DIR --configurations FILE \\
@@ -51,6 +53,12 @@ writes the measured files from a fanned-out run's JUnit reports.
 
 Each bin's `units` is one line a JVM, `configuration|module|suite,suite,...`, the suites as
 simple names, which the bin's job hands to `dev/varka_matrix.sh --suites`.
+
+`plan --stages two` (VARKA-637 3.1) prints {"first": [...], "rest": [...]}: `first` runs the
+changed suites (`dev/varka_matrix_scope.py --suites`) under every configuration and platform
+without the reach record; `rest` runs every other unit, so the two lists run all that one list
+would. `--stages one` leaves `first` empty. `--ran-by` writes the reach record the
+configurations then ran by.
 
 `replay` (VARKA-617) reads one run's downloaded bin artifacts and its jobs from the Actions API
 and prints its measured bin phase beside the phase replayed from its own bins and from the bins
@@ -332,13 +340,15 @@ def units(
     part_weight=PART_WEIGHT,
     part_seconds=None,
     part_alone=(),
+    keep=None,
 ):
     """Every (configuration, module, suites, seconds) JVM the matrix runs, the defaults first. A
     suite's whole run under a configuration takes its measured seconds there (`config_seconds`,
     keyed by the configuration's run directory) or else its weight times the configuration's
     factor. A suite whose tests a configuration's record leaves all to the defaults is not run
     under it, and one it runs some tests of weighs as `part_weight` says (PART_WEIGHTS): by
-    default that share of its whole run, a tenth at least, for its set-up."""
+    default that share of its whole run, a tenth at least, for its set-up. With `keep`, only the
+    (configuration, module, suite) triples it holds true for are run (`stage_plan`)."""
     fill = statistics.median(config_weights.values()) if config_weights else 1.0
     config_seconds = config_seconds or {}
     part_seconds = part_seconds or {}
@@ -353,6 +363,8 @@ def units(
                 continue
             shared = []
             for name, alone in listed:
+                if keep is not None and not keep(config, module, name):
+                    continue
                 share = 1.0 if platform else reach_share(reach, config, name)
                 if share == 0.0:
                     continue
@@ -420,11 +432,15 @@ def plan(
     part_weight=PART_WEIGHT,
     part_seconds=None,
     part_alone=(),
+    keep=None,
+    start=0,
+    whole=False,
 ):
     """The job matrix. The platform configurations named in `platforms` (keys of PLATFORMS) are
     packed apart from the others, one group of bins for each runner and ahead of the matrix's own
     bins, so that they start at once and the matrix keeps its slots; a platform unit's line
-    carries its JVM flags as a fourth field."""
+    carries its JVM flags as a fourth field. `keep` is `units`'; the bins are numbered from
+    `start`, and with `whole` each bin says that its units run without the reach record."""
     weight = suite_weight(suite_seconds, suite_times)
     all_units = units(
         configurations,
@@ -438,6 +454,7 @@ def plan(
         part_weight,
         part_seconds,
         part_alone,
+        keep,
     )
     # The platforms' bins come first, so that they start at once and hold their slots while the
     # matrix's own bins fill the rest.
@@ -453,14 +470,15 @@ def plan(
             for c, m, s, _ in b["units"]:
                 line = f"{c}|{m}|{','.join(s)}"
                 lines.append(f"{line}|{PLATFORMS[c][1]}" if c in platforms else line)
-            include.append(
-                {
-                    "bin": f"b{len(include):03d}",
-                    "seconds": round(max(b["lanes"])),
-                    "runner": runner,
-                    "units": "\n".join(lines),
-                }
-            )
+            entry = {
+                "bin": f"b{start + len(include):03d}",
+                "seconds": round(max(b["lanes"])),
+                "runner": runner,
+                "units": "\n".join(lines),
+            }
+            if whole:
+                entry["reach"] = WHOLE
+            include.append(entry)
     return {"include": include}
 
 
@@ -473,6 +491,88 @@ def over_cap(out, target, cap=MATRIX_CAP):
         f"{count} bins at a {target:.0f} s lane, over GitHub's cap of {cap} jobs a matrix; raise"
         f" --target until the cut fits, or run fewer configurations"
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# Two stages: the changed suites first, then the rest (VARKA-637)
+# ---------------------------------------------------------------------------------------------
+
+STAGES = ("two", "one")
+# The `reach` field of a bin whose units run every test, without the Build's record: the
+# changed suites' bins of the first stage. The bin step reads it.
+WHOLE = "off"
+
+
+def unit_triples(include):
+    """Every (configuration, module, suite) a list of bins runs, once for each time it runs."""
+    out = []
+    for b in include:
+        for line in b["units"].split("\n"):
+            parts = line.split("|")
+            if len(parts) >= 3:
+                out.extend((parts[0], parts[1], s) for s in parts[2].split(","))
+    return out
+
+
+def stage_plan(changed=(), stages="two", notes=None, cap=MATRIX_CAP, **planned):
+    """The two lists of bins, as {"first": [...], "rest": [...]}, from `plan`'s arguments, which
+    are passed by name.
+
+    `first` runs the changed suites under every configuration and platform without the reach
+    record, so a configuration runs every test of them. `rest` runs every other triple of today's
+    plan, so the two lists together run everything today's plan does, the changed suites' part
+    runs made whole. With `stages="one"`, `first` is empty and `rest` is today's plan. The bins
+    are numbered on from `first` into `rest`, since a bin's name keys its job and its artifact. A
+    list over GitHub's `cap` of jobs a matrix, which the changed suites run whole can make
+    `first`, falls back to one stage too. A warning goes to `notes`, a list, or else to stderr."""
+    today = plan(**planned)["include"]
+    if stages == "one":
+        return {"first": [], "rest": today}
+    changed = set(changed)
+    first = plan(**dict(planned, reach=None), keep=lambda c, m, n: n in changed, whole=True)[
+        "include"
+    ]
+    rest = plan(**planned, keep=lambda c, m, n: n not in changed, start=len(first))["include"]
+    # Every triple of today's plan runs once: a changed suite's in `first` whole, which runs
+    # every test where today's may run part, and every other one in `rest` as today.
+    mine = sorted(unit_triples(rest))
+    others = sorted(t for t in unit_triples(today) if t[2] not in changed)
+    ours = {t for t in unit_triples(today) if t[2] in changed}
+    exact = mine == others and ours <= set(unit_triples(first))
+    fits = all(len(include) <= cap for include in (first, rest))
+    if not exact or not fits:
+        why = (
+            "::warning::varka_matrix_bins plan: the two stages do not run today's plan exactly,"
+            " so the run has one stage"
+            if not exact
+            else f"::warning::varka_matrix_bins plan: a stage holds over {cap} bins, so the run"
+            " has one stage"
+        )
+        if notes is None:
+            print(why, file=sys.stderr)
+        else:
+            notes.append(why)
+        return {"first": [], "rest": today}
+    return {"first": first, "rest": rest}
+
+
+def ran_by(lines, changed):
+    """The reach record the configurations ran by: the Build's, less the lines of the changed
+    suites, which the first stage ran whole, so that `times` counts their runs as whole runs."""
+    return [ln for ln in lines if ln.startswith("#") or ln.split("\t", 1)[0] not in changed]
+
+
+def stage_line(stages, out, changed):
+    """The summary's first line: each list's units and bins, and what made the first."""
+
+    def count(include):
+        units = sum(len(b["units"].split("\n")) for b in include)
+        return f"{units} units in {len(include)} bins"
+
+    if not out["first"]:
+        return f"stages: {stages}; first: none; rest: {count(out['rest'])}"
+    why = f"changed suites {','.join(sorted(changed)) or 'none'}"
+    return f"stages: {stages}; first: {count(out['first'])} ({why}); rest: {count(out['rest'])}"
 
 
 def run_seconds(junit_dirs, reach=None):
@@ -634,7 +734,9 @@ def read_bin_jobs(path):
     .../actions/runs/RUN/jobs?filter=all --paginate`, with or without `--jq '.jobs[]'`
     (`json_jobs`): for each bin its last attempt's created, started and completed times and its
     units step's start and end, as seconds. Bins whose last attempts differ, after a re-run of
-    some jobs, are refused: the run's phase and slots would span both attempts."""
+    some jobs, are refused: the run's phase and slots would span both attempts. So is a run of
+    two stages (VARKA-637), whose second stage's jobs are created only after the first stage
+    ends: the replay models one queue, not two phases with the gate between them."""
     try:
         jobs = json_jobs(Path(path).read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
@@ -669,6 +771,15 @@ def read_bin_jobs(path):
             f"replay: the bin jobs in {path} come from more than one attempt ({kept}), so their"
             " phase and slots would span them; replay a run none of whose jobs was re-run"
         )
+    if out:
+        last = max(out, key=lambda b: out[b]["created"])
+        done = min(out, key=lambda b: out[b]["completed"])
+        if out[last]["created"] > out[done]["completed"]:
+            raise SystemExit(
+                f"replay: bin {last} of {path} was created after bin {done} completed, so the run"
+                " had two stages, which the replay does not model; replay a run of one stage"
+                " (the `stages` input `one`)"
+            )
     return out
 
 
@@ -1799,6 +1910,15 @@ class SelfTest(unittest.TestCase):
             )
             self.assertEqual({j["attempt"] for j in read_bin_jobs(f).values()}, {2})
 
+    def test_a_run_of_two_stages_is_refused(self):
+        # b001, of the second stage, was created after b000, of the first, completed.
+        jobs = self._jobs({"b000": (0, 2, 32, 52, 55), "b001": (70, 72, 87, 97, 100)})
+        with tempfile.TemporaryDirectory() as root:
+            f = Path(root, "jobs.jsonl")
+            f.write_text("".join(json.dumps(j) + "\n" for j in jobs), encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "bin b001 .* after bin b000 completed"):
+                read_bin_jobs(f)
+
     def test_a_unit_a_cancel_killed_is_reported_and_inputs_that_match_nothing_refused(self):
         with tempfile.TemporaryDirectory() as root:
             self._run(
@@ -1873,9 +1993,9 @@ class SelfTest(unittest.TestCase):
         parsed = []
         real = plan
 
-        def spy(*a):
-            parsed.append(a[9])
-            return real(*a)
+        def spy(**a):
+            parsed.append(a["part_weight"])
+            return real(**a)
 
         with tempfile.TemporaryDirectory() as root:
             Path(root, "configurations").write_text("", encoding="utf-8")
@@ -1964,6 +2084,88 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(got["replanned"][PART_WEIGHT], got["as run"])
         self.assertEqual(got["as run"], got["measured"])
 
+    # The two stages (VARKA-637)
+
+    STAGE_SUITES = [
+        ("sql", [("A", False), ("B", False), ("C", True)]),
+        ("catalyst", [("D", False)]),
+    ]
+
+    def staged(self, changed=(), stages="two", reach=None, **more):
+        weights = {"A": 100.0, "B": 50.0, "C": 300.0, "D": 10.0}
+        planned = dict(
+            configurations=["x=1", "y=2"],
+            suites=self.STAGE_SUITES,
+            suite_seconds=weights,
+            suite_times={},
+            config_weights={},
+            lane=400.0,
+            reach=reach,
+            platforms=tuple(PLATFORMS),
+        )
+        return plan(**planned)["include"], stage_plan(changed, stages, **more, **planned)
+
+    def test_the_first_stage_runs_the_changed_suites_whole(self):
+        # A's tests move only under x=1, and none of them under y=2, so today's plan runs part of
+        # A under x=1 and none of it under y=2; the first stage runs all of it under both.
+        reach = ({"x=1", "y=2"}, {"A": [{"x=1"}, set()], "B": [{"y=2"}], "D": [{"x=1"}]})
+        today, out = self.staged({"A"}, reach=reach)
+        first, rest = unit_triples(out["first"]), unit_triples(out["rest"])
+        every = ["defaults", "x=1", "y=2"] + list(PLATFORMS)
+        self.assertEqual(sorted(first), sorted((c, "sql", "A") for c in every))
+        # The changed suite's bins run without the record.
+        self.assertTrue(all(b.get("reach") == WHOLE for b in out["first"]))
+        self.assertFalse(any("reach" in b for b in out["rest"]))
+        # Nothing runs twice, and together the lists run today's plan and the whole of A.
+        self.assertEqual(len(first + rest), len(set(first + rest)))
+        self.assertEqual(set(first + rest), set(unit_triples(today)) | set(first))
+        self.assertNotIn(("y=2", "sql", "A"), unit_triples(today))
+        names = [b["bin"] for b in out["first"] + out["rest"]]
+        self.assertEqual(names, [f"b{i:03d}" for i in range(len(names))])
+
+    def test_a_stage_over_the_cap_falls_back_to_todays_plan(self):
+        _, out = self.staged({"A"})
+        notes, cap = [], max(len(out["first"]), len(out["rest"])) - 1
+        today, got = self.staged({"A"}, notes=notes, cap=cap)
+        self.assertEqual(
+            (got, f"over {cap} bins" in notes[0]), ({"first": [], "rest": today}, True)
+        )
+
+    def test_one_stage_or_nothing_first_is_todays_plan(self):
+        today, one = self.staged({"A"}, stages="one")
+        self.assertEqual(one, {"first": [], "rest": today})
+        today, none = self.staged()
+        self.assertEqual(none, {"first": [], "rest": today})
+
+    def test_plan_stages_reads_the_changed_suites(self):
+        with tempfile.TemporaryDirectory() as root:
+            r = Path(root)
+            (r / "configurations").write_text("x=1\n", encoding="utf-8")
+            (r / "sql").write_text("p.A\np.B\n@own p.C\n", encoding="utf-8")
+            (r / "changed").write_text("A\nNotInTheMatrix\n", encoding="utf-8")
+            reach = FORMAT_LINE + "#\tcovers\tx=1\nA\tt1\tx=1\nA\tt2\t-\nB\tt1\tx=1\n"
+            (r / "reach.tsv").write_text(reach, encoding="utf-8")
+            argv = ["plan", "--configurations", str(r / "configurations")]
+            argv += ["--suites", f"sql={r / 'sql'}", "--reach", str(r / "reach.tsv")]
+            argv += ["--stages", "two", "--changed-suites", str(r / "changed")]
+            argv += ["--ran-by", str(r / "ran-by.tsv")]
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                self.assertEqual(main(argv), 0)
+            got = json.loads(out.getvalue())
+            lines = err.getvalue().splitlines()
+            ran = (r / "ran-by.tsv").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(got["changed"], ["A"])
+        self.assertEqual(
+            sorted(unit_triples(got["first"])), [("defaults", "sql", "A"), ("x=1", "sql", "A")]
+        )
+        # The summary's line comes first, and the notes after it.
+        self.assertTrue(lines[0].startswith("stages: two; first: "), lines[0])
+        self.assertIn("changed suites A", lines[0])
+        self.assertIn("NotInTheMatrix", lines[1])
+        # The changed suite ran whole, so the record it ran by holds no line of it.
+        self.assertEqual(ran, [ln for ln in reach.splitlines() if not ln.startswith("A\t")])
+
 
 def reach_record(selected, pr, reach=None):
     """The selection as a `VarkaTestReach` record, which `plan --reach` and a configuration's JVM
@@ -2050,6 +2252,33 @@ def replay_main(args):
     return 0
 
 
+def stage_main(args, planned):
+    """`plan --stages`: the two lists, the reach record they ran by, and the summary's line,
+    which goes first, before any note. A changed-suites file that cannot be read moves nothing
+    into `first`, so the run still runs everything in `rest`."""
+    notes = []
+    listed = {name for _, names in planned["suites"] for name, _ in names}
+    changed = set()
+    if args.changed_suites and Path(args.changed_suites).is_file():
+        changed = set(read_names(args.changed_suites))
+    if changed - listed:
+        notes.append(
+            f"changed suites the matrix does not run: {','.join(sorted(changed - listed))}"
+        )
+    changed &= listed
+    staged = stage_plan(changed, args.stages, notes, **planned)
+    if not staged["first"]:
+        # One stage, asked for or fallen back to: nothing ran first, and nothing ran whole.
+        changed = set()
+    print(stage_line(args.stages, staged, changed), file=sys.stderr)
+    for note in notes:
+        print(note, file=sys.stderr)
+    if args.ran_by and args.reach and Path(args.reach).is_file():
+        lines = Path(args.reach).read_text(encoding="utf-8").splitlines()
+        Path(args.ran_by).write_text("\n".join(ran_by(lines, changed)) + "\n", encoding="utf-8")
+    return dict(staged, stages=args.stages, changed=sorted(changed))
+
+
 def main(argv):
     if argv[:1] == ["--selftest"]:
         result = unittest.main(argv=[sys.argv[0]], exit=False, verbosity=0).result
@@ -2076,6 +2305,13 @@ def main(argv):
         + ") in bins of their own",
     )
     p.add_argument("--part-weight", choices=PART_WEIGHTS, default=PART_WEIGHT)
+    p.add_argument(
+        "--stages",
+        choices=STAGES,
+        help='print the two lists, first and rest, as {"first": [...], "rest": [...]}',
+    )
+    p.add_argument("--changed-suites", help="the changed suites, one a line (varka_matrix_scope)")
+    p.add_argument("--ran-by", help="write the reach record the configurations ran by here")
     t = sub.add_parser("times")
     t.add_argument("dirs", nargs="+")
     t.add_argument("--reach", help="the run's record: only whole runs of a suite count")
@@ -2137,34 +2373,39 @@ def main(argv):
     for entry in args.suites:
         module, path = entry.split("=", 1)
         suites.append((module, read_suites(path)))
-    out = plan(
-        configurations,
-        suites,
-        read_tsv(SUITE_SECONDS),
-        read_tsv(SUITE_TIMES),
-        read_tsv(CONFIG_WEIGHTS),
-        args.target,
-        read_reach(args.reach) if args.reach else None,
-        read_config_seconds(CONFIG_SUITE_SECONDS),
-        tuple(PLATFORMS) if args.platforms else (),
-        args.part_weight,
+    planned = dict(
+        configurations=configurations,
+        suites=suites,
+        suite_seconds=read_tsv(SUITE_SECONDS),
+        suite_times=read_tsv(SUITE_TIMES),
+        config_weights=read_tsv(CONFIG_WEIGHTS),
+        lane=args.target,
+        reach=read_reach(args.reach) if args.reach else None,
+        config_seconds=read_config_seconds(CONFIG_SUITE_SECONDS),
+        platforms=tuple(PLATFORMS) if args.platforms else (),
+        part_weight=args.part_weight,
         # Each read only by the weighing that uses it, so the default plan reads no part file.
-        read_part_seconds(PART_SECONDS) if args.part_weight == "part-seconds" else {},
-        read_names(PART_ALONE) if args.part_weight == "alone" else (),
+        part_seconds=read_part_seconds(PART_SECONDS) if args.part_weight == "part-seconds" else {},
+        part_alone=read_names(PART_ALONE) if args.part_weight == "alone" else (),
     )
-    why = over_cap(out, args.target)
-    if why is not None:
-        # The workflow prints this file when the step fails, so the annotation shows.
-        print(f"::error::varka_matrix_bins plan: {why}", file=sys.stderr)
-        return 1
+    if args.stages is None:
+        out = plan(**planned)
+        lists = [out["include"]]
+    else:
+        out = stage_main(args, planned)
+        lists = [out["first"], out["rest"]]
+    for include in lists:
+        why = over_cap({"include": include}, args.target)
+        if why is not None:
+            # The workflow prints this file when the step fails, so the annotation shows.
+            print(f"::error::varka_matrix_bins plan: {why}", file=sys.stderr)
+            return 1
     json.dump(out, sys.stdout)
     print()
-    total = sum(b["seconds"] for b in out["include"])
-    print(
-        f"{len(out['include'])} bins, the longest {max(b['seconds'] for b in out['include'])} s,"
-        f" {total} s in all",
-        file=sys.stderr,
-    )
+    every = [b for include in lists for b in include]
+    total = sum(b["seconds"] for b in every)
+    longest = max((b["seconds"] for b in every), default=0)
+    print(f"{len(every)} bins, the longest {longest} s, {total} s in all", file=sys.stderr)
     return 0
 
 

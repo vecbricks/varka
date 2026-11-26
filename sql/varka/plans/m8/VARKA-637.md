@@ -266,3 +266,48 @@ the bin-minutes per dispatch and the median bin wait against
 `results/VARKA-637-pr-matrix-scope.txt`. The path tiers are optional: if built, a pull request
 whose diff touches no main code runs the tier 3.2 gives it, the run says so, and every miss of
 the weekly full run is traced to its tier.
+
+## 10. Step 1 as built
+
+*23 November 2026, branch `varka-637a-first-stage`, not yet dispatched.*
+
+* `dev/varka_matrix_scope.py BASE HEAD --suites` prints the changed suites by `pre-pr.sh`'s rule
+  (`--no-renames --diff-filter=AM`, both regexes), each once. A failed `git diff` prints none.
+* `dev/varka_matrix_bins.py plan --stages two|one` prints `first` and `rest`. `units` takes a
+  `keep` test over (configuration, module, suite), so the split is made per triple before
+  packing. `first` is the changed suites under every configuration, the defaults and the
+  platforms (their bins carry `reach: off`, so the bin step passes no reach file). `rest` is
+  every other triple. The planner checks
+  that the lists run every triple of the one-list plan once, a changed suite's whole, and falls
+  back to one stage with a warning otherwise. A changed suite the matrix does not list is
+  dropped with a note. The bins are numbered on from `first` into `rest`, so job names
+  (`Option matrix: bNNN`), artifacts and the report's download pattern are unchanged.
+* `--ran-by` writes the reach record less the changed suites' lines, which the
+  `varka-option-matrix-reach` artifact now carries, so `times` counts their whole runs as whole.
+* *25 November 2026:* step 1 lands in two parts, to keep each pull request under the size cap:
+  637a (#1679) is the two stages and the changed suites; 637b
+  (`varka-637b-failed-bins-first`) adds the last red run's bins to `first`, and with them the
+  dry plan of two real heads, which was made with both.
+* The build job fetches about a thousand commits of each side without blobs to find the merge
+  base. The two bin jobs, `first` and `rest`, share their steps through a YAML anchor and carry
+  the `if:` conditions of 3.1. The plan step's summary opens with the stage line. The `stages`
+  input defaults to `two`; the Sunday schedule, which has no inputs, runs two stages too.
+* *23 November 2026, by the owner's word:* a red `first` stops the run only after a failed unit,
+  not a straggler (VARKA-570) or a setup failure. The bin step writes `<bin>-failed/units.txt`
+  for a unit that exited non-zero; a `gate` job reads the first stage's artifacts, and `rest`
+  also runs when it outputs `tests=passed`. A rerun of a straggler's job reruns `rest` with it,
+  so the summary points to a new dispatch. A stage over 256 jobs falls back to one stage.
+* *25 November 2026, merge of #1678:* the cron still fires, but the build job's `if` skips it,
+  so only a dispatch runs the matrix. On vecbricks/varka, with `pr` and `sha`, the changed
+  suites diff `sha` against the merge base, and the first stage has no reach record to cut.
+  `slots` caps both stages. A head whose planner has no `--stages` plans one list with the old
+  arguments, which runs as `rest` with an empty `first`, after a warning.
+* *25 November 2026, from review:* a unit's failure is recorded as soon as the unit ends, so a
+  bin stopped later by its job timeout still uploads it; the gate reads only the first stage's
+  bins, by the names in the build job's `first`, so a rerun's download of an earlier attempt's
+  second-stage bins does not stop it; and `replay` refuses a run of two stages, whose second
+  stage's jobs are created after the first ends, since it models one queue.
+
+Still owed for step 1's done-when (7): the two dispatches of 5, which also prove that a job's
+`if:` reads the build job's outputs before its matrix expands, the live week of 4, and the
+scores of predictions 1 to 4.

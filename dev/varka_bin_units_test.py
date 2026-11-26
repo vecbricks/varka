@@ -26,6 +26,9 @@ The test takes the step's `run:` text from the workflow, runs it in a scratch di
 stub `dev/varka_matrix.sh` that records its arguments, and compares them with what each kind of
 unit line must pass.
 
+The same matrix's stage gate (VARKA-637): a red first stage lets the second run when its failed
+bins failed no unit - stragglers and setup steps - and stops it after a failed unit.
+
 The same is done for the sweep workflow's `Run the sweep` step (VARKA-573): its JVM options and
 runner arguments come from `dev/varka_sweeps.py`, and it must pass a failing sweep's status on.
 And for its `Run this share under AVX2 at 128 bits` step (VARKA-564): the three shares of a module
@@ -37,12 +40,15 @@ fail its job.
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
@@ -68,9 +74,11 @@ exit 0
 
 
 def step_script():
-    """The `run:` text of the bin step."""
+    """The `run:` text of the bin step, which both stages' jobs run (VARKA-637)."""
     doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    for step in doc["jobs"]["bins"]["steps"]:
+    if doc["jobs"]["first"]["steps"] != doc["jobs"]["rest"]["steps"]:
+        raise SystemExit(f"the two stages' bin jobs of {WORKFLOW} run different steps")
+    for step in doc["jobs"]["rest"]["steps"]:
         if step.get("name") == STEP:
             return step["run"]
     raise SystemExit(f"no step named {STEP!r} in {WORKFLOW}")
@@ -143,10 +151,11 @@ STEP_ENV = {
     "DEADLINE_FLOOR": "1920",
     "GRACE": "30",
     "PLANT": "",
+    "REACH": "",
 }
 
 
-def run_step(units, reach=True, store=True):
+def run_step(units, reach=True, store=True, bin_reach=""):
     """Runs the step over `units` (one line each); returns (exit status, {unit k: [arguments]})."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -160,7 +169,7 @@ def run_step(units, reach=True, store=True):
             (matrix / "reach.tsv").write_text("# covers\n", encoding="utf-8")
         if store:
             (matrix / "harness-store/harness-0.bin").write_bytes(b"x")
-        env = dict(STEP_ENV, UNITS="\n".join(units) + "\n")
+        env = dict(STEP_ENV, UNITS="\n".join(units) + "\n", REACH=bin_reach)
         done = subprocess.run(
             ["bash", "-e", "-c", step_script()],
             cwd=tmp,
@@ -202,6 +211,12 @@ class BinUnits(unittest.TestCase):
         self.assertNotIn("--platform", a)
         self.assertTrue(any(x.startswith("-Dvarka.matrix.reachFile=") for x in a), a)
         self.assertTrue(any(x.startswith("-Dvarka.harness.store=") for x in a), a)
+
+    def test_a_first_stage_bin_of_changed_suites_runs_without_the_reach(self):
+        status, args = run_step(["cse=false|catalyst|C"], bin_reach="off")
+        self.assertEqual(status, 0)
+        self.assertFalse(any("reachFile" in x for x in args[0]), args)
+        self.assertTrue(any(x.startswith("-Dvarka.harness.store=") for x in args[0]), args)
 
     def test_an_option_configuration_without_the_files_passes_neither(self):
         _, args = run_step(["cse=false|catalyst|C"], reach=False, store=False)
@@ -374,6 +389,141 @@ class Watchdog(unittest.TestCase):
     def test_another_bins_plant_changes_nothing(self):
         status, _, stdout, text, started, _ = run_watched(["defaults|sql|S0"], PLANT="b001")
         self.assertEqual((status, text, started), (0, None, [0]), stdout)
+
+
+# ---------------------------------------------------------------------------------------------
+# The stage gate (VARKA-637): the second stage after a red first one
+# ---------------------------------------------------------------------------------------------
+
+
+def job_runs(job, first, tests="", rest="[{}]"):
+    """Whether `job`'s `if:` admits it after a first stage that ended `first` and a gate whose
+    `tests` output is given: the expression read as Python, with `!cancelled()` true."""
+    text = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][job]["if"].strip()
+    text = re.sub(r"^\$\{\{|\}\}$", "", text).replace("!cancelled()", "True")
+    text = " ".join(text.replace("&&", " and ").replace("||", " or ").split())
+    ns = SimpleNamespace
+    needs = ns(
+        build=ns(result="success", outputs=ns(rest=rest)),
+        first=ns(result=first),
+        gate=ns(outputs=ns(tests=tests)),
+    )
+    return eval(text, {"needs": needs})
+
+
+def bin_records(dst, name, units, stub=STUB, **env):
+    """Runs the bin step as bin `name` and merges its files into `dst`, as the gate's download of
+    the first stage's artifacts does; returns the step's exit status."""
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "dev").mkdir()
+        (Path(tmp) / "dev/varka_matrix.sh").write_text(stub, encoding="utf-8")
+        (Path(tmp) / "dev/varka_matrix.sh").chmod(0o755)
+        full = dict(STEP_ENV, UNITS="\n".join(units) + "\n", BIN=name, **env)
+        script = ["bash", "-e", "-c", step_script()]
+        done = subprocess.run(script, cwd=tmp, env=full, capture_output=True, timeout=120)
+        shutil.copytree(Path(tmp, "target/varka-units", name), dst, dirs_exist_ok=True)
+        return done.returncode
+
+
+def judge(records, download="success", first=("b000", "b001", "b002")):
+    """Runs the gate's judging step over the merged `records`, the first stage being the bins
+    `first`: (its `tests` output, its stdout)."""
+    doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    script = next(s["run"] for s in doc["jobs"]["gate"]["steps"] if s.get("id") == "judge")
+    with tempfile.TemporaryDirectory() as tmp:
+        shutil.copytree(records, Path(tmp, "target/varka-bins"))
+        out = Path(tmp, "output")
+        env = {"PATH": os.environ["PATH"], "DOWNLOAD": download, "GITHUB_OUTPUT": str(out)}
+        env["FIRST"] = json.dumps([{"bin": b} for b in first])
+        done = subprocess.run(["bash", "-e", "-c", script], cwd=tmp, env=env, capture_output=True)
+        assert done.returncode == 0, done
+        return out.read_text(encoding="utf-8").split("tests=")[1].strip(), done.stdout.decode()
+
+
+# A planted straggler: its units never start, and the watchdog stops the bin at 2 s.
+STRAGGLER = {"PLAN_SECONDS": "1", "DEADLINE_FLOOR": "2", "GRACE": "1", "PLANT": "b001"}
+
+
+class StageGate(unittest.TestCase):
+    def setUp(self):
+        self.records = Path(self.enterContext(tempfile.TemporaryDirectory()), "records")
+        self.records.mkdir()
+
+    def test_a_green_or_empty_first_stage_runs_the_second_without_the_gate(self):
+        self.assertEqual(bin_records(self.records, "b000", ["cse=false|sql|OK"]), 0)
+        self.assertFalse(job_runs("gate", "success"))
+        self.assertTrue(job_runs("rest", "success") and job_runs("rest", "skipped"))
+        self.assertFalse(job_runs("rest", "success", rest="[]"))
+
+    def test_a_straggler_or_a_setup_failure_alone_runs_the_second_and_names_the_straggler(self):
+        self.assertEqual(bin_records(self.records, "b000", ["x=1|sql|S0"], SLEEP_STUB), 0)
+        self.assertEqual(
+            bin_records(self.records, "b001", ["w=4|sql|S1"], SLEEP_STUB, **STRAGGLER), 3
+        )
+        # A bin whose setup failed twice never reaches its units and leaves only its retries.
+        (self.records / "b002-setup").mkdir()
+        (self.records / "b002-setup/retries.txt").write_text("b002 java failure, retried\n")
+        tests, stdout = judge(self.records)
+        self.assertEqual(tests, "passed")
+        self.assertIn("b001: planned 1 s", stdout)
+        self.assertIn("not run: w=4|sql|S1", stdout)
+        self.assertTrue(job_runs("gate", "failure") and job_runs("rest", "failure", tests))
+
+    def test_a_failed_unit_stops_the_second_stage_even_beside_a_straggler(self):
+        self.assertEqual(bin_records(self.records, "b000", ["defaults|sql|OK", "x=1|sql|FAIL1"]), 1)
+        bin_records(self.records, "b001", ["w=4|sql|S1"], SLEEP_STUB, **STRAGGLER)
+        tests, stdout = judge(self.records)
+        self.assertEqual(tests, "failed")
+        self.assertIn("exit 3: x=1|sql|FAIL1", stdout)
+        self.assertNotIn("defaults|sql|OK", stdout)
+        self.assertFalse(job_runs("rest", "failure", tests))
+
+    def test_an_earlier_attempts_second_stage_bin_does_not_stop_a_rerun(self):
+        # b005 is a second-stage bin of the run's first attempt, which a rerun downloads too.
+        self.assertEqual(bin_records(self.records, "b005", ["x=1|sql|FAIL1"]), 1)
+        tests, _ = judge(self.records, first=("b000",))
+        self.assertEqual(tests, "passed")
+        self.assertEqual(judge(self.records, first=("b000", "b005"))[0], "failed")
+
+    def test_a_failed_unit_is_recorded_before_the_bin_ends(self):
+        # The failing unit ends at once and the other sleeps 5 s; a job timeout then would stop
+        # the bin before the step's end, so the record must be written while the step runs.
+        fail_at_once = SLEEP_STUB.replace(
+            'touch "$out.started"\n',
+            'touch "$out.started"\ncase "$suites" in *FAIL*) exit 3 ;; esac\n',
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "dev").mkdir()
+            stub = Path(tmp, "dev/varka_matrix.sh")
+            stub.write_text(fail_at_once, encoding="utf-8")
+            stub.chmod(0o755)
+            env = dict(STEP_ENV, UNITS="cse=false|sql|FAIL1\nx=1|sql|S5\n")
+            step = subprocess.Popen(
+                ["bash", "-e", "-c", step_script()],
+                cwd=tmp,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            record = Path(tmp, "target/varka-units/b000/b000-failed/units.txt")
+            deadline = time.monotonic() + 4
+            while not record.exists() and time.monotonic() < deadline:
+                time.sleep(0.1)
+            seen, running = record.exists(), step.poll() is None
+            self.assertEqual(step.wait(timeout=60), 1)
+            self.assertTrue(seen and running, "no record while the step still ran")
+            self.assertEqual(record.read_text(), "exit 3: cse=false|sql|FAIL1\n")
+
+    def test_records_that_do_not_download_or_a_cancelled_first_stop_it(self):
+        tests, _ = judge(self.records, download="failure")
+        self.assertEqual(tests, "unknown")
+        self.assertFalse(job_runs("rest", "failure", tests))
+        self.assertFalse(job_runs("rest", "cancelled", "passed"))
+        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        upload = next(
+            s for s in doc["jobs"]["rest"]["steps"] if s.get("name", "").startswith("Upload")
+        )
+        self.assertIn("/*-failed/units.txt", upload["with"]["path"])
 
 
 class SweepStep(unittest.TestCase):
