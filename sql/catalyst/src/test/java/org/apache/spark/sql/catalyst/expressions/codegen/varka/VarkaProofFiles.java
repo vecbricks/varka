@@ -103,6 +103,8 @@ final class VarkaProofFiles {
     files.put("decimal64.smt2", decimal64());
     files.put("decimal_scale.smt2", decimalScale());
     files.put("casts.smt2", casts());
+    files.put("decimal_casts.smt2", VarkaDecimalCastProofFile.render());
+    files.put("decimal_divide.smt2", VarkaDecimalCastProofFile.renderDivide());
     files.put("round_to_odd.smt2", roundToOdd());
     files.put("fp_half_up.smt2", fpHalfUp());
     files.put("decimal128.smt2", decimal128());
@@ -480,7 +482,7 @@ final class VarkaProofFiles {
   }
 
   /** The conversion form, for every {@code 0 < |v| < 2^53}: one check per quotient binade. */
-  private static void conversionExact(StringBuilder out, long d, long m) {
+  static void conversionExact(StringBuilder out, long d, long m) {
     int kLo = binade(BigInteger.valueOf(P53 - 1), BigInteger.valueOf(m)) - 1;
     int kHi = binade(BigInteger.ONE, BigInteger.valueOf(m));
     check(out, "d = " + d + ": the conversion form's quotients for 0 < v < 2^53 lie in binades 2^-"
@@ -545,7 +547,7 @@ final class VarkaProofFiles {
   }
 
   /** The magic form, for every {@code 0 < |v| < 2^52}: one check per quotient binade. */
-  private static void magicExact(StringBuilder out, long d, long m) {
+  static void magicExact(StringBuilder out, long d, long m) {
     int kLo = binade(BigInteger.valueOf(P52 - 1), BigInteger.valueOf(m)) - 1;
     int kHi = binade(BigInteger.ONE, BigInteger.valueOf(m));
     check(out, "d = " + d + ": the magic form's quotients for 0 < a < 2^52 lie in binades 2^-"

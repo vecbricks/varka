@@ -817,3 +817,77 @@ then 350a2's proof file `decimal_casts.smt2` (branch `varka-350a2-proofs`) cover
 rules - the casts to `BIGINT` and `BOOLEAN` and between decimals - then 350a1n, then 350a1b
 (branch `varka-350a1b-integral-sources`). This replaces "The parts" above, where 350a1b came
 before the proofs.
+
+### 10.4 Step 3, part 350a2: the proofs of #1700's rules
+
+*25 November 2026, on branch `varka-350a2-proofs-r2`, stacked on #1700 (`varka-350a1-r2`).* The
+proof part of 20 November (`dbf7f8c9c34` on `varka-350a2-proofs`) was written over 350a1b, which
+still held the narrow targets and the integral sources. This part keeps only what proves #1700's
+rules: the casts to `BIGINT`, to `BOOLEAN` and between decimals.
+
+**A finding first.** On #1700's head `682d1d73d0e`, `VarkaDivisorProofSuite` failed: the coverage
+rows compile long-lane `ConstDivide`s by 25, 78125 and 1953125 (`5^2`, `5^7`, `5^9`, the magnitude
+form's divisors), which `long_divide.smt2` did not state. #1700 now adds the three to
+`VarkaProofFiles.LONG_DIVISORS`. This part proves the rest of the set the compiler can build:
+`10^1` to `10^15` below `2^52`, `5^1` to `5^18` past it.
+
+**What it proves.** `VarkaDecimalCastProofFile` renders two files from the compiler's constants
+(`Decimal.POW_10`, `ConstDivide.EXACT_DIVIDEND_BOUND`) and from its division table, `divisions()`:
+
+- `decimal_casts.smt2` (1109 checks): per division of a `p`-digit value by `10^k`, truncating
+  (the cast to `BIGINT`) and `HALF_UP` (the rescale down), all 342, the dividend under the bound
+  stated to `ConstDivide` and the answer Spark's (Java's `/`; `changePrecision`'s `HALF_UP`); the
+  magnitude form's logical shift, its division by `5^k` and the sign put back; at the twelve
+  `(p, k)` of item 0.15 the `2^(52 + k)` guard needed and one wider wrong; an arithmetic shift
+  (`-19`) and each half one less refuted; the rescale down's quotient within `10^(p - k)` and
+  reaching it, so its precision check is dead exactly where `p - k < P`; the rescale up's guard
+  `|u| <= 10^(P - k) - 1` exactly the target's precision with no wrap, one wider refuted; and the
+  other order, the check after the multiply, wrong at Trino's `184467440737095517`.
+- `decimal_divide.smt2` (2352 checks): both lowered forms of the constant division exact below
+  `2^52` for the 21 divisors `long_divide.smt2` does not state (it now holds #1700's three), by
+  `VarkaProofFiles`'s own `conversionExact` and `magicExact`.
+
+**The tests.** `VarkaDecimalCastTableSuite` builds each of the 342 divisions with the compiler's
+own `truncated` and `roundedHalfUp` and holds its divisor, dividend bound, form and guard to the
+table, so a changed division fails before it ships unproven; and over every `(p, s)` into every
+`(P, S)` (189 x 189) it holds the guard decision to Spark's `changePrecision` of the widest source
+value and to `Cast.canNullSafeCastToDecimal`. `VarkaDivisorProofSuite` takes both files' divisors
+and compiles a decimal of every `(p, s)` to `BIGINT` and to scale 0, so every divisor is collected.
+
+**Measured** (laptop, nothing else running, `dev/varka_prove.sh --solver z3|cvc5`):
+`decimal_casts.smt2` Z3 5 s and cvc5 6 s, so `--lint` runs it under Z3; `decimal_divide.smt2` Z3
+83 s and cvc5 24 s, so `--lint` runs it under cvc5 (`CVC5_IN_LINT`), as `long_divide.smt2`, the
+same obligations over 2479 checks, runs (Z3 85 s, cvc5 27 s). The whole `--lint` run takes 57 s
+on the laptop without this part and 87 s with it.
+
+**The lint, not the nightly: a change from 20 November.** In `dbf7f8c9c34` the divisor file,
+then 24 divisors and 2688 checks, measured Z3 219 s and cvc5 90 s run alone, past the lint's
+minute under both, so it went to `NIGHTLY_ONLY` with the nightly proofs job's limit raised from
+30 to 50 minutes. Measured again on 25 November, the same 24 divisors took Z3 95 s and cvc5
+27 s, an sbt run overlapping part of it; the cause of the difference was not measured. cvc5 is
+now under the minute even at the runner's twice the laptop, and `proofs/README.md`'s rule sends a
+file to the nightly only past the minute under both solvers, so it runs in every pull request's
+lint under cvc5 instead, and `varka-fuzz.yml` is unchanged. Section 3 item 4 asked for "a second
+proof file run under cvc5", which this is.
+
+**Left out, to arrive with their parts.** The narrowing's guard dead where `p - s` digits fit and
+the narrow-target table test go with 350a1n; the integral and `BOOLEAN` sources' table test with
+350a1b; and the decline of an ANSI or TRY narrowing of a computed 17- or 18-digit decimal
+(`COMPUTED_NARROW_REASON`, the review finding of 20 November) with 350a1n, whose casts it guards.
+
+**Owed: the planted fault in code.** Section 3 item 3's flag, the rescale up's multiply first and
+check after, was a static field in `VarkaDecimalCastFault`; VARKA-548's `global-fault` lint now
+refuses a JVM-wide fault and wants it as a `VarkaEmitOptions` fault option, as `IntervalFault`
+is. That is a main-code change to the options (and their matrix configurations) in a part that is
+otherwise tests and proofs, so it is left for its own change; `decimal_casts.smt2` refutes the
+order meanwhile. Also owed: the cast rows' refinement in `decimal_refinement.smt2`; the coverage
+rows' `verified` field, still `differential`, pointed at `decimal_casts.smt2`; and section 3 item
+1's sample of each class run against `Cast.eval` per mode, which the table suite does not do (the
+query suite runs each cast against vanilla Spark in the three modes).
+
+**The review's fix round** (`/code-review high`, nine nits, no defect): the table test now also
+checks each division's half, shift count, sign restore and guard mode, and both its tests pin
+the defaults; the half-one-less neighbours are stated where each form runs, the signed half at
+precision 15 and the magnitude's half at 18; the divisor suite names `decimal_divide.smt2`; the
+lint's time is restated where the minute was claimed. Kept: the 24 s cvc5 figure, measured with
+nothing else running (only the 24-divisor re-measure overlapped an sbt run).
