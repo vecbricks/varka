@@ -356,6 +356,11 @@ needed, compiled when first needed, and takes for each batch the least form that
 range of every program. The choice is exact; nothing is timed and no batch runs twice (2.8). A
 forced form, a matrix arm, sends a batch that it does not cover to the row path.
 
+An emission that names no form, under the default, takes the eight-step form: the tests and the
+compiler emit under the default options in many places, so a refusal there would make each of
+them name a form by hand (the owner's word of 26 November 2026; `VARKA-685.md` 4). At two
+64-bit lanes with masked steps the ladder stops at 2 steps until row 689.
+
 The table form reads a bucket by an index made from the operand, and a null row's storage can
 hold any long. Its lowering clamps the index into the table, and row 686's fixtures hold null
 rows over storage outside the table's range.
