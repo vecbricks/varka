@@ -135,7 +135,7 @@ fi
 flaky=(
   "VarkaWarmupEndToEndSuite: on a four-core 256-bit host a template's first compile lands at
    tier 2 when C2's queue is over ten entries at that instant, and the kernel that inlines it
-   keeps a virtual call and boxes (m7/VARKA-389.md 9.5, m9 SCOPE item 103)"
+   keeps a virtual call and boxes (m7/VARKA-389.md 9.5, m10/SCOPE.md item 103)"
 )
 retries=2
 

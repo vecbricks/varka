@@ -71,7 +71,7 @@ post; and the close's documents, which quote the tag, merge after it. Each step 
 command that says it is done.
 
 1. **The rows.** Every row of section 3 reads **Done**, **Withdrawn** or **Moved** (to
-   `m9/SCOPE.md` with its plan, as rows 180 and 386 moved at milestone 7's close), on the owner's
+   `m10/SCOPE.md` with its plan, as rows 180 and 386 moved at milestone 7's close), on the owner's
    word for each move. Row 180, promotion, is a cadence and moves again. The mirror reads only a
    row's first bold marker, so a move is written at the head of the cell, before **From milestone
    7** in 180 and before the sentence that precedes **Planned** in 552 and 553. These status edits
@@ -90,7 +90,7 @@ command that says it is done.
    the 27 math entries exact, by `VARKA-345.md` 2.3's three tests; (6) rows 104, 30, 95, 103, 39 and
    89 and catalogue items 32, 33, 34, 55, 93 and 94; (7) the post's address; (8) rows 353, 552, 553
    and this close. Done when every item reads met, or met with a named gap that points at a row of
-   `m9/SCOPE.md`.
+   `m10/SCOPE.md`.
 3. **The numbers.** 183 and 881 become 180 and 878 wherever they are the milestone's current
    count, with the dated originals kept where a sentence records the past; the census and the cast
    matrix are rewritten on the closing commit. Done when `python3 dev/varka_census.py --check` exits
@@ -98,7 +98,7 @@ command that says it is done.
    `python3 dev/varka_quote_check.py` finds no orphan.
 4. **The documents.** Every sentence that names milestone 8 in flight or carries an older truth:
    the README's status list and Contributing pointer, `CONTRIBUTING.md`'s "as this is written",
-   `sql/varka/VISION.md`'s header, `m9/SCOPE.md`'s header, and the skills files the rows overtook.
+   `sql/varka/VISION.md`'s header, `m10/SCOPE.md`'s header, and the skills files the rows overtook.
    The README's numbers are quoted, not regenerated: the surfaces from row 553's committed files
    with their dates, the stock comparisons from row 552's, and the cold-start row from the runner
    pair with its spread. 1.1 item 8 asks for the newest stock feature release at the close, so the
@@ -118,7 +118,7 @@ command that says it is done.
    `SKILLS.md` unchanged after the commit.
 7. **The debt register.** Each entry of `m8/PLAN.md` section 11 rewritten in the past tense with
    what the sweep found and where it went; fixes in hand go in a pull request of their own before
-   the tag, debts without one to `m9/SCOPE.md` items. Done when no entry of section 11 is in the
+   the tag, debts without one to `m10/SCOPE.md` items. Done when no entry of section 11 is in the
    present tense without a pointer.
 8. **The changelog.** The milestone 8 entry at the top of `CHANGELOG.md`, in the file's style: the
    theme, the counts of rows, the types and the census shares, the wrong answers fixed, what moved
@@ -143,7 +143,7 @@ command that says it is done.
 ### 3.1 What is deliberately not in the close
 
 * Regenerating surfaces or any benchmark (row 553 and the decision of 18 October 2026).
-* Opening milestone 9's plan: renaming `m9/SCOPE.md` to a plan is its own task.
+* Opening milestone 9's plan: renaming `m10/SCOPE.md` to a plan is its own task.
 * The user support table (row 353) and the post (row 355), which the close reads.
 
 ## 4. Files
@@ -152,7 +152,7 @@ command that says it is done.
 |---|---|
 | `sql/varka/plans/m8/VARKA-354.md` | the record, section 9 |
 | `sql/varka/plans/m8/PLAN.md` | the rows' statuses, the counts, section 11's sweep, section 12 |
-| `README.md`, `CONTRIBUTING.md`, `sql/varka/VISION.md`, `m9/SCOPE.md` | stale sentences |
+| `README.md`, `CONTRIBUTING.md`, `sql/varka/VISION.md`, `m10/SCOPE.md` | stale sentences |
 | `CHANGELOG.md` | the milestone 8 entry |
 | `sql/varka/skills/*.md`, `SKILLS.md` | the lessons |
 
@@ -214,7 +214,7 @@ Pull requests, each under 1000 counted lines:
 ## 10. Questions for the owner
 
 1. **Rows still open when the type rows are done.** Recommended: close once every row 1.1 reads
-   is done, and move the rest to `m9/SCOPE.md` with their plans and status cells kept, as rows 180
+   is done, and move the rest to `m10/SCOPE.md` with their plans and status cells kept, as rows 180
    and 386 moved at milestone 7's close; the alternative, holding the close for all 240 rows, keeps
    milestone 8 open for rows no done-when item needs. Which rows move is the owner's call.
 2. **Where the tag sits.** Recommended: milestone 7's shape, on master after row 355's post sources

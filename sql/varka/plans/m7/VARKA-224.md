@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 224 of `m7/PLAN.md`, from `m9/SCOPE.md` item 81 and moved here from milestone 6 on 2 October
+Row 224 of `m7/PLAN.md`, from `m10/SCOPE.md` item 81 and moved here from milestone 6 on 2 October
 2026 (`m6/PLAN.md` row 224, which carries the full brief). Two Scala layers sit between a Java
 author and the measuring tools:
 

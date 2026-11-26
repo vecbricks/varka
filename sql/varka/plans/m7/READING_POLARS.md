@@ -44,7 +44,7 @@ swap the operands (`comparisons/mod.rs:62-67`); `!=` is the negation of equality
 NaN equal to NaN, NaN above every number, and `-0.0` equal to `0.0` [A]. Polars only splats a
 literal operand and leaves hoisting to LLVM (`:196-204`).
 
-*For Varka.* The semantic hazard is recorded (`m9/SCOPE.md` item 82: IEEE vector compares answer
+*For Varka.* The semantic hazard is recorded (`m10/SCOPE.md` item 82: IEEE vector compares answer
 false on NaN where Spark orders it highest, and a NOT compiled as a swap of the result mask is
 consistently wrong); the branch-free formulas are new, and a constant operand lets the emitter go
 further than Polars. For a constant `c` that is not NaN: `=`, `<` and `<=` are the bare IEEE
@@ -314,7 +314,7 @@ Eligibility is a stated law, ROW_SEPARABLE: `f(concat(a, b)) = concat(f(a), f(b)
 (`plans/options.rs:109-113`), so the tiny run tests that classification, and a deny-list covers
 flags known to be wrong (`lower_expr.rs:92`). [A for the last three details.]
 
-*For Varka.* Batch size is swept for speed only (item 14, `m9/SCOPE.md:2180`), `VARKA-262.md:254`
+*For Varka.* Batch size is swept for speed only (item 14, `m10/SCOPE.md:2180`), `VARKA-262.md:254`
 says the fuzzer never varies it, and `VarkaDifferentialSuite` sets 32 in two tests. Batch size is a
 `SQLConf` (`spark.sql.inMemoryColumnarStorage.batchSize`, `spark.sql.parquet.columnarReaderBatchSize`),
 not a `VarkaEmitOption`, so `dev/varka_matrix.sh` needs a new axis; one size below the lane count in
@@ -414,7 +414,7 @@ bit, so a null slot holds the next valid value rather than zero. *For Varka's re
 `readPackedBatch` (`VectorizedRleValuesReader.java:271-305`) scans per element and then `putNulls`,
 and writes a byte per row; set Arrow's `nullCount` exactly so the kernels pick the dense body;
 unaligned destination bit offsets need a shift-merge; Vector API `expand` is native only on AVX-512
-(`m9/SCOPE.md` near 2252), so keep the scalar window loop as the baseline.
+(`m10/SCOPE.md` near 2252), so keep the scalar window loop as the baseline.
 
 **Mask-driven decode** [A]. A `Filter::{Range, Mask, Predicate}` (`utils/filter.rs:15`) drives every
 decoder: each kernel trims leading and trailing zeros and delegates to the unfiltered kernel when
@@ -523,7 +523,7 @@ bit-width-0 arithmetic-progression shortcut, `delta_bitpacked/decoder.rs:158-163
 (per-element byte gather), DELTA_BYTE_ARRAY (a `Vec` per value), nested decoding (u16 levels, then a
 scalar loop per level and depth), the categorical decoder (it needs a guarantee that every page is
 dictionary-encoded), decimal FLBA to `i128` and INT96 (scalar closures), cloud and cachestat code.
-Not read: Comet's Parquet reader (`m9/SCOPE.md:1617`) and Trino's Vector API Parquet decoders
+Not read: Comet's Parquet reader (`m10/SCOPE.md:1617`) and Trino's Vector API Parquet decoders
 (`VISION.md:318`), which are the nearer prior art.
 
 ## 6. Strings and binary (`polars-arrow` view arrays, `polars-ops`)
@@ -563,7 +563,7 @@ comments contradict each other (`view.rs:312` "can be massively faster"; `cast/b
 unaligned long loads per candidate row, at `off` and `off + n - 8`, into a `long[]` and then
 `fromArray` - item 8's index-spill path (`m5/PLAN.md:4391`), and it needs no padding. Windows
 `[0, 8)` and `[2, 10)` cover all of `yyyy-MM-dd`, so the date cast and a `CHAR(n)` compare share
-one load, which is the "one load path" that `m9/SCOPE.md:447` asks for. The 16-byte block form
+one load, which is the "one load path" that `m10/SCOPE.md:447` asks for. The 16-byte block form
 over-reads: Arrow inputs are unpadded and the sanitizer bounds-checks them
 (`testing-and-debugging.md:226`), so it would need a scalar tail. Neither form avoids scalar loads,
 since there is no gather over `MemorySegment`.
@@ -836,7 +836,7 @@ meta-tests and every violator's annotation or fix in one change (19 files); the 
 a cause (6 `reason:`, 9 marked as to-do). Build row 275 in that shape: a second blanket check at the Varka exec
 nodes, behind the sanitizer's test flag - an output attribute declared non-nullable has no unset
 validity bit. `VarkaKernelCheck.scala` and `VarkaSparkDifferential.scala` do not check output
-nullability; other helpers were not searched [I]. `m9/SCOPE.md:2720` records StarRocks's runtime form.
+nullability; other helpers were not searched [I]. `m10/SCOPE.md:2720` records StarRocks's runtime form.
 
 **Deselect markers rot** [A]. `xfail_strict = true` (`pyproject.toml:323`) covers only the 13 real
 `xfail`s; the `may_fail_*` markers skip or deselect. The marker lines went 28, 107, 81 to 88, 29 and
@@ -891,7 +891,7 @@ item above says "known".
 
 ## 11. What to do with it
 
-`m9/SCOPE.md` item 89 records the work this reading points at, grouped by the items it feeds, and
+`m10/SCOPE.md` item 89 records the work this reading points at, grouped by the items it feeds, and
 corrects items 5 and 33. `m7/PLAN.md` takes one row from it: **row 301**, batch size as an axis of the
 suites (section 4); and refines row 252 with the comments rule (section 9). Everything else waits for
 the milestone that builds the thing it informs: the double lane (item 35), strings (items 3, 8 and 66),

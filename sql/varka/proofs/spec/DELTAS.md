@@ -3,7 +3,7 @@
 `STANDARD.md` defines each operation of Varka's coverage table that the SQL standard fixes. This
 file is what turns it into a definition of Spark: each section below is one **delta**, a named
 patch to one or more of those definitions, so that "Spark mode" is the standard's definition with
-its deltas applied and "standard mode" is the definition alone (`m9/SCOPE.md` item 59). Varka's
+its deltas applied and "standard mode" is the definition alone (`m10/SCOPE.md` item 59). Varka's
 answers are Spark's, always (`plans/SCOPE_STANDARD_MODE.md` 1); a delta is a fact about Spark that
 a proof in Spark mode has to include, not a choice Varka makes.
 

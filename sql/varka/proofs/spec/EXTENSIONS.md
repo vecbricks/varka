@@ -3,7 +3,7 @@
 `STANDARD.md` section 5 lists the operations of Varka's coverage table that the SQL standard does
 not define. Each is marked here by where its definition comes from, and defined over the lane
 values in `STANDARD.md`'s notation, so that a proof has a specification for it as it has for the
-standard's operations (`m9/SCOPE.md` item 59 step 2, VARKA-244):
+standard's operations (`m10/SCOPE.md` item 59 step 2, VARKA-244):
 
 * **the standard's, by reduction**: Spark's spelling of an operation `STANDARD.md` defines, so its
   definition is that one, with that one's deltas (`DELTAS.md`);

@@ -176,7 +176,7 @@ declines. That loop is the last resort, and the trace counts the first correctio
 the audit can name every shape that needed either.
 
 The size loop is not rewritten. It stays as the last resort the row asks for, behind a plan that
-makes it rarely run; `m9/SCOPE.md` item 74.2, which assumed this task would replace it,
+makes it rarely run; `m10/SCOPE.md` item 74.2, which assumed this task would replace it,
 says so.
 
 ### 3.3 The margin
@@ -209,7 +209,7 @@ fallbacks fit the driver by giving up the exact partition's fewer operations or 
 budget, and a method over the call-site budget is refused by C1 and runs interpreted until C2
 compiles it.
 
-### 3.5 The prediction on by default (`m9/SCOPE.md` item 71)
+### 3.5 The prediction on by default (`m10/SCOPE.md` item 71)
 
 A shape builds once only where the prediction closes its groups, so the defaults this task needs
 have `predictGrouping` on. That is item 71's question, moved to milestone 7 on 30 September and
@@ -241,7 +241,7 @@ The options, once B's split is planned:
   second kernel recomputes sixty-four prefixes, which should cost far more than its lead on the
   ladder; every batch runs more kernels, each with its own warm-up and scratch.
 * **(c) B alone with a cut that keeps sharers together**: the cut becomes a clustering of entries
-  by shared columns, VARKA-72's reordering (`m9/SCOPE.md` item 15). Not this milestone.
+  by shared columns, VARKA-72's reordering (`m10/SCOPE.md` item 15). Not this milestone.
 * **(d) A' alone**: leaves a projection past 64 columns to the row engine, as 11.5 found.
 
 **Recommendation: plan both, keep both on, and settle the question by measurement.** The done-when
@@ -284,7 +284,7 @@ have kept - the class is the same byte for byte.
 | `VarkaEmitCostAudit.java`, its suite and `emit_cost_audit.json` | builds and reactions per shape over the families of 2.1 |
 | `VarkaWideKernelBenchmark.scala` and its results file | the plan-time arms, item 71's section, sixty-four dates and the control |
 | `VarkaKernelPlanSuite.scala` (new) and the suites of section 5 | the tests |
-| `m6/PLAN.md`, `m9/SCOPE.md` | row 236; items 71 and 74.2 |
+| `m6/PLAN.md`, `m10/SCOPE.md` | row 236; items 71 and 74.2 |
 
 ## 5. Tests, and what each is for
 
@@ -412,7 +412,7 @@ finding a driver over.
   it. With the rule, every one of the audit's 2259 shapes builds once and the audit lists no
   correction. The item's first question, what the predicted grouping costs at run time, is the
   benchmark's (6).
-* **Item 74.2** of `m9/SCOPE.md` assumed this task would replace the size loop; it
+* **Item 74.2** of `m10/SCOPE.md` assumed this task would replace the size loop; it
   stays, as 3.2 planned, the last resort behind the plan.
 
 **Files.** `VarkaLoopEmitter` (the plan, `driverAlone`, the corrections and the cut),
@@ -506,7 +506,7 @@ planned no slower. On the runner it is slower on sixty-four dates by field, 7 to
 208 ms at 800 entries and 404 against 359 at 1200 (9.2 items 4 and 7). The division of duty of
 `VARKA-190.md` 11.5 stands, recorded there under 11.6: the split driver where one class
 serves the outputs, several kernels where it cannot, and B alone waits for a cut that keeps
-sharers together (`m9/SCOPE.md` item 15).
+sharers together (`m10/SCOPE.md` item 15).
 
 **`planSize` on.** Under it every shape of the audit's corpus builds once (9.2 item 1), the
 split driver plans in half its two builds' time on both machines, several kernels in one build a

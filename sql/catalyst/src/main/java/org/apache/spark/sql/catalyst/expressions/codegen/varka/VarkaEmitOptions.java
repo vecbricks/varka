@@ -487,7 +487,7 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        have no nulls. False, the AND with an all-ones C2 cannot fold where the guard is on and
  *        folds away where it is off, is right on every host and JDK; true is the losing arm, an
  *        AND a site cheaper on x86 below AVX-512, kept for the A/B and for the JDKs that fix the
- *        rule ({@code m9/SCOPE.md} item 114).
+ *        rule ({@code m10/SCOPE.md} item 114).
  * @param maskFromWord whether every word an emitted kernel turns into a mask is built by the
  *        construction of {@link VarkaMaskFromWord} - a broadcast, an {@code AND} with each lane's
  *        bit and a compare with zero, emitted in the kernel - rather than by

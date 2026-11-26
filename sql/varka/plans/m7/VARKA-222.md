@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 222 of `m7/PLAN.md`, from `m9/SCOPE.md` item 81 (moved from milestone 6): the IR's nodes are
+Row 222 of `m7/PLAN.md`, from `m10/SCOPE.md` item 81 (moved from milestone 6): the IR's nodes are
 Java records, whose `hashCode` and `equals` are structural, and the compiler and the emitter key
 many maps on them - line numbers, word owners, pure words, slots, the memo that computes a shared
 subtree once. A record holds no cache, so hashing a node walks its subtree on every lookup. The

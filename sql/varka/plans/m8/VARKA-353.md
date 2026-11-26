@@ -1,7 +1,7 @@
 # VARKA-353: A support table users can read, per type and per family
 
 *Planned 20 November 2026 on master `342ed6851f8`, from milestone 8's row 353 (1.1 item 8,
-`m9/SCOPE.md` item 54). Nothing of the row is built; the generated blocks named below belong to
+`m10/SCOPE.md` item 54). Nothing of the row is built; the generated blocks named below belong to
 earlier rows.*
 
 ## 1. Where this came from

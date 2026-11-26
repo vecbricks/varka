@@ -5,7 +5,7 @@ each rerun by hand (a Spark UI CSP Jest test at its 5 s timeout on a slow runner
 real-time-mode streaming test timing out, and the known four-core JIT-timing failure of the
 warm-up suites). It bears on rows 508 (a pull request's matrix reruns only what it moves) and 521
 (the Build leaves the option configurations to the option matrix), on the weekly full matrix
-(row 393) and on `m9/SCOPE.md` item 44 (a CI queue script). All three papers were read in full
+(row 393) and on `m10/SCOPE.md` item 44 (a CI queue script). All three papers were read in full
 from the copies below. The Google and FlakeFlagger copies print no licence, so
 `sql/varka/papers/` keeps no transcription of them (its `README.md`, Licensing); the arXiv copy's
 CC BY-NC-SA 4.0 may permit one, which is left for a separate decision. **[R]** means read in the

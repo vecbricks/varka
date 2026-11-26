@@ -11,14 +11,14 @@ tasks landed; the rest had not been read since.
 
 Each entry was read against the plan rows and the code as they stand on 9 October 2026
 (`996542e6a7e`). The check is that every entry ends owned: closed by a named task or commit, or
-moved to a numbered item of `m9/SCOPE.md`, or kept as the record of a decision. The domain is the
+moved to a numbered item of `m10/SCOPE.md`, or kept as the record of a decision. The domain is the
 twenty entries; the record of what each turned out to be is the "Swept" paragraph under it.
 
 | disposition | entries |
 |---|---|
 | already closed or swept | 4 (width-named validity helpers, a calendar field once per output, `DateVectorOpsBenchmark`, two outputs over one shift) |
 | closed now | 8: `dev/varka_emit.sh`'s silent crash (`cfb52324110`), the 128-bit 64-op collapse (VARKA-77), the guard under a `CASE` arm (VARKA-79), the parity cluster (VARKA-90), the `GROUP_BUDGET` retune (VARKA-71), greedy grouping (VARKA-200's exact grouping), the bimodal `dayofweek` rows (the band, VARKA-90), the narrowing-only projection (VARKA-78) |
-| moved to `m9/SCOPE.md` | 7: items 15 (the guard walk, the epilogue's budget, string compaction), 39 (the `weekofyear` half of the guarded-producer entry), and new 86 (the `INT` answers' tightening), 87 (the week fold's cost), 88 (the parity harness's stream placement) |
+| moved to `m10/SCOPE.md` | 7: items 15 (the guard walk, the epilogue's budget, string compaction), 39 (the `weekofyear` half of the guarded-producer entry), and new 86 (the `INT` answers' tightening), 87 (the week fold's cost), 88 (the parity harness's stream placement) |
 | kept as a decision | 1: the detect-and-resample loop |
 
 What the check would have rejected: an entry that no document owned. There is none left.
@@ -27,7 +27,7 @@ What the check would have rejected: an entry that no document owned. There is no
 
 Documentation only. Each open entry gets a paragraph in the form the file already uses
 ("**Swept 9 October 2026 (VARKA-264), closed.** ..."), the register's header says what the sweep
-did, and `m9/SCOPE.md` gets items 86 to 88, each with the entry's own description and what closing
+did, and `m10/SCOPE.md` gets items 86 to 88, each with the entry's own description and what closing
 it takes. No entry was deleted or rewritten; the originals' text is unchanged above each paragraph.
 
 ### 3.2 What is deliberately unchanged
@@ -46,7 +46,7 @@ None.
 | file | what |
 |---|---|
 | `m4/PLAN.md` section 9 | the header and sixteen "Swept" paragraphs |
-| `m9/SCOPE.md` | items 86 to 88 |
+| `m10/SCOPE.md` | items 86 to 88 |
 | `m7/PLAN.md`, `VARKA-264.md` | the row and this record |
 
 ## 5. Tests, and what each is for

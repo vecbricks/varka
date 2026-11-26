@@ -258,7 +258,7 @@ and `YearMonthIntervalType` at the int lane; `LongType`, `TimeType` and
   declines with "one kernel holds one lane". That decline should disappear.
 * `CAST(bigint AS int)` as `NarrowLane`, ANSI declining the batch.
 * Out: casts to and from types neither lane holds - the timestamps
-  (`m9/SCOPE.md` item 31), floating point, decimal and string - which
+  (`m10/SCOPE.md` item 31), floating point, decimal and string - which
   decline by type as they do now.
 
 *Correction, 16 October 2026, from `m8/PLAN.md`.* The compiler is Java now: the arms go in
@@ -566,7 +566,7 @@ fewer. Three things the numbers carry that are not the mixed kernel's to answer:
 
 * **The 128-bit selections run at about 240 M rows/s, mixed and long alike,** before and after.
   That is `m7` row 374's finding - x86 C2 lowers no two-lane mask, so a long selection runs the
-  Vector API's Java fallback per mask operation - and `m9/SCOPE.md` item 101's design work, not a
+  Vector API's Java fallback per mask operation - and `m10/SCOPE.md` item 101's design work, not a
   cost of the conversion.
 * **At 128 bits a mixed kernel's epilogue now runs on every batch,** since the bounded loop leaves
   at least one long lane group to it, and its bounds mask is a two-lane long mask: about 90 to 120

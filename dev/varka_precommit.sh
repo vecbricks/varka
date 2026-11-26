@@ -595,7 +595,7 @@ census_inputs+='/Varka[A-Za-z]*Conformance(Suite)?\.java'
 census_inputs+='|sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis'
 census_inputs+='/FunctionRegistry\.scala)$'
 if printf '%s\n' "${files[@]}" | grep -qE "$census_inputs"; then
-  for check in "dev/varka_census.py --check" "dev/varka_catalogue_move.sh --check 8 9"; do
+  for check in "dev/varka_census.py --check" "dev/varka_catalogue_move.sh --check 9 10"; do
     out="$($check 2>&1)" || {
       echo "$out" | sed 's/^/census: /'
       findings=$((findings + 1))

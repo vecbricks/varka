@@ -70,7 +70,7 @@ code or plans, **[I]** inferred. Nothing was built or run. Not repeated: `m7/REA
    children only, so the operands of an `IfElse`'s `Compare` condition, or `x` in
    `NarrowLane(IntArith(WidenLane(x)))`, are out of one move's reach. C-Reduce (section 5) turns
    integer constants to 0 or 1; Varka never reduces a literal. Readability only; no bug was missed
-   for them. Beside `READING_SQLANCER.md` 7 action 7, as `m9/SCOPE.md` item 133.
+   for them. Beside `READING_SQLANCER.md` 7 action 7, as `m10/SCOPE.md` item 133.
 5. **Generation policies and swarm, as a measured A/B only [P].** YARPGen's contexts and its 23
    redrawn parameters (OOPSLA 2020 3.3; four of nine LLVM crashes found only with policies, Table
    4) and swarm's omission of each feature with probability one half (ISSTA 2012: 42% more distinct

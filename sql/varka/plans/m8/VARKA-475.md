@@ -234,7 +234,7 @@ the family compilers and is cheaper after 3.3; 3.5 touches `VarkaVectorIR` and t
 
 ## 7. Non-goals and risks
 
-- **No e-graph representation chooser.** `m9/SCOPE.md` item 11 argues for one; the `ValueShape`
+- **No e-graph representation chooser.** `m10/SCOPE.md` item 11 argues for one; the `ValueShape`
   conversions are its seed, and the data to decide it does not exist yet.
 - **No type-aware IR beyond semantic parameters.** A node carries the shape plus the parameters it
   needs (ordering, overflow mode, rounding). The logical type stays in the lowering and the

@@ -289,7 +289,7 @@ run. Fixed here, since the band above is the first thing that needed it.
 ## 6. Explicitly out of this task
 
 - **The read-back floor itself** (VARKA-19, and item 13 of
-  `m9/SCOPE.md`): this task removes one plan's need to pay it, not
+  `m10/SCOPE.md`): this task removes one plan's need to pay it, not
   the cost of paying it.
 - **Whole-stage codegen support** for the Varka transition nodes, which the
   `VarkaColumnarToRowExec` comment records as a follow-up and which no

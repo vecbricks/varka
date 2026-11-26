@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 242 of `m7/PLAN.md`, item 58 step 3 of `m9/SCOPE.md`: the bounded lowerings VARKA-240 and
+Row 242 of `m7/PLAN.md`, item 58 step 3 of `m10/SCOPE.md`: the bounded lowerings VARKA-240 and
 VARKA-241 left - `floorMod7`'s forms, the decomposition's constants over the covered years, and the
 unsigned range compare - proven as met; `sql/varka/AGENTS.md` saying that a new bounded lowering
 comes with its proof file; each calendar division site's range and theorem recorded, every quoted
@@ -195,7 +195,7 @@ None move: no emitted byte changes.
 | `sql/varka/proofs/java.smt2` | `jint.and.low` |
 | `sql/varka/proofs/{chrono_divide,floor_mod7,leap_hash,java_check}.smt2` | rendered |
 | `VarkaChronoSuite.scala` | the first wrong dividend of every site, pinned |
-| `sql/varka/proofs/README.md`, `sql/varka/AGENTS.md`, `m7/PLAN.md`, `m9/SCOPE.md`, the testing lessons | the records |
+| `sql/varka/proofs/README.md`, `sql/varka/AGENTS.md`, `m7/PLAN.md`, `m10/SCOPE.md`, the testing lessons | the records |
 
 ## 5. Tests, and what each is for
 

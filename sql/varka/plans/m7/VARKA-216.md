@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 216 of `m7/PLAN.md`, from `m9/SCOPE.md` item 81: the third and last family port, after the
+Row 216 of `m7/PLAN.md`, from `m10/SCOPE.md` item 81: the third and last family port, after the
 interval family (VARKA-175), the TIME family (VARKA-214) and the predicate family (VARKA-215), on
 the same recipe and under the owner's "Java code" rules in `sql/varka/AGENTS.md`.
 

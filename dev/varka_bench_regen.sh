@@ -71,7 +71,7 @@ for a in "$@"; do
   case "$a" in
     # Only these sections (titles separated by `|`, since titles hold commas) of the wide file
     # are replaced by the run; every other section stays the committed bytes, each on the
-    # machine that measured it (VARKA-256, m9/SCOPE.md item 72). The whole class still runs. The
+    # machine that measured it (VARKA-256, m10/SCOPE.md item 72). The whole class still runs. The
     # narrow companion has no section rules to splice on, so it is not regenerated with this
     # option.
     --sections=*) sections="${a#--sections=}"; narrow=0 ;;

@@ -1,5 +1,9 @@
 # VARKA-364: The 128-bit decimal casts
 
+*Moved to milestone 9 on 25 November 2026 with row 364 (`m9/PLAN.md` 3). A bare `PLAN.md`,
+`results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`, unless that plan
+moved too.*
+
 ## 0. What exists now (admission check)
 
 From master at `9aa6ee74c63` (30 October 2026; Varka paths under
@@ -184,7 +188,7 @@ The sources of each cell, and the facts the design rests on:
   November 2026 (section 8, question 1).
 - **`BIGINT` raises above 18 under ANSI** (item 4): an integer check on the truncated pair, by SMT.
 - **`s >= 28`, 66 of the 590 types above 18 [A]**, declines by Varka's choice, as row 366's does (PR
-  #1183's wording of 2.2; settled by the lead): a gap, recorded with one `m9/SCOPE.md` item shared
+  #1183's wording of 2.2; settled by the lead): a gap, recorded with one `m10/SCOPE.md` item shared
   with 366, which keeps five of the census's cast entries from counting (section 6).
 - **The ownership is enumerated, not described** (2.1): of the 606841 ordered decimal-to-decimal
   type pairs, 467095 are this row's [A], every pair having exactly one owner. Three classes no row
@@ -346,7 +350,7 @@ Lemire's window and row 366's table stop at `s = 27`, and Varka declines `s >= 2
 366's plan, its 2.5; PR #1183's wording of 2.2). Under that choice every floating cast and the three
 narrow ANSI and TRY casts of a `DECIMAL(p, s >= 28)` decline at compile time with the reason "the
 exact decimal-to-floating arm stops at scale 27", a recorded decline with a scope item in
-`m9/SCOPE.md`, as the owner's standing rule for declines asks: one item covering rows 366 and 364
+`m10/SCOPE.md`, as the owner's standing rule for declines asks: one item covering rows 366 and 364
 together, added with 364b. The integer casts at these scales are unaffected. Serving the band is a
 follow-up to both rows, not this row's alone (settled by the lead): the table rows for `s = 28..38`
 from Lemire's section 9.2, `5^s` as a two-word constant in `MIDPOINT`'s product, and Mushtak and
@@ -583,7 +587,7 @@ int-driven kernel (347's leaf rule); a negative scale; at two long lanes on x86 
 Settled by the lead on 30 October 2026, kept as the record: (1) `MIDPOINT` is the default and
 `DECLINE` the measured arm, with the exactness argument and its proof route stated (3 item 6) and
 the two departures from the owner's text flagged (section 8, item 2); (2) `s >= 28` declines by
-Varka's choice, as row 366's does, under one `m9/SCOPE.md` item for both rows, the census cost put
+Varka's choice, as row 366's does, under one `m10/SCOPE.md` item for both rows, the census cost put
 to the owner as information (section 8, item 5), and extending the table a follow-up to both rows;
 (3) the double rule over every child, the long-backed producers Varka can see classified by item
 0.2's argument and the rest declined; (4) the ownership of 2.1 as counted, one owner per pair, the
