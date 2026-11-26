@@ -16,7 +16,7 @@ What it gives the rows after it:
 - row 657 (the session-zone expressions) builds `ToLocal` in its compiler arms and wires the
   zone data of row 678 into the hook this row leaves;
 - row 684 draws `ToLocal` in the fuzzer's grammar; rows 685 and 686 add the forms `LADDER` and
-  `TABLE` to the option this row adds; row 687 adds `ToInstant` to the sealed family `Zoned`;
+  `TABLE` to the option this row adds; row 690 adds `ToInstant` to the sealed family `Zoned`;
 - row 688 lifts the refusal of a computed operand; row 689 adds `zoneStepMask`; row 691
   measures the forms on expressions.
 
@@ -212,7 +212,7 @@ In `VarkaVectorIR`:
   `RESTRICTS_NOTHING`, `LongNarrowReader.NONE`.
 - Canonical text: `(toLocal:<zone> <child>)`. `VarkaCanonicalIr.node` parses it:
   `case "toLocal" -> new ToLocal(node(), Integer.parseInt(parts[1]))`.
-- Every switch arm names `ToLocal`, never `Zoned`, so that row 687's `ToInstant` fails to
+- Every switch arm names `ToLocal`, never `Zoned`, so that row 690's `ToInstant` fails to
   compile until it decides each arm.
 
 The arms, one per switch of fact 2:
@@ -384,7 +384,7 @@ New interface `V/VarkaZoneData.java`:
   first.
 - `Provider.of` returns null for a zone it does not serve. The family's design says that the
   compile then declines by name; null is how the provider tells the compiler.
-- `localChanges` and `toInstantArgs` are declared for row 687. The reference implements
+- `localChanges` and `toInstantArgs` are declared for row 690. The reference implements
   `localChanges`; its `toInstantArgs` switches over `Zoned` and throws for `ToLocal`.
 
 The reference, `TJ/VarkaJavaTimeZoneData.java` (catalyst test scope, exported in the test
