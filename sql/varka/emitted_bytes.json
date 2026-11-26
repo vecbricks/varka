@@ -17912,99 +17912,99 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "6d39cbfa40b05baa",
-      "16" : "880823ea1138c7b5"
+      "4" : "029ffad08a1ebdaa",
+      "16" : "c7a54b36aa19bc5d"
     },
     "useAVX=0" : {
-      "4" : "2374cc289438a3ae",
-      "16" : "6b2518ae4e4d57cf"
+      "4" : "5f332ac57466c252",
+      "16" : "235ef62e4ca2e6d8"
     },
     "useAVX=1" : {
-      "4" : "2374cc289438a3ae",
-      "16" : "6b2518ae4e4d57cf"
+      "4" : "5f332ac57466c252",
+      "16" : "235ef62e4ca2e6d8"
     },
     "useAVX=2" : {
-      "4" : "2374cc289438a3ae",
-      "16" : "6b2518ae4e4d57cf"
+      "4" : "5f332ac57466c252",
+      "16" : "235ef62e4ca2e6d8"
     },
     "useAVX=3" : {
-      "4" : "6d39cbfa40b05baa",
-      "16" : "880823ea1138c7b5"
+      "4" : "029ffad08a1ebdaa",
+      "16" : "c7a54b36aa19bc5d"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "208ccf842d4d7ea9",
-      "16" : "10fdf93c153bf6c7"
+      "4" : "013a0f7b3b3f64a4",
+      "16" : "62dff4306c682e97"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "29d59e3cec2b734b",
-      "16" : "90846b324fa6d0ea"
+      "4" : "f4986992a7fbeedf",
+      "16" : "70a25bdc2c3b6908"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "2374cc289438a3ae",
-      "16" : "6b2518ae4e4d57cf"
+      "4" : "5f332ac57466c252",
+      "16" : "235ef62e4ca2e6d8"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "2374cc289438a3ae",
-      "16" : "6b2518ae4e4d57cf"
+      "4" : "5f332ac57466c252",
+      "16" : "235ef62e4ca2e6d8"
     },
     "wideConversionForm=XOR_SPLIT over useAVX=2" : {
-      "4" : "2374cc289438a3ae",
-      "16" : "6b2518ae4e4d57cf"
+      "4" : "5f332ac57466c252",
+      "16" : "235ef62e4ca2e6d8"
     },
     "roundToOddByShifts=true over useAVX=2" : {
-      "4" : "2374cc289438a3ae",
-      "16" : "6b2518ae4e4d57cf"
+      "4" : "5f332ac57466c252",
+      "16" : "235ef62e4ca2e6d8"
     },
     "roundToOddByShifts=false over useAVX=2" : {
-      "4" : "2374cc289438a3ae",
-      "16" : "6b2518ae4e4d57cf"
+      "4" : "5f332ac57466c252",
+      "16" : "235ef62e4ca2e6d8"
     },
     "narrowConversionForm=ROUND_TO_ODD over useAVX=2" : {
-      "4" : "2374cc289438a3ae",
-      "16" : "6b2518ae4e4d57cf"
+      "4" : "5f332ac57466c252",
+      "16" : "235ef62e4ca2e6d8"
     },
     "narrowConversionForm=WINDOWED over useAVX=2" : {
-      "4" : "2374cc289438a3ae",
-      "16" : "6b2518ae4e4d57cf"
+      "4" : "5f332ac57466c252",
+      "16" : "235ef62e4ca2e6d8"
     },
     "narrowConversionForm=SCALAR over useAVX=2" : {
-      "4" : "2374cc289438a3ae",
-      "16" : "6b2518ae4e4d57cf"
+      "4" : "5f332ac57466c252",
+      "16" : "235ef62e4ca2e6d8"
     },
     "narrowGroupStore=MASKED over lanesOverride=4" : {
-      "4" : "037225ea03f147f8"
+      "4" : "2e771511f29df069"
     },
     "narrowGroupStore=COMBINED over lanesOverride=4" : {
-      "4" : "771e04f1b1f3cb79"
+      "4" : "aa7c84737bde6ceb"
     },
     "narrowLanes=true" : {
-      "4" : "6d39cbfa40b05baa",
-      "16" : "880823ea1138c7b5"
+      "4" : "029ffad08a1ebdaa",
+      "16" : "c7a54b36aa19bc5d"
     },
     "narrowLanes=false" : {
-      "4" : "0e903f53dbbc9947",
-      "16" : "52af503d58da9f82"
+      "4" : "6eba5322eed665a1",
+      "16" : "286ee37fe2a73089"
     },
     "narrowGroupStore=COMBINED" : {
       "2" : "fcb86e65095bfab7",
-      "4" : "1c30ade5b1d744c5",
-      "16" : "880823ea1138c7b5"
+      "4" : "fc1e9726315700c7",
+      "16" : "c7a54b36aa19bc5d"
     },
     "groupLocalSlots=false" : {
-      "4" : "237c31b3cabf2ef2",
-      "16" : "1e5a7b45e1037098"
+      "4" : "3cdfbe493dbc6809",
+      "16" : "3de59a2887689c3c"
     },
     "methodByteBudget=0" : {
-      "4" : "65414ce408c0516b",
-      "16" : "b56ea4b8a384fdbd"
+      "4" : "66c63ecd04814a1f",
+      "16" : "fe2b073a2bda6ef7"
     },
     "mathUlpContract=true" : {
-      "4" : "6d39cbfa40b05baa",
-      "16" : "880823ea1138c7b5"
+      "4" : "029ffad08a1ebdaa",
+      "16" : "c7a54b36aa19bc5d"
     },
     "maskFromWord=true" : {
-      "4" : "6319227733e237e4",
-      "16" : "6ffd8befa19090c3"
+      "4" : "a75604cebf6f1927",
+      "16" : "18fb7ea0d76eb8b2"
     }
   }
 }
