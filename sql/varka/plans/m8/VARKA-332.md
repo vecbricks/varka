@@ -409,7 +409,7 @@ and `bool` also wait on 343's and 350's pairs. The count is of the row's 36 pair
 with a suggested home:
 
 - `TIME` to integral (12 forms): no milestone 8 row owns `TIME` casts; a new row, or the scope
-  catalogue (`m9/SCOPE.md`). It is `floorDiv(nanos, 10^9)` under `ConstDivide`'s bound, which a
+  catalogue (`m10/SCOPE.md`). It is `floorDiv(nanos, 10^9)` under `ConstDivide`'s bound, which a
   `TIME` value meets, and its narrow targets null under LEGACY (item 0.6).
 - `TIME` narrowed to a lower precision (3 forms declined): the same home; a floor division of
   nanoseconds of day.

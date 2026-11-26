@@ -1,6 +1,6 @@
 # VARKA-259: bytecode without source, the companion of row 258's post
 
-*Row 259 of `m7/PLAN.md`, `m9/SCOPE.md` item 79. Planned and drafted on 16 October 2026 in the
+*Row 259 of `m7/PLAN.md`, `m10/SCOPE.md` item 79. Planned and drafted on 16 October 2026 in the
 shape of `VARKA-371.md`: the question, the claim, the evidence the record already holds, the
 outline, what a reader can reproduce, and done-when. It is the pair of row 258 ("how Spark compiles
 a query, and why it compiles it again", `VARKA-258.md`), published with it or right after, each

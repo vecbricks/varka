@@ -37,7 +37,7 @@ import jdk.incubator.vector.VectorSpecies;
 
 /**
  * Fails an in-process test that would put a second vector species of one lane type into the
- * shared test JVM (VARKA-246, {@code m9/SCOPE.md} item 69).
+ * shared test JVM (VARKA-246, {@code m10/SCOPE.md} item 69).
  *
  * <p>Two species of one lane type in a JVM make the Vector API's shared templates inline
  * bimorphically, and C2 then keeps a heap box per loop iteration in some shapes: a probe measured

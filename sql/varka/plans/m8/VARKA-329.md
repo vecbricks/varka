@@ -1034,7 +1034,7 @@ comparison (`rid < 0`) and whose values were on the byte or short lane was refus
 both and lifted a value to the long lane only. The lift (`VarkaConditionCompiler.onIntLane` and the
 `Cast(narrow AS INT)` arm, 329's `1689f255cca`) serves both, so the differential suite's
 `ansiDeclined` now holds no position of these 16 rows except the checked rows' false AND, which
-declines for the reason every check under an AND does (`m9/SCOPE.md` item 96); the `try_` forms
+declines for the reason every check under an AND does (`m10/SCOPE.md` item 96); the `try_` forms
 fuse in that position too. The other record is a commitment rather than a finding: the measurement
 4.5 asks for (`VarkaNarrowLaneBenchmark`'s arithmetic shapes in this row's own pull request, with
 their three predictions, the checked multiply's widening cost on the native arm among them) is in

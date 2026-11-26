@@ -1,6 +1,6 @@
 # VARKA-260: a reference post, Spark's code generator by the numbers
 
-*Row 260 of `m7/PLAN.md`, `m9/SCOPE.md` item 80. Planned and drafted on 16 October 2026 in the
+*Row 260 of `m7/PLAN.md`, `m10/SCOPE.md` item 80. Planned and drafted on 16 October 2026 in the
 shape of `VARKA-371.md`: the question, the claim, the evidence the record already holds, the
 outline, what a reader can reproduce, and done-when. It goes out between rows 258 and 259 and the
 next long post. The draft is `POST_CODEGEN_NUMBERS.md`; section 9.1 lists what is owed.*

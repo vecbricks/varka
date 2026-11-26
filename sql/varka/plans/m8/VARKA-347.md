@@ -5,7 +5,7 @@
 From the code at `71ef57af282` (27 October 2026; Varka paths under
 `sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/` unless named). The
 row's text is the milestone plan's 2.8 ("The load path below 19 is a measurement") and items 1 and
-89 bullet 6 of `m9/SCOPE.md`. What the code says about each premise is below, with the file and
+89 bullet 6 of `m10/SCOPE.md`. What the code says about each premise is below, with the file and
 line it rests on.
 
 1. **Arrow holds every decimal in sixteen bytes, low word first.** `ArrowUtils.toArrowType`

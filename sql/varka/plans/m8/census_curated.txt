@@ -115,10 +115,10 @@ width_bucket|double,IVL,time|bigint||semantics|344|bucket arithmetic over double
 /|double,dec!|same|double|done|342|zero divisor null or error; decimal division is out of milestone 8
 div|INTEGRAL,dec!,IVL|bigint||semantics|30,103|zero divisor null or error; over INT a long-lane divide over two widening casts (corrects item 33); a decimal div divides decimals, out of milestone 8
 %|NUM|same||semantics|30,95,346,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; unclaimed, suggested home row 30 (VARKA-349.md 7)
-try_add|NUM,IVL|same|byte,short,int,bigint,float,double,dec^|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a; as an output, 348b); the pair counts with 360 at every precision to 38
+try_add|NUM,IVL|same|byte,short,int,bigint,float,double,dec^|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m10/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a; as an output, 348b); the pair counts with 360 at every precision to 38
 try_divide|double,dec!|same|double|done|342|zero divisor gives null; decimal division is out of milestone 8
 try_mod|NUM|same||semantics|30,346,577|floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577
-try_subtract|NUM,IVL|same|byte,short,int,bigint,float,double,dec^|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a; as an output, 348b); the pair counts with 360 at every precision to 38
+try_subtract|NUM,IVL|same|byte,short,int,bigint,float,double,dec^|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m10/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a; as an output, 348b); the pair counts with 360 at every precision to 38
 try_multiply|NUM|same|byte,short,float,double|semantics|330,104,342,349,361,362|overflow gives null; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 361 and 362 at every precision to 38
 shiftleft|int,bigint|same|int,bigint|done||item 32; byte and short widen to int first; a bigint shifted by an int column fuses (335b, 20 October 2026), the count widened to the long lane
 shiftright|int,bigint|same|int,bigint|done||item 32; a bigint shifted by an int column fuses (335b, 20 October 2026)
@@ -208,7 +208,7 @@ ym_div_num|DivideYMInterval|interval|ym,NUM|ym||semantics|89,342,363|HALF_UP div
 dt_div_num|DivideDTInterval|interval|dt,NUM|dt|dt,int~,dec~|semantics|103,342,361,363|fused in `dt / 24` and `dt / 1.5`, an integral or decimal literal whose reduced denominator divides a day; HALF_UP division; any other literal divisor and an integral column are row 103's (after 30); a floating factor is 342's lowering
 extract_ym_years|ExtractANSIIntervalYears|interval|ym|int|ym|done||
 extract_ym_months|ExtractANSIIntervalMonths|interval|ym|byte||plumbing|329|matched today only to decline: its result is a byte
-extract_dt_days|ExtractANSIIntervalDays|interval|dt|int|dt|done|103|fused in `extract(DAY FROM dt)`, the truncating division by a day over every long; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset
+extract_dt_days|ExtractANSIIntervalDays|interval|dt|int|dt|done|103|fused in `extract(DAY FROM dt)`, the truncating division by a day over every long; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m10/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset
 extract_dt_hours|ExtractANSIIntervalHours|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_minutes|ExtractANSIIntervalMinutes|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_seconds|ExtractANSIIntervalSeconds|interval|dt|dec||plumbing|103,157|a DECIMAL(8,6) result

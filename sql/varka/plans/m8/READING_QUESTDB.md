@@ -44,7 +44,7 @@ was read by a helper and its load-bearing claims were re-read by the author.
    `0x76543210` and `pdep` expand the kept indices, and one `vpermps` packs the row ids,
    stored whole (`compiler.cpp` 534-551; `c/jit/impl/avx2.h` 105-120) **[V]**. On AMD family
    23 ("Zen1, Zen1+ and Zen2") it takes the other path instead (`compiler.cpp` 490) **[V]**;
-   that `pext` and `pdep` are microcoded there is `m9/SCOPE.md` item 22's finding. The other
+   that `pext` and `pdep` are microcoded there is `m10/SCOPE.md` item 22's finding. The other
    path writes every lane's row id unconditionally and advances the output by the lane's bit,
    branch-free (`c/jit/avx2.h` 121-136) **[V]**; both
    need slack past the output's end **[I]**. A step with no match skips the store
@@ -215,7 +215,7 @@ native binaries, not the sources, until a release workflow rebuilds them
 * **Agrees with 2.8**: no engine divides by a power of ten with a magic multiply (now four
   engines and arrow-rs); the precision check is a `10^p` table compare (Velox, arrow-rs, now
   QuestDB); the carry is an unsigned compare.
-* **Agrees with `m9/SCOPE.md` items 19.2 and 22.2**: `pext` and `pdep` are avoided on AMD before
+* **Agrees with `m10/SCOPE.md` items 19.2 and 22.2**: `pext` and `pdep` are avoided on AMD before
   Zen 3, here by CPU family rather than vendor (`compiler.cpp` 490). A third engine with the
   same rule.
 * **Agrees with item 29 (StarRocks)**: a JIT chosen per query, with the interpreter as the
@@ -277,11 +277,11 @@ native binaries, not the sources, until a release workflow rebuilds them
 8. The per-precision threshold table for `|u| < 10^p` (7.7): row 359 already plans it.
 9. The TODO to replace the `10^k` division by a multiply and shift (7.6): row 363, the idea
    owed in a second codebase.
-10. `pext` and `pdep` avoided on Zen 1 and 2 by CPU family (2.4): `m9/SCOPE.md` item 22.
+10. `pext` and `pdep` avoided on Zen 1 and 2 by CPU family (2.4): `m10/SCOPE.md` item 22.
 11. Instruction sets picked at load, no test that forces one, CI on committed binaries (5):
     row 505. QuestDB tests scalar against vector but never AVX2 against AVX-512, the gap 505
     closes for Varka.
-12. Filters compiled scalar only on aarch64 (5): `m9/SCOPE.md` item 67.
+12. Filters compiled scalar only on aarch64 (5): `m10/SCOPE.md` item 67.
 13. Fail-closed arms with a reason in place of `__builtin_unreachable` (4): row 504; Varka's
     refusals already carry a reason.
 

@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 241 of `m7/PLAN.md`, item 58 step 2 of `m9/SCOPE.md`: the long lane's two constant-division
+Row 241 of `m7/PLAN.md`, item 58 step 2 of `m10/SCOPE.md`: the long lane's two constant-division
 forms proven at row 166's regions and at 2^52 - 1, with the solver asked for the exact bound
 rather than handed one, starting with a spike that records the solve time. VARKA-240 built the
 tooling and proved the int lane's multiply-high; its 9.6 left this row Bitwuzla as the first
@@ -163,7 +163,7 @@ None; no emitted code changes.
 | `VarkaProofFiles.java` | `longDivide()`, the doubles' JVM checks, the long divisors from `DateTimeConstants` |
 | `VarkaDivisionLowering.java` | `TWO_52_BITS` and `MANTISSA_52` package-private, for the rendering |
 | `VarkaEmitterDivisionSuite.scala` | row 166's case cites the proof |
-| `m7/PLAN.md`, `m9/SCOPE.md`, `skills/testing-and-debugging.md` | row 241, item 58's revisit, the lesson |
+| `m7/PLAN.md`, `m10/SCOPE.md`, `skills/testing-and-debugging.md` | row 241, item 58's revisit, the lesson |
 
 ## 5. Tests, and what each is for
 

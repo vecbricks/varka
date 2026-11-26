@@ -101,10 +101,10 @@ new files committed), **history** (kept: it records what was measured, or names 
 | `sql/varka/demo/method_size_cliff-*-output.txt`, `demo/compiles/*-output.txt`, `demo/silent-giveups/*-output.txt` | the outputs behind the published posts of milestones 6 and 7, named by JDK only | history; the 4.3.0 runs write new release-named files beside them (7, decision 6) |
 | `plans/m4` to `plans/m7`: `VARKA-62.md`, `VARKA-194.md`, `VARKA-233.md`, `VARKA-258.md`, the `POST_*.md` files and others | the record of what was measured | history |
 | `plans/m8/VARKA-337.md:13-14`, `results/VARKA-337-admission.txt` | 4.2.0's hash classes as a correctness oracle, checked equal to master's but for the calendar interval's arm, which 4.3.0's migration note also records | keep |
-| `plans/m9/VARKA-511.md:44`, `:219`, `:263` | a Planned row: the compiles post's precedent on 4.2.0 (history), and the row's own arms against "the released `spark-sql_2.13` 4.2.0" (not yet run) | the arms follow step 4's rule when the row starts; one line in `VARKA-511.md` says so (7, decision 8) |
+| `plans/m10/VARKA-511.md:44`, `:219`, `:263` | a Planned row: the compiles post's precedent on 4.2.0 (history), and the row's own arms against "the released `spark-sql_2.13` 4.2.0" (not yet run) | the arms follow step 4's rule when the row starts; one line in `VARKA-511.md` says so (7, decision 8) |
 | `plans/m8/VARKA-541.md:414` | a config's `version` 4.2.0, a fact | keep |
-| `plans/m9/SCOPE.md:3571` (item 56), `:4448`, `:4493` (item 80) | future work naming stock 4.2.0; item 56's `method_size_cliff-jdk27-output.txt` predates decision 6's release-named outputs | follow step 4's rule when started; item 56's file takes the form `method_size_cliff-spark-<release>-jdk27-output.txt` |
-| `plans/m9/SCOPE.md:4562` (item 83) | a measured move against stock 4.2.0 | history |
+| `plans/m10/SCOPE.md:3571` (item 56), `:4448`, `:4493` (item 80) | future work naming stock 4.2.0; item 56's `method_size_cliff-jdk27-output.txt` predates decision 6's release-named outputs | follow step 4's rule when started; item 56's file takes the form `method_size_cliff-spark-<release>-jdk27-output.txt` |
+| `plans/m10/SCOPE.md:4562` (item 83) | a measured move against stock 4.2.0 | history |
 
 `docs/sql-varka.md`, `SKILLS.md` and `sql/varka/skills/` name no stock version.
 
@@ -299,7 +299,7 @@ instruction.
    files kept as the appendix. Until it runs, the README's surface tables keep their 4.2.0 stock
    column, dated and labelled as such.
 2. **A stock 4.3.0 arm over the Arrow cache is not in this row.** It is recorded as scope item 132
-   (`m9/SCOPE.md`).
+   (`m10/SCOPE.md`).
 3. **Milestone 8's done-when item 8 names rows 552 and 553**: the README's comparisons are
    against the newest stock feature release at the close. This is the lead's extension of the
    owner's instruction, for the owner to confirm: it makes the milestone 8 close wait on both

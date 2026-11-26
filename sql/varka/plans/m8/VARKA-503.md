@@ -17,7 +17,7 @@ the fused filters `(d < d2) AND (l < l2)` and `l < l2` at or below Spark's row p
 well above it at 256. The cause was already recorded: at two long lanes x86's C2 lowers no vector
 mask (`x86.ad` refuses `VectorLoadMask`, `VectorStoreMask` and `VectorMaskCast` at `vlen == 2`,
 `m7/VARKA-374.md` 2), so every long-lane compare, mask join, blend and mask-to-word call runs the
-Vector API's Java fallback and allocates (`m9/SCOPE.md` item 101). The owner wants no fused shape
+Vector API's Java fallback and allocates (`m10/SCOPE.md` item 101). The owner wants no fused shape
 slower than the row path, and asked on 27 October 2026 for the long-lane mask to be declined at
 two lanes on x86.
 
@@ -69,12 +69,12 @@ moved to the session.
 
 * Projections, blends included: they won at two lanes (section 6) and still fuse. Item 101's
   mask-free lowering, and the cheaper repair the measurement suggests (the masked body for every
-  batch of a long filter at two lanes), stay in `m9/SCOPE.md` item 101.
+  batch of a long filter at two lanes), stay in `m10/SCOPE.md` item 101.
 * The one-lane case (`-XX:MaxVectorSize=8`): there C2 vectorizes no long operation at all and the
   int species' two-lane masks fall back too, a whole-engine loss on a host only that flag makes;
   the gate stays at exactly two long lanes.
 * A filter kernel of null tests alone, which `i < l` leaves behind once its long conjunct declines
-  (section 6): no planning rule declines it; `m9/SCOPE.md` item 119 records it as the case a
+  (section 6): no planning rule declines it; `m10/SCOPE.md` item 119 records it as the case a
   run-time choice would catch.
 
 ### 3.3 Registered op counts
@@ -97,7 +97,7 @@ only decides which conjuncts are admitted.
 | `VarkaWidthAuditShapes.scala`, `VarkaWidthAuditSuite.scala` | the audit compiles predicates on the host's terms; `width_audit.json`'s 128-bit column and `docs/sql-varka.md`'s with it |
 | `VarkaSharedSessions.scala` | sets the refusal false, so the sql/core suites keep checking two-lane kernels' answers |
 | `dev/varka_matrix.sh` | reads a suite's `jvmFlags` from its whole annotation, not its first line |
-| `m9/SCOPE.md` | item 101's note, items 118 and 119 |
+| `m10/SCOPE.md` | item 101's note, items 118 and 119 |
 
 ## 5. Tests, and what each is for
 

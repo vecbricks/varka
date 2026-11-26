@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 318 of `m7/PLAN.md`, added by the owner on 12 October 2026 from `m9/SCOPE.md` items 24 and 29.
+Row 318 of `m7/PLAN.md`, added by the owner on 12 October 2026 from `m10/SCOPE.md` items 24 and 29.
 Item 24 notes that Comet lets each expression be switched off on its own
 (`spark.comet.expression.<Class>.enabled=false`), and that "a per-expression kill switch is the
 escape hatch a user needs when one kernel is wrong in production and the rest are not". The item

@@ -1537,7 +1537,7 @@ the kernel's status to `VarkaGuardSpec`'s verdict on every batch. What it took:
 - **Cut the partitions as cached views, not as `WHERE` clauses on the query.** A verdict is per
   batch, so a batch has to lie wholly inside or wholly outside the domain. A `WHERE` over the
   same scan does not give that: the kernel computes the guarded expression on the lanes the
-  filter rejects too (the right side of an AND is not qualified by its left, `m9/SCOPE.md` item
+  filter rejects too (the right side of an AND is not qualified by its left, `m10/SCOPE.md` item
   96), and a domain predicate Varka cannot fuse would leave the whole projection to Spark. A
   partition materialized once by Spark into its own cached view is what a kernel then reads,
   and the three views are checked to cut the fixture by `rid`.

@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Milestone 6 row 176, from `m9/SCOPE.md` item 44. The fork that runs
+Milestone 6 row 176, from `m10/SCOPE.md` item 44. The fork that runs
 this project's CI (MaxGekk/spark) runs at most twenty GitHub Actions jobs at
 once, and one Spark Build run is about thirty-five, so two Builds in flight
 share the slots and neither finishes until both do. The standing rule is one

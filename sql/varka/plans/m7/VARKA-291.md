@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 291 of `m7/PLAN.md`, opened 6 October 2026 at the owner's request. Item 85 of `m9/SCOPE.md`
+Row 291 of `m7/PLAN.md`, opened 6 October 2026 at the owner's request. Item 85 of `m10/SCOPE.md`
 ends on a storage question: hold the IR's nodes as rows of flat arrays, in memory the client
 supplies (jegg issue #92), instead of as the records of `VarkaVectorIR`. The owner then asked
 whether the migration to jegg could come sooner, with "all Varka IRs as rows in flat arrays", and

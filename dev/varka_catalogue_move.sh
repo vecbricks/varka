@@ -59,6 +59,8 @@ fi
 holds_row() { # plan file, task file name
   local n="${2#VARKA-}"
   n="${n%.md}"
+  # A row may have a second plan file, VARKA-<n>-<what>.md (VARKA-657-PARTS.md): it is its row's.
+  n="${n%%-*}"
   [ -f "$1" ] && grep -qE "^\| *$n *\|" "$1"
 }
 MOVED_PLANS=()

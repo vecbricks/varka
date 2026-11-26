@@ -158,7 +158,7 @@ patch is
 **Upstream.** A search of the JDK bug tracker found no report of this rule. `openjdk/jdk25u` master
 has the JDK 25 code. OpenJDK mainline has rewritten the rule: it casts the `VectorMaskToLong`'s
 input itself, which on AVX2 is the `VectorStoreMask`, so the cast is boolean to boolean and
-correct. Varka's scope catalogue (`m9/SCOPE.md` item 56) lists the mask-cast change, JDK-8370863,
+correct. Varka's scope catalogue (`m10/SCOPE.md` item 56) lists the mask-cast change, JDK-8370863,
 with fix version 27. Whether JDK 27 passes the reproducer has not been run here.
 
 ## 5. What it means for Varka

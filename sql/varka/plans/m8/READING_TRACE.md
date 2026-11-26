@@ -2,12 +2,12 @@
 
 *Written on 27 October 2026 at the owner's request: did anything worth having from the reading
 get dropped on the way to the plans?* This file takes every concrete recommendation of fourteen
-reading notes - the eleven `READING_*.md` notes of this folder, `m9/READING_LAYOUTS.md`,
+reading notes - the eleven `READING_*.md` notes of this folder, `m10/READING_LAYOUTS.md`,
 `m7/READING.md` and `m7/READING_POLARS.md` - and says where it landed. Documents only: nothing was
 built or run, and no recommendation was judged on its merits here.
 
 **What counts as a landing.** A row of this plan's table (by number), a section of this plan or a
-task plan (`VARKA-<n>.md`) of this folder, an item of `m9/SCOPE.md`, a lesson under
+task plan (`VARKA-<n>.md`) of this folder, an item of `m10/SCOPE.md`, a lesson under
 `sql/varka/skills/`, or an explicit rejection with a reason. A rejection in the note itself (its
 "not worth taking" section) counts; so does this plan's section 9. For the two milestone 7 notes
 a row of `m7/PLAN.md` counts too, since that plan was theirs.
@@ -15,7 +15,7 @@ a row of `m7/PLAN.md` counts too, since that plan was theirs.
 **Statuses.** *landed*: the recommendation, or a stronger form of it, is in one of those places.
 *partly*: the rule landed but a named part (a fixture, a citation, a correction) did not.
 *rejected*: refused with a reason. *dropped*: searched for and found nowhere. Each search ran
-`grep -riE` over `sql/varka/plans/m8`, `sql/varka/plans/m9/SCOPE.md`, `sql/varka/plans/m7`,
+`grep -riE` over `sql/varka/plans/m8`, `sql/varka/plans/m10/SCOPE.md`, `sql/varka/plans/m7`,
 `sql/varka/skills`, `SKILLS.md`, `sql/varka/proofs` and `dev`, the reading notes left out; the
 terms are quoted with each dropped item in section 2.
 
@@ -183,7 +183,7 @@ The item column is the note's own section or item number.
 | 2 | Denormals in the floating benchmarks' data | none | dropped |
 | 3 | Digit count, abs-diff, popcount, strings | note 3 | rejected |
 
-### 1.12 `m9/READING_LAYOUTS.md`
+### 1.12 `m10/READING_LAYOUTS.md`
 
 | item | recommendation | where it landed | status |
 | :--- | :--- | :--- | :--- |
@@ -224,7 +224,7 @@ The item column is the note's own section or item number.
 
 ### 1.14 `m7/READING_POLARS.md`
 
-The note's section 11 sends the rest to `m9/SCOPE.md` item 89 (b1 to b11 below are its bullets)
+The note's section 11 sends the rest to `m10/SCOPE.md` item 89 (b1 to b11 below are its bullets)
 and two rows to `m7/PLAN.md`. This milestone took bullet 1 (row 341) and bullet 6 without its
 runtime bound (2.8).
 
@@ -407,14 +407,14 @@ unexplained or not yet read. Searched in each open row: `inferred`, `unproven`, 
 | `READING_SLEEF.md` | 6 | 1 | 1 | 1 |
 | `READING_SNELLER.md` | 0 | 0 | 2 | 1 |
 | `READING_0X80.md` | 4 | 0 | 1 | 4 |
-| `m9/READING_LAYOUTS.md` | 3 | 2 | 0 | 0 |
+| `m10/READING_LAYOUTS.md` | 3 | 2 | 0 | 0 |
 | `m7/READING.md` | 24 | 0 | 0 | 0 |
 | `m7/READING_POLARS.md` | 30 | 2 | 1 | 9 |
 | all fourteen | 120 | 11 | 19 | 25 |
 
 ## 5. One scope item added
 
-`m9/SCOPE.md` item 124, at the owner's request with this audit: the compile latency of Varka's
+`m10/SCOPE.md` item 124, at the owner's request with this audit: the compile latency of Varka's
 emitted kernels, read against Kersten, Leis and Neumann's Umbra paper (VLDB Journal 2021), which
 the record had never cited, and tied to row 408's first-query timings. The highest item on master
 was 123; 118 and 119 are taken by a branch in flight, so 124 is the next free number.

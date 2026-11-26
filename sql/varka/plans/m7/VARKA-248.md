@@ -1,6 +1,6 @@
 # VARKA-248: `VarkaEmitOptions` from one table of options
 
-*Row 248 of `m7/PLAN.md`, wave 0, from `m9/SCOPE.md` item 74.1 and `m7/READING.md` 3 and 11;
+*Row 248 of `m7/PLAN.md`, wave 0, from `m10/SCOPE.md` item 74.1 and `m7/READING.md` 3 and 11;
 opened 4 October 2026, the second of milestone 7's refactors, after VARKA-249.*
 
 ## 1. Where this came from

@@ -9,7 +9,7 @@ meaning `expressions/mathExpressions.scala`), and from the plans of the rows it 
 `VARKA-341.md` (started, its 5.1 the code as built), `VARKA-342.md`, `VARKA-343.md`,
 `VARKA-344.md` and `VARKA-346.md` (planned). The JDK was read in
 `/home/max/proj/openjdk-build/jdk25` (`jdk-25-ga`, `6c48f4ed7`; `src/` below). The row's text is
-the milestone plan's 2.7.1 and items 35, 36 and 98 of `m9/SCOPE.md`. Two admission programs were
+the milestone plan's 2.7.1 and items 35, 36 and 98 of `m10/SCOPE.md`. Two admission programs were
 run on the laptop under the heavy slot, at 512 and at 256 bits:
 `results/VARKA-345-admission.txt` (the binding, the tiers, the step count, a lane the kernel does
 not use) and `results/VARKA-345-exact-admission.txt` (a lane-wise copy of fdlibm's `exp` against
@@ -174,7 +174,7 @@ not use) and `results/VARKA-345-exact-admission.txt` (a lane-wise copy of fdlibm
     math (`varka/VarkaFamily.java:48-72`). 342's planned `MathUnary(MathFn fn, child)` with
     `MathFn.SQRT` (`VARKA-342.md` 2.1) is the node 356 to 358 "add their functions to".
 13. **The dated corrections the row's done-when names exist, under the earlier decision.**
-    `SCOPE_FUNCTIONS.md` 3 and `m9/SCOPE.md` item 36 each carry a correction of 14 October 2026;
+    `SCOPE_FUNCTIONS.md` 3 and `m10/SCOPE.md` item 36 each carry a correction of 14 October 2026;
     both end on the contract being chosen. Each needs a second dated correction recording the
     exact default (2.10).
 14. **No baseline times a math function.** `VarkaFloatingBaselineBenchmark` times a comparison, a
@@ -575,7 +575,7 @@ The coverage rows say which form served them, and `docs/sql-varka.md` says it pe
   2026 under its heading saying the departure is no longer the default, the family is exact by
   default and the contract is a mode a session turns on; its "The default is on" paragraph kept
   as the record, marked superseded.
-- **`SCOPE_FUNCTIONS.md` 3 and `m9/SCOPE.md` item 36** each gain a correction of 30 October 2026:
+- **`SCOPE_FUNCTIONS.md` 3 and `m10/SCOPE.md` item 36** each gain a correction of 30 October 2026:
   the exact default, the two exact forms, the contract as an opt-in mode. Item 36's
   "emitted fdlibm" option becomes the `PORT` arm, emitted as IR and still costed without FMA; item
   98 stays the route to one bit pattern for the opt-in library.
@@ -721,7 +721,7 @@ Predictions, registered before the build:
 | `sql/varka/math/` | the vector file format and its reader |
 | benchmark | the baseline class, its results files at both widths from the EPYC runners |
 | generated | `coverage.json`, `docs/sql-varka.md`, `emitted_bytes.json` |
-| plans | `PLAN.md` 2.7.1 (owner's decision recorded), `SCOPE_STANDARD_MODE.md` 3.4, `SCOPE_FUNCTIONS.md` 3, `m9/SCOPE.md` item 36 |
+| plans | `PLAN.md` 2.7.1 (owner's decision recorded), `SCOPE_STANDARD_MODE.md` 3.4, `SCOPE_FUNCTIONS.md` 3, `m10/SCOPE.md` item 36 |
 
 **The port's size, as counts.** Thirteen functions are in scope for the port: `exp`, `expm1`,
 `log`, `log10`, `log1p`, `pow`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh` and `hypot` (2.1;
@@ -758,7 +758,7 @@ coverage rows.
 | `MathUnary` with `SQRT`, the lane `DIV` | 342 |
 | the reinterpretations and conversions the helpers use | 343 |
 | a port of a host's `Math` stub (Intel's on x86, HotSpot's `dsin` on aarch64), only from a source whose licence allows it and only where it beats `LANE_CALL`, with a bit-identity check against that host's `Math` | not planned; open point 11 |
-| the emitted SLEEF-shaped `exp` and `log` | `m9/SCOPE.md` item 98 |
+| the emitted SLEEF-shaped `exp` and `log` | `m10/SCOPE.md` item 98 |
 
 Declines that stay after this row: every math function, by its row's name; in the opt-in mode a
 binding with no contract entry keeps the exact form, which is not a decline.
@@ -914,7 +914,7 @@ render as before, with the new `VarkaEmitOption.Reason.CONTRACT`, not drawn (ite
 26 classes of the 27 functions over `DOUBLE` operands and declines each by its row ("sin is row
 356's: no math function fuses yet"), `floatingDecline` letting exactly those through;
 `VarkaMathBound` (2.5's `steps` and `within`); the docs' configuration entry; the dated
-corrections of `SCOPE_FUNCTIONS.md` 3, `SCOPE_STANDARD_MODE.md` 3.4 and `m9/SCOPE.md` item 36;
+corrections of `SCOPE_FUNCTIONS.md` 3, `SCOPE_STANDARD_MODE.md` 3.4 and `m10/SCOPE.md` item 36;
 and this row's edit of 2.7.1 (the composition rule marked unsound, the configuration's missing
 default recorded). Tests: `VarkaMathCompilerSuite` (every function's reason, in both modes and
 with the family off), `VarkaMathBoundSuite` (3.5 at the comparator), and 3.1's IR half as far as

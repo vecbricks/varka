@@ -4,7 +4,7 @@
 
 Row 217 of `m7/PLAN.md`: "Port the facade, `VarkaExpressionCompiler`, to Java with a result type,
 the size admission apart from node compilation, and `VarkaShapeCache.scala` with it", from
-`m9/SCOPE.md` items 81 and 74.4. The three family ports before it (214 to 216) each paid the same
+`m10/SCOPE.md` items 81 and 74.4. The three family ports before it (214 to 216) each paid the same
 costs at the boundary with the Scala facade, and VARKA-175 9 predicted they would go away when
 the facade was Java: the module access (`VarkaExpressionCompiler$.MODULE$`), `scala.Option`, the
 erased `mutable.LinkedHashMap[Int, Int]` tables, and the helpers each family copied (`decline`,
