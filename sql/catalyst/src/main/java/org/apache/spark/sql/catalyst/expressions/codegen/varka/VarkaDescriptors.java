@@ -101,14 +101,6 @@ final class VarkaDescriptors {
   /** {@code void VarkaVectorSupport.putByteAt|putShortAt(int, MemorySegment, long)}. */
   static final MethodTypeDesc PUT_NARROW_AT = MethodTypeDesc.of(
       ConstantDescs.CD_void, ConstantDescs.CD_int, MEMORY_SEGMENT, ConstantDescs.CD_long);
-  /** {@code IntVector IntVector.zero(VectorSpecies)} (static). */
-  static final MethodTypeDesc INT_ZERO = MethodTypeDesc.of(INT_VECTOR, VECTOR_SPECIES);
-  /** {@code IntVector IntVector.withLane(int, int)}: one lane replaced, at a constant index. */
-  static final MethodTypeDesc INT_WITH_LANE =
-      MethodTypeDesc.of(INT_VECTOR, ConstantDescs.CD_int, ConstantDescs.CD_int);
-  /** {@code int IntVector.lane(int)}: one lane read, at a constant index. */
-  static final MethodTypeDesc INT_LANE =
-      MethodTypeDesc.of(ConstantDescs.CD_int, ConstantDescs.CD_int);
   /** {@code FloatVector FloatVector.zero(VectorSpecies)} (static). */
   static final MethodTypeDesc FLOAT_ZERO = MethodTypeDesc.of(
       ClassDesc.of("jdk.incubator.vector.FloatVector"), VECTOR_SPECIES);

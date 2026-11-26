@@ -205,6 +205,12 @@ final class VarkaVectorWalk {
           emitLowHalfLoad(cb, c, lane, s);
           break;
         }
+        if (lane.isNarrow() && narrowRowsInEpilogue(analysis, s)) {
+          // A narrow-driven kernel's own column in its epilogue: its rows one at a time into
+          // the drive's species, as a widened column's are into the int species.
+          emitNarrowRowsLoad(cb, c, lane, lane, analysis, s, true);
+          break;
+        }
         cb.aload(s.species(lane));
         cb.aload(s.srcSeg(c.ordinal()));
         cb.lload(s.byteOffset);
@@ -918,17 +924,17 @@ final class VarkaVectorWalk {
    * body the load is whole, like {@link #emitLowHalfLoad}'s; in the epilogue it is under the mask
    * of the species' first {@code lanes} lanes and reads part 0. The offset is
    * {@code (long) i * stride}, a linear function of the induction variable that C2 folds into the
-   * address. The epilogue of a kernel driven at the long lane reads its rows one at a time
-   * instead ({@link #emitNarrowRowsLoad}).
+   * address. An epilogue with a baked lane count reads its rows one at a time instead
+   * ({@link #emitNarrowRowsLoad}).
    */
   private static void emitNarrowLoad(
       CodeBuilder cb, ColumnRef c, Lane stored, Analysis analysis, Slots s) {
     if (narrowRowsInEpilogue(analysis, s)) {
-      emitNarrowRowsLoad(cb, c, stored, analysis, s, true);
+      emitNarrowRowsLoad(cb, c, stored, Lane.INT, analysis, s, true);
       return;
     }
     if (narrowRowsInBody(analysis, s, stored)) {
-      emitNarrowRowsLoad(cb, c, stored, analysis, s, false);
+      emitNarrowRowsLoad(cb, c, stored, Lane.INT, analysis, s, false);
       return;
     }
     int groups = analysis.narrowGroups();
@@ -971,23 +977,30 @@ final class VarkaVectorWalk {
 
   /**
    * Whether this body moves a narrow value's rows one at a time rather than as a masked vector:
-   * the epilogue of a kernel driven at the long lane with a baked lane count. Where that kernel
-   * converts between lanes its loop stops a long lane group early, so its epilogue runs on every
-   * batch, and a masked byte or short load or store has no C2 lowering without AVX512BW - on AVX2
-   * it runs as the Vector API's Java loop, as the width audit read from the runners. An
-   * epilogue's group holds at most the long lane count of rows ({@code emitMixedEpilogue}), so
-   * the rows unroll to that count. Without a baked count there is none to unroll to, and the
-   * masked form stays.
+   * the epilogue of a kernel with a baked lane count, whatever lane drives it. A masked byte or
+   * short store, and a masked one's load past a segment's end, have no C2 lowering on x86
+   * without AVX512BW ({@code x86.ad} refuses {@code LoadVectorMasked} and
+   * {@code StoreVectorMasked} for a subword type there): on AVX2 they run as the Vector API's
+   * Java loop, once for every batch the lane count does not divide, and on every batch in a
+   * long kernel that converts between lanes, whose loop stops a long lane group early. The width
+   * audit's ragged phase reads both (VARKA-550). An epilogue's group holds at most the drive's
+   * lane count of rows ({@code emitMixedEpilogue}), so the rows unroll to that count, at most 16
+   * since only 2 to 16 lanes are baked: a long lane's or an int lane's, whose values are int
+   * vectors, or a narrow lane's, whose values are its own narrow vectors. Without a baked count
+   * there is none to unroll to, and the masked form stays: that is every narrow lane at 32 or 64
+   * lanes, a byte kernel at 256 and 512 bits and a short one at 512 ({@code VARKA-550.md} 11).
    */
   static boolean narrowRowsInEpilogue(Analysis analysis, Slots s) {
-    return s.epilogue && analysis.lane.bits == Long.SIZE && analysis.lanes != 0;
+    return s.epilogue && analysis.lanes != 0;
   }
 
   /**
-   * Whether a narrow column in the loop body of a kernel driven at the long lane is read one row
-   * at a time as the epilogue reads it: the lane count is baked and the narrow species of twice
-   * the long lanes does not exist, as a byte at two long lanes would need a 32-bit one (VARKA-575).
-   * The loop stops while a whole group fits, so no row is past the batch and no bound is tested.
+   * Whether a narrow value in the loop body of a kernel driven at the long lane moves one row at
+   * a time as the epilogue moves it: the lane count is baked and the narrow species of twice the
+   * long lanes does not exist, as a byte at two long lanes would need a 32-bit one. A column is
+   * read so (VARKA-575), and a root stored so, where the masked store it would otherwise take has
+   * no lowering without AVX512BW (VARKA-550). The loop stops while a whole group fits, so no row
+   * is past the batch and no bound is tested.
    */
   static boolean narrowRowsInBody(Analysis analysis, Slots s, Lane stored) {
     return !s.epilogue
@@ -997,20 +1010,24 @@ final class VarkaVectorWalk {
   }
 
   /**
-   * A narrow column in the epilogue of a kernel driven at the long lane
-   * ({@link #narrowRowsInEpilogue}): {@code [] -> [int vector]}, the int species of the long
-   * width, zero, with lane {@code k} replaced by row {@code i + k} for each {@code k} below the
-   * long lane count, read one row at a time by {@code VarkaVectorSupport.byteAt} or
-   * {@code shortAt}, and, when {@code bounded}, zero past the remainder {@code lanes}, as a masked
-   * load's inactive lanes read; the loop body's form ({@link #narrowRowsInBody}) reads every row.
-   * The test is on scalars and every path pushes the same vector, so no vector value meets
-   * another at a join. {@code withLane} at a constant index is an insert, which C2 lowers on
-   * every x86 with SSE4.1.
+   * A narrow column read one row at a time ({@link #narrowRowsInEpilogue},
+   * {@link #narrowRowsInBody}): {@code [] -> [vector of into]}, the species of {@code into} this
+   * emission bakes, zero, with lane {@code k} replaced by row {@code i + k} for each {@code k}
+   * below the drive's lane count, read by {@code VarkaVectorSupport.byteAt} or {@code shortAt},
+   * and, when {@code bounded}, zero past the remainder {@code lanes}, as a masked load's inactive
+   * lanes read; the loop body's form reads every row. {@code into} is the int lane where the
+   * column is widened - in a long kernel the int species of the long width, whose low lanes are
+   * the group's - and the column's own lane in a kernel driven at it, whose {@code withLane}
+   * takes the {@code int} the read returns as its {@code byte} or {@code short}. The test is on
+   * scalars and every path pushes the same vector, so no vector value meets another at a join.
+   * {@code withLane} at a constant index is an insert, which C2 lowers on every x86 with SSE4.1.
    */
-  private static void emitNarrowRowsLoad(
-      CodeBuilder cb, ColumnRef c, Lane stored, Analysis analysis, Slots s, boolean bounded) {
-    emitConstantSpecies(cb, Lane.INT, analysis);
-    cb.invokestatic(Lane.INT.vector, "zero", INT_ZERO);
+  private static void emitNarrowRowsLoad(CodeBuilder cb, ColumnRef c, Lane stored, Lane into,
+      Analysis analysis, Slots s, boolean bounded) {
+    MethodTypeDesc zero = MethodTypeDesc.of(into.vector, VECTOR_SPECIES);
+    MethodTypeDesc withLane = MethodTypeDesc.of(into.vector, ConstantDescs.CD_int, into.scalar);
+    emitConstantSpecies(cb, into, analysis);
+    cb.invokestatic(into.vector, "zero", zero);
     for (int k = 0; k < analysis.lanes; k++) {
       Label read = cb.newLabel();
       Label join = cb.newLabel();
@@ -1034,7 +1051,7 @@ final class VarkaVectorWalk {
       if (bounded) {
         cb.labelBinding(join);                                  // [v, k, row]
       }
-      cb.invokevirtual(Lane.INT.vector, "withLane", INT_WITH_LANE);
+      cb.invokevirtual(into.vector, "withLane", withLane);
     }
   }
 
