@@ -129,7 +129,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] +
       classOf[Fma] + classOf[RoundToIntegral] + classOf[CanonicalFloat] +
       classOf[DecimalColumn] + classOf[DecimalWord] + classOf[WidenDecimal] +
-      classOf[ConvertLane] + classOf[ReinterpretLane] ===
+      classOf[VarkaVectorIR.InterleaveDecimal] + classOf[ConvertLane] + classOf[ReinterpretLane] ===
       concreteNodeTypes(classOf[VarkaVectorIR]) - classOf[CrossLane]) // its child: another lane
     val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
     assert(new MathUnary(MathFn.SQRT, doubleCol).laneType() === LaneType.DOUBLE)
@@ -491,6 +491,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "WidenLane" => new WidenLane(new ColumnRef(0, LaneType.INT))
         // A decimal output is a long value's store whatever the row, emitted at the long lane.
         case "WidenDecimal" => new WidenDecimal(new ColumnRef(0, LaneType.LONG))
+        // The pair's store: two long words, emitted at the long lane (VARKA-359).
+        case "InterleaveDecimal" => new VarkaVectorIR.InterleaveDecimal(
+          new ColumnRef(0, LaneType.LONG), new ColumnRef(1, LaneType.LONG))
         case "AddDays" => new AddDays(c, l)
         case "SubDays" => new SubDays(c, l)
         case "DateDiff" => new DateDiff(c, c1)
@@ -582,7 +585,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       "Compare", "NullSafeEqual", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide",
       "BoolColumn", "CondConst", "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue",
       "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
-      "DecimalColumn", "DecimalWord", "NullValue", "WidenDecimal", "ConvertLane", "CrossLane",
+      "DecimalColumn", "DecimalWord", "NullValue", "WidenDecimal", "InterleaveDecimal",
+      "ConvertLane", "CrossLane",
       "HashStep", "CanonicalBits", "ReinterpretLane"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
         "the two conversions, which build over the other lane's child whatever the row, " +

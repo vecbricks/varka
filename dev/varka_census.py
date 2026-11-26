@@ -815,10 +815,9 @@ def cast_kind(src, dst):
     if src == "dec" and dst in INTEGRAL:
         return (
             "truncation",
-            "toward zero; LEGACY exact, keeping the low bits; ANSI and TRY range-check by the"
-            " exact rule up to precision 18 (Decimal.roundToNumeric over a long-backed value, as"
-            " every SQL read of the Arrow cache and Varka's row views hand it; row 365) and by"
-            " the double rule above it (a BigDecimal-backed value)",
+            "toward zero; LEGACY exact, keeping the low bits; ANSI and TRY range-check the"
+            " truncated value exactly at every precision (Decimal.roundToNumeric, over a"
+            " long-backed and a BigDecimal-backed value alike)",
         )
     if src == "dec" and dst == "double":
         return (
@@ -902,18 +901,9 @@ def cast_proof(src, dst):
     """How a pair is proven: exhaustion where the source has at most 32 bits; SMT for an integer
     rule over a 64-bit source; sampled regions and the fuzzer for a double source and for a
     64-bit source rounding to a floating type, which floating-point theory does not decide in
-    useful time (VARKA-241.md). A decimal to INT, SMALLINT or TINYINT is mixed: LEGACY's low bits
-    and the ANSI and TRY range check up to precision 18 are integer rules, the double rule above
-    it is not (the owner's decision of 1 November 2026 that Varka follows vanilla Spark, whose
-    every SQL read of the Arrow cache gives the exact rule below precision 19; VARKA-365.md 11)."""
+    useful time (VARKA-241.md)."""
     if src in ("bool", "byte", "short", "int", "date", "ym", "float"):
         return "exhaustion"
-    if src == "dec" and dst in ("byte", "short", "int"):
-        return (
-            "mixed: SMT (dev/varka_prove.sh) for LEGACY's low bits and the exact ANSI and TRY"
-            " range check up to precision 18, sampled regions and the fuzzer for the double rule"
-            " above it"
-        )
     if src in ("bigint", "dt", "time", "ntz", "dec") and dst not in ("float", "double"):
         return "SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer"
     return "sampled regions and the fuzzer"
@@ -927,7 +917,7 @@ def cast_rows(src, dst):
         return "103"
     if "dec" in lanes:
         if dst in ("byte", "short", "int"):
-            return "350,364,365"
+            return "350,364"
         if dst in ("float", "double"):
             return "350,364,366"
         if src in ("float", "double"):

@@ -26,7 +26,8 @@ import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType}
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaReproduction, VarkaTypeId,
   VarkaTypes}
-import org.apache.spark.sql.types.{DataType, Decimal, DecimalType}
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.DecimalType
 
 /**
  * The evaluator's Arrow table held to the type registry (VARKA-494): a type has a vector exactly
@@ -60,9 +61,8 @@ class VarkaLaneArrowSuite extends SparkFunSuite {
       for (id <- VarkaTypeId.values(); v = VarkaLaneArrow.of(id)
           if v != null && v.allocate() != null) {
         val info = VarkaTypes.info(id)
-        // A decimal wider than a long is no form the store writes (row 359's), and its allocator
-        // refuses it; the last test holds that.
-        for (form <- info.forms().asScala if !wideDecimal(form)) {
+        // Every decimal form, the lane pair's included (VARKA-359), is a sixteen-byte slot.
+        for (form <- info.forms().asScala) {
           val vector = VarkaLaneArrow.allocate("x", form, allocator)
           try {
             assert(v.vectorClass().isInstance(vector), s"${form.sql}: ${vector.getClass}")
@@ -87,16 +87,11 @@ class VarkaLaneArrowSuite extends SparkFunSuite {
     }
   }
 
-  private def wideDecimal(form: DataType): Boolean = form match {
-    case d: DecimalType => d.precision > Decimal.MAX_LONG_DIGITS
-    case _ => false
-  }
-
-  test("a decimal output of precision 18 or less is written to a vector of Spark's own field, " +
-      "and a wider one fails the allocator's assertion") {
+  test("a decimal output of any precision is written to a vector of Spark's own field, and a " +
+      "negative scale fails the allocator's assertion") {
     val allocator = new RootAllocator(Long.MaxValue)
     try {
-      for ((p, s) <- Seq((1, 0), (10, 2), (18, 6))) {
+      for ((p, s) <- Seq((1, 0), (10, 2), (18, 6), (19, 2), (38, 10))) {
         val vector = VarkaLaneArrow.allocate("x", DecimalType(p, s), allocator)
         try {
           // The field Spark's writer builds, so ArrowColumnVector reads it with its long accessor
@@ -108,11 +103,14 @@ class VarkaLaneArrowSuite extends SparkFunSuite {
           vector.close()
         }
       }
-      // The plan refuses the wider output before it fuses (VarkaTypes'
+      // The plan refuses a negative scale before it fuses (VarkaTypes'
       // decimalOutputDeclineReason); the allocator asks again, as an assertion.
+      val legacy = SQLConf.LEGACY_ALLOW_NEGATIVE_SCALE_OF_DECIMAL_ENABLED.key
+      SQLConf.get.setConfString(legacy, "true")
+      val negative = try DecimalType(10, -2) finally SQLConf.get.unsetConf(legacy)
       val e = intercept[IllegalStateException](
-        VarkaLaneArrow.allocate("x", DecimalType(19, 2), allocator))
-      assert(e.getMessage.contains("row 359"), e.getMessage)
+        VarkaLaneArrow.allocate("x", negative, allocator))
+      assert(e.getMessage.contains("negative scale"), e.getMessage)
       assert(e.getMessage.contains("the plan admitted it"), e.getMessage)
     } finally {
       allocator.close()

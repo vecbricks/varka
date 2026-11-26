@@ -111,17 +111,6 @@ public final class VarkaTypes {
         return band(type).filter(Admission.Band::read).isPresent();
       }
 
-      /** The widest precision a column takes one word at: the last one-word band's. */
-      public int oneWordPrecision() {
-        int widest = 0;
-        for (Band b : bands) {
-          if (b.words() == 1) {
-            widest = b.maxPrecision();
-          }
-        }
-        return widest;
-      }
-
       /** The widest precision a kernel reads today, or 0 when no band's reader is built. */
       public int maxReadPrecision() {
         int widest = 0;
@@ -581,29 +570,20 @@ public final class VarkaTypes {
   }
 
   /**
-   * Why a kernel cannot store an output of {@code type}, or empty where the decimal store writes
-   * it: the plan-time admission of a {@code WidenDecimal} root against its output's type,
-   * which the compiler asks where it wraps a decimal-valued root
-   * ({@code VarkaDecimalCompiler.outputRoot}), so a shape the store would write wrongly never
-   * fuses. The store writes a long and its sign extension into each slot, so it takes the
-   * precisions of a one-word band. A negative scale is declined everywhere, in a column's words,
-   * and a wider precision in the store's own, since the value does not fit the long a slot's low
-   * word holds and the two-word store is the row the wider band names.
-   * The reader's row does not matter here: the store needs no operator over a decimal column.
-   * The evaluator's allocator asks it again, as an assertion that no such output got through.
+   * Why a kernel cannot store an output of {@code type}, or empty where a decimal store writes
+   * it: the plan-time admission of a decimal output root against its output's type, which the
+   * compiler asks where it wraps a decimal-valued root ({@code VarkaDecimalCompiler.output}), so
+   * a shape the store would write wrongly never fuses. Every band is stored: a one-word band by
+   * {@code WidenDecimal}, a long and its sign extension in each slot, and the two-word band by
+   * {@code InterleaveDecimal}, the value's own two words (`m8/VARKA-359.md` 2.4); so only a
+   * negative scale, declined everywhere, is refused. The evaluator's allocator asks it again, as
+   * an assertion that no such output got through.
    */
   public static Optional<String> decimalOutputDeclineReason(DecimalType type) {
-    if (!(info(VarkaTypeId.DECIMAL).admission() instanceof Admission.ByPrecision by)) {
-      throw VarkaErrors.illegalState("DECIMAL's admission is not by precision");
-    }
-    String noun = "a " + type.simpleString() + " output";
     if (type.scale() < 0) {
-      return Optional.of(negativeScale(noun));
+      return Optional.of(negativeScale("a " + type.simpleString() + " output"));
     }
-    Admission.Band band = by.band(type).orElseThrow();
-    return band.words() == 1 ? Optional.empty()
-        : Optional.of(noun + ": precision above " + by.oneWordPrecision() + " does not fit the "
-            + "long a slot's low word holds, and its two-word store is row " + band.row() + "'s");
+    return Optional.empty();
   }
 
   /** The decline of a decimal of negative scale, which no lane takes. */
