@@ -24,6 +24,9 @@
 #                instant and a local time back to an instant; results/kernels.txt is its
 #                output, and results/kernels-2.txt a second run, since one of its comparisons
 #                is a ratio near 1. About six minutes on an idle x86 machine.
+# run.sh tables  src/ZoneTables.java at the same three widths: the packed bucket table and the
+#                ways to hand a gather its indices; results/tables.txt is its output. About
+#                sixteen minutes on an idle x86 machine.
 # run.sh resolve src/ZoneResolve.java over every zone of the JDK: one pair of local thresholds a
 #                change against java.time's three rules for a local time; results/resolve.txt
 #                is its output. Under a minute.
@@ -58,11 +61,18 @@ case "${1:-}" in
       probe --add-modules jdk.incubator.vector $flags "$D/src/ZoneKernels.java"
     done
     ;;
+  tables)
+    for flags in "" "-XX:UseAVX=2" "-XX:UseAVX=2 -XX:MaxVectorSize=16"; do
+      echo "# flags: ${flags:-none}"
+      # shellcheck disable=SC2086
+      probe --add-modules jdk.incubator.vector $flags "$D/src/ZoneTables.java"
+    done
+    ;;
   resolve)
     probe "$D/src/ZoneResolve.java"
     ;;
   *)
-    echo "usage: run.sh facts|forms|kernels|resolve" >&2
+    echo "usage: run.sh facts|forms|kernels|tables|resolve" >&2
     exit 2
     ;;
 esac
