@@ -954,7 +954,7 @@
         "filter_outcome" : "agree"
       }, {
         "statement" : "select interval 4 month 2 weeks 3 microseconds * 1.5",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0029",
+        "kind" : "does not parse: INVALID_INTERVAL_FORMAT.MIXED_YEAR_MONTH_AND_DAY_TIME_FIELDS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -1260,7 +1260,7 @@
         "filter_outcome" : "-"
       }, {
         "statement" : "select -interval '-1 month 1 day -1 second'",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0029",
+        "kind" : "does not parse: INVALID_INTERVAL_FORMAT.MIXED_YEAR_MONTH_AND_DAY_TIME_FIELDS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -1287,7 +1287,7 @@
         "filter_outcome" : "agree"
       }, {
         "statement" : "select -interval -1 month 1 day -1 second",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0029",
+        "kind" : "does not parse: INVALID_INTERVAL_FORMAT.MIXED_YEAR_MONTH_AND_DAY_TIME_FIELDS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -1314,7 +1314,7 @@
         "filter_outcome" : "agree"
       }, {
         "statement" : "select +interval '-1 month 1 day -1 second'",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0029",
+        "kind" : "does not parse: INVALID_INTERVAL_FORMAT.MIXED_YEAR_MONTH_AND_DAY_TIME_FIELDS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -1341,7 +1341,7 @@
         "filter_outcome" : "agree"
       }, {
         "statement" : "select +interval -1 month 1 day -1 second",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0029",
+        "kind" : "does not parse: INVALID_INTERVAL_FORMAT.MIXED_YEAR_MONTH_AND_DAY_TIME_FIELDS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -1800,7 +1800,7 @@
         "filter_outcome" : "agree"
       }, {
         "statement" : "select interval 1 year 2 month 3 week 4 day 5 hour 6 minute 7 seconds 8 millisecond 9 microsecond",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0029",
+        "kind" : "does not parse: INVALID_INTERVAL_FORMAT.MIXED_YEAR_MONTH_AND_DAY_TIME_FIELDS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -1836,7 +1836,7 @@
         "filter_outcome" : "agree"
       }, {
         "statement" : "select interval '30' year '25' month '-100' day '40' hour '80' minute '299.889987299' second",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0029",
+        "kind" : "does not parse: INVALID_INTERVAL_FORMAT.MIXED_YEAR_MONTH_AND_DAY_TIME_FIELDS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -2142,7 +2142,7 @@
         "filter_outcome" : "-"
       }, {
         "statement" : "select interval 1 year to month",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0027",
+        "kind" : "does not parse: INVALID_INTERVAL_FORMAT.FROM_TO_VALUE_NOT_STRING",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -2160,7 +2160,7 @@
         "filter_outcome" : "-"
       }, {
         "statement" : "select interval '10-9' year to month '2-1' year to month",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0024",
+        "kind" : "does not parse: INVALID_SQL_SYNTAX.FROM_TO_INTERVAL_WITH_OTHER_UNITS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -2169,7 +2169,7 @@
         "filter_outcome" : "-"
       }, {
         "statement" : "select interval '10-9' year to month '12:11:10' hour to second",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0024",
+        "kind" : "does not parse: INVALID_SQL_SYNTAX.FROM_TO_INTERVAL_WITH_OTHER_UNITS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -2178,7 +2178,7 @@
         "filter_outcome" : "-"
       }, {
         "statement" : "select interval '1 15:11' day to minute '12:11:10' hour to second",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0024",
+        "kind" : "does not parse: INVALID_SQL_SYNTAX.FROM_TO_INTERVAL_WITH_OTHER_UNITS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -2187,7 +2187,7 @@
         "filter_outcome" : "-"
       }, {
         "statement" : "select interval 1 year '2-1' year to month",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0024",
+        "kind" : "does not parse: INVALID_SQL_SYNTAX.FROM_TO_INTERVAL_WITH_OTHER_UNITS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -2196,7 +2196,7 @@
         "filter_outcome" : "-"
       }, {
         "statement" : "select interval 1 year '12:11:10' hour to second",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0024",
+        "kind" : "does not parse: INVALID_SQL_SYNTAX.FROM_TO_INTERVAL_WITH_OTHER_UNITS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -2205,7 +2205,7 @@
         "filter_outcome" : "-"
       }, {
         "statement" : "select interval '10-9' year to month '1' year",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0024",
+        "kind" : "does not parse: INVALID_SQL_SYNTAX.FROM_TO_INTERVAL_WITH_OTHER_UNITS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -2214,7 +2214,7 @@
         "filter_outcome" : "-"
       }, {
         "statement" : "select interval '12:11:10' hour to second '1' year",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0024",
+        "kind" : "does not parse: INVALID_SQL_SYNTAX.FROM_TO_INTERVAL_WITH_OTHER_UNITS",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -2745,7 +2745,7 @@
         "filter_outcome" : "-"
       }, {
         "statement" : "select interval '1 day 2' day",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0026",
+        "kind" : "does not parse: INVALID_INTERVAL_FORMAT.NON_NUMERIC_MULTI_UNIT_VALUE",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -2754,7 +2754,7 @@
         "filter_outcome" : "-"
       }, {
         "statement" : "select interval 'interval 1' day",
-        "kind" : "does not parse: _LEGACY_ERROR_TEMP_0026",
+        "kind" : "does not parse: INVALID_INTERVAL_FORMAT.NON_NUMERIC_MULTI_UNIT_VALUE",
         "rewritten" : "",
         "columns" : [ ],
         "projection" : "-",
@@ -6686,15 +6686,15 @@
       } ]
     },
     "datetime-special.sql" : {
-      "statements" : 4,
-      "selects" : 4,
-      "rewritten" : 3,
-      "projection_fused" : 1,
+      "statements" : 14,
+      "selects" : 14,
+      "rewritten" : 13,
+      "projection_fused" : 2,
       "projection_partial" : 0,
       "projection_plain" : 3,
       "filter_fused" : 1,
       "filter_partial" : 0,
-      "errors" : 0,
+      "errors" : 7,
       "not_run" : 0,
       "entries" : [ {
         "statement" : "select date'999999-03-18', date'-0001-1-28', date'0015'",
@@ -6732,6 +6732,96 @@
         "projection_outcome" : "agree",
         "filter" : "PLAIN",
         "filter_outcome" : "agree"
+      }, {
+        "statement" : "select next_day(date'-5877641-06-23', 'MO'), next_day(date'-5877641-06-23', 'FR')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT next_day(c0, 'MO'), next_day(c1, 'FR')",
+        "columns" : [ "date", "date" ],
+        "projection" : "-",
+        "projection_outcome" : "error",
+        "filter" : "-",
+        "filter_outcome" : "error"
+      }, {
+        "statement" : "select next_day(date'+5881580-07-04', 'FR')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT next_day(c0, 'FR')",
+        "columns" : [ "date" ],
+        "projection" : "FUSED",
+        "projection_outcome" : "agree",
+        "filter" : "PLAIN",
+        "filter_outcome" : "agree"
+      }, {
+        "statement" : "select next_day(date'+5881580-07-11', 'MO')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT next_day(c0, 'MO')",
+        "columns" : [ "date" ],
+        "projection" : "-",
+        "projection_outcome" : "DISAGREE: errors DATETIME_OVERFLOW and EXPRESSION_DECODING_FAILED",
+        "filter" : "-",
+        "filter_outcome" : "error"
+      }, {
+        "statement" : "select last_day(date'-5877641-06-23'), last_day(date'+5881580-06-30')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT last_day(c0), last_day(c1)",
+        "columns" : [ "date", "date" ],
+        "projection" : "-",
+        "projection_outcome" : "error",
+        "filter" : "-",
+        "filter_outcome" : "error"
+      }, {
+        "statement" : "select last_day(date'+5881580-07-11')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT last_day(c0)",
+        "columns" : [ "date" ],
+        "projection" : "-",
+        "projection_outcome" : "error",
+        "filter" : "-",
+        "filter_outcome" : "error"
+      }, {
+        "statement" : "select trunc(date'-5877641-06-29', 'WEEK'), trunc(date'-5877641-07-01', 'WEEK'), trunc(date'-5877641-07-01', 'MM'), trunc(date'-5877641-07-01', 'QUARTER'), trunc(date'-5877640-06-23', 'YEAR')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT trunc(c0, 'WEEK'), trunc(c1, 'WEEK'), trunc(c2, 'MM'), trunc(c3, 'QUARTER'), trunc(c4, 'YEAR')",
+        "columns" : [ "date", "date", "date", "date", "date" ],
+        "projection" : "-",
+        "projection_outcome" : "error",
+        "filter" : "-",
+        "filter_outcome" : "error"
+      }, {
+        "statement" : "select trunc(date'-5877641-06-28', 'WEEK')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT trunc(c0, 'WEEK')",
+        "columns" : [ "date" ],
+        "projection" : "-",
+        "projection_outcome" : "DISAGREE: errors DATETIME_OVERFLOW and EXPRESSION_DECODING_FAILED",
+        "filter" : "-",
+        "filter_outcome" : "error"
+      }, {
+        "statement" : "select trunc(date'-5877641-06-30', 'MONTH')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT trunc(c0, 'MONTH')",
+        "columns" : [ "date" ],
+        "projection" : "-",
+        "projection_outcome" : "error",
+        "filter" : "-",
+        "filter_outcome" : "error"
+      }, {
+        "statement" : "select trunc(date'-5877641-06-23', 'QUARTER')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT trunc(c0, 'QUARTER')",
+        "columns" : [ "date" ],
+        "projection" : "-",
+        "projection_outcome" : "error",
+        "filter" : "-",
+        "filter_outcome" : "error"
+      }, {
+        "statement" : "select trunc(date'-5877641-12-31', 'YEAR')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT trunc(c0, 'YEAR')",
+        "columns" : [ "date" ],
+        "projection" : "-",
+        "projection_outcome" : "error",
+        "filter" : "-",
+        "filter_outcome" : "error"
       } ]
     }
   }

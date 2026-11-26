@@ -99,6 +99,8 @@ try_divide	TryDivide	mathExpressions	in	declined dec: owner's decision, 14 Octob
 try_mod	TryMod	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,346,577	floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577	
 try_subtract	TrySubtract	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double	byte,short,float,double,dec	semantics	330,104,342,349,360	overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m10/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a; as an output, 348b); the pair counts with 360 at every precision to 38	dec
 try_multiply	TryMultiply	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,float,double	byte,short,float,double,dec	semantics	330,104,342,349,361,362	overflow gives null; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 361 and 362 at every precision to 38	
+try_abs	TryAbs	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt		byte,short,float,double,dec	semantics	663	new in the upstream sync of 26 November 2026 (SPARK-62149): an integral or interval argument is `AbsOrNull`, a node with no lowering, so nothing fuses; a float, double or decimal argument is plain `abs`, which fuses on its own	
+try_negative	TryNegative	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt		byte,short,float,double,dec	semantics	663	new in the upstream sync of 26 November 2026 (SPARK-62149): an integral or interval argument is a null-on-overflow negation, a node with no lowering, so nothing fuses; a float, double or decimal argument is plain `negative`, which fuses on its own	
 unhex	Unhex	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026								
 randstr	RandStr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
 try_to_binary	TryToBinary	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
@@ -281,6 +283,7 @@ hash	Murmur3Hash	hashExpressions	in		bool,byte,short,int,bigint,float,double,dec
 xxhash64	XxHash64	hashExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bigint	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	337,359,368	XxHash64 over each column's word, NaN and -0.0 canonicalised first (337a2); a decimal above precision 18 declined naming 337b	dec
 xxh3_64	Xxh364	hashExpressions	out	BINARY input: outside the type set								
 xxh3_128	Xxh3128	hashExpressions	out	BINARY input or output: outside the type set								
+farm_fingerprint	FarmFingerprint	hashExpressions	out	BINARY input: outside the type set								
 sha	Sha1	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026								
 sha1	Sha1	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026								
 sha2	Sha2	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026								

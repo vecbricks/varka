@@ -252,8 +252,14 @@ class VarkaGoldenCorpusSuite extends QueryTest with VarkaSharedSessions with SQL
     test(s"$file: every select, rewritten, agrees with the row engine") {
       val entries = harvest(file)
       results(file) = entries
-      val disagreements = entries.filter(e =>
+      val all = entries.filter(e =>
         e.projectionOutcome.startsWith("DISAGREE") || e.filterOutcome.startsWith("DISAGREE"))
+      val disagreements = all.filterNot(e => acceptedDisagreements.contains(e.statement))
+      // An accepted statement that now agrees is a stale entry: the fix landed, so the list
+      // must shrink with it.
+      val stale = acceptedDisagreements.keySet.filter(st =>
+        entries.exists(_.statement == st) && !all.exists(_.statement == st))
+      assert(stale.isEmpty, s"$file: accepted disagreements that now agree: $stale")
       assert(disagreements.isEmpty, s"$file: ${disagreements.size} statements disagree:\n" +
         disagreements.map(e => s"  ${e.statement}\n    projection ${e.projectionOutcome}; " +
           s"filter ${e.filterOutcome}").mkString("\n"))
@@ -276,6 +282,17 @@ class VarkaGoldenCorpusSuite extends QueryTest with VarkaSharedSessions with SQL
 }
 
 private object VarkaGoldenCorpusSuite {
+
+  /**
+   * Statements the engines disagree on and the owner accepted for now, each with its reason.
+   * SPARK-60929 makes `next_day`, `last_day` and `trunc` raise `DATETIME_OVERFLOW` where the
+   * result leaves the DATE range. Varka's kernels compute in the int lane and raise
+   * `EXPRESSION_DECODING_FAILED` there: an error in both engines, with another condition.
+   * `m9/PLAN.md` row 694 makes the kernels raise Spark's condition and empties this list.
+   */
+  val acceptedDisagreements: Map[String, String] = Map(
+    "select next_day(date'+5881580-07-11', 'MO')" -> "m9 row 694: SPARK-60929",
+    "select trunc(date'-5877641-06-28', 'WEEK')" -> "m9 row 694: SPARK-60929")
 
   /** One harvested statement and what became of it. */
   case class Entry(file: String, statement: String, kind: String, rewritten: String = "",

@@ -202,6 +202,7 @@ NAME_EXCLUSIONS = {
     "sha1": STRING,
     "sha2": STRING,
     "xxh3_64": "BINARY input: outside the type set",
+    "farm_fingerprint": "BINARY input: outside the type set",
     "xxh3_128": "BINARY input or output: outside the type set",
     # conversion
     "timestamp": LTZ,
