@@ -985,6 +985,140 @@ negation and `abs` (part 2); the measurement of the baseline's `IN`, `-x < y` an
 sections on the EPYC runners (part 2's, with the choice section); the pair-load node, the planted
 faults for row 504 and the op-count test (below).
 
+### 10.7 359b, part 2: the pair's store and its outputs (20 November 2026)
+
+*Branch `varka-359b-decimal128-store`, stacked on part 1's `varka-359-decimal128-lane-pair`.
+Local commits only.* 2.4's store and the outputs of every form `pair` builds.
+
+**Built.**
+
+1. **One IR node, `InterleaveDecimal(lo, hi)`**, a root only, rendering `(idec <lo> <hi>)`: the
+   store of a value's two words into Arrow's sixteen-byte slot. 2.4 planned "an output of two
+   roots bound to one output"; a root node of two children is the smaller change, since the
+   output binding, `CompiledVarkaProjection` and the evaluator all keep one root an output, and it
+   is the same shape as row 157's `WidenDecimal`, whose interleaved store
+   (`VarkaBodyEmitter.emitInterleavedStore`) it calls with a high word of its own. The walk parks
+   the high words in the store's locals and leaves the low words as a root's value; the output's
+   validity is the low word's, which every producer of a pair makes the value's. Every site that
+   lists the IR's nodes learned it (the analysis, the slots, the budget at 3, the cost model's
+   awaiting-refit list, the plan's two switches, the operand positions, the range analysis, the
+   same-answer walk, the chrono compiler's switch, and the test registries: the parser, the
+   reference, which refuses it as having no one long value, the guard specs, the grammar, the SMT
+   nodes, the variants' pool, the word census, the lane-type suite, the fuzz suite's lists, the
+   width audit's output buffers).
+2. **The admission.** `VarkaTypes.decimalOutputDeclineReason` refuses only a negative scale;
+   `VarkaDecimalCompiler.output` builds a wide output as its pair under the new root, and
+   `outputRoot`, the long's widening, refuses a wide type as a caller's error.
+   `CompiledVarkaProjection` takes the pair's store as sixteen bytes a row, its type's size.
+3. **Two long lanes on x86**: a pair output is refused there
+   (`VarkaKernelPlan.TWO_LANE_DECIMAL_PAIR_OUTPUT_REASON`), under row 596's mechanism and before
+   any measurement: the store's two two-vector rearranges are the same fallback the load's split
+   is, which 596 measured losing, and 597's rule is that no decimal-reading value runs slower than
+   the row path there. The refusal is the plan's, so a measurement that shows a win lifts it.
+4. **Coverage**: a family "DECIMAL lane pair values", seven outputs (`-d38`, `abs(d38)`, a choice,
+   a `CASE` without `ELSE`, `coalesce`, `greatest`, `least`).
+
+**Tests written.** `VarkaDecimalPairSuite.storedValues`: eleven outputs over a narrow-and-wide
+and a wide-and-wide pair of columns, plus `abs` at 19 digits and a choice with a 64-bit side, each
+compiled as a projection, run at 1, 2, 4 and 8 lanes over the word edges and every null pattern,
+its slots read back as two words and held to Spark's own expression. `storeAdmission`: the type
+admits every precision; the rendering. `VarkaTwoLaneConditionSuite.decimalPairOutput`: refused on
+the two-lane host, admitted elsewhere. Flipped: `VarkaTypesSuite` (a 19-digit output is admitted),
+`VarkaExpressionCompilerSuite` (a wide sum as an output names row 360; `outputRoot` refuses a
+wide type), `VarkaLaneArrowSuite` (the allocator builds every precision, and asserts on a negative
+scale).
+
+**Run in this window**: `catalyst/Test/compile` passed; `VarkaDecimalPairSuite` first failed
+`storedValues` on `CompiledVarkaProjection`'s width check (the pair's store counted as a long's
+eight bytes), fixed as item 2 says, then passed 12 of 12; `VarkaTwoLaneConditionSuite` passed 9 of
+9 in the same run. `sql/Test/compile` passed after the last change, and so did part 1's on its
+own head.
+
+**Predictions** (scored in the later phase):
+
+1. *The store's op count*: two rearranges and two stores over the walk's words, the same as row
+   157's store without its shift; `dev/varka_emit.sh "-d38"` reads the negation's six lane calls
+   and the load's ten beside them.
+2. *No existing shape's bytes move*: `WidenDecimal`'s store is unchanged.
+3. *At 256 bits on the EPYC 7763*, the baseline's `(38, 10)` choice section (`CASE WHEN x < y THEN
+   x ELSE y END`, `WHOLE` on this branch) is 10 to 30 times faster than the row
+   path's 390 ns a row, as the comparison filter is; at 128 bits it declines and ties.
+4. *The census*: still unchanged. `negative` and `abs` need the 64-bit decimal's outputs too
+   (row 348b), since a pair counts only when it fuses at every precision.
+
+The baseline's choice section at precision 38 is `WHOLE` on this branch (`NONE` under the
+two-lane refusal), so its plan check holds what this part fuses.
+
+**Not in this part**, owed: the EPYC measurement of every 359b
+section at both widths, the reference evaluator and the generic harness for a pair output (the
+suites that store one read its slots against Spark instead), `readOnlyBy`'s one class for
+`decimalStore` (the option now reaches the pair's store too, so the matrix's reach under-counts
+it), the pair-load node, the planted faults and the op-count test.
+
+### 10.8 359b, part 3: the conformance suite and the fixes the first two parts owed (20 November 2026)
+
+*Branch `varka-359c-decimal128-conformance`, stacked on part 2; local commits only. A read of
+both parts before any more building found four gaps, fixed where they belong (each part's branch
+gained a commit and the stack was rebased).*
+
+1. **Part 1: the union of a wide choice's arithmetic rows.** `wideArithmeticBelow` promises that
+   `IF(p, x + y, a * b)` and `IF(p, a * b, x + y)` decline alike, naming every operand's rows
+   (`VarkaDecimalArithmeticSuite.wideArithmeticReasons`), but part 1's `pair` arms descended into
+   the branches and stopped at the first that declined. `pair` now asks `wideArithmeticBelow`
+   before its arms, so those trees decline with the reason they did before.
+2. **Part 2: the harness's output buffers.** `VarkaKernelChecks`' long lanes gave a pair store's
+   output the long's eight bytes a row, so a warm-up of a coverage row with one
+   (`VarkaCoverageCompositionFuzzSuite`'s decimal-slot test) would have written past its
+   buffer; both lanes' `outputStride` now give it the sixteen-byte slot. The budget suite's
+   zip accounting counts the pair's store as it counts row 157's.
+3. **This part: the conformance suite over the pair's outputs.** With part 2 the pair's value
+   forms (`if`, `coalesce`, `greatest`, `least` in the round trip, choice and ordering checks)
+   fuse, where they had declined and cancelled; the census owed them, which the suite calls
+   drift. The census marks `dec^` on `if`, `when`, `coalesce`, `nullif`, `greatest`, `negative`
+   and `abs`, and the long representation's suite names the seven in `declinesInPart`, since
+   within 18 digits a decimal output is row 348b's. The slot lane's harness reads no pair output yet (its reference has no
+   one long for one, and its Spark answers are longs), so the suite cancels a check whose fused
+   forms store a pair, naming them and `VarkaDecimalPairSuite`, which holds the same outputs to
+   Spark over the word edges.
+4. **`least` is not marked yet.** The census's check that a fused type has a coverage row with
+   the operator over that operand reads `coverage.json`, which holds no `Least` over a decimal
+   until part 1's and part 2's rows are regenerated into it; the pre-commit hook refused the
+   mark. So until that regeneration the pair suite's ordering check drifts on `least` (it fuses,
+   the census owes it), and the mark and the long suite's `least` entry are owed with the
+   regeneration. `census.tsv` was rewritten by `dev/varka_census.py`, the census's own
+   generator, which the hook required.
+5. **Not changed: the families.** A wide output's negation notes no family, as the long decimal
+   value's negation does not; its choices and picks note theirs as `value` does.
+
+**Run in this window**: `catalyst/Test/compile` passed, and the two conformance suites twice.
+The first run, with three operators marked, named the rest the suite saw fuse: `when`, `nullif`,
+`negative` and `abs` beside `least`. With them marked, the long suite passes, 7 of 7 (two
+checks passing, five cancelled on forms owed elsewhere), and the pair suite fails only
+`ordering`, on `least` (item 4), 6 of 7.
+
+**Owed**: the harness's pair-output path (a reference over two words and a `Decimal` oracle above
+18 digits), which would turn the conformance suite's cancellation into checks; `least`'s mark.
+
+*23 November 2026, rebuilt on master after #1628 (row 348's decimal value outputs):* the long
+suite's owed entries left with #1628, which made those outputs fuse, so it lists none; the pair
+suite owes only the sums and differences (row 360), its choices, picks, negation and `abs` now
+fusing as two-word outputs. The record above describes the tree before that rebuild.
+
+*25 November 2026, merged with master after row 489 (#1692, #1693, #1696):* the node's arms in
+the budget, the cost model, the operand positions, the long-lane reader, the ring rule and the
+word rules are gone; `InterleaveDecimal.props()` states them once: ring `NEVER`, validity
+`Operand(0)` (the low word's, as the old arms read it), weight 3, its record name as the cost
+kind, no restricted position, `LongNarrowReader.NONE`.
+
+*25 November 2026, review of the merged branch:* the forms the pair's conformance suite
+(`VarkaDecimalConformanceSuite`, `DECIMAL(30, 4)`) leaves unchecked are every fused form whose
+output is a pair store: `if`, `CASE`, `coalesce`, `greatest`, `least`, `-x` and `abs(x)` as values,
+in the choice, round-trip and ordering checks. The suite counts them as unverified, neither fused
+nor declined, and cancels with their list after its other cancellations. Row 359 owes the harness
+that would check them (a reference over two words and an oracle answer above 18 digits);
+until then `VarkaDecimalPairSuite.storedValues` holds the same shapes to Spark by reading the
+sixteen-byte slots, at 20 and 38 digits rather than at 30.
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **359b before the pair-load node.** 10.5 names the node as the next part, but its only proof is
@@ -1003,6 +1137,24 @@ faults for row 504 and the op-count test (below).
 5. **Branch cut from master, not from rows 360 to 363's branches**: nothing in this part uses their
    arithmetic; their stacks edit the same `pair` switch, so whichever merges second takes the
    other's arms beside its own.
+6. **The pair's store is one root node of two children**, not the two roots on one output 2.4
+   names: the output binding stays one root an output, and the node is `WidenDecimal`'s shape.
+   It is the one IR node this row adds, against 2.2's "never a pair node", which is about a
+   pair as a value inside the tree; this node is a root and nothing reads it.
+7. **A pair output declines at two long lanes on x86 before any measurement**, by rows 596 and
+   597's rule (the decimal slots' fallback, measured losing for the load); a measured win lifts
+   it.
+8. **The conformance suite cancels the pair's stored forms** rather than gaining a pair-output
+   harness in this window: the harness is long-valued throughout (reference, answers, the seen
+   values), and `VarkaDecimalPairSuite` already holds those outputs to Spark; the cancellation
+   names both, so it cannot pass silently.
+9. **A wide `IN` fuses at most eight values**, half the long's cap of 16: each leaf is three
+   nodes where a long's is one, and eight keeps the 31 op nodes the long cap was sized to under
+   `MAX_FUSED_NODES` for the reference form (`VarkaNodeCompiler.MAX_IN_LITERALS`).
+10. **Two suite runs per part, not one.** Part 2's first run found the projection's width check
+   (fixed, then rerun); part 3's first run named the operators still to mark (marked, then
+   rerun); a last run of `VarkaDecimalPairSuite` on the stack's head covers the review's fixes
+   (the dense bodies, the union reason, the `IN` cap).
 
 ## 11. 359a, the build plan (1 November 2026)
 

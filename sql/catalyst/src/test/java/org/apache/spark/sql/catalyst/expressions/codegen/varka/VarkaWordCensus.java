@@ -191,7 +191,8 @@ public final class VarkaWordCensus {
           : null;
       case MakeDate _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, Cond _,
           CondValue _, VarkaVectorIR.NullValue _, BoolOutput _, GuardedDay _, GuardedRange _,
-          WidenLane _, NarrowLane _, ConvertLane _, ReinterpretLane _, WidenDecimal _ -> null;
+          WidenLane _, NarrowLane _, ConvertLane _, ReinterpretLane _, WidenDecimal _,
+          VarkaVectorIR.InterleaveDecimal _ -> null;
     };
   }
 

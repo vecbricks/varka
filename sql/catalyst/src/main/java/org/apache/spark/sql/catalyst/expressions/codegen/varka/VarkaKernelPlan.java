@@ -238,6 +238,12 @@ public final class VarkaKernelPlan {
       + "C2 lowers no mask or two-vector rearrange there, so the decimal slots' load and check "
       + "and the compare would run the Vector API's Java fallback, slower than the row engine";
 
+  /** The refusal of a decimal output wider than 18 digits at two long lanes (VARKA-359). */
+  public static final String TWO_LANE_DECIMAL_PAIR_OUTPUT_REASON = "a DECIMAL output wider than "
+      + "18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store "
+      + "interleaves its two words with two-vector rearranges, which C2 does not lower there, so "
+      + "the store would run the Vector API's Java fallback, as the decimal slots' load does";
+
   /**
    * The reason the compiler records where it declines a checked operation on a 64-bit lane on
    * the two-lane host: a checked {@code BIGINT} operation (VARKA-104) and the day-time interval
@@ -350,7 +356,14 @@ public final class VarkaKernelPlan {
    * {@code DECIMAL(20, 2)}, on the EPYC 7763 as on the laptop, while {@code l < l2} over
    * {@code BIGINT}, whose load is one plain vector, ran at 1.6X and more, and {@code x < x2} over
    * {@code DOUBLE} tied ({@code m8/results/VARKA-596/}). A refused output leaves the other entries
-   * to fuse.
+   * to fuse. A decimal output of the lane pair ({@link VarkaVectorIR.InterleaveDecimal}) is
+   * refused there too, by the same mechanism and before any measurement: its store is the two
+   * two-vector rearranges the load's split is, and its words read a decimal column's slots in
+   * every form but a constant's (`m8/VARKA-359.md` 10.7). A {@link VarkaVectorIR.WidenDecimal}
+   * store, which interleaves in the same way, is not refused by itself: no measurement shows
+   * that store losing, and this refusal follows the measured losses. The pair's case is the
+   * load's: outside a constant its words come from a column's slots, whose load row 596 measured
+   * at 0.8X of the row path.
    *
    * <p>A check on the long lane is not refused here: the compiler declines the families whose
    * checked forms were measured slower than the row path at two lanes, a checked {@code BIGINT}
@@ -367,6 +380,10 @@ public final class VarkaKernelPlan {
       }
       if (root instanceof VarkaVectorIR.BoolOutput && readsDecimal(root, new HashSet<>())) {
         return Optional.of(new Refusal(Kind.TWO_LANE_CONDITION, TWO_LANE_DECIMAL_VALUE_REASON));
+      }
+      if (root instanceof VarkaVectorIR.InterleaveDecimal) {
+        return Optional.of(new Refusal(Kind.TWO_LANE_CONDITION,
+            TWO_LANE_DECIMAL_PAIR_OUTPUT_REASON));
       }
     }
     return Optional.empty();
@@ -845,7 +862,8 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _,
           VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _,
           VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _, VarkaVectorIR.NullValue _,
-          ConvertLane _, ReinterpretLane _ ->
+          VarkaVectorIR.InterleaveDecimal _, ConvertLane _,
+          ReinterpretLane _ ->
           LongNarrowRole.NONE;
     };
   }

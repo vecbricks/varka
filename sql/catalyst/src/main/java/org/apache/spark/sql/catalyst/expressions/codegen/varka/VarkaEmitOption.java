@@ -182,7 +182,8 @@ public sealed interface VarkaEmitOption
    * leaves it out of the general draws and the option matrix, and the fuzzer's decimal sequences
    * and the steering draw it for a shape that holds the node ({@code VarkaIrFuzzSuite}'s decimal
    * draws, {@code VarkaSteering}). {@code decimalStore} is read by its node, a
-   * {@code WidenDecimal}, itself; {@code decimalAbsLanewise} by a wrapping long-lane {@code abs},
+   * {@code WidenDecimal}, itself, and by the lane pair's {@code InterleaveDecimal}, which this one
+   * class leaves out; {@code decimalAbsLanewise} by a wrapping long-lane {@code abs},
    * which the compiler and the fuzzer build only over a decimal's value, so its node is the
    * {@code DecimalColumn} beneath. A hand-built long-lane {@code abs} over another long is legal
    * IR that reads the flag without one, and no draw or compiled shape builds it. A {@link Choice}
@@ -604,7 +605,10 @@ public sealed interface VarkaEmitOption
           new FlagTag("dropDecimalBound", true)),
       // A machine choice: which of the decimal store's two interleaves is native depends on the
       // host (`VARKA-157.md` 2.2), so the losing arm stays behind the option. Its tag keeps the
-      // default's rendering empty. Only a WidenDecimal root's store reads it.
+      // default's rendering empty. Only a decimal output's store reads it: a WidenDecimal root's
+      // and an InterleaveDecimal root's. readOnlyBy names one class, WidenDecimal, so the
+      // steering (VarkaSteering.mutable) does not draw it for a shape with only a pair's store;
+      // the option matrix still runs decimalStore=SELECT_FROM over it (VARKA-359.md 10.7).
       new Choice<>("decimalStore", Reason.MACHINE, DecimalStore.class, DecimalStore.REARRANGE,
           VarkaEmitOptions::decimalStore, Builder::decimalStore,
           new ChoiceTag("decimalStore="), Optional.of(WidenDecimal.class)),

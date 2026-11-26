@@ -291,7 +291,7 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | `LongType` (`bigint`) | LONG | 85 | 60 | 2 | plumbing 5, semantics 18 | 0 | 90 |
 | `FloatType` (`float`) | FLOAT | 66 | 36 | 2 | plumbing 5, semantics 23 | 0 | 62 |
 | `DoubleType` (`double`) | DOUBLE | 102 | 62 | 2 | plumbing 4, semantics 24, ulp 10 | 0 | 93 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 30 | plumbing 3, semantics 29 | 3 | 103: 78 to precision 18, 25 at precision 19 to 38 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 30 | plumbing 3, semantics 29 | 3 | 110: 78 to precision 18, 32 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 49 | 1 | plumbing 1, semantics 12 | 0 | 107 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 49 | 0 | plumbing 1, semantics 4 | 0 | 75 |
 | `TimeType` (`time`) | LONG | 49 | 34 | 3 | plumbing 1, semantics 11 | 0 | 47 |
@@ -1535,6 +1535,18 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `greatest(d38, d38b) > 0.00` | `predicate`, `intArithmetic` |  | keeps the running pick where the next operand is null or where both are valid and the pick is not smaller, once per word | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `least(d38, d19) <= 0.00` | `predicate`, `intArithmetic` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
+#### DECIMAL lane pair values
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `-d38` | none |  | lo' = -lo and hi' = ~hi + (lo = 0), stored as the two words | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `abs(d38)` | none |  |  | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `IF(d18 > 0.00, d38, d38b)` | `predicate`, `condition` |  | each word chosen under one condition | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `CASE WHEN d38 < 0.00 THEN d38b END` | `predicate`, `condition` |  | a missing ELSE is a null in each word | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `coalesce(d38, d19)` | `condition` |  |  | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `greatest(d38, d38b)` | `intArithmetic` |  |  | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+| `least(d38, d38b, d19)` | `intArithmetic` |  |  | not emitted: a DECIMAL output wider than 18 digits, on an x86 host whose 64-bit species have two lanes or fewer: its store interleaves its two words with two-vector rearranges, which C2 does not lower there, so the store would run the Vector API's Java fallback, as the decimal slots' load does |
+
 #### DECIMAL arithmetic
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
@@ -1631,7 +1643,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 39 | 0 | 0 | 0 | 13 | 0 | 26 |
 | `byte` | 57 | 0 | 0 | 0 | 0 | 8 | 49 |
 | `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
-| `dec` | 105 | 1 | 50 | 14 | 0 | 0 | 40 |
+| `dec` | 112 | 1 | 50 | 16 | 0 | 0 | 45 |
 | `double` | 108 | 0 | 0 | 1 | 0 | 0 | 107 |
 | `dt` | 39 | 2 | 0 | 7 | 0 | 0 | 30 |
 | `float` | 63 | 0 | 0 | 0 | 0 | 0 | 63 |
