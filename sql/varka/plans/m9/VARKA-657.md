@@ -415,6 +415,10 @@ the catalogue's item 127 records; this family adds a reader and does not move th
 form that is slower than the row path there declines by a recorded refusal (the owner's decision
 15 of `m9/PLAN.md`); the kept-offset form is the known candidate (2.3).
 
+The step with no mask is exact only where the span of a batch fits a long (section 5), so a
+kernel of this arm declines a batch whose span does not. Row 689 builds that decline and needs
+the proof file of row 684 first.
+
 ### 3.9 What several fields share
 
 - **Inside a method** `hour(ts)`, `minute(ts)` and `CAST(ts AS DATE)` hold one `ToLocal(ts)`,
@@ -504,9 +508,10 @@ listed or killed.
 
 Proofs (`sql/varka/proofs/`, rendered by `VarkaProofFiles`, both solvers):
 
-- `zone_step.smt2`: for 64-bit `x`, `at` and `delta` within the bounds of 3.6, the step with no
-  mask equals the compare and select, and `at - 1 - x` does not overflow; the file finds the
-  first bound at which it would.
+- `zone_step.smt2`: the step with no mask equals the compare and select where `at - 1 - x` is
+  a long. The bounds of 3.6 do not give that: it holds where the span of the batch, greatest
+  less least, fits a long (`VARKA-684.md` 2.4, with a witness). The file proves it over that
+  bound and finds where it first fails. The masked step is exact for every long.
 - `zone_bucket.smt2`: the bucket index of an instant inside the table's range is inside the
   table, and the packed bucket's two offsets unpack to the values that were packed.
 - The equality with `java.time` is not an SMT claim: it is a property of the JVM's data, held by

@@ -17,8 +17,9 @@ budget, each of its planted faults fails a named test, and both fuzzers draw a z
 
 **What it gives the rows after it.**
 
-- Row 690 adds `ToInstant` and `ToInstantKept` as two more cases of `VarkaZoneKernels.Rule`
-  (4.1), two more planted faults, and the there-and-back check. It writes no harness.
+- Row 690 adds three more cases of `VarkaZoneKernels.Rule` (4.1): `ToInstant` under `EARLIER`,
+  `ToInstant` under `GAP_END` and `ToInstantKept`, which are three roots with three argument
+  runs. It adds two more planted faults, and the there-and-back check. It writes no harness.
 - Row 689 needs part 2 merged first: its step with no mask is exact only under the bound that
   `zone_step.smt2` proves (2.4), and the sweep's wide-span test fails a kernel that ignores it.
 - Rows 685 and 686 run the sweep over their forms: row 686 adds `TABLE` to the sweep's list.
@@ -91,7 +92,8 @@ as the formula says, for every long (the lowering). This row shows both, with fi
 
 ### 2.3 The names
 
-Read, from rows 682, 683, 678 and 657, as the zone rows' shared contract has them:
+Read, from rows 682, 683, 678 and 657, as `VARKA-657.md` section 3 and those rows' plans have
+them:
 
 | name | meaning |
 | :--- | :--- |
@@ -119,7 +121,8 @@ Added by this row:
 
 ### 2.4 The step with no mask has a bound of its own
 
-Found while this plan was written, and now in the contract. `((at - 1 - x) >> 63) & delta`
+Found while this plan was written. This pull request corrects `VARKA-657.md` (3.8 and section
+5) and row 689 of `m9/PLAN.md` for it. `((at - 1 - x) >> 63) & delta`
 equals `x >= at ? delta : 0` exactly where `at - 1 - x` is a long. The bounds of
 `VARKA-657.md` 3.6, an instant 18 hours inside a long's ends, do not give that. With
 `x = Long.MIN_VALUE + 18 h` and a change `at` one microsecond past 18:00 on 1 January 1970,
@@ -269,7 +272,7 @@ time. Each answered as 4.6 expects.
 
 **What could not be checked.** No name of 2.3's first table is on master
 (`git grep -w -c 'ToLocal\|VarkaBatchArgs\|VarkaZoneData' -- sql/catalyst/src sql/core/src`
-prints nothing). Six names that this row calls are not in the contract. Each sheet's B0 prints
+prints nothing). Six names that this row calls are in no merged plan yet. Each sheet's B0 prints
 them, and the sheet calls each at one place:
 
 - the fill of a program in catalyst, read here as `boolean Program.fill(VarkaZoneData data,
@@ -292,7 +295,7 @@ JVM run was allowed for it; the suite prints both), and every time of section 7.
 One final class in catalyst's tests. Every check is a function of a `Spec` and returns a
 `Report`, so that the planted suite runs the real check on a broken input.
 
-    interface Rule {                      // one conversion; row 690 adds two
+    interface Rule {                      // one conversion; row 690 adds three
       String name();                      // "ToLocal", in messages
       VarkaVectorIR root();               // over ColumnRef(0, LONG), zone index 0
       long[] points(ZoneOffsetTransition change, Points which);   // operands, ascending
@@ -503,9 +506,14 @@ Row 690 adds two: `min` for `max` in a local threshold (a wrapper) and the kept 
   saving, a half-hour change, a 45-minute offset, a skipped day, five changes in 365 days.
 - `Case` gains `zone: Option[String] = None`. `drawRows` sets it to `order(iteration % 7)`,
   where `order` is `Zones` shuffled by `new Random(seed ^ ZoneSalt)`. The main stream is not
-  touched, so a seed's outputs, filter, data, mode and pivot stay as they were.
+  touched, so a seed's outputs, filter, mode and pivot stay as they were. Its data stays too,
+  but for the date cells of a zone composition, below.
 - A *zone composition* is one whose zone has a change between 1970 and 2037 and whose
-  `(iteration / 7) % 2` is 0. From a stream of its own (`seed * 1000003L + iteration +
+  `(iteration / 7) % 4` is 0: about 5 compositions in 28. In those the drawn dates are lost:
+  every date sits within a day of one change, so a date or `TIMESTAMP_NTZ` bug that needs a
+  hostile or far-apart date is not reached there, and the compositions of an existing seed
+  change on those iterations. Risk 8 holds this; the other 23 in 28 keep their dates. From a
+  stream of its own (`seed * 1000003L + iteration +
   ZoneSalt`) it gains one projection among the coverage rows whose switches hold the `ZONE`
   family's, and its date cells (columns `d` and `d2`; the NULLs stay, the pivot row follows)
   move to the day before, the day of and the day after one change of its zone, read from
@@ -540,8 +548,10 @@ Row 690 adds two: `min` for `max` in a local threshold (a wrapper) and the kept 
   a `LaneSource` of that bound. Then, from `ownStream(zoneSeed, k, "zone")`, it draws one zone
   id an index from `VarkaZoneKernels.FUZZ_ZONES` (the seven of 4.8, which `VarkaSparkFuzz.Zones`
   reads), and a range for each column. The range's centre is a change of one of the zones
-  inside the bound, or any instant for a zone with none; its half width is `1L <<
-  nextInt(51)`. One cell in four is the centre, less 1, or plus 1; the others are uniform in
+  inside the bound, or any instant inside the bound for a zone with none; its half width is
+  `1L << nextInt(51)`. The range is then clamped to plus and minus `ZONE_COLUMN_BOUND`, as 4.10
+  clamps its range, so that no cell leaves the bound the grammar drew the tree under. One cell in
+  four is the centre, less 1, or plus 1; the others are uniform in
   the range. The options are the general draw's and `zoneForm`.
 - **The fill.** For each program of `VarkaBatchArgs.layout(roots, lits.length, options)`: its
   operand's column, the least and greatest of that column's rows that are not null, then
@@ -569,7 +579,9 @@ hours, and uniform; one row in ten null.
 
 - Test 1, "a random zone, range and instants: the fill answers exactly when the form covers the
   range, and its arguments give java.time's local time on every row". The changes in
-  `(least, greatest]` are counted by `ZoneRules.nextTransition`. Outside Spark's range a
+  `(least, greatest]` are counted by `ZoneRules.nextTransition`, and the count stops at the
+  form's steps plus one, since a wide range in the rule era holds hundreds of thousands. A zone
+  with no change takes any range inside Spark's range. Outside Spark's range a
   decline is accepted too. A scalar loop adds `base` and each `delta[i]` where `x >= at[i]`.
 - Test 2, "the same zones, ranges and instants through the kernel of the drawn form".
 - Test 3, "the draws reach every form, a range with no change, a range that ends on a change,
@@ -585,7 +597,8 @@ Each sheet follows `m8/BUILD_SHEETS.md` in full: the worktree, the hooks, the lo
 linters, one commit, no push. Each shell also exports
 `JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64`. The row's line is in
 `sql/varka/plans/m9/PLAN.md`. This file is `m9/VARKA-684.md`; the lead merges it in a plan-only
-pull request before part 1, so no part counts its lines. The size check counts no SMT-LIB file.
+pull request before part 1, so no part counts its lines; that pull request sets the row to
+`**Planned**`. The size check counts no SMT-LIB file.
 `V`, `T`, `TS` and `S` are section 3's.
 
 ### 5.1 Part 1: the sweep and the metamorphic checks
@@ -617,7 +630,8 @@ the Outcome. If `VarkaBatchArgs` has no fill, or the 18-hour bound is no constan
 2. Add `$T/VarkaZoneSweepSuite.java`: the eleven tests of 4.3 under the names written there,
    and the printed line of 4.5. A test fails by `Assertions.fail`, never `throw new ...Error`.
 3. Plant by hand, and revert by `git checkout -- <file>`: add 1 in `TO_LOCAL.expected`. Command
-   2 must then fail tests 2 to 5 and pass tests 1, 6, 7, 8, 10 and 11.
+   2 must then fail tests 2 to 5 and test 9, which compares answered rows with the oracle, and
+   pass tests 1, 6, 8, 10 and 11. Test 7 compares the fill's verdict only, so it passes too.
 4. Edit row 684 of `m9/PLAN.md`: it opens with `**Started**` and says parts 2 and 3 are left.
 
 **Tests.** The first three rows of section 6.
@@ -698,7 +712,7 @@ stop and report.
         # varka_prove: every proof holds under z3 cvc5
     flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaProofFilesSuite *VarkaZonePlantedFaultSuite *VarkaZoneSweepSuite'
         # [info] Tests: succeeded 1, failed 0, canceled 0, ignored 0, pending 0
-        # [info] Passed: Total 17, Failed 0, Errors 0, Passed 17
+        # [info] Passed: Total 18, Failed 0, Errors 0, Passed 18
     git diff --exit-code -- sql/varka/emitted_bytes.json                   # exit 0
 
 **Done when** the commands print as above and the Outcome holds both solvers' times. A check
@@ -759,7 +773,7 @@ is taken, use the build day's date.
     the main class `...codegen.varka.VarkaSuiteRunner`, and `-s` the suite's class.
 11. Row 684 of `m9/PLAN.md` opens with `**Done**`.
 
-**Tests.** The last four rows of section 6.
+**Tests.** The last three rows of section 6.
 
 **Commands**, in order.
 
@@ -849,7 +863,8 @@ is test time and proof time. The calibration table was read on 26 November 2026
 5. *The planted suite* takes under 5 s in the Build, and each of its five faults fails its
    check at the first attempt: yes.
 6. *The property suite* takes under 5 s at 20000 cases in the Build, and under 2 minutes at
-   2,000,000 cases in the nightly.
+   2,000,000 cases in the nightly, with the count of changes stopped at the form's steps plus
+   one: at most 9 calls of `nextTransition` a case.
 7. *The fuzzers.* The zone sequence adds under 15 s to `VarkaIrFuzzSuite` at 300 iterations.
    The zone adds nothing measurable to `VarkaSparkFuzzSuite`: under 5% by the minimums of three
    runs, as the calibration rows of VARKA-298 and VARKA-381 found for their additions.
@@ -874,7 +889,7 @@ a sibling of a merged kernel, and `m9/PLAN.md` 2.7's generated plan has no templ
 ## 9. Risks
 
 1. **The plan was written before the rows it builds on.** B0 holds each name, a premise that
-   fails stops the part, and section 3 lists the six names outside the contract.
+   fails stops the part, and section 3 lists the six names that no merged plan holds yet.
 2. **The oracle shares a bug with the zone data.** Both read `ZoneRules`. The oracle is
    `getOffset` on every instant, the call Spark's row engine makes. Tests 10 and 11 use no
    oracle, and the property suite counts changes on its own.
@@ -887,7 +902,9 @@ a sibling of a merged kernel, and `m9/PLAN.md` 2.7's generated plan has no templ
    the mismatch as fields, and takes its expected instant from `ZoneRules`.
 6. **A step with no mask answers past its bound.** Check 6 and test 9; row 689 needs part 2.
 7. **The Spark fuzzer's zone only declines.** The zone compositions, and the census's guard.
-8. **A draw moves a committed corpus.** The zone has a seed, a salt and streams of its own.
+8. **A draw moves a committed corpus.** The zone has a seed, a salt and streams of its own. A zone
+   composition replaces its dates (4.8): 5 compositions in 28 lose the drawn dates, by design, and
+   the plan says what they no longer reach.
    `emitted_bytes.json` must not move in any part, and a test holds the main stream.
 9. **The mutation run cannot use the sweep.** Fact 12. Section 6 says what the run still shows.
 10. **A second species in the shared JVM.** The sweep emits at the JVM's own lanes only.
