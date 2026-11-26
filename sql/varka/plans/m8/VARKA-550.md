@@ -191,6 +191,12 @@ Medium: two pull requests.
    *8 November 2026, by the owner's word:* yes. Row 550 lands before 551's PR 3; 551's PR 1 and PR 2
    may land before it.
 
+3. **(Added 20 November 2026, unanswered.) How should a narrow-driven kernel's epilogue be served
+   where its lane count is not baked** (11, item 5): (a) bake 32 and 64 narrow lanes, (b) unroll to
+   the emitting JVM's preferred count, or (c) an epilogue-only scratch form? **Recommended (c)**:
+   it moves only the epilogue, reads nothing from the host and costs no budget per row; (a) is the
+   larger change and needs its own pair.
+
 ## 9. Done when
 
 The width audit at the preferred width, run under `-XX:UseAVX=2` on 255 rows, reports no masked subword
@@ -200,4 +206,91 @@ matrix pass.
 
 ## 10. Outcome
 
-Not started.
+### 10.1 Part 1, the audit (20 November 2026, built locally, not run)
+
+Built on `varka-550-narrow-epilogue-avx2` from master at `6ac76f86cb3`, in the window the owner
+set on 20 November 2026 (implementation first, tests and CI later).
+
+- **The probe runs each shape in two phases.** `VarkaWidthAuditProbe` keeps its 20,000 dense and
+  masked calls at 256 rows, then prints `VARKA_AUDIT_EPILOGUE_PHASE` and makes as many again at
+  255 rows (`raggedRows`), with the null count of the rows the shorter batch holds (row 255 is one
+  of the `r % 7 == 3` nulls, so it is one fewer). Section 2.1 had the two row counts interleaved;
+  they are not, so that what C2 prints after the marker and did not print before it is the code
+  only a ragged batch reaches. Its **[A]** holds: the inputs and outputs are sized for 256 rows,
+  which a 255-row batch reads inside of.
+- **The suite tells the epilogue's refusals from the body's.** `VarkaWidthAuditSuite` keeps, per
+  shape, the refusal lines first printed after the marker (`epilogueOnly`). The preferred-width
+  invariant admits a masked `BYTE` or `SHORT` load or store (`op=loadMasked` or `op=storeMasked`,
+  `etype=byte` or `etype=short`, `vectorIntrinsics.cpp:1065`) only where it is one of those
+  (`knownEpilogueRefusal`), and logs every such shape and line: that log, from an AVX2 run, is the
+  work list of 2.2. The allowance is keyed on the probe's feature list, as the converts' is: it
+  holds only on an x86 JVM whose list was read and lacks `avx512bw` (HotSpot clears that flag
+  under `-XX:UseAVX=2`, `vm_version_x86.cpp:996-1000`, so the laptop's `UseAVX=2` run is keyed
+  as an AVX2 host), from the high review of 23 November 2026. A unit test holds the allowance in
+  both directions. The allowance stays
+  until the narrow-driven epilogues at unbaked counts are served too (11, item 5), since part 2
+  leaves those masked.
+- **Where the plan was likely wrong.** Section 5 has `width_audit.json` "regenerated with its
+  refusals". The committed census is the laptop's (AMD Ryzen AI 9 HX PRO 370, `use_avx` 3), and
+  AVX-512BW lowers the masked subword forms, so its regeneration is expected to gain no masked
+  subword line at 256 and 512 bits **[A]**; the work list is visible on an AVX2 runner and on
+  the laptop under `JDK_JAVA_OPTIONS=-XX:UseAVX=2`, neither of which writes the committed file,
+  so the list is the log line rather than the file, and test 3.1's "lists the refusals" is read
+  from the `UseAVX=2` run's log. The regeneration is still owed, and its 128-bit column may move:
+  the second phase runs epilogues the probe never ran, and the census already records that two
+  long lanes lower no long mask, so the epilogues of long kernels there may add lines, which
+  `VarkaCoverageSuite` renders into the coverage table's 128-bit column. Unread until the
+  regeneration runs.
+- **Prediction P5, registered before any run** (the calibration table's ratios run from 0.03 to
+  5, median about 1): each probe takes 20 to 60% longer, since the second phase recompiles each
+  shape's epilogue methods after their cold remainder branch traps, and the probes are mostly
+  compile time **[A]**. The slowest runner probe was 252 s against the 600 s child budget, so the budget
+  holds even at the top of the range. Unscored: no probe ran in this window.
+
+Not run in this window (owed): the suite itself, on the laptop and under `UseAVX=2`; P1.
+
+## 11. Decisions taken while the owner was away (20 November 2026)
+
+The owner set an implementation-first window on 20 November 2026 with no one to ask; each
+decision below is the option the plan, `AGENTS.md` and the plan's own recommendations favour.
+
+1. **The probe's two row counts run one after the other, not side by side** (2.1 had them
+   beside each other). Interleaved, the epilogue's refusals would print among the loop body's and
+   could not be told apart; in sequence, what C2 prints after the marker and not before is the
+   code only a ragged batch reaches.
+2. **Part 1's allowance is a kind, not a list of shapes.** The plan has the suite expect the
+   refusals "for the named shapes", which needs an AVX2 run to name them, and none can run in this
+   window. The allowance admits a masked `BYTE` or `SHORT` load or store only where the shape's
+   epilogue phase alone printed it, so a loop body's refusal of that kind still fails, and every
+   admitted line is logged as the work list.
+3. **An int kernel's `TINYINT` root at four int lanes keeps the masked store in its loop body:
+   stated out, not served** (2.3 said served by the epilogue's row form). Since the plan was
+   written, `NarrowGroupStore.COMBINED` (VARKA-603) serves that store whole with no mask, and
+   `MASKED` is the default and the losing arm VARKA-603's pair measures against; giving `MASKED`
+   the row form would remove the reference that pair reads. No x86 host prefers 128 bits (2.3),
+   so the audit's preferred width never meets it. Its epilogue does take the row form.
+4. **A long kernel at two long lanes stores a narrow root one row at a time in its loop body**,
+   under the same predicate that reads a narrow column so there (`narrowRowsInBody`, row 575), as
+   2.3 says; with no baked count the masked form stays, as 2.3 states out.
+5. **The narrow-driven epilogues at an unbaked count are not served in part 2, and need the
+   owner.** Section 2.2 assumed a `BYTE` kernel bakes 32 lanes at 256 bits and 64 at 512; it does
+   not. `Lane.emitLanes` bakes a count only where `VarkaVectorSupport` has width-specialised
+   validity helpers, 2 to 16 lanes, so a `BYTE` kernel at 256 or 512 bits and a `SHORT` kernel at
+   512 run on `SPECIES_PREFERRED` with `analysis.lanes == 0`, and the row form has no count to
+   unroll to. 2.3's **[A]** that an unbaked count occurs only in the evaluator's width sweeps is
+   wrong for these lanes: it is the default emission of every all-narrow tree on x86 (the native
+   arm is the default). So on an AVX2 runner a `BYTE`-driven kernel's epilogue still loads and
+   stores under the masked forms after part 2, and the done-when does not hold. The ways open,
+   none taken here:
+   - (a) bake 32 and 64 narrow lanes by adding the helpers: every such kernel's loop body moves on
+     every host (species constant, validity calls), against 2.4 and P2, and it is a hot-path change
+     no measurement in this window could price;
+   - (b) unroll the epilogue to the emitting JVM's preferred count: the emitted bytes would then
+     depend on the host, against 2.4;
+   - (c) an epilogue-only form that needs no count, such as copying the remainder rows to a zeroed
+     scratch buffer and loading it whole.
+   The budget bounds (a) and (b): `methodByteBudget` defaults to `VarkaEmitBudget.HUGE_METHOD_LIMIT`,
+   8,000 bytecode bytes, not the 64 KiB P3 assumed; the row form costs about 25 to 30 bytes a row
+   (read off `emitNarrowRowsLoad` and `emitNarrowRowsStore`), so about 1.8 KB a narrow load or
+   store at 64 rows, and a shape with four narrow operations in one epilogue method is near the
+   budget before its other work. Question 8.3.

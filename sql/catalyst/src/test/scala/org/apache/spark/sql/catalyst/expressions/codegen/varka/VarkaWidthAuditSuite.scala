@@ -53,7 +53,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditPr
  *  - **an invariant, on every host:** at the host's own preferred width, no coverage row and
  *    no construction other than the opt-in magic form meets a `not supported` refusal, save
  *    the one the design already records - the 64-bit lane's converts without AVX512DQ, see
- *    `knownConversionRefusal`. A failure names the shape, the operation and the CPU, which is
+ *    `knownConversionRefusal` - and the masked subword loads and stores of the epilogues that
+ *    only a batch no lane count divides reaches, see `knownEpilogueRefusal`. Each shape runs a
+ *    second phase at such a length so its epilogue is audited at all (VARKA-550). A failure
+ *    names the shape, the operation and the CPU, which is
  *    what a per-lane rate never does. The other two kinds of line C2 prints are recorded but not
  *    asserted on; see `isRefusal`;
  *  - **a census, pinned:** `sql/varka/width_audit.json` records every width's refusals for
@@ -92,7 +95,8 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
    */
   private case class Census(preferredBits: Int, useAVX: Int, conversionsFallBack: Boolean,
       featuresFailure: Option[String], refusals: Map[String, Seq[String]],
-      declined: Map[String, String], unattributed: Seq[String])
+      declined: Map[String, String], unattributed: Seq[String],
+      epilogueOnly: Map[String, Set[String]], subwordMasksFallBack: Boolean)
 
   private val cpuModel: String = {
     val info = new File("/proc/cpuinfo")
@@ -130,11 +134,15 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     val refusals = mutable.LinkedHashMap.empty[String, mutable.LinkedHashSet[String]]
     val unattributed = mutable.LinkedHashSet.empty[String]
     val declined = mutable.LinkedHashMap.empty[String, String]
+    // Per shape, the lines printed after its epilogue marker that its first phase did not print.
+    val epilogueOnly = mutable.LinkedHashMap.empty[String, mutable.LinkedHashSet[String]]
     var current: Option[String] = None
+    var inEpilogue = false
     var bits = -1
     var useAVX = VarkaEmitOptions.USE_AVX_UNKNOWN
     var fallsBack: Option[Boolean] = None
     var featuresFailure: Option[Option[String]] = None
+    var features = ""
     var done = false
     val child = s"${probe.name} ($suiteName)"
     val run = VarkaChildProcess.run(child, new ProcessBuilder(command), childTimeoutSeconds, {
@@ -151,10 +159,12 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         // after it is left out; a line without the end mark reads as an unknown failure.
         featuresFailureIn(line).foreach(f => featuresFailure = Some(f))
         VarkaProbeOutput.after(line, FEATURES_PREFIX).foreach { f =>
-          logInfo(s"the audit probe's JVM reports the features: ${f.trim}")
+          features = f.trim
+          logInfo(s"the audit probe's JVM reports the features: $features")
         }
         VarkaProbeOutput.between(line, SHAPE_BEGIN_PREFIX, SHAPE_NAME_END).foreach { name =>
           current = Some(name)
+          inEpilogue = false
           refusals.getOrElseUpdate(name, mutable.LinkedHashSet.empty)
         }
         // The compiler's decline belongs to the shape whose markers it sits between, and it is
@@ -164,6 +174,7 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         }
         if (VarkaProbeOutput.has(line, SHAPE_END_PREFIX)) {
           current = None
+          inEpilogue = false
         }
         if (VarkaProbeOutput.has(line, DONE)) {
           done = true
@@ -171,9 +182,18 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         if (trimmed.startsWith("** ")) {
           val what = trimmed.stripPrefix("** ").trim
           current match {
-            case Some(name) => refusals(name) += what
+            case Some(name) =>
+              if (inEpilogue && !refusals(name).contains(what)) {
+                epilogueOnly.getOrElseUpdate(name, mutable.LinkedHashSet.empty) += what
+              }
+              refusals(name) += what
             case None => unattributed += what
           }
+        }
+        // After the refusal check, so a loop-body refusal the marker is glued onto stays in the
+        // first phase.
+        if (VarkaProbeOutput.has(line, EPILOGUE_PHASE)) {
+          inEpilogue = current.isDefined
         }
     })
     run.requireSuccess(done)
@@ -181,7 +201,9 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(fallsBack.isDefined, s"${probe.name} never reported whether its converts fall back")
     assert(featuresFailure.isDefined, s"${probe.name} never reported its feature read")
     Census(bits, useAVX, fallsBack.get, featuresFailure.get,
-      refusals.map { case (k, v) => k -> v.toSeq }.toMap, declined.toMap, unattributed.toSeq)
+      refusals.map { case (k, v) => k -> v.toSeq }.toMap, declined.toMap, unattributed.toSeq,
+      epilogueOnly.map { case (k, v) => k -> v.toSet }.toMap,
+      subwordMasksFallBack(featuresFailure.get, features))
   }
 
   private val preferredProbe = Probe("the audit probe at the host's preferred width", None)
@@ -330,6 +352,34 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
       (line.contains("etype2=double") || line.contains("etype2=long"))
 
   /**
+   * The refusal a host without AVX-512BW meets in the epilogue of a kernel that moves a narrow
+   * value under a mask: C2 has no x86 lowering of a masked `BYTE` or `SHORT` store, nor of a
+   * masked one's load past a segment's end, there (`x86.ad` refuses `LoadVectorMasked` and
+   * `StoreVectorMasked` for a subword type without `avx512bw`), and prints
+   * `op=loadMasked` or `op=storeMasked` with `etype=byte` or `etype=short`. Only the epilogue
+   * phase's batches reach those calls, so the line is admitted where that phase alone printed it
+   * for the shape, `epilogueOnly`, and nowhere in a loop body. The int-driven and narrow-driven
+   * epilogues still take the masked forms; they are row 550's work list (`VARKA-550.md` 2.2).
+   */
+  private def knownEpilogueRefusal(
+      subwordMasksFallBack: Boolean, epilogueOnly: Set[String], line: String): Boolean =
+    subwordMasksFallBack && epilogueOnly.contains(line) && maskedSubwordMemory(line)
+
+  /**
+   * Whether the probe's host is known to lack AVX-512BW: an x86 JVM whose feature list was read
+   * and does not name it. An unread list admits nothing, as for the converts.
+   */
+  private def subwordMasksFallBack(featuresFailure: Option[String], features: String): Boolean =
+    VarkaHostIsa.isX86(System.getProperty("os.arch", "")) && featuresFailure.isEmpty &&
+      features.nonEmpty && !VarkaHostIsa.hasFeature(features, "avx512bw")
+
+  /** Whether `line` is C2's refusal of a masked `BYTE` or `SHORT` load or store. */
+  private def maskedSubwordMemory(line: String): Boolean =
+    line.startsWith("not supported: op=") &&
+      (line.contains("op=loadMasked ") || line.contains("op=storeMasked ")) &&
+      (line.contains(" etype=byte ") || line.contains(" etype=short "))
+
+  /**
    * The declines the committed census records for one width, shape to the reason the file keeps
    * behind its `declined:` prefix, the same shape a live census's `declined` map has. Empty when
    * the file or the width is absent, and empty at 128 bits since the part-form widening load:
@@ -461,9 +511,22 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
             "the fork's --add-exports of java.base/jdk.internal.vm.vector is missing:\n" +
             converts.toSeq.distinct.map(o => s"    ** $o").mkString("\n"))
       }
+    // The epilogues' masked subword refusals, admitted below, logged as the work list they are.
+    val epilogueWork = census.epilogueOnly.map { case (name, ops) =>
+      name -> ops.filter(maskedSubwordMemory)
+    }.filter(_._2.nonEmpty)
+    if (epilogueWork.nonEmpty) {
+      logInfo(s"on $cpuModel at ${census.preferredBits} bits (UseAVX ${census.useAVX}), " +
+        s"${epilogueWork.size} shape(s) refuse a masked subword load or store in their " +
+        "epilogue alone:\n" + epilogueWork.toSeq.sortBy(_._1).map { case (n, ops) =>
+          s"  $n\n" + ops.toSeq.sorted.map(o => s"    ** $o").mkString("\n")
+        }.mkString("\n"))
+    }
     val refused = census.refusals.map { case (name, ops) =>
+      val epilogue = census.epilogueOnly.getOrElse(name, Set.empty[String])
       name -> ops.filter(o =>
-        isRefusal(o) && !knownConversionRefusal(census.conversionsFallBack, o))
+        isRefusal(o) && !knownConversionRefusal(census.conversionsFallBack, o) &&
+          !knownEpilogueRefusal(census.subwordMasksFallBack, epilogue, o))
     }.filter { case (name, ops) => ops.nonEmpty && !name.contains(magicForm) }
     assert(refused.isEmpty,
       s"on $cpuModel at ${census.preferredBits} bits (UseAVX ${census.useAVX}), C2 refused a " +
@@ -644,6 +707,22 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         cancel(s"$jvm's JDK has no usable HotSpot feature query: $text")
       }
     }
+
+  test("a masked subword load or store is admitted only where the epilogue alone refused it") {
+    // The preferred-width invariant's second allowance (VARKA-550): the line C2 prints for a
+    // masked byte store without AVX-512BW passes where the shape's epilogue phase alone printed
+    // it, and fails where the loop body's phase printed it too, or on a host with AVX-512BW, as
+    // any other refusal does.
+    val store = "not supported: op=storeMasked vlen=8 etype=byte mismatched_ms=0"
+    val load = "not supported: op=loadMasked vlen=16 etype=short mismatched_ms=0"
+    val intStore = "not supported: op=storeMasked vlen=8 etype=int mismatched_ms=0"
+    assert(knownEpilogueRefusal(subwordMasksFallBack = true, Set(store, load), store))
+    assert(knownEpilogueRefusal(subwordMasksFallBack = true, Set(store, load), load))
+    assert(!knownEpilogueRefusal(subwordMasksFallBack = false, Set(store, load), store))
+    assert(!knownEpilogueRefusal(subwordMasksFallBack = true, Set(load), store))
+    assert(!knownEpilogueRefusal(subwordMasksFallBack = true, Set(intStore), intStore))
+    assert(!knownEpilogueRefusal(subwordMasksFallBack = true, Set.empty, store))
+  }
 
   test("the converts' refusal is admitted only where the host says its converts fall back") {
     // Test 3.5 of VARKA-538: the key is the host's answer, so a fallback host reported as

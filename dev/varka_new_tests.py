@@ -73,6 +73,10 @@ VARKA_SUITE_MARKER = re.compile(r"^@VarkaSuite\b", re.M)
 # Suites that measure the JIT rather than answers run alone and unsanitized
 # (dev/varka_scoped_suites.sh); their new tests are listed but not rerun here.
 TIMING_SUITES = ("VarkaAssemblySuite", "VarkaTierWitnessSuite", "VarkaWarmupEndToEndSuite")
+# Suites whose fixture costs far more than any test of theirs: VarkaWidthAuditSuite's beforeAll
+# forks five probe JVMs, up to 252 s each on a runner, for whichever test is asked for. Five
+# rounds of one new test there ran past the job's limit, so its new tests are not rerun either.
+COSTLY_FIXTURE_SUITES = ("VarkaWidthAuditSuite",)
 RUNNER = "org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteRunner"
 BASE_REPO = "vecbricks/varka"
 FIX_LABEL = "fix"
@@ -369,7 +373,13 @@ def cmd_list(args):
 
 
 def rerunnable(found):
-    return [(s, n) for s, n in found if s.rsplit(".", 1)[-1] not in TIMING_SUITES]
+    """The new tests the rounds run: not those of a timing suite or of a costly fixture.
+
+    >>> rerunnable([("p.A", "x"), ("p.VarkaAssemblySuite", "y"), ("p.VarkaWidthAuditSuite", "z")])
+    [('p.A', 'x')]
+    """
+    left_out = TIMING_SUITES + COSTLY_FIXTURE_SUITES
+    return [(s, n) for s, n in found if s.rsplit(".", 1)[-1] not in left_out]
 
 
 def in_share(found, build_dir):
@@ -410,7 +420,10 @@ def cmd_rerun(args):
     found = in_share(found, args.build_dir)
     tests = rerunnable(found)
     for suite, name in sorted(set(found) - set(tests)):
-        say("::notice::%s: %s is in a timing suite, which runs alone; not rerun" % (suite, name))
+        say(
+            "::notice::%s: %s is in a suite that runs alone or has a costly fixture; not rerun"
+            % (suite, name)
+        )
     if not tests:
         say("new tests of %s: none to rerun" % args.module)
         return 0
