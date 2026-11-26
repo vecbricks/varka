@@ -13,32 +13,28 @@ row's storage outside the table reads no memory outside it, and the packed table
 against three gathers.
 
 It builds the form `TABLE` of the emit option `zoneForm`, for `ToLocal` (an instant to the
-local time). A batch whose range holds more changes of offset than 8 steps cover takes it.
+local time), and `TABLE_SCALAR`, the same table read with no gather. A batch whose range
+holds more changes of offset than 8 steps cover takes `TABLE`.
 
-What it gives the rows after it:
+What it gives the rows after it: to rows 690 and 693, the bucket's constants, the packing
+and the kernel's read of a table (4.9); to row 691 (the forms measured), the form in
+kernels, the benchmark class, the threshold `VarkaZoneTable.tableFromChanges`, and the form
+`TABLE_SCALAR`, which that row puts on the ladder for a host with no gather if it wins (4.7).
 
-- row 690 (`ToInstant`, a local time to an instant): the bucket's constants, the packing and
-  the kernel's read of a table, to build the table of the local time line on (4.9);
-- row 691 (the forms measured): the form in kernels, the benchmark class, and the threshold
-  `VarkaZoneTable.tableFromChanges`, which that row sets for each width.
-
-What must be merged before it starts: rows 682 and 683 (`ToLocal`, the batch arguments, the
-lowering, the runner's fill), row 657 with row 678 that it needs (the first zoned kernels,
-the production zone data), row 684 for parts b and c (the sweep's harness and the property
-suite), and row 685 for part c (the ladder). Part a changes row 678's class in one way: it
-gains the method `toLocalTable`, which hands the class's sorted changes to `pack` (4.5).
+Merged before it starts: rows 682 and 683 (`ToLocal`, the batch arguments, the lowering,
+the runner's fill), row 657 with row 678 (the first zoned kernels, the production zone data),
+row 684 for parts b and c (the sweep's harness, the property suite), and row 685 for part c
+(the ladder). Part a adds one method to row 678's class, `toLocalTable` (4.5).
 
 The goals it serves (`m9/PLAN.md` 1.1), each with the item of 1.2 that it moves:
 
 - G2, item 2: "over ten years of instants in no order in a daylight-saving zone the kernels
   of the fields, of the casts and of the sum with an interval decline no batch". This row moves
   the fields and `CAST(ts AS DATE)`, which read `ToLocal`. The casts to `TIMESTAMP` and the sum
-  read `ToInstant`: for them the item waits on a table of the local time line, which this row
-  does not build and no row names yet (4.9, risk 7).
-- G2, item 2, "the every-zone sweep passes in CI": the sweep gains the form `TABLE`.
-- G7, item 10 (five times the row path, a year of instants in no order) and G1, item 1: not
-  moved. A year holds 2 changes and takes `STEPS_2`, and no entry fuses or stops fusing. The
-  row serves G7 only through row 691, which reads the ten-year sections of row 655's classes.
+  read `ToInstant`: for them the item waits on row 693 (4.9, risk 7). "The every-zone sweep
+  passes in CI": the sweep gains both table forms.
+- G7, item 10 and G1, item 1: not moved. A year holds 2 changes and takes `STEPS_2`, and no
+  entry fuses or stops fusing. The row serves G7 only through row 691.
 
 ## 2. What an agent must know
 
@@ -77,10 +73,8 @@ are 64-bit vectors of 128, of 256 (the EPYC 7763 runners, AVX2) and of 512 bits 
 | `VarkaZoneLowering.emitToLocal`, `laneCalls(form)` | 682 | the lowering and its count of lane calls |
 | `VarkaBodyEmitter.emitBatchArgs`, `Slots.batchArgLocal`, `Slots.zoneTmp` | 682 | each argument loaded once into a long local; the vector local of a node |
 | `VarkaZoneData` (`changes`, `toLocalArgs`), `VarkaZoneData.Provider`, `VarkaJavaTimeZoneData` | 682 | the zone data, and its reference over `java.time` in test scope |
-| `VarkaKernelRunner.fill`, `STATUS_BATCH_ARGS`, the metric `batch-args` | 682 | the fill before each call, and its decline |
-| `VarkaKernelPlan.Kind.ZONE_OPERAND` | 682 | the refusal of a zone node over a computed value |
-| `VarkaZoneKernels` (`Kernel`, `Filler`, `Spec`, `sweep`, `production`), `VarkaZoneSweepSuite`, `VarkaZonePlantedFaultSuite`, `VarkaZoneFaults` | 684 | the sweep's harness and suites |
-| `VarkaTimestampZoneSuite`, `VarkaBatchArgRunnerSuite` | 657, 682 | the Spark-level suite, and the runner's suite |
+| `VarkaKernelRunner.fill`, `STATUS_BATCH_ARGS`, the metric `batch-args`; `VarkaKernelPlan.Kind.ZONE_OPERAND` | 682 | the fill before each call, and its decline; the refusal of a zone node over a computed value |
+| `VarkaZoneKernels` (`Kernel`, `Filler`, `Spec`, `sweep`, `production`), `VarkaZoneSweepSuite`, `VarkaZonePlantedFaultSuite`, `VarkaZoneFaults`; `VarkaTimestampZoneSuite`, `VarkaBatchArgRunnerSuite` | 684; 657, 682 | the sweep's harness and suites; the Spark-level suite, and the runner's suite |
 | `VarkaKernelPlan.twoLaneMasksFallBack`, `VarkaHostIsa.host()` and its `Reading` (`arch`, `features`) | master | whether this x86 JVM has two 64-bit lanes or fewer; the JVM's own feature list |
 | `VarkaZoneLadder` (`RUNGS`, `emitted`, `widest`), `VarkaZoneArgsPropertySuite` | 685, 684 | the ladder's forms in order and its last rung on a host; the property suite of the fill |
 
@@ -88,13 +82,12 @@ are 64-bit vectors of 128, of 256 (the EPYC 7763 runners, AVX2) and of 512 bits 
 
 | name | where | meaning |
 | :--- | :--- | :--- |
-| `ZoneForm.TABLE` | `VarkaEmitOptions` | the form; `steps()` throws for it, so no reader takes it for `ONE` (4.4) |
+| `ZoneForm.TABLE`, `ZoneForm.TABLE_SCALAR` | `VarkaEmitOptions` | the form with gathers, and the form with scalar loads of each lane, for a host with no gather (4.7); `steps()` throws for both, so no reader takes one for `ONE` (4.4) |
 | `VarkaZoneTable` | catalyst main, `codegen/varka` | the bucket's constants, the packing, the scalar lookup, `covers`, `tableFromChanges` (4.2) |
 | `VarkaZoneData.toLocalTable(long[] args, int first)` | catalyst main | writes a zone's table; false when the zone has none |
-| `VarkaZoneLowering.emitToLocalTable` | catalyst main | the lowering (4.3) |
-| `Slots.zoneIndex` | catalyst main | the local of the `int[]` that holds a lane group's indices |
+| `VarkaZoneLowering.emitToLocalIndex`, `emitToLocalTable`, `emitToLocalTableScalar` | catalyst main | the index pass and the gathers (4.3); the scalar form (4.7) |
+| `VarkaFusedKernel.indexMapIntsPerRow()`, `VarkaZoneTable.INDEX_SLACK`, `indexMapInts(perRow, length)` | catalyst main | the ints a row that a kernel's index map needs, 0 by default; the ints past them; the array's least length (4.1) |
 | `VarkaZoneTable.gatherFallsBack(VarkaHostIsa.Reading)` | catalyst main | the host's flag: C2 compiles no gather of longs there (4.7) |
-| `VarkaKernelPlan.Kind.ZONE_TABLE_HOST`, `ZONE_TABLE_HOST_REASON` | catalyst main | the recorded refusal on such a host (4.7) |
 | `zone_bucket.smt2`, `VarkaProofFiles.zoneBucket()` | `sql/varka/proofs/`, catalyst tests | the proof (4.10) |
 | `VarkaZoneTableSuite`, `VarkaZoneTableLanesSuite` | catalyst tests, Java, JUnit 5 | the table's data and the kernel; the kernel at lane overrides, in a JVM of its own (section 6) |
 | `VarkaZoneTableBenchmark` | catalyst tests, Java | the measurement (section 7) |
@@ -102,12 +95,17 @@ are 64-bit vectors of 128, of 256 (the EPYC 7763 runners, AVX2) and of 512 bits 
 
 **What the probe measured** (`sql/varka/spikes/zone-offset/results/forms.txt`: the laptop,
 `America/Los_Angeles`, batches of 4096 instants in no order, nanoseconds a row by the best
-round). Its table is three arrays, the offset before, the change and the offset after, read
-by three gathers: 0.783 and 0.781 at eight lanes, 0.949 and 0.882 at four, 38.864 and 39.334
-at two, over a year and over ten. Steps written out for 2 and for 8 changes cost 0.086 and
-0.289 at eight lanes, 0.148 and 0.755 at four, 13.020 and 62.542 at two. `java.time`'s offset
-costs 10.293, 10.285 and 10.956. Both table rows touch a few kilobytes of the table: no
-results file prices a batch spread over all of it, or a packed bucket.
+round). A table of three arrays read by three gathers: 0.783 and 0.781 at eight lanes, 0.949
+and 0.882 at four, 38.864 and 39.334 at two, over a year and over ten. Steps written out for
+2 and for 8 changes: 0.086 and 0.289 at eight lanes, 0.148 and 0.755 at four, 13.020 and
+62.542 at two. `java.time`'s offset: 10.293, 10.285 and 10.956.
+
+**What the second probe measured** (`sql/varka/spikes/zone-offset/results/tables.txt` and
+`tables-2.txt`, two runs; they land with pull request #1769 and may not be on master when
+this plan merges). The same laptop, zone and batches; each number is the lesser of the two
+runs, over ten years, at eight and at four lanes. 4.1 has the forms that hold a gather, and
+4.7 the two-lane numbers. Every time is the laptop's Zen 5 core, and its four lanes are
+`-XX:UseAVX=2`. The EPYC 7763 runners are not measured.
 
 ## 3. The admission check
 
@@ -122,7 +120,10 @@ after it prints what its comment says. `V` is
    `VarkaFusedKernel.run(srcData, srcValidity, srcNullCount, dstData, dstValidity, int[]
    scalarArgs, long[] longArgs, length)`. Its comment gives the reason the descriptor does not
    grow: a wider one "would change the descriptor and the loads of every 32-bit kernel already
-   emitted". A long-lane kernel never reads `scalarArgs`.
+   emitted". A long-lane kernel never reads `scalarArgs`: "callers may pass an empty array".
+   `scratchBytesPerRow()` is the pattern for what a kernel needs a row: a default method
+   that answers 0, read by the runner, the warm-up and the reproduction. The runner keeps
+   `scalarArgs` in a public final field.
 2. **JDK 25's Vector API gathers from an array only.** `LongVector.fromArray(species, long[]
    a, int offset, int[] indexMap, int mapOffset)` is the gather. `fromMemorySegment` has two
    forms, plain and masked, and neither takes an index map.
@@ -139,9 +140,9 @@ after it prints what its comment says. `V` is
 5. **A long value becomes int lanes by one emitter method, into the int species of the same
    width.** `VarkaVectorWalk.emitShapeConversion(cb, Lane.LONG, Lane.INT, analysis)` emits
    `convertShape(L2I, <int species>, 0)`: the values land in the low half of the int lanes and
-   the upper half is zero. The species comes from `emitConstantSpecies`, which is private.
-   `VarkaBodyEmitter.emitNarrowStore`'s comment says why it is not the half-width species: a
-   second `IntVector` species in the JVM "makes the shared templates inline bimorphically".
+   the upper half is zero. The species comes from `emitConstantSpecies`, which is private. A
+   second `IntVector` species in the JVM "makes the shared templates inline bimorphically"
+   (`VarkaBodyEmitter.emitNarrowStore`'s comment).
 6. **So the gather brings a second int species into the JVM, inside the JDK** (facts 3 and
    5), and the record says that can box. `sql/varka/skills/vector-api-and-width.md`: "an
    index-map gather boxes under either order at both widths". That is live on JDK 25:
@@ -149,28 +150,23 @@ after it prints what its comment says. `V` is
    through the templates" asserts it at HEAD, and `VarkaAssemblyProbe.gatherLookup`'s comment
    says which shapes show it: "a bare add stays clean in a polluted JVM", an int index-map
    gather boxes. The operator census of JDK 25 on the laptop
-   (`sql/varka/operator_census.json`) reads its two-species cells `I`, but their loops are
-   byte and short subtractions, not gathers. The census has no cell for a
-   gather and none for an int `MIN`. Its cells for the other operations of 4.3, `long.LSHR`,
-   `long.ASHR` and `long.L2I`, read `I` at 512, 256 and 128 bits. `long.GT`, a compare to a
-   mask, reads `I` at 512 and 256 and `F`, the Java fallback, at 128.
+   (`sql/varka/operator_census.json`) has no cell for a gather and none for an int `MIN`.
+   Its cells `long.LSHR`, `long.ASHR` and `long.L2I` read `I` at 512, 256 and 128 bits;
+   `long.GT`, a compare to a mask, reads `I` at 512 and 256 and `F` at 128.
 7. **At two 64-bit lanes on x86 no mask compiles, of any element type.**
    `VarkaKernelPlan.twoLaneMasksFallBack` is true on x86 with two long lanes or fewer; its
    comment cites `match_rule_supported_vector` in `x86.ad`, which refuses the mask nodes at
    `vlen == 2`. The gather's own index check (fact 3) is a mask of two int lanes there, and a
    compare of the lookup is a mask of two long lanes. In `results/forms.txt` the probe's table
    ran at 38.864 and 39.334 ns a row there, slower than `java.time`'s 10.956.
-8. **How a refusal of the host is recorded.** `VarkaKernelPlan.admit(roots, options,
-   twoLaneMasksFallBack)` returns a `Refusal(Kind kind, String reason)`; `Kind` has five
-   values, `TWO_LANE_CONDITION` among them; `of` never refuses for the host, so a suite still
-   emits and checks answers. The executor can read its own host: `VarkaHostIsa.host()`. The
-   predicate pass of `VarkaExpressionCompiler` asks `admit` on a two-lane host alone, keeps
-   of its answer only a refusal of kind `TWO_LANE_CONDITION`, and then asks `of`.
+8. **One lowering reads and replaces a lane at a time today:**
+   `VarkaConversionLowering.emitScalarLanes`, with `VarkaDescriptors.LONG_LANE`; it needs a
+   baked lane count. Emitted code calls a static method of a catalyst class
+   (`VarkaScratch.forRows`), and the executor can read its own host: `VarkaHostIsa.host()`.
 9. **A kernel's long arguments are copied in one place:** `VarkaKernelWarmup`'s job clones
    `longArgs` when a warm-up starts. A reproduction file holds the long list as text.
-10. **The memory sanitizer sees mappings of native memory, not arrays.** Its class comment:
-    "every mapping made on that thread" must lie inside a registered buffer. An index into a
-    Java array is checked by the JVM instead (fact 3).
+10. **The memory sanitizer sees mappings of native memory, not arrays:** "every mapping made
+    on that thread". An index into a Java array is checked by the JVM instead (fact 3).
 11. **The probe's table and its facts.** `ZoneForms.table` shifts `v.sub(BASE)` by `BUCKET`,
     converts with `L2I`, stores with `intoArray` and gathers three arrays, with no clamp.
     `facts.txt`: "11482 buckets, 89 KB at 8 bytes a bucket, 269 KB as ZoneForms' three
@@ -182,45 +178,41 @@ after it prints what its comment says. `V` is
     `jint.shl`, `l2i` and `jlong.and.low`.
 13. **On AArch64 C2 has a gather only with SVE.** In JDK 25's `aarch64_vector.ad`,
     `Matcher::match_rule_supported_vector` returns false for `Op_LoadVectorGather` when
-    `UseSVE == 0`, and `vm_version_aarch64.cpp` takes `sve` out of the feature list when
-    `UseSVE < 1`. `VarkaHostIsa.Reading.features` is that list, and `hasFeature` reads one
-    name of it. The fleet's Arm runner has SVE: the skills file records "Neoverse N2, ASIMD
-    with SVE2", and that "the runner's JDK enables it".
+    `UseSVE == 0`, and `vm_version_aarch64.cpp` takes `sve` out of the feature list, which
+    `VarkaHostIsa.Reading.features` holds; `hasFeature` reads one name of it. The fleet's
+    Arm runner has SVE: the skills file records "Neoverse N2, ASIMD with SVE2", and that
+    "the runner's JDK enables it".
 
 The commands, by fact (`H` is `/home/max/proj/openjdk-build/jdk25/src/hotspot/cpu/aarch64`):
 
-    grep -c 'a long-lane kernel never reads it' $V/VarkaFusedKernel.java                      # 1: 1
-    grep -c 'LongVector fromMemorySegment(VectorSpecies<Long> species,' $J/LongVector.java    # 2: 2
-    grep -A4 'LongVector fromMemorySegment(VectorSpecies<Long> species,' $J/LongVector.java | grep -c indexMap   # 2: 0
+    grep -c 'a long-lane kernel never reads it' $V/VarkaFusedKernel.java; grep -c 'default int scratchBytesPerRow() {' $V/VarkaFusedKernel.java; grep -c 'public final int\[\] scalarArgs;' $E/varka/VarkaKernelRunner.java   # 1: 1, 1 and 1
+    grep -c 'LongVector fromMemorySegment(VectorSpecies<Long> species,' $J/LongVector.java; grep -A4 'LongVector fromMemorySegment(VectorSpecies<Long> species,' $J/LongVector.java | grep -c indexMap   # 2: 2 and 0
     grep -c 'IntVector.IntSpecies isp = IntVector.species(vsp.indexShape());' $J/LongVector.java; grep -c 'vix = VectorIntrinsics.checkIndex(vix, a.length);' $J/LongVector.java; grep -c 'VECTOR_ACCESS_OOB_CHECK", 2' $J/VectorIntrinsics.java   # 3: 4, 4 and 1
     grep -rl 'indexMap\|loadWithMap' $V/.. $E/varka $E/Varka*.java | wc -l                    # 4: 0
     grep -c 'private static void emitConstantSpecies(CodeBuilder cb, Lane lane, Analysis analysis)' $V/VarkaVectorWalk.java   # 5: 1
     grep -ci 'gather' $T/VarkaOperatorCensusCatalog.java; grep -c '"bin.int"' $T/VarkaOperatorCensusCatalog.java   # 6: 0 and 0
     grep -c 'index-map gather boxes' sql/varka/skills/vector-api-and-width.md; grep -c 'the same gather boxes once a second species' $TS/VarkaAssemblySuite.scala; grep -c 'a bare add stays clean in' $T/VarkaAssemblyProbe.java   # 6: 1, 1 and 1
     grep -c 'return host.x86() && preferredLongLanes <= 2;' $V/VarkaKernelPlan.java; grep -c 'table, three gathers' sql/varka/spikes/zone-offset/results/forms.txt   # 7: 1 and 6
-    grep -c 'public record Refusal(Kind kind, String reason) {}' $V/VarkaKernelPlan.java; grep -c 'public static Reading host()' $V/VarkaHostIsa.java; grep -c 'r.kind() == VarkaKernelPlan.Kind.TWO_LANE_CONDITION' $V/../VarkaExpressionCompiler.java   # 8: 1, 1 and 1
+    grep -c 'private static void emitScalarLanes(CodeBuilder cb, int v, Analysis analysis)' $V/VarkaConversionLowering.java; grep -c 'static final MethodTypeDesc LONG_LANE =' $V/VarkaDescriptors.java; grep -c '"forRows"' $V/VarkaLoopEmitter.java; grep -c 'public static Reading host()' $V/VarkaHostIsa.java   # 8: 1, 1, 1 and 1
     grep -A2 'case Op_LoadVectorGather:' $H/aarch64_vector.ad | grep -c 'UseSVE == 0'; grep -A2 'if (UseSVE < 1)' $H/vm_version_aarch64.cpp | grep -c 'CPU_SVE;'; grep -c 'Neoverse N2, ASIMD with SVE2' sql/varka/skills/vector-api-and-width.md   # 13: 1, 1 and 1
-    grep -c 'this.longArgs = longArgs.clone();' $V/VarkaKernelWarmup.java                     # 9: 1
-    grep -c 'every mapping made on that thread' $V/VarkaMemorySanitizer.java                  # 10: 1
-    grep -c '11482 buckets' sql/varka/spikes/zone-offset/results/facts.txt                    # 11: 1
-    grep -c 'static void check(StringBuilder' $T/VarkaProofFiles.java                         # 12: 1
+    grep -c 'this.longArgs = longArgs.clone();' $V/VarkaKernelWarmup.java; grep -c 'every mapping made on that thread' $V/VarkaMemorySanitizer.java   # 9 and 10: 1 and 1
+    grep -c '11482 buckets' sql/varka/spikes/zone-offset/results/facts.txt; grep -c 'static void check(StringBuilder' $T/VarkaProofFiles.java   # 11 and 12: 1 and 1
 
-**The proof sketch was run.** The 16 checks of 4.10 were written against `java.smt2` and run
-on 26 November 2026 under the pinned Z3 5.1.0 and cvc5 1.4.1 with the logic `ALL`. Each
-answered as 4.10 expects, each solver in under a second for the file. A first form, a shift
-and a mask of two free offsets under `QF_NIA`, left cvc5 without an answer after two minutes.
+**The proof sketch was run.** The 16 checks of 4.10 ran on 26 November 2026 under the pinned
+Z3 5.1.0 and cvc5 1.4.1 with the logic `ALL`: each answered as 4.10 expects, each solver in
+under a second for the file. Under `QF_NIA` cvc5 gave no answer after two minutes.
 
 **What could not be checked.**
 
 - No name of rows 682, 684, 657 or 685 is on master (`git grep -w -c
   'ToLocal\|VarkaBatchArgs\|VarkaZoneData' -- sql/catalyst/src sql/core/src` prints nothing).
-  Row 685's plan is a draft: its names `VarkaZoneLadder`, `RUNGS`, `emitted` and `widest`
-  are taken from it, and part c's B0 finds their shape.
-- Whether C2 compiles the gather with no allocation beside an int kernel (fact 6): no JVM run
-  was allowed for it. Part a's first step reads it, and stops the row if it does not.
-- Which operations of the probe's table loop fell to Java at two lanes (fact 7 names two);
-  every time of section 7; the gather's cost on the EPYC 7763; row 678's data as built;
-  the gather on the Arm runner, and on an AArch64 JVM without SVE (fact 13 is the matcher's).
+  Row 685's names `VarkaZoneLadder`, `RUNGS`, `emitted` and `widest` are from its plan.
+- Whether C2 compiles the gather with no allocation beside an int kernel (fact 6): part a's
+  first step reads it, and stops the row if not. Whether it compiles `lane` and `withLane`
+  of a long vector so at two lanes (4.7): test 13 reads it.
+- Every time of section 7; the gather's cost on the EPYC 7763 and on the Arm runner; row
+  678's data as built; whether a driver of `VarkaBodyEmitter` can map a column's segment
+  before its loop methods (4.3): part b's step 4 stops if not.
 
 ## 4. The design
 
@@ -237,24 +229,55 @@ from `longArgs` itself, with the program's first index as the gather's `offset`.
 | native memory, its address a batch argument | the Vector API has no gather from a segment (fact 2), so each lane would be read by a scalar load | rejected for this form; see 4.7 |
 
 The runner owns `longArgs`, and a runner is one task's. A table is written once, when the
-runner is built, and never again: it does not depend on the batch. So a task's table lives as
-long as its runner, and no task reads another's. The warm-up clones the array when it starts
-(fact 9): 183712 bytes more for the life of one warm-up job. A reproduction file holds the
-table as text, under half a megabyte.
+runner is built: it does not depend on the batch, and no task reads another's. The warm-up
+clones the array when it starts (fact 9): 183712 bytes more for the life of one warm-up
+job. A reproduction file holds the table as text, under half a megabyte.
 
-**The index map.** The gather reads its indices from an `int[]` (fact 3). Each body method of
-a `TABLE` kernel allocates one in its prologue, before its loop, of the int species' lane
-count (16 ints at 512 bits), and keeps it in the local `Slots.zoneIndex`. A kernel's prologue
-already allocates once a call, the segments it maps. A scratch in `scalarArgs` would make the
-kernel write into an argument array, and every caller size it. This breaks the house rule
-of no allocation on a path that runs per batch: one `int[]` of at most 16 ints for each
-body a call enters. Test 13 bounds it; the owner decides if it stays (section 9, question 2).
+**The index map.** The gather reads its indices from an `int[]` (fact 3). A `TABLE` kernel
+takes that array as its `scalarArgs` parameter, which a long-lane kernel does not read (fact
+1); every kernel with a zone node is a long-lane kernel. The runner owns the array:
+
+- `VarkaFusedKernel.indexMapIntsPerRow()` is a default method that answers 0, as
+  `scratchBytesPerRow()` does. A `TABLE` kernel answers its count of programs,
+  `VarkaBatchArgs.layout(...).size()`: program `j` keeps row `i`'s index at `j * length + i`.
+- `VarkaZoneTable.indexMapInts(perRow, length)` is `perRow * length + INDEX_SLACK`, and
+  `INDEX_SLACK` is 16: the store of 4.3 writes a whole int vector, 16 ints at 512 bits, and
+  an epilogue's gather reads a lane group of ints from its first row. An int past a
+  program's run is a zero of a new array or an index that some batch wrote, so a gather of
+  it reads inside the table.
+- `VarkaKernelRunner` gains the field `private int[] indexMap`, empty at first. Before a
+  call of a kernel whose count is not 0, it takes a new array of `indexMapInts(perRow, len)`
+  ints where the field is shorter, and passes the field in the place of `scalarArgs`, in
+  `run` and in `checkOtherBody`. So the map grows to the longest batch the runner has seen,
+  and no batch after that one allocates: the house rule holds. It costs 4 bytes a row and a
+  program, 16 KB at 4096 rows.
+- The kernel assumes no length: its driver reads `length` and `scalarArgs.length`, and
+  throws `IllegalArgumentException`, naming both, where the array is shorter than
+  `indexMapInts`. The warm-up, the replay of a reproduction and `VarkaEmitterFixtures` size
+  the array from the kernel's method, as they size the scratch.
+
+**What the second probe measured and this row leaves out** (section 2; ns a row over ten
+years at eight and at four lanes):
+
+| form | ns a row | verdict |
+| :--- | :--- | :--- |
+| the indices of the whole batch, in a pass before the gathers | 0.621, 0.829 | chosen |
+| the indices beside each gather, in a scratch of one lane group | 0.673, 0.871 | slower; the form for a computed operand, if row 688 needs one |
+| the same, in a new array each call | 0.675, 0.866 | no faster than the scratch, and it allocates per batch |
+| the indices of 16 lane groups first; of 4 | 0.639, 0.846; 0.664, 0.942 | slower than the whole batch |
+| the store of the next group's indices issued one group ahead, two arrays | 0.820, 1.136 | a measured loss at both widths |
+| three arrays, three gathers | 0.773, 0.882 | slower at eight lanes, and 1.001 against 0.704 over the whole table |
+
+At batches of 64 rows the whole-batch form costs 0.913 and 1.102 against 0.970 and 1.152
+beside the gather, and at 10000 rows 0.624 and 0.786 against 0.675 and 0.868
+(`tables-64.txt`, `tables-10000.txt`, one run each). Not built, and the next knob only: the
+compare and the last sum folded into the first pass, with a second buffer a batch long.
 
 **The second int species** (fact 6) is the row's first risk. Part a's first step adds four
 cells to the operator census and reads them. The row goes on only if the gather reads `I`
 with no allocation, and an int index-map gather compiled after it does too, at 256 bits:
 the shape that boxes whenever its templates are polluted (fact 6). If not, stop:
-the lead decides between the scalar read of each lane (4.7) and leaving the form out.
+the lead decides between `TABLE_SCALAR` (4.7) at every width and leaving the gathers out.
 
 ### 4.2 The bucket and its constants: `VarkaZoneTable`
 
@@ -274,6 +297,8 @@ A new final class `V/VarkaZoneTable.java`, with no state:
     public static long toLocal(long[] args, int first, long instant)   // the scalar lookup
     public static boolean pack(long[] at, int[] offsetSeconds, long[] args, int first)
     public static int tableFromChanges(int longLanes)         // 9, see 4.8
+    public static final int INDEX_SLACK = 16;                 // see 4.1
+    public static int indexMapInts(int perRow, int length)    // perRow * length + INDEX_SLACK
     public static boolean gatherFallsBack(VarkaHostIsa.Reading host)   // see 4.7
 
 - **The buckets.** `BUCKETS` is the probe's count, `((LIMIT - ORIGIN) >>> SHIFT) + 2`, where
@@ -284,15 +309,14 @@ A new final class `V/VarkaZoneTable.java`, with no state:
   where the bucket holds none. Word 1, `args[first + 2 * b + 1]`, holds the offset before the
   change in its high 32 bits and the offset after it in its low 32 bits, each a signed int in
   units of 64 microseconds. A bucket with no change holds the offset in force in both halves.
-- **Why units of 64 microseconds.** A multiply of 64-bit lanes is no single instruction below
-  AVX-512, and two offsets in microseconds, 38 bits each, do not fit one long. An offset is
-  whole seconds, and a second is 15625 times 64 microseconds. So an offset is seconds times
-  15625, at most 1012500000 in size, inside an int, and a shift by 6 gives microseconds.
+- **Why units of 64 microseconds.** Two offsets in microseconds, 38 bits each, do not fit
+  one long, and a multiply of 64-bit lanes is no single instruction below AVX-512. An offset
+  is whole seconds, and a second is 15625 times 64 microseconds: so an offset is seconds
+  times 15625, at most 1012500000 in size, an int, and a shift by 6 gives microseconds.
 - `word(before, after)` is `((long) (before * UNITS_A_SECOND) << 32) | ((after *
   UNITS_A_SECOND) & 0xFFFFFFFFL)`; it throws `IllegalArgumentException` for a second count
   outside plus and minus 64800. `offsetMicros(word, after)` is `((after ? word : word >>> 32)
-  << 32) >> 26`: the chosen half moved to the top, then an arithmetic shift that extends its
-  sign and leaves the factor 64.
+  << 32) >> 26`: the chosen half at the top, then a shift that extends its sign.
 - `index(instant)` is `Math.min((int) ((instant - ORIGIN) >>> SHIFT), BUCKETS - 1)`. The
   subtraction wraps near an end of a long; the logical shift then gives 0 to 2^25 - 1 for
   every long, so the cast keeps it and the `min` brings it into the table (4.10).
@@ -302,15 +326,19 @@ A new final class `V/VarkaZoneTable.java`, with no state:
   changes inside `[ORIGIN, LIMIT)` in microseconds, ascending; `offsetSeconds` has one entry
   more, the offset before the first change, then the offset after each. It returns false, and
   the zone then has no table, when two changes fall in one bucket. It throws
-  `IllegalArgumentException` for lengths that do not match and for a change outside the range
-  or out of order. It runs once a runner or once a zone, never per batch.
+  `IllegalArgumentException` for lengths that do not match and for a change outside the
+  range or out of order. It runs once a runner or once a zone, never per batch.
 
 ### 4.3 The lowering
 
-`VarkaZoneLowering.emitToLocal` gains the arm of `TABLE`, `emitToLocalTable`. With `v` the
-operand's vector, `LS` the long species and `IS` the int species of the same width (fact 5),
-`args` the kernel's `longArgs`, `first` the node's program's first index, a constant of the
-emitted class, and `idx` the `int[]` of `Slots.zoneIndex`:
+`VarkaZoneLowering` gains two methods for `TABLE`. `emitToLocalIndex` is the index pass: the
+kernel's driver runs it once a batch for each program, before it calls a loop method.
+`emitToLocalTable` is the arm of `emitToLocal` in every body. With `v` the operand's vector,
+`LS` the long species and `IS` the int species of the same width (fact 5), `args` the
+kernel's `longArgs`, `first` the program's first index, a constant of the emitted class,
+`map` the `scalarArgs` parameter, `j` the program's place in the layout and `i` the first
+row of a lane group, so that `m` is `j * length + i`. Calls 1 to 6 are the pass, calls 7 to
+14 the body:
 
 | # | Vector API call | gives |
 | ---: | :--- | :--- |
@@ -319,10 +347,10 @@ emitted class, and `idx` the `int[]` of `Slots.zoneIndex`:
 | 3 | `u.convertShape(L2I, IS, 0)` | the same as ints, in the low half of `IS` |
 | 4 | `.min(BUCKETS - 1)` | the clamped bucket |
 | 5 | `.lanewise(LSHL, 1)` | twice the bucket: the index of word 0 inside the program |
-| 6 | `.intoArray(idx, 0)` | the index map |
-| 7 | `LongVector.fromArray(LS, args, first + 1, idx, 0)` | `w`, word 1 of each lane's bucket |
+| 6 | `.intoArray(map, m)` | the lane group's indices in the map |
+| 7 | `LongVector.fromArray(LS, args, first + 1, map, m)` | `w`, word 1 of each lane's bucket |
 | 8 | `w.lanewise(LSHR, 32L)` | `h`: the offset before, in the low half |
-| 9 | `LongVector.fromArray(LS, args, first, idx, 0)` | `at`, word 0 |
+| 9 | `LongVector.fromArray(LS, args, first, map, m)` | `at`, word 0 |
 | 10 | `v.compare(GE, at)` | the mask of lanes at or after their change |
 | 11 | `h.blend(w, mask)` | the chosen half in the low 32 bits |
 | 12 | `.lanewise(LSHL, 32L)` | the half at the top |
@@ -331,45 +359,52 @@ emitted class, and `idx` the `int[]` of `Slots.zoneIndex`:
 
 So `laneCalls(TABLE)` is 14, and no call is on `VectorMask`.
 
-The bytecode keeps `v` in the node's `zoneTmp` (`dup`, `astore`) and uses descriptors the
+**The pass.** The operand of a zone node is a column: a computed operand is refused under
+every form (`ZONE_OPERAND`), and row 688 decides its form under `TABLE`. The driver maps the
+column's segment as a body maps it and runs calls 1 to 6 over `length` rounded down to a
+lane group. It writes the rows left one at a time: the long read from the segment,
+`invokestatic VarkaZoneTable.index`, a shift by 1 and an `iastore`. A null row's storage is
+read as any row's. Programs run in the layout's order, so the ints that a store writes past
+program `j`'s run are written again by program `j + 1`'s pass or lie in the slack. The
+driver's return for a batch with no live row comes first.
+
+The body keeps `v` in the node's `zoneTmp` (`dup`, `astore`) and uses descriptors the
 emitter has: `Lane.LONG.lanewiseVI` for the `sub` and `Lane.INT.lanewiseVI` for the `min`;
-`Lane.LONG.integral().lanewiseBinaryI()` and the int lane's for the shifts, whose count is a
-long on the long lane and an int on the int lane; `VarkaVectorWalk.emitShapeConversion(cb,
-Lane.LONG, Lane.INT, analysis)` for call 3; `Lane.LONG.compareVV`, `Lane.LONG.blend` and
-`Lane.LONG.lanewiseVV` for calls 10, 11 and 14. Two descriptors are new:
-`IntVector.intoArray(int[], int)` and the static `LongVector.fromArray(VectorSpecies, long[],
-int, int[], int)`, whose species is `emitConstantSpecies(cb, Lane.LONG, analysis)` and whose
-array is the `longArgs` parameter, loaded as `emitBatchArgs` loads it. Stack order: after
-call 6 the stack is empty; call 7 leaves `w`; `dup`, call 8, `swap` leave `h, w`; `aload
-zoneTmp`, `getstatic GE`, call 9 and call 10 leave `h, w, mask`; then calls 11 to 13, `aload
-zoneTmp` and call 14.
+`Lane.LONG.integral().lanewiseBinaryI()` and the int lane's for the shifts;
+`VarkaVectorWalk.emitShapeConversion(cb, Lane.LONG, Lane.INT, analysis)` for call 3;
+`Lane.LONG.compareVV`, `Lane.LONG.blend` and `Lane.LONG.lanewiseVV` for calls 10, 11 and 14.
+Two descriptors are new: `IntVector.intoArray(int[], int)` and the static
+`LongVector.fromArray(VectorSpecies, long[], int, int[], int)`, whose species is
+`emitConstantSpecies(cb, Lane.LONG, analysis)`. Stack order in the body: call 7 leaves `w`;
+`dup`, call 8, `swap` leave `h, w`; `aload zoneTmp`, `getstatic GE`, call 9 and call 10
+leave `h, w, mask`; then calls 11 to 13, `aload zoneTmp` and call 14.
 
 The same bytecode serves every body: dense, masked and the epilogue. A lane the body's mask
 leaves out holds zero or a null row's storage, and its clamped index reads inside the table.
-The gather is never masked.
+The gather is never masked. An epilogue's gather reads a lane group of the map from its
+first row, and the ints past the batch's end are in the slack (4.1).
 
 ### 4.4 The layout, and what the emitter must not do
 
-- `VarkaBatchArgs.count(node, form)`: for a `ToLocal`, `form == ZoneForm.TABLE ?
-  VarkaZoneTable.LONGS : 1 + 2 * form.steps()`. `layout` is unchanged: programs follow each
+- `VarkaBatchArgs.count(node, form)`: for a `ToLocal`, `VarkaZoneTable.LONGS` under either
+  table form, else `1 + 2 * form.steps()`. `layout` is unchanged: programs follow each
   other, so the second zone node's table starts `LONGS` after the first's.
-- **`ZoneForm.TABLE.steps()` throws** `IllegalStateException("the table form has no
-  steps")`; the constant is `TABLE(-1)`. A reader written for the step forms would take a
-  count of 0 for `ONE`'s: the fill, the property suite's oracle, the ladder's rule. So every
-  reader tests for `TABLE` first, and one that does not fails its first test.
+- **`steps()` of a table form throws** `IllegalStateException("the table form has no
+  steps")`; the constants are `TABLE(-1)` and `TABLE_SCALAR(-1)`. A reader written for the
+  step forms would take a count of 0 for `ONE`'s: the fill, the property suite's oracle, the
+  ladder's rule. So every reader tests for a table form first.
 - **No table entry becomes a local.** Row 682's `emitBatchArgs` loads every argument of a
-  program into a long local, and `Slots.plan` plans one local for each. Under `TABLE` that
-  would be 22964 locals a node. So under `TABLE`, `Slots.plan` gives a zone node an empty
-  `batchArgLocal`, its `zoneTmp`, and the body one `zoneIndex`; and `emitBatchArgs` emits, in
-  place of the loads, the allocation of the index map once a body: the int species constant,
-  `VectorSpecies.length()`, `newarray int`, `astore zoneIndex`.
-- **`VarkaBatchArgs.neutral` is never called for a table program, and refuses one.** Row
-  682's `neutral` writes a zero base and padding steps, which would overwrite buckets. A
-  batch with no live row needs nothing here: the validity hides every lane, and its clamped
-  index reads a bucket that exists. So the callers branch first, and `neutral` throws
-  `IllegalArgumentException` for a program whose count is `VarkaZoneTable.LONGS`.
+  program into a long local: 22964 locals a node here. So under a table form `Slots.plan`
+  gives a zone node an empty `batchArgLocal` and its `zoneTmp`, and `emitBatchArgs` emits
+  no load. Under `TABLE` the driver emits, after its sizes and its return for a batch with
+  no live row, the length check of 4.1 and one index pass a program (4.3).
+  `Analysis.indexMapIntsPerRow()` is what the emitted class's method returns.
+- **`VarkaBatchArgs.neutral` is never called for a table program, and refuses one:** its
+  zero base and padding steps would overwrite buckets, and a batch with no live row needs
+  nothing. The callers branch first, and `neutral` throws `IllegalArgumentException` for a
+  program whose count is `VarkaZoneTable.LONGS`.
 - `VarkaEmitBudget.weightOf` returns `laneCalls(form)` already. `emitConstantSpecies` of
-  `VarkaVectorWalk` loses `private`, for the lowering and for `emitBatchArgs`.
+  `VarkaVectorWalk` loses `private`, for the lowering.
 
 ### 4.5 Where the table's data comes from
 
@@ -383,20 +418,18 @@ The gather is never masked.
   `ZoneRules.nextTransition` from the instant of `ORIGIN` while the change's epoch second is
   below `LIMIT / 1_000_000`, takes `at` as the epoch second times 1000000 and the offsets from
   `getOffsetBefore()` and `getOffsetAfter()`, and calls `VarkaZoneTable.pack`.
-- **Row 678's production data** must answer the same method. What it must provide is small:
-  its changes inside `[ORIGIN, LIMIT)` as sorted instants with their offsets, which row 678's
-  line already names ("its changes sorted on both time lines"), given to `pack`. It may build
-  the packed table once a zone in each JVM, 183712 bytes for a distinct set of rules, lazily,
-  and answer by `System.arraycopy`; ids with the same rules share it. It must not ship a table
-  from the driver. `m9/PLAN.md` 2.2 prices the table at "89 KB at eight bytes a bucket"; the
-  packed bucket is 16 bytes, so the table is twice that.
+- **Row 678's production data** must answer the same method: it gives `pack` its changes
+  inside `[ORIGIN, LIMIT)` as sorted instants with their offsets, which row 678's line names
+  ("its changes sorted on both time lines"). It may build the packed table once a zone in
+  each JVM, lazily, and answer by `System.arraycopy`; it must not ship a table from the
+  driver. `m9/PLAN.md` 2.2 prices the table at "89 KB at eight bytes a bucket"; the packed
+  bucket is 16 bytes, so the table is twice that.
 - **The runner** (`VarkaKernelRunner`, in `sql/core`). The record that `newRunner` builds for
   a program gains a last component `boolean table`. When the runner is built, each table
   program calls `zone.toLocalTable(longArgs, first)` once and keeps the answer in a
   `boolean[]` field. `fill`, for a table program: when no row is live, nothing; when the
   zone has no table, or `!VarkaZoneTable.covers(least, greatest)`, decline with
-  `STATUS_BATCH_ARGS`; else nothing. It never calls `neutral`, `changes` or `toLocalArgs` for
-  it, and `covers` is far inside row 682's 18-hour bound.
+  `STATUS_BATCH_ARGS`; else nothing. It never calls `neutral`, `changes` or `toLocalArgs`.
 
 ### 4.6 Edge cases
 
@@ -404,77 +437,68 @@ The gather is never masked.
 | :--- | :--- | :--- |
 | a null row over any long | its lane runs: the index is clamped, the gather reads inside the table, the sum may wrap, and the output's validity hides the row | checks 2 and 3 of 4.10; the suite's null rows over storage outside the table |
 | an instant before 1900 or from 2100, live | `covers` is false. Under the ladder the batch takes a step form if at most 8 changes are in its range, which holds for any batch inside one stretch of a few years; else it declines with `STATUS_BATCH_ARGS` and takes the row path. A forced `TABLE` declines it | the runner's tests; the sweep's test of both ends |
-| the ends of a long | never live under `TABLE`; as a null row's storage, see the first line | the same |
-| a batch with no live row | no fill, the kernel runs, every row is null | the runner's test of an all-null batch between two live ones |
-| two lanes of 64 bits on x86; AArch64 without SVE | no `TABLE` kernel: 4.7 | tests 14 and 16 |
-| AVX2 against AVX-512 | the same bytecode. AVX2 has no 64-bit arithmetic shift and C2 emulates call 13; the gather is one AVX2 instruction on both | the census cells; the benchmark at both widths |
+| the ends of a long | never live under a table form; as a null row's storage, see the first line | the same |
 | a zone with a fixed offset | no node at all: row 657 folds it | - |
+| a batch with no live row | no fill, the kernel runs, every row is null | the runner's test of an all-null batch between two live ones |
+| two lanes of 64 bits on x86; AArch64 without SVE | the ladder takes no table form there until row 691 decides; a forced `TABLE_SCALAR` has no gather; a forced `TABLE` is right and slow: 4.7 | tests 14 and 15 |
+| a batch longer than any before it | the runner takes a longer map before the call; a kernel given a short map throws by name | the runner's test of four batch lengths; test 14 |
+| a batch shorter than a lane group | the pass writes every index one row at a time, and the epilogue's gather reads the slack past them | test 8's lengths |
+| AVX2 against AVX-512 | the same bytecode. AVX2 has no 64-bit arithmetic shift and C2 emulates call 13; the gather is one AVX2 instruction on both | the census cells; the benchmark at both widths |
 | a zone whose two changes share a bucket | `pack` answers false; every batch of a forced `TABLE` declines; the ladder never picks `TABLE` for it. No zone of time-zone data 2026f is one (`facts.txt`) | the suite's made-up changes; the runner's test with a wrapper |
 | `-Djdk.incubator.vector.VECTOR_ACCESS_OOB_CHECK=0` | the JVM's check is off, and the clamp alone keeps a null row's index inside the table | checks 2 and 3 of 4.10 |
 
-### 4.7 A host whose C2 has no gather: a recorded refusal
+### 4.7 A host whose C2 has no gather: scalar loads, `TABLE_SCALAR`
 
-At two lanes on x86 the gather's index check and the lowering's compare are masks that C2
-does not compile (fact 7): the probe's table cost 38.864 ns a row where `java.time` costs
-10.956. On AArch64 without SVE C2 has no gather (fact 13), so the kernel would run as Java.
-By the owner's decision 15 of `m9/PLAN.md`, a form slower than the row path declines:
+At two lanes on x86 the gather's index check is a mask that C2 does not compile (fact 7),
+and on AArch64 without SVE C2 has no gather (fact 13). In the second probe (`tables.txt`,
+`tables-2.txt`) every gathered form at two lanes costs more than twice the 10.956 ns a row
+of `java.time`'s offset (`forms.txt`), as the first probe's three gathers do (fact 7). So
+the row builds a second table form, with no gather, no index map and no mask:
 
+- **`ZoneForm.TABLE_SCALAR`**, lowered by `emitToLocalTableScalar`. The operand `v` stays in
+  `zoneTmp` and the result starts as `v`. For each lane `k` of the long species: `v.lane(k)`,
+  `invokestatic VarkaZoneTable.toLocal(args, first, x)`, and `withLane(k, <that>)` on the
+  result. It has the shape of `VarkaConversionLowering.emitScalarLanes` (fact 8) and needs a
+  baked lane count, as that does. `laneCalls(TABLE_SCALAR)` is 16, two calls for each of the
+  most lanes. The table and its fill are `TABLE`'s; `indexMapIntsPerRow()` is 0.
 - **The host's flag.** `VarkaZoneTable.gatherFallsBack(host)` is
   `VarkaKernelPlan.twoLaneMasksFallBack(host)`, or an `arch` of `VarkaHostIsa.AARCH64` whose
   list was read (`readable()`) and has no `sve` (`hasFeature`). A list not read answers false.
-- `VarkaKernelPlan.Kind` gains `ZONE_TABLE_HOST`, and the class gains
-
-      public static final String ZONE_TABLE_HOST_REASON = "the table form of a time zone "
-          + "conversion, on a host where C2 compiles no gather of 64-bit lanes (x86 whose "
-          + "64-bit species have two lanes or fewer, or AArch64 without SVE), so the kernel "
-          + "would run the Vector API's Java fallback";
-
-- `VarkaKernelPlan.admit` gains a form with a fourth parameter, `boolean
-  tableGatherFallsBack`. After the plan's refusal and after `hostRefusal`'s, it refuses with
-  the new kind when `twoLaneMasksFallBack || tableGatherFallsBack`, `options.zoneForm() ==
-  ZoneForm.TABLE` and a root holds a `Zoned` node (`VarkaBatchArgs.zonesNeeded(roots) > 0`).
-  The form with three parameters, which every caller keeps, passes
-  `VarkaZoneTable.gatherFallsBack(VarkaHostIsa.host())`. `of` never refuses for it (fact 8),
-  so a suite emits `TABLE` at a lane override of two and checks its answers.
-- **The predicate pass** (fact 8) would drop the new kind and fuse the filter. So it asks
-  `admit(List.of(planned), options, twoLaneHost)` on every host and keeps a refusal of kind
-  `TWO_LANE_CONDITION` or `ZONE_TABLE_HOST`. With `twoLaneHost` false and another form,
-  `admit` answers the plan's refusal or none, and `of` answers as today: nothing else moves.
-- The ladder (4.8) leaves `TABLE` out where `gatherFallsBack(VarkaHostIsa.host())`, read on
-  the executor. A batch of more than 8 changes then declines with `STATUS_BATCH_ARGS`.
+- **The choice is static.** The ladder (4.8) reads the flag once on the executor, with no
+  probe at run time. Neither form is refused anywhere, so a suite and the option matrix emit
+  both on any host; a forced `TABLE` on a host with no gather is right and slow.
+- **Not on the ladder at two lanes yet.** The probe's 8.421 ns a row at two lanes is the
+  offset alone, from a loop that still compares in vectors, and `java.time`'s offset costs
+  10.956 there (`forms.txt`): a small margin. A whole kernel has more to gain: the row path
+  of `hour` costs 25.360 at two lanes (`results/kernels.txt`). Row 691 measures the `TABLE_SCALAR`
+  kernel against the row path and puts it on the ladder for such a host if it wins (P12).
+  Until then the ladder stops at `STEPS_8` there, and a batch of more than 8 changes
+  declines with `STATUS_BATCH_ARGS`. Where a gather is compiled the scalar loads lose, 1.686
+  and 1.425 against 0.621 and 0.829.
 - **The Arm runner** has SVE (fact 13), so the flag is false there and test 13 measures its
-  kernel. No census of a gather was read there: a failure of test 13 on it is a stop.
-
-**The other lowering, not built here.** A scalar read of each lane's bucket, loaded back as
-two vectors and selected by a subtract, a shift and an AND, has no mask and no second int
-species, and the table could live in native memory. Its cost is measured nowhere. It is the
-lever if part a's census stops the row (risk 1).
+  `TABLE` kernel. No census of a gather was read there: a failure of test 13 on it is a stop.
 
 ### 4.8 The ladder, and the threshold
 
-- **Order.** The ladder's forms, cheapest first: `ONE`, `STEPS_2`, `STEPS_8`, `TABLE`.
-  `TABLE` covers a program when the zone has a table and `VarkaZoneTable.covers(least,
-  greatest)`; it does not look at the count of changes.
+- **Order.** The ladder's forms, cheapest first: `ONE`, `STEPS_2`, `STEPS_8`, then `TABLE`
+  where the host's flag (4.7) is false, and no table form where it is true. `TABLE` covers
+  a program when the zone has a table and `VarkaZoneTable.covers(least, greatest)`; it does
+  not look at the count of changes.
 - **The threshold.** `VarkaZoneTable.tableFromChanges(longLanes)` is the count of changes
   from which the ladder takes `TABLE` although a step form covers. This row returns 9 for
-  every lane count, one more than `STEPS_8` covers, so today it never differs from "the least
-  form that covers". Row 691 measures the cross-over in kernels and sets the value for each
-  width, which the house allows since row 600.
-- **Why 9 until then.** In the probe the three-gather table loses to 8 steps at both widths:
-  0.882 to 0.949 against 0.755 at four lanes, 0.781 against 0.289 at eight. The packed table
-  is predicted to beat the `STEPS_8` kernel at four lanes (P7). That kernel runs its 8 steps
-  whatever the batch holds, so the predicted threshold there is 3, the first count that
-  needs it. No results file holds a packed bucket, and a prediction moves no default.
+  every lane count, one more than `STEPS_8` covers; row 691 measures the cross-over in
+  kernels and sets the value for each width, which the house allows since row 600.
+- **Why 9 until then.** In the probes the table loses to 8 steps at both widths: 0.829
+  against 0.755 at four lanes and 0.621 against 0.289 at eight (the whole-batch form of
+  `tables.txt`, the steps of `forms.txt`). A `STEPS_8` kernel runs its 8 steps whatever the
+  batch holds, so the cross-over may lie below 8 changes. A prediction moves no default.
 
 ### 4.9 What this row leaves for row 690, and what declines by name
 
 `ToInstant` and `ToInstantKept` read a local time, so their table is indexed on the local
-time line, with the local thresholds of `VARKA-657.md` 2.4. This row builds none of it. It
-leaves the bucket's constants, `word`, `offsetMicros`, `pack` and the kernel's read of a
-table program. They serve the rule `EARLIER` as they are, with the local threshold as word
-0; the rule `GAP_END` and the kept offset need the second threshold, a third word a bucket
-or a second table. `facts.txt` has the fact a local bucket needs: "closest two local
-thresholds of one zone: 601200 s apart".
+time line, with the local thresholds of `VARKA-657.md` 2.4. Row 693 builds it, on this row's
+constants, `word`, `offsetMicros`, `pack`, index map and read of a table program. `facts.txt`
+has the fact a local bucket needs: "closest two local thresholds of one zone: 601200 s apart".
 
 - If `ToInstant` exists when part b starts, its B0 stops and the lead adds the refusal of a
   table over it. If not, `VarkaBatchArgs.count`'s switch has the `ToLocal` arm alone, and row
@@ -529,11 +553,11 @@ SMT claim: it is a property of the JVM's data, and the sweep holds it.
 ## 5. The parts
 
 Four pull requests: the bucket and its proof; the kernel; the ladder and the sweep; the
-measurement, apart because the lead dispatches it (`VARKA-657.md` section 8 budgeted three).
-Each sheet follows `sql/varka/plans/m8/BUILD_SHEETS.md` in full. This file merges first, in
-a plan-only pull request, so no part counts its lines. The row's line is in
-`m9/PLAN.md`. A JUnit run prints sbt's `Passed: Total N` line; in "n + 3", n is the count
-B0 printed. No build branch is named `varka-686`, which held the plan. Every shell starts with:
+measurement, apart because the lead dispatches it. Each sheet follows
+`sql/varka/plans/m8/BUILD_SHEETS.md` in full. This file merges first, in a plan-only pull
+request, so no part counts its lines. A JUnit run prints sbt's `Passed: Total N` line; in
+"n + 3", n is the count B0 printed. No build branch is named `varka-686`, which held the
+plan. Every shell starts with:
 
     export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
     V=sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka
@@ -567,9 +591,8 @@ Title `[VARKA-686] Pack a zone's offsets into 16-byte buckets, with their proof`
    `LongVector.fromArray(LS, <a static long[1024]>, 0, <that int[]>, 0).intoArray(LO, i)`.
    `op_two_intgather`, case `"two.intgather"`: `IntVector.fromArray(IS, <a static
    int[1024]>, 0, <a static int[ROWS] of indices from 0 to 1023>, i).intoArray(IO, i)`, the
-   shape of `VarkaAssemblyProbe.gatherLookup`, which boxes when polluted (fact 6).
-   `$T/VarkaOperatorCensusCatalog.java`: a family `GATHERS = "gathers"` and, after the last
-   entry of the family `TWO_SPECIES`:
+   shape of `VarkaAssemblyProbe.gatherLookup` (fact 6). `$T/VarkaOperatorCensusCatalog.java`:
+   a family `GATHERS = "gathers"` and, after the last entry of the family `TWO_SPECIES`:
 
         of("long", "gather", GATHERS, "gather.long", "loadWithMap", "686"),
         of("int", "MIN", GATHERS, "bin.int", "binaryOp", "686"),
@@ -636,7 +659,7 @@ option value, no `TABLE` anywhere, no change in `sql/core` but an implementer's 
 ### 5.2 Part b: the kernel
 
 Title `[VARKA-686] Lower ToLocal through the bucket table: the form TABLE`; branch
-`varka-686b-kernel`. About 740 counted lines. Needs part a and row 684.
+`varka-686b-kernel`. About 800 counted lines. Needs part a and row 684.
 
 **B0, the premises.**
 
@@ -646,85 +669,88 @@ Title `[VARKA-686] Lower ToLocal through the bucket table: the form TABLE`; bran
     grep -c 'static int count(' $V/VarkaBatchArgs.java; grep -c 'public static void neutral(Program program, long\[\] args)' $V/VarkaBatchArgs.java   # 1 and 1
     grep -c 'static void emitToLocal(\|static int laneCalls(' $V/VarkaZoneLowering.java       # 2
     grep -c 'void emitBatchArgs(' $V/VarkaBodyEmitter.java; grep -c 'batchArgLocal' $V/Slots.java   # 1, and 1 or more
-    grep -c 'private static void emitConstantSpecies(CodeBuilder cb, Lane lane, Analysis analysis)' $V/VarkaVectorWalk.java; grep -c 'boolean twoLaneMasksFallBack) {' $V/VarkaKernelPlan.java   # 1, and 1: admit's last parameter
+    grep -c 'private static void emitConstantSpecies(CodeBuilder cb, Lane lane, Analysis analysis)' $V/VarkaVectorWalk.java; grep -c 'private static void emitScalarLanes(CodeBuilder cb, int v, Analysis analysis)' $V/VarkaConversionLowering.java   # 1 and 1
+    grep -c 'default int scratchBytesPerRow() {' $V/VarkaFusedKernel.java; grep -c 'public final int\[\] scalarArgs;' $E/varka/VarkaKernelRunner.java   # 1 and 1
+    git grep -n 'scratchBytesPerRow()' -- sql/catalyst/src sql/core/src                        # every caller of a kernel that sizes its scratch: note them
     grep -n 'toLocalArgs(\|neutral(\|BatchProgram(' $E/varka/VarkaKernelRunner.java $E/VarkaEvaluatorBase.java   # the fill's two calls, the program's record, and where newRunner builds it
-    grep -rn 'ZoneForm.values()' sql/catalyst/src/main sql/core/src/main                      # nothing; a line is a stop
-    git grep -n '\.steps()\|ZoneForm.values()' -- sql/catalyst/src sql/core/src                # every reader of a form's steps: note them
-    grep -c 'r.kind() == VarkaKernelPlan.Kind.TWO_LANE_CONDITION' $V/../VarkaExpressionCompiler.java   # 1: the predicate pass's filter
+    git grep -n '\.steps()\|ZoneForm.values()' -- sql/catalyst/src sql/core/src                # every reader of a form's steps: note them; `ZoneForm.values()` in main code is a stop
     grep -n 'Filler production(' $T/VarkaZoneKernels.java; ls $T/VarkaZoneArgsPropertySuite.java   # one line each
     grep -c '  test("' $S/VarkaBatchArgRunnerSuite.scala                                      # n: note it
-    dev/varka_matrix.sh --list | grep zoneForm                                                # the arms before this part: note them
-    grep -rn 'zoneForm=STEPS_8' sql/catalyst/src/test sql/core/src/test sql/varka/matrix      # every place that lists the arms: note them
+    dev/varka_matrix.sh --list | grep zoneForm; grep -rn 'zoneForm=STEPS_8' sql/catalyst/src/test sql/core/src/test sql/varka/matrix   # the arms before this part, and every place that lists them: note them
 
 **Steps.**
 
-1. `$V/VarkaEmitOptions.java`: `TABLE(-1)` after `STEPS_8(8)` in `ZoneForm`, with a comment:
-   the bucket table of `VarkaZoneTable`, for a batch of any number of changes from 1900 to
-   2100; `steps()` throws for it (4.4). One sentence more in the `@param zoneForm` text.
-   Each reader of `steps()` that B0 printed tests for `TABLE` first, in its file's step or here.
+1. `$V/VarkaEmitOptions.java`: `TABLE(-1)` and `TABLE_SCALAR(-1)` after `STEPS_8(8)` in
+   `ZoneForm`, each with a comment: the bucket table of `VarkaZoneTable`, for a batch of any
+   number of changes from 1900 to 2100, read by gathers or by scalar loads of each lane (4.7);
+   `steps()` throws for both (4.4). One sentence more in the `@param zoneForm` text. Each
+   reader of `steps()` that B0 printed tests for a table form first, in its file's step or here.
 2. `$V/VarkaBatchArgs.java`: `count` and the guard of `neutral` (4.4).
-3. `$V/Slots.java`: `int zoneIndex = -1` beside `zoneTmp`; in `plan`, under `TABLE`, a zone
-   node gets an empty `batchArgLocal` and its `zoneTmp`, and the body one `zoneIndex` (4.4).
+3. `$V/VarkaFusedKernel.java`: `indexMapIntsPerRow()` beside `scratchBytesPerRow()`, with a
+   comment that says what 4.1 says. `$V/Analysis.java`: its count. `$V/VarkaZoneTable.java`:
+   `INDEX_SLACK`, `indexMapInts` and `gatherFallsBack`. `$V/Slots.java`, in `plan`: under a
+   table form a zone node gets an empty `batchArgLocal` and its `zoneTmp` (4.4).
 4. `$V/VarkaVectorWalk.java`: `emitConstantSpecies` is package-private.
-   `$V/VarkaBodyEmitter.java`, `emitBatchArgs`: under `TABLE`, no load of an argument; when
-   the body holds a zone node, the allocation of the index map (4.4).
-5. `$V/VarkaZoneLowering.java`: `emitToLocalTable` (4.3), reached from `emitToLocal` by a
-   switch over the form with no `default`; `laneCalls(TABLE)` is 14.
-6. `$V/VarkaZoneTable.java`: `gatherFallsBack`. `$V/VarkaKernelPlan.java`: the kind, the
-   reason, and `admit`'s two forms with the refusal after `hostRefusal`'s.
-   `$V/../VarkaExpressionCompiler.java`: the predicate pass asks `admit` on every host and
-   keeps both host kinds (4.7). No other line of that file changes.
-7. `$E/varka/VarkaKernelRunner.java` and `$E/VarkaEvaluatorBase.java`: 4.5's last point. The
-   table is written where the runner is built; the fill's table branch comes before the calls
-   B0 printed.
-8. `$T/VarkaZoneKernels.java`, the filler of `production`: for a kernel of form `TABLE` it
+   `$V/VarkaBodyEmitter.java`: `emitBatchArgs` emits no load under a table form; `emitDriver`,
+   in each of its forms, emits under `TABLE` the length check and the index passes (4.3, 4.4).
+   The emitted class answers `indexMapIntsPerRow()` where it answers `scratchBytesPerRow()`.
+   If a driver cannot map a column's segment before its loop methods, stop and report.
+5. `$V/VarkaZoneLowering.java`: `emitToLocalIndex` and `emitToLocalTable` (4.3) and
+   `emitToLocalTableScalar` (4.7), the two arms reached from `emitToLocal` by a switch over
+   the form with no `default`; `laneCalls(TABLE)` is 14 and `laneCalls(TABLE_SCALAR)` is 16.
+6. `$E/varka/VarkaKernelRunner.java` and `$E/VarkaEvaluatorBase.java`: 4.5's last point, and
+   the runner's map (4.1), with a package-private `indexMapLength()` for the tests. The table
+   is written where the runner is built; the fill's table branch comes before the calls B0
+   printed. Each caller of a kernel that B0's `scratchBytesPerRow()` line printed (the
+   warm-up, the replay, `VarkaEmitterFixtures`) passes a map of `indexMapInts` ints.
+7. `$T/VarkaZoneKernels.java`, the filler of `production`: for a kernel of a table form it
    calls `toLocalTable(longArgs, first)` on every fill and answers its result and
    `VarkaZoneTable.covers(least, greatest)`. It is the one filler of the sweep, the property
    suite and the IR fuzzer. `$T/VarkaZoneArgsPropertySuite.java`: its draw of a form includes
-   `TABLE`, and each test gains the arm of `TABLE`. Its oracle there: the fill answers
-   exactly when the zone has a table and `VarkaZoneTable.covers(least, greatest)`; no change
-   is counted and `steps()` is not read; each row is `VarkaZoneTable.toLocal(args, first,
-   x)` against `java.time`. Test 3's "every form" counts `TABLE`. The step forms' arm stays.
-9. `$TS/VarkaEmitterBudgetSuite.scala`: one row more, as its row of `STEPS_8`, with the form
-   `TABLE`, 14 lane calls and 0 mask calls. Each place B0's last grep printed that lists the
-   arms of `zoneForm` (a pinned list of configurations, `VarkaTestReach.FULL`): add
-   `zoneForm=TABLE` beside `zoneForm=STEPS_8`.
-10. `$T/VarkaZoneTableSuite.java`: tests 8 to 14. `$T/VarkaZoneTableLanesSuite.java`, new,
-    `@VarkaSuite(ownJvm = true)`: test 15. `VarkaExpressionCompilerSuite.scala`, beside its
-    test of the two-lane host: test 16.
-    `$S/VarkaBatchArgRunnerSuite.scala`: the seven tests below, over the reference's data.
-11. `docs/sql-varka.md`: in the sentence on `batch-args` that row 682 wrote, add that under
+   both table forms, and each test gains their arm. Its oracle there: the fill answers
+   exactly when the zone has a table and `covers`; `steps()` is not read; each row is
+   `VarkaZoneTable.toLocal(args, first, x)` against `java.time`. The step forms' arm stays.
+8. `$TS/VarkaEmitterBudgetSuite.scala`: two rows more, as its row of `STEPS_8`: `TABLE` with
+   14 lane calls and `TABLE_SCALAR` with 16, each with 0 mask calls. Each place B0's last
+   grep printed that lists the arms of `zoneForm` (a pinned list of configurations,
+   `VarkaTestReach.FULL`): add `zoneForm=TABLE` and `zoneForm=TABLE_SCALAR`.
+9. `$T/VarkaZoneTableSuite.java`: tests 8 to 14. `$T/VarkaZoneTableLanesSuite.java`, new,
+   `@VarkaSuite(ownJvm = true)`: test 15. `$S/VarkaBatchArgRunnerSuite.scala`: the eight
+   tests below, over the reference's data.
+10. `docs/sql-varka.md`: in the sentence on `batch-args` that row 682 wrote, add that under
     the table form a batch with a value before 1900 or from 2100 on runs on Spark's own path.
-12. The matrix run of the commands below. A test that fails under `zoneForm=TABLE` because
+11. The matrix run of the commands below. A test that fails under a table form's arm because
     it asserts the decline of a batch that spans more changes than a step form covers gets
-    this line in `sql/varka/matrix/skips.tsv`; a failure of any other test is a stop:
+    this line in `sql/varka/matrix/skips.tsv`, for each arm; any other failure is a stop:
 
         zoneForm=TABLE	<suite>	<test name>	fails	the table form covers a batch of any number of changes, so the decline this test asserts does not happen
 
 **Tests.** Options from `VarkaMatrixRuns.BASE` with `withZoneForm(ZoneForm.TABLE)`, kernels
 emitted and loaded by `VarkaEmitterFixtures`, a hand table from `VarkaZoneTable.pack` of
-made-up changes, expected rows from `toLocal`. No test of `VarkaZoneTableSuite` emits at a
-lane override: test 13's verdict is a JIT outcome, and a second species in its JVM spoils it.
+made-up changes, expected rows from `toLocal`, a map of `indexMapInts` ints. "Both forms"
+is `TABLE` and `TABLE_SCALAR`. No test of `VarkaZoneTableSuite` emits at a lane override:
+test 13's verdict is a JIT outcome, and a second species in its JVM spoils it.
 
 | # | test | the failure only it catches |
 | ---: | :--- | :--- |
-| 8 | `(toLocal:0 col:0:long)` over a hand table of three changes: rows before, at and after each change, at every length of `VarkaEmitterFixtures.LENGTHS`, dense and with nulls | the two gathers crossed; the blend's arms crossed |
-| 9 | null rows over storage `Long.MIN_VALUE`, `Long.MAX_VALUE`, `ORIGIN - 1`, `LIMIT + (3L << 39)` and -1, in a `longArgs` that ends with the table: the call returns 0 and throws nothing, null rows are null, live rows are right | an index with no clamp, which the JVM's check turns into an `IndexOutOfBoundsException` and a fallback of every such batch |
-| 10 | `(bit:AND (toLocal:0 col:0:long) lit:0:long)`, and two zone nodes over two columns: the first table starts at `numLiterals`, the second 22964 later, each with its own made-up offsets | a gather whose `offset` forgets the literals or the first table |
-| 11 | `count` is 22964, a program after it starts that much later, the shape key differs from each step form's, and `ZoneForm.TABLE.steps()` throws | a kernel that reads past its program; two forms sharing a cached class; a reader that takes `TABLE` for `ONE` |
-| 12 | `loopDense0`'s bytes and its lane calls are pinned: 14 calls, none on `VectorMask`; tagged `PinsDefaults` | a lowering that grows unseen |
-| 13 | after 30000 calls of 1024 rows, 1000 more calls allocate under one byte a row (`ThreadMXBean.getThreadAllocatedBytes`, as `VarkaAssemblySuite` measures), tagged `C2Code`; the bound holds the index map's one array a call (4.1); where `gatherFallsBack(VarkaHostIsa.host())` the test asserts the three-parameter `admit`'s refusal in its place | a gather that boxes, the second int species of fact 6 |
-| 14 | `VarkaKernelPlan.admit(roots, options, true, false)` and `(roots, options, false, true)` refuse with `ZONE_TABLE_HOST` and its reason text; `(roots, options, false, false)` and `of` do not; a condition root over a zone node with `true` keeps `hostRefusal`'s own kind; `gatherFallsBack` is true for an `aarch64` reading whose list has no `sve`, false with `sve` and for a list not read, and `twoLaneMasksFallBack`'s answer for an x86 reading | a `TABLE` kernel compiled where it is slower than the row path, on either architecture |
-| 15 | in `VarkaZoneTableLanesSuite`: the kernel at a lane override of four and of two, emitted and run where `VarkaSpeciesGuard` allows, else emitted and verified: the rows of test 8 | a slip that only one width shows |
-| 16 | in `VarkaExpressionCompilerSuite`, through `explainAndCompilePredicate` with `DEFAULTS.withZoneForm(ZoneForm.TABLE)` and a `VarkaAdmission` of each `twoLaneHost`: a filter `hour(ts) = 3` in `America/Los_Angeles` with `twoLaneHost = true` fuses no conjunct and notes `TWO_LANE_CONDITION_REASON` or `ZONE_TABLE_HOST_REASON`; with `false` it fuses exactly where `gatherFallsBack(VarkaHostIsa.host())` is false, and else notes `ZONE_TABLE_HOST_REASON` | a filter fused under `TABLE` on a host with no gather, because the predicate pass dropped the refusal |
+| 8 | `(toLocal:0 col:0:long)` over a hand table of three changes, in both forms: rows before, at and after each change, at every length of `VarkaEmitterFixtures.LENGTHS`, dense and with nulls | the two gathers crossed; the blend's arms crossed; a row past the last lane group whose index the pass did not write |
+| 9 | in both forms, null rows over storage `Long.MIN_VALUE`, `Long.MAX_VALUE`, `ORIGIN - 1`, `LIMIT + (3L << 39)` and -1, in a `longArgs` that ends with the table: the call returns 0 and throws nothing, null rows are null, live rows are right | an index with no clamp, which the JVM's check turns into an `IndexOutOfBoundsException` and a fallback of every such batch |
+| 10 | `(bit:AND (toLocal:0 col:0:long) lit:0:long)`, and two zone nodes over two columns: the first table starts at `numLiterals`, the second 22964 later, each with its own made-up offsets; the kernel of two nodes answers 2 for `indexMapIntsPerRow()` | a gather whose `offset` forgets the literals or the first table; two programs that share one run of the map |
+| 11 | `count` is 22964 under both forms, a program after it starts that much later, the shape keys of the two forms differ from each other and from each step form's, and `steps()` of both throws | a kernel that reads past its program; two forms sharing a cached class; a reader that takes a table form for `ONE` |
+| 12 | under `TABLE`, `loopDense0`'s bytes and its lane calls are pinned: the 8 calls of the body, none on `VectorMask`, and no `intoArray`; tagged `PinsDefaults` | a lowering that grows unseen; the index computed again in the body |
+| 13 | after 30000 calls of 1024 rows with one map, 1000 more calls allocate under one byte a row (`ThreadMXBean.getThreadAllocatedBytes`, as `VarkaAssemblySuite` measures), tagged `C2Code`; the form is `TABLE` where `gatherFallsBack(VarkaHostIsa.host())` is false and `TABLE_SCALAR` where it is true | a gather that boxes, the second int species of fact 6; a kernel that allocates its map; a lane read that boxes |
+| 14 | a `TABLE` kernel called with a map one int shorter than `indexMapInts(1, length)` throws `IllegalArgumentException` whose text holds both lengths, and runs with one of that length whose first `length` ints are -1; a `TABLE_SCALAR` kernel and a `STEPS_2` kernel answer 0 for `indexMapIntsPerRow()` and run with an empty array; `gatherFallsBack` is true for an `aarch64` reading whose list has no `sve`, false with `sve` and for a list not read, and `twoLaneMasksFallBack`'s answer for an x86 reading | a short map that becomes an `ArrayIndexOutOfBoundsException` and a fallback with a misleading cause; a pass that leaves an int of the batch unwritten; a gather on a host with none |
+| 15 | in `VarkaZoneTableLanesSuite`: both forms at a lane override of four and of two, emitted and run where `VarkaSpeciesGuard` allows, else emitted and verified: the rows of test 8 | a slip that only one width shows |
 
-Added to `VarkaBatchArgRunnerSuite` (ScalaTest; the forced form is `TABLE`):
+Added to `VarkaBatchArgRunnerSuite` (ScalaTest; the forced form is `TABLE`, and the first
+test runs under `TABLE_SCALAR` too):
 
 | test | the failure only it catches |
 | :--- | :--- |
 | ten years of instants in no order under `America/Los_Angeles`, one row in ten null: every batch is answered as the reference answers, and `batch-args` is 0 | a table that is not written, or written once for the wrong zone |
 | a batch with a live instant of July 2100, and one with a live instant of 1899: declined, `batch-args` counts each, and the rows come from Spark's path and are right | a clamped index used for a live row: the spare bucket holds December 2099's offset, an hour off in July |
 | a batch of null rows alone between two live batches: the third batch's rows are right | `neutral` writing steps over the table |
+| batches of 64, 4096, 64 and 10000 rows through one runner: each is answered as the reference answers, and after each `indexMapLength()` is `indexMapInts(1, n)` with `n` the longest batch so far | a map sized once to the first batch; a map taken anew for each batch |
 | the runner's `longArgs` is `numLiterals + 22964` longs; two runners of one shape under two zones each answer their own zone | a table shared by two tasks |
 | the warm-up's kernel call sees the table, and a forced kernel failure's reproduction file, under one megabyte, replays to the same rows | a warm-up or a replay over an empty table |
 | a zone data whose `toLocalTable` answers false: every batch declines and no row is wrong | a kernel run over a table that was never written |
@@ -735,12 +761,11 @@ Added to `VarkaBatchArgRunnerSuite` (ScalaTest; the forced form is `TABLE`):
     flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/Test/compile' 'sql/Test/compile'            # [success]
     flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaZoneTableSuite *VarkaZoneTableLanesSuite *VarkaZoneArgsPropertySuite *VarkaTwoLaneConditionSuite *VarkaBatchArgsSuite *VarkaEmitterZoneSuite *VarkaEmitterBudgetSuite *VarkaEmitOptionSuite *VarkaMatrixSuite *VarkaZoneSweepSuite *VarkaIrFuzzSuite'
         # no line with FAILED or Failed: [1-9]; VarkaZoneTableSuite's 14 tests and VarkaZoneTableLanesSuite's 1 are among the passed
-    flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaExpressionCompilerSuite'     # failed 0, canceled 0; test 16 is among the passed
     flock "$VARKA_HEAVY_LOCK" build/sbt 'sql/testOnly *VarkaBatchArgRunnerSuite *VarkaEvaluatorComponentsSuite'
-        # VarkaBatchArgRunnerSuite: Tests: succeeded n + 7 of its own, failed 0, canceled 0
+        # VarkaBatchArgRunnerSuite: Tests: succeeded n + 8 of its own, failed 0, canceled 0
     flock "$VARKA_HEAVY_LOCK" build/sbt 'set LocalProject("sql") / Test / javaOptions += "-Dvarka.sanitizeMemory=true"' 'sql/testOnly *VarkaBatchArgRunnerSuite'   # failed 0, canceled 0
-    dev/varka_matrix.sh --list | grep zoneForm                                                # B0's arms and zoneForm=TABLE
-    dev/varka_matrix.sh --config zoneForm=TABLE --module sql --suites VarkaTimestampZoneSuite,VarkaBatchArgRunnerSuite   # passes, or fails only in tests that step 12 gives a line
+    dev/varka_matrix.sh --list | grep zoneForm                                                # B0's arms, zoneForm=TABLE and zoneForm=TABLE_SCALAR
+    dev/varka_matrix.sh --config zoneForm=TABLE --config zoneForm=TABLE_SCALAR --module sql --suites VarkaTimestampZoneSuite,VarkaBatchArgRunnerSuite   # passes, or fails only in tests that step 11 gives a line
     dev/varka_emit.sh "hour(ts)" --columns ts:timestamp --zone America/Los_Angeles --options zoneForm=TABLE   # FusedOutput(0); note loopDense0's bytes and calls
     dev/varka_regen_generated.sh
     git diff --exit-code -- sql/varka/emitted_bytes.json sql/varka/coverage.json sql/varka/width_audit.json   # exit 0
@@ -749,12 +774,13 @@ Added to `VarkaBatchArgRunnerSuite` (ScalaTest; the forced form is `TABLE`):
 **Planted faults:** call 4 of 4.3 left out (test 9 fails by an exception); `first` and `first
 + 1` swapped between the two gathers (test 8 fails on every row); the `covers` test left out
 of the runner's fill (the July 2100 test fails on wrong rows); the table branch of the fill
-moved after the call of `neutral` (the all-null test fails by `neutral`'s guard); the new
-refusal returned before `hostRefusal`'s with the predicate pass's filter as it was (test 16
-fails with a fused conjunct, test 14 on the kind).
+moved after the call of `neutral` (the all-null test fails by `neutral`'s guard); the pass's
+rows past the last lane group left out (test 14 fails by an exception on a -1, test 8 on
+rows at the lengths that are no multiple of a lane group); the runner's map taken once and
+never grown (the test of four batch lengths fails by the kernel's named throw).
 
 **Done when** the commands print as above, the faults fail as named, and the size count
-is under 900; if it passes 800, move test 15 and the reproduction test to part c. **Not
+is under 900; if it passes 850, move test 15 and the reproduction test to part c. **Not
 here:** no change to the ladder or to a default, no entry in `pinnedArms`, no table for a
 local time, no benchmark.
 
@@ -776,27 +802,29 @@ Title `[VARKA-686] Make the table the ladder's last form, and sweep it in every 
 
 1. The ladder (4.8), at the lines B0 printed: `TABLE` is the last of `VarkaZoneLadder.RUNGS`;
    `widest` stops below it where `VarkaZoneTable.gatherFallsBack(VarkaHostIsa.host())`, read
-   once when the evaluator is built; its cover test, which reads no `steps()` of `TABLE`
+   once when the evaluator is built, and `TABLE_SCALAR` is no rung (4.7: row 691 decides);
+   its cover test, which reads no `steps()` of `TABLE`
    (4.4); `tableFromChanges` of the preferred long species' lane count. `emitted` does not
    change. If the ladder is no ordered list of forms with a cover test for each, stop and
    report its shape: this plan was written beside a draft of row 685's.
-2. `$T/VarkaZoneKernels.java`: `forms()`, the three step forms and `TABLE` where the host's
-   flag is false. `sweep` runs `TABLE` over a run of eight changes as one batch, as it runs
-   `STEPS_8`; a batch the table does not cover must be declined by the filler.
+2. `$T/VarkaZoneKernels.java`: `forms()`, the three step forms, `TABLE_SCALAR`, and `TABLE`
+   where the host's flag is false. `sweep` runs a table form over a run of eight changes as
+   one batch, as it runs `STEPS_8`; a batch the table does not cover must be declined by the
+   filler.
 3. `$T/VarkaZoneSweepSuite.java`: each test "in each form" takes `forms()`, the test that
-   every form gives the same rows compares `TABLE` too, and the first two tests below.
+   every form gives the same rows compares the table forms too, and the first two tests below.
 4. `$T/VarkaZoneFaults.java` and `$T/VarkaZonePlantedFaultSuite.java`: the next three tests.
 5. `$S/VarkaTimestampZoneSuite.scala`: the last three tests, over row 657's four entries.
 6. Row 686 of `m9/PLAN.md`: part d is left.
 
 | suite | test | the failure only it catches |
 | :--- | :--- | :--- |
-| sweep | the table form answers one instant of every bucket, in no order, as `java.time` answers, for every set of rules | a bucket that only a batch spread over the whole table reads |
+| sweep | each table form of `forms()` answers one instant of every bucket, in no order, as `java.time` answers, for every set of rules | a bucket that only a batch spread over the whole table reads |
 | sweep | the table form declines a batch with an instant before 1900, and one with the first microsecond of 2100, and answers one that ends a microsecond before 2100 | a range test one bucket or one microsecond off |
 | planted | a table whose changes are one microsecond late fails at the change itself | a sweep that skips the instant of a change |
 | planted | a table with its two offsets swapped fails on both sides of a change | a check that passes on rows that cross no change |
 | planted | a table left from another zone fails the sweep (a filler that writes the first zone's table alone) | a table not written for the zone at hand |
-| Spark | ten years of instants in no order under `America/Los_Angeles`, one row in ten null: the rows are Spark's; where the host's flag (4.7) is false no batch declines, and where it is true every batch declines with `batch-args` (or, where row 689 refuses the kernel there, none is compiled) | G2's item; and a `TABLE` kernel run on a host with no gather |
+| Spark | ten years of instants in no order under `America/Los_Angeles`, one row in ten null: the rows are Spark's; where the host's flag (4.7) is false no batch declines, and where it is true every batch declines with `batch-args` (or, where row 689 refuses the kernel there, none is compiled) | G2's item; and a gather taken by the ladder on a host with none |
 | Spark | a year of instants in no order builds no table kernel, by the observable of row 685's test | a ladder that takes the table before the steps |
 | Spark | ten years in no order with a live instant of July 2100 in each batch: the rows are Spark's and every batch declines | a batch outside the table answered from a clamped bucket |
 
@@ -837,20 +865,22 @@ $B/VarkaBenchmarkBase.java` and `grep -c 'TABLE(-1)' $V/VarkaEmitOptions.java` p
 1. `$B/VarkaZoneTableBenchmark.java`: new, a Java class over `VarkaBenchmarkBase`, modelled
    on `VarkaLongLaneBenchmark`: the sections and data sets of section 7, the reference's zone
    data, the sanitizer off. The arm of three arrays is the probe's loop `ZoneForms.table`;
-   the packed arm is the 14 calls of 4.3. Each arm's rows are checked once against
-   `VarkaZoneTable.toLocal` before it is timed. On a host whose flag (4.7) is true the
-   `TABLE` kernel sections print that, untimed.
+   the packed arms are the 14 calls of 4.3, with the whole batch's indices first and with
+   calls 1 to 6 beside the gathers. Each arm's rows are checked against
+   `VarkaZoneTable.toLocal` before it is timed. Where the host's flag (4.7) is true the
+   `TABLE` kernel sections print that, untimed; the `TABLE_SCALAR` sections run everywhere.
 2. The dry run (command 1), on the laptop. Then the lead dispatches, at both widths:
 
         gh workflow run benchmark.yml --repo vecbricks/varka --ref master -f pr=<n> -f create-commit=false -f class=VarkaZoneTableBenchmark -f jdk=25 -f expected-cpu="AMD EPYC 7763"
         gh workflow run benchmark.yml --repo vecbricks/varka --ref master -f pr=<n> -f create-commit=false -f class=VarkaZoneTableBenchmark -f jdk=25 -f expected-cpu="AMD EPYC 7763" -f extra-java-options=-XX:MaxVectorSize=16
 
-   A run on another CPU is dispatched again. Commit the results and provenance files of both
-   widths under `sql/catalyst/benchmarks/`. A ratio under 1.3 is run again and read by
+   A run on another CPU is dispatched again. Commit both widths' results and provenance
+   files under `sql/catalyst/benchmarks/`. A ratio under 1.3 is run again and read by
    minimums (`python3 dev/varka_bench_diff.py --within <file> --ab "<A>" "<B>"`).
 3. `sql/varka/skills/vector-api-and-width.md`: a new `##` section on the index-map gather of
-   a long array: its `int[]`, its second int species and what the census read, its index
-   check, two lanes, SVE. Then `python3 dev/varka_toc.py SKILLS.md --from sql/varka/skills`.
+   a long array: its `int[]`, its second int species and the census, its index check, two
+   lanes, SVE, the whole batch's map, and the measured losses of 4.1 with their files. Then
+   `python3 dev/varka_toc.py SKILLS.md --from sql/varka/skills`.
 4. This file's section 11 with every prediction scored, and row 686's line: `**Done**`.
 
 **Commands.**
@@ -867,11 +897,11 @@ or to `tableFromChanges` (row 691's), no number in a document that no results fi
 
 | suite | language, module | what it holds | the failure only it catches |
 | :--- | :--- | :--- | :--- |
-| `VarkaZoneTableSuite`; `VarkaZoneTableLanesSuite` | Java, catalyst, JUnit 5 | the packing, the index, the reference's table against `java.time` in every set of rules; the kernel over hand tables, null rows over storage outside the table, the pins, the allocation, the refusal; the kernel at lane overrides, apart | a clamp or a packing that is wrong where no real zone shows it |
-| `VarkaZoneArgsPropertySuite`, extended; `VarkaExpressionCompilerSuite`, one test | Java, JUnit 5; Scala; catalyst | random zones, ranges and instants through the fill and the kernel of `TABLE`; a filter under `TABLE` on a host with no gather | a range the sweep's windows do not hold; a refusal the predicate pass drops |
+| `VarkaZoneTableSuite`; `VarkaZoneTableLanesSuite` | Java, catalyst, JUnit 5 | the packing, the index, the reference's table against `java.time` in every set of rules; both forms' kernels over hand tables, null rows over storage outside the table, the pins, the allocation, the map's length check; the kernels at lane overrides, apart | a clamp or a packing that is wrong where no real zone shows it |
+| `VarkaZoneArgsPropertySuite`, extended | Java, JUnit 5, catalyst | random zones, ranges and instants through the fill and the kernels of both table forms | a range the sweep's windows do not hold |
 | `VarkaZoneSweepSuite`, extended | Java, catalyst | `TABLE` beside the step forms at every change from 1900 to 2100 at one second; every bucket in one batch; both ends of the range | a zone whose table differs from `java.time` |
 | `VarkaZonePlantedFaultSuite`, extended | Java, catalyst | three broken tables | a sweep that cannot fail on a table |
-| `VarkaBatchArgRunnerSuite`, extended | Scala, sql/core | the table written once a runner, the declines, the all-null batch, the warm-up and the reproduction | a stale, shared or overwritten table, which no fallback catches |
+| `VarkaBatchArgRunnerSuite`, extended | Scala, sql/core | the table written once a runner, the map grown to the longest batch, the declines, the all-null batch, the warm-up and the reproduction | a stale, shared or overwritten table, which no fallback catches; a map of the wrong length |
 | `VarkaTimestampZoneSuite`, extended | Scala, sql/core | ten years in no order under the ladder, at each host kind | the row's done-when |
 | `VarkaOperatorCensusSuite`, four cells | Java, catalyst | the gather and the int `MIN` as C2 compiles them, alone and beside an int gather | a gather that allocates on this JDK |
 
@@ -880,13 +910,12 @@ or to `tableFromChanges` (row 691's), no number in a document that no results fi
   10). The clamp, proved for every long, keeps a null row inside the table; the JVM's own
   check shows a missing clamp, since test 9 puts the table at the array's end.
 - **Fuzzing:** the IR fuzzer draws its options from `VarkaEmitOption.TABLE`, so from part b
-  on it draws the form `TABLE`, fills it through `VarkaZoneKernels`' filler and compares with
-  `VarkaReference`; a batch outside the table counts as declined. The Spark fuzzer draws the
-  session zone, and the ladder picks the form. The option matrix gains `zoneForm=TABLE`.
+  on it draws both table forms, fills them through `VarkaZoneKernels`' filler and compares
+  with `VarkaReference`; a batch outside the table counts as declined. The Spark fuzzer
+  draws the session zone, and the ladder picks the form. The matrix gains both forms.
 - **Coverage and mutation:** `dev/varka_gen_coverage.sh` must show every branch of
-  `VarkaZoneTable` and of `emitToLocalTable` reached (parts a and b). `dev/varka_pit.sh` runs
-  ScalaTest suites alone and reaches the lowering through `VarkaIrFuzzSuite`; the planted
-  faults stand for the rest.
+  `VarkaZoneTable` and of the three new lowering methods reached. `dev/varka_pit.sh` reaches
+  the lowering through `VarkaIrFuzzSuite`; the planted faults stand for the rest.
 
 ## 7. Measurement
 
@@ -898,72 +927,70 @@ table), and 1900 to 2100 (every bucket, 183712 bytes).
 
 | A/B arm | sections |
 | :--- | :--- |
-| the packed table against three gathers, hand-written loops | "three arrays, three gathers" and "packed, two gathers", each over ten years and over 1900 to 2100 |
-| a few kilobytes against the whole table | the same four sections, and "kernel TABLE" over ten years and over 1900 to 2100 |
+| the packed table against three gathers, and the whole batch's indices against indices beside the gather, hand-written loops | "three arrays, three gathers", "packed, indices beside the gather" and "packed, indices of the whole batch", each over ten years and over 1900 to 2100 |
+| a few kilobytes against the whole table | the same six sections, and "kernel TABLE" over ten years and over 1900 to 2100 |
+| scalar loads against the control and against the gathers | "kernel TABLE_SCALAR" over ten years, at each width |
 | the table against the steps, in kernels | "kernel STEPS_2" and "kernel TABLE" over 297 days; "kernel STEPS_8" and "kernel TABLE" over 1389 days |
 
-**Predictions, registered on 26 November 2026, before any run.**
+**Predictions, registered on 26 November 2026, before any run of a kernel or of a runner's
+CPU.** P5 to P7 and P12 were set after the second probe (section 2).
 
 | # | prediction | scored by |
 | ---: | :--- | :--- |
 | P1 | the census reads `long.gather`, `int.MIN` and both two-species cells `I` with no allocation at 512 and at 256 bits on the laptop, and `long.gather` `F` at 128: yes | part a, command 2 |
 | P2 | `zone_bucket.smt2`: 16 checks, each solver under 2 s for the file | part a, `dev/varka_prove.sh` |
-| P3 | `loopDense0` of `(toLocal:0 col:0:long)` under `TABLE` at eight long lanes: 14 lane calls, no `VectorMask` call, between 230 and 300 bytes | part b's pin |
+| P3 | `loopDense0` of `(toLocal:0 col:0:long)` under `TABLE` at eight long lanes: 8 lane calls, no `VectorMask` call, between 170 and 240 bytes | part b's pin |
 | P4 | no existing shape's emitted bytes move in parts a to c: yes | each part's `git diff --exit-code` |
-| P5 | at 256 bits on the EPYC 7763, over ten years, the packed loop costs at most three quarters of the three-gather loop's nanoseconds a row. The probe's three gathers cost 0.882 to 0.949 on the laptop at four lanes | the first A/B arm |
-| P6 | at 256 bits, over 1900 to 2100, the packed loop costs at most one and a half times its own cost over ten years, and the three-gather loop costs at least one and a third times the packed loop | the second A/B arm |
-| P7 | at 256 bits the `TABLE` kernel beats the `STEPS_8` kernel at 8 changes and loses to `STEPS_2` at 2: yes and yes. A `STEPS_8` kernel runs its 8 steps whatever the batch holds, so it then loses at 3 to 7 changes too: the predicted `tableFromChanges` at four lanes is 3, the first count that needs `STEPS_8`. At 512 bits on the laptop `TABLE` loses to `STEPS_8` at 8 changes, as the probe's 0.289 against 0.781 says, and the threshold stays 9 | the third A/B arm |
+| P5 | at 256 bits on the EPYC 7763, over ten years, the loop with the whole batch's indices costs less than the loop with the indices beside the gather: yes (0.829 against 0.871 on the laptop at four lanes); and the packed loop costs from 0.9 to 1.1 times the three-gather loop (0.871 against 0.882) | the first A/B arm |
+| P6 | at 256 bits, over 1900 to 2100, the packed loop costs at most one and a half times its own cost over ten years | the second A/B arm |
+| P7 | at 256 bits the `TABLE` kernel loses to `STEPS_2` at 2 changes: yes; at 8 changes it costs from 0.8 to 1.3 times the `STEPS_8` kernel, so this row moves no threshold. At 512 bits on the laptop `TABLE` loses to `STEPS_8` at 8 changes, as 0.621 against the probe's 0.289 says | the third A/B arm |
 | P8 | a zone's table is 183712 bytes, 22964 longs, a runner and a zone node; a reproduction file with one table is under one megabyte | part b's runner tests |
 | P9 | ten years in no order under `America/Los_Angeles` decline no batch at 256 bits and on the Arm runner, and every batch at 128 bits on x86 | part c's Spark test |
 | P10 | test time: `VarkaZoneTableSuite` under 10 s; the sweep grows by under 3 s on the laptop; the seven runner tests add under 15 s | the suites' reported times |
-| P11 | four pull requests, none over 750 counted lines | `python3 dev/varka_msg_check.py size` |
+| P11 | four pull requests, none over 850 counted lines | `python3 dev/varka_msg_check.py size` |
+| P12 | at 128 bits on the EPYC 7763 the `TABLE_SCALAR` kernel over ten years costs less than the control, `java.time` a row: yes, by under two times. Whether the kernel of `hour(ts)` then beats Spark's row path, and the form goes on the ladder at two lanes, is row 691's to measure | the last A/B arm; row 691 |
 
-P10 was set after reading `python3 dev/varka_calibration.py`. Its nearest rows: a JUnit class
-with no session predicted at 5 s that took 0.15 s (VARKA-328); the calendar sweep predicted
-at 20 s that took 1.5 s (VARKA-281); a new sql/core suite whose tests took 8.4 s (VARKA-244).
-P5 to P7 rest on the laptop's probe: no results file has the EPYC 7763's gather.
+P10 was set after reading `python3 dev/varka_calibration.py`: a JUnit class with no session
+predicted at 5 s took 0.15 s (VARKA-328), the calendar sweep predicted at 20 s took 1.5 s
+(VARKA-281), and a new sql/core suite's tests took 8.4 s (VARKA-244).
+P5 to P7 and P12 rest on the laptop's probes: no results file has the EPYC 7763's gather.
 
 ## 8. Who builds it
 
-`m9/PLAN.md` 1.4 has rows 682 to 692 built at full strength, and so is every part here.
-No part goes to a cheaper model without the owner's word. Part a can stop the row on a JIT
-reading; part b changes the emitter's slot planning and the runner's fill, where a slip is
-a wrong answer no fallback catches; part c reads a row whose plan was a draft; part d is
-the lead's dispatches. No part serves G5.
+`m9/PLAN.md` 1.4 has rows 682 to 692 built at full strength, and so is every part here: a
+slip in the emitter's slots, the index pass or the runner's fill is a wrong answer that no
+fallback catches. Part d is the lead's dispatches. No part serves G5.
 
 ## 9. Risks
 
 1. **The gather boxes, or makes an int gather box** (fact 6: the record says it can). Part
    a's census cells and part b's test 13 hold it, and part a stops the row before any kernel
-   is built. The lever is the scalar read of each lane (4.7); the owner decides.
-2. **Row 685 is built otherwise than `VARKA-657.md` 3.5 says.** Part c's B0 and its stop.
-3. **A table overwritten, never written, or loaded as 22964 locals.** `neutral`'s guard, the
+   is built. The lever is `TABLE_SCALAR` at every width (4.7); the owner decides.
+2. **Row 685 is built otherwise than `VARKA-657.md` 3.5 says:** part c's B0 and its stop.
+3. **A table overwritten, never written, or loaded as 22964 locals:** `neutral`'s guard, the
    runner's tests of an all-null batch and of a zone with no table, and the bytes' pin (4.4).
-4. **The JVM's index check switched off.** The clamp and checks 2 to 4 of the proof hold.
-5. **Memory.** 183712 bytes a runner and a zone node, the same again during a warm-up, and a
-   table of text in a reproduction file (P8). A Java array is aligned to 8 bytes, not 16, so
-   one bucket in four can lie across two cache lines; the whole-table sections price it.
-6. **Newer zone data with two changes inside 2^39 microseconds.** `pack` answers false, the
-   zone has no table and its batches decline; test 5 and the runner's wrapper test hold it.
-7. **G2's item for the casts and the sum** needs a table of the local time line. Row 693
-   builds it, after row 690 (4.9). Until then those batches over ten years decline.
-8. **The cross-over on the runner differs from the laptop's.** `tableFromChanges` stays 9
-   until row 691 measures, though P7 predicts 3 at four lanes; P7 is scored, not acted on.
-9. **The forced arm `zoneForm=TABLE` breaks tests that assert a decline.** Part b's step 12
-   gives each its line in `skips.tsv`, and any other failure is a stop.
-10. **A host with no gather that the flag does not name** (4.7): right and slow. Test 13
-    fails on such a host in CI.
+4. **A short or stale index map:** the kernel's length check throws by name, and an int that
+   an earlier batch left is a clamped index, inside the table (4.1); test 14. With the JVM's
+   index check switched off, the clamp and checks 2 to 4 of the proof hold.
+5. **Memory:** 183712 bytes a runner and a zone node, the same again during a warm-up, a
+   table of text in a reproduction file (P8), and 4 bytes a row for the map. A Java array is
+   aligned to 8 bytes, so a bucket can lie across two cache lines; section 7 prices it.
+6. **Newer zone data with two changes inside 2^39 microseconds:** `pack` answers false and
+   the zone's batches decline; test 5 and the runner's wrapper test hold it.
+7. **G2's item for the casts and the sum** needs row 693's table of the local time line
+   (4.9). Until then those batches over ten years decline.
+8. **The runners differ from the laptop.** `tableFromChanges` stays 9 until row 691
+   measures. The whole-batch gain is a ratio under 1.1 with one sign in two runs and at
+   three batch lengths; P5 scores it, and if it fails the indices beside the gather are the
+   same calls in one loop. A host with no gather that the flag does not name is right and
+   slow, and test 13 fails on it in CI.
+9. **A forced table arm breaks tests that assert a decline:** part b's step 11 gives each
+   its line in `skips.tsv`, and any other failure is a stop.
 
-**Open questions for the owner**, each with the recommendation first.
-
-1. *The table of the local time line had no row.* Decided by the owner on 26 November 2026:
-   a new row, 693, after row 690, on this row's bucket (4.9), so that G2's item 2 holds for
-   the casts to `TIMESTAMP` and the sum with an interval.
-2. *The index map is allocated in each body a call enters* (4.1), against the house rule.
-   Recommended: keep it: one small array a call, beside the segments a kernel maps a call
-   already, and test 13 bounds it. The other way: the runner sizes `scalarArgs` with 16 ints
-   after the int literals and the kernel writes its indices there; then every caller of a
-   kernel sizes that array, and a kernel writes into an argument.
+**Decided by the owner on 26 November 2026.** The table of the local time line is a new
+row, 693, after row 690 (4.9). After the second probe: the runner owns an index map of the
+batch's length, the kernel writes the whole batch's indices before its gathers (4.1), and a
+host with no gather gets scalar loads, on the ladder when row 691 has measured them (4.7).
 
 ## 10. The house rules that bind this row
 
@@ -973,16 +1000,18 @@ From `sql/varka/AGENTS.md` and `BUILD_SHEETS.md`, those a builder here is likeli
   lowering converts into the int species of the kernel's own width; only the JDK's gather
   uses the half-width one, and part a reads what that costs.
 - "No allocation, streams, lambdas or boxing on a path that runs per batch or per row." The
-  table is written when a runner is built; the index map is a recorded exception (4.1).
+  table is written when a runner is built, and the runner takes a new index map only for a
+  batch longer than every one before it (4.1).
 - "A new bounded lowering comes with its proof file": `zone_bucket.smt2` merges before the
   kernel. A switch over an enum has no `default`: `laneCalls`, `emitToLocal`, `count`.
 - A new catalyst suite is JUnit 5 under `@VarkaSuite`, each test with a `@DisplayName`,
   from `VarkaMatrixRuns.BASE`; a pin of emitted structure takes `PinsDefaults`. No generated
-  file is edited by hand, `operator_census.json` among them. Under 1000 counted lines, ASCII.
+  file is edited by hand, `operator_census.json` among them. ASCII only.
 
-Do not: add a table for a local time; change `tableFromChanges` from 9; add `TABLE` to
-`pinnedArms`; pass a table as a new parameter of `run`; map the table as a segment; run a
-timed benchmark beside other agents; push, open a pull request or dispatch a workflow.
+Do not: add a table for a local time; change `tableFromChanges` from 9; add a table form to
+`pinnedArms`; put `TABLE_SCALAR` on the ladder; allocate in a kernel; pass a table or a map
+as a new parameter of `run`; map the table as a segment; run a timed benchmark beside other
+agents; push, open a pull request or dispatch a workflow.
 
 ## 11. Outcome
 
