@@ -28,14 +28,15 @@ What must be merged before it starts:
 
 The goals it serves (`m9/PLAN.md` section 1.1), each with the item of section 1.2 it moves:
 
-- G1, item 1 (the session-zone expressions compile): only through row 657. This row compiles
-  no SQL expression.
-- G2, item 2 (every new node passes the registries of VARKA-489): directly. `ToLocal` enters
-  every registry in part a.
-- G5, item 8 (a cheaper model builds a task from its sheet): directly. Four of the six parts
-  are written for that.
-- G7, item 10 (a measured answer for each form): only through row 691. This row measures the
-  fill and the kernel alone.
+- G1, item 1 (at least three quarters of `TIMESTAMP_LTZ`'s pairs fused): only through row 657
+  and the rows after it. This row compiles no SQL expression. `m9/PLAN.md` 3.1 lists the row
+  under G1 alone.
+- G2, item 2 (the every-zone sweep passes in CI): only through row 684, which sweeps this
+  row's lowering.
+- G5, item 8 (the share of pull requests the cheaper models built, from row 658's ledger):
+  only if the owner gives parts of this row to such a model (section 8).
+- G7, item 10 (five times the row path where a kernel reads the zone): only through row 691.
+  This row measures the fill and the kernel alone.
 
 ## 2. What an agent must know
 
@@ -65,11 +66,16 @@ change, adds a difference to the rows at or after that change.
 - *Refusal*: the compiler does not build a kernel for the expression at all.
 
 **The kernel's signature.** `VarkaFusedKernel.run(srcData, srcValidity, srcNullCount, dstData,
-dstValidity, int[] scalarArgs, long[] longArgs, length)`. A kernel on the long lane reads every
-literal from `longArgs`. The shape key counts literals as `numLiterals`: both literal tables
-together.
+dstValidity, int[] scalarArgs, long[] longArgs, length)`. A kernel whose lanes are all long
+reads every literal from `longArgs`. A kernel of two lanes keeps its int literals in
+`scalarArgs`, and the runner's `longArgs` there is only as long as the long table. The shape key
+counts literals as `numLiterals`: both literal tables together. Batch arguments start at index
+`numLiterals` of `longArgs` in every kernel, so the runner pads `longArgs` to that length first
+(`argsLength`); the emitter and the runner must both use `numLiterals`, never the long table's
+size.
 
-**The names.** "Reads" exists on master; "adds" is from the family's contract.
+**The names.** "Reads" exists on master; "adds" is from the family's design, `VARKA-657.md`
+section 3.
 
 | Name | Reads or adds | Meaning |
 |---|---|---|
@@ -158,7 +164,7 @@ and `TS` are the `src/test/java` and `src/test/scala` twins of `V`. Every fact w
     Command: `grep -n 'STATUS_BITS\|STATUS_NAMES' $E/varka/VarkaFallbackAccounting.java`.
 13. **The warm-up copies the arguments after the fill.** `VarkaWarmupGate.startWarmup` calls
     `runner.fill`, then `VarkaKernelWarmup.start`, whose `Job` keeps `longArgs.clone()`.
-    Command: `grep -n 'longArgs.clone()' $E/varka/VarkaKernelWarmup.java`.
+    Command: `grep -n 'longArgs.clone()' $V/VarkaKernelWarmup.java`.
 14. **The reproduction file takes the literal tables, not the runner's arrays.**
     `VarkaEvaluatorBase.reproduceKernelFailure` passes `compiled.literals(),
     compiled.longLiterals()`; `grep -c 'compiled.longLiterals(),' $E/VarkaEvaluatorBase.java`
@@ -178,11 +184,11 @@ and `TS` are the `src/test/java` and `src/test/scala` twins of `V`. Every fact w
     `(narrow:INT (divc:3600000000000 col:0:long))`: an int output over a long node is a
     narrowing root on a long-lane kernel, which reads `longArgs`.
 
-**Not checked.** `LongRangeOps` does not exist yet (row 683); its signature is the
-contract's. The byte counts of section 7 are computed from fact 18, not emitted. The speed of
-the lowering with scalar arguments (section 4.4) is not measured: the probes kept broadcast
-vectors in locals. `dev/varka_pit.sh` runs ScalaTest suites only, so the mutation run cannot
-use the row's JUnit suites (section 6).
+**Not checked.** `LongRangeOps` does not exist yet (row 683); its signature is the one
+`VARKA-683.md` section 4 gives. The byte counts of section 7 are computed from fact 18, not
+emitted. The speed of the lowering with scalar arguments (section 4.4) is not measured: the probes
+kept broadcast vectors in locals. `dev/varka_pit.sh` runs ScalaTest suites only, so the mutation
+run cannot use the row's JUnit suites (section 6).
 
 ## 4. The design
 
@@ -197,8 +203,10 @@ In `VarkaVectorIR`:
     record ToLocal(VarkaVectorIR instant, int zone, int hash) implements Zoned
 
 - The compact constructor checks: `instant` is on the long lane; `instant` is not a `Cond`;
-  `zone >= 0`; `hash == hashOf(instant, zone)`. A public constructor `ToLocal(instant, zone)`
-  computes the hash. `hashCode()` returns `hash`. `operand()` returns `instant`.
+  `zone >= 0`. Then it sets `hash = hashOf(instant, zone)`, whatever was passed, as
+  `ReinterpretLane` and `HashStep` do: the reflective test helpers call the canonical
+  constructor with a made-up hash. A public constructor `ToLocal(instant, zone)` passes 0.
+  `hashCode()` returns `hash`. `operand()` returns `instant`.
 - `props()`: ring `NEVER`, no int overflow check, validity `STRICT`, weight 1 in part a and 5
   from part b on (the default form), cost kind `"ToLocal"`, `FILLS_NOTHING`,
   `RESTRICTS_NOTHING`, `LongNarrowReader.NONE`.
@@ -259,10 +267,12 @@ New final class `V/VarkaBatchArgs.java`:
   gives its ordinal, anything else gives -1.
 - `zonesNeeded` is the greatest zone index in the outputs plus one, or 0.
 
-**Deviation from the contract.** The contract writes `layout(outputs, numLongLiterals,
-options)`. The emitter is never told the long table's size (fact 4), and a long-lane kernel
-reads all its literals from `longArgs`. So the parameter is `numLiterals`, the count the
-shape key already holds.
+**A name the first draft of the family had.** It wrote `layout(outputs, numLongLiterals,
+options)`. The emitter is never told the long table's size (fact 4). So the parameter is
+`numLiterals`, the count the shape key already holds, and `VARKA-657.md` 3.2 writes it so. In
+a kernel of two lanes the long table is shorter than `numLiterals`, and the padding of
+`argsLength` covers the gap; a test of part a holds it (a narrowing `ToLocal` root beside an
+int-lane value with an int literal).
 
 In part a there is no option yet: `layout` and `count` take no form and every program has
 count 1. Part b adds the parameters shown above.
@@ -372,8 +382,8 @@ New interface `V/VarkaZoneData.java`:
   `delta` pair per change in order; then padding up to `steps`. It throws
   `IllegalArgumentException` when the changes exceed `steps`: the caller asked `changes`
   first.
-- `Provider.of` returns null for a zone it does not serve. The contract does not say; this
-  row needs an answer.
+- `Provider.of` returns null for a zone it does not serve. The family's design says that the
+  compile then declines by name; null is how the provider tells the compiler.
 - `localChanges` and `toInstantArgs` are declared for row 687. The reference implements
   `localChanges`; its `toInstantArgs` switches over `Zoned` and throws for `ToLocal`.
 
@@ -387,8 +397,10 @@ jar): it reads `ZoneId.of(id).getRules()`. It compares in whole seconds
 
 - `VarkaKernelRunner.STATUS_BATCH_ARGS = 1 << 11`; `VarkaFallbackAccounting` gains the bit and
   the name `"batch-args"`.
-- The constructor gains `BatchProgram[] programs`, a private record `BatchProgram(Zoned node,
-  int input, VarkaZoneData zone, int steps, int first)`, and a `long[2]` field for the range.
+- The constructor gains `BatchProgram[] programs`. `BatchProgram(Zoned node, int input,
+  VarkaZoneData zone, int steps, int first)` is a public record, as `VarkaKernelRunner.Bound`
+  is, because `VarkaEvaluatorBase.newRunner` builds it from another package. The runner also
+  gains a `long[2]` field for the range.
 - `fill`, after the bounds loop, for each program:
   1. `LongRangeOps.leastAndGreatest(...)` over input `input`; false: `VarkaBatchArgs.neutral`,
      next program.
@@ -446,39 +458,36 @@ Branch: `varka-682a-node`. Estimate: 650 counted lines.
 
 **Steps.**
 
-1. `V/VarkaVectorIR.java`: add `Zoned` and `ToLocal` (section 4.1) after `ReinterpretLane`,
-   add `Zoned` to the interface's `permits` list, and add the arms of `laneType`,
-   `narrowValuesIn`, `needsNarrowSpecies`, `canonicalWith`, `canonicalShallow`, `childrenOf`
-   and `withChildren`. `props()` has weight 1.
-2. `V/VarkaBatchArgs.java`: new, as section 4.2, without the form parameters: `count(node)`
-   returns 1 through a switch over `Zoned`.
-3. `V/Analysis.java`: the two fields of section 4.3 after `served`; the arms of
-   `collectRefusals` and `analyze`. `V/VarkaLoopEmitter.java`, `analyze`: set both fields
-   from `VarkaBatchArgs.layout(outputs, numLiterals)`.
-4. `V/Slots.java`: `batchArgLocal` and `zoneTmp` after `canonTmp`; in `plan`'s per-node loop,
-   for a `Zoned` node with a program, `batchArgLocal.put(node, <count long locals>)`; the
-   empty arm of `WordWalk.visit`.
-5. `V/VarkaBodyEmitter.java`: `emitBatchArgs` (section 4.3), called after `emitLiterals` in
-   `emitGroupBody` only.
-6. `V/VarkaZoneLowering.java`: new; `emitToLocal` emits steps 1 and 3 of section 4.4;
-   `laneCalls()` returns 1. `V/VarkaVectorWalk.java`: the arm of `emitValue`.
-7. `V/VarkaKernelPlan.java`: `Kind.ZONE_OPERAND`, `ZONE_OPERAND_REASON`, the refusal in `of`,
-   and `ToLocal` in `longNarrowRole`'s `NONE` list. `C/VarkaExpressionCompiler.java`,
-   `admission`: map the refusal to the decline reason, as the `MATH_CALL` refusal is mapped.
-8. `V/VarkaRangeAnalysis.java`, `V/VarkaSameAnswer.java`, `C/VarkaChronoCompiler.java`: the
-   arms of the table in section 4.1.
-9. Tests' registries, each as the table in section 4.1 or as named here:
-   `TJ/VarkaReference.java` (the two refusing arms; new overloads `mixedValue` and
-   `mixedCond` with a last parameter `List<String> zones`; `MixedRow` gains the field and the
-   arm: `micros + rules.getOffset(Instant.ofEpochSecond(floorDiv(micros, 1_000_000),
-   floorMod(micros, 1_000_000) * 1000)).getTotalSeconds() * 1_000_000L`; the old overloads
-   pass `List.of()`), `TJ/VarkaIrGrammar.java`, `TJ/VarkaGuardSpecs.java`,
-   `TJ/VarkaWordCensus.java`, `TJ/VarkaCanonicalIr.java`, `TJ/VarkaSmtNodes.java`
-   (`entry(ToLocal.class, ...)` in `REFUSED`), `TJ/VarkaReproductionSuite.java` (`theRest`
-   builds one), `TJ/VarkaNodePropsSuite.java` (family list gains `VarkaVectorIR.Zoned.class`;
-   the floor `61` becomes `62`).
-10. Scala registries: `TS/VarkaLaneTypeSuite.scala` (`case "ToLocal"` in `instance`; in the
-    long set of `atLong`), `TS/VarkaIrFuzzSuite.scala` (`"ToLocal"` in `missing` and in
+1. `V/VarkaVectorIR.java`: add `Zoned` and `ToLocal` (section 4.1) after `ReinterpretLane`, add
+`Zoned` to the interface's `permits` list, and add the arms of `laneType`, `narrowValuesIn`,
+`needsNarrowSpecies`, `canonicalWith`, `canonicalShallow`, `childrenOf` and `withChildren`.
+`props()` has weight 1. 2. `V/VarkaBatchArgs.java`: new, as section 4.2, without the form
+parameters: `count(node)` returns 1 through a switch over `Zoned`. 3. `V/Analysis.java`: the two
+fields of section 4.3 after `served`; the arms of `collectRefusals` and `analyze`.
+`V/VarkaLoopEmitter.java`, `analyze`: set both fields from `VarkaBatchArgs.layout(outputs,
+numLiterals)`. 4. `V/Slots.java`: `batchArgLocal` and `zoneTmp` after `canonTmp`; in `plan`'s
+per-node loop, for a `Zoned` node with a program, `batchArgLocal.put(node, <count long locals>)`;
+the empty arm of `WordWalk.visit`. 5. `V/VarkaBodyEmitter.java`: `emitBatchArgs` (section 4.3),
+called after `emitLiterals` in `emitGroupBody` only. 6. `V/VarkaZoneLowering.java`: new;
+`emitToLocal` emits steps 1 and 3 of section 4.4; `laneCalls()` returns 1.
+`V/VarkaVectorWalk.java`: the arm of `emitValue`. 7. `V/VarkaKernelPlan.java`:
+`Kind.ZONE_OPERAND`, `ZONE_OPERAND_REASON`, the refusal in `of`, and `ToLocal` in
+`longNarrowRole`'s `NONE` list. `C/VarkaExpressionCompiler.java`, `admission`: no new mapping; a
+refusal's reason already flows through unchanged. Check it with the suite. 8.
+`V/VarkaRangeAnalysis.java`, `V/VarkaSameAnswer.java`, `C/VarkaChronoCompiler.java`: the arms of
+the table in section 4.1. 9. Tests' registries, each as the table in section 4.1 or as named here:
+`TJ/VarkaReference.java` (the two refusing arms; new overloads `mixedValue` and `mixedCond` with a
+last parameter `List<String> zones`; `MixedRow` gains the field and the arm: `micros +
+rules.getOffset(Instant.ofEpochSecond(floorDiv(micros, 1_000_000), floorMod(micros, 1_000_000) *
+1000)).getTotalSeconds() * 1_000_000L`; the old overloads pass `List.of()`),
+`TJ/VarkaIrGrammar.java`, `TJ/VarkaGuardSpecs.java`, `TJ/VarkaWordCensus.java`,
+`TJ/VarkaCanonicalIr.java`, `TJ/VarkaSmtNodes.java` (`entry(ToLocal.class, ...)` in `REFUSED`),
+`TJ/VarkaReproductionSuite.java` (`theRest` builds one), `TJ/VarkaNodePropsSuite.java` (family
+list gains `VarkaVectorIR.Zoned.class`; the floor `61` becomes `62`). 10. Scala registries:
+`TS/VarkaLaneTypeSuite.scala` (`case "ToLocal"` in `instance`; in the
+    long set of `atLong`; and the suite's equation of `atInt` and the other sets with the types
+    must still hold, so `ToLocal` joins the set of types that have no int form, beside
+    `DecimalColumn` and `DecimalWord`, if the equation fails without it), `TS/VarkaIrFuzzSuite.scala` (`"ToLocal"` in `missing` and in
     `outOfTheLongCorpora`), `TS/VarkaWithChildrenSuite.scala` (`"ToLocal"` in `undrawn`, and
     one direct rebuild test), `TS/VarkaEmitCostSuite.scala` (`"ToLocal"` in `awaitingRefit`),
     `TS/VarkaEmitterBudgetSuite.scala` (row `(new ToLocal(col, 0), 1, 0, defaults)`),
@@ -499,6 +508,7 @@ Branch: `varka-682a-node`. Estimate: 650 counted lines.
 | kernel: `(toLocal:0 col:0:long)` with `base` hand-set gives `in + base` at every length of `VarkaEmitterFixtures.LENGTHS`, dense and with nulls | an argument read from the wrong index, or before the literals end |
 | kernel: `(bit:AND (toLocal:0 col:0:long) lit:0:long)` reads the literal at 0 and `base` at 1 | batch arguments placed at the long table's start |
 | kernel: an int output `(narrow:INT (toLocal:0 col:0:long))` reads the same slot | a narrowing root that loads from `scalarArgs` |
+| kernel: a narrowing `ToLocal` root beside an int-lane output with an int literal reads `base` at `numLiterals` of a padded `longArgs` | arguments placed or sized by the long table, which is shorter in a kernel of two lanes |
 | plan: `(toLocal:0 (add col col))` is refused with `ZONE_OPERAND_REASON` | a computed operand compiled with no range to fill from |
 | bytes: `loopDense0` of `(toLocal:0 col:0:long)` and its `LongVector` call count are pinned, tagged `PinsDefaults` | a lowering that grows unseen |
 
@@ -506,14 +516,15 @@ Branch: `varka-682a-node`. Estimate: 650 counted lines.
 
     flock "$VARKA_HEAVY_LOCK" build/sbt -batch 'catalyst/Test/compile'
     flock "$VARKA_HEAVY_LOCK" build/sbt -batch 'catalyst/testOnly *VarkaBatchArgsSuite'
-    flock "$VARKA_HEAVY_LOCK" build/sbt -batch 'catalyst/testOnly *VarkaNodePropsSuite *VarkaLaneTypeSuite *VarkaIrFuzzSuite *VarkaWithChildrenSuite *VarkaEmitCostSuite *VarkaEmitterBudgetSuite *VarkaRangeAnalysisSuite *VarkaSmtNodesSuite *VarkaReproductionSuite *VarkaEmittedBytesSuite'
+    flock "$VARKA_HEAVY_LOCK" build/sbt -batch 'catalyst/testOnly *VarkaNodePropsSuite *VarkaLaneTypeSuite *VarkaIrFuzzSuite *VarkaWithChildrenSuite *VarkaEmitCostSuite *VarkaEmitterBudgetSuite *VarkaRangeAnalysisSuite *VarkaSmtNodesSuite *VarkaReproductionSuite *VarkaEmittedBytesSuite *VarkaVectorIRSharingSuite'
     dev/varka_regen_generated.sh
     git diff --exit-code -- sql/varka/emitted_bytes.json sql/varka/coverage.json sql/varka/width_audit.json
     python3 dev/varka_push_check.py
 
-Expected: the compile succeeds; the second prints `Tests: succeeded 10, failed 0`; the third
-prints `failed 0` and no `*** FAILED ***`; the `git diff` exits 0; the push check exits 0 and
-its R1 lines name no missing registry.
+Expected: the compile succeeds; the second, a JUnit class, prints sbt's `Passed: Total 11, Failed
+0, Errors 0, Passed 11` (ScalaTest's `Tests: succeeded` line does not appear for JUnit); the third
+prints `failed 0` and no `*** FAILED ***`; the `git diff` exits 0; the push check exits 0 and its
+R1 lines name no missing registry.
 
 **Planted faults** (after the commit, each reverted): load `base` from index `first - 1`
 (the two kernel tests with a literal fail); drop the `HashSet` in `layout` (the shared-node
@@ -600,7 +611,7 @@ Branch: `varka-682c-zone-data`. Estimate: 580 counted lines. Needs part b.
 
     ls $V/VarkaZoneData.java $TJ/VarkaJavaTimeZoneData.java 2>/dev/null | wc -l             # 0
     grep -c 'public static void neutral(Program program, long\[\] args)' $V/VarkaBatchArgs.java   # 1
-    grep -c 'List<String> zones' $TJ/VarkaReference.java                                    # 2
+    grep -c 'static OptionalLong mixedValue(.*List<String> zones' $TJ/VarkaReference.java   # 1 (one line of part a's overload; if part a split it, grep its last line)
     grep -c 'withZoneForm' $V/VarkaEmitOptions.java                                         # 1
 
 **Steps.**
@@ -635,7 +646,8 @@ kernel's arguments from `VarkaJavaTimeZoneData` and compares each row with
     flock "$VARKA_HEAVY_LOCK" build/sbt -batch 'catalyst/testOnly *VarkaEmitterZoneSuite *VarkaBatchArgsSuite'
     python3 dev/varka_push_check.py
 
-Expected: `failed 0`; `VarkaEmitterZoneSuite` reports 8 tests; the push check exits 0.
+Expected: both suites are JUnit, so sbt prints `Passed: Total N, Failed 0, Errors 0` for the
+run; `VarkaEmitterZoneSuite` reports 8 tests; the push check exits 0.
 
 **Planted faults:** count a change at `least` (the first data test fails); write `delta` as
 the new offset (the kernel tests fail for every zone with a change); skip the padding (the
@@ -654,7 +666,7 @@ parts b and c.
 
 **B0.**
 
-    grep -c 'zone' $C/DeclineSink.java $C/CompiledVarkaProjection.java $V/VarkaReproduction.java   # 0, 0, 0
+    grep -c 'zone' $C/DeclineSink.java $C/CompiledVarkaProjection.java $V/VarkaReproduction.java   # each file prints path:0
     grep -c 'List<VarkaFamily> families) {' $C/CompiledVarkaProjection.java                 # 1
     grep -c 'static Tables tables(VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink,' $C/VarkaExpressionCompiler.java   # 1
     grep -c 'public static Optional<Path> write(Supplier<VarkaErrorContext> context,' $V/VarkaReproduction.java   # 1
@@ -713,7 +725,7 @@ Branch: `varka-682e-runner`. Estimate: 520 counted lines. Needs parts b, c and d
 
 **B0.**
 
-    grep -c 'STATUS_BATCH_ARGS\|zoneData' $E/varka/VarkaKernelRunner.java $E/VarkaEvaluatorBase.java   # 0, 0
+    grep -c 'STATUS_BATCH_ARGS\|zoneData' $E/varka/VarkaKernelRunner.java $E/VarkaEvaluatorBase.java   # each file prints path:0
     grep -c 'static boolean leastAndGreatest(long srcData, long srcValidity, int srcNullCount, int length,' $V/LongRangeOps.java   # 1
     grep -c 'public VarkaKernelRunner(VarkaShapeEntry entry, LaneType lane, int\[\] inputOrdinals,' $E/varka/VarkaKernelRunner.java   # 1
     grep -c 'public void fill(ColumnarBatch input, int len)' $E/varka/VarkaKernelRunner.java   # 1
@@ -724,7 +736,7 @@ Branch: `varka-682e-runner`. Estimate: 520 counted lines. Needs parts b, c and d
     grep -c 'interface Provider' $V/VarkaZoneData.java                                      # 1
 
 If `LongRangeOps` lives in another folder, find it with `git grep -l 'class LongRangeOps'`
-and use that path; if its signature differs from the contract's, stop.
+and use that path; if its signature differs from `VARKA-683.md` section 4, stop.
 
 **Steps.**
 
@@ -732,8 +744,8 @@ and use that path; if its signature differs from the contract's, stop.
    fill (section 4.8). The fill allocates nothing: the `long[2]` is a field.
 2. `E/varka/VarkaFallbackAccounting.java`: the bit and `"batch-args"`, last in both arrays.
 3. `E/VarkaEvaluatorBase.java`: `zoneData()`; `newRunner` builds the programs and sizes the
-   array; `reproduceKernelFailure` passes the runner's arrays (the runner gains package
-   accessors `scalarArgs()` and `longArgs()` if it has none).
+   array; `reproduceKernelFailure` passes the runner's arrays, its public final fields
+   `scalarArgs` and `longArgs`.
 4. `docs/sql-varka.md`: add `batch-args` to the sentence that lists the fallback reasons,
    after `forced`, and one sentence: a batch whose time-zone offsets cannot be prepared (too
    many offset changes in the batch's range, or values within 18 hours of the ends of the
@@ -742,7 +754,10 @@ and use that path; if its signature differs from the contract's, stop.
 6. `sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaBatchArgRunnerSuite.scala`:
    new (below). ScalaTest, as the house rule keeps `sql/core` suites.
 
-**Tests.** `VarkaBatchArgRunnerSuite` builds a `CompiledVarkaProjection` by hand over
+**Tests.** The suite holds the tests below and one more, which the row's done-when asks for:
+two runners of one shape, filled from batches in two different offsets and run in turn, each
+give their own batch's answer (a shared argument array or range field fails it). Part f's
+done-when names it. `VarkaBatchArgRunnerSuite` builds a `CompiledVarkaProjection` by hand over
 `(toLocal:0 col:0:long)` with zones `Seq("Europe/Podgorica")`, and an evaluator subclass
 whose `zoneData()` returns `VarkaJavaTimeZoneData.PROVIDER`:
 
@@ -793,17 +808,17 @@ Branch: `varka-682f-measure`. Estimate: 230 counted lines. Needs part e.
 **Steps.**
 
 1. `sql/core/src/test/java/org/apache/spark/sql/execution/benchmark/VarkaBatchArgsBenchmark.java`:
-   new, modelled on `VarkaEvaluatorOverheadBenchmark`, over `VarkaBenchmarkBase`. Sections
-   (4096 rows a batch, `Europe/Podgorica`, values inside one month with no change unless
-   said): "fill" (range pass plus `changes` plus `toLocalArgs`, reference data); "kernel ONE",
-   "kernel STEPS_2", "kernel STEPS_8"; "kernel STEPS_2, one change in the batch"; "java.time
-   per row" (the scalar loop of `VarkaReference`'s arm).
-2. Run the dry run on the laptop (below). The lead dispatches the timed run on the EPYC 7763
-   runners (256 and 128 bits) and commits the results file
-   `sql/core/benchmarks/VarkaBatchArgsBenchmark-results.txt` from the run's artifact.
-3. `sql/varka/SKILLS.md`: one entry, what the row learned about batch arguments (where they
-   start, why scalars and not hoisted vectors, the half-open rule).
-4. This plan's section 11 and the row's line in `PLAN.md`: each prediction scored.
+new, modelled on `VarkaEvaluatorOverheadBenchmark`, over `VarkaSqlBenchmarkBase`, whose
+`withEmitOptions` the B0 greps. Sections (4096 rows a batch, `Europe/Podgorica`, values inside one
+month with no change unless said): "fill" (range pass plus `changes` plus `toLocalArgs`, reference
+data); "kernel ONE", "kernel STEPS_2", "kernel STEPS_8"; "kernel STEPS_2, one change in the
+batch"; "java.time per row" (the scalar loop of `VarkaReference`'s arm). 2. Run the dry run on the
+laptop (below). The lead dispatches the timed run on the EPYC 7763 runners (256 and 128 bits) and
+commits the results file `sql/core/benchmarks/VarkaBatchArgsBenchmark-jdk25-results.txt` and its
+`-jdk25-128bit-results.txt` companion from the run's artifact. 3. `sql/varka/SKILLS.md`: one
+entry, what the row learned about batch arguments (where they start, why scalars and not hoisted
+vectors, the half-open rule). 4. This plan's section 11 and the row's line in `PLAN.md`: each
+prediction scored.
 
 **Commands.**
 
@@ -830,10 +845,12 @@ number in a document that is not in the results file.
 | `VarkaBatchArgRunnerSuite` | Scala, sql/core | fill, decline, warm-up, reproduction | stale or missing arguments at run time |
 | the registry suites of fact 3 | existing | `ToLocal` in every registry | a switch that forgot the node |
 
-**Proofs.** None. The house rule asks for a proof file for a bounded lowering. This lowering
-is exact for every value the runner admits; the bound is the runner's 18-hour check, held by
-the fifth test of `VarkaBatchArgRunnerSuite`. `VarkaSmtNodes` lists `ToLocal` as refused
-with its reason, because its answer depends on batch arguments, not on the row alone.
+**Proofs.** The house rule asks for a proof file with a lowering that is exact only over a
+bound. This lowering wraps outside 18 hours of a long's ends, and the runner's check holds that
+bound. The file is `zone_step.smt2`, which row 684 writes with the step's other claims; until
+it merges, the fifth test of `VarkaBatchArgRunnerSuite` is the only holder, and this plan says
+so by name in part b's pull request. `VarkaSmtNodes` lists `ToLocal` as refused with its
+reason, because its answer depends on batch arguments, not on the row alone.
 
 **Fuzzing.** Nothing draws `ToLocal` in this row: it is in `VarkaIrFuzzSuite`'s `missing`
 list and `VarkaWithChildrenSuite`'s `undrawn` list. Row 684 adds the draw and removes both
@@ -889,7 +906,7 @@ working (`m9/PLAN.md` section 2.7). Until then the lead builds them. Each moves 
 
 1. **Row 642 merges first and changes how an option is declared.** Part b's B0 stops; the
    lead rewrites its steps 1 and 2 only.
-2. **Row 683's signature differs from the contract's.** Part e's B0 stops.
+2. **Row 683's signature differs from the one in `VARKA-683.md`.** Part e's B0 stops.
 3. **Scalar arguments are slower than hoisted vectors.** P6 scores it; row 691 holds the A/B
    arm. The layout does not depend on the choice.
 4. **Part a is large (650 lines, 30 files).** R1 forbids a smaller first part. Its stop rule
@@ -900,8 +917,8 @@ working (`m9/PLAN.md` section 2.7). Until then the lead builds them. Each moves 
 6. **A `java.time` rule differs from Spark's.** Spark's `DateTimeUtils` uses the same
    `ZoneRules`; the reference and Spark agree by construction. Row 678 owns the production
    data and its own comparison.
-7. **`Provider.of` returning null is not in the contract.** The lead adds it to the contract
-   before part c; rows 678 and 657 read it there.
+7. **`Provider.of` returning null is this plan's choice.** The lead adds it to `VARKA-657.md`
+   section 3 before part c; rows 678 and 657 read it there.
 8. **A change exactly at `least`.** The half-open rule is stated on the interface and held
    by `VarkaEmitterZoneSuite`'s first and sixth tests.
 9. **Six pull requests where the family plan budgeted four.** Each is under the size rule;
