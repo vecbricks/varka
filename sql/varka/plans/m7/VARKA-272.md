@@ -3,7 +3,7 @@
 ## 1. Where this came from
 
 Row 272 of `m7/PLAN.md` section 3, from the survey of other engines (`m7/READING.md` 8) and
-`m9/SCOPE.md` items 56 and 58: item 58 called HotSpot the trusted base that no proof reaches, and
+`m10/SCOPE.md` items 56 and 58: item 58 called HotSpot the trusted base that no proof reaches, and
 item 56 named a C2 miscompilation of masked stores that JDK 25 carries (JDK-8388492). The row runs
 the fuzzers' kernels under the interpreter, C1, C2 and the Vector API's intrinsics off, each in a
 forked JVM, compares the answers, runs C2's seeded stress flags, has each arm prove its tier

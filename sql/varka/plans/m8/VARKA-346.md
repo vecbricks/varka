@@ -135,7 +135,7 @@ against the calls Spark makes:
   `s >= 1` is the non-integral values of `[2^E, 10^(16 - s))`, three and a half to four and a half
   binades: an integral value there is its own shortest decimal and answers itself (2.2).
 - **The exact shortest-digits path is the row engine**, through the declined batch: no kernel can
-  select the shortest decimal in a lane today, which is `m9/SCOPE.md` item 97; an in-kernel scalar
+  select the shortest decimal in a lane today, which is `m10/SCOPE.md` item 97; an in-kernel scalar
   escape would be a new emission mode, a row of its own. The band is a decline that stays (7).
 - **The FMA node is row 342's**, the earliest wave owning a shared node as every plan of the
   milestone has it (`VARKA-350.md` 8, question 4, names 342 its natural owner); this row uses it for
@@ -163,7 +163,7 @@ s)` with `p <= 18` in LEGACY, ANSI and TRY - each fused with the row engine's an
 each batch with a lane in its recorded band declined to the row engine, the census carrying the
 band. Not this row: a negative scale or a scale above 22 (declined at compile time), the cast above
 precision 18 (364), the integral and decimal forms (344, 30, 351, 363), Schubfach's selection in
-lanes (`m9/SCOPE.md` 97).
+lanes (`m10/SCOPE.md` 97).
 
 ## 2. Design
 
@@ -523,7 +523,7 @@ item 2 counts a pair with one as unfused, its band the reason in the census - th
 
 ## 7. Out of this row, and declines that stay
 
-Out: Schubfach's selection in lanes, which would fuse the band (`m9/SCOPE.md` 97); Ryu's printf form
+Out: Schubfach's selection in lanes, which would fuse the band (`m10/SCOPE.md` 97); Ryu's printf form
 (the milestone plan's section 9); the integral and decimal forms of every function here (344, 30,
 351, 363); the cast above precision 18 (364); a remainder in a float lane, whose window would be
 `2^24`; a scale above 22, where `10^s` is not exact, though values from `K_s` up could keep `d`
@@ -533,7 +533,7 @@ Declines that stay: a batch with a live lane in its band, which the row engine c
 each with its scope item:
 
 - the rounding functions, a non-integral value in `[L_s, K_s)` at `s >= 1`, and the cast, a
-  non-integral value in `[L_s, 2^52)` or any value in `[2^53, 10^(p - s))`: `m9/SCOPE.md` item 97,
+  non-integral value in `[L_s, 2^52)` or any value in `[2^53, 10^(p - s))`: `m10/SCOPE.md` item 97,
   Schubfach's selection half in lanes;
 - the remainder, `|x / y| >= 2^53` with `x` finite: no scope item names it yet (8, flag 4).
 
@@ -573,7 +573,7 @@ remainder node, row 30's plan naming none.
    calls (2.3, step 2).
 4. **2.7's keep bound, and the remainder's band.** 2.7's keep bound `10^(16 - s)` is `2^52` at scale
    0 here (2.2), where no band remains. And the remainder's band, `|x / y| >= 2^53`, has no scope
-   item in `m9/SCOPE.md`: SLEEF's multi-pass loop (`READING_SLEEF.md` 4) is the route a scope item
+   item in `m10/SCOPE.md`: SLEEF's multi-pass loop (`READING_SLEEF.md` 4) is the route a scope item
    would name; the item is the owner's to add.
 
 ## 9. Done when

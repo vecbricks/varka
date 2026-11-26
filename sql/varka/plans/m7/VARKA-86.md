@@ -3,7 +3,7 @@
 ## 1. Where this came from
 
 Row 86 of `m7/PLAN.md`, scoped in milestone 5 (`m5/PLAN.md` 2.17, written 8 September 2026),
-moved to `m9/SCOPE.md` item 39 and taken by milestone 7 after the Java ports, "so that the
+moved to `m10/SCOPE.md` item 39 and taken by milestone 7 after the Java ports, "so that the
 admission is written once in Java and not ported twice". 2.17's observation: four near-copies
 decide whether an expression may be an operand (`intOperand`, `compileIntOperand`,
 `compileOffset`, `compare`'s `operand`), and the emitter restates their conclusions in its own

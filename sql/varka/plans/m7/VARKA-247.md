@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 247 of `m7/PLAN.md`, item 48 of `m9/SCOPE.md`: VARKA-167's option audit emitted the bytes
+Row 247 of `m7/PLAN.md`, item 48 of `m10/SCOPE.md`: VARKA-167's option audit emitted the bytes
 oracle's whole shape set - 92 coverage rows and the fuzz blocks, at both widths - under both values
 of every emit option, and `validityOrFirst` was the one field that moved no hash anywhere. An
 option that changes no byte over a corpus that size is dead code or a switch over a shape the
@@ -74,7 +74,7 @@ None move.
 | `VarkaEmitOption.java` | `Subject`, the flag's subject, the arms over it, `validityOrFirst`'s |
 | `VarkaEmittedBytesSuite.scala` | the subject arms pinned, the test |
 | `sql/varka/emitted_bytes.json` | four digests added |
-| `m7/PLAN.md`, `m9/SCOPE.md` item 48 | the records |
+| `m7/PLAN.md`, `m10/SCOPE.md` item 48 | the records |
 
 ## 5. Tests, and what each is for
 

@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 254 of `m7/PLAN.md`, from item 63 of `m9/SCOPE.md` (added from VARKA-209's build). The emitter
+Row 254 of `m7/PLAN.md`, from item 63 of `m10/SCOPE.md` (added from VARKA-209's build). The emitter
 splits a projection's outputs into groups, one loop method each. Its first rule prices each node by
 `VarkaEmitBudget.weightOf`, a hand-kept register of the vector operations a node's lowering emits,
 and closes a group when the sum would pass `GROUP_BUDGET` (16). An output that reuses what the

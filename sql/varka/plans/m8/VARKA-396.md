@@ -123,7 +123,7 @@ established; `jdk25u` still has the bug.
    without mask registers, so Varka is correct on JDK 25 whatever the host. It ships an AND of
    every word `fromLong` reads with an all-ones C2 cannot fold, which folds away on AVX-512 hosts
    (`VARKA-491.md` 2 and 6; 25 October 2026), on the same branch as this row.
-4. **`m9/SCOPE.md` item 114**: verify JDK 27 under AVX2, support it at run time and lift the guard
+4. **`m10/SCOPE.md` item 114**: verify JDK 27 under AVX2, support it at run time and lift the guard
    there if it passes, ask for a 25u backport (the owner's to file), and move the base at JDK 29.
 5. The investigation's report: `results/VARKA-396-report.md`, with the reproducers and the
    HotSpot fix in `results/VARKA-396/`.

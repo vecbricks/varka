@@ -1,6 +1,6 @@
 # Reading: what LLVM's loop vectorizer offers Varka's unroll factor and tail
 
-Read on 3 November 2026 for VARKA-25 (the unroll factor, now `m9/SCOPE.md` item 15) and the
+Read on 3 November 2026 for VARKA-25 (the unroll factor, now `m10/SCOPE.md` item 15) and the
 remainder of a loop that runs more than one lane group an iteration. Source: llvm-project at tag
 `llvmorg-20.1.8` (commit `87f0227cb601`), Apache-2.0 WITH LLVM-exception, a sparse checkout kept
 outside the repository. Read: `llvm/docs/Vectorizers.rst`, `llvm/docs/VectorizationPlan.rst`, the
@@ -42,7 +42,7 @@ read in the code, **[I]** inferred. Nothing was built or run, and no code is cop
 
 ### (a) Worth a plan note or a row
 
-1. **The live count VARKA-25 lacks, by LLVM's scan [I].** `m9/SCOPE.md` item 15's 3 November note
+1. **The live count VARKA-25 lacks, by LLVM's scan [I].** `m10/SCOPE.md` item 15's 3 November note
    records that "the live-temporary count the emitter already computes" does not exist. LLVM's
    estimate is that count, cheap and computed from the IR. For Varka: intervals over the group's
    emission order (outputs in group order, each a post-order of `VarkaVectorWalk`), never over
@@ -68,7 +68,7 @@ read in the code, **[I]** inferred. Nothing was built or run, and no code is cop
 3. **LLVM's trigger disagrees with Varka's measurement, which names a hypothesis [I].** On x86
    LLVM would interleave the 8-op chain (cost under 20) and not the 20-op one; Varka measured the
    reverse, 8 flat and 20 better by 4.4% at K = 2 (same file). A likely reason is C2's own
-   unrolling: `policy_unroll` unrolls a body under `LoopUnrollLimit`, sixty on x86 (`m9/SCOPE.md`
+   unrolling: `policy_unroll` unrolls a body under `LoopUnrollLimit`, sixty on x86 (`m10/SCOPE.md`
    item 26, "Unrolling, from the source"), which covers LLVM's small-loop case, and leaves a
    bigger body to an emitted K. The record is split: `skills/vector-api-and-width.md` says C2 does
    not unroll Vector API pipelines, `m4/VARKA-46.md` 9.3 saw it unroll a small `year` loop. So the
@@ -104,5 +104,5 @@ group).
   class doc), and VARKA-30's division never issues a trapping vector divide, which covers LLVM's
   safe-divisor choice.
 
-Section 2 (a) items 1 to 4 are the note on `m9/SCOPE.md` item 15 of 3 November 2026. Not read:
+Section 2 (a) items 1 to 4 are the note on `m10/SCOPE.md` item 15 of 3 November 2026. Not read:
 the SLP vectorizer, VPlan's recipe execution, and the targets other than x86.

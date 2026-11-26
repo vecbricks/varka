@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 246 of `m7/PLAN.md`, from `m9/SCOPE.md` item 69 (VARKA-209 13.2). A second species of one lane
+Row 246 of `m7/PLAN.md`, from `m10/SCOPE.md` item 69 (VARKA-209 13.2). A second species of one lane
 type in a JVM makes the Vector API's shared templates inline bimorphically, so that C2 keeps a
 heap box per loop iteration in some shapes and every kernel compiled afterwards can run boxed
 (`sql/varka/skills/vector-api-and-width.md`). The catalyst test JVM broke the rule: suites that run

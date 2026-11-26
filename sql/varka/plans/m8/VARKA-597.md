@@ -126,7 +126,7 @@ run; 597a's dry run (5 item 1) checks each one.
 12. **The cheaper form exists only as a spike.** S, the scalar loop, is the form the spike shows
     winning at two long lanes on x86 (`VARKA-359.md` 11.4, 11.8 point 3). It is a new emission mode,
     a scalar subtree feeding a vector kernel. The owner's answer (a) to `VARKA-359.md` question 3
-    makes it "a row of its own", and no row or scope item holds it yet (`m9/SCOPE.md` item 101 is
+    makes it "a row of its own", and no row or scope item holds it yet (`m10/SCOPE.md` item 101 is
     the 2-lane long kernel's mask-free form, not S).
 
 ### What differs from the row text
@@ -387,7 +387,7 @@ measurement is two dispatches for 597a and one for 597b, each on the owner's wor
 
 ## 7. Questions for the owner
 
-*Answered by the owner on 11 November 2026: 1, the decline lives in the decimal compiler's readers; 2 yes, every decimal-reading value declines by default at two long lanes and a form is lifted only on a measured win and the owner's word; 3 yes, the scalar-loop form is a scope item beside `m9/SCOPE.md` item 101; 4 yes, the done-when covers the forms that fuse when 597b merges.*
+*Answered by the owner on 11 November 2026: 1, the decline lives in the decimal compiler's readers; 2 yes, every decimal-reading value declines by default at two long lanes and a form is lifted only on a measured win and the owner's word; 3 yes, the scalar-loop form is a scope item beside `m10/SCOPE.md` item 101; 4 yes, the done-when covers the forms that fuse when 597b merges.*
 
 1. **The mechanism.** (a) D2: decline in the decimal compiler's readers through the session flag on
    `DeclineSink`, after #1478 and #1484, removing 596's `BoolOutput` arm. (b) D1: widen #1478's IR
@@ -400,12 +400,12 @@ measurement is two dispatches for 597a and one for 597b, each on the owner's wor
    measures its own forms and declines its losers. *Recommended: (a)*. Under (b) the first form a
    row forgets fuses and loses, as 359a's did, and (a) is the default already chosen for the
    remainder (question 7.4 of `VARKA-577.md`, answer (c)).
-3. **S, the cheaper form.** (a) No milestone 8 row. Record S as a scope item beside `m9/SCOPE.md`
+3. **S, the cheaper form.** (a) No milestone 8 row. Record S as a scope item beside `m10/SCOPE.md`
    item 101, with the spike's 128-bit numbers (item 8) and the owner's answer (a) to
    `VARKA-359.md` question 3. (b) Open a milestone 8 row now, S behind an option at two long lanes,
    as row 604 is for the remainder. *Recommended: (a)*. Milestone 8's goal is the new types, and S
    is a new emission mode whose only win is where an x86 JVM's long species has two lanes (an SSE
-   or AVX-only machine, `m9/SCOPE.md` item 101, or `-XX:MaxVectorSize=16`), which the decline
+   or AVX-only machine, `m10/SCOPE.md` item 101, or `-XX:MaxVectorSize=16`), which the decline
    already serves at the row path's speed.
 4. **The done-when's scope.** The row's text asks for every decimal-reading value to be measured,
    including forms that do not fuse as values yet (0, "What differs"). (a) 597 is done with the

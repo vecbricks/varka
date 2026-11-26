@@ -4,7 +4,7 @@ Read on 2 October 2026 for milestone 7, trust and maintainability (`m7/PLAN.md`)
 owner's request: how the systems already checked out on the development machine keep their
 answers correct and their code changeable, against the milestone's goals - proofs, differential
 tests, fuzzing, memory safety, test adequacy, static analysis, JIT-compiled code and CI. Their
-expression evaluators were compared before (`m9/SCOPE.md` items 16 to 30); this is the
+expression evaluators were compared before (`m10/SCOPE.md` items 16 to 30); this is the
 other half of each codebase, its testing and maintenance machinery. Seven read-only surveys, each
 over two or three systems with one rubric, and a search of this repository's record, which
 found that none of the 44 papers the record has read is on testing, verification or SQL
@@ -72,7 +72,7 @@ Spark's suites and keeps about 450 per-test excludes, mostly with a reason
 Delta gate fails on a new failure and also when a listed failure starts passing, so the list
 cannot go stale (`.github/workflows/util/delta-spark-ut/known-failures.txt`). The record noted on
 16 September 2026 that this is "the widest differential available and not yet in the record as
-a row" (`m9/SCOPE.md` item 24). Row 81 harvests the date family's golden inputs only;
+a row" (`m10/SCOPE.md` item 24). Row 81 harvests the date family's golden inputs only;
 row 271 runs the suites.
 
 ## 3. One corpus under many configurations (rows 248, 262)
@@ -329,5 +329,5 @@ From the papers (section 11), nine rows - 273, the filter-order bug NoREC's excl
 the test; 276, the reference evaluator held to Spark's interpreter; 277, one shrinker; 278,
 answer-preserving variants; 279, declines as specified behaviour; 280, what the emitter reached;
 281, proofs of the range analysis - and refinements of rows 81, 138, 240 to 245, 248, 252, 257,
-262, 265, 266, 269 and 272. Work the papers point at beyond milestone 7 is `m9/SCOPE.md`
+262, 265, 266, 269 and 272. Work the papers point at beyond milestone 7 is `m10/SCOPE.md`
 item 82.

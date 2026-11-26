@@ -168,7 +168,7 @@ leave the day are excluded. Spark mode's refinement holds.
 
 ### 3.4 The math family within a stated ULP bound: the first deliberate departure
 
-*Decided 14 October 2026 by the owner (item 36's first option, `m9/SCOPE.md`); built by
+*Decided 14 October 2026 by the owner (item 36's first option, `m10/SCOPE.md`); built by
 `m8/PLAN.md` rows 345 and 356 to 358, designed in its section 2.7.1.*
 
 *30 October 2026, by the owner's word: the departure this entry records is an opt-in mode, off by

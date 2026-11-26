@@ -1,7 +1,7 @@
 # VARKA-124: the no-fallback proof, `PrintIntrinsics` in CI
 
 *Written 18 September 2026. Section 2.59 of `m5/PLAN.md` opened this
-task on 16 September 2026, from the September surveys (`m9/SCOPE.md`
+task on 16 September 2026, from the September surveys (`m10/SCOPE.md`
 items 16 to 29, #223).*
 
 ## 1. What this is for

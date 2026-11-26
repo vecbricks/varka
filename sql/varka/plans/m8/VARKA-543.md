@@ -65,7 +65,7 @@ the row path: each shape is measured on the EPYC 7763 at 128 bits, and the ones 
 with the two-lane reason by an extension of 503's refusal.
 
 **Non-goal.** No change to projections unless one measures slower (then 503's rule's projection
-exemption is the owner's call, question 2). No mask-free lowering (`m9/SCOPE.md` item 101). No
+exemption is the owner's call, question 2). No mask-free lowering (`m10/SCOPE.md` item 101). No
 change at 256 or 512 bits, or on aarch64.
 
 ## 2. Design
@@ -157,7 +157,7 @@ Size: **small**, one pull request, about one day plus two runner dispatches.
 
 - Row 343's mask crossing between the kinds, which would make `x < y AND d < d2` one kernel and
   so a long- or double-driven one; that row then meets this rule.
-- The mask-free lowering for two-lane masks (`m9/SCOPE.md` item 101) and run-time choice (item
+- The mask-free lowering for two-lane masks (`m10/SCOPE.md` item 101) and run-time choice (item
   119).
 
 ## 7. Questions for the owner

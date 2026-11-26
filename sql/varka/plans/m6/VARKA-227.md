@@ -91,4 +91,4 @@ meets it will say.
 
 Row 227 is done on what it set out to build. Section 3's design, the queue as a
 workflow on the base repository that needs a token of the owner's, is
-`m9/SCOPE.md` item 76, so that the decision it needs has a place to be made.
+`m10/SCOPE.md` item 76, so that the decision it needs has a place to be made.

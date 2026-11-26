@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 253 of `m7/PLAN.md`, item 68 of `m9/SCOPE.md`, from VARKA-198's build and the review of
+Row 253 of `m7/PLAN.md`, item 68 of `m10/SCOPE.md`, from VARKA-198's build and the review of
 VARKA-209. A kernel with a materialized calendar prefix needs `scratchBytesPerRow() * length`
 bytes of scratch. Called through the forms of `run` that take an address, its caller provides
 them; called through the seven- or eight-argument forms, its emitted code takes them from
@@ -59,7 +59,7 @@ None move.
 | `VarkaScratch.java` | the refusal on a task thread, and its doc |
 | `VarkaFusedKernel.java` | the contract |
 | `VarkaEmitterChronoSuite.scala` | the test |
-| `m7/PLAN.md`, `m9/SCOPE.md` item 68 | the records |
+| `m7/PLAN.md`, `m10/SCOPE.md` item 68 | the records |
 
 ## 5. Tests, and what each is for
 

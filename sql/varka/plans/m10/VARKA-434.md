@@ -4,6 +4,8 @@
 `PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
 unless that plan moved too (`SCOPE.md` item 138).*
 
+*25 November 2026: the catalogue moved on to milestone 10's folder, and this plan with it.*
+
 *Rows 434 and 435 of `m8/PLAN.md` share this file. Both come from the 21 October 2026 review of
 row 403, and both are about the epilogue's bounds mask and `Slots.epilogueReadsMask`. Row 434
 changes which epilogue reads need the long mask. Row 435 changes how the tests count the masks
@@ -82,7 +84,7 @@ Non-goal:
 - a guard's condemnation, which keeps the long mask, since its compare is refused anyway;
 - the filters' long conditions (row 503, PR #1262);
 - the floating lanes at two lanes (row 543);
-- `m9/SCOPE.md` item 101's two-lane mask design.
+- `m10/SCOPE.md` item 101's two-lane mask design.
 
 ### A.3 The design
 

@@ -71,7 +71,7 @@ import org.apache.spark.sql.types.TimeType;
  * {@link VarkaDivisionLowering.MulHiMagic} asserts for each divisor it is built for;
  * {@code int_mulhi_divide.smt2} proves the lanes' arithmetic for a sample of them. The calendar's
  * divisions ({@code chrono_divide.smt2}) are a closed table, {@code ChronoDivide}, which the proof
- * iterates whole. A proof of the int lane for any divisor is {@code m9/SCOPE.md} item 116.
+ * iterates whole. A proof of the int lane for any divisor is {@code m10/SCOPE.md} item 116.
  */
 @VarkaSuite
 public final class VarkaDivisorProofSuite {

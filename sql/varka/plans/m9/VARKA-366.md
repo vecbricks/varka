@@ -1,5 +1,9 @@
 # VARKA-366: The exact decimal-to-floating arm
 
+*Moved to milestone 9 on 25 November 2026 with row 366 (`m9/PLAN.md` 3). A bare `PLAN.md`,
+`results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`, unless that plan
+moved too.*
+
 ## 0. What exists now (admission check)
 
 From master at `6e207c226fb` (30 October 2026; paths as `VARKA-350.md` 0 gives them), the JDK 25
@@ -338,7 +342,7 @@ Out: the quotients and round-to-odd below precision 16 and the casts' compositio
 two-pass form above 18 and its `s >= 28` decline, Varka's choice (364, 2.5); a general FMA node
 (350's open point 8); Trino's `FLOAT` midpoint-margin test, which would keep more lanes on the
 quotient but needs its own bound proven (`READING_TRINO_DECIMAL.md` 7); Schubfach and the
-shortest-digits path, which are 346's direction (`m9/SCOPE.md` item 97).
+shortest-digits path, which are 346's direction (`m10/SCOPE.md` item 97).
 
 **The per-batch guarded form, a possible measured option arm.** The row's text has the arm "taken
 per batch when the guard mask of 350 is not all true": a guard `abs(u) <= 2^53` collected over the

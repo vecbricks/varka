@@ -37,7 +37,7 @@ only way to answer it on a runner.** What was checked, in the code and the plans
   calls gets fewer than 2,000 calls from the rounds. The four-core suite passed 5 of 5 in every
   run of 395 and 397 on the laptop (`results/VARKA-395-warmup-runs.txt`,
   `VARKA-397-warmup-runs.txt`). No runner count exists yet: `dev/varka_scoped_suites.sh` still
-  carries a retry entry for the suite naming the tier-2 mechanism, and `m9/SCOPE.md` item 103
+  carries a retry entry for the suite naming the tier-2 mechanism, and `m10/SCOPE.md` item 103
   keeps the small-runner question open until a pair after the fix.
 * **Section 2.6's coverage table is mostly answered, by call count rather than by operator.**
   `VarkaVectorTemplateWarmup`'s int, long and double groups now call the scalar forms the table
@@ -90,7 +90,7 @@ only way to answer it on a runner.** What was checked, in the code and the plans
   override, and must keep doing so.
 * **Item 77's remainder is unchanged**: the progress deadline and the extra probes at the
   deadline still do not keep a kernel that never stops allocating (2.5), and their return to
-  `m9/SCOPE.md` at the close stands.
+  `m10/SCOPE.md` at the close stands.
 
 **What is answered, what stands, and the decision.**
 
@@ -101,7 +101,7 @@ only way to answer it on a runner.** What was checked, in the code and the plans
 | half (a) reading (R1, R2, R3) | unread since 16 October; engine changed under it | stands, as a laptop reading first |
 | arm A: operator-keyed coverage and `L2D`, `D2L` in the prewarm | partly answered by 397 (method counts, scalar forms); the conversions remain | shrunk to the conversions and an operator-keyed test, admitted only by the reading |
 | the end-to-end suite passing in full CI runs (done-when, last clause) | never counted since 389 | stands: a count of the `sql - other tests` jobs from `568582a9f77` |
-| item 77's remainder to `m9/SCOPE.md` | stands | stands |
+| item 77's remainder to `m10/SCOPE.md` | stands | stands |
 
 **Decision: shrunk, not answered.** The row cannot close on what exists, because its first
 reading (the long lane after a history, at 256 and 512 bits) was taken before the engine changed
@@ -131,7 +131,7 @@ cold prefix or the failure-message timestamps, read it as answered by this secti
 
 ## 1. Where this came from
 
-Row 383 of `m8/PLAN.md` (added 16 October 2026, wave 0), which folds in `m9/SCOPE.md` item 77 on
+Row 383 of `m8/PLAN.md` (added 16 October 2026, wave 0), which folds in `m10/SCOPE.md` item 77 on
 the owner's decision of the same day. Two readings started it. `m7/VARKA-257.md` 9.2
 (`sql/catalyst/benchmarks/VarkaKernelHistory-jdk25-probe.txt`) warmed N kernels of the IR fuzz
 grammar through production's warm-up in one JVM and found that at the laptop's 512-bit width,
@@ -446,7 +446,7 @@ next CI log points there, the same call moves to the first Varka exec node's pre
 * **The verdict.** `blockClean`, the allowance and `CLEAN_PROBES` read 2.2's kernel correctly.
 * **Item 77's two changes** (extra probes at the deadline for a shape whose last probe was clean,
   and a deadline on progress): neither keeps a kernel that never stops allocating (2.5). They go
-  back to `m9/SCOPE.md` at this row's close, rewritten as a worker-throughput item with 2.4's
+  back to `m10/SCOPE.md` at this row's close, rewritten as a worker-throughput item with 2.4's
   queue arithmetic.
 * **The 128-bit long lane** (`VARKA-374.md`) and **the 4-lane override** (`VARKA-373.md`).
 * **The emitter.** No emitted byte changes; `emitted_bytes.json` stays byte-identical.
@@ -476,7 +476,7 @@ coverage test of section 5 rather than by op counts.
 | `sql/catalyst/benchmarks/VarkaKernelHistory-runner-jdk25-probe.txt` | new: the runners' readings, one section per dispatch with its CPU |
 | `sql/varka/skills/the-jit.md` | the lesson on the prewarm's timing and coverage |
 | `sql/varka/skills/testing-and-debugging.md` | the calibration line for the runner cost |
-| `sql/varka/plans/m8/PLAN.md`, `sql/varka/plans/m9/SCOPE.md` | row 383; item 77's remainder at the close |
+| `sql/varka/plans/m8/PLAN.md`, `sql/varka/plans/m10/SCOPE.md` | row 383; item 77's remainder at the close |
 
 ## 5. Tests, and what each is for
 
@@ -576,7 +576,7 @@ within 9.7's range, measured on a runner with `VarkaColdStartBenchmark`.
 5. The re-readings on runners, the cold-start cost of arm B.
 6. The defaults flipped by 6.1's rule, the docs, the skills lesson, the calibration line, the
    nightly's ratchet, `VarkaLongLaneHistorySuite` if it discriminates; item 77's remainder back to
-   `m9/SCOPE.md`; the end-to-end suite's CI passes counted for the done-when.
+   `m10/SCOPE.md`; the end-to-end suite's CI passes counted for the done-when.
 
 ## 9. Outcome
 

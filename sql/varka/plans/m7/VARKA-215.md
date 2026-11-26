@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 215 of `m7/PLAN.md`, from `m9/SCOPE.md` item 81: the second of the three family ports after
+Row 215 of `m7/PLAN.md`, from `m10/SCOPE.md` item 81: the second of the three family ports after
 VARKA-214 (`m7/VARKA-214.md`), which followed the recipe VARKA-175 set for the interval family
 (`m6/VARKA-175.md` 2.3, 2.4 and 9). The owner's rule since 4 October 2026 (`sql/varka/AGENTS.md`,
 "Java code") applies to every Scala-to-Java port.

@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 214 of `m7/PLAN.md`, from `m9/SCOPE.md` item 81 (moved to milestone 7 on 2 October 2026):
+Row 214 of `m7/PLAN.md`, from `m10/SCOPE.md` item 81 (moved to milestone 7 on 2 October 2026):
 "the rest of the Java port, mechanical and meant for an agent". Milestone 6's VARKA-175 ported
 the year-month interval family, `VarkaIntervalCompiler`, as the experiment that settled whether a
 compiler family's matching over Catalyst's expressions reads as well in Java as in Scala, and
