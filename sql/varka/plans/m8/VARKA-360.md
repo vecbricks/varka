@@ -250,7 +250,7 @@ At two long lanes on x86 `COMPARE` and every check are the Java fallback, `BITS`
 `ASHR` and `NEG_LSHR` are not. So a class U projection with `BITS` is mask-free **[I]**, and the
 spike's 128-bit column says whether it beats the row path there; a condition root declines by row
 503's rule; class K carries masks either way and is measured as such, declining with its measured
-reason if it loses (`m9/SCOPE.md` item 101, as `VARKA-359.md` 2.6).
+reason if it loses (`m10/SCOPE.md` item 101, as `VARKA-359.md` 2.6).
 
 ### 2.8 Compiler, reference, cost, warm-up
 

@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 244 of `m7/PLAN.md`, item 59 step 2 of `m9/SCOPE.md`: "the deltas, each named, each with a
+Row 244 of `m7/PLAN.md`, item 59 step 2 of `m10/SCOPE.md`: "the deltas, each named, each with a
 test that shows Spark doing it, and the extensions' definitions marked as Spark's own or ISO
 8601's". The specification is row 243's, `sql/varka/proofs/spec/STANDARD.md`: 19 definitions from
 the SQL-92 text, each of which points with one line at a departure for this row to name, and a

@@ -6,7 +6,7 @@ From the code at `7ddd8f6715e` (27 October 2026; Varka paths under
 `sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/` unless named, Spark
 paths under `sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/`), and from
 open PR #1065 (branch `varka-341-semantics`, the comparisons in Spark's order), on which this row
-builds. The row's text is the milestone plan's 2.7, bullets 2 and 3, and item 35 of `m9/SCOPE.md`.
+builds. The row's text is the milestone plan's 2.7, bullets 2 and 3, and item 35 of `m10/SCOPE.md`.
 
 1. **The lanes are read; the ordering is #1065's.** `FLOAT` and `DOUBLE` are `OnLane`
    (`varka/VarkaTypes.java:320-325`), `Lane` has both members (`varka/Lane.java:82-90`), and a
@@ -172,7 +172,7 @@ has its guard qualified by the arm (`guardUnderArm`, on by default,
 `varka/VarkaEmitOption.java:400`), so `IF(y = 0, 0.0D, x / y)` fuses under ANSI over batches
 holding zeros. The commonest spelling, with a `NULL` arm or a `CASE` without `ELSE`, needs the
 typed null leaf of row 333 and fuses when it lands. A division on the right of an `AND` still
-condemns from the left's rejected rows, which is `m9/SCOPE.md` item 96.
+condemns from the left's rejected rows, which is `m10/SCOPE.md` item 96.
 
 **Never a reciprocal.** `x / c` is a lanewise `DIV` by the broadcast `c`. A multiply by `1 / c`
 is exact when `c` is a power of two, as C2's own rewrite is (item 0.6); it is not taken, the

@@ -1,6 +1,6 @@
 # VARKA-333: the choice and null shapes on every existing type
 
-*Row 333 of `m8/PLAN.md`, wave 0. Planned on 16 October 2026 at `8a50f61a368`, from `m9/SCOPE.md`
+*Row 333 of `m8/PLAN.md`, wave 0. Planned on 16 October 2026 at `8a50f61a368`, from `m10/SCOPE.md`
 items 55 and 94, the census's conditional and predicate lines and `m8/PLAN.md` 2.9.*
 
 ## 1. Where this came from

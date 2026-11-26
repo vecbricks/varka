@@ -27,7 +27,7 @@ lemma and sampling near the boundaries, as `m8/PLAN.md` 2.7.1 does for math).
 
 **What the record already holds.** `skills/vector-api-and-width.md` ("A reciprocal multiply is not
 a division") states the double route's bound on the dividend, `|a| < 2^52` for `trunc(a * 1/b)`
-and `2^53` for `trunc(a / b)`, and `m9/SCOPE.md` names `div`, `mod` and `pmod` by a column as
+and `2^53` for `trunc(a / b)`, and `m10/SCOPE.md` names `div`, `mod` and `pmod` by a column as
 having no magic. Sneller's method is the same idea carried past that bound by a second iteration
 on the integer remainder, which is the part the record does not have.
 

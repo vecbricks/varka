@@ -7,7 +7,7 @@ Row 552 moves Varka's comparisons with stock Spark from 4.2.0 to 4.3.0, the rele
 2026, but leaves out the README's two surface tables, the date surface and the `TIME` surface:
 their files are laptop runs at a billion and half a billion rows, and the README says why a runner
 cannot take those row counts. How they are regenerated was settled before this row: scope item 110
-(`m9/SCOPE.md`, the owner's word of 18 October 2026) makes surface regeneration a row of its own,
+(`m10/SCOPE.md`, the owner's word of 18 October 2026) makes surface regeneration a row of its own,
 run on the runner surface workflow at the row counts a runner's driver holds, with the laptop's
 billion-row files kept as the appendix that proves the fixed-share bound. This is that row. It
 also takes the README's `-ymm` and `abs(ymm)` recheck, which reads against the date surface:

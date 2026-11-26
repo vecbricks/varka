@@ -26,7 +26,7 @@
 A results file is a run of sections, each opened by a rule of `=` characters, a title line (the
 name the benchmark gave `runBenchmark`) and a second rule. A runner regeneration rewrites every
 section of a class's file on whichever CPU the pool assigns, so a pull request that adds one
-section replaces all the others' numbers with that machine's (VARKA-256, `m9/SCOPE.md` item 72;
+section replaces all the others' numbers with that machine's (VARKA-256, `m10/SCOPE.md` item 72;
 it happened on 30 September 2026 and was spliced back by hand). This is the splice.
 
 `splice` writes OLD with the named sections replaced by NEW's, in OLD's order; a named section

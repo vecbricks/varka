@@ -32,7 +32,7 @@ This paper proves the abort never fires, for any `q` in `(-342, 308)` and any
 more generous margin (102 bits instead of 73 bits), so it is sufficient to
 review the 64-bit case").
 
-It is read for `plans/m8/PLAN.md` row 366 (`plans/m8/VARKA-366.md`) and the
+It is read for `plans/m8/PLAN.md` row 366 (`plans/m9/VARKA-366.md`) and the
 two-pass form of row 364 that builds on it. Row 366 itself, at scales 0 to 18,
 lies inside the window where Lemire's paper already needs no fallback, so its
 exactness claim does not rest on this paper. What does is the milestone plan's

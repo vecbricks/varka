@@ -59,7 +59,7 @@ the shape `Year(ThursdayOf(col))` is one VARKA-37's fixtures already render.
 * The emitter: `Year`'s tail and `ThursdayOf`'s arm are VARKA-37's; this task
   reads them.
 * `weekofyear`: its arm stays; the two share by CSE, not by a combined node.
-* A `yearweek` key: scope item 11 of `m9/SCOPE.md`, a product
+* A `yearweek` key: scope item 11 of `m10/SCOPE.md`, a product
   decision, not this task.
 
 ### 3.3 Registered op counts

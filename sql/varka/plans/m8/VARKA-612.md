@@ -86,7 +86,7 @@ slot may hold any value, so the test can fire falsely there. That sends the batc
 which answers the same rows, so a false alarm costs time and never correctness. `NULL` mode needs
 lanes marked and stays declined.
 
-This is a narrow piece of `m9/SCOPE.md` item 101 (a mask-free lowering at two lanes). It goes
+This is a narrow piece of `m10/SCOPE.md` item 101 (a mask-free lowering at two lanes). It goes
 behind a `VarkaEmitOptions` component, `twoLaneChecks` (`MASK`, today's, and `REDUCE`). It is
 admitted in place of 612a's decline only where `REDUCE` is set. It flips the default only if it
 beats the row path at 128 bits on the runners. Whether to build it in this row or leave it to
@@ -312,7 +312,7 @@ decision 8a leaves them, and join this measurement. `VarkaDayTimeIntervalBaselin
    these kinds (`IntArith` and `IntNeg` are `WRAP` there by construction, and no compiler guards a
    double child with a `GuardedRange`), so the plan's `LONG` is kept as written.
 3. **Question 10.2: 612b in this row, on a stacked branch, default left at `MASK`.** Taken as
-   recommended. The scope question (a piece of `m9/SCOPE.md` item 101 inside milestone 8) is the
+   recommended. The scope question (a piece of `m10/SCOPE.md` item 101 inside milestone 8) is the
    owner's to overturn; the branch is separate so that 612a can merge without it, and the default
    cannot move before the runner measurement of 6.1 predictions 3 and 4.
 
@@ -327,5 +327,5 @@ decision 8a leaves them, and join this measurement. `VarkaDayTimeIntervalBaselin
 2. **612b in this row or in item 101.** Recommended: in this row, as a second pull request after
    612a. The decline closes the done-when on its own, but it gives up the 4x the same kernels
    reach at 256 bits, and the lowering is small for the `FAIL` case. I cannot decide it because
-   `m9/SCOPE.md` item 101 is a later milestone's scope by the owner's plan, and taking part of it
+   `m10/SCOPE.md` item 101 is a later milestone's scope by the owner's plan, and taking part of it
    into milestone 8 is a scope decision.

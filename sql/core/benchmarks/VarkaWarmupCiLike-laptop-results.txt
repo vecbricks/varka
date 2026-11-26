@@ -1,4 +1,4 @@
-VarkaWarmupEndToEndSuite under CI's conditions, 20 runs (VARKA-233.md 13.7, m9/SCOPE.md item 77).
+VarkaWarmupEndToEndSuite under CI's conditions, 20 runs (VARKA-233.md 13.7, m10/SCOPE.md item 77).
 
 What ran: dev/varka_matrix.sh's SQL defaults step as CI runs it (33 suites, 2 test JVMs), five copies
 at a time, each pinned with taskset to two physical cores and their SMT siblings (CPUs 2i, 2i+1,

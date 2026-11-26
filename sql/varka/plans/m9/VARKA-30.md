@@ -1,5 +1,9 @@
 # VARKA-30: The integral division family
 
+*Moved to milestone 9 on 25 November 2026 with row 30 (`m9/PLAN.md` 3). A bare `PLAN.md`,
+`results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`, unless that plan
+moved too.*
+
 ## 0. What exists now (admission check)
 
 From master at `ef32e007d3a` (30 October 2026; Varka paths under `sql/catalyst/src/main/java/org/
@@ -514,7 +518,7 @@ copies, so copy them as `git show c62f492fc89:<path>` prints them; #1486 also ch
 | `sql/core/src/test/java/org/apache/spark/sql/execution/benchmark/VarkaIntegralDivisionBaselineBenchmark.java` | new: the benchmark |
 | `sql/core/src/test/scala/org/apache/spark/sql/execution/benchmark/VarkaIntegralDivisionBaselineQueriesSuite.scala` | new: its queries suite |
 | `sql/varka/plans/m8/PLAN.md` | row 30's cell: the state, 1.5 |
-| `sql/varka/plans/m8/VARKA-30.md` | section 10: the paragraph of 1.5 |
+| `sql/varka/plans/m9/VARKA-30.md` | section 10: the paragraph of 1.5 |
 
 **1.2 The benchmark class.** Copy `VarkaBigintArithmeticBaselineBenchmark.java` to the new name
 and change exactly these members; everything else (the `Section` record, `runBenchmarkSuite`'s

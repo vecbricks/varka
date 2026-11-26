@@ -46,7 +46,7 @@ Measured with `VarkaPlanningCostProbe`, `explainPredicate` at depths 2 to 20
 The IR (`VarkaVectorIR.java`) is 53 records: 6 leaves (`ColumnRef`, `DecimalColumn`,
 `LiteralSlot`, `NullValue`, `BoolColumn`, `CondConst`), whose hash reads no node, and 47 records
 with a node child, every other one. No node is interned: the "IR's interned DAG" of
-`m9/SCOPE.md` item 1204's text is the structural collapsing the records' `equals` gives, not a
+`m10/SCOPE.md` item 1204's text is the structural collapsing the records' `equals` gives, not a
 table of canonical nodes.
 
 Hash- or equality-keyed structures over IR nodes, all structural (`HashSet`, `HashMap`,

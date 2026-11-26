@@ -1,6 +1,6 @@
 # VARKA-249: One class owns the emitted method names
 
-*Row 249 of `m7/PLAN.md`, wave 0, from `m9/SCOPE.md` item 74.6; opened 4 October 2026, the first
+*Row 249 of `m7/PLAN.md`, wave 0, from `m10/SCOPE.md` item 74.6; opened 4 October 2026, the first
 of milestone 7's refactors.*
 
 ## 1. Where this came from

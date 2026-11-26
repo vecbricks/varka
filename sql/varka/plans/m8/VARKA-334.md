@@ -1,6 +1,6 @@
 # VARKA-334: `IS NULL` and `IS NOT NULL` over a predicate
 
-*Row 334 of `m8/PLAN.md`, wave 0. Planned on 16 October 2026 at `8a50f61a368`, from `m9/SCOPE.md`
+*Row 334 of `m8/PLAN.md`, wave 0. Planned on 16 October 2026 at `8a50f61a368`, from `m10/SCOPE.md`
 item 93 and the parked branch it names. The design is the branch's; the row's work is to
 understand the branch's seven test failures, which section 2 sizes and leaves as the first step.*
 

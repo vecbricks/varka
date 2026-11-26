@@ -34,7 +34,7 @@
 # test the dispatched branch. It runs at most 16 bins at a time there by default and compiles the
 # test classes itself, since the fork's Build artifacts need a token it lacks. Runs there do not
 # queue against each other: ~/varka-ops' dispatcher starts one at a time. There is no weekly run
-# until row 522 (m9/VARKA-522.md 2.1) moves the schedule to the fork.
+# until row 522 (m10/VARKA-522.md 2.1) moves the schedule to the fork.
 name: Varka option matrix
 run-name: >-
   ${{ inputs.pr != '' && format('Varka option matrix of #{0} at {1}', inputs.pr, inputs.sha)

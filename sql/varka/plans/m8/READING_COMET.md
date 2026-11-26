@@ -264,7 +264,7 @@ with codegen off the second is `0.0` **[I]**. Spark's two engines disagree, the 
    classified by the three-way run of `READING_SQLANCER.md`. Small.
 7. **m9 scope item, served by 351's family.** `round`/`bround` of `TINYINT`, `SMALLINT`, `INT` and
    `BIGINT` at a negative scale (LEGACY wraps, ANSI raises), unclaimed by any m8 row; one line in
-   `m9/SCOPE.md` unless the owner puts it in 351.
+   `m10/SCOPE.md` unless the owner puts it in 351.
 
 Not read: Comet's aggregates and window code beyond the compatibility notes, its JSON, string,
 regex and datetime casts, `modulo_expr.rs` past the commit message, and the dispatcher's input

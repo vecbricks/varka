@@ -68,12 +68,12 @@ final class VarkaProofFiles {
    * <p>No compiler site builds an int-lane division by 60 or 3600 (checked 27 October 2026,
    * VARKA-496): the only int-lane {@code ConstDivide}s are the interval compiler's, by 12 and by
    * {@code ym / d}'s literal, and {@code TIME}'s divisions by 60 are on the long lane. They were
-   * put here for the {@code TIME} split form ({@code m9/SCOPE.md}'s catalogue row of a
+   * put here for the {@code TIME} split form ({@code m10/SCOPE.md}'s catalogue row of a
    * {@code TIME} as seconds and nanoseconds), which is not built and would divide through
    * {@code BoundedDivide}, a lowering this proof does not state. They stay as two of the open set
    * {@code ym / d} can divide by, as every divisor here is, and because the rendered range proofs
    * and {@code VarkaEmitterDivisionSuite}'s sweep iterate this list; proving that set whole is
-   * {@code m9/SCOPE.md} item 116.
+   * {@code m10/SCOPE.md} item 116.
    */
   static final List<Integer> INT_DIVISORS =
       List.of(12, 2, 3, 7, 100, -3, -12, 60, 3600, 196611, Integer.MIN_VALUE, 10, 1000, 10000,
@@ -1872,7 +1872,7 @@ final class VarkaProofFiles {
         + "(assert (and (<= " + lit(VarkaChrono.NARROW_MIN_DAYS) + " (cal.epoch y m d)) "
         + "(<= (cal.epoch y m d) " + VarkaChrono.NARROW_DECOMPOSE_MAX_DAYS + ")))";
     // The year's interval is symmetric, as every INT answer is, and the admitted years are not:
-    // the magnitude is exact at the top and slack at the bottom (m9/SCOPE.md item 86), so the
+    // the magnitude is exact at the top and slack at the bottom (m10/SCOPE.md item 86), so the
     // neighbours are the top end's and the bottom's slack is recorded as it is.
     int yearMagnitude = VarkaChrono.YEAR_FIELD_MAGNITUDE;
     check(out, "year: the year of an admitted day has magnitude at most YEAR_FIELD_MAGNITUDE",

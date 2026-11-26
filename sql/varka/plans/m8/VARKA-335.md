@@ -1,6 +1,6 @@
 # VARKA-335: the bitwise and shift operators, `bit_count`, `bit_get` and the bitmap positions
 
-*Row 335 of `m8/PLAN.md`, wave 0. Planned on 16 October 2026 at `8a50f61a368`, from `m9/SCOPE.md`
+*Row 335 of `m8/PLAN.md`, wave 0. Planned on 16 October 2026 at `8a50f61a368`, from `m10/SCOPE.md`
 item 32 and `m8/PLAN.md` 2.9. Section 2 finds that only part of the row can land in wave 0, and
 section 8 splits it accordingly.*
 

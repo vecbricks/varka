@@ -20,7 +20,7 @@ October), `-runner-7763-m7-` and `-runner-xeon8370c-m7-` (the pair), against the
 
 The regression was invisible until the close because the laptop nightly has not run since 26
 September, and because PR #900's runner pairs of 16 October reported the same verdicts as a
-small-host effect, which became `m9/SCOPE.md` item 103. Item 103 now carries the cross-machine
+small-host effect, which became `m10/SCOPE.md` item 103. Item 103 now carries the cross-machine
 numbers and points here.
 
 ## 2. How much
@@ -139,7 +139,7 @@ The cause is named with the commit that introduced it; the fix is merged with
 `VarkaColdStartBenchmark` regenerated on the laptop at both widths and a runner pair, every
 projection shape COMPILED and the once-compiled rows within 15% of 28 September's; the README's
 and `docs/sql-varka.md`'s cold-start row requoted from those files; a check in the suites that
-fails when the 16-entry shape's warm-up does not reach COMPILED on a runner; `m9/SCOPE.md` item
+fails when the 16-entry shape's warm-up does not reach COMPILED on a runner; `m10/SCOPE.md` item
 103 rewritten to what remains of it, if anything; and the close (`VARKA-261.md`, #919) updated,
 the tag moved to the fix's merge commit.
 

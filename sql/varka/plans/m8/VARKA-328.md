@@ -237,7 +237,7 @@ trigger now includes the census's inputs: a scratch commit touching only `covera
 touching only `FunctionRegistry.scala`, printed `false` from `dev/is-changed.py -m varka-docs`
 before and `true` after (test 1). A one-character edit of `census.tsv` fails the check with "is
 stale" (test 2). The catalogue check failed on master: it took every `READING_*.md` under `m8/` for
-a catalogue note to move, milestone 8's own reading notes included, so `m9/SCOPE.md`'s citation of
+a catalogue note to move, milestone 8's own reading notes included, so `m10/SCOPE.md`'s citation of
 `m8/READING_SLEEF.md` failed it, and a real run would have moved those notes to `m9/`. It now takes
 the old folder's notes only while its `SCOPE.md` is still there; a planted citation of the layouts
 note under its old milestone 8 path still fails it.

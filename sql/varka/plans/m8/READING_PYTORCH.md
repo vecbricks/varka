@@ -40,7 +40,7 @@ DOUBLE, a FLOAT input is cast first, so a float-only kernel would never be reach
    library; they should record the SLEEF tier beside each measured bound, so a measured step
    count above the stated tier is a finding. The tiers are a cross-check on 367's probe, not a
    bound for the contract: SVML states none.
-2. **The exponent-field construction** is a candidate shape for `m9/SCOPE.md` item 98 (an emitted
+2. **The exponent-field construction** is a candidate shape for `m10/SCOPE.md` item 98 (an emitted
    `exp`): range reduction by an integer add into the exponent field, one polynomial. At double
    width it needs a higher degree to reach a few ulp, and an explicit `NaN` path. It is a
    citation for item 98, not a row in this milestone.

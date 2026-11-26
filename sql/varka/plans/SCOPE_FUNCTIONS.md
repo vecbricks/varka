@@ -17,10 +17,10 @@ section headers:
 |---|---:|---|---|
 | datetime | 64 | int32 and int64 lanes; the calendar algorithms | Varka's home ground; `TIME` is milestone 5's subject |
 | math | 61 | **a double lane**; the Vector API's math operators | section 2 and 3 |
-| aggregate | 76 | the aggregation operator, milestone 6's target | `m9/SCOPE.md` items 4 and 5 |
-| string | 67 | a string representation | `m9/SCOPE.md` item 80's family |
+| aggregate | 76 | the aggregation operator, milestone 6's target | `m10/SCOPE.md` items 4 and 5 |
+| string | 67 | a string representation | `m10/SCOPE.md` item 80's family |
 | predicate, conditional | 13 + 10 | compares, blend, `IS_NAN` | largely fused; `LIKE` and the regexes are strings |
-| bitwise | 6 | shifts and counts, all in the Vector API | `m9/SCOPE.md` item 32 |
+| bitwise | 6 | shifts and counts, all in the Vector API | `m10/SCOPE.md` item 32 |
 | hash | 9 | xxhash64 and murmur over lanes | feasible for numeric inputs; nothing scoped |
 | array, map, lambda, collection, struct | 54 | variable-length nested values per row | far; no representation |
 | window | 9 | operator-level, not expression-level | after aggregation |
@@ -180,7 +180,7 @@ functions, whose row-engine bits are the same on every host: `exp` and `log`
 are a table and a short polynomial, and a lane that reproduces fdlibm's
 arithmetic reproduces its bits - bit-exact, slower than SVML by a factor to be
 measured, and a kernel to maintain. Or a **decline** of the family, since no
-function in it is exact. `m9/SCOPE.md` item 36 holds the decision.
+function in it is exact. `m10/SCOPE.md` item 36 holds the decision.
 
 *Corrected on 30 October 2026, by the owner's word (`m8/PLAN.md` 2.7.1, `m8/VARKA-345.md` 2.1):
 the family is exact by default, and the ULP contract is an opt-in mode, off by default. Two exact

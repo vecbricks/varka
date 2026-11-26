@@ -1,6 +1,6 @@
 # VARKA-317: Errors compared as answers
 
-*Row 317 of `m7/PLAN.md`, added by the owner on 12 October 2026 from `m9/SCOPE.md` item 24.
+*Row 317 of `m7/PLAN.md`, added by the owner on 12 October 2026 from `m10/SCOPE.md` item 24.
 Planned on 16 October 2026 at master `7cc402b8f34`. Section 2 corrects the row in one place: the
 check it asks for exists, private to one suite, and what is missing is the check shared and a
 kernel planted against it.*
@@ -9,7 +9,7 @@ kernel planted against it.*
 
 The row: a differential check that holds Varka and Spark to the same outcome on a row where Spark
 may raise - both raise the same error condition, or both answer the same - as Comet's
-`checkSparkAnswerMaybeThrows` does (`CometTestBase`; `m9/SCOPE.md` item 24, "Three things worth
+`checkSparkAnswerMaybeThrows` does (`CometTestBase`; `m10/SCOPE.md` item 24, "Three things worth
 taking", 3: "the 'maybe throws' form is the one it lacks and the one `ANSI` rows need"). Done when
 the ANSI rows of the coverage differential run through it and a planted kernel that answers an
 overflowing row fails it.

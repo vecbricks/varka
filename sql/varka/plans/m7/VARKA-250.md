@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Milestone 7's row 250, from item 74.3 of `m9/SCOPE.md` ("Refactor the compiler's untidiest
+Milestone 7's row 250, from item 74.3 of `m10/SCOPE.md` ("Refactor the compiler's untidiest
 code"): `VarkaBodyEmitter.emitBody` is one 372-line method for three roles - the driver, a group's
 loop method and its epilogue - both bodies, and both driver forms, the table driver
 (`driverOutputTable`) threading through the unrolled driver's numbered steps as guards. Split it

@@ -176,7 +176,7 @@ Predictions, scored:
    projection rows; it now covers 137, which is most of its diff.)
 3. The narrow rows' domain predicates fuse where they declined: the differential suite passes with
    them. One position does not take the new product rows, a later `COALESCE` argument, where
-   Varka compiles no bare int column as a value (`m9/SCOPE.md` item 55); the two rows join the
+   Varka compiles no bare int column as a value (`m10/SCOPE.md` item 55); the two rows join the
    ANSI form's list of int-valued rows that decline there.
 
 Tests: the catalyst suites pass (219 on the first run, 183 on the rerun of the touched ones), the sql

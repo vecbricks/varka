@@ -1,6 +1,6 @@
 # VARKA-178: bands on demand, the rule and the tooling
 
-*Row 178 of `m6/PLAN.md`, from `m9/SCOPE.md` item 49 and VARKA-145's finding.
+*Row 178 of `m6/PLAN.md`, from `m10/SCOPE.md` item 49 and VARKA-145's finding.
 Written 1 October 2026, when the row closed; most of what it asked for had happened on the side
 by then, and this file records what, and what the row itself added.*
 
