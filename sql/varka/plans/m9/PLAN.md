@@ -67,8 +67,7 @@ cheaper models from written task plans?
     (decided on 25 November 2026, after this plan merged, as decisions 17 and 18 were).
 17. The zone conversions are IR nodes, as 2.2 has them, and what several fields share they share
     through the node. The work of row 657 is regular rows, 657 and 682 to 692, not lettered
-    parts of one row (`VARKA-657.md` 1). Row 693, the table of the local time line, joined
-    them on 26 November 2026.
+    parts of one row (`VARKA-657.md` 1).
 18. Milestone 9 has not started. While milestone 8 runs, only planning goes on: no row of this
     plan is built before the owner's word (section 4).
 
