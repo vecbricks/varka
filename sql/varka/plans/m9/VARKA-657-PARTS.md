@@ -713,10 +713,177 @@ second zone alone, at index 0).
 zone's changes; a batch of `K + 1` changes declines with `STATUS_BATCH_ARGS`; the emitted bytes
 did not move. **Not here:** the cast; coverage rows; the emitter, the lowering, `VarkaBatchArgs`.
 
-### 5.3 to 5.5 Parts C, D and E
+### 5.3 Part C: the coverage rows, the census cells, the documentation
 
-The sheets of part C (the coverage rows, the census cells, the documentation), part D
-(`CAST(ts AS DATE)`) and part E (the measurement) come in the pull request after this one.
+**B0, the premises.**
+
+| command | must print |
+| :--- | :--- |
+| `dev/varka_emit.sh "second(ts)" --columns ts:timestamp --zone America/Los_Angeles` | `FusedOutput(0)` (part B merged) |
+| `git ls-files 'sql/varka/plans/m*/census_curated.txt'; grep -n "^hour|\|^minute|\|^second|" <that file of milestone 9>` | three lines whose second field holds `ltz` and whose fourth does not |
+| `grep -n "longLits" <gens>/varka/VarkaWidthAuditProbe.scala; grep -c "VarkaBatchArgs" <gens>/varka/VarkaWidthAuditProbe.scala` | the line of section 3; `0` means step 4 applies |
+| `dev/varka_matrix.sh --list | grep zoneForm` | `zoneForm=ONE` and `zoneForm=STEPS_8` |
+| `grep -n "ltzy" -r sql/catalyst/src/test sql/core/src/test` | nothing |
+
+**The steps.**
+
+1. `<gens>/varka/VarkaCoverageSuite.scala`: `private val ltzy = AttributeReference("ltzy",
+   TimestampType)()`, appended to `columns`. Two families after "TIMESTAMP_NTZ fields in a
+   condition":
+   - `Family("TIMESTAMP in the session time zone", predicates = false, ...)` with the rows
+     `hour(ltzy)`, `minute(ltzy)` and `second(ltzy)`. The first row's note: "the instant plus
+     the zone's offset, then the TIMESTAMP_NTZ field: one sum under UTC or a fixed offset, and
+     up to two steps a batch in a zone with changes; a batch that spans more goes to the row
+     engine". The others: "as hour(ltzy)".
+   - `Family("TIMESTAMP in the session time zone, in a condition", predicates = true, ...)`
+     with `hour(ltzy) > 12`.
+   No row names a `domain`: a batch's span is no predicate over a row. If the domain test names
+   a guard on these rows, stop.
+2. `<execs>/VarkaCoverageDifferentialSuite.scala`, `fixtureView`: the column of 4.8 after
+   `ntz2`, and one sentence in the comment.
+3. `<gens>/varka/VarkaCoverageRows.scala`: `readsZoned` (the column `ltzy`) and the filter
+   `Filter("a TIMESTAMP read in the session time zone", Some("VARKA-684"), readsZoned)`.
+   `<gens>/varka/VarkaCoverageCompositionFuzzSuite.scala`, the test "every coverage row is
+   drawn or left out by a filter that names the row owing it": its `types` map holds a
+   predicate over a `DataType` for each filter. Make each a predicate over the column, the
+   three on its `dataType` as they are, and this filter's `_.name == "ltzy"`.
+   `<execs>/VarkaSparkFuzz.scala`, `leftOut`: add `readsZoned`.
+4. `<gens>/varka/VarkaWidthAuditProbe.scala`, `runHot`, when B0 printed `0`: the long table's
+   length is `shape.numLiterals` plus the sum of the programs' counts of
+   `VarkaBatchArgs.layout(shape.roots.asJava, 0, shape.options)`. The probe's values need no
+   meaning: it runs a kernel hot.
+5. The curated census: `ltz` joins the fourth field of `hour`, `minute` and `second`; `657`
+   joins the rows; the note gains "ltz in the session zone: the NTZ lowering over the local
+   time (VARKA-657)".
+6. `<gent>/VarkaFamilySwitchSuite.java`: `UNBUILT = Map.of()`.
+   `<execs>/VarkaFamilySwitchQuerySuite.scala`: a `ts` column of `TimestampType` in the view,
+   and the case `VarkaFamily.ZONE -> "SELECT hour(ts) AS a, year(d) AS b"`.
+7. `<execs>/VarkaTimestampZoneQuerySuite.scala`, new, `extends QueryTest with
+   VarkaSharedSessions with VarkaTestWatchdog`, modelled on `VarkaTimestampNtzSuite`: its
+   `cache` makes a one-partition table a temp view and caches it on both sessions, with
+   `spark.sql.execution.arrow.maxRecordsPerBatch` set in `beforeAll`; its `checkServed`
+   asserts the plan fused, `checkAnswer(actual, expectedSql(query, actual))`, and reads the
+   node's metrics. Here the tables are `timestamp_micros` over longs.
+8. `docs/sql-varka.md`, by hand, one section "Timestamps in the session time zone": what
+   fuses; the fold; the node and its batch arguments in two sentences; the declines of 4.5; the
+   switch.
+9. `dev/varka_regen_generated.sh --all`, then the skip lines: run
+   `dev/varka_matrix.sh --config zoneForm=ONE --module sql --suites
+   VarkaCoverageDifferentialSuite,VarkaCoverageHarnessSuite`. A test of the two new families
+   that fails there because a batch of the fixture spans a change gets one line:
+
+       zoneForm=ONE	<suite>	<test name>	fails	one offset a batch declines a batch whose rows span a change of offset, as this row's fixture does by design
+
+   A failure of any other test, or under any other configuration, is a stop.
+
+**The tests.**
+
+| suite and test | what it holds | the failure only it catches |
+| :--- | :--- | :--- |
+| `VarkaCoverageSuite`, `VarkaCoverageHarnessSuite`, `VarkaCoverageDifferentialSuite` (existing) | the four rows compile, are documented, and equal Spark on the three fixtures under both consumers | an entry that counts as fused and that no kernel serves |
+| `VarkaTimestampZoneQuerySuite`: a cached TIMESTAMP column's fields run on the kernel under the session's zone, and a batch that spans three changes goes to the row engine alone | three cached batches under `America/Los_Angeles`, the form pinned to `STEPS_2`: `numVarkaBatches` is 2, `numFallbackBatchesDeclined` is 1, the reason metric of `STATUS_BATCH_ARGS` is 1 | a decline that the plan's metrics do not count |
+| the same suite: two sessions in two zones share one kernel class and answer by their own zone | one week of rows under `America/Los_Angeles` and under `Europe/Paris`: the answers differ, each is the row engine's, and the second run's `numVarkaCacheHits` is above 0 | a zone that reached the shape key, or a stale zone in a shared class |
+| the same suite: the verbose EXPLAIN names a computed operand's decline | `hour(greatest(ts, ts2))`: `residual` with the reason of 4.5; under UTC, `fused` | a reason the user never sees |
+| `VarkaFamilySwitchQuerySuite` (existing test, new case) | the switch set as a user sets it reaches the driver's compile and the task's | a switch that only one of the two compiles reads |
+
+**The commands.**
+
+| command | must print |
+| :--- | :--- |
+| `dev/varka_regen_generated.sh --all` | exits 0; `git status --short` then shows `coverage.json`, `emitted_bytes.json`, `width_audit.json`, the census file and `docs/sql-varka.md` |
+| `python3 dev/varka_bytes_moved.py origin/master --ignore option_arms` | nothing: only the new rows' keys were added |
+| `python3 dev/varka_census.py --check` | exits 0 |
+| `python3 dev/varka_census.py --summary` | `ltz` with three more pairs fused than on master |
+| `build/sbt 'catalyst/testOnly ...'` over every suite that `git grep -l "coverage.json\|VarkaCoverageRows" -- sql/catalyst/src/test` lists (twelve on the base, `VarkaWidthAuditSuite` and `VarkaWarmupReachSuite` among them) | `Failed 0, Errors 0`. If the reach suite names a cold method, add it to the long lane's block of `VarkaVectorTemplateWarmup` |
+| `build/sbt 'sql/testOnly *VarkaCoverageHarnessSuite *VarkaCoverageDifferentialSuite *VarkaHarnessParitySuite *VarkaFarDaySuite *VarkaGoldenCorpusSuite *VarkaSparkFuzzSuite *VarkaTimestampZoneQuerySuite *VarkaFamilySwitchQuerySuite'` | `Failed 0, Errors 0` |
+| `python3 dev/varka_session_lint.py <execs>/VarkaTimestampZoneQuerySuite.scala` | no finding |
+
+**Done when** the three fields have coverage rows that pass under both consumers and through
+two sessions, the census counts them, and the documentation holds them. **Not here:** the
+cast; a fuzzer that draws a zone (row 684); a change of the existing fixtures' values.
+
+### 5.4 Part D: `CAST(ts AS DATE)`
+
+**B0, the premises.**
+
+| command | must print |
+| :--- | :--- |
+| `grep -n "CAST_NOT_YET" <gen>/VarkaZoneCompiler.java` | the constant and its one use |
+| `grep -n "hour(ltzy)" sql/varka/coverage.json` | two rows (part C merged) |
+| `git ls-files 'sql/varka/plans/m*/casts.tsv'; grep -P "^ltz\tdate\t" <that file of milestone 9>` | the pair, legal in the three modes, not fused; note its `rows` column |
+| `grep -ln "AS DATE" sql/core/src/test/java/org/apache/spark/sql/execution/benchmark/Varka*BaselineBenchmark.java` | row 655's casts class over a `TIMESTAMP` |
+| `grep -n "SQLConf conf = SQLConf.get().clone();" <gent>/varka/VarkaTypeConformance.java; grep -c "SESSION_LOCAL_TIMEZONE" <gent>/varka/VarkaTypeConformance.java` | one line, in `resolve`; `0` means step 4 applies |
+
+**The steps.**
+
+1. `<gen>/VarkaNodeCompiler.java`: `dateOfLocal` of 4.4, after `dateOfNtz`, which calls it.
+2. `<gen>/VarkaZoneCompiler.java`: the cast's arm builds:
+   `local(c, c.timeZoneId(), c.child(), inputs, literals, sink).map(t ->
+   VarkaNodeCompiler.dateOfLocal(t, sink))`. The mode is not read: the cast cannot fail.
+   Delete `CAST_NOT_YET`. `VarkaFamily.ZONE`'s `covers` loses its last clause.
+3. `<gens>/varka/VarkaCoverageSuite.scala`: `CAST(ltzy AS DATE)` joins the first family of
+   part C, note "the local date: the instant plus the zone's offset, floor-divided by a day;
+   it cannot fail in any mode"; `CAST(ltzy AS DATE) = d` joins the second.
+4. `<gent>/varka/VarkaTypeConformance.java`, `resolve`: set `spark.sql.session.timeZone` to
+   `UTC` on the cloned conf. The harness runs a kernel with the plan's literals and no
+   evaluator, so it fills no batch arguments; under UTC the cast is the folded kernel. The
+   zones are `VarkaTimestampZoneSuite`'s. `dev/varka_census.py`, `cast_rows`: the pair `ltz`
+   to `date` names row 657, if the `rows` column B0 printed does not.
+5. Row 655's casts class: the sections of `CAST(ts AS DATE)` are listed by the table of part
+   B, step 6. Then run every queries suite of row 655's classes: a section that the suite
+   names as fusing unlisted is a `DATE` operator over this cast (4.7); list it the same way.
+   Add no coverage row for it.
+6. The suites below; `dev/varka_regen_generated.sh --all`.
+
+**The tests.**
+
+| suite and test | what it holds | the failure only it catches |
+| :--- | :--- | :--- |
+| `VarkaTimestampZoneSuite`: CAST and try_cast to DATE equal the row engine across each zone's changes, with ANSI on and off | the fixtures and forms of part B; the three spellings | a local date taken from the instant near midnight |
+| the same suite: what composes over the cast answers as Spark does, fused or not | `year(ts)`, `dayofweek(ts)`, `last_day(ts)`, `datediff(ts, DATE'2021-06-01')`, `date_add(CAST(ts AS DATE), 1)`, `CAST(ts AS DATE) < DATE'2021-03-14'`: answers only | a consumer that fuses over the cast and is wrong |
+| `VarkaZoneCompilerSuite`: CAST(TIMESTAMP AS DATE) is the TIMESTAMP_NTZ cast over the local value, in every mode | the trees, as part B's test does | a mode that changes the tree |
+| the same suite: year of a TIMESTAMP declines by the calendar's day range until row 668 | the reason of 4.7, under UTC and under `America/Los_Angeles` | a calendar field fused over an unguarded day |
+| `VarkaCastMatrixSuite`, row 656's conformance suite, Spark's three cast suites under Varka (existing) | the pair is fused in the three modes and Spark's own tests of it pass through the kernel | a register that says fused where the compiler declines |
+
+**The commands.**
+
+| command | must print |
+| :--- | :--- |
+| `dev/varka_emit.sh "CAST(ts AS DATE)" --columns ts:timestamp --zone America/Los_Angeles` | `FusedOutput(0)`; a `ToLocal` in the IR |
+| `dev/varka_emit.sh "year(ts)" --columns ts:timestamp --zone America/Los_Angeles` | `day producer the calendar range analysis does not bound` |
+| `dev/varka_regen_generated.sh --all` | exits 0; `casts_fused.tsv` gains `fused` three times on the line of `ltz` to `date` |
+| `python3 dev/varka_census.py --check` | exits 0 |
+| `build/sbt 'catalyst/testOnly *VarkaZoneCompilerSuite *VarkaCastMatrixSuite *VarkaCoverageSuite *VarkaFamilySwitchSuite *VarkaEmittedBytesSuite'` and row 656's conformance suite | `Failed 0, Errors 0` |
+| `build/sbt 'sql/testOnly *VarkaTimestampZoneSuite *VarkaCoverageHarnessSuite *VarkaCoverageDifferentialSuite *VarkaCastWithAnsiOffSuite *VarkaCastWithAnsiOnSuite *VarkaTryCastSuite'` and row 655's queries suites | `Failed 0, Errors 0` |
+
+**Planted faults:** the cast's arm calls `hourOfLocal`: the cast test of
+`VarkaTimestampZoneSuite` must fail. `dateOfLocal` divides by an hour: `VarkaTimestampNtzSuite`
+must fail too.
+
+**Done when** the row's four entries fuse under a zone with changes and equal Spark on rows
+that straddle both changes of a year. **Not here:** a guard on the day (row 668); any other
+cast of a `TIMESTAMP` (row 669); `CAST(d AS TIMESTAMP)` (row 690).
+
+### 5.5 Part E: the measurement
+
+The lead dispatches; a builder commits what comes back.
+
+1. For row 655's fields class and its casts class, on the pull request's head:
+
+       gh workflow run benchmark.yml -f class=<Class> -f jdk=25 -f expected-cpu="AMD EPYC 7763"
+       gh workflow run benchmark.yml -f class=<Class> -f jdk=25 -f expected-cpu="AMD EPYC 7763" \
+         -f extra-java-options=-XX:MaxVectorSize=16
+
+   A run on another CPU is dispatched again.
+2. Before the commit, `python3 dev/varka_bench_diff.py --git HEAD <file>` gives each section
+   against the baseline row 655 committed, controls first. Then commit the results and
+   provenance files of both widths.
+3. Score the predictions of section 7 in section 11. A section slower than the row path at
+   128 bits is a finding for row 689, named with its number.
+4. The same command with `--requote`, also before the commit, lists nothing.
+
+**Done when** both widths' results are committed and each prediction is scored. **Not here:**
+the A/B arms of the forms (row 691); a default that changes.
 
 ## 6. Tests, proofs, fuzzing and coverage
 
