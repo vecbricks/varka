@@ -1,6 +1,7 @@
 # The option matrix's skip list (VARKA-248 step 2; see VarkaMatrix and dev/varka_matrix.sh).
-# Tab separated: configuration, suite (simple name), test name, kind (fails or declines), reason.
-# A listed test that stops failing, or a declines test that fuses again, fails as a stale line.
+# Tab separated: configuration, suite (simple name), test name, kind (fails, declines or draws), reason.
+# A listed test that stops failing, or a declines test that fuses again, fails as a stale line;
+# a draws line, legal only on a test that draws its cases from a seed, cancels a failure and is never stale.
 guardDayProducers=false	VarkaEmitterChronoSuite	a column-offset producer under a calendar node declines the batch whose result leaves the range - in a loop lane, in an epilogue lane, and not under a null	fails	the test's subject is the day-producer guard, which this configuration turns off
 guardDayProducers=false	VarkaEmitterChronoSuite	a guard whose node's uses do not agree on one arm stays unqualified	fails	the test's subject is the day-producer guard, which this configuration turns off
 guardDayProducers=false	VarkaEmitterChronoSuite	a guarded producer under a CASE arm no longer condemns from the untaken arm	fails	the test's subject is the day-producer guard, which this configuration turns off
@@ -220,6 +221,8 @@ checkIntOverflow=false	VarkaDayTimeIntervalConformanceSuite	overflow: LEGACY wra
 checkIntOverflow=false	VarkaYmDivideSuite	a division over a checked sum, product, literal interval or narrowing answers or raises as the row engine does	fails	the overflow check is off by design, so a checked interval add wraps where the row engine raises INTERVAL_ARITHMETIC_OVERFLOW
 checkIntOverflow=false	VarkaCoverageDifferentialSuite	BINARY_ARITHMETIC_OVERFLOW reaches the user as the row engine raises it, from y1 + y2	fails	the overflow check is off by design, so an overflowing lane computes the wrapped value instead of raising or nulling
 checkIntOverflow=false	VarkaCoverageDifferentialSuite	INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION reaches the user as the row engine raises it, from ym - ymm	fails	the overflow check is off by design, so an overflowing lane computes the wrapped value instead of raising or nulling
+checkIntOverflow=false	VarkaSparkFuzzSuite	random compositions agree with the row engine (seed 20261008, 200 of them)	draws	the overflow check is off by design, so a drawn composition that overflows disagrees with the row engine wherever the coverage table puts the draw
+checkIntOverflow=false	VarkaSparkFuzzSuite	random compositions agree with the row engine on both sides of the warm-up handover (seed 20261008, 8 of them)	draws	the overflow check is off by design, so a drawn composition that overflows disagrees with the row engine wherever the coverage table puts the draw
 validityByWidth=false	VarkaCoverageHarnessSuite	TINYINT columns: y1 < y2 under IS NULL and IS NOT NULL fuses as a CASE condition	fails	validityByWidth=false leaves no baked int lane count, so a narrow column has no widening load and the compiler declines the row (VARKA-329); the row engine answers it
 validityByWidth=false	VarkaCoverageHarnessSuite	TINYINT columns: y1 <= y2 under IS NULL and IS NOT NULL fuses as a CASE condition	fails	validityByWidth=false leaves no baked int lane count, so a narrow column has no widening load and the compiler declines the row (VARKA-329); the row engine answers it
 validityByWidth=false	VarkaCoverageHarnessSuite	TINYINT columns: y1 = 5Y under IS NULL and IS NOT NULL fuses as a CASE condition	fails	validityByWidth=false leaves no baked int lane count, so a narrow column has no widening load and the compiler declines the row (VARKA-329); the row engine answers it

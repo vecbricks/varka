@@ -87,4 +87,79 @@ class VarkaSpeciesGuardSuite extends VarkaEmitterTestBase {
     assert(VarkaSpeciesGuard.secondSpecies(bytes).asScala
       .exists(_.startsWith("LongVector.SPECIES_")))
   }
+
+  test("a kernel of two lane widths fails at the defaults naming the annotation, and passes in "
+      + "its own JVM", VarkaMatrix.PinsDefaults) {
+    // A long kernel holding an int value: at the defaults both species are the preferred width,
+    // so the registry alone admits it, and only a lane configuration would refuse it.
+    val sum = new VarkaVectorIR.IntArith(
+      VarkaVectorIR.IntOp.ADD, VarkaVectorIR.Overflow.WRAP, new ColumnRef(0), new LiteralSlot(0))
+    val (mixedName, mixed) = emit(new VarkaVectorIR.WidenLane(sum), 1)
+    assert(new VarkaSpeciesGuard.Registry().admit(mixed).isEmpty)
+    val refused = intercept[IllegalStateException] {
+      VarkaSpeciesGuard.check(mixedName, mixed, "fail", new VarkaSpeciesGuard.Registry)
+    }
+    assert(refused.getMessage.contains("@VarkaSuite(ownJvm = true)") &&
+      refused.getMessage.contains("VarkaOwnJvm"), refused.getMessage)
+    // In a suite's own JVM the guard is off, and a one-lane kernel passes in either.
+    VarkaSpeciesGuard.check(mixedName, mixed, "off", new VarkaSpeciesGuard.Registry)
+    val (oneName, one) = bytesAt(VarkaMatrix.base)
+    assert(VarkaSpeciesGuard.mixedLaneCounts(one).isEmpty)
+    VarkaSpeciesGuard.check(oneName, one, "fail", new VarkaSpeciesGuard.Registry)
+    VarkaSpeciesGuard.check(oneName, one, "off", new VarkaSpeciesGuard.Registry)
+  }
+
+  test("the lane-count rule is off under a configuration that changes the division's form",
+      VarkaMatrix.PinsDefaults) {
+    // There an int division runs through double lanes, so every such kernel holds two lane
+    // counts; the matrix changes one option a JVM, so it never meets a lane configuration.
+    assert(VarkaSpeciesGuard.lanesTrapApplies(""))
+    assert(VarkaSpeciesGuard.lanesTrapApplies("lanesOverride=4"))
+    assert(!VarkaSpeciesGuard.lanesTrapApplies("division=DOUBLE_RECIP"))
+    assert(!VarkaSpeciesGuard.lanesTrapApplies("division=DOUBLE_DIV"))
+    assert(!VarkaSpeciesGuard.lanesTrapApplies("groupLocalSlots=false, division=DOUBLE_DIV"))
+    val sum = new VarkaVectorIR.IntArith(
+      VarkaVectorIR.IntOp.ADD, VarkaVectorIR.Overflow.WRAP, new ColumnRef(0), new LiteralSlot(0))
+    val (mixedName, mixed) = emit(new VarkaVectorIR.WidenLane(sum), 1)
+    VarkaSpeciesGuard.check(mixedName, mixed, "fail", new VarkaSpeciesGuard.Registry, false)
+    intercept[IllegalStateException] {
+      VarkaSpeciesGuard.check(mixedName, mixed, "fail", new VarkaSpeciesGuard.Registry, true)
+    }
+  }
+
+  test("the lane-count rule at the defaults selects the kernels a lane configuration refuses",
+      VarkaMatrix.PinsDefaults) {
+    // Bytes only: each kernel is emitted under each lane configuration and admitted to a registry
+    // seeded with that configuration's one-lane int and long kernels, as the shared JVM would be;
+    // nothing is defined. A kernel the rule selects at the defaults must conflict under some
+    // configuration, and one it passes under none.
+    val int = new ColumnRef(0)
+    val long = new ColumnRef(0, VarkaVectorIR.LaneType.LONG)
+    val intSum = new VarkaVectorIR.IntArith(
+      VarkaVectorIR.IntOp.ADD, VarkaVectorIR.Overflow.WRAP, int, new LiteralSlot(0))
+    val longSum = new VarkaVectorIR.IntArith(VarkaVectorIR.IntOp.ADD,
+      VarkaVectorIR.Overflow.WRAP, long, new LiteralSlot(0, VarkaVectorIR.LaneType.LONG))
+    // Each kernel with whether the rule selects it: the two that hold two lane widths do.
+    val kernels = Seq(
+      ("a widened int sum", new VarkaVectorIR.WidenLane(intSum), true),
+      ("an int column divided by 7", new VarkaVectorIR.ConstDivide(int, 7), true),
+      ("an int sum", intSum, false),
+      ("a long sum", longSum, false))
+    val configurations = Seq("lanesOverride=4", "lanesOverride=16", "narrowHalfSpecies=true")
+    val disagreements = kernels.flatMap { case (name, root, expected) =>
+      val selected = !VarkaSpeciesGuard.mixedLaneCounts(emit(root, 1)._2).isEmpty
+      assert(selected === expected, name)
+      val refusedUnder = configurations.filter { c =>
+        val options = VarkaMatrix.parse(c)
+        val registry = new VarkaSpeciesGuard.Registry
+        assert(registry.admit(emit(intSum, 1, options)._2).isEmpty, c)
+        assert(registry.admit(emit(longSum, 1, options)._2).isEmpty, c)
+        !registry.admit(emit(root, 1, options)._2).isEmpty
+      }
+      if (selected == refusedUnder.nonEmpty) None
+      else Some(s"$name: selected $selected, refused under " +
+        refusedUnder.mkString("[", ", ", "]"))
+    }
+    assert(disagreements.isEmpty, disagreements.mkString("; "))
+  }
 }

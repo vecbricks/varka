@@ -233,4 +233,146 @@ branch.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 10.1 What is built (20 November 2026, branch `varka-499-harness-traps`, local only)
+
+All four fixes and their tests are written. Of section 3's runs only `VarkaSpeciesGuardSuite`
+has been taken (item 3 below); the rest are owed (10.3).
+
+1. **(d)** `VarkaTypeConformance.castRow` is thirteen plain tests, `castTo<Target>`, each named
+   "the cast to <SQL type>, in LEGACY, ANSI and TRY" and running its target's forms through the
+   unchanged `run`. A target with no pair from the type (its identity cast, or one `casts.tsv`
+   lacks) and one the analyzer rejects in every mode is cancelled saying so. Each test also checks
+   that its list of targets is the registry's census types, so a type the registry gains fails
+   every conformance suite until it has its test. The test is in `VarkaSuiteHarnessSuite`:
+   `VarkaYearMonthIntervalConformanceSuite`'s casts to `INT`, `BIGINT` and `DATE`, run through the
+   Launcher, read passed, cancelled as owed (naming only the `BIGINT` forms) and cancelled as
+   absent; before the change the three were one cancelled test. It is the one conformance suite
+   in the shared JVM, so the Launcher runs it there without a child; it is `PinsDefaults`,
+   since the registers are the defaults'.
+2. **(b)** `VarkaCoverageDifferentialSuite.checkSelectsARow`: after a session-run row's
+   consumers, a predicate row whose row-engine answer is empty on every fixture fails, naming the
+   cause and the fix. Its planted test: `ntz = TIMESTAMP_NTZ '1888-08-08 08:08:08'` fails it,
+   `ntz = TIMESTAMP_NTZ '2021-06-01 12:00:00'` (a `dense` fixture row) passes.
+3. **(a)** `VarkaSpeciesGuard.check` in fail mode refuses a class whose drive-lane species (int,
+   long, float, double) do not share one lane count, with a message naming
+   `@VarkaSuite(ownJvm = true)` and `VarkaOwnJvm`; report mode writes such a class as a line with
+   `lanes` in its third field, which is the census step 1 reads. The check takes a mode and a
+   registry through a package seam, so the test defines no class. Its test in
+   `VarkaSpeciesGuardSuite`: a widened int sum (a long kernel holding an int vector) passes a
+   fresh registry, fails the check naming both fixes, passes with the guard off; a one-lane kernel
+   passes either way. A second test establishes the rule on bytes alone: four kernels (a widened
+   int sum, an int column divided by 7, an int sum, a long sum) are each emitted under the three
+   lane configurations and admitted to a registry seeded with that configuration's one-lane int
+   and long kernels, and the rule at the defaults must select exactly the ones some configuration
+   refuses. It passed on the laptop (512-bit vectors, 20 November 2026, 7 of 7 in the suite), so the
+   rule and the registry agree on each kernel. That run did not pin which way: the widened sum is
+   pinned as selected by the test before it, and the expected selection of each kernel (the two
+   two-lane ones selected, the one-lane ones not) was added to the test after the run and is
+   owed its rerun. The emitter's only fetch of a `LongVector` species in an int-driven kernel is
+   the multiply-high division (`VarkaDivisionLowering`, a grep of the emitter for `LONG_VECTOR`
+   species fetches), so the 64-bit overflow check 2.1 also named has no second species.
+4. **(c)** `VarkaMatrixRuns.Kind.DRAWS` (`draws`), legal only on the tests
+   `VarkaMatrixRuns.SEEDED_DRAWS` names by the start of their names (the two `VarkaSparkFuzzSuite`
+   compositions tests, and `VarkaCoverageCompositionFuzzSuite`'s three random-draw tests).
+   `expectedFailure` returns it, `around` cancels its failure and returns its pass, the lint
+   accepts the kind and refuses it outside the seeded set (two selftest cases, 72 pass), the
+   matrix report counts it as listed for "fuses nothing" and never as stale, and `skips.tsv`
+   carries the two `checkIntOverflow=false` lines. Its test in `VarkaMatrixSuite`: a `draws`
+   entry's pass passes and its failure is cancelled with the reason, a `fails` entry's pass is
+   still stale, and `isSeeded` holds for the fuzz test only.
+
+### 10.2 Where the plan was wrong
+
+- **0.9 counted seven consumers; master has five.** `dev/varka_ci_ledger.py` holds no kind any
+  more (its report line drops a matrix-report line whenever a bin failed, whatever the cause), and
+  `VarkaTestReach.skips` takes `expectedFailure`'s answer, so a `draws` line makes the test run
+  with no change there. The consumers changed are `VarkaMatrixRuns` (kind, `expectedFailure`,
+  `around`), `VarkaMatrix.Kind`, the lint and the report.
+- **0.11's premise has moved.** `VarkaSuiteExtension.checkShape` now holds a dynamic test in an
+  `ownJvm` class (`VarkaSuiteHarnessSuite`'s "a dynamic test is held, in an ownJvm class too"), so
+  a test per form would be available. Plain tests stand for 2.4's other reason, row 508's test
+  selection keying on a test.
+- **2.1's expected disagreement may not exist.** The plan expected an int-driven kernel that
+  widens into the long lane to name both classes without conflicting. The emitter says otherwise
+  for one such kernel: the multiply-high division of an int column (`mulHiDivide`, on by default)
+  widens each int half into `LongVector` at the int species' own bit width
+  (`VarkaDivisionLowering.Divider.of`, `emitMulHiDivide`), which under `lanesOverride=4` is
+  `SPECIES_128` where the long kernels establish `SPECIES_256`. The probe test in 10.1 item 3
+  found the rule and the registry agreeing on it, and the bytes at the defaults name two lane
+  counts, so both select it. That leaves a question the census answers:
+  shared-JVM suites that load such a division beside a long kernel should already fail the
+  matrix's lane configurations, and the record of the last matrix runs does not say they do. The
+  suites outside `ownJvm` whose sources build a `ConstDivide`, `WidenLane` or `NarrowLane` by
+  name (whether they load it is the gate's question; a suite that compiles SQL to such a kernel,
+  as the compiler and coverage suites do, is not found by the grep, so the list is a floor):
+  `VarkaTwoLaneConditionSuite`, `VarkaReproductionSuite`, `VarkaDivisorProofSuite`,
+  `VarkaTimestampNtzArithmeticSuite`,
+  `VarkaLaneTypeSuite`, `VarkaExpressionCompilerSuite`, `VarkaEmittedBytesSuite`,
+  `VarkaCoverageSuite`, `VarkaEmitterFramesSuite`, `VarkaWithChildrenSuite`,
+  `VarkaRangeAnalysisSuite`.
+
+### 10.2a The gate at the defaults, partly taken (23 November 2026)
+
+Before the pull request, the suites the new check may reach were run at the defaults in one shared
+JVM on the laptop (512-bit vectors), on the branch merged with master at `f3b97c0b503`: the eleven
+of 10.2's floor list, with `VarkaSpeciesGuardSuite`, `VarkaSuiteHarnessSuite` and
+`VarkaMatrixSuite`, in one `build/sbt 'catalyst/testOnly ...'`. 350 passed, 3 cancelled, and one
+failed, `VarkaEmittedBytesSuite`'s pin of `emitted_bytes.json`, whose option-arm entries the merge
+left owed (the regeneration rewrites them). No class met the new lane-count refusal: the log holds
+no "lanes of two widths" message. So the check fails none of the suites a grep finds loading a
+division, a widening or a narrowing in the shared JVM, and it is kept failing, not report-only. A
+lane count is proportional to the bit width, so a 256-bit runner selects the same classes.
+
+The same day, the wider run: every catalyst Varka suite that runs in the shared JVM (83, none
+`ownJvm` or `VarkaOwnJvm`) with the fourteen conformance suites, at the defaults, in one
+`build/sbt 'catalyst/testOnly ...'` of 28 minutes: 973 tests, 972 passed, 184 cancelled, the same
+one failure (`VarkaEmittedBytesSuite`'s owed option arms), and no lane-count refusal. Item 2 below
+is met at the defaults.
+
+### 10.3 Owed before the row closes
+
+1. **(a)'s census (step 1)**: the catalyst suites in the shared JVM with
+   `-Dvarka.speciesGuard=report -Dvarka.speciesGuard.report=<file>` at the defaults (the `lanes`
+   lines: the predicate's set) and under `lanesOverride=4`, `lanesOverride=16` and
+   `narrowHalfSpecies=true` (the conflict lines: the matrix's set). Prediction 1 is scored there.
+   If the sets differ, the predicate becomes 2.1's re-emission under each configuration. If the gate
+   (item 2) finds the new check failing many suites that the matrix passes, the check becomes
+   report-only until the census is read, rather than the Build failing on it.
+2. **(a)'s gate at the defaults**: the catalyst Varka suites, to find a shared-JVM suite the new
+   check fails that the matrix has not; each takes the annotation or, if it pins the defaults, the
+   exemption 2.1 describes.
+3. **(b)** `VarkaCoverageDifferentialSuite` at the defaults (prediction 2).
+4. **(c)** the option matrix's `checkIntOverflow=false` configuration on the branch, and
+   `VarkaMatrixSuite`.
+5. **(d)** `VarkaSuiteHarnessSuite` and the fourteen conformance suites (prediction 3: the count
+   rises by twelve a suite, the time does not move).
+6. The PR build and the option matrix on the branch (section 9).
+
+## Decisions taken while the owner was away (20 November 2026)
+
+- **(a)'s predicate before its census.** The window allowed no broad run, so the predicate is the
+  plan's rule, stated as lane counts: a class whose drive-lane species differ in lane count. Lane
+  counts rather than element widths because the emitter picks every species of a kernel at a lane
+  count proportional to its drive's (`Lane.speciesField`, `VarkaKernelPlan.lanesOf`) and a lane
+  configuration establishes each drive lane's species at its own lane count, so the classes that
+  conflict there are exactly the ones whose counts differ at the defaults; the two readings agree
+  at one bit width. The byte and short classes are left out: no kernel is driven at them, and every
+  narrow load takes its species from the int lane count by one rule. Report mode lists the
+  predicate's set beside the conflicts, so the census is one run per configuration.
+- **The check runs in every configuration, not only the defaults.** Under a lane configuration a
+  class it selects also conflicts with the registry, so failing it first changes the message, not
+  the verdict, and names the fix.
+- **(d)'s test reads a real suite, not a planted subclass.**
+  `VarkaYearMonthIntervalConformanceSuite`
+  holds one fused cast (`INT`), one owed (`BIGINT`, rows 103 and 332) and one absent (`DATE`) and
+  runs in the shared JVM, so the Launcher runs three of its tests directly; a planted subclass
+  would repeat its type for the same registers. When a row fuses the cast to `BIGINT`, the test
+  names it and takes another owed pair.
+- **(d) checks its target list on every cast test** rather than in a test of its own, so the
+  conformance suites' counts rise by twelve, as prediction 3 says, and a census type with no test
+  fails the suite that would run it.
+- **(c)'s seeded set names tests by the start of their names**, since the two fuzz tests' names
+  carry the seed and the count, which properties change.
+- **(b)'s check asks the row engine** (the plain session over the cached fixtures) rather than
+  reusing the consumers' answers, which are computed per fixture inside helpers that return
+  nothing; it costs one small query a fixture for each session-run predicate row.

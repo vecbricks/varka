@@ -22,10 +22,11 @@
 A configuration fails when its runner JVM exits non-zero (a failed test or an aborted suite),
 or when a test that fused under the defaults fuses nothing under it and the skip list has no
 "declines" line for it - the row path answered alone, so the test passed without testing the
-configuration. A "declines" line whose test fuses is stale and fails too. Exit status 1 when
-anything failed. The `atdef` column counts the tests a configuration left to the defaults' run
-because the Build's record says it changes nothing they compile or emit (VarkaTestReach): they
-pass unrun, record no fused count, and are not in `ok`.
+configuration (a "fails" or "draws" line counts as one too). A "declines" line whose test fuses
+is stale and fails too; a "draws" line is never stale, the test JVM letting its pass pass. Exit
+status 1 when anything failed. The `atdef` column counts the tests a configuration left to the
+defaults' run because the Build's record says it changes nothing they compile or emit
+(VarkaTestReach): they pass unrun, record no fused count, and are not in `ok`.
 """
 
 import re
@@ -140,8 +141,11 @@ def main(runs, skips_path):
         if name != "defaults":
             mine = fused(d)
             for key, n in base.items():
-                # A test listed as failing under this configuration says nothing by fusing.
-                listed = any((kind, name, *key) in marked for kind in ("declines", "fails"))
+                # A test listed as failing under this configuration, or as failing on some of
+                # its seed's draws, says nothing by fusing.
+                listed = any(
+                    (kind, name, *key) in marked for kind in ("declines", "fails", "draws")
+                )
                 if n > 0 and mine.get(key) == 0 and not listed:
                     unfused.append(key)
             for kind, config, suite, test in marked:
