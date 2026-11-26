@@ -109,6 +109,24 @@ class VarkaSpeciesGuardSuite extends VarkaEmitterTestBase {
     VarkaSpeciesGuard.check(oneName, one, "off", new VarkaSpeciesGuard.Registry)
   }
 
+  test("the lane-count rule is off under a configuration that changes the division's form",
+      VarkaMatrix.PinsDefaults) {
+    // There an int division runs through double lanes, so every such kernel holds two lane
+    // counts; the matrix changes one option a JVM, so it never meets a lane configuration.
+    assert(VarkaSpeciesGuard.lanesTrapApplies(""))
+    assert(VarkaSpeciesGuard.lanesTrapApplies("lanesOverride=4"))
+    assert(!VarkaSpeciesGuard.lanesTrapApplies("division=DOUBLE_RECIP"))
+    assert(!VarkaSpeciesGuard.lanesTrapApplies("division=DOUBLE_DIV"))
+    assert(!VarkaSpeciesGuard.lanesTrapApplies("groupLocalSlots=false, division=DOUBLE_DIV"))
+    val sum = new VarkaVectorIR.IntArith(
+      VarkaVectorIR.IntOp.ADD, VarkaVectorIR.Overflow.WRAP, new ColumnRef(0), new LiteralSlot(0))
+    val (mixedName, mixed) = emit(new VarkaVectorIR.WidenLane(sum), 1)
+    VarkaSpeciesGuard.check(mixedName, mixed, "fail", new VarkaSpeciesGuard.Registry, false)
+    intercept[IllegalStateException] {
+      VarkaSpeciesGuard.check(mixedName, mixed, "fail", new VarkaSpeciesGuard.Registry, true)
+    }
+  }
+
   test("the lane-count rule at the defaults selects the kernels a lane configuration refuses",
       VarkaMatrix.PinsDefaults) {
     // Bytes only: each kernel is emitted under each lane configuration and admitted to a registry

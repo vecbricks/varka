@@ -271,7 +271,26 @@ public final class VarkaSpeciesGuard {
    * appends the classes that name a non-preferred species to the report file instead.
    */
   public static void check(String className, byte[] bytes) {
-    check(className, bytes, ownJvm() ? "off" : mode(), SHARED);
+    check(className, bytes, ownJvm() ? "off" : mode(), SHARED,
+        lanesTrapApplies(VarkaMatrixRuns.CONFIG));
+  }
+
+  /**
+   * Whether the lane-count rule of {@link #mixedLaneCounts} holds under the option matrix's
+   * configuration {@code config}. It does not under one that changes the division's form: there
+   * an int division runs through double lanes ({@code division=DOUBLE_RECIP},
+   * {@code division=DOUBLE_DIV}), so every such kernel holds int lanes and half as many double
+   * lanes, in every emitter suite. The rule guards against a lane configuration, and the matrix
+   * changes one option a JVM, so a kernel of a division configuration never meets one; the same
+   * suites run the rule under the defaults.
+   */
+  static boolean lanesTrapApplies(String config) {
+    for (String pair : config.split(",")) {
+      if (pair.trim().startsWith("division=")) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -282,10 +301,16 @@ public final class VarkaSpeciesGuard {
    * {@code report} mode it is a line of its own, {@code lanes} in the third field.
    */
   static void check(String className, byte[] bytes, String mode, Registry registry) {
+    check(className, bytes, mode, registry, true);
+  }
+
+  /** {@link #check} with the lane-count rule on or off; see {@link #lanesTrapApplies}. */
+  static void check(String className, byte[] bytes, String mode, Registry registry,
+      boolean lanesTrap) {
     if (mode.equals("off")) {
       return;
     }
-    List<String> mixed = mixedLaneCounts(bytes);
+    List<String> mixed = lanesTrap ? mixedLaneCounts(bytes) : List.of();
     if (mode.equals("report")) {
       List<String> second = secondSpecies(bytes);
       if (!second.isEmpty()) {
