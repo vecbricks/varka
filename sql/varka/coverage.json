@@ -6195,8 +6195,8 @@
     "note" : "",
     "verified" : "differential"
   }, {
-    "sql" : "ntz BETWEEN ntz2 AND TIMESTAMP_NTZ '2000-01-01 00:00:00'",
-    "executable" : "ntz BETWEEN ntz2 AND TIMESTAMP_NTZ '2000-01-01 00:00:00'",
+    "sql" : "ntz BETWEEN ntz2 AND TIMESTAMP_NTZ '2100-01-01 00:00:00'",
+    "executable" : "ntz BETWEEN ntz2 AND TIMESTAMP_NTZ '2100-01-01 00:00:00'",
     "family" : "Null family predicates on TIMESTAMP_NTZ columns",
     "form" : "predicate",
     "catalyst" : [ "And", "Between", "GreaterThanOrEqual", "LessThanOrEqual" ],

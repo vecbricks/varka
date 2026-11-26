@@ -1298,7 +1298,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("nullif(ntz, ntz2)", "the long lane's null: the NTZ is its microseconds"),
       Row("CASE WHEN ntz < ntz2 THEN ntz END"))),
     Family("Null family predicates on TIMESTAMP_NTZ columns", predicates = true, Seq(
-      Row("ntz BETWEEN ntz2 AND TIMESTAMP_NTZ '2000-01-01 00:00:00'"),
+      Row("ntz BETWEEN ntz2 AND TIMESTAMP_NTZ '2100-01-01 00:00:00'"),
       Row("equal_null(ntz, ntz2)"))),
     // The function form of null-safe equality over the types whose operator form is covered
     // above, so that every non-decimal type has a row under its census entry.

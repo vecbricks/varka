@@ -136,6 +136,25 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
   }
 
   /**
+   * A predicate row this suite runs through a session must select a row of some fixture. The
+   * in-memory scan prunes a batch whose column statistics rule the predicate out, so at one row
+   * a batch (`arrowBatchSize=1`) a literal no fixture row holds leaves no batch for the kernel:
+   * the row fuses nothing under that configuration while every answer agrees, and only the
+   * option matrix's "fuses nothing" report shows it. This fails it at the defaults instead. The
+   * row engine's answer decides: pruning drops only batches that select nothing.
+   */
+  private def checkSelectsARow(row: CoverageRow): Unit = {
+    if (row.form == "predicate") {
+      val selected = fixtures.exists { case (fixture, _) =>
+        !spark.sql(queryFor(row, fixture)).isEmpty
+      }
+      assert(selected, s"${row.family}: ${row.sql} selects no row of any fixture: at one row a " +
+        "batch the cache prunes every batch and no kernel runs; name a value a fixture row " +
+        "holds")
+    }
+  }
+
+  /**
    * The columnar consumer: a cached view over the query, which the Arrow cache builder feeds
    * from the columnar Varka node rather than through rows.
    */
@@ -207,8 +226,21 @@ class VarkaCoverageDifferentialSuite extends QueryTest with VarkaMaybeThrows
           checkRowConsumer(row, fixture)
           checkColumnarConsumer(row, fixture)
         }
+        checkSelectsARow(row)
       }
     }
+  }
+
+  // varka-session-lint: allow the check of a session-run row is the row engine's answer over
+  // the cached fixtures
+  test("a session-run predicate row that selects no fixture row fails, naming the cause") {
+    def planted(literal: String): CoverageRow =
+      CoverageRow(s"ntz = $literal", s"ntz = $literal", "a planted family", "predicate")
+    val unheld = intercept[TestFailedException] {
+      checkSelectsARow(planted("TIMESTAMP_NTZ '1888-08-08 08:08:08'"))
+    }
+    assert(unheld.getMessage.contains("selects no row of any fixture"), unheld.getMessage)
+    checkSelectsARow(planted("TIMESTAMP_NTZ '2021-06-01 12:00:00'"))
   }
 
   /** A reference to a floating column of the fixtures: `x`, `x2`, `f`, `f2`, `xrid`, `frid`. */

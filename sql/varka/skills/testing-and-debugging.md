@@ -772,7 +772,12 @@ to a vector class; it compares with the sizes already used and not with the pref
 option matrix's `lanesOverride=4` configuration (every kernel at 128 bits) is consistent. Two modes
 of the guard: `-Dvarka.speciesGuard=report -Dvarka.speciesGuard.report=<file>` appends every class
 that names a non-preferred species (suite, class, species) and lets the test run, which is how to
-take a census; `-Dvarka.speciesGuard=off` disables it.
+take a census; `-Dvarka.speciesGuard=off` disables it. Failing, it also refuses a class
+whose drive-lane species differ in lane count (a long kernel holding int values in the int species
+of its width): each is the preferred species there, but a lane configuration puts a second one
+beside the established width, so the guard names the fix, `@VarkaSuite(ownJvm = true)` or
+`VarkaOwnJvm`, in the pull request instead of the option matrix hours later (VARKA-499); report
+mode writes such a class as a line with `lanes` in its third field.
 
 A suite that must run at another width mixes in `VarkaOwnJvm`, last. In a shared JVM its tests keep
 their names and tags, and the first to run starts a child JVM running the suite and reading its
@@ -841,7 +846,11 @@ itself builds first, so it needs the lock and a minute). A premise of the test t
 changes is either pinned, to `VarkaEmitOptions.DEFAULTS` or to the value it needs, with the
 reason beside it (a prefix stored across groups needs `materializeChronoPrefix` too, a checked
 add that nulls a valid input needs `checkIntOverflow` on) or listed in `sql/varka/matrix/skips.tsv`; a line there that starts
-to pass is reported stale and must go.
+to pass is reported stale and must go. The exception is a test whose cases a seed draws from the
+coverage table (`VarkaMatrixRuns.SEEDED_DRAWS`): a row the table gains moves which draw meets what
+a configuration breaks, so a `fails` line on it went stale three times in three days (VARKA-499);
+such a test takes a `draws` line, which cancels a failure and lets a pass pass, and the lint
+refuses that kind on any other test.
 A suite that emits a whole corpus under a configuration may see the emitter decline a shape
 (`VarkaEmitDeclined`, which `shareChronoPrefix=false` does for the widest shapes: each node
 decomposes its own date and the method outgrows the byte budget); catch it for that option only,

@@ -137,6 +137,24 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     run("groupBudget=8")(())
   }
 
+  test("a draws entry cancels a failure and lets a pass pass, where a fails entry goes stale") {
+    val test = "random compositions agree with the row engine (seed 1, 2 of them)"
+    def run(kind: Kind)(body: => Unit): Unit =
+      VarkaMatrix.around(Seq(Skip("cse=false", "S", "t", kind, "a drawn overflow wraps")),
+        "cse=false", None, "S", "t")(body)
+
+    run(Kind.DRAWS)(())
+    val cancelled = intercept[TestCanceledException](run(Kind.DRAWS)(throw new AssertionError))
+    assert(cancelled.getMessage.contains("a drawn overflow wraps"))
+    val stale = intercept[TestFailedException](run(Kind.FAILS)(()))
+    assert(stale.getMessage.contains("stale entry"))
+    assert(VarkaMatrix.parseSkips("c\tS\tt\tdraws\tr\n").head.kind === Kind.DRAWS)
+    // The kind is for the tests that draw from a seed, which the lint holds a line to.
+    assert(VarkaMatrixRuns.isSeeded("VarkaSparkFuzzSuite", test))
+    assert(!VarkaMatrixRuns.isSeeded("VarkaSparkFuzzSuite", "a reproducer parses back"))
+    assert(!VarkaMatrixRuns.isSeeded("VarkaMatrixSuite", test))
+  }
+
   test("a test listed under the JVM's platform is expected to fail there (VARKA-505)") {
     val entries = Seq(Skip("isa=w128", "S", "t", Kind.FAILS, "no byte load"))
     // A platform JVM is a defaults JVM (empty configuration) that names its platform.

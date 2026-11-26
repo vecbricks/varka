@@ -67,10 +67,10 @@ import org.apache.spark.sql.types.DecimalType;
 
 /**
  * The conformance contract a type is held to (VARKA-484, `VARKA-475.md` 3.1): seven checks -
- * load, round trip, null handling, SQL ordering, choice, the type's row of the cast matrix and
- * overflow in LEGACY, ANSI and TRY - each over fixtures generated from the type's values rather
- * than written per suite. A suite per type supplies the type and carries {@code @VarkaSuite};
- * the checks are inherited.
+ * load, round trip, null handling, SQL ordering, choice, the type's row of the cast matrix (one
+ * test per target type) and overflow in LEGACY, ANSI and TRY - each over fixtures generated from
+ * the type's values rather than written per suite. A suite per type supplies the type and
+ * carries {@code @VarkaSuite}; the checks are inherited.
  *
  * <p>Each check compiles Catalyst expressions over two columns of the type, {@code x} and
  * {@code y}, through {@link VarkaExpressionCompiler}, and runs the emitted class over every pair
@@ -353,26 +353,123 @@ public abstract class VarkaTypeConformance {
     }
   }
 
+  // The type's row of the cast matrix is one test per census type as a target, so that a cast
+  // the registers owe cancels its own test and a cast that ran reports its own verdict. Every
+  // test checks that the targets here are the registry's census types, so a type the registry
+  // gains fails every suite until it has its test below.
+
   @Test
-  @DisplayName("the type's row of the cast matrix, in LEGACY, ANSI and TRY")
-  void castRow() {
+  @DisplayName("the cast to BIGINT, in LEGACY, ANSI and TRY")
+  void castToBigint() {
+    castTo("bigint");
+  }
+
+  @Test
+  @DisplayName("the cast to BOOLEAN, in LEGACY, ANSI and TRY")
+  void castToBoolean() {
+    castTo("bool");
+  }
+
+  @Test
+  @DisplayName("the cast to TINYINT, in LEGACY, ANSI and TRY")
+  void castToTinyint() {
+    castTo("byte");
+  }
+
+  @Test
+  @DisplayName("the cast to DATE, in LEGACY, ANSI and TRY")
+  void castToDate() {
+    castTo("date");
+  }
+
+  @Test
+  @DisplayName("the cast to DECIMAL, in LEGACY, ANSI and TRY")
+  void castToDecimal() {
+    castTo("dec");
+  }
+
+  @Test
+  @DisplayName("the cast to DOUBLE, in LEGACY, ANSI and TRY")
+  void castToDouble() {
+    castTo("double");
+  }
+
+  @Test
+  @DisplayName("the cast to INTERVAL DAY, in LEGACY, ANSI and TRY")
+  void castToDayTimeInterval() {
+    castTo("dt");
+  }
+
+  @Test
+  @DisplayName("the cast to FLOAT, in LEGACY, ANSI and TRY")
+  void castToFloat() {
+    castTo("float");
+  }
+
+  @Test
+  @DisplayName("the cast to INT, in LEGACY, ANSI and TRY")
+  void castToInt() {
+    castTo("int");
+  }
+
+  @Test
+  @DisplayName("the cast to TIMESTAMP_NTZ, in LEGACY, ANSI and TRY")
+  void castToTimestampNtz() {
+    castTo("ntz");
+  }
+
+  @Test
+  @DisplayName("the cast to SMALLINT, in LEGACY, ANSI and TRY")
+  void castToSmallint() {
+    castTo("short");
+  }
+
+  @Test
+  @DisplayName("the cast to TIME, in LEGACY, ANSI and TRY")
+  void castToTime() {
+    castTo("time");
+  }
+
+  @Test
+  @DisplayName("the cast to INTERVAL MONTH, in LEGACY, ANSI and TRY")
+  void castToYearMonthInterval() {
+    castTo("ym");
+  }
+
+  /** The census types the cast tests above are named for, one test each. */
+  private static final List<String> CAST_TESTS = List.of(
+      "bigint", "bool", "byte", "date", "dec", "double", "dt", "float", "int", "ntz", "short",
+      "time", "ym");
+
+  /**
+   * The forms of the type's casts to the census type {@code to}, in every mode Spark's analyzer
+   * accepts: each fused form is held to the answers, and the test is cancelled when an owed one
+   * is left or when the type has no cast to {@code to} (its identity cast, which the analyzer
+   * removes, or a pair {@code casts.tsv} lacks).
+   */
+  private void castTo(String to) {
+    assertEquals(CAST_TARGETS.keySet(), Set.copyOf(CAST_TESTS), "the cast tests are one per "
+        + "census type: add a test for each census type the registry names");
+    List<CastPair> row = Registers.casts(type().census());
+    assertTrue(!row.isEmpty(), "casts.tsv has no row from " + type().census());
+    Optional<CastPair> pair = row.stream().filter(p -> p.to().equals(to)).findFirst();
+    assumeTrue(pair.isPresent(), "casts.tsv has no cast from " + type().census() + " to " + to
+        + (to.equals(type().census()) ? ": the identity cast, which the analyzer removes" : ""));
+    String target = CAST_TARGETS.get(to);
+    boolean toBoolean = to.equals("bool");
     var forms = new ArrayList<Form>();
-    for (CastPair pair : Registers.casts(type().census())) {
-      String target = CAST_TARGETS.get(pair.to());
-      boolean toBoolean = pair.to().equals("bool");
-      for (Mode mode : Mode.values()) {
-        // A cast Spark's analyzer rejects in a mode (DATE to a number under ANSI) has no form
-        // there to fuse or decline.
-        if (Registers.illegal(type().spark(), DataType.fromDDL(target), mode)) {
-          continue;
-        }
-        String sql = (mode == Mode.TRY ? "try_cast" : "CAST") + "(x AS " + target + ")";
-        Form f = new Form(sql, toBoolean ? Kind.CONDITION : Kind.VALUE,
-            "cast:" + pair.to(), mode, false).over(castValues(pair.to()));
-        forms.add(f);
+    for (Mode mode : Mode.values()) {
+      // A cast Spark's analyzer rejects in a mode (DATE to a number under ANSI) has no form
+      // there to fuse or decline.
+      if (Registers.illegal(type().spark(), DataType.fromDDL(target), mode)) {
+        continue;
       }
+      String sql = (mode == Mode.TRY ? "try_cast" : "CAST") + "(x AS " + target + ")";
+      forms.add(new Form(sql, toBoolean ? Kind.CONDITION : Kind.VALUE, "cast:" + to, mode,
+          false).over(castValues(to)));
     }
-    assertTrue(!forms.isEmpty(), "casts.tsv has no row from " + type().census());
+    assumeTrue(!forms.isEmpty(), "Spark's analyzer rejects the cast from " + type().census()
+        + " to " + to + " in every mode");
     run(forms);
   }
 

@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -359,10 +360,19 @@ public final class VarkaMatrixRuns {
   // The skip list
   // ---------------------------------------------------------------------------------------------
 
-  /** What a configuration is expected to do to a test: fail it, or leave it fusing nothing. */
+  /**
+   * What a configuration is expected to do to a test: fail it, leave it fusing nothing, or fail
+   * it on some draws of a seed. A {@code fails} line whose test passes is stale and fails it; a
+   * {@code draws} line cancels a failure and lets a pass pass, so it never goes stale. That is
+   * for a test whose cases follow a seed's draws from the coverage table, where a row the table
+   * gains moves which draw meets what the configuration breaks, so the test fails on one table
+   * and passes on the next; {@link #SEEDED_DRAWS} names the tests, and the lint refuses the kind
+   * on any other.
+   */
   public enum Kind {
     FAILS("fails"),
-    DECLINES("declines");
+    DECLINES("declines"),
+    DRAWS("draws");
 
     /** The word the skip list uses. */
     public final String word;
@@ -389,6 +399,25 @@ public final class VarkaMatrixRuns {
 
   /** One line of the skip list: a test a configuration is expected to break, and why. */
   public record Skip(String config, String suite, String test, Kind kind, String reason) {}
+
+  // varka-lint: seeded-draws-begin
+  /**
+   * The tests whose cases are drawn from the coverage table by a seed, by suite, each named by
+   * the start of its name (the seed and the count follow it): the only tests a {@code draws}
+   * line may name. {@code dev/varka_lint.py} reads this block.
+   */
+  public static final Map<String, List<String>> SEEDED_DRAWS = Map.of(
+      "VarkaSparkFuzzSuite", List.of("random compositions agree with the row engine"),
+      "VarkaCoverageCompositionFuzzSuite", List.of(
+          "random projections of coverage rows are fused or declined in bytes",
+          "random conjunctions of coverage predicates are fused or declined in bytes",
+          "random projections over more columns than a kernel reads are fused or declined"));
+  // varka-lint: seeded-draws-end
+
+  /** Whether {@code test} of {@code suite} draws its cases from a seed ({@link #SEEDED_DRAWS}). */
+  public static boolean isSeeded(String suite, String test) {
+    return SEEDED_DRAWS.getOrDefault(suite, List.of()).stream().anyMatch(test::startsWith);
+  }
 
   /** The committed skip list, relative to {@code spark.test.home}. */
   public static final String SKIPS_PATH = "sql/varka/matrix/skips.tsv";
@@ -439,7 +468,10 @@ public final class VarkaMatrixRuns {
     return list;
   }
 
-  /** The {@code fails} entry for this test under {@code config}, if the skip list has one. */
+  /**
+   * The {@code fails} or {@code draws} entry for this test under {@code config}, if the skip list
+   * has one.
+   */
   public static Optional<Skip> expectedFailure(List<Skip> entries, String config, String suite,
       String test) {
     return expectedFailure(entries, config, "", suite, test);
@@ -452,7 +484,7 @@ public final class VarkaMatrixRuns {
   public static Optional<Skip> expectedFailure(List<Skip> entries, String config, String platform,
       String suite, String test) {
     return entries.stream()
-        .filter(s -> s.kind() == Kind.FAILS
+        .filter(s -> (s.kind() == Kind.FAILS || s.kind() == Kind.DRAWS)
             && (s.config().equals(config) || (!platform.isEmpty() && s.config().equals(platform)))
             && s.suite().equals(suite) && s.test().equals(test))
         .findFirst();
@@ -498,7 +530,8 @@ public final class VarkaMatrixRuns {
   /**
    * Runs one test under the matrix. A test the skip list expects to fail under this JVM's
    * configuration is cancelled with the entry's reason when it fails, and fails as a stale entry
-   * when it passes. Every test's fused-batch count goes to the report file when one is named.
+   * when it passes, unless the entry is a {@code draws} one, which lets a pass pass. Every test's
+   * fused-batch count goes to the report file when one is named.
    */
   public static <T> T around(String suite, String test, Outcomes outcomes, Body<T> body)
       throws Throwable {
@@ -524,8 +557,9 @@ public final class VarkaMatrixRuns {
       }
       Skip skip = expected.get();
       Throwable failure = null;
+      T result = null;
       try {
-        body.run();
+        result = body.run();
       } catch (Throwable t) {
         if (outcomes.cancelled().isInstance(t)) {
           throw t;
@@ -535,6 +569,10 @@ public final class VarkaMatrixRuns {
       if (failure != null) {
         throw outcomes.cancel().apply("expected to fail under " + skip.config() + ": "
             + skip.reason() + " (" + failure.getClass().getSimpleName() + ")");
+      }
+      if (skip.kind() == Kind.DRAWS) {
+        // This seed's draws met nothing the configuration breaks; the next table's may.
+        return result;
       }
       throw outcomes.fail().apply("stale entry in " + SKIPS_PATH + ": '" + test + "' of " + suite
           + " passes under " + skip.config() + "; remove the line");
