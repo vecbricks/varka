@@ -18,7 +18,7 @@ and `VARKA-30.md`. Nothing was dispatched and nothing was measured for this row.
    and `Pmod` call `adjustPrecisionScale`, but the raw precision
    `min(p1 - s1, p2 - s2) + max(s1, s2)` never passes 38, so 363's `HALF_UP` division by a power
    of ten does not serve them. `VARKA-363.md` 8, point 1, asks the owner whether the general
-   division they need is a milestone 8 row or `m9/SCOPE.md` scope. This row is the answer: a
+   division they need is a milestone 8 row or `m10/SCOPE.md` scope. This row is the answer: a
    milestone 8 row.
 3. **Decimal division stays out.** `PLAN.md` 8 puts decimal `/`, `try_divide` and `div` out of
    milestone 8 (owner's decision, 14 October 2026). A remainder is not named there, and this row

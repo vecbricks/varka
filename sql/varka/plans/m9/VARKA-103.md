@@ -1,5 +1,9 @@
 # VARKA-103: Day-time interval arithmetic, products, quotients, extracts and `make_dt_interval`
 
+*Moved to milestone 9 on 25 November 2026 with row 103 (`m9/PLAN.md` 3). A bare `PLAN.md`,
+`results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`, unless that plan
+moved too.*
+
 ## 0. What exists now (admission check)
 
 From master at `5cdb032b9ef` (30 October 2026). Varka paths are under
@@ -783,7 +787,7 @@ The edits this plan needs outside row 103's line, none made here:
    G1's own 30 makes 103d the wave's last step.
 2. **Row 351's text** (settlement 3): drop `extract(SECOND FROM dt)` and "`make_dt_interval` ...
    over decimal seconds" from its list, `make_time` and `make_timestamp_ntz` staying.
-3. **A `TryEval` item in `m9/SCOPE.md`**, the next free number (125 on master today), general rather
+3. **A `TryEval` item in `m10/SCOPE.md`**, the next free number (125 on master today), general rather
    than interval work: "`TryEval` over a fused subtree. Every `try_` function whose operand is not
    one of the arithmetic forms Spark rewrites into a `NULL`-returning node becomes `TryEval(child)`
    (`expressions/TryEval.scala:90-97`, `:135-141`, `:229-235`, `:268-274`), which turns any
@@ -795,7 +799,7 @@ The edits this plan needs outside row 103's line, none made here:
    mode and the subtree's null mask absorbs them; a subtree with a conservative guard or a site no
    guard covers declines. **Done when** the rule is built over 481's mode, each `try_` entry over an
    interval fuses with a coverage row, and a subtree with an inexact guard is shown to decline."
-4. **A follow-up for `d + dt`** over a stored `INTERVAL DAY` column (2.3): (a) an `m9/SCOPE.md`
+4. **A follow-up for `d + dt`** over a stored `INTERVAL DAY` column (2.3): (a) an `m10/SCOPE.md`
    item, the number after (3)'s: "the date arm reads a stored `INTERVAL DAY` column as its day
    offset: row 103's day quotient, narrowed to an int under the date arm's day guard
    (`VarkaChronoCompiler.java:527`'s decline today)"; (b) a new milestone 8 row after 103a. The
@@ -804,7 +808,7 @@ The edits this plan needs outside row 103's line, none made here:
 5. **The census entries** (`census_curated.txt`, then the script):
    - `try_add` and `try_subtract` (lines 110 and 113): rows `330,104,103,342,349,360` become
      `330,104,342,349,360`; the note "overflow gives null" gains "; over ym and dt it is
-     `TryEval`, which no row builds (`m9/SCOPE.md` item 125)", or the number (3) takes.
+     `TryEval`, which no row builds (`m10/SCOPE.md` item 125)", or the number (3) takes.
    - `ym_times_num` (line 197): rows unchanged; the note gains "; an integral literal factor
      over a stored column is row 103's guard (103a)". Its integral column factor still declines
      (item 9) and its decimal literal factor is not in settlement 7: see point 7 below.
@@ -835,7 +839,7 @@ Decisions that the settlements do not reach:
    plan gave them, "the same above 18" (`VARKA-364.md` 0, item 20), so by settlement 5 they are
    this row's too; 103c declines them for want of 359's lane pair. (a) A later step of this row,
    after 359 and 364's rescale, sized then. (b) Declined naming this row with no step planned, an
-   `m9/SCOPE.md` item holding the work.
+   `m10/SCOPE.md` item holding the work.
 10. **The size.** The settlements add the casts, the decimal literal and `ym * k`: about eight to
     nine days in five pull requests against the first plan's five and a half in four. (a) Medium
     stands. (b) Large, the size column of row 103 changed with this plan.

@@ -4,7 +4,7 @@
 
 From the code at `0ee770cc633` (26 October 2026; paths under
 `sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/` unless named). The
-row's text is the milestone plan's 2.7 and items 35 and 89 of `m9/SCOPE.md`; what the code says
+row's text is the milestone plan's 2.7 and items 35 and 89 of `m10/SCOPE.md`; what the code says
 about each premise is below, with the file and line it rests on.
 
 1. **The registry owes both types.** `varka/VarkaTypes.java` gives `FLOAT` and `DOUBLE` the

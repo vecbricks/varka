@@ -1,5 +1,9 @@
 # VARKA-351: Decimals in the existing types' functions, and the rounding functions
 
+*Moved to milestone 9 on 25 November 2026 with row 351 (`m9/PLAN.md` 3). A bare `PLAN.md`,
+`results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`, unless that plan
+moved too.*
+
 ## 0. What exists now (admission check)
 
 From master at `9aa6ee74c63`, reworked over `7ebd03ba6e8` (30 October 2026; Varka paths under

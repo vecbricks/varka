@@ -381,7 +381,7 @@ have. The arm case remains the composition fuzzer's.
 
 * **The partitions are cached views, not `WHERE` clauses.** A verdict is per batch, so a batch has
   to lie wholly on one side; a `WHERE` over the same scan computes the guarded expression on the
-  rejected lanes too (`m9/SCOPE.md` item 96), and a domain Varka cannot fuse - `CAST(ym AS
+  rejected lanes too (`m10/SCOPE.md` item 96), and a domain Varka cannot fuse - `CAST(ym AS
   BIGINT)` arithmetic, `2147483647 - year(d)` - would leave the whole projection to Spark. A
   partition Spark materializes once is what TLP cuts anyway.
 * **The status comes off the JFR fallback event, not the metrics.** Outside most domains the row

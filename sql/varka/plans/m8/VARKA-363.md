@@ -518,7 +518,7 @@ G3's row; the interval quotients by a decimal are claimed here, as row 349's pla
    suggests row 30; this plan finds they never cut a scale (item 0.5), so this row's division does
    not serve them. A decimal remainder by a column needs a general 128-bit division by a variable,
    which no plan builds; the interval quotients by a decimal (2.5) need the same. Is that division
-   a milestone 8 row, or `m9/SCOPE.md` scope?
+   a milestone 8 row, or `m10/SCOPE.md` scope?
 2. **The setting false also cuts the scale** (item 0.5): the row's "with the setting false, the
    exact type and its overflow" misses the 101270 product pairs with `s1 + s2 > 38` that `bounded`
    rounds to scale 38 (`results/VARKA-363-shapes.txt`). The row text is the owner's; this plan

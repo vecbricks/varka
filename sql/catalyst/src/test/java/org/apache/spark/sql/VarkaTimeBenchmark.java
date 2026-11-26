@@ -53,7 +53,7 @@ import static org.apache.spark.sql.catalyst.util.DateTimeConstants.SECONDS_PER_M
 
 /**
  * What the {@code TIME} extracts cost in the representation Spark stores - nanoseconds of day in a
- * 64-bit lane - against the split representation {@code m9/SCOPE.md} item 11 proposes: seconds of
+ * 64-bit lane - against the split representation {@code m10/SCOPE.md} item 11 proposes: seconds of
  * day in a 32-bit lane, with the nanoseconds within the second beside it.
  *
  * <p>{@code hour}, {@code minute} and {@code second} over a {@code TIME} are constant divisions,

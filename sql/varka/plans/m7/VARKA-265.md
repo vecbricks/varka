@@ -144,7 +144,7 @@ filters methods only by exclusion, so every other method name the classes have i
   sql/core suite's `beforeAll` builds a Spark session, which a test-by-test run would build once a
   test; the coverage run does include sql/core, as VARKA-285's does.
 * A diff-coverage gate on pull requests (Druid's, READING.md 6) and mutation runs on changed lines
-  stay with `m9/SCOPE.md`'s "Mutation runs on each pull request's changed lines".
+  stay with `m10/SCOPE.md`'s "Mutation runs on each pull request's changed lines".
 
 ### 3.4 Registered op counts
 

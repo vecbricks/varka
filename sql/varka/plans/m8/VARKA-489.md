@@ -14,7 +14,7 @@ from one descriptor per IR node") did the whole row over `4e09c1ecfce`: `VarkaNo
 equivalence test over 229417 distinct nodes (run, then deleted) and byte-identical oracles. It
 never became a pull request. It is parked on the owner's fork as `attic/varka-489-descriptor`,
 and its plan file on that branch holds the inventory, the design and the recipe
-for a new node. `m9/SCOPE.md` item 47 (11 November 2026) records why it is not on master: the
+for a new node. `m10/SCOPE.md` item 47 (11 November 2026) records why it is not on master: the
 branch predates #1329's cached hash on every node and the lane pair's nodes, so "finishing the
 row means rebuilding it over master". This plan is that rebuild. It reuses the branch's design
 and text where they still hold, and says below where master has moved.
@@ -110,7 +110,7 @@ The node's behaviour stays exhaustive switches: lane and structure (`laneType`, 
 the calendar family's), the compilers' rewrites, `VarkaRangeAnalysis.range`, `collectRefusals`,
 `Slots.visit`, `narrowValuesIn`, `needsNarrowSpecies`, `longNarrowRole`, `VarkaSameAnswer`'s NaN
 step, and the test harness's evaluators and grammars. Deriving further facts bottom-up from the
-descriptor (a non-canonical NaN, may raise, reads a decimal slot) is `m9/SCOPE.md` item 47, after
+descriptor (a non-canonical NaN, may raise, reads a decimal slot) is `m10/SCOPE.md` item 47, after
 this row; the node meanings row 506 keeps beside `VarkaReference` move into the descriptor in that
 row's own follow-up (`VARKA-506.md` 2.2), not here.
 
@@ -213,7 +213,7 @@ Each takes row 489's status line forward; the row is Done at 489c's merge.
    which only (b) gives. It costs about 600 lines against about 200 and makes 489a the largest
    part. Not mine to decide: it is a code-layout choice the owner reviews in every later node.
 2. **Take the row now, though "before decimal's lane pair (359)" is overtaken?** *Recommended:
-   yes, before rows 360 to 363 add more nodes and before `m9/SCOPE.md` item 47, which depends on
+   yes, before rows 360 to 363 add more nodes and before `m10/SCOPE.md` item 47, which depends on
    it.* Every node added first is one more arm to move. Not mine: the order of m8's rows against
    its type work (row priority is the owner's, the new types first).
 

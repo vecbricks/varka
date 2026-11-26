@@ -3,7 +3,7 @@
 ## 1. Where this came from
 
 Row 83 of `m7/PLAN.md`, scoped in `m5/PLAN.md` 2.14 from VARKA-63's review and moved here as
-`m9/SCOPE.md` item 39. A kernel refuses a batch when some lane holds a value its lowering cannot
+`m10/SCOPE.md` item 39. A kernel refuses a batch when some lane holds a value its lowering cannot
 compute: the lane is ORed into the body's accumulator (`Slots.guardAcc`), and a non-empty
 accumulator returns `STATUS_CHRONO_RANGE`, which sends the batch to the row engine. Each kind of
 refusing node arrived with its own bookkeeping. When 2.14 was written there were four kinds; today

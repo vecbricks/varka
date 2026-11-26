@@ -4,6 +4,8 @@
 `PLAN.md`, `results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`,
 unless that plan moved too (`SCOPE.md` item 138).*
 
+*25 November 2026: the catalogue moved on to milestone 10's folder, and this plan with it.*
+
 *Rows 430 and 437 of `m8/PLAN.md` share this file. Both come from the 21 October 2026 review of
 row 401, both are in `VarkaMemorySanitizer`, and both matter only under
 `-Dvarka.sanitizeMemory=true`. Row 430 is about the check's branch profile. Row 437 is about the
@@ -149,7 +151,7 @@ not build that.
 | `VarkaMemorySanitizer.java` | 1 | the class comment's paragraph |
 | `VarkaSanitizedWarmupSuite.scala` | 1, 2 | the source scan (1), or the inverted control (2) |
 | `dev/varka_matrix.sh`, `varka_emit.sh`, `varka_pit.sh`, `varka_new_tests.py` | 2 | the flag |
-| `sql/varka/plans/m9/VARKA-430.md` | both | the outcome |
+| `sql/varka/plans/m10/VARKA-430.md` | both | the outcome |
 
 One pull request, verified by its PR Build and, for arm 2, an option-matrix dispatch. Size:
 small (arm 1 about half a day, arm 2 about a day).

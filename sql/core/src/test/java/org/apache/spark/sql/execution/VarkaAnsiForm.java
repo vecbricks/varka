@@ -270,7 +270,7 @@ public final class VarkaAnsiForm {
     // the evaluator checks the bound before the kernel runs; the bound belongs to the column,
     // not to the arm reading it, and Int.MaxValue declines the batch wherever the expression sits.
     String columnBound = "the offset column's bound is checked per batch whichever arm reads "
-        + "it, and Int.MaxValue is past it, so the batch declines (m9/SCOPE.md item 96)";
+        + "it, and Int.MaxValue is past it, so the batch declines (m10/SCOPE.md item 96)";
     for (String position : List.of(CASE_ARM, COALESCE_TAIL, FALSE_AND)) {
       out.put("d + CAST(i AS INTERVAL DAY)\t" + position, columnBound);
     }
@@ -278,7 +278,7 @@ public final class VarkaAnsiForm {
     // not by the left side of an AND: the kernel computes the right side on every lane, and the
     // extremes row's lane condemns the batch although rid < 0 already rejected it.
     String unqualified = "a check on the right side of an AND condemns the batch from a lane "
-        + "the left side rejected (m9/SCOPE.md item 96)";
+        + "the left side rejected (m10/SCOPE.md item 96)";
     for (String sql : List.of("make_date(2021, i, 1)", "add_months(d, i)", "d + ym", "d - ym",
         "ym - ymm", "ym + ym", "i + 1", "year(d) + i", "if(i < 0, i, i + 1)", "y1 + y2",
         "y1 - y2", "y1 * y2", "-y1", "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1",

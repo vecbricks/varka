@@ -412,4 +412,4 @@ script in [`sql/varka/plans/figures/`](https://github.com/vecbricks/varka/tree/m
   which names the record behind each chip; the filter-order bug is row 273 of the
   [milestone plan](https://github.com/vecbricks/varka/blob/master/sql/varka/plans/m7/PLAN.md).
 * **Where it stops**: items 56 and 58 of the
-  [later scope](https://github.com/vecbricks/varka/blob/master/sql/varka/plans/m9/SCOPE.md).
+  [later scope](https://github.com/vecbricks/varka/blob/master/sql/varka/plans/m10/SCOPE.md).

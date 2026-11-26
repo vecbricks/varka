@@ -1,6 +1,6 @@
 # Reading: what ISPC's masked control flow offers Varka's `IF` and `CASE`
 
-Read on 3 November 2026 for `m9/SCOPE.md` item 23 (narrowing a `CASE` arm by its cost) and
+Read on 3 November 2026 for `m10/SCOPE.md` item 23 (narrowing a `CASE` arm by its cost) and
 VARKA-25's unroll factor. Sources: Pharr and Mark, "ispc: A SPMD Compiler for High-Performance CPU
 Programming", InPar 2012 (pharr.org/matt/assets/ispc.pdf), sections 3.2-3.3, 5.1, 5.6, 6.1-6.6
 and Table 1; and github.com/ispc/ispc at commit `ded7463f4926` (2 November 2026), BSD-3-Clause
@@ -60,7 +60,7 @@ run, and no code is copied.
    refill thresholds (item 25) alike, and needs no emitter change beyond the counter. Paper
    6.4 gives the scale to expect: 0.85x geometric mean, aobench 0.33x, nothing on incoherent data.
 
-Both are the note on `m9/SCOPE.md` item 23 of 3 November 2026, not a row: milestone 8 is type work.
+Both are the note on `m10/SCOPE.md` item 23 of 3 November 2026, not a row: milestone 8 is type work.
 
 ### (b) Not applicable to a bytecode-over-C2 target
 

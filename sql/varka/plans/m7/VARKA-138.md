@@ -418,7 +418,7 @@ Done on 13 October 2026, as 3.3 and 3.4 describe, in `VarkaCoverageDifferentialS
 with the column of `e`'s type - the CASE reached a kernel for 26 of 65 rows, not the 61 it reaches
 now, for two reasons the probe's date and int fixture did not meet:
 
-1. *Varka compiles no bare int column as a value* (`non-date column of type int`, m9/SCOPE.md item
+1. *Varka compiles no bare int column as a value* (`non-date column of type int`, m10/SCOPE.md item
    55), so `ELSE i` declines every int-valued CASE. The int CASE's other arm is now `year(d2)`, an
    int the kernel computes that cannot raise; the int COALESCE keeps `coalesce(i, e)`, which stays
    on the declined list for the same reason.
@@ -502,12 +502,12 @@ passed every outcome by never running.
 
 **Candidate rows found (138b).**
 
-- **A check or a column bound qualified by the side that reads it** - `m9/SCOPE.md` item 96,
+- **A check or a column bound qualified by the side that reads it** - `m10/SCOPE.md` item 96,
   added: seven rows' checks condemn the batch from the right side of a false AND, which
   `guardUnderArm` qualifies under a CASE arm but not there; and `d + CAST(i AS INTERVAL DAY)`
   declines its batch from every skipped position, because the bound on `i` is checked per batch
   before the kernel, whatever reads `i`.
-- **Int values as CASE and COALESCE operands** - already `m9/SCOPE.md` item 55; the ANSI form now
+- **Int values as CASE and COALESCE operands** - already `m10/SCOPE.md` item 55; the ANSI form now
   measures it: 19 int-valued rows unserved in the COALESCE, and the CASE served only through
   `year(d2)` standing in for a bare int column.
 - **An int computed on the long lane under a CASE or COALESCE** - already VARKA-28's lane

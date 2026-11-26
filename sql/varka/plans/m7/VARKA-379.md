@@ -76,7 +76,7 @@ shapes admit and decline, and the analysis's statement becomes a checked one. A 
 `[NARROW_MIN_DAYS, CONTRACT_MIN_DAYS)` or past 9999 that a kernel served correctly before now
 declines too: a slower path for data no SQL literal writes, accepted for a bound that is one
 constant. A per-shape bound - the widest interval the admitted shape is still exact over - would
-serve those days, and is `m9/SCOPE.md` item 102 (added with this task's outcome).
+serve those days, and is `m10/SCOPE.md` item 102 (added with this task's outcome).
 
 ### 3.2 What is deliberately unchanged
 
@@ -216,7 +216,7 @@ analysis now says the producer guard's reference configuration (`guardDayProduce
 one gap it cannot see, which computes such a lane wrongly by design, as before. Not changed:
 a slot-keyed bound past the input table is dropped as an ordinal-keyed one always was, which
 happens only when a declined entry's rollback is skipped (the `misdescribeRollback` fault
-injector), and then only for the declined entry's own columns; the per-shape widest bound (`m9/SCOPE.md`
+injector), and then only for the declined entry's own columns; the per-shape widest bound (`m10/SCOPE.md`
 item 102); and the four-argument `range` defaulting to no report, which the tests and proofs use.
 
 **Left for others.** The Spark-level fuzzer's value draws (`VarkaSparkFuzz`, row 298's file) stop
@@ -278,7 +278,7 @@ column, so `year(date_add(d, i)) + year(d)` checks `d` under the `date_add` too,
 producer guard alone would have served a far `d` the shift brings back into range; the pre-pass
 did the same across the whole kernel, so nothing declines that did not before. A column use
 under an `IF`/`CASE` arm is checked only on the lanes the arm takes (`emitArmContext`), which the
-pre-pass could not do. The per-shape bound remains `m9/SCOPE.md` item 102.
+pre-pass could not do. The per-shape bound remains `m10/SCOPE.md` item 102.
 
 ### 10.3 Predictions, registered before the build
 

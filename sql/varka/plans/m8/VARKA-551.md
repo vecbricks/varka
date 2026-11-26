@@ -98,7 +98,7 @@ Against master at `d932baa1931`.
   into the record is a change of where the boolean lives, not of what is read.
 - **There is a fourth reader the row does not list**, `VarkaMaskGuard.OPEN`, which the row keeps
   as a constant on the executor (right) and whose second half, reading the same list, is
-  "scope item 115's step 2". The catalogue `m9/SCOPE.md` has no item 115 or 127 with those meanings
+  "scope item 115's step 2". The catalogue `m10/SCOPE.md` has no item 115 or 127 with those meanings
   (its item 127 is "The 64-bit operations table on AVX2", a different thing), so the row's two
   scope pointers cannot be followed. **[I]** which items the owner meant; question 4.
 - **#1291's epilogue "moves narrow rows one at a time on every host" is exact** (`narrowRowsInEpilogue`

@@ -675,7 +675,7 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   crossing, a double null test crossed down and `IF(l > 5, f, f2)`'s long condition; nine
   coverage rows in "Floating casts" and two in its conditions' family. Its forms make
   `IF(x <=> x, d2, ...)` fuse, which the compiler suite now states.
-- **Open points:** 32-bit beside 64-bit roots stay open, `m9/SCOPE.md` item 15 (the owner's word).
+- **Open points:** 32-bit beside 64-bit roots stay open, `m10/SCOPE.md` item 15 (the owner's word).
 
 ### 343a4 as built (6 November 2026, branch `varka-343a4-level3`)
 

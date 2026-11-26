@@ -16,7 +16,7 @@
 # limitations under the License.
 #
 # Run a benchmark class on a base and on the head in alternating batches, and compare medians
-# (VARKA-256, m9/SCOPE.md item 72; DuckDB's regression runner is the model, m7/READING.md 9).
+# (VARKA-256, m10/SCOPE.md item 72; DuckDB's regression runner is the model, m7/READING.md 9).
 #
 #   dev/varka_bench_pair.sh catalyst VarkaCompileBenchmark   # base: merge base with origin/master
 #   dev/varka_bench_pair.sh core VarkaFilterBenchmark --base v0.9 --rounds 7 --threshold 8

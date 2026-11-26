@@ -102,7 +102,7 @@ is below, with the file and line it rests on.
   0 and 1 stored to scratch at a byte a row and packed by a pass after the loop (2.4); it cannot be
   the output itself. Question 1.
 - **The packed form has two writers already** (items 2, 10): per group and per word. Both are
-  measured; the per-word default at four lanes stays with VARKA-92 (`m9/SCOPE.md` item 39), since
+  measured; the per-word default at four lanes stays with VARKA-92 (`m10/SCOPE.md` item 39), since
   flipping it moves every existing shape's bytes at four lanes.
 - **The output sites need a bit width** (item 6), which the row text does not name.
 
@@ -286,7 +286,7 @@ form.
 
 Boolean casts and `CAST(p AS INT)` as an output (332), `bit_count(bool)` (335b), the floating
 conditions (341), the fuzzers' boolean reach (352), the per-word default at four lanes
-(VARKA-92, `m9/SCOPE.md` item 39), and lifting an int condition onto a long kernel's lane instead
+(VARKA-92, `m10/SCOPE.md` item 39), and lifting an int condition onto a long kernel's lane instead
 of a kernel of its own. Also out: the cost model's price of a `BoolOutput` root's store.
 `VarkaEmitCost.Tally.output` prices it as a value root's store at its lane, not as a selection
 bitmap's or as two bitmaps, and stays so until the model's refit reprices it with the node's own

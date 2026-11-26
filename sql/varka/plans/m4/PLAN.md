@@ -10,7 +10,7 @@ whose subject is another lane or output type - 27 (boolean outputs), 28
 to `m5/PLAN.md`, text and task numbers unchanged, with the catalogue
 items about other lanes (1-5, 7-10). Their sections and rows here are stubs
 that point there, so citations still resolve. The coverage milestone that was
-called milestone 5 is now milestone 6 (`m9/SCOPE.md`). Everything
+called milestone 5 is now milestone 6 (`m10/SCOPE.md`). Everything
 below that says "milestone 5" in the old sense has been repointed.
 
 **Re-scoped again on 11 September 2026**, to what closes the milestone. VARKA-62
@@ -32,10 +32,10 @@ opened as: it is the task plan that document promised, written against the
 measurements it said should order it. The scope catalogue it grew from is kept
 whole in section 10, with every item's number unchanged, because other plans cite
 those numbers (`VARKA-21.md` cites items 5 and 11, `SKILLS.md` cites item
-13, and `m9/SCOPE.md` cites items 1 through 12 throughout). Where the
+13, and `m10/SCOPE.md` cites items 1 through 12 throughout). Where the
 catalogue and this plan disagree, this plan wins - the catalogue records what
 was thought before the survey and before milestone 3's numbers, and several of
-those thoughts have already been corrected in writing (`m9/SCOPE.md`
+those thoughts have already been corrected in writing (`m10/SCOPE.md`
 section 2).
 
 Milestone 1 built kernels. Milestone 2 built the emitter and proved it on int32
@@ -52,7 +52,7 @@ at the owner's request; see 2.2).
 The scope document refused to order itself until three inputs existed. All
 three now do:
 
-* **The survey ran** (`m9/SCOPE.md` section 1), and its corrections
+* **The survey ran** (`m10/SCOPE.md` section 1), and its corrections
   are folded in rather than re-litigated: there is not one `DOUBLE` or `FLOAT`
   column in TPC-DS or TPC-H, so item 3 is the taxi benchmark's item; the old
   item 8 was two items and is now 8 (string functions, 37 uses) and 9 (string
@@ -1430,7 +1430,7 @@ here because the shapes are int32 in and int32 out, and the divisor being a
 literal is what makes them cheap.
 
 **What it closes.** The compositions section 2.24 and scope item 11 of
-`m9/SCOPE.md` list as residual today - the day of quarter, the week
+`m10/SCOPE.md` list as residual today - the day of quarter, the week
 of month, the Julian day number - and the composite keys, which join the
 closing table (VARKA-62) as rows of their own. VARKA-57's node stays: it is
 the cheaper lowering of its one shape, and the arm for `Add(WeekDay, 1)` is
@@ -2207,7 +2207,7 @@ The scope's section 8, each question now owned by a task or settled here:
   out; the owner left it unscheduled. The design, the two converter lessons
   and the three increments are recorded in `VARKA-23.md` under "Deferred
   to a dedicated task"; it takes a number when it starts.
-* **`DecimalType`** - per item 12; its design pass is `m9/SCOPE.md`
+* **`DecimalType`** - per item 12; its design pass is `m10/SCOPE.md`
   items 1 and 2.
 * **Grouped aggregation, hash joins, sorting** - grouping is hashing and
   partitioning, a milestone of its own after item 7.
@@ -2241,7 +2241,7 @@ rewritten in the past tense with what the sweep found, never deleted.
 
 *Swept 9 October 2026 (VARKA-264, `m7/PLAN.md` row 264): the twenty entries below were read
 against the plans and the code as they stand. Four were already closed or swept and are unchanged.
-Eight are closed, each by the task or commit that did it. Seven are moved to `m9/SCOPE.md`: items
+Eight are closed, each by the task or commit that did it. Seven are moved to `m10/SCOPE.md`: items
 15 (three entries), 39, 86, 87 and 88, the last three new. One, the re-emit loop, stays as the
 record of a decision not to build it. No entry is left that no document owns.*
 
@@ -2259,7 +2259,7 @@ record of a decision not to build it. No entry is left that no document owns.*
   * 5` under ANSI is the shape to watch. The lattice already has the operations;
   only the transfer functions and the tests move.
   **Swept 9 October 2026 (VARKA-264), moved.** Row 84 is Done (16 September 2026) and left the symmetrisation in place on purpose,
-  registering the tightening as this debt; no later row took it. It is `m9/SCOPE.md` item 86.
+  registering the tightening as this debt; no later row took it. It is `m10/SCOPE.md` item 86.
 
 * **`dev/varka_emit.sh` reports a crash as an empty success.** The script runs the
   dump into a log and prints the lines it greps out, so a run that throws produces
@@ -2318,7 +2318,7 @@ record of a decision not to build it. No entry is left that no document owns.*
   a different immediate - which is `m5/PLAN.md` 2.22, VARKA-91.
   **Swept 9 October 2026 (VARKA-264), moved.** The upward half was closed by VARKA-69, as written above. The
   half that stayed (`weekofyear`/`yearofweek` over a column offset) is VARKA-91, moved from
-  milestone 5 to `m9/SCOPE.md` item 39 on 21 September 2026 and not scheduled since.
+  milestone 5 to `m10/SCOPE.md` item 39 on 21 September 2026 and not scheduled since.
 
 * **The guard walk does not stop at a node that re-bases the day, so a producer whose
   value never reaches a decomposition is guarded on it anyway (VARKA-70's fuzz run).
@@ -2352,7 +2352,7 @@ record of a decision not to build it. No entry is left that no document owns.*
   nodes that pass a day through to the decomposition, and stop at any node whose output
   is a bounded quantity of its own.
   **Swept 9 October 2026 (VARKA-264), moved.** VARKA-73 moved from milestone 5 to milestone 6 and from there to
-  `m9/SCOPE.md` item 15 (15 September 2026); its plan (`m9/VARKA-73.md`) holds the admission check
+  `m10/SCOPE.md` item 15 (15 September 2026); its plan (`m10/VARKA-73.md`) holds the admission check
   that overturned this entry's premise, and the stopping rule is not built.
 
 * **The parity harness reads `next_day(d, k)`'s dense row below identical masked bytecode at
@@ -2372,7 +2372,7 @@ record of a decision not to build it. No entry is left that no document owns.*
   **Swept 9 October 2026 (VARKA-264), moved.** Nothing took the allocation-placement experiment, and this sweep did not
   re-measure the pair; `dev/varka_bench_diff.py --band` (VARKA-77) now marks the rows whose
   spread exceeds a move, which is the reading half of this entry. The harness half is
-  `m9/SCOPE.md` item 88.
+  `m10/SCOPE.md` item 88.
 
 * **The 128-bit `fused, 64 ops` row collapsed 30x on master at `aef0b82260e`,
   and the reason is not in the emitted methods (VARKA-70's review).** The parity
@@ -2426,7 +2426,7 @@ record of a decision not to build it. No entry is left that no document owns.*
   what differs between the two shapes. Closing it means one measurement across
   the write count and a cost rule in `planSlots`, or a recorded decline saying
   the single-field case is too small to matter. The same shape-dependence is the
-  argument in `m9/SCOPE.md` item 11 for choosing lowerings by cost
+  argument in `m10/SCOPE.md` item 11 for choosing lowerings by cost
   rather than by a global default. **Adopted as VARKA-76** (section 2.38).
   **Swept 10 September 2026 with a recorded decline** (`VARKA-76.md` 10):
   measured across a write-count ladder at three widths, the loss exists at 4
@@ -2504,7 +2504,7 @@ record of a decision not to build it. No entry is left that no document owns.*
   `VARKA-32.md` section 7.1's second update.
   **Swept 9 October 2026 (VARKA-264), moved.** VARKA-43 was measured and its decision waits on the emitter (`VARKA-43.md` 8:
   no cliff in a 20-to-248-op loop method). VARKA-44's half, the epilogue no budget bounds, was
-  absorbed by VARKA-87 on 11 September 2026 and moved to `m9/SCOPE.md` item 15 on 15 September
+  absorbed by VARKA-87 on 11 September 2026 and moved to `m10/SCOPE.md` item 15 on 15 September
   2026, kept for a future fix at the owner's request.
 
 * **A calendar field is computed once per output, not once per date.** **CLOSED by VARKA-32
@@ -2622,7 +2622,7 @@ record of a decision not to build it. No entry is left that no document owns.*
   for fixed-width columns is the pattern), measured on the VARKA-59 differential's fixture.
   **Adopted as VARKA-80** (section 2.42), before milestone 6's item 3 puts
   string columns under filters and group keys.
-  **Swept 9 October 2026 (VARKA-264), moved.** VARKA-80 moved to milestone 6 and then to `m9/SCOPE.md` item 15 (15 September
+  **Swept 9 October 2026 (VARKA-264), moved.** VARKA-80 moved to milestone 6 and then to `m10/SCOPE.md` item 15 (15 September
   2026) with the other string work, and has not been built.
 
 * **The week fold costs more than its op count (VARKA-37).** `weekofyear` is 64
@@ -2634,7 +2634,7 @@ record of a decision not to build it. No entry is left that no document owns.*
   shift's `floorMod7` scratch or the fold's dependent chain is what the register
   does not count.
   **Swept 9 October 2026 (VARKA-264), moved.** The assembly comparison this entry asks for was never made. It is
-  `m9/SCOPE.md` item 87.
+  `m10/SCOPE.md` item 87.
 
 * **`GROUP_BUDGET`'s retuning evidence reversed, and nobody noticed for a regeneration.** The
   parity file's task-17 pair - "budget 16 (shipped): two loop methods, shared chain recomputed"
@@ -2660,7 +2660,7 @@ record of a decision not to build it. No entry is left that no document owns.*
   adjacent, the same outputs take two. Pinned as a limitation in `VarkaLoopEmitterSuite`
   (`VARKA-32.md` 10.2, 7.6). **Adopted as VARKA-72 (section 2.36)**, whose admission check
   is whether any consumer of a group depends on contiguous output indices.
-  **Swept 9 October 2026 (VARKA-264), closed.** VARKA-72 went to `m9/SCOPE.md` item 15, but the problem it named was
+  **Swept 9 October 2026 (VARKA-264), closed.** VARKA-72 went to `m10/SCOPE.md` item 15, but the problem it named was
   closed by VARKA-200: the exact grouping (`withExactGrouping`, `m6/PLAN.md` row 200, Done
   30 September 2026) chooses the partition by cost and not greedily in output order.
 
@@ -2780,7 +2780,7 @@ Recorded so they are not re-proposed:
 * **`DecimalType`**: not a lane type - precision <= 18 fits an int64
   unscaled value, but the general case is 128-bit with no lane at any
   species. It needs its own design pass, not an item here; that pass is
-  `m9/SCOPE.md` items 1 and 2, made urgent by the survey.
+  `m10/SCOPE.md` items 1 and 2, made urgent by the survey.
 * **`CPUFeatures`**: package-private, so a fallback decision comes from a
   measurement or the species width, never a feature query.
 * **Hash joins**: scalar probing over off-heap tables with SIMD reserved for

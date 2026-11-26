@@ -533,7 +533,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         domain = Some(tryDomain("try_multiply(dt, 2)", "dt"))),
       Row("extract(DAY FROM dt)", "Java's truncating division by a day, exact over every long "
         + "and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines "
-        + "(`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset"))),
+        + "(`m10/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset"))),
 
     Family("Integer arithmetic", predicates = false, Seq(
       Row("i + 1", "checked under ANSI; the legacy mode wraps as Spark does and declines nothing",

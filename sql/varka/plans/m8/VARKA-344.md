@@ -9,7 +9,7 @@ meaning `expressions/mathExpressions.scala`), and from the plans of the rows it 
 `VARKA-341.md` (started, its section 5.1 the code as built), `VARKA-342.md` and `VARKA-343.md`
 (planned). The JDK was read in `/home/max/proj/openjdk-build/jdk25` (`jdk-25-ga`; `src/` below).
 The row's text is the milestone plan's 2.7, "The rounding functions (344)", and items 35 and 36
-of `m9/SCOPE.md`.
+of `m10/SCOPE.md`.
 
 1. **Every form declines today.** `floatingDecline` admits a floating expression only by an
    allowlist of class names - the six comparisons, `Greatest`, `Least`, `In`, `InSet`, `IsNaN`,
