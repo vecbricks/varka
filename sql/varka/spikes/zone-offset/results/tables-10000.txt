@@ -1,0 +1,90 @@
+# 2026-11-26T12:24:33Z, commit 5ce0a529f56, -Dn=10000
+# load before: 1.14 1.19 1.21 2/2453 3129426
+# flags: none
+# America/Los_Angeles, 8 lanes of 64 bits, batches of 10000 rows, 11482 buckets
+three arrays, three gathers              a year, no order       best   0.781  median   0.783 ns a row  every row equals java.time
+packed, indices beside the gather        a year, no order       best   0.655  median   0.660 ns a row  every row equals java.time
+packed, beside, array at an offset       a year, no order       best   0.674  median   0.675 ns a row  every row equals java.time
+packed, beside, array new each call      a year, no order       best   0.676  median   0.683 ns a row  every row equals java.time
+packed, indices of the whole batch       a year, no order       best   0.640  median   0.640 ns a row  every row equals java.time
+packed, indices of 4 groups              a year, no order       best   0.791  median   0.798 ns a row  every row equals java.time
+packed, indices of 16 groups             a year, no order       best   0.649  median   0.661 ns a row  every row equals java.time
+packed, the store one group ahead        a year, no order       best   0.929  median   0.930 ns a row  every row equals java.time
+packed, scalar loads, no gather          a year, no order       best   1.848  median   1.863 ns a row  every row equals java.time
+three arrays, three gathers              ten years, no order    best   0.781  median   0.782 ns a row  every row equals java.time
+packed, indices beside the gather        ten years, no order    best   0.675  median   0.676 ns a row  every row equals java.time
+packed, beside, array at an offset       ten years, no order    best   0.673  median   0.674 ns a row  every row equals java.time
+packed, beside, array new each call      ten years, no order    best   0.672  median   0.679 ns a row  every row equals java.time
+packed, indices of the whole batch       ten years, no order    best   0.624  median   0.625 ns a row  every row equals java.time
+packed, indices of 4 groups              ten years, no order    best   0.722  median   0.724 ns a row  every row equals java.time
+packed, indices of 16 groups             ten years, no order    best   0.641  median   0.644 ns a row  every row equals java.time
+packed, the store one group ahead        ten years, no order    best   0.822  median   0.822 ns a row  every row equals java.time
+packed, scalar loads, no gather          ten years, no order    best   1.743  median   1.768 ns a row  every row equals java.time
+three arrays, three gathers              1900 to 2100, no order best   1.043  median   1.048 ns a row  every row equals java.time
+packed, indices beside the gather        1900 to 2100, no order best   0.723  median   0.734 ns a row  every row equals java.time
+packed, beside, array at an offset       1900 to 2100, no order best   0.720  median   0.733 ns a row  every row equals java.time
+packed, beside, array new each call      1900 to 2100, no order best   0.728  median   0.734 ns a row  every row equals java.time
+packed, indices of the whole batch       1900 to 2100, no order best   0.711  median   0.731 ns a row  every row equals java.time
+packed, indices of 4 groups              1900 to 2100, no order best   0.806  median   0.810 ns a row  every row equals java.time
+packed, indices of 16 groups             1900 to 2100, no order best   0.706  median   0.708 ns a row  every row equals java.time
+packed, the store one group ahead        1900 to 2100, no order best   0.921  median   0.922 ns a row  every row equals java.time
+packed, scalar loads, no gather          1900 to 2100, no order best   1.939  median   1.985 ns a row  every row equals java.time
+# flags: -XX:UseAVX=2
+# America/Los_Angeles, 4 lanes of 64 bits, batches of 10000 rows, 11482 buckets
+three arrays, three gathers              a year, no order       best   0.923  median   0.930 ns a row  every row equals java.time
+packed, indices beside the gather        a year, no order       best   0.865  median   0.868 ns a row  every row equals java.time
+packed, beside, array at an offset       a year, no order       best   0.868  median   0.868 ns a row  every row equals java.time
+packed, beside, array new each call      a year, no order       best   0.866  median   0.890 ns a row  every row equals java.time
+packed, indices of the whole batch       a year, no order       best   0.780  median   0.782 ns a row  every row equals java.time
+packed, indices of 4 groups              a year, no order       best   0.934  median   0.935 ns a row  every row equals java.time
+packed, indices of 16 groups             a year, no order       best   0.844  median   0.845 ns a row  every row equals java.time
+packed, the store one group ahead        a year, no order       best   1.135  median   1.137 ns a row  every row equals java.time
+packed, scalar loads, no gather          a year, no order       best   1.179  median   1.183 ns a row  every row equals java.time
+three arrays, three gathers              ten years, no order    best   0.882  median   0.884 ns a row  every row equals java.time
+packed, indices beside the gather        ten years, no order    best   0.868  median   0.869 ns a row  every row equals java.time
+packed, beside, array at an offset       ten years, no order    best   0.870  median   0.870 ns a row  every row equals java.time
+packed, beside, array new each call      ten years, no order    best   0.866  median   0.866 ns a row  every row equals java.time
+packed, indices of the whole batch       ten years, no order    best   0.786  median   0.788 ns a row  every row equals java.time
+packed, indices of 4 groups              ten years, no order    best   0.935  median   0.944 ns a row  every row equals java.time
+packed, indices of 16 groups             ten years, no order    best   0.848  median   0.855 ns a row  every row equals java.time
+packed, the store one group ahead        ten years, no order    best   1.131  median   1.134 ns a row  every row equals java.time
+packed, scalar loads, no gather          ten years, no order    best   1.176  median   1.184 ns a row  every row equals java.time
+three arrays, three gathers              1900 to 2100, no order best   0.908  median   0.911 ns a row  every row equals java.time
+packed, indices beside the gather        1900 to 2100, no order best   0.955  median   0.958 ns a row  every row equals java.time
+packed, beside, array at an offset       1900 to 2100, no order best   0.957  median   0.963 ns a row  every row equals java.time
+packed, beside, array new each call      1900 to 2100, no order best   0.955  median   0.962 ns a row  every row equals java.time
+packed, indices of the whole batch       1900 to 2100, no order best   0.845  median   0.847 ns a row  every row equals java.time
+packed, indices of 4 groups              1900 to 2100, no order best   0.987  median   0.988 ns a row  every row equals java.time
+packed, indices of 16 groups             1900 to 2100, no order best   0.898  median   0.900 ns a row  every row equals java.time
+packed, the store one group ahead        1900 to 2100, no order best   1.257  median   1.260 ns a row  every row equals java.time
+packed, scalar loads, no gather          1900 to 2100, no order best   1.323  median   1.328 ns a row  every row equals java.time
+# flags: -XX:UseAVX=2 -XX:MaxVectorSize=16
+# America/Los_Angeles, 2 lanes of 64 bits, batches of 10000 rows, 11482 buckets
+three arrays, three gathers              a year, no order       best  38.093  median  38.190 ns a row  every row equals java.time
+packed, indices beside the gather        a year, no order       best  27.744  median  27.928 ns a row  every row equals java.time
+packed, beside, array at an offset       a year, no order       best  27.943  median  28.356 ns a row  every row equals java.time
+packed, beside, array new each call      a year, no order       best  28.166  median  28.380 ns a row  every row equals java.time
+packed, indices of the whole batch       a year, no order       best  27.974  median  28.610 ns a row  every row equals java.time
+packed, indices of 4 groups              a year, no order       best  28.899  median  29.199 ns a row  every row equals java.time
+packed, indices of 16 groups             a year, no order       best  28.400  median  28.752 ns a row  every row equals java.time
+packed, the store one group ahead        a year, no order       best  28.954  median  29.084 ns a row  every row equals java.time
+packed, scalar loads, no gather          a year, no order       best   8.317  median   8.430 ns a row  every row equals java.time
+three arrays, three gathers              ten years, no order    best  39.095  median  39.226 ns a row  every row equals java.time
+packed, indices beside the gather        ten years, no order    best  28.437  median  28.664 ns a row  every row equals java.time
+packed, beside, array at an offset       ten years, no order    best  28.050  median  28.362 ns a row  every row equals java.time
+packed, beside, array new each call      ten years, no order    best  28.383  median  28.719 ns a row  every row equals java.time
+packed, indices of the whole batch       ten years, no order    best  28.586  median  28.724 ns a row  every row equals java.time
+packed, indices of 4 groups              ten years, no order    best  29.650  median  29.968 ns a row  every row equals java.time
+packed, indices of 16 groups             ten years, no order    best  28.960  median  29.101 ns a row  every row equals java.time
+packed, the store one group ahead        ten years, no order    best  29.759  median  29.994 ns a row  every row equals java.time
+packed, scalar loads, no gather          ten years, no order    best   8.368  median   8.426 ns a row  every row equals java.time
+three arrays, three gathers              1900 to 2100, no order best  41.000  median  41.242 ns a row  every row equals java.time
+packed, indices beside the gather        1900 to 2100, no order best  29.265  median  29.478 ns a row  every row equals java.time
+packed, beside, array at an offset       1900 to 2100, no order best  28.907  median  29.014 ns a row  every row equals java.time
+packed, beside, array new each call      1900 to 2100, no order best  28.862  median  28.898 ns a row  every row equals java.time
+packed, indices of the whole batch       1900 to 2100, no order best  29.238  median  29.627 ns a row  every row equals java.time
+packed, indices of 4 groups              1900 to 2100, no order best  30.016  median  30.228 ns a row  every row equals java.time
+packed, indices of 16 groups             1900 to 2100, no order best  29.745  median  30.697 ns a row  every row equals java.time
+packed, the store one group ahead        1900 to 2100, no order best  30.016  median  30.134 ns a row  every row equals java.time
+packed, scalar loads, no gather          1900 to 2100, no order best   8.842  median   8.955 ns a row  every row equals java.time
+# load after: 1.10 1.13 1.16 1/2188 3131371
