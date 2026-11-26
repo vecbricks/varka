@@ -6694,7 +6694,7 @@
       "projection_plain" : 3,
       "filter_fused" : 1,
       "filter_partial" : 0,
-      "errors" : 7,
+      "errors" : 9,
       "not_run" : 0,
       "entries" : [ {
         "statement" : "select date'999999-03-18', date'-0001-1-28', date'0015'",
@@ -6756,7 +6756,7 @@
         "rewritten" : "SELECT next_day(c0, 'MO')",
         "columns" : [ "date" ],
         "projection" : "-",
-        "projection_outcome" : "DISAGREE: errors DATETIME_OVERFLOW and EXPRESSION_DECODING_FAILED",
+        "projection_outcome" : "error",
         "filter" : "-",
         "filter_outcome" : "error"
       }, {
@@ -6792,7 +6792,7 @@
         "rewritten" : "SELECT trunc(c0, 'WEEK')",
         "columns" : [ "date" ],
         "projection" : "-",
-        "projection_outcome" : "DISAGREE: errors DATETIME_OVERFLOW and EXPRESSION_DECODING_FAILED",
+        "projection_outcome" : "error",
         "filter" : "-",
         "filter_outcome" : "error"
       }, {

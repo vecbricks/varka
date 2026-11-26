@@ -690,7 +690,6 @@ generated plan.
 | 691 | The zone kernels measured. **Filed** (25 November 2026, from `VARKA-657.md`) `VARKA-657.md` 6: each form in a kernel on row 655's classes at 256 and 128 bits, the A/B arms, the default of each option at each width, G7's first reading, and the family's outcome. **Done when** each form of `VARKA-657.md` 3.5 is measured in a kernel, the default at each width is the fastest, G7's bar holds for `hour` and for the cast to `DATE`, or the miss is recorded with its lever, and the outcome in `VARKA-657.md` is written | `VARKA-657.md`; rows 685 to 690 first | small |
 | 692 | A zone conversion shared across method groups. **Filed** (25 November 2026, from `VARKA-657.md`; the admission check: a shared node is computed again in each group, and only the calendar prefix has a store and a load, VARKA-198) `VARKA-657.md` 3.9: three fields of one timestamp in one group and in two, measured; the store and load for a zone node only if it pays. **Done when** the measurement is recorded and the choice it gives is built, or declined by name | `VARKA-657.md`; row 691 first | small |
 | 693 | The table form of a local time. **Filed** (26 November 2026, on the owner's word of that day, from `VARKA-686.md` 4.9; the admission check: row 686's table is of the instant line alone, and `ToInstant` under `TABLE` has no arguments) The bucket table of row 686 on the local time line, for `ToInstant` and `ToInstantKept`: its data, its lowering and the form in the ladder for a kernel that holds either record. **Done when** the casts to `TIMESTAMP` and `ts + INTERVAL DAY` decline no batch over ten years of values in no order, and the sweep passes with the table under the three rules | `VARKA-686.md` 4.9; G2's item 2; rows 686 and 690 first | medium |
-| 694 | The date overflow errors of `next_day`, `last_day` and `trunc`. **Filed** (26 November 2026, from the upstream sync of that day; the admission check: SPARK-60929 makes the three raise `DATETIME_OVERFLOW` where the result leaves the DATE range, and on `next_day(date'+5881580-07-11', 'MO')` and `trunc(date'-5877641-06-28', 'WEEK')` over a column Varka's kernels raise `EXPRESSION_DECODING_FAILED`, an error with another condition; `VarkaGoldenCorpusSuite.acceptedDisagreements` holds the two statements until this row lands) The kernels of the three raise Spark's condition at the DATE bounds, in every mode, or decline the shapes that can reach them, whichever the plan shows costs less. **Done when** the two statements agree with the row engine, `last_day` has a statement of its own in the corpus, and `acceptedDisagreements` is empty | the upstream sync of 26 November 2026 | small to medium |
 
 ### 3.1 Goals to rows
 
@@ -698,7 +697,7 @@ generated plan.
 | :--- | :--- |
 | G1 `TIMESTAMP_LTZ` | 654, 656, 678, 657, 682, 683, 688, 690, 667 to 671 |
 | G2 every zone | 679, 678, 657, 684, 686, 693, and the tests of 668 to 671 |
-| G3 remaining features | 30, 95, 103, 351, 364, 366, 664 to 666, 672, 694, and 681 for the upstream they wait on |
+| G3 remaining features | 30, 95, 103, 351, 364, 366, 664 to 666, 672, and 681 for the upstream they wait on |
 | G4 nanoseconds | 660 to 662, 673 to 675, and 681 |
 | G5 cheaper models | 653, 658, 659, 590, the fan-out rows (667 to 669 and 672 to 674), the library's functions (679), and 642 and 646 under them |
 | G6 the post | 676 |

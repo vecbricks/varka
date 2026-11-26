@@ -96,6 +96,7 @@ ignored_file_patterns = (
     "/dev/.rat-excludes",
     "/dev/.scalafmt.conf",
     "/dev/agent_docs_lint.py",
+    "/dev/agent_docs_lint_exceptions.txt",
     "/dev/check_pyspark_custom_errors.py",
     "/dev/check-license",
     "/dev/check-protos.py",

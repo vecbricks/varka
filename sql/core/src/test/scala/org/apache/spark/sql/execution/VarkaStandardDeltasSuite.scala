@@ -288,10 +288,10 @@ class VarkaStandardDeltasSuite extends QueryTest with VarkaSharedSessions
           Row(null, null)), kernels = false)
         raises("SELECT date_from_unix_date(2147483647) + INTERVAL '1' MONTH",
           "ARITHMETIC_OVERFLOW", "22003")
-        // Spark's own functions do the same plain Int arithmetic (EXTENSIONS.md): last_day of
-        // the last representable date is (n - 11) + 31, wrapped; add_months raises like d + ym.
-        sparkAnswers("SELECT unix_date(last_day(date_from_unix_date(2147483647)))",
-          Seq(Row(Int.MinValue + 19)))
+        // Spark's own functions differ (EXTENSIONS.md): last_day of the last representable date
+        // raises 22008 since SPARK-60929, where it once wrapped; add_months raises like d + ym.
+        raises("SELECT unix_date(last_day(date_from_unix_date(2147483647)))",
+          "DATETIME_OVERFLOW", "22008")
         raises("SELECT add_months(date_from_unix_date(2147483647), 1)",
           "ARITHMETIC_OVERFLOW", "22003")
       }

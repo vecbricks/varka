@@ -147,8 +147,8 @@ would be int32's and the result past it an exception.
 `date_add(date_from_unix_date(2147483647), 1)` is day `-2147483648`, the year -5877641. A
 year-month interval added there does not wrap: `DateTimeUtils.dateAddMonths` converts through
 `LocalDate` and `Math.toIntExact`, and raises `ARITHMETIC_OVERFLOW`, 22003, where 6.14 GR 3(c)
-says 22008. Spark's own date functions there do the same plain `Int` arithmetic (`EXTENSIONS.md`):
-`last_day(date_from_unix_date(2147483647))` is day `-2147483629`, and `add_months` raises 22003.
+says 22008. Spark's own date functions there differ (`EXTENSIONS.md`): `last_day`, `next_day`
+and `trunc` raise `DATETIME_OVERFLOW`, 22008, since SPARK-60929, and `add_months` raises 22003.
 
 **Test:** "day_count_wraps: a day added past the int32 day count wraps to the other end", over both
 coverage spellings fused, in both modes, and the month's 22003.
