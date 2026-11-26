@@ -339,7 +339,7 @@ Compile-time declines, each a constant or a method of `VarkaZoneCompiler`:
 | a zone the data does not serve | `the time zone <id>: its rules fail the zone data's check on this JVM, so no kernel reads it` |
 | the operand compiled onto another lane | `a timestamp operand that is not on the long lane` |
 | the family is off | `VarkaFamily.ZONE.offReason()` |
-| an arm not built yet (parts A and B only) | `hour of a TIMESTAMP is row 657's: not fused yet`, and the same for `minute`, `second` and `CAST(TIMESTAMP AS DATE)` |
+| an arm not built yet (the fields until part B, the cast until part D) | `hour of a TIMESTAMP is row 657's: not fused yet`, and the same for `minute`, `second` and `CAST(TIMESTAMP AS DATE)` |
 
 A computed operand under a fixed zone does not decline: the fold is plain arithmetic.
 
@@ -673,11 +673,11 @@ the form with `VarkaMatrixRuns.BASE.withZoneForm(form)` through
 | test | what it holds | the failure only it catches |
 | :--- | :--- | :--- |
 | `<zone>`: the fields equal the row engine across every change of a year, in time order and in no order, in each form (one dynamic test a zone) | `hour`, `minute`, `second`; both consumers; the three forms; the whole fixture as one batch and as batches of 64 rows | a kernel that agrees with Spark only on rows that cross no change |
-| a batch is served exactly when it spans no more changes than its form has steps | per zone with changes and per form: windows of `K` and of `K + 1` changes, found from `nextTransition` | a form that serves a batch it does not cover, which is a wrong answer |
+| a batch is served exactly when it spans no more changes than its form has steps | per form, and per zone that has at least `K + 1` changes (`Asia/Kathmandu` has two in all and is left out): windows of `K` and of `K + 1` changes, found from `nextTransition` | a form that serves a batch it does not cover, which is a wrong answer |
 | a range that ends on a change counts it, and one that starts on it does not | a batch whose greatest instant is `T`; one whose least is `T` | a count that is off by one at a change |
 | one row, all rows equal and a batch with no live row are served | three small batches | a fill that declines a batch it need not |
 | the ends of a long decline and the row engine answers them | batches of two values near one end, so that none spans a change. Under `+01:00`: the guard's bound and its neighbour inside are answered; one microsecond outside declines with `STATUS_VALUE_RANGE`. Under `America/Los_Angeles`: a batch with `Long.MIN_VALUE` or `Long.MAX_VALUE` declines with `STATUS_BATCH_ARGS`; one and two microseconds inside the fold's bounds are answered | a sum that wraps |
-| both ends of Spark's range are answered | 0001-01-01 and 9999-12-31, each alone in a batch, under `America/Los_Angeles`: an offset that is no whole minute | a kernel that takes `second` from the instant |
+| both ends of Spark's range are answered | 0001-01-01 and 9999-12-31, each alone in a batch, under `America/Los_Angeles`: the offset of 0001 is no whole minute, the offset of 9999 is | for the 0001 row, a kernel that takes `second` from the instant; for the 9999 row, a wrap at the far end of the range |
 | three fields of one timestamp are one kernel | `hour(ts)`, `minute(ts)`, `second(ts)` in one projection | a conversion computed once and read wrongly twice |
 | a filter on a field is served by the filter evaluator | `hour(ts) = 2` under UTC, `+01:00`, `America/Los_Angeles` | batch arguments that only the projection's runner fills |
 
@@ -706,7 +706,8 @@ second zone alone, at index 0).
 | :--- | :--- |
 | the fold subtracts the offset | `+01:00`: the fields equal the row engine |
 | the `Hour` arm calls `minuteOfLocal` | `America/Los_Angeles`: the fields equal the row engine |
-| `Marks.restore` skips `truncateZones` | an entry forced residual leaves no zone behind |
+| the inline rollback of `classify` skips `truncateZones` | an entry forced residual leaves no zone behind |
+| `Marks.restore` skips `truncateZones` | an entry that an admission refusal rolls back leaves no zone behind (a test of its own: a forced residual never calls `Marks.restore`) |
 | the runner's seam passes the id `UTC` to the provider whatever the node's zone | `America/Los_Angeles`: the fields equal the row engine |
 
 **Done when** the three entries fuse under every zone of the suite and equal Spark across each
@@ -771,7 +772,8 @@ ratio under 1.3 is run again and read by minimums.
    eight times the row path.
 6. Ten years in no order under `America/Los_Angeles`: every batch declines, and the `varka on`
    time is within 1.05 of the row path's. A declined batch costs the row path and the pass.
-7. At 128 bits no section of the four is slower than the row path: yes. The masked steps cost
+7. At 128 bits no section of the four is slower than the row path, the ten-year sections of
+   prediction 6 aside: yes. The masked steps cost
    15.679 ns a row there in the probe (`sql/varka/spikes/zone-offset/results/kernels.txt`),
    and the row path of the twin costs 64.1 on the runner
    (`VarkaTimestampNtzFieldsBaselineBenchmark-jdk25-runner-epyc7763-results.txt`).
@@ -786,14 +788,14 @@ ratio under 1.3 is run again and read by minimums.
 
 ## 8. Who builds it
 
-`m9/PLAN.md` 1.4 has rows 656, 657 and 682 to 692 built at full strength. Within that:
+`m9/PLAN.md` 1.4 has rows 656, 657 and 682 to 692 built at full strength, and so is this row:
 
 | part | builder | why |
 | :--- | :--- | :--- |
 | A | full strength | it sets the family's claim, the fold and the sink's table; a wrong fold is a wrong answer under every fixed zone |
 | B | full strength | the suite's fixtures and its expectation are the row's proof; the runner's seam depends on what row 682 built |
-| C | full strength, or a cheaper model after the pilot (row 659) with a lead at hand | the steps are mechanical, but the readers of a coverage row are many and a stop is likely |
-| D | a cheaper model, from this sheet | it is the shape of row 668's tasks: one arm over `toLocal`, its rows, its tests, its sections. What it teaches goes into row 658's template |
+| C | full strength, as `m9/PLAN.md` 1.4 has this row | the steps are mechanical, but the readers of a coverage row are many and a stop is likely |
+| D | full strength by `m9/PLAN.md` 1.4; a cheaper model only on the owner's word, recorded with its date | it is the shape of row 668's tasks: one arm over `toLocal`, its rows, its tests, its sections. What it teaches goes into row 658's template |
 | E | the lead | dispatches and results |
 
 ## 9. Risks
