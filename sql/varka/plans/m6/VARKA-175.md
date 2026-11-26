@@ -1,7 +1,7 @@
 # VARKA-175: Port `VarkaIntervalCompiler` to Java, one family
 
 *Scoped 25 September 2026 (milestone 6 section 2.7, row 175, from
-`m9/SCOPE.md` item 42); planned 26 September 2026.*
+`m10/SCOPE.md` item 42); planned 26 September 2026.*
 
 ## 1. The question
 

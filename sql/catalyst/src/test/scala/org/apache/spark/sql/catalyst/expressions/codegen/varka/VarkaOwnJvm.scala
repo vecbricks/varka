@@ -30,7 +30,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteReport.
 
 /**
  * A suite that runs its tests in a JVM of its own when it is run in a shared one (VARKA-246,
- * `m9/SCOPE.md` item 69). Mix it in last, after the suite's other traits.
+ * `m10/SCOPE.md` item 69). Mix it in last, after the suite's other traits.
  *
  * The tests of such a suite emit and run kernels at a lanes override other than the JVM's
  * preferred width, which puts a second vector species of one lane type into the JVM. That makes

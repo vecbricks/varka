@@ -1,12 +1,16 @@
 # VARKA-95: The checked int multiply over a column, and `i % k`
 
+*Moved to milestone 9 on 25 November 2026 with row 95 (`m9/PLAN.md` 3). A bare `PLAN.md`,
+`results/` path or other `VARKA-<n>.md` below names milestone 8's, in `m8/`, unless that plan
+moved too.*
+
 ## 0. What exists now (admission check)
 
 From master at `fa698652fd2` (30 October 2026; Varka paths under `sql/catalyst/src/main/java/org/
 apache/spark/sql/catalyst/expressions/codegen/` unless named, Spark's under `sql/catalyst/src/main/
 scala/org/apache/spark/sql/catalyst/` unless named, `arithmetic.scala` being `expressions/
 arithmetic.scala`). The row's text is the milestone plan's row 95, from the catalogue's item 39
-table (`m9/SCOPE.md`) and `m5/PLAN.md` 2.30. The JDK was read in
+table (`m10/SCOPE.md`) and `m5/PLAN.md` 2.30. The JDK was read in
 `/home/max/proj/openjdk-build/jdk25`. The scalar, vector and solver checks below are in
 `results/VARKA-95-admission.txt`, with the program, its commands and its output.
 
@@ -562,7 +566,7 @@ copies, so copy them as `git show c62f492fc89:<path>` prints them; #1486 also ch
 | `sql/core/src/test/java/org/apache/spark/sql/execution/benchmark/VarkaIntegralDivisionBaselineBenchmark.java` | five sections a density, 1.3 |
 | `sql/core/src/test/scala/org/apache/spark/sql/execution/benchmark/VarkaIntegralDivisionBaselineQueriesSuite.scala` | its counts, 1.3 |
 | `sql/varka/plans/m8/PLAN.md` | row 95's cell: the state, 1.6 |
-| `sql/varka/plans/m8/VARKA-95.md` | section 10: the paragraph of 1.6 |
+| `sql/varka/plans/m9/VARKA-95.md` | section 10: the paragraph of 1.6 |
 
 **1.2 The multiply class.** Copy `VarkaBigintArithmeticBaselineBenchmark.java` to
 `VarkaIntArithmeticBaselineBenchmark.java` and change exactly these members; the `Section`

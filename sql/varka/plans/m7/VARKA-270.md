@@ -126,7 +126,7 @@ should not contradict each other.
 * New measurements: the post reports the record and runs nothing.
 * The README's account of checking (row 261).
 * A separate post on the proofs alone, for which the record has enough; the owner's call, now
-  `m9/SCOPE.md` item 104.
+  `m10/SCOPE.md` item 104.
 
 ## 10. Outcome
 
@@ -161,7 +161,7 @@ and the two ANSI modes are defined where they first appear; "grammar productions
 "32 and 64 bits" says it means the kernels' values; the Theorem 5.1 paragraph says the shift guard
 is for divisors added later; the vacuity check is said plainly; "In short" splits its last item in
 two; a `[PENDING #874]` slot follows the column-contract paragraph; and the #871 slot names the two
-sentences that change when it merges. The proofs-only post is `m9/SCOPE.md` item 104.
+sentences that change when it merges. The proofs-only post is `m10/SCOPE.md` item 104.
 
 Prediction 1 rescored: the definitions put the body, without figure lines and slots, at about
 1,930 words, 30 over the plan's 1,900, after four phrases were cut. **Failed, narrowly**; the

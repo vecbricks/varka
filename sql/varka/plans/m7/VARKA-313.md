@@ -1,7 +1,7 @@
 # VARKA-313: Why a query did not use Varka, where users look
 
 *Row 313 of `m7/PLAN.md`, added by the owner on 12 October 2026 with rows 314 to 319
-(`m7/PLAN.md` 2.4, "Errors and troubleshooting"); it takes in `m9/SCOPE.md` item 65. Planned on
+(`m7/PLAN.md` 2.4, "Errors and troubleshooting"); it takes in `m10/SCOPE.md` item 65. Planned on
 14 October 2026 in a worktree at master `f37b52026ba` (after #807). Section 2 corrects the row in
 four places; the row's text is left as written and this file is the correction.*
 
@@ -11,7 +11,7 @@ The row asks, per Varka operator, for SQL metrics that say how many batches a ke
 how many fell back and why, with the rows and the time through each path; for the compile-time
 declines in `EXPLAIN`; for a refusal reason that was not recorded to read as "not reported" and
 never as 0, as Polars keeps the two apart (`READING_POLARS.md`); for the reasons to survive
-adaptive re-planning, where Gluten lost its tags (`m9/SCOPE.md` item 28); and for tests that
+adaptive re-planning, where Gluten lost its tags (`m10/SCOPE.md` item 28); and for tests that
 assert which reason a query fell back for, as Comet's `checkSparkAnswerAndFallbackReason` and
 Gluten's `failOnFallback` do (`READING.md` 2). It also asks what exact refusal status costs, and
 for that status to become the default if the cost is within noise. Item 65 adds the warm-up's

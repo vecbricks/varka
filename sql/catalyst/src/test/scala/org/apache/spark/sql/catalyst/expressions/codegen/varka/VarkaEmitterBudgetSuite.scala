@@ -617,7 +617,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
 
   test("the shared-prefix ladder's groups at each fused ceiling are the ones its built class " +
       "keeps (VARKA-254)", PinsDefaults) {
-    // m9/SCOPE.md item 63's second clause: the weights' first grouping of the ladder
+    // m10/SCOPE.md item 63's second clause: the weights' first grouping of the ladder
     // VarkaSharedPrefixBenchmark measures - 64 cheap tails year(d) + k, and 60 make_date over
     // year(d) and month(d) - is the grouping the built class keeps, at every ceiling the benchmark
     // sweeps and with the prefix recomputed or materialized: one build, no reaction to a

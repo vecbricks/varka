@@ -532,7 +532,7 @@ rule, costs about what 366's arm does, and is not built.
 
 **The six pairs outside the row's text, unclaimed** (settled by the lead): 350a marks them so in
 `census_curated.txt`, each with a home - decimal to and from the year-month and day-time intervals
-to row 103 (or 332's interval work), `TIME` to decimal to `m9/SCOPE.md` (no `TIME`-cast row exists),
+to row 103 (or 332's interval work), `TIME` to decimal to `m10/SCOPE.md` (no `TIME`-cast row exists),
 `DATE` to decimal (LEGACY's null) to row 333's typed null leaf. Their Spark rules: decimal to
 year-month is `IntervalUtils.decimalToYearMonthInterval`, `HALF_UP` to months and `toIntExact`
 (`util/IntervalUtils.scala:841-845`), to day-time `decimalToDayTimeInterval` (`Cast.scala:

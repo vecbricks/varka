@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 243 of `m7/PLAN.md`, item 59 step 1 of `m9/SCOPE.md`: "one definition per operation the
+Row 243 of `m7/PLAN.md`, item 59 step 1 of `m10/SCOPE.md`: "one definition per operation the
 standard fixes, over the coverage table's operations first, with every interpretation choice
 recorded where the text leaves one (the calendar before 1582, leap seconds,
 implementation-defined precisions)", in `sql/varka/proofs/spec/`. `m7/READING.md` 11 and
@@ -24,7 +24,7 @@ Done on 14 October 2026, before any writing.
 ### 2.1 What the repo holds of the standard: none of its text
 
 Nothing under the repository, the papers folder or the owner's `~/Downloads/Milestone7` holds
-ISO/IEC 9075 in any edition; the record cites it by name only (`m9/SCOPE.md` item 59 names
+ISO/IEC 9075 in any edition; the record cites it by name only (`m10/SCOPE.md` item 59 names
 "ISO 9075-2" and three SQLSTATEs, `SCOPE_STANDARD_MODE.md` 3.1 the default leading field
 precision). The current edition, ISO/IEC 9075-2:2023, is sold by ISO and was not to hand.
 

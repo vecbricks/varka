@@ -698,7 +698,7 @@ paths"), so it needs the jars of an installed distribution, not a development bu
 The JVM lever that does reach the kernels alone is
 `-XX:CompileCommand=CompileThresholdScaling,<kernel class pattern>,<factor>`, a startup flag; a
 compiler directive - what `VarkaKernelCompileDirective` adds at runtime - rejects the key. Whether
-it pays on top of the warm-up is `m9/SCOPE.md` item 84; scaling the whole JVM does not
+it pays on top of the warm-up is `m10/SCOPE.md` item 84; scaling the whole JVM does not
 (`VARKA-212.md` 9.1).
 
 ## A kernel's methods compile one at a time, so a verdict on the whole kernel must see every loop

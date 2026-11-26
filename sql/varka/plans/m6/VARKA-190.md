@@ -562,7 +562,7 @@ Where the two options meet is the question the owner asked next: does using both
 e-graph? No. A' has nothing to choose - one class keeps every output's sharing, and its stages
 are a byte count. B's efficiency is where it cuts, and it cuts in projection order, blind to
 what entries share; the better cut is a clustering of entries by shared columns and subtrees,
-the same problem as VARKA-72's output order, recorded there in `m9/SCOPE.md`. An e-graph
+the same problem as VARKA-72's output order, recorded there in `m10/SCOPE.md`. An e-graph
 chooses among equivalent forms of an expression, which is item 11's question, not this one.
 
 ### 11.6 The runner's measurement, 30 September 2026
@@ -610,4 +610,4 @@ behind, 15 to 20% with nulls, since its second kernel decomposes the dates again
 slower, 219 against 208 ms and 404 against 359. By the rule of `VARKA-236.md` 3.6 B alone
 needed no loss on either family and no slower plan, so the division of duty of 11.5 stays: the
 split driver where one class serves the outputs, several kernels where it cannot. B alone waits
-for a cut that keeps sharers together (`m9/SCOPE.md` item 15).
+for a cut that keeps sharers together (`m10/SCOPE.md` item 15).

@@ -36,7 +36,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
  * <p>The JDKs the guard is for: OpenJDK tracks the miscompile as JDK-8378968 ("C2 VectorAVX AVX2:
  * wrong result, bad optimization in VectorLongToMaskNode::Ideal"), fixed in JDK 27; on
  * 27 October 2026 no JDK 25 update carries the fix, so every JDK 25 needs the guard
- * ({@code m9/SCOPE.md} item 114 follows it).
+ * ({@code m10/SCOPE.md} item 114 follows it).
  *
  * <p>Nothing may write {@code ones}: a kernel that read anything but all ones would compute wrong
  * masks.

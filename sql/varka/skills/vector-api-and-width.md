@@ -973,7 +973,7 @@ and on aarch64 `Math` itself is fdlibm for everything but `sin` and `cos`,
 where x86 has Intel's scalar intrinsics for nine functions. The only exact
 lanes are the operators the JDK has no symbol for (`pow` at AVX2, `tanh` on
 NEON), which run the scalar call per lane at scalar speed. `SCOPE_FUNCTIONS.md`
-section 3 tabulates it and `m9/SCOPE.md` item 36 holds the decision it
+section 3 tabulates it and `m10/SCOPE.md` item 36 holds the decision it
 forces: a ULP contract, an emitted fdlibm, or a decline, for the family as a
 whole.
 
@@ -1088,7 +1088,7 @@ What SLEEF does contribute, by task:
   back with an FMA, truncate the remainder, subtract. The same idea splits a
   64-bit value into 32-bit halves and converts each with `cvtdq2pd`, which AVX2
   has - exact to 2^53, wider than the `0x4330` identity's 2^52, and no exponent
-  bit to reason about. `m9/SCOPE.md` item 37. `vrint2_vd_vd` is the
+  bit to reason about. `m10/SCOPE.md` item 37. `vrint2_vd_vd` is the
   2^52 add-and-subtract round-to-nearest the magic form already uses, so that
   part is confirmed prior art.
 * **VARKA-28's widen and narrow sequences, per ISA** (`helperavx2.h`,

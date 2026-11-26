@@ -218,7 +218,7 @@ the compiler arm and refusal half a day, tests and measurement one.
 
 - S for 360 to 363's arithmetic: their plans read the spike's arithmetic verdict and may ask for
   it, as an arm of this option.
-- A two-lane x86 host whose executors differ from the driver: 503's risk 5 and `m9/SCOPE.md`
+- A two-lane x86 host whose executors differ from the driver: 503's risk 5 and `m10/SCOPE.md`
   item 127 (choosing CPU-dependent forms on each executor), which applies to this option as to
   538's.
 - Scalar forms for other types at two lanes.
@@ -252,7 +252,7 @@ the row path there or stays declined with its measured reason; `emitted_bytes.js
 2. 359b's measurement at 128 bits (`VARKA-359.md` 2.6) would measure P's fallback for the
    projections, which this row replaces by S on that host. 359b may skip the 128-bit projection
    verdict and leave it to this row.
-3. `m9/SCOPE.md` item 101 (two-lane long masks) and this row both answer "x86 at two lanes" for
+3. `m10/SCOPE.md` item 101 (two-lane long masks) and this row both answer "x86 at two lanes" for
    their types. The item's note could name this row as the decimal answer.
 
 ## 10. Outcome

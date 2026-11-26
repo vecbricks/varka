@@ -424,9 +424,9 @@ every batch with a lane past a guard, which the row engine answers.
 ## 8. Questions for the owner
 
 Answered by the owner on 27 October 2026: (a) to both - a year-month `time_bucket` declines by
-name with `m9/SCOPE.md` item 117, and the windowed arm is built.
+name with `m10/SCOPE.md` item 117, and the windowed arm is built.
 
-1. **A year-month `time_bucket`.** (a) Decline by name and add an `m9/SCOPE.md` item: it needs the
+1. **A year-month `time_bucket`.** (a) Decline by name and add an `m10/SCOPE.md` item: it needs the
    year and month of the NTZ day and two `AddMonths` over the origin's day. (b) Build it here
    after 2.4. *Recommended: (a)*: 2.6 names only a day-time width, and the form is half again of
    `time_bucket`'s work for a rarer width.

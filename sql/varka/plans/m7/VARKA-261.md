@@ -67,10 +67,10 @@ on the commit where every row is closed and the changelog entry quotes the tag.
    surfaces (the date and TIME tables, lines 118, 131, 138 and 203 say "milestone 6 build") and
    the cold-start headline (README line 413, `docs/sql-varka.md` line 1463: "1.8x, 17 ms against
    31 ms") regenerated on the milestone 7 build and requoted, the headline stating the spread
-   between JVMs a 4-core runner shows (`m9/SCOPE.md` item 103).
+   between JVMs a 4-core runner shows (`m10/SCOPE.md` item 103).
 7. **The debt sweep.** Five items fixed on branch `varka-261-debt` (section 5.3), merged as a
    pull request of their own before the tag; the register's other entries rewritten in the past
-   tense with what the sweep found, or handed to `m9/SCOPE.md` with the reason.
+   tense with what the sweep found, or handed to `m10/SCOPE.md` with the reason.
 8. **The tag and the cleanup.** An annotated tag `varka-m7`, its message the changelog entry's
    headline and the posts' addresses, planned for the merge commit of the close and placed, on
    the owner's word, on master with the debt sweep merged (section 4, step 8); then
@@ -191,7 +191,7 @@ found and fixed). The caveats:
 3. Row 245 found three things its record does not fix. The unchecked column contract was
    load-bearing: row 379 (#874) fixed it. "Three guards decline batches Spark does not need
    declined, on rows whose other operand is null" and "`EXTENSIONS.md`'s `datediff` wraps" have
-   no owner; both are the shape of `m9/SCOPE.md` item 96 (a check qualified by the side that
+   no owner; both are the shape of `m10/SCOPE.md` item 96 (a check qualified by the side that
    reads it) and section 8 names them.
 
 **Point 2, the tests: held, with five caveats.** Rows 81, 138, 262, 269, 271, 272, 274 to 280,
@@ -328,7 +328,7 @@ queue and a port's pair near the job's cap are work with no row, and section 8 p
 two; `catalyst/Test/checkstyle` on master waits for upstream's fix by a sync.
 Done on 18 October: each of section 10's entries ends with what the sweep found and where the
 debt went, the four with no row (the public compiler entry points, the dead admission runs,
-"Re-run failed jobs", a port's pair near the cap) are items 106 to 109 of `m9/SCOPE.md`, and the
+"Re-run failed jobs", a port's pair near the cap) are items 106 to 109 of `m10/SCOPE.md`, and the
 plan's section 11, "The close", is written in m6's shape with the date, the tag, the posts and
 the rows that moved.
 
@@ -682,9 +682,9 @@ verified text. Items the audit found already recorded are left out.
 ## 8. Proposals for the owner
 
 Candidates for after the close, drawn from the caveats of 5.1 and the newest items of
-`m9/SCOPE.md`; none is a row until the owner picks it.
+`m10/SCOPE.md`; none is a row until the owner picks it.
 
-1. **Why the warm-up gives up on small runners** (`m9/SCOPE.md` item 103). The cold-start
+1. **Why the warm-up gives up on small runners** (`m10/SCOPE.md` item 103). The cold-start
    headline now carries a spread between JVMs on a 4-core host; the cause is unread.
 2. **A date column's bound per shape** (item 102). Row 379's fix sends years 10000 to 42400 to
    the row path where the kernel computes them exactly; the mechanism already takes any interval.

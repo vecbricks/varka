@@ -155,7 +155,7 @@ class VarkaFallbackReasonSuite extends QueryTest with VarkaSharedSessions with V
     // The division sits on the right of an AND whose left rejects the zero divisors, so Spark
     // never evaluates it there and answers; the kernel computes every lane, and its guard, in a
     // condition and so qualified by no arm, sees the live zero divisor: the batch declines with
-    // STATUS_DIVIDE_BY_ZERO (m9/SCOPE.md item 96). Catches the bit left out of the accounting's
+    // STATUS_DIVIDE_BY_ZERO (m10/SCOPE.md item 96). Catches the bit left out of the accounting's
     // names, which would count the batch as unrecognised.
     for (s <- Seq(spark, varkaSpark)) {
       s.createDataFrame(Seq((1.0, 0.0), (6.0, 2.0), (-3.0, -0.0), (5.0, 4.0)))
@@ -173,7 +173,7 @@ class VarkaFallbackReasonSuite extends QueryTest with VarkaSharedSessions with V
 
   test("under adaptive execution the final plan's Varka node carries the reasons, and EXPLAIN " +
       "after the run still names the residual entry's reason") {
-    // m9/SCOPE.md item 28: Gluten loses its fallback tags when AQE builds a stage's plan anew.
+    // m10/SCOPE.md item 28: Gluten loses its fallback tags when AQE builds a stage's plan anew.
     // Varka's EXPLAIN lines are computed from the node's own fields and its metrics are the
     // executed node's own, so both should survive; this holds them to it, through a shuffle.
     val aqe = varkaSpark.newSession()

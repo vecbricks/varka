@@ -1,6 +1,6 @@
 # VARKA-258: how Spark compiles a query, and why it compiles it again
 
-*Row 258 of `m7/PLAN.md`, `m9/SCOPE.md` item 78. Outlined on 13 October 2026 at the owner's
+*Row 258 of `m7/PLAN.md`, `m10/SCOPE.md` item 78. Outlined on 13 October 2026 at the owner's
 decision in the halfway review (`m7/PLAN.md` 9.4), so that the post stops losing the comparison
 with the next measurable row. Planned in the shape of the earlier posts (`m6/VARKA-210.md`,
 `m6/VARKA-233.md`, `m7/VARKA-288.md`): the question, what the record holds, what has to be

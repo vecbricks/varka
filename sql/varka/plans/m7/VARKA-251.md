@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 251 of `m7/PLAN.md`, item 74.5 of `m9/SCOPE.md`: `VarkaEvaluatorBase` is 1079 lines of Scala
+Row 251 of `m7/PLAN.md`, item 74.5 of `m10/SCOPE.md`: `VarkaEvaluatorBase` is 1079 lines of Scala
 holding the kernel runner, the batch ledger, scratch, the warm-up, fallback accounting and class
 dumping, four of which VARKA-190's further kernels needed hooks into. The row asks for Java
 components, not smaller Scala files (`m7/PLAN.md` 2.3), and names its proof: a before-and-after

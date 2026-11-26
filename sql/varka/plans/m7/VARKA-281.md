@@ -268,7 +268,7 @@ the suite is written; the prediction is in 6.1.
 
 * **Every answer of the analysis**, and so every shape admitted or declined, every emitted byte
   and `coverage.json`: the constants are named, not moved. Tightening the `INT` answers is
-  `m9/SCOPE.md` item 86.
+  `m10/SCOPE.md` item 86.
 * **The emitter's guards and their tests** (VARKA-279): the four guard promises are the
   emitter's, held there; this row checks only that the analysis answers the constants the guards
   check, which the shared `VarkaChrono` constants make true by construction.
@@ -438,7 +438,7 @@ through the suite and the renderer:
   `[-42400, 42400]` is exact at the top and the admitted years begin at -12800, so the
   neighbour the renderer writes for every other rule - the low end raised by one - is not
   refuted here; `range_calendar.smt2` records the slack as a holding check instead. It is
-  `m9/SCOPE.md` item 86's debt, the symmetric `INT` answers, made visible by a proof.
+  `m10/SCOPE.md` item 86's debt, the symmetric `INT` answers, made visible by a proof.
 * **A `sat` neighbour can be the hard check.** `add_months` with `29k` as the lower bound is
   refuted by cvc5 in a third of a second and left unknown by Z3 after 20 s when run alone, though
   Z3 answered it `sat` inside the file: a satisfiable search over the closed forms, the reverse of

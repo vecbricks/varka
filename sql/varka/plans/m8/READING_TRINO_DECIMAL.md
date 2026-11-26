@@ -352,7 +352,7 @@ Expected values are to be recomputed with the fork's Spark, not copied from Trin
 * **Decimal `%`, `mod`, `pmod`.** Trino's remainder (Knuth D, sign of the dividend, operands
   rescaled in 256-bit limbs) matches Spark's rule; no row of 359 to 364 names decimal `%`
   although 2.8 keeps it in. Its tests are fixtures for whichever row takes it.
-* **Decimal division**: `m9/SCOPE.md` item 2. `divideRoundUp`'s `5^k`-then-shift scale-up and its
+* **Decimal division**: `m10/SCOPE.md` item 2. `divideRoundUp`'s `5^k`-then-shift scale-up and its
   doubled-remainder `HALF_UP` are the reference when that item is planned.
 * **Not worth taking**: the result-type rules, the no-null overflow model, `REAL` to decimal
   through the float's string, NaN and infinity raising (all section 9); `compareAbsolute`'s

@@ -1,6 +1,6 @@
 # How a kernel can read a time zone: facts and costs
 
-Four probes for milestone 9's time-zone design (section 2.2 of `sql/varka/plans/m9/PLAN.md`, and
+Five probes for milestone 9's time-zone design (section 2.2 of `sql/varka/plans/m9/PLAN.md`, and
 row 657's plan, `sql/varka/plans/m9/VARKA-657.md`). Each is one Java file, run with the source
 launcher: no build and no Spark.
 
@@ -10,11 +10,13 @@ launcher: no build and no Spark.
 | `src/ZoneForms.java` | What each way of turning a batch of instants into local times costs a row, checked against `java.time` on every row | `results/forms.txt` |
 | `src/ZoneKernels.java` | What a whole field over a zoned instant costs a row, and the way back, a local time to an instant, under the earlier-offset rule and the kept-offset rule, checked against `java.time` on every row | `results/kernels.txt`, and a second run in `results/kernels-2.txt` |
 | `src/ZoneResolve.java` | Whether one pair of local thresholds a change serves all three of `java.time`'s rules for a local time as formulas, the gap's-end rule among them, to the year 2400 | `results/resolve.txt` |
+| `src/ZoneTables.java` | How a kernel should read the zone's bucket table: the bucket packed in 16 bytes against three arrays, five ways to hand the gather its indices, and scalar loads with no gather; checked against `java.time` on every row | `results/tables.txt`, a second run in `results/tables-2.txt`, and batches of 64 and 10,000 rows in `results/tables-64.txt` and `results/tables-10000.txt` |
 
     JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./run.sh facts > results/facts.txt
     JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./run.sh forms > results/forms.txt
     JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./run.sh kernels > results/kernels.txt
     JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./run.sh resolve > results/resolve.txt
+    JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./run.sh tables > results/tables.txt
 
 `run.sh forms` runs three times: at the host's vector width, with AVX2 at 256 bits (the runners'
 AMD EPYC 7763 has no AVX-512), and with AVX2 at 128 bits. It takes about eleven minutes on an
@@ -71,6 +73,26 @@ The fourth probe, for the same plan's 2.4:
   18,399,068 checks and no mismatch. The earlier-offset rule and the gap's-end rule differ at six
   midnights, 31 March 1919 in six ids.
 
+The fifth probe, for row 686's plan (`sql/varka/plans/m9/VARKA-686.md`), on 26 November 2026.
+The Vector API's gather takes its indices from an `int` array, so a kernel stores them and the
+gather loads them back. Ratios are to the packed table with the indices stored beside each
+gather, by the minimums of the two runs, for ten years of instants in no order:
+
+- **The indices of the whole batch, written in a pass before the gathers, are the fastest
+  gathered form:** 0.621 ns a row at eight lanes against 0.673, and 0.829 at four against
+  0.871. The sign is the same in every compiled cell of both runs, and at batches of 64 and of
+  10,000 rows. The indices of 16 lane groups come second; those of 4 groups gain nothing.
+- **The store issued one lane group ahead, with two arrays, is slower:** 0.820 at eight lanes
+  and 1.136 at four.
+- **Where the index array is makes no difference:** a new array each call (0.675 and 0.866) and
+  an array at an offset of a longer one (0.675 and 0.876) cost what a plain scratch costs.
+- **The packed bucket gains at eight lanes and not at four:** three arrays cost 0.773 at eight
+  lanes and 0.882 at four. Over the whole table, 1900 to 2100, three arrays cost 1.001 at
+  eight lanes where the packed bucket costs 0.704.
+- **At two lanes no gather is compiled:** every gathered form costs 28 to 41 ns a row, and
+  scalar loads of each lane's bucket cost 8.421. Where a gather is compiled the scalar loads
+  lose: 1.686 at eight lanes and 1.425 at four.
+
 ## What they do not show
 
 - The timings are the laptop's, not the runners'. Row 691 of the plan measures the forms in
@@ -78,5 +100,7 @@ The fourth probe, for the same plan's 2.4:
 - The two timing probes use one zone, `America/Los_Angeles`. `ZoneForms` times
   `instant + offset` alone. `ZoneKernels` times one field, the hour, as a quotient in doubles
   that holds on its rows, the local times of 2025, and not on every long.
+- The fifth probe's runs at 64 and at 10,000 rows are one run each, taken at a one-minute load
+  near 1.2; its sign there agrees with the two runs at 4096 rows.
 - The table's two rows touch 57 and 574 of its 11,482 buckets, a few kilobytes of its 269 KB, so
   they do not show a batch spread over the whole table.

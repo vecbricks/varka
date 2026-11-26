@@ -1,7 +1,7 @@
 # VARKA-336: null-safe equality, `<=>` and `equal_null`
 
 *Row 336 of `m8/PLAN.md`, wave 1 (after 334). Planned on 21 October 2026 at `a429af749f4`, from
-`m9/SCOPE.md` item 34 and the code on master. Section 0 is the admission check; it overrides the
+`m10/SCOPE.md` item 34 and the code on master. Section 0 is the admission check; it overrides the
 row's text and item 34's sketch where they differ.*
 
 ## 0. Admission check against master (21 October 2026, `a429af749f4`)

@@ -826,7 +826,7 @@ two sides moving in both directions by tens of per cent with the code unchanged.
   with the queries' own.
 * On a 4-core GitHub runner (#900) the warm-up reached `COMPILED` on 20 of 25 shapes in three of
   four JVMs and on all 25 in the fourth, and the steady-state rows moved from 70 to 3,876 ms
-  between JVMs for the same code (`m9/SCOPE.md` item 103).
+  between JVMs for the same code (`m10/SCOPE.md` item 103).
 * So read the verdict column before any row of a cold-start table, and read a row whose verdict
   is `RELEASED` as a measurement of the row engine: a pair with a `RELEASED` side is neither a
   regression nor a win, and the cold-start headline is quoted with that spread stated. It is

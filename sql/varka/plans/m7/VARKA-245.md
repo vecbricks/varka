@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 245 of `m7/PLAN.md`, item 59 step 3 of `m9/SCOPE.md`: "Item 58's proofs re-stated as refinements
+Row 245 of `m7/PLAN.md`, item 59 step 3 of `m10/SCOPE.md`: "Item 58's proofs re-stated as refinements
 of the spec, soundness and guard completeness, in Spark mode and in standard mode; the standard-mode
 register cites the standard-mode theorems as its bounds." The proofs of rows 240 to 242 show a
 lowering equal to a Java formula - the multiply-high equal to `/`, a calendar site's magic equal to

@@ -2,7 +2,7 @@
 
 ## 1. Where this came from
 
-Row 267 of `m7/PLAN.md`, from the plan review (2.3) and `m9/SCOPE.md` item 74: after row 251 split
+Row 267 of `m7/PLAN.md`, from the plan review (2.3) and `m10/SCOPE.md` item 74: after row 251 split
 `VarkaEvaluatorBase` into six Java components, the evaluators themselves stayed Scala:
 `VarkaEvaluatorBase` (559 lines, now a composition of those components), `VarkaKernelEvaluator`
 (397), `VarkaFilterEvaluator` (389), `VarkaKernelPart` (60), `VarkaVectorProjection` (86),

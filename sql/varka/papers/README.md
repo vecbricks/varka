@@ -82,15 +82,15 @@ different set of losses and silently invalidate the header.
 | file | paper | read by |
 |---|---|---|
 | `neri-schneider-2022-euclidean-affine-functions.md` | Neri and Schneider, "Euclidean affine functions and their application to calendar algorithms", SPE 53(4), 2023 | `plans/m4/VARKA-53.md`, and the background for `VARKA-26.md`'s admission check |
-| `lang-2020-simd-control-flow-divergence.md` | Lang, Passing, Kipf, Boncz, Neumann and Kemper, "Make the most out of your SIMD investments: counter control flow divergence in compiled query pipelines", VLDB Journal 29, 2020 | `plans/m9/SCOPE.md` Items 16, 17, 23 and 25 (selection narrowing and its threshold) |
-| `ngom-2021-filter-representation.md` | Ngom, Menon, Butrovich, Ma, Lim, Mowry and Pavlo, "Filter Representation in Vectorized Query Execution", DaMoN 2021 | `plans/m9/SCOPE.md` Items 3, 16 and 25 (bitmap against selection vector, and the crossover model) |
-| `benson-2023-simd-compiler-intrinsics.md` | Benson, Ebeling and Rabl, "Evaluating SIMD Compiler-Intrinsics for Database Systems", ADMS 2023 | `plans/m9/SCOPE.md` Items 19, 22 and 25 (the compress and PEXT gate), `plans/m4/VARKA-62.md` section 11 |
-| `schmidt-2025-mimd-simd-interplay.md` | Schmidt, Pietrzyk, Hildebrandt and co-authors, "Rethinking MIMD-SIMD Interplay for Analytical Query Processing in In-Memory Database Engines", CIDR 2025 | `plans/m9/SCOPE.md` Item 25 (the concurrency regime the public write-up must state) |
-| `slesarenko-2014-isomorphic-specialization.md` | Slesarenko, Filippov and Romanov, "First-class Isomorphic Specialization by Staged Evaluation", WGP '14 | `plans/m9/SCOPE.md` Item 11 (physical representation as a compiler decision: isos as first-class conversion nodes) |
-| `lemire-2021-number-parsing-gigabyte-per-second.md` | Lemire, "Number Parsing at a Gigabyte per Second", SPE 51(8), 2021 | `plans/m8/VARKA-366.md` 2.1 and 2.2 (the exact decimal-to-floating arm: Algorithm 1, Theorem 1, Corollary 2, Lemma 3, Table 4) |
-| `mushtak-lemire-2023-fast-number-parsing-without-fallback.md` | Mushtak and Lemire, "Fast Number Parsing Without Fallback", SPE 53(6), 2023 | `plans/m8/VARKA-366.md` and row 364 (that the abort of the Lemire file's Algorithm 1 never fires, at any scale) |
+| `lang-2020-simd-control-flow-divergence.md` | Lang, Passing, Kipf, Boncz, Neumann and Kemper, "Make the most out of your SIMD investments: counter control flow divergence in compiled query pipelines", VLDB Journal 29, 2020 | `plans/m10/SCOPE.md` Items 16, 17, 23 and 25 (selection narrowing and its threshold) |
+| `ngom-2021-filter-representation.md` | Ngom, Menon, Butrovich, Ma, Lim, Mowry and Pavlo, "Filter Representation in Vectorized Query Execution", DaMoN 2021 | `plans/m10/SCOPE.md` Items 3, 16 and 25 (bitmap against selection vector, and the crossover model) |
+| `benson-2023-simd-compiler-intrinsics.md` | Benson, Ebeling and Rabl, "Evaluating SIMD Compiler-Intrinsics for Database Systems", ADMS 2023 | `plans/m10/SCOPE.md` Items 19, 22 and 25 (the compress and PEXT gate), `plans/m4/VARKA-62.md` section 11 |
+| `schmidt-2025-mimd-simd-interplay.md` | Schmidt, Pietrzyk, Hildebrandt and co-authors, "Rethinking MIMD-SIMD Interplay for Analytical Query Processing in In-Memory Database Engines", CIDR 2025 | `plans/m10/SCOPE.md` Item 25 (the concurrency regime the public write-up must state) |
+| `slesarenko-2014-isomorphic-specialization.md` | Slesarenko, Filippov and Romanov, "First-class Isomorphic Specialization by Staged Evaluation", WGP '14 | `plans/m10/SCOPE.md` Item 11 (physical representation as a compiler decision: isos as first-class conversion nodes) |
+| `lemire-2021-number-parsing-gigabyte-per-second.md` | Lemire, "Number Parsing at a Gigabyte per Second", SPE 51(8), 2021 | `plans/m9/VARKA-366.md` 2.1 and 2.2 (the exact decimal-to-floating arm: Algorithm 1, Theorem 1, Corollary 2, Lemma 3, Table 4) |
+| `mushtak-lemire-2023-fast-number-parsing-without-fallback.md` | Mushtak and Lemire, "Fast Number Parsing Without Fallback", SPE 53(6), 2023 | `plans/m9/VARKA-366.md` and row 364 (that the abort of the Lemire file's Algorithm 1 never fires, at any scale) |
 
-Eleven further papers were read for `plans/m9/SCOPE.md` Item 25 on 16
+Eleven further papers were read for `plans/m10/SCOPE.md` Item 25 on 16
 September 2026 (Willhalm 2009, Raducanu 2013, Polychroniou 2015 and 2019, Feng
 2015, Lang 2018, Kersten 2018, Shen 2021, Behm 2022, Boether 2023, Boivin 2026).
 Their printed terms - ACM copyright with a permission notice, Creative Commons
@@ -105,7 +105,7 @@ The default above stands for the next paper.
 
 Lemire, "Number Parsing at a Gigabyte per Second" (SPE 2021), and Mushtak and
 Lemire, "Fast Number Parsing Without Fallback" (SPE 2023), were read on 30
-October 2026 for `plans/m8/VARKA-366.md`. Both are arXiv postings, but unlike
+October 2026 for `plans/m9/VARKA-366.md`. Both are arXiv postings, but unlike
 arXiv's default non-exclusive licence, which grants no right to copy, these two
 deposits carry Creative Commons Attribution 4.0, which permits a copy with
 attribution; so both are transcribed above.
