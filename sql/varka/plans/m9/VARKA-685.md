@@ -116,8 +116,9 @@ fact was read in `/home/max/proj/varka-657-plan-w`, whose main sources equal the
    Command: `grep -c 'runner.fill(input, len);' $E/varka/VarkaWarmupGate.java` prints 1.
 4. **A projection can hold several kernels.** `VarkaKernelPart extends VarkaEvaluatorBase` is
    one further kernel; `VarkaKernelEvaluator` overrides `canRun`, `kernelReady` and
-   `emissionFailed` to ask every part, each part with no short circuit. So the list of kernels
-   by form belongs in `VarkaEvaluatorBase`, and each part gets its own.
+   `emissionFailed` to ask its parts. Only `kernelReady` asks every part; the other two stop
+   at the first that answers. So the list of kernels by form belongs in `VarkaEvaluatorBase`,
+   and each part gets its own.
    Command: `grep -c 'all &= part.kernelReady(input);' $E/VarkaKernelEvaluator.java` prints 1.
 5. **Tests call the kernel path with no `serveBatch`.** `VarkaKernelEvaluatorSuite` calls
    `kernels.project(input)` after `canRun` alone. So a step that must run once a batch cannot
@@ -201,7 +202,7 @@ and `current` is that element for the whole task. Every method that read a field
 | `serveBatch`, the row-path failure's context | reads `current.runner` |
 
 `emitOptions()`, `warmed()`, the scratch, the accounting, the ledger and the plan stay the
-evaluator's: they do not differ by form. A log line names the current kernel.
+evaluator's: they do not differ by form.
 
 **How no emitted byte is shown to move.** The part edits one main file, in `sql/core`. A diff
 of `sql/catalyst/src/main` against the merge base prints nothing, so
@@ -238,9 +239,12 @@ out of the runner into a new class of the evaluator, `E/varka/VarkaBatchRanges.j
   `zone.toLocalArgs(ranges.least(p), ranges.greatest(p), steps, longArgs, first)`, which still
   throws when the changes exceed the steps. The runner's `long[2]` field goes.
 
-The evaluator measures in a new private method, `prepare(input)`. In part b it declines the
-batch (`VarkaBatchDeclined(STATUS_BATCH_ARGS)`) when the need is more than its one kernel's
-steps. An evaluator with no zone program has no ranges, and `prepare` is a field read.
+The evaluator measures in a new private method, `prepare(input)`. Its first statement is
+`fusedRunner()`, which builds the ranges with the first runner. Without it a `kernelReady`
+asked before any `canRun` would set `prepared` with nothing measured, and the kernel call
+after it would fill neutral arguments: UTC's answers under a zone. In part b `prepare`
+declines the batch (`VarkaBatchDeclined(STATUS_BATCH_ARGS)`) when the need is more than its
+one kernel's steps. An evaluator with no zone program has no ranges and measures nothing.
 
 **Once a batch, for every caller.** `kernelReady(input)` calls `prepare` first, before it asks
 whether the warm-up is on, and sets a field `prepared`; the warm-up's `runner.fill` then reads
@@ -274,12 +278,20 @@ so a batch that was prepared and then took the row path leaves nothing for the n
 - **An emission under the default, with no evaluator** (fact 9): the compiler's admission at
   plan time, the suites that emit coverage rows, `dev/varka_emit.sh`. Each reader of the form
   in the emitter calls `VarkaZoneLadder.emitted(options)`: the options' own form, and for
-  `LADDER` the constant `ADMISSION`, `STEPS_8`, the rung with the most lane calls. So the
-  compiler admits a zoned shape by its largest rung, and a shape that fits at eight steps fits
-  at fewer. It is one rule in one method, not a choice the emitter makes.
+  `LADDER` the constant `ADMISSION`, `STEPS_8`, the rung with the most lane calls. It is one
+  rule in one method, not a choice the emitter makes.
+- **Admission and grouping.** On the base `VarkaLoopEmitter.fitsBudgets` reads heights,
+  columns, the node count and the plan's refusal, and no weight: its answer is the same for
+  every rung. Grouping differs: the weight that packs outputs into methods is
+  `VarkaEmitBudget.weightOf(node, options, narrow)`, by row 682 the lane calls of
+  `emitted(options)`, so 1, 5 or 17 for a rung's kernel, against `GROUP_BUDGET`, 16. A lighter
+  rung packs more outputs into one method than the admission form did, and nothing proves
+  that method within the emitter's limits. A test holds it: every rung emits every zoned
+  coverage row and a projection of sixteen zoned outputs (5.3).
 - **A shape with no zone node** never reads the form. Its key under the defaults renders as it
   did (`zoneForm` shows in `canonical()` only off its default), so its class name and bytes
-  do not move. **`ToLocal.props()`** takes the admission form's weight, 17 (`1 + 2 * 8`).
+  do not move. **`ToLocal.props()`** takes the admission form's weight, 17 (`1 + 2 * 8`);
+  only a reader with no options sees it (`weightOf(node)`, the budget suite's register).
 
 `VarkaZoneLadder`, new, `V/VarkaZoneLadder.java`, a final class of statics:
 
@@ -308,9 +320,9 @@ In part c `prepare(input)` becomes, for an evaluator with zone programs:
 `sessionEmit.declineTwoLaneConditions()`: the host's reading that row 503's refusal uses, true
 where 64-bit masks at two lanes fall back to Java. By fact 13 eight masked steps are then
 slower than the row path and two are faster, so the ladder stops at `STEPS_2` and a batch that
-needs more takes the row path, as G7 asks. Row 689 gives the steps a form with no mask; once
-its option `zoneStepMask` exists the argument is `declineTwoLaneConditions() &&
-emitOptions.zoneStepMask()`.
+needs more takes the row path, as G7 asks. A test that must reach `STEPS_8` sets that conf
+to false (5.3). Row 689 gives the steps a form with no mask; once its option `zoneStepMask`
+exists the argument is `declineTwoLaneConditions() && emitOptions.zoneStepMask()`.
 
 The choice adds no pass and no call: the pass and `changes` move from row 682's fill to
 `prepare`. What is new is one compare a rung and one array read.
@@ -366,16 +378,16 @@ other form for it. That is what a matrix arm checks: each form alone, on every b
 - **The matrix.** The arms that differ from the default are now `zoneForm=ONE`,
   `zoneForm=STEPS_2` and `zoneForm=STEPS_8`: one configuration more, the old default.
 - **Reach.** The house rule sends an option that an evaluator reads as it runs to
-  `VarkaTestReach.FULL`. It does not apply: the evaluator reads the option only to pick the
-  key it looks up, and the record hears every lookup (fact 11). A test that looked up another
-  rung than the configuration's is rerun; one whose every lookup was that rung behaves the
-  same under it. So `FULL` gains no entry (risk 6).
+  `VarkaTestReach.FULL`, and the evaluator reads `zoneForm` to choose between the ladder and
+  a forced decline. So `FULL` gains `zoneForm`, as it holds `exactRefusalStatus`, and each of
+  its three configurations runs every test. The record hears every lookup (fact 11), which
+  may make the entry more than is needed: lifting it is the owner's decision (risk 6).
 - **The pins.** `emitted_bytes.json` and `width_audit.json` pin the coverage rows under the
   defaults. A zoned row's digests move once, from two steps to the admission form's eight; no
   other row's move. `coverage.json` and the generated table of `docs/sql-varka.md` move by
   the note of 5.3 step 9. `pinnedArms` gains nothing.
 - **The skip list.** Row 657's lines under `zoneForm=ONE` stay true; this row's tests set the
-  form they test, the ladder included, and need no line (5.3 step 11).
+  form they test, the ladder included, and need no line (5.3 step 12).
 
 ### 4.9 Edge cases, and what declines
 
@@ -421,7 +433,8 @@ two runs. The week's section runs `ONE`, which is what part e would give the yea
 
 Four pull requests, and a fifth that the gate decides. Each sheet follows
 `sql/varka/plans/m8/BUILD_SHEETS.md`. Part a's last step makes row 685's line in
-`sql/varka/plans/m9/PLAN.md` open with `**Started**`, part d's `**Done**`. Every shell starts:
+`sql/varka/plans/m9/PLAN.md` read `**Started**` for `**Planned**`, part d's `**Done**`. No
+branch is named `varka-685`, which held this plan. Every shell starts:
 
     export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
     V=sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka
@@ -459,7 +472,7 @@ A ScalaTest run passes with `failed 0` and no `*** FAILED ***`; a JUnit class pr
     grep -c 'private def evaluator(' $XS/VarkaKernelEvaluatorSuite.scala                      # 1
     grep -c 'Optional<PartialVarkaProjection> partialPlan() {' $E/VarkaKernelEvaluator.java   # 1
 
-**Steps.** One main file, `E/VarkaEvaluatorBase.java`.
+**Steps.** One main file, `E/VarkaEvaluatorBase.java`; a suite; the row's line.
 
 1. Add the class `Kernel` of 4.1 after the `RUNNER_HOOKS` field, with one constructor,
    `Kernel(VarkaEmitOptions options)`.
@@ -485,12 +498,9 @@ A ScalaTest run passes with `failed 0` and no `*** FAILED ***`; a JUnit class pr
    `runner != null ? runner.shapeHash : null` reads `current.runner` in both places.
 8. `XS/VarkaKernelEvaluatorSuite.scala`: the two tests below, after "the emit.useAVX level
    reaches the shape key".
+9. `sql/varka/plans/m9/PLAN.md`, row 685: `**Planned**` becomes `**Started**`.
 
 **Tests.**
-
-| Test | What it holds | The failure only it catches |
-|---|---|---|
-| the evaluator's kernel is**Tests.**
 
 | Test | What it holds | The failure only it catches |
 |---|---|---|
@@ -501,7 +511,7 @@ A ScalaTest run passes with `failed 0` and no `*** FAILED ***`; a JUnit class pr
 
     flock "$VARKA_HEAVY_LOCK" build/sbt -batch 'sql/testOnly *VarkaKernelEvaluatorSuite *VarkaEvaluatorComponentsSuite *VarkaSeveralKernelsSuite *VarkaFilterExecSuite *VarkaProjectExecSuite *VarkaWarmupEndToEndSuite *VarkaFallbackReasonSuite *VarkaBatchArgRunnerSuite *VarkaTimestampZoneQuerySuite *VarkaTimestampZoneSuite'
     git diff --stat $(git merge-base origin/master HEAD) -- sql/catalyst/src/main | wc -l
-    dev/varka_regen_generated.sh
+    dev/varka_regen_generated.sh --all --full
     git diff --exit-code -- sql/varka/emitted_bytes.json sql/varka/coverage.json sql/varka/width_audit.json
     python3 dev/varka_push_check.py
 
@@ -549,7 +559,8 @@ the suite's call that runs the kernel on a batch: the new tests use both. With n
      layout is not empty (`input[p]` from `VarkaBatchArgs.operandColumn`, `zone[p]` from
      `zoneData()`, a missing zone throwing as row 682 has it); set `kernel.steps` to the steps
      of `kernel.options.zoneForm()`; pass `ranges` to the runner.
-   - `private void prepare(ColumnarBatch input)`: when `ranges` is not null, `need =
+   - `private void prepare(ColumnarBatch input)`: first `fusedRunner();`, which builds
+     `ranges` with the runner (4.2). Then, when `ranges` is not null, `need =
      ranges.measure(input, input.numRows(), inputOrdinals)`, and `need > current.steps` throws
      `new VarkaBatchDeclined(VarkaKernelRunner.STATUS_BATCH_ARGS)`. Then `prepared = true`.
    - `kernelReady`: its first statement is `prepare(input);`. `batchRunner` of 4.2, after
@@ -560,7 +571,7 @@ the suite's call that runs the kernel on a batch: the new tests use both. With n
    `E/VarkaKernelEvaluator.java`: override `discardPrepared()`: `super`, then each of `parts()`.
 5. `XS/VarkaBatchArgRunnerSuite.scala`: a private class `CountingZone(inner: VarkaZoneData)
    extends VarkaZoneData` that delegates the six methods and counts the calls of `changes`;
-   the three tests below, over an evaluator whose `zoneData()` wraps the suite's provider in it.
+   the four tests below, over an evaluator whose `zoneData()` wraps the suite's provider in it.
 
 **Tests** added to `VarkaBatchArgRunnerSuite`:
 
@@ -568,6 +579,7 @@ the suite's call that runs the kernel on a batch: the new tests use both. With n
 |---|---|---|
 | a batch's range is measured once, before the fill | three batches through `serveBatch`: `changes` was asked three times, and the answers equal the reference | a pass that still runs in `fill`, once a form |
 | a caller with no serveBatch measures the batch itself | the suite's direct kernel call on a summer batch, then on a winter batch: each answer is its own batch's | a kernel path that reads the ranges of an earlier batch |
+| a batch whose readiness is asked before any canRun is still measured | a fresh evaluator, no `canRun`: `kernelReady` on a summer batch, then the direct kernel call on it: summer's answers | ranges built after `prepared` was set: neutral arguments, UTC's answers under a zone |
 | a batch that was prepared and not run leaves nothing behind | `serveBatch` on a summer batch with a kernel path that throws `new VarkaBatchDeclined(VarkaKernelRunner.STATUS_FORCED)`, then the direct call on a winter batch: winter's answers | `discardPrepared` missing: the next batch runs with stale arguments, a wrong answer |
 
 **Commands.**
@@ -577,7 +589,7 @@ the suite's call that runs the kernel on a batch: the new tests use both. With n
     git diff --stat $(git merge-base origin/master HEAD) -- sql/catalyst/src/main | wc -l
     python3 dev/varka_push_check.py
 
-Expected: `failed 0` and `Failed 0, Errors 0` in both runs, none canceled, the three new
+Expected: `failed 0` and `Failed 0, Errors 0` in both runs, none canceled, the four new
 tests among the passed; the third prints 0; the push check exits 0.
 
 **Planted faults:**
@@ -587,6 +599,7 @@ tests among the passed; the third prints 0; the push check exits 0.
 | `fill` calls `zone.changes` again before `toLocalArgs` | a batch's range is measured once (six calls, not three) |
 | `discardPrepared` does nothing | a batch that was prepared and not run leaves nothing behind |
 | `batchRunner` never calls `prepare` | a caller with no serveBatch measures the batch itself |
+| `prepare` does not call `fusedRunner()` first | a batch whose readiness is asked before any canRun is still measured |
 
 **Done when** the commands print the above and the faults fail as named. **Not here:** a
 second kernel, `LADDER`, a change of a default, a file under `sql/catalyst`.
@@ -606,12 +619,14 @@ second kernel, `LADDER`, a change of a default, a file under `sql/catalyst`.
     grep -c 'hour(ltzy)' $TS/VarkaCoverageSuite.scala                                         # at least 1 (row 657)
     dev/varka_matrix.sh --list | grep -c 'zoneForm='                                           # 2
     grep -c 'zoneStepMask' $V/VarkaEmitOptions.java                                           # 0, or step 6's second form
-    grep -rn 'zoneForm()' sql/catalyst/src/main | grep -v 'VarkaEmitOptions.java\|VarkaEmitOption.java'
+    grep -rn 'zoneForm()' sql/catalyst/src sql/core/src | grep -v 'VarkaEmitOptions.java\|VarkaEmitOption.java'
     grep -n 'new ToLocal' $TS/VarkaEmitterBudgetSuite.scala
+    grep -c '"exactRefusalStatus"' $TJ/VarkaTestReach.java                                    # 1
+    grep -c 'private def methodHashes(roots: Seq\[VarkaVectorIR\], numInputs: Int, numLiterals: Int,' $TS/VarkaEmittedBytesSuite.scala   # 1
 
-The last two print lists: the readers of step 4 (expect `VarkaBatchArgs`, `VarkaZoneLowering`,
-`VarkaEmitBudget` and the slot planning; a reader in a `Varka*Compiler.java` is a stop), and
-the budget rows of step 8.
+The two lists: the readers of steps 4 and 8, in main and in tests (in catalyst's main expect
+`VarkaBatchArgs`, `VarkaZoneLowering`, `VarkaEmitBudget` and the slot planning; a reader in a
+`Varka*Compiler.java` is a stop), and the budget rows of step 8.
 
 **Steps.**
 
@@ -619,8 +634,13 @@ the budget rows of step 8.
    `DEFAULTS` holds `ZoneForm.LADDER`; the option's `@param` says what 4.3 says.
 2. `V/VarkaEmitOption.java`: the `zoneForm` entry's default is `ZoneForm.LADDER`.
 3. `V/VarkaZoneLadder.java`: new, as 4.3, with `LADDER_REASON`.
-4. Each reader B0 printed: `options.zoneForm()` becomes `VarkaZoneLadder.emitted(options)`.
+4. Each reader B0 printed in main, and each in a test class that is no suite and takes the
+   steps of a kernel's own options (the fixtures, row 684's fuzz harness, a filler):
+   `options.zoneForm()` becomes `VarkaZoneLadder.emitted(options)`. A harness so sizes and
+   fills batch arguments as the emitter laid them out, under every arm.
    `V/VarkaVectorIR.java`: the weight in `ToLocal.props()` becomes 17.
+   `TJ/VarkaTestReach.java`, `fullRun`: `full.put("zoneForm", "read by the evaluator as it
+   runs, to take a rung or to decline a batch");`.
 5. `E/VarkaExecMetrics.java`: the component `List<SQLMetric> servedByZoneForm`, last; the
    compact constructor copies it and accepts an empty list or one of `RUNGS.size()`; `NONE`
    passes `List.of()`; `public static String zoneFormKey(ZoneForm form)` returns
@@ -650,21 +670,23 @@ the budget rows of step 8.
      current.rung);`.
 7. `E/VarkaKernelEvaluator.java`: override `countServed()`: `super`, then each of `parts()`.
 8. The suites of rows 682, 684 and 657 that read the default as two steps. Run the first two
-   commands below. A test that fails because its options name no form gets
-   `.withZoneForm(ZoneForm.STEPS_2)` on those options and no other edit; a row or assertion
-   that pins the default weight of `ToLocal` at 5 takes 17. Any other failure is a stop.
+   commands below. A test that fails because its options name no form, and that step 4's
+   harness edit does not mend, takes `STEPS_2` only where its base's form is `LADDER`
+   (`base.zoneForm() == ZoneForm.LADDER ? base.withZoneForm(ZoneForm.STEPS_2) : base`), so it
+   still follows the arms `zoneForm=ONE` and `zoneForm=STEPS_8`. It gets no other edit. A row
+   or assertion that pins the default weight of `ToLocal` at 5 takes 17. Else stop.
 9. `TS/VarkaCoverageSuite.scala`: in the note of `hour(ltzy)`, "up to two steps a batch"
    becomes "up to eight steps a batch, in the least form that covers the batch". If the note
    lacks those words, stop.
 10. `docs/sql-varka.md`, by hand: the metrics' list gains `numZoneFormBatches[<form>]`; the
     sentence on `batch-args` takes 4.9's words; "Timestamps in the session time zone" gains
     two sentences on the ladder and one on the two cache metrics (4.7).
-11. `dev/varka_regen_generated.sh --all`. Then `dev/varka_matrix.sh --config zoneForm=ONE
+11. The tests below.
+12. `dev/varka_regen_generated.sh --all`. Then `dev/varka_matrix.sh --config zoneForm=ONE
     --config zoneForm=STEPS_2 --config zoneForm=STEPS_8 --module sql --suites
     VarkaTimestampZoneSuite,VarkaTimestampZoneQuerySuite,VarkaBatchArgRunnerSuite,VarkaCoverageHarnessSuite,VarkaCoverageDifferentialSuite`.
     A stale line of `zoneForm=ONE` that it names is deleted. A failure under `zoneForm=STEPS_2`
     or `zoneForm=STEPS_8`, or of a test this part adds, is a stop: no new line is expected.
-12. The tests below.
 
 **Tests.** `TJ/VarkaZoneLadderSuite.java`, new, JUnit 5, `@VarkaSuite`, six tests:
 
@@ -677,7 +699,17 @@ the budget rows of step 8.
 | an emission under `LADDER` is the admission form's: `emitted` of the defaults is `ADMISSION`, and `(toLocal:0 col:0:long)` emitted under `VarkaEmitOptions.DEFAULTS` has the methods and code lengths (`VarkaEmittedClass.measure(bytes).codeLength`) of `DEFAULTS.withZoneForm(ZoneForm.STEPS_8)` | a reader that step 4 missed |
 | the defaults' `canonical()` holds no `zoneForm=`, and `withZoneForm(STEPS_2)` shows `zoneForm=STEPS_2` | a shape with no zone node whose class name moved |
 
-`XS/VarkaBatchArgRunnerSuite.scala`. A helper `served(evaluator, warmed)` returns the rung
+`TS/VarkaEmittedBytesSuite.scala`, one test, "every rung of the ladder emits every zoned
+shape": for each rung of `RUNGS` and each of the suite's `widths`, the suite's `methodHashes`
+with the arm `_.withZoneForm(rung)` throws nothing on every coverage row whose roots hold a
+`ToLocal` (at least one does), and on sixteen outputs `new ToLocal(new ColumnRef(i,
+LaneType.LONG), 0)`, `i` from 0 to 15. Only it catches a lighter rung whose grouping crosses
+a limit the admission form never met: a throw in the middle of a task (4.3). Its failure is
+a stop: the remedy, grouping every rung at one weight, moves bytes.
+
+`XS/VarkaBatchArgRunnerSuite.scala`. The new tests' evaluators take `VarkaSessionEmit
+.DEFAULTS`, whose `declineTwoLaneConditions` is false: no host decides them. A helper
+`served(evaluator, warmed)` returns the rung
 `f` for which `evaluator.kernelIdentity` starts with `VarkaShapeCache.sourceFileFor(
 VarkaShapeCache.shapeHash(new VarkaShapeKey(plan.outputs, plan.inputOrdinals.size,
 plan.numLiterals, base.withZoneForm(f), warmed)))`, with `base = VarkaMatrixRuns.BASE
@@ -690,14 +722,19 @@ read from `ZoneRules.nextTransition`. Each kernel path given to `serveBatch` is
 |---|---|---|
 | under the ladder each batch runs the least form that covers it | batches of 0, 1, 2, 3, 8 and 9 changes: `served` is `ONE`, `STEPS_2`, `STEPS_2`, `STEPS_8`, `STEPS_8`; the last declines with `batch-args`; every answer equals the reference | a batch on a dearer form than it needs |
 | no batch runs twice | over the same six batches the output allocator is asked once an output a served batch, and `changes` once a batch | a second run of a batch on another form |
-| a form first needed in the middle of a task is built then, and the earlier form still serves | batches of 0, 3, 0 changes: `served` is `ONE`, `STEPS_8`, `ONE`; `hitCount + missCount` of the cache rises by 1 at the second batch and by 0 at the third | a rung built again, or a task stuck on its widest rung |
+| a form first needed in the middle of a task is built then, and the earlier form still serves | batches of 0, 3, 0, 2 changes: `served` is `ONE`, `STEPS_8`, `ONE`, `STEPS_2`; `hitCount + missCount` of the cache rises by 1 at `canRun`, at the second batch and at the fourth, by 0 at the third: three lookups in all | a rung built again, or a task stuck on its widest rung |
 | a forced form declines what it does not cover and takes no other | `STEPS_2` with 3 changes and `ONE` with 1: declined with `batch-args`; `served` stays the forced form | a matrix arm that the ladder quietly rescues |
 | two tasks of one projection choose apart | two evaluators of one plan, one fed 0 changes and one 3, then swapped: each batch is served by its own rung with its own answers | a rung or a range shared between tasks |
 | a session whose masks fall back at two lanes stops at two steps | an evaluator built with a `VarkaSessionEmit` whose `declineTwoLaneConditions` is true: 2 changes are served by `STEPS_2`, 3 decline with `batch-args` | eight masked steps, slower than the row path |
 | while a form warms, a wider compiled form serves, and with none the batch waits on the row path | evaluators with the warm-up on (`assert(VarkaKernelWarmup.warms(true))`; if false, stop). The warmth of `STEPS_2`'s warmed entry is released and that of `ONE`'s claimed, both through `VarkaShapeCache.getOrEmit(key, "t").entry.warmth`. An evaluator fed 2 changes, then 0: `served` is `STEPS_2` twice. A fresh evaluator fed 0: `kernelReady` is false. `ONE`'s warmth is released in a `finally` | a ladder slower than the form it replaced |
 
 `XJ/VarkaTimestampZoneSuite.java`, three tests on the suite's own fixture of a zone and a
-window, the form set as the suite sets one (`VarkaMatrixRuns.BASE.withZoneForm(LADDER)`):
+window, the form set as the suite sets one (`VarkaMatrixRuns.BASE.withZoneForm(LADDER)`).
+Each adds `spark.sql.codegen.varka.declineTwoLaneConditions=false` to the suite's conf, and
+so does the query suite's test below, by `withSQLConf`. Unset, the conf is the host's answer:
+true under `-XX:MaxVectorSize=16`, where the ladder stops at `STEPS_2` (4.4) and a test that
+expects `STEPS_8` fails. Set to false, the tests check every rung at every width; the cap
+has its own test above. A branch on `VarkaKernelPlan.twoLaneMasksFallBack` would test less.
 
 | Test | The failure only it catches |
 |---|---|
@@ -718,9 +755,9 @@ set to `LADDER` where that test pins `STEPS_2`:
     flock "$VARKA_HEAVY_LOCK" build/sbt -batch 'sql/testOnly *VarkaBatchArgRunnerSuite *VarkaTimestampZoneSuite *VarkaTimestampZoneQuerySuite *VarkaKernelEvaluatorSuite *VarkaEvaluatorComponentsSuite *VarkaSeveralKernelsSuite *VarkaWarmupEndToEndSuite *VarkaFamilySwitchQuerySuite'
     dev/varka_regen_generated.sh --all
     python3 dev/varka_bytes_moved.py origin/master --ignore option_arms | grep -v 'ltzy\|fuzz_long\|fuzz_mixed' | wc -l
-    git status --short > target/status-685.txt
-    JDK_JAVA_OPTIONS=-XX:UseAVX=2 dev/varka_regen_generated.sh --all
-    git status --short | diff - target/status-685.txt
+    git status --short > target/status-685.txt; git diff > target/diff-685.txt
+    JDK_JAVA_OPTIONS=-XX:UseAVX=2 dev/varka_regen_generated.sh --all --full
+    git status --short | diff - target/status-685.txt; git diff | diff - target/diff-685.txt
     flock "$VARKA_HEAVY_LOCK" build/sbt -batch 'catalyst/testOnly *VarkaCoverageSuite *VarkaEmittedBytesSuite *VarkaWidthAuditSuite *VarkaWarmupReachSuite' 'sql/testOnly *VarkaCoverageHarnessSuite *VarkaCoverageDifferentialSuite'
     dev/varka_matrix.sh --list | grep -c 'zoneForm='
     python3 dev/varka_push_check.py
@@ -728,7 +765,8 @@ set to `LADDER` where that test pins `STEPS_2`:
 Expected: the first two print `failed 0` and `Failed 0, Errors 0`; `VarkaZoneLadderSuite` prints
 `Passed: Total 6, Failed 0, Errors 0, Passed 6`. The fourth prints 0: every digest that moved
 is a coverage row's over `ltzy`, or a long or mixed fuzz block, which holds a `ToLocal` only
-once row 684's draw has merged. The `diff` prints nothing: the AVX2 run changes no file. The
+once row 684's draw has merged. Both `diff`s print nothing: the AVX2 run changes no file's
+state and no file's contents. The
 suites of the next command pass; row 655's queries suites pass unchanged, ten years in no
 order still `ALL_FALL_BACK`. The matrix lists 3. The push check exits 0.
 
@@ -771,24 +809,26 @@ docs' line) becomes a pull request of its own after this one. **Not here:** the 
 2. The dry run below. The lead dispatches the timed run on the EPYC 7763 runners at 256 and
    128 bits and commits `sql/core/benchmarks/VarkaZoneLadderBenchmark-jdk25-results.txt` and
    its `-jdk25-128bit-results.txt` companion from the run's artifact.
-3. `sql/varka/skills/`: one `##` section, in the file on the evaluator: a step that must run
-   once a batch has two callers, `serveBatch` and a direct call, and `prepared` joins them.
+3. `sql/varka/skills/testing-and-debugging.md`: one `##` section: a step that must run once
+   a batch has two callers, `serveBatch` and a direct call, and `prepared` joins them.
    Then `dev/varka_toc.py SKILLS.md --from sql/varka/skills`.
-4. This plan's section 11 and the row's line in `PLAN.md`: each prediction scored, the gate of
-   part e read once row 691's results exist, each scored time prediction added with
-   `dev/varka_calibration.py --add-row`.
+4. This plan's section 11 and the row's line in `PLAN.md`, which reads `**Done**`: P1 to P9,
+   P11 and P12 scored, each scored time prediction added with `dev/varka_calibration.py
+   --add-row`. P10 and the gate of part e are not scored here, since row 691 needs this row
+   first. Both texts say "P10 and the gate of 4.10 are read by row 691"; row 691's close
+   writes them into section 11, and part e, if the gate opens, follows it.
 
 **Commands.**
 
     flock "$VARKA_HEAVY_LOCK" build/sbt -batch "project sql" 'set Test/javaOptions += "-Dvarka.bench.dryRun=true"' "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaZoneLadderBenchmark" 'set Test/javaOptions += "-XX:MaxVectorSize=32"' "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaZoneLadderBenchmark" 'set Test/javaOptions += "-XX:MaxVectorSize=16"' "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaZoneLadderBenchmark" > target/dry-685.log 2>&1; echo $?
     grep -c 'Exception' target/dry-685.log
-    python3 dev/varka_plan_lint.py --check --offline
+    python3 dev/varka_plan_lint.py --check --offline sql/varka/plans/m9/PLAN.md
     python3 dev/varka_push_check.py
 
 Expected: `0`; `0`; the lint and the push check exit 0. **Done when** the dry run passes at
 three widths, the lead has committed both results files, and every prediction of section 7
-has a score. **Not here:** a timed run on the shared laptop, a change to main code, a number
-in a document that is not in a results file.
+but P10 has a score. **Not here:** part e's gate, a timed run on the shared laptop, a change
+to main code, a number in a document that is not in a results file.
 
 ### 5.5 Part e: the fields that need no offset (only if the gate of 4.10 opens)
 
@@ -849,10 +889,11 @@ and the four faults fail as named. **Not here:** a new form, a status, the lower
 | `VarkaTimestampZoneSuite` (row 657, extended) | Java, sql/core | a year and `Africa/Casablanca` decline no batch; ten years decline | a ladder that agrees with Spark only where two steps did |
 | `VarkaTimestampZoneQuerySuite` (row 657, extended) | Scala, sql/core | the plan's metrics by form | a count the user cannot see |
 | `VarkaKernelEvaluatorSuite` (extended) | Scala, sql/core | the refactoring: one class, one lookup | a runner built again a batch |
+| `VarkaEmittedBytesSuite` (extended) | Scala, catalyst | every rung emits every zoned coverage row and sixteen zoned outputs | a rung that cannot emit a shape the admission form admitted |
 | the suites of rows 682, 684 and 657, and row 655's queries suites | existing | every forced form, every zone, each section's batch check | a default that moved an answer |
 
 - **Unchanged suites.** After parts a and b every existing suite passes with no edit; after
-  part c the only edits to existing tests are step 8's.
+  part c the only edits to existing tests and harnesses are steps 4's and 8's.
 - **Proofs.** No lowering is added, so no proof file. The choice rests on one claim: a form of
   `k` steps is exact for a batch whose range holds at most `k` changes. Row 684's check "every
   form that covers a batch gives the same rows" holds it; it sets each form itself.
@@ -884,7 +925,7 @@ each group's control. A ratio under 1.3 is run again and compared by minimums.
 | P7 | With the warm-up on, a batch whose least form is cold never waits: it runs a wider compiled form, or the row path: yes | part c's test of a form that warms |
 | P8 | A task that meets every rung adds three entries to the class cache for one zoned kernel, and no other class: yes | part c's test of a form built in the middle of a task, by the cache's counts |
 | P9 | No existing shape's bytes move: after parts a and b no generated file differs; after part c only zoned rows and zoned fuzz blocks: yes | each part's commands |
-| P10 | The gate of part e stays shut: `second(ts)` over a year in no order costs under a twentieth more than over a week at 256 bits | row 691's results |
+| P10 | The gate of part e stays shut: `second(ts)` over a year in no order costs under a twentieth more than over a week at 256 bits | row 691, after this row is Done (5.4 step 4) |
 | P11 | Four parts built, none over 800 counted lines; part c is the largest | `dev/varka_msg_check.py size` |
 | P12 | Test time: `VarkaZoneLadderSuite` under 2 s; the tests added to `VarkaBatchArgRunnerSuite` in parts b and c under 15 s together; the test added to `VarkaTimestampZoneQuerySuite` under 5 s | the suites' reported times |
 
@@ -908,14 +949,14 @@ part c changes a default that every session takes. The row moves nothing of G5.
    emitter of a zoned shape names a form by hand.
 3. **Admission by the largest rung** can split or decline a projection that two steps admitted
    whole (weight 17 a node, where it was 5). A section of row 655's classes that stops fusing
-   is a stop for part c.
+   is a stop for part c. Each rung groups at its own weight; 4.3's test holds its emission.
 4. **A cold rung with the warm-up on** sends batches to the row path where no wider rung is
    compiled: today's rule for every new kernel. P7 and the benchmark's mixed group show it.
 5. **The cap at two lanes reads the driver's host flag,** the debt the catalogue's item 127
    records. Row 689 must change `widest`'s argument, or the cap outlives its reason.
-6. **The reach record** must hear the rung a test ran (4.8). Part c runs the three
-   configurations with no record. If a run on the fork skips a zone test that the laptop's
-   run moves, `zoneForm` goes into `VarkaTestReach.FULL`.
+6. **`zoneForm` in `VarkaTestReach.FULL`** makes three configurations run every test on the
+   fork (4.8). The record may be enough, since it hears each rung looked up; taking the
+   entry out is the owner's decision, after a run shows that no test's answer needs it.
 7. **The plan ages before it is built.** Rows 682, 683, 657 and 678 are not built: each B0
    greps their names, and part c's step 8 covers their tests that read the default as two
    steps. A premise that fails, or a failure the step does not describe, stops the part.
