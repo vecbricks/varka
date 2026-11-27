@@ -227,11 +227,15 @@ class VarkaFarDaySuite extends QueryTest with VarkaMaybeThrows {
     // by a literal or a column, can carry a day inside the column bound past the range: the
     // kernel must raise as Spark does, or decline to the row engine, and never wrap.
     for (nulls <- Seq(true, false)) {
-      withDays(Seq(0, 647, 19000), nulls) {
+      withDays(Seq(0, 647, 19000, 2932896, 100000000), nulls) {
         for (e <- Seq(
             "next_day(date_add(d, 2147483000), 'MONDAY')",
             "trunc(date_add(d, 2147483000), 'WEEK')",
             "next_day(date_sub(d, 2147483000), 'MONDAY')",
+            // Admitted: the shift keeps a day of the column bound clear of the DATE end, and a
+            // day past the bound (100000000) is sent to the row engine by the column guard.
+            "next_day(date_add(d, 2144000000), 'MONDAY')",
+            "trunc(date_add(d, 2144000000), 'WEEK')",
             "trunc(date_sub(d, 2147483000), 'WEEK')",
             "next_day(date_add(d, v + 2147483000 - 647), 'MONDAY')",
             // Alone, a column offset below next_day has no guard and the entry declines; under
