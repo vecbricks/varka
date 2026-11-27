@@ -98,8 +98,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestS
  * {@code ((a & b) | ((a | b) & ~s)) >>> 63}, mask-free (the borrow
  * {@code ((~a & b) | (~(a ^ b) & d)) >>> 63}):
  * <ol start="8">
- *   <li>ADD and SUB: {@code x + y} and {@code x - y} over two {@code DECIMAL(20, 2)} columns,
- *       the pair stored (class U, no check);</li>
+ *   <li>ADD: {@code x + y} over two {@code DECIMAL(20, 2)} columns, the pair stored (class U,
+ *       no check);</li>
+ *   <li>SUB: {@code x - y} over the same two columns, the pair stored (class U, no check);</li>
  *   <li>ADD_CHECK: {@code x + y} over the two {@code DECIMAL(38, 2)} columns with the wrapped
  *       sum's {@code 10^38} check into a bit a row (class K, its lemma: the wrapped sum fails the
  *       check exactly where the exact one does).</li>
@@ -183,8 +184,11 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
    * <p>The heap separately holds the rung's values as {@code BigInteger}s, the arrays {@code xs},
    * {@code ys} and {@code wilds}. A {@code y} is {@code x}'s own object one row in eight and a
    * {@code wild} fifteen in sixteen, so a row has about two objects of some 40 bytes with a
-   * magnitude array of up to 32, and three references: about 650 MB at the pastl3 rung, and row
-   * 360's {@code x20s} and {@code y20s} about two more objects and two references a row, an
+   * magnitude array of up to 32, and three references, 156 bytes a row: about 650 MB at the
+   * pastl3 rung. Row 360's arrays {@code x20s} and {@code y20s} add as much again: a {@code y20}
+   * is {@code x20}'s own object one row in eight, so about two more objects of the same 72 bytes
+   * (a magnitude of up to 67 bits is three ints, an array of 32 bytes too) and two references,
+   * 152 bytes a row, about 640 MB. So the five arrays hold about 1.3 GB at that rung, an
    * estimate from the objects' layout under compressed references, not a measurement. The rungs
    * run one after another, each in an arena closed before the next, so that rung is the peak.
    * The catalyst test fork that {@code Test/runMain} starts runs at {@code -Xmx4g} (the build's
@@ -264,6 +268,9 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
   private static final LongVector P_NBH = LongVector.broadcast(LS, NBH);
   private static final LongVector P_NBL = LongVector.broadcast(LS, NBL);
 
+  /** A zero in every lane, which the {@code COMPARE} carry adds its 1 to under a mask. */
+  private static final LongVector ZERO = LongVector.zero(LS);
+
   /**
    * The rescale's constants (`VARKA-363.md` 2.3; `results/VARKA-363-magic.txt`, the row
    * {@code k = 6} of a 128-bit dividend): the magnitude {@code n <= 10^38 - 1} shifted right by
@@ -329,6 +336,27 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
   private static void storePair(MemorySegment out, long at, LongVector lo, LongVector hi) {
     lo.rearrange(ZIP1, hi).intoMemorySegment(out, at, LE);
     lo.rearrange(ZIP2, hi).intoMemorySegment(out, at + VB, LE);
+  }
+
+  /** The carry of {@code s = a + b}, 1 or 0 a lane, from the unsigned compare {@code s < a}. */
+  private static LongVector carryCompare(LongVector a, LongVector s) {
+    return ZERO.add(1L, s.compare(VectorOperators.ULT, a));
+  }
+
+  /** The same carry from the words' top bits: {@code ((a & b) | ((a | b) & ~s)) >>> 63}. */
+  private static LongVector carryBits(LongVector a, LongVector b, LongVector s) {
+    return a.and(b).or(a.or(b).and(s.not())).lanewise(VectorOperators.LSHR, 63);
+  }
+
+  /** The borrow of {@code d = a - b}, 1 or 0 a lane, from the unsigned compare {@code a < b}. */
+  private static LongVector borrowCompare(LongVector a, LongVector b) {
+    return ZERO.add(1L, a.compare(VectorOperators.ULT, b));
+  }
+
+  /** The same borrow from the top bits: {@code ((~a & b) | (~(a ^ b) & d)) >>> 63}. */
+  private static LongVector borrowBits(LongVector a, LongVector b, LongVector d) {
+    return a.not().and(b).or(a.lanewise(VectorOperators.XOR, b).not().and(d))
+        .lanewise(VectorOperators.LSHR, 63);
   }
 
   // ---------------------------------------------------------------------------------------
@@ -930,29 +958,6 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
   // Loops 8 and 9, ADD and SUB (VARKA-360): x + y and x - y over two DECIMAL(20, 2) columns,
   // the pair stored, the carry or the borrow into the high word in each of the two forms.
 
-  private static final LongVector ZERO = LongVector.zero(LS);
-
-  /** The carry of {@code s = a + b}, 1 or 0 a lane, from the unsigned compare {@code s < a}. */
-  private static LongVector carryCompare(LongVector a, LongVector s) {
-    return ZERO.add(1L, s.compare(VectorOperators.ULT, a));
-  }
-
-  /** The same carry from the words' top bits: {@code ((a & b) | ((a | b) & ~s)) >>> 63}. */
-  private static LongVector carryBits(LongVector a, LongVector b, LongVector s) {
-    return a.and(b).or(a.or(b).and(s.not())).lanewise(VectorOperators.LSHR, 63);
-  }
-
-  /** The borrow of {@code d = a - b}, 1 or 0 a lane, from the unsigned compare {@code a < b}. */
-  private static LongVector borrowCompare(LongVector a, LongVector b) {
-    return ZERO.add(1L, a.compare(VectorOperators.ULT, b));
-  }
-
-  /** The same borrow from the top bits: {@code ((~a & b) | (~(a ^ b) & d)) >>> 63}. */
-  private static LongVector borrowBits(LongVector a, LongVector b, LongVector d) {
-    return a.not().and(b).or(a.lanewise(VectorOperators.XOR, b).not().and(d))
-        .lanewise(VectorOperators.LSHR, 63);
-  }
-
   static void loopAddCompareP(MemorySegment x, MemorySegment y, MemorySegment out,
       long[] words, int n) {
     for (int i = 0; i < n; i += L) {
@@ -1227,6 +1232,7 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
 
   private static final BigInteger TWO64 = BigInteger.ONE.shiftLeft(64);
   private static final BigInteger MAX38 = TEN38.subtract(BigInteger.ONE);
+  private static final BigInteger MAX20 = BigInteger.TEN.pow(20).subtract(BigInteger.ONE);
   private static final BigInteger HALF = BigInteger.TEN.pow(RESCALE_K).shiftRight(1);
   private static final BigInteger TEN_K = BigInteger.TEN.pow(RESCALE_K);
 
@@ -1246,8 +1252,6 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
       };
     }
   }
-
-  private static final BigInteger MAX20 = BigInteger.TEN.pow(20).subtract(BigInteger.ONE);
 
   /** A value of 1 to 20 digits, either sign, below {@code 10^20}. */
   private static BigInteger inPrecision20(Random r) {

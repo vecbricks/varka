@@ -127,11 +127,17 @@ public final class VarkaDecimalPairSpikeSuite {
       assertTrue(ties > n / 97, ties + " HALF_UP ties");
       // Row 360's columns: within DECIMAL(20), and their low words carrying and borrowing at
       // both signs of the sum and the difference, with a sum past 10^38 among the wide ones.
+      // A sum in [10^38, 2^127) overflows DECIMAL(38) without wrapping the 128 bits, so it does
+      // not reach what ADD_CHECK's lemma is about: the sums at or past 2^127 and below -2^127,
+      // whose stored words are the exact sum less or plus 2^128, are counted on their own.
       BigInteger bound20 = BigInteger.TEN.pow(20);
       BigInteger two64 = BigInteger.ONE.shiftLeft(64);
       int[][] carriesBySign = new int[2][2];
       int[][] borrowsBySign = new int[2][2];
       int wideOverflow = 0;
+      int wrapsAbove = 0;
+      int wrapsBelow = 0;
+      BigInteger two127 = BigInteger.ONE.shiftLeft(127);
       for (int i = 0; i < n; i++) {
         BigInteger x = d.x20s()[i];
         BigInteger y = d.y20s()[i];
@@ -143,7 +149,10 @@ public final class VarkaDecimalPairSpikeSuite {
         boolean borrow = x.mod(two64).compareTo(y.mod(two64)) < 0;
         carriesBySign[x.add(y).signum() < 0 ? 1 : 0][carry ? 1 : 0]++;
         borrowsBySign[x.subtract(y).signum() < 0 ? 1 : 0][borrow ? 1 : 0]++;
-        wideOverflow += d.xs()[i].add(d.ys()[i]).abs().compareTo(bound) >= 0 ? 1 : 0;
+        BigInteger wideSum = d.xs()[i].add(d.ys()[i]);
+        wideOverflow += wideSum.abs().compareTo(bound) >= 0 ? 1 : 0;
+        wrapsAbove += wideSum.compareTo(two127) >= 0 ? 1 : 0;
+        wrapsBelow += wideSum.compareTo(two127.negate()) < 0 ? 1 : 0;
       }
       for (int sign = 0; sign < 2; sign++) {
         for (int bit = 0; bit < 2; bit++) {
@@ -153,6 +162,12 @@ public final class VarkaDecimalPairSpikeSuite {
         }
       }
       assertTrue(wideOverflow > 0, "no DECIMAL(38) sum past 10^38");
+      assertTrue(wrapsAbove > 0, "no DECIMAL(38) sum at or past 2^127: without one no row's sum"
+          + " wraps 128 bits upward, and ADD_CHECK's lemma, that the wrapped sum fails the 10^38"
+          + " check exactly where the exact one does, is checked on unwrapped sums only");
+      assertTrue(wrapsBelow > 0, "no DECIMAL(38) sum below -2^127: without one no row's sum"
+          + " wraps 128 bits downward, and ADD_CHECK's lemma, that the wrapped sum fails the"
+          + " 10^38 check exactly where the exact one does, is checked on unwrapped sums only");
     }
   }
 
