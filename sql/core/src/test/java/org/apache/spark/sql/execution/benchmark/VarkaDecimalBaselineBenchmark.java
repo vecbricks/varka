@@ -128,7 +128,7 @@ import org.apache.spark.sql.internal.SQLConf;
  * {@code DECIMAL(18, 14)} {@code CAST(x AS INT)} under ANSI, {@code try_cast(x AS INT)},
  * {@code CAST(x AS DOUBLE)} and {@code CAST(x AS FLOAT)}; and over the {@code BIGINT} column
  * {@code l16}, below {@code 10^16} in magnitude, {@code CAST(l AS DECIMAL(18, 2))} under LEGACY
- * and ANSI. Their columns come last, after {@code l}. The casts to {@code BIGINT}, the casts
+ * and ANSI. Their columns come after {@code l}. The casts to {@code BIGINT}, the casts
  * between decimals and the filter fuse whole (VARKA-350) where the session takes a 64-bit
  * kernel's masks; the narrow and floating targets and the BIGINT casts into a decimal run on the
  * row path. Of the fused ones, {@code CAST(x AS DECIMAL(18, 2))} at {@code DECIMAL(18, 4)} times
