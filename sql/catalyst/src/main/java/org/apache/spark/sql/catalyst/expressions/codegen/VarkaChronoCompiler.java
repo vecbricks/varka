@@ -1057,8 +1057,9 @@ final class VarkaChronoCompiler {
 
   /**
    * The compiled operand of {@code next_day} or of {@code trunc} to a week, admitted by
-   * {@link #admitNextDayOperand}. The date of a {@code TIMESTAMP_NTZ} is held to
-   * {@link VarkaNodeCompiler#ntzDay}'s range, as a calendar node's is.
+   * {@link #admitNextDayOperand}. The date of a {@code TIMESTAMP_NTZ} is admitted as it is: its
+   * day count is the floor division of a long count of microseconds by a day, which is at most
+   * 107 million days either way, twenty times inside int32, so no shift of seven days leaves it.
    */
   private static Optional<VarkaVectorIR> nextDayOperand(
       Expression child,
@@ -1066,9 +1067,9 @@ final class VarkaChronoCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    Optional<VarkaVectorIR> day = VarkaNodeCompiler.compileNode(child, inputs, literals, sink)
-        .map(v -> isNtzDate(child) ? VarkaNodeCompiler.ntzDay(v) : v);
-    return day.flatMap(v -> admitNextDayOperand(v, calendar, literals, sink));
+    Optional<VarkaVectorIR> day = VarkaNodeCompiler.compileNode(child, inputs, literals, sink);
+    return isNtzDate(child)
+        ? day : day.flatMap(v -> admitNextDayOperand(v, calendar, literals, sink));
   }
 
   /**
