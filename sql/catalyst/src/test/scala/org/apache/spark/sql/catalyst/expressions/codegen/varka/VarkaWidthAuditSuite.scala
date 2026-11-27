@@ -72,17 +72,19 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditPr
 class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   /**
-   * How long one child JVM may run before it is destroyed and its probe fails by name: 600 s, or
+   * How long one child JVM may run before it is destroyed and its probe fails by name: 1200 s, or
    * `-Dvarka.widthAudit.childTimeoutSeconds`. The slowest probe the runners' JUnit reports show
-   * took 252 s (`plans/m8/results/VARKA-581-probe-times.txt`), and `beforeAll` runs five probes
+   * took 252 s (`plans/m8/results/VARKA-581-probe-times.txt`) in a job of its own. Inside Spark's
+   * `catalyst/test`, with many test JVMs on one runner, a probe at 128 bits passed 600 s and was
+   * destroyed (vecbricks/varka#1773), so the budget is twice that. `beforeAll` runs five probes
    * one after another, so it takes at most five budgets.
    */
   private val childTimeoutSeconds: Long = {
     val key = "varka.widthAudit.childTimeoutSeconds"
     sys.props.get(key).map { v =>
       v.trim.toLongOption.filter(_ > 0).getOrElse(throw new IllegalArgumentException(
-        s"-D$key=$v is not a whole number of seconds above zero, such as -D$key=600"))
-    }.getOrElse(600L)
+        s"-D$key=$v is not a whole number of seconds above zero, such as -D$key=1200"))
+    }.getOrElse(1200L)
   }
 
   /** The widths asked for, in bytes as the JVM names them; a host caps what it cannot do. */

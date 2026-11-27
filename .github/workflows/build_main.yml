@@ -42,6 +42,10 @@ jobs:
       # and the enforcer's requireJavaVersion rule, so Spark no longer builds on the
       # workflow's default JDK of 21. The Varka engine targets release 25 as well.
       java: 25
+      # A job of the module matrix is cut at 100 minutes by default. On a fork, the sql shards
+      # and the catalyst shard, which runs Varka's width audit, took 90 to 110 minutes on a
+      # shared runner and two of them were cut (vecbricks/varka#1773), so the limit is 180.
+      build_timeout_minutes: 180
       # Sampled upstream pushes run the full job matrix except SparkR, which the scheduled
       # builds cover. Fork pushes keep the reusable workflow's change-based selection.
       jobs: >-
