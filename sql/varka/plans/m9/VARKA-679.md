@@ -10,7 +10,9 @@ the lead confirms with him before P0 item 1. Its facts about Varka were checked 
 `VARKA-678.md`, which by the lead's ruling is the reference for the zone data: row 678 is
 built first, the library ports its merged files, 4.2 restates them, and 10.1 and 10.5 say
 what stays the library's own. Revised again after a second review: the parts that the
-row's done-when does not need are in 5.6.*
+row's done-when does not need are in 5.6. Revised a last time on the owner's word of the
+same day, "Nanosecond should be prime units": every form has nanosecond precision from
+0.1.0, in two shapes (4.1, 4.9).*
 
 ## 1. What this row is
 
@@ -21,18 +23,18 @@ the sums and the nanosecond forms as their rows come. **Done when** the reposito
 tests in its own CI; the every-zone sweep and the forms' benchmarks at each vector width are in
 it; a release is on Maven Central; and a Varka suite checks a kernel against it in test scope".
 
-**In one paragraph.** Spark answers every datetime expression by calling `java.time` once a
-row. Varka's kernels answer a batch at a time, and each kernel must give `java.time`'s answer
-in every lane. `vechrono` is a small Java library, in a repository of its own, that holds those
-batch forms outside Spark: a function over `LongVector` lanes whose every lane equals what
-`java.time` returns on the running JVM. It is to the datetime kernels what `vfdlibm` is to the
-math kernels. A form is written and tested there first, where a build takes seconds and needs
-no Spark. Varka then emits the same operations as its own IR nodes, and Varka's tests hold
-the emitted kernel to the library's form and to `java.time`. No kernel calls the library.
+**In one paragraph.** Spark answers every datetime expression by calling `java.time` once a row.
+Varka's kernels answer a batch at a time, and each kernel must give `java.time`'s answer in every
+lane. `vechrono` is a small Java library, in a repository of its own, that holds those batch forms
+outside Spark: a function over `LongVector` lanes whose every lane equals what `java.time` returns
+on the running JVM, at nanosecond precision. It is to the datetime kernels what `vfdlibm` is to
+the math kernels. A form is written and tested there first, where a build takes seconds and needs
+no Spark. Varka then emits the same operations as its own IR nodes, and Varka's tests hold the
+emitted kernel to the library's form and to `java.time`. No kernel calls the library.
 
-**This plan is mostly about a second repository.** Sixteen of its seventeen code parts belong
-to `vecbricks/vechrono` (its founding commit and fifteen parts, sixteen pull requests since
-the release is two); one is a pull request of Varka. Five more parts are written out and
+**This plan is mostly about a second repository.** Nineteen of its twenty code parts belong
+to `vecbricks/vechrono` (its founding commit and eighteen parts, nineteen pull requests
+since the release is two); one is a pull request of Varka. Five more parts are written out and
 left to a later row (5.6). Part 0 is no pull request: it is what the owner must do or approve before
 anything is created or published.
 
@@ -46,8 +48,9 @@ anything is created or published.
 | 686, the table form | `ZoneTable` and `VChrono.toLocal(x, table, scratch)` | L8 |
 | 690, a local time to an instant | `VChrono.toInstant` and `VChrono.toInstantKept` under the three rules | L9, L10 |
 | 684, the proof | the hard-case inputs and the planted-fault names, which Varka's sweep and fault suite mirror | L2, L6, L9, L10 |
-| 691, the measurement | each form's cost a row at each width, measured outside Spark | L7, L11, L14 |
-| 668 to 671 and 673 to 675, the fan-out | one library form for each `java.time` method a row lowers, from the template of 5.3 | after 0.1.0 |
+| 691, the measurement | each form's cost a row at each width, measured outside Spark | L7, L14, L17 |
+| 662, the nanosecond layouts | both of its layouts outside Spark, on the same data: the two words (a long of microseconds and the nanoseconds within it) and one long of nanoseconds, with their costs | L11 to L14, L17 |
+| 668 to 671 and 673 to 675, the fan-out | one library form for each `java.time` method a row lowers, in both shapes, from the template of 5.3 | after 0.1.0 |
 
 **What must exist before it starts.** Part 0, the owner's go-ahead, comes first. L1 and L2
 need nothing of Varka. L3 needs row 678's parts a to c merged in Varka, since it ports their
@@ -72,18 +75,30 @@ files. The Varka part (V1) needs release 0.1.0 on Maven Central and row 682's ke
   library pull requests that row 658's ledger lists with a cheaper model as their builder.
 - **G7**, "A fused `TIMESTAMP_LTZ` expression runs significantly faster than vanilla Spark".
   The row serves it only through later rows: a form's arms are timed in the library before a
-  kernel is emitted (L7, L11, L14), and rows 657, 686, 689 and 690 emit the arm that won.
+  kernel is emitted (L7, L14, L17), and rows 657, 686, 689 and 690 emit the arm that won.
 - **G1** only through rows 678 and 657, which build and read the zone data this row shares.
+- **G4**, "Nanosecond `TIMESTAMP_NTZ` and `TIMESTAMP_LTZ`, precision 7 to 9 (phase 2)", and
+  item 4 of 1.2, "at least three quarters of each nanosecond type's pairs fused under the
+  flag", only through rows 662 and 673 to 675: the library holds Spark's two-word value and
+  the one-long layout first, and measures the one against the other before row 662 builds
+  them in kernels (`m9/PLAN.md` 2.5, "Two layouts (row 662), both built").
 
 ## 2. What an agent must know
 
 ### 2.1 The idea, and the terms
 
-- **An instant** is a count of microseconds since 1970-01-01T00:00:00Z. It is what Spark's
-  `TIMESTAMP` holds, in a long.
-- **A local time** is a count of microseconds since 1970-01-01T00:00:00 on a wall clock, with
-  no zone. It is what Spark's `TIMESTAMP_NTZ` holds. For a `LocalDateTime` `ldt` it is
-  `ldt.toEpochSecond(ZoneOffset.UTC) * 1_000_000 + ldt.getNano() / 1000`.
+- **An instant** is a time since 1970-01-01T00:00:00Z, to the nanosecond. **A local time**
+  is a time since 1970-01-01T00:00:00 on a wall clock, with no zone, to the nanosecond.
+- **The two words** of either: a long of microseconds, and the nanoseconds within that
+  microsecond, 0 to 999. It is Spark's `TimestampNanosVal` (`m9/PLAN.md` 2.5: "`epochMicros`,
+  a long, and `nanosWithinMicro`, a short from 0 to 999. Its range is the microsecond types'
+  whole range"). A microsecond `TIMESTAMP` or `TIMESTAMP_NTZ` is the same value with a second
+  word of 0. For a `LocalDateTime` `ldt` the first word is `ldt.toEpochSecond(ZoneOffset.UTC)
+  * 1_000_000 + ldt.getNano() / 1000` and the second `ldt.getNano() % 1000`.
+- **One long of nanoseconds** is the other shape of the same value: `micros * 1000 + nanos`,
+  which fits a long only from 1677-09-21T00:12:43.145224192 to 2262-04-11T23:47:16.854775807.
+- **A shape** is one of those two. The two words are the contract over the whole range; the
+  one long is a measured arm inside its range.
 - **An offset** is what a zone adds to an instant to give the local time there. `java.time`
   holds it in whole seconds, within 18 hours of zero (`ZoneOffset`'s contract).
 - **A change** is an instant `T` at which a zone's offset moves from `before` to `after`. A
@@ -168,8 +183,10 @@ files under its own names. The second column is the name row 678 gives the same 
 | `ZoneDataTest`, `ZoneDataLocalTest`, `ZonesTest` | `VarkaChronoZoneChangesSuite`, `VarkaChronoZoneLocalSuite`, `VarkaChronoZonesSuite` | test classes | the same tests, by the same numbers |
 | `ZoneNotServedException`, `Zones.of(ZoneId)` | none | public class, public method | 5.6's part X5, not in this row: a way from a `ZoneId` to a served entry, or an exception |
 | `VChrono` | none | public final class | the vector forms and their scalar twins, static methods (4.4) |
-| `ZoneSteps` | none | public final class | the scalars of the steps for one range of instants (4.3) |
-| `LocalSteps` | none | public final class | the scalars of the steps for one range of local times and one rule (4.3) |
+| `ZoneSteps` | none | public final class | the scalars of the steps for one range of instants (4.3), in microseconds or, made by `ofNanos`, in nanoseconds (4.9) |
+| `LocalSteps` | none | public final class | the scalars of the steps for one range of local times and one rule (4.3), in either unit as `ZoneSteps` |
+| `NanoTable` | none | public final class | the table of one zone for one long of nanoseconds: three longs a bucket (4.9) |
+| `PlusNanos` | none | package-private final class | the arms of `plusNanos`, the first form that reads and writes both words (4.9) |
 | `ZoneTable` | `VarkaZoneTable` (row 686) | public final class | the packed bucket table of one zone, and its constants (4.5) |
 | `ToLocal`, `ToInstant`, `TableLookup` | none | package-private final classes | the arms of each form |
 | `Faults` | none | package-private final class | the planted-fault switch, `-Dvechrono.fault=<name>` |
@@ -243,9 +260,19 @@ check that fails loudly, so a false premise stops the part:
 
 ### 4.1 Scope, in order
 
-**The contract's unit.** Every lane is a long of microseconds, an instant or a local time as
-2.1 defines them. That is Spark's unit, and Spark's expressions are the library's customers
-(`m9/PLAN.md` 2.10: "For each `java.time` method that Spark's datetime expressions call").
+**The unit is the nanosecond, from the first release** (the owner, 27 November 2026: "we
+should focus on the nanosecond precision from the begining I believe. Nanosecond should be
+prime units."). Asked which shape a value takes, he chose both:
+
+1. **The two words** are the contract and the reference over the whole range: a lane of
+   microseconds and a lane of the nanoseconds within the microsecond, 0 to 999, Spark's
+   `TimestampNanosVal`. A microsecond timestamp is the same value with a zero second word,
+   so every form serves Spark's microsecond types and its nanosecond types alike.
+2. **One long of nanoseconds** is an arm of each form over the years 1677 to 2262, a
+   measured fast path.
+
+These are the two layouts that Varka's row 662 builds and measures (`m9/PLAN.md` 2.5). 4.9
+has the value's rules, the second word's lane type, and each form's signature in each shape.
 
 **Release 0.1.0, which closes the row**, holds what rows 678, 657, 682, 686, 689 and 690 need
 first, in this order:
@@ -258,13 +285,18 @@ first, in this order:
 4. Local to instant under the three rules, `VChrono.toInstant` (L9) and
    `VChrono.toInstantKept` (L10). Their `java.time` definitions: `LocalDateTime.atZone`,
    `LocalDate.atStartOfDay` and `ZonedDateTime.ofLocal`.
+5. The one-long arm of each of those: `toLocalNanos`, `toInstantNanos` and
+   `toInstantKeptNanos` over steps (L11), and `toLocalNanos` over a table (L12).
+6. `plusNanos` in both shapes (L13): the smallest form that reads and writes both words, so
+   that the release proves the two-word shape and not only carries it. Its `java.time`
+   definition: `Instant.plusNanos`.
 
 **After 0.1.0**, one form a pull request, each paired with the Varka row that lowers it
 (section 5.3 has the list and the template). The order is the order of Varka's waves
 (`m9/PLAN.md` section 4): the clock fields and the cast to a day (row 657), the calendar
 fields (row 668), the casts (row 669), truncation and the constructors (row 670), the sums
-and the difference (row 671), the local table (row 693), the two-word nanosecond forms (rows
-662 and 673 to 675).
+and the difference (row 671), the local table (row 693), and the forms that read the second
+word (rows 662 and 673 to 675). Each comes in both shapes.
 
 **Never in the library** (`m9/PLAN.md` 2.10): "no parsing, no formatting and no `java.time`
 objects" in a lane. It ships no time-zone data of its own.
@@ -792,21 +824,29 @@ The constants and the bucket are those of `VARKA-686.md` 4.2, restated here, so 
 
 **The contract, which no version may change:** for a `ZoneData` built from a zone's rules on
 the running JVM, each live lane of each function equals the result of the function's
-`java.time` definition on that lane's argument, with that JVM's rules, as a long of
-microseconds, for every lane inside the domain of the steps or the table it was given. For
-`toLocal` the result is reduced modulo 2^64. A lane that is not live holds the first
-argument's bits.
+`java.time` definition on that lane's argument, with that JVM's rules, to the nanosecond,
+for every lane inside the domain of the steps or the table it was given. The value is the
+two words; the one-long arm gives the same value as `micros * 1000 + nanos`. A lane that is
+not live holds the first argument's bits.
 
-| function | its `java.time` definition, for a lane `v` |
-| :--- | :--- |
-| `toLocal` | `v + 1_000_000 * rules.getOffset(instantOf(v)).getTotalSeconds()` |
-| `toInstant`, `EARLIER` | `microsOf(localOf(v).atZone(zone).toInstant())` |
-| `toInstant`, `GAP_END` | `rules.getTransition(localOf(v))` is a gap: its instant; else as `EARLIER`. At a midnight this is `localOf(v).toLocalDate().atStartOfDay(zone)` |
-| `toInstantKept` | `microsOf(ZonedDateTime.ofLocal(localOf(v), zone, offsetOf(kept)).toInstant())`, with a `kept` that is no whole second within 18 hours read as no preference (a null offset) |
+For a lane's two words `(m, n)`:
 
-`instantOf(v)` is `Instant.ofEpochSecond(floorDiv(v, 1_000_000), floorMod(v, 1_000_000) *
-1000)`, `localOf(v)` is `LocalDateTime.ofEpochSecond` of the same two numbers at
-`ZoneOffset.UTC`, and `microsOf` is the inverse.
+- `instantOf(m, n)` is `Instant.ofEpochSecond(floorDiv(m, 1_000_000), floorMod(m, 1_000_000)
+  * 1000 + n)`; `localOf(m, n)` is `LocalDateTime.ofEpochSecond` of the same second and the
+  same nanosecond of the second, at `ZoneOffset.UTC`;
+- `pairOf(instant)` is the inverse: `(getEpochSecond() * 1_000_000 + getNano() / 1000,
+  getNano() % 1000)`, and `pairOf(ldt)` the same over `toEpochSecond(ZoneOffset.UTC)`.
+
+| function | its `java.time` definition, for a lane `(m, n)` | the second word |
+| :--- | :--- | :--- |
+| `toLocal` | `pairOf(LocalDateTime.ofInstant(instantOf(m, n), zone))` | untouched: an offset is whole seconds |
+| `toInstant`, `EARLIER` | `pairOf(localOf(m, n).atZone(zone).toInstant())` | untouched |
+| `toInstant`, `GAP_END` | `rules.getTransition(localOf(m, n))` is a gap: `pairOf` of its instant; else as `EARLIER`. At a midnight this is `localOf(m, n).toLocalDate().atStartOfDay(zone)` | inside a gap: 0, since the gap's end is a whole second; else untouched |
+| `toInstantKept` | `pairOf(ZonedDateTime.ofLocal(localOf(m, n), zone, offsetOf(kept)).toInstant())`, with a `kept` that is no whole second within 18 hours read as no preference (a null offset) | untouched |
+| `plusNanos` | `pairOf(instantOf(m, n).plusNanos(dm * 1000 + dn))`, for a delta of two words `(dm, dn)` | read and written (4.9) |
+
+For `toLocal` the first word is reduced modulo 2^64 (4.4). The one-long arms are refused
+near an end of a long (4.9), so they have no such reduction.
 
 **The domain** is stated, because a finite list of steps cannot be right for every long: a
 live lane must lie from `steps.least()` to `steps.greatest()`, or inside the table's range. A
@@ -842,6 +882,10 @@ JVM it runs in, when `Zones.of` is first called for those rules. So:
 | `Long.MIN_VALUE`, `Long.MAX_VALUE` as an instant | exact counts and fills; `toLocal`'s sum wraps | `ZoneDataTest` 3 and 7, `ToLocalTest.endsOfTheRange` |
 | a local range within 36 hours of an end of a long | `localChanges` is `MANY`; `toInstantArgs` and `LocalSteps.of` throw | `ZoneDataLocalTest` 5, `ToInstantTest.clamp` |
 | `greatest < least` | 0 changes; `toLocalArgs` writes the base at `least` and padding | `ZoneDataTest` 7 |
+| a second word outside 0 to 999 | unspecified in `plusNanos`; passed through unread elsewhere; no form checks it (4.9) | `HarnessSelfTest.pairsAndNanos` holds that no test feeds one |
+| a one-long range within 36 hours of an end of a long | `ofNanos` throws | `OneLongTest.rangeEnds` |
+| a second word across a gap's end under `GAP_END` | the caller zeroes it under `VChrono.insideGap`; the one-long arm does it by itself | `ToInstantTest.secondWordPassesThrough`, `OneLongTest.shapesAgree` |
+| a carry out of the second word | `plusNanos`: the first word gains 1 | `PlusNanosTest.carryEdges` |
 | the calendar's ends | years 0001 and 9999, 15 October 1582: instants like any other; the data has no calendar | `ZoneDataTest` 3, `ZoneDataLocalTest` 5 |
 | before a zone's first change | `offsetSeconds[0]`, often a local mean time that is no whole minute | `ZoneDataTest` 3 |
 | past the last stored change | the cycle, to `Long.MAX_VALUE` | `ZoneDataTest` 4, fault `zone.cycleDayShort` |
@@ -868,42 +912,240 @@ The library declines nothing silently. Its exceptions, each with the case that h
 
 `ZoneNotServedException` is not in this row: 5.6, part X5.
 
+The one-long arms and `plusNanos` add these (4.9):
+
+| exception | text | thrown by | held by |
+| :--- | :--- | :--- | :--- |
+| `IllegalArgumentException` | `a nanosecond range within 36 hours of an end of a long` | `ZoneSteps.ofNanos`, `LocalSteps.ofNanos` | `OneLongTest.rangeEnds` |
+| `IllegalArgumentException` | `toLocal takes steps in microseconds, these are in nanoseconds`, and the same sentence for `toInstant`, `toInstantKept` and `insideGap`; `toLocalNanos takes steps in nanoseconds, these are in microseconds`, and the same for `toInstantNanos` and `toInstantKeptNanos` | `VChrono` | `OneLongTest.wrongUnit` |
+| `IllegalArgumentException` | `scratch holds <n> ints, the species needs <m>` | `VChrono.toLocalNanos` over a `NanoTable` | `NanoTableTest.refusals` |
+| `IllegalStateException` | `the zone has no table: two changes in bucket <b>` | `NanoTable.of` | `NanoTableTest.noTable` |
+| `NullPointerException` | the parameter's name | every method of 4.9 | `refusals` of `OneLongTest`, `NanoTableTest` and `PlusNanosTest` |
+
+### 4.9 Nanoseconds: the two shapes
+
+**The value.** A value is the pair `(micros, nanos)` with `0 <= nanos <= 999`. Both words
+are `LongVector`s of one species.
+
+- **Why the second word is a `LongVector`.** Spark holds it as a short. A `ShortVector` with
+  the lane count of a 128-bit `LongVector` would be 32 bits wide, and the Vector API has no
+  such shape; an `IntVector` of half the shape exists at every width, but every form would
+  then cross two shapes with a conversion on each side of its arithmetic, and the carry of
+  `plusNanos` moves from the second word into the first. With both words in one species the
+  carry is one compare and one masked add, and a reference stays readable. A caller widens
+  Spark's short when it loads (`ShortVector.convertShape(S2L, ...)`, or a scalar loop) and
+  narrows when it stores. Varka's registry already holds a value of two long words, the
+  128-bit decimal of row 359 (`m9/PLAN.md` 2.5: "One value is two words, as a 128-bit decimal
+  is in the registry"); whether a kernel keeps the second word as a long lane or narrower is
+  row 662's measurement, not the library's.
+- **A lane that breaks the invariant** (`nanos < 0` or `nanos > 999`) has an unspecified
+  result in a form that reads the second word (`plusNanos`), and is passed through unread by
+  a form that does not. No form checks it: the caller holds the invariant, as it holds the
+  range of the steps. `Oracle.instantOf` throws for such a pair, so no test feeds one.
+- **The one long** is `micros * 1000 + nanos`, from `Long.MIN_VALUE` to `Long.MAX_VALUE`
+  nanoseconds: 1677-09-21T00:12:43.145224192Z to 2262-04-11T23:47:16.854775807Z. A form's
+  one-long arm is given a range by its caller, as the steps are; `ofNanos` checks the range
+  and refuses one within 36 hours of an end of a long, so no sum of the arm leaves a long:
+  with `E = 129_600_000_000_000L` (36 hours in nanoseconds), a range is accepted exactly
+  when `leastNanos >= Long.MIN_VALUE + E` and `greatestNanos <= Long.MAX_VALUE - E`, that
+  is from -9223242436854775808 to 9223242436854775807, and is refused otherwise with 4.8's
+  text, before any count is taken. A live lane outside the range it was
+  given is unspecified, and no form checks lanes.
+
+**Forms that leave the second word untouched take the first word alone.** `toLocal`,
+`toInstant` under `EARLIER` and `toInstantKept` change a value by an offset, which is whole
+seconds. Their public forms are the ones of 4.4, over the microsecond word; the caller
+carries the second word across unchanged. Each such form has a test,
+`secondWordPassesThrough`, which feeds pairs with second words of 0, 1, 500 and 999 to
+`java.time` at nanosecond precision and requires the oracle's second word to equal the
+input's and its first word to equal the form's lane. **`GAP_END` is the one exception:**
+inside a gap the answer is the gap's end, a whole second, so the second word becomes 0
+there. `VChrono` has for it
+
+    public static VectorMask<Long> insideGap(LongVector local, LocalSteps steps);   // GAP_END steps
+
+which is true in the lanes whose local time is inside a gap of the steps (`local >= lo[i]
+&& local < hi[i]` for some step); a caller with nanosecond data zeroes its second word under
+that mask. Spark reaches `GAP_END` only from a `DATE`, whose second word is 0 already.
+
+**The one-long arm of the steps.** The arithmetic of a step has no unit: a compare and an
+add. So the arm is the same code over scalars in nanoseconds.
+
+    // in ZoneSteps
+    public static ZoneSteps ofNanos(ZoneData zone, long leastNanos, long greatestNanos);
+    public static ZoneSteps ofNanos(ZoneData zone, long leastNanos, long greatestNanos, int steps);
+    public boolean nanos();                 // false for steps made by of, true for ofNanos
+    // in LocalSteps
+    public static LocalSteps ofNanos(ZoneData zone, Resolve rule, long leastNanos,
+        long greatestNanos);
+    public static LocalSteps ofNanos(ZoneData zone, Resolve rule, long leastNanos,
+        long greatestNanos, int steps);
+    public boolean nanos();
+    // in VChrono
+    public static LongVector toLocalNanos(LongVector instant, ZoneSteps steps);
+    public static LongVector toLocalNanos(LongVector instant, ZoneSteps steps,
+        VectorMask<Long> live);
+    public static LongVector toInstantNanos(LongVector local, LocalSteps steps);
+    public static LongVector toInstantNanos(LongVector local, LocalSteps steps,
+        VectorMask<Long> live);
+    public static LongVector toInstantKeptNanos(LongVector local, LongVector kept,
+        LocalSteps steps);
+    public static LongVector toInstantKeptNanos(LongVector local, LongVector kept,
+        LocalSteps steps, VectorMask<Long> live);
+    public static long toLocalNanos(long instant, ZoneData zone);              // scalar twins
+    public static long toInstantNanos(long local, ZoneData zone, Resolve rule);
+    public static long toInstantKeptNanos(long local, long kept, ZoneData zone);
+
+- **Where the arguments come from.** `ofNanos` is in `ZoneSteps` and `LocalSteps`, not in
+  `ZoneData`: the ported file is untouched, and its `diff` rule (L3, L4) holds. It works in
+  three steps. (1) It refuses a range within 36 hours of an end of a long (4.8's text), and
+  otherwise turns the range into microseconds by floor: `leastM = Math.floorDiv(leastNanos,
+  1000)`, `greatestM = Math.floorDiv(greatestNanos, 1000)`. (2) It calls the ported fill,
+  `zone.toLocalArgs(leastM, greatestM, steps, args, 0)` or `zone.toInstantArgs(rule, leastM,
+  greatestM, steps, args, 0)`. (3) It multiplies by 1000, with `Math.multiplyExact`, every
+  entry of the array but those that equal `Long.MAX_VALUE`: the base, each threshold (`at`,
+  `hi`, `lo`), each `delta` and each `after`. An entry of `Long.MAX_VALUE` stays as it is:
+  that is a threshold of a padded step, and also the `lo` field of a real step under a rule
+  that does not write it (4.3), and neither may ever fire. A 0 times 1000 is 0, so the
+  `delta` and `after` of padding stay 0. No real threshold is `Long.MAX_VALUE`: a range
+  that is accepted ends 36 hours below it.
+- **Why that is exact.** A change is on a whole second, so for a lane `x` in nanoseconds `x
+  >= at * 1000` holds exactly when `floorDiv(x, 1000) >= at`. A change counted in `(leastM,
+  greatestM]` lies inside the nanosecond range, so its product is a long. On the local line
+  a threshold is within 36 hours of the range, which is why the range is refused that close
+  to an end; inside it `multiplyExact` cannot throw, and `OneLongTest.rangeEnds` holds that
+  at the last range that is accepted.
+- **`kept`** in the one-long arm is the offset in nanoseconds.
+- **The forms** check the unit once a call: `toLocal`, `toInstant` and `toInstantKept` take
+  steps with `nanos()` false, the `*Nanos` forms take steps with `nanos()` true, and the
+  other kind throws 4.8's text. Then they run the arms of `ToLocal` and `ToInstant` as they
+  are; the arm with no mask is chosen by the same rule. Under `GAP_END` the one-long arm is
+  complete by itself: a lane inside a gap becomes the gap's end in nanoseconds, with no
+  fraction.
+- **The scalar twins** go through the two words: `Math.floorDiv(x, 1000)` and
+  `Math.floorMod(x, 1000)`, the microsecond twin of 4.4, and `m * 1000 + n` back, with the
+  second word zeroed inside a gap under `GAP_END`.
+
+**The one-long arm of the table.** The packed bucket of 4.5 cannot hold an offset in
+nanoseconds: 18 hours are 64,800,000,000,000 ns, and a half of a long is 32 bits. So the arm
+has a table of its own, three longs a bucket, the probe's "three gathers" form.
+
+    public final class NanoTable {
+      public static final int SHIFT = 49;                              // a bucket is 2^49 ns
+      public static final long ORIGIN = -2_208_988_800_000_000_000L;   // 1900-01-01T00:00:00Z
+      public static final long LIMIT = 4_102_444_800_000_000_000L;     // 2100-01-01T00:00:00Z
+      public static final int BUCKETS = 11_213;
+      public static final int LONGS = 3 * BUCKETS;                     // 33639
+      public static boolean has(ZoneData zone);
+      public static NanoTable of(ZoneData zone);                       // throws IllegalStateException
+      public static boolean covers(long leastNanos, long greatestNanos);   // ORIGIN <= least, greatest < LIMIT
+      public static int index(long instantNanos);                      // clamped, 0 to BUCKETS - 1
+      public long toLocal(long instantNanos);                          // the scalar lookup
+    }
+    // in VChrono
+    public static LongVector toLocalNanos(LongVector instant, NanoTable table, int[] scratch);
+    public static LongVector toLocalNanos(LongVector instant, NanoTable table, int[] scratch,
+        VectorMask<Long> live);
+
+- A bucket is 2^49 ns, about 562,950 s, under the 601,200 s between the closest two changes of
+  a zone (2.2), so it holds at most one change; `BUCKETS` is `((LIMIT - ORIGIN) >>> SHIFT) +
+  2`, where the shift gives 11211. Bucket `b` is three longs at `3 * b`: the change's
+  instant in nanoseconds, or `Long.MAX_VALUE`; the offset before it in nanoseconds; the
+  offset after it. A bucket with no change holds the offset in force in both.
+- `static int pack(long[] at, int[] offsetSeconds, long[] longs)`, package-private, in
+  full. `at` holds changes in microseconds, ascending, each inside `[ZoneTable.ORIGIN,
+  ZoneTable.LIMIT)`, the microsecond bounds; `offsetSeconds` has one entry more. It throws
+  `IllegalArgumentException` when `offsetSeconds.length != at.length + 1`, when
+  `longs.length != LONGS`, when a change is outside those bounds or not above the one
+  before it, and when an offset is outside plus and minus 64800 seconds. Then, with `o =
+  offsetSeconds[0]` the offset in force and `i = 0`, for each bucket `b` from 0 to `BUCKETS
+  - 1`: if `i < at.length` and `index(at[i] * 1000) == b`, the bucket's three longs are
+  `at[i] * 1000`, `offsetSeconds[i] * 1_000_000_000L` and `offsetSeconds[i + 1] *
+  1_000_000_000L`, then `o = offsetSeconds[i + 1]` and `i` moves on; if the next change is
+  in bucket `b` too (`i < at.length` and `index(at[i] * 1000) == b` again), `pack` returns
+  `b`, the first bucket with two changes, and `longs` is unspecified. Otherwise the three
+  longs are `Long.MAX_VALUE`, `o * 1_000_000_000L` and `o * 1_000_000_000L`. It returns
+  -1 when every bucket is written. No product can leave a long: a change inside the bounds
+  times 1000 is inside `[ORIGIN, LIMIT)` of this class.
+- `of(zone)` packs from `zone.changesAt(ZoneTable.ORIGIN, ZoneTable.LIMIT)` and
+  `zone.changeOffsets(ZoneTable.ORIGIN, ZoneTable.LIMIT)`. It keeps the table in a
+  `ConcurrentHashMap<ZoneData, long[]>` of its own, since the entry's one `memo` slot holds
+  `ZoneTable`'s; the table of a fixed zone is built and not kept, as `Zones` does not keep
+  a fixed entry. Two changes in one bucket give no table, as in 4.5.
+- `index(x)` is `Math.min((int) ((x - ORIGIN) >>> SHIFT), BUCKETS - 1)`. The vector form
+  is calls 1 to 6 of 4.5's table with the shift 49 and, as call 5, `mul(3)` in place of the
+  shift by 1; then three gathers at the offsets 0, 1 and 2, `before.blend(after, x >= at)`,
+  and `add(x)`. `scratch` holds twice the lane count, as in 4.5. There is no scalar-load
+  arm: `ZoneTable`'s measures that question.
+
+**`plusNanos`, the first form over both words.**
+
+    // two words: the result is two vectors, so it is two methods
+    public static LongVector plusNanosMicros(LongVector micros, LongVector nanos,
+        LongVector deltaMicros, LongVector deltaNanos);                // the first word
+    public static LongVector plusNanosWithin(LongVector nanos, LongVector deltaNanos);   // the second
+    public static LongVector plusNanosMicros(LongVector micros, LongVector nanos,
+        LongVector deltaMicros, LongVector deltaNanos, VectorMask<Long> live);
+    public static LongVector plusNanosWithin(LongVector nanos, LongVector deltaNanos,
+        VectorMask<Long> live);
+    // one long
+    public static LongVector plusNanos(LongVector nanos, LongVector deltaNanos);
+    public static LongVector plusNanos(LongVector nanos, LongVector deltaNanos,
+        VectorMask<Long> live);
+
+- **The delta is two words too:** `deltaMicros` any long and `deltaNanos` from 0 to 999, the
+  floor form, so a negative delta of 1 ns is `(-1, 999)`. A caller with a delta in
+  nanoseconds splits it once, in scalar code, by `Math.floorDiv(d, 1000)` and
+  `Math.floorMod(d, 1000)`. The form has no vector division: no host compiles one for long
+  lanes.
+- **The operations.** `sum = nanos + deltaNanos`, from 0 to 1998; `carry = sum >= 1000`.
+  `plusNanosWithin` is `sum.sub(1000, carry)`: the sum, less 1000 in the lanes that carry.
+  `plusNanosMicros` is `micros + deltaMicros`, plus 1 in the lanes that carry. Each is
+  compares and adds of one species. The one-long `plusNanos` is one `add`.
+- **Wrapping.** The first word's sum and the one-long sum are two's-complement: a result
+  that leaves a long is `java.time`'s reduced modulo 2^64, as `toLocal`'s is.
+- **A lane that is not live** holds the first argument's bits: `micros` for
+  `plusNanosMicros`, `nanos` for `plusNanosWithin` and for the one-long form.
+
 ## 5. The parts
 
-One list, one founding commit, sixteen pull requests of the library (L2 to L16; the release is
-two) and one pull request of Varka close the row. Five more parts (5.6) are written and not needed
-for the row's done-when; the plan is written on leaving them to a later row (the owner's decision
-6 of 10.4). Each code part is under 1000 counted lines, and each part whose estimate is 750 or
+One list, one founding commit, nineteen pull requests of the library (L2 to L19; the release
+is two) and one pull request of Varka close the row. Five more parts (5.6) are written and
+not needed for the row's done-when; they are left to a later row (the owner's decision 6 of
+10.4). Each code part is under 1000 counted lines, and each part whose estimate is 750 or
 more has its cut line in its sheet.
 
 | part | what it is | needs | gives | est. lines |
 | :--- | :--- | :--- | :--- | ---: |
 | P0 | the owner's list: what he does or approves | nothing | the repository, the coordinates, the licence, the release rule | 0 |
 | L1 | the repository: build, CI, licence, the rules (the founding commit) | P0 items 1 to 5 and 8 | a green empty library | 700 |
-| L2 | the test harness and the fault switch | L1, P0 items 2a and 10 | `Oracle`, `Inputs`, `VectorWidth`, `Faults`, `PlantedFaultTest` | 900 |
+| L2 | the test harness and the fault switch, at nanosecond precision | L1, P0 items 2a and 10 | `Oracle`, `Inputs`, `VectorWidth`, `Faults`, `PlantedFaultTest` | 950 |
 | L3 | `ZoneData` on the instant line, ported | L2; row 678's parts a to c merged in Varka | the entry, checks C1 to C5, `changes`, `toLocalArgs` | 850 |
 | L4 | `ZoneData` on the local line, ported | L3 | C6 and C7, `localChanges`, `toInstantArgs`, the grains, the table's inputs | 750 |
 | L5 | `Zones`, the cache, ported | L4 | one entry for each set of rules | 400 |
-| L6 | `VChrono.toLocal` as steps | L5 | `ZoneSteps`, the masked arm and the arm with no mask | 800 |
+| L6 | `VChrono.toLocal` as steps | L5 | `ZoneSteps`, the masked arm and the arm with no mask | 850 |
 | L7 | the benchmarks' frame | L6 | `ToLocalBenchmark`, the allocation check, its CI job | 500 |
 | L8 | the table form | L6 | `ZoneTable`, the gather arm and the scalar-load arm | 800 |
-| L9 | local to instant: the earlier offset and the gap's end | L6 | `LocalSteps`, `VChrono.toInstant` | 800 |
-| L10 | local to instant: the kept offset | L9 | `VChrono.toInstantKept` | 550 |
-| L11 | the benchmarks of the table and of the way back | L7, L8, L10 | `TableBenchmark`, `TableStepsBenchmark`, `ToInstantBenchmark` | 500 |
-| L12 | the every-zone sweep, as a program | L8, L10 | `Sweep`, `NightlyTest` | 500 |
-| L13 | the nightly workflow and its alert | L12, P0 item 9 | `nightly.yml`, `dev/nightly.sh` | 300 |
-| L14 | the host benchmarks and the first results files | L11, P0 item 7 | `benchmark.yml`, `bench/host.sh`, `bench/record.sh`, results at 256, 128 and 512 bits | 500 |
-| L15 | the jar checked from outside, and the release profile | L8, L10 | `dev/jar-check.sh`, the module name, the `release` profile | 650 |
-| L16 | release 0.1.0 | L1 to L15, P0 item 6 | the jar on Maven Central | 80 |
-| V1 | Varka's test-scope dependency and its cross-check | L16; Varka's rows 678 and 682 merged | `VarkaChronoLibrarySuite` | 450 |
+| L9 | local to instant: the earlier offset and the gap's end | L6 | `LocalSteps`, `VChrono.toInstant`, `insideGap` | 850 |
+| L10 | local to instant: the kept offset | L9 | `VChrono.toInstantKept` | 600 |
+| L11 | the one-long arm of the steps | L10 | `ofNanos`, `toLocalNanos`, `toInstantNanos`, `toInstantKeptNanos` | 650 |
+| L12 | the one-long arm of the table | L8, L11 | `NanoTable`, `toLocalNanos` over it | 500 |
+| L13 | `plusNanos` in both shapes | L6 | the first form that reads and writes both words | 550 |
+| L14 | the benchmarks of the table, the way back and the two shapes | L7, L12, L13 | `TableBenchmark`, `TableStepsBenchmark`, `ToInstantBenchmark`, `ShapesBenchmark` | 650 |
+| L15 | the every-zone sweep, as a program | L12 | `Sweep`, `NightlyTest` | 550 |
+| L16 | the nightly workflow and its alert | L15, P0 item 9 | `nightly.yml`, `dev/nightly.sh` | 300 |
+| L17 | the host benchmarks and the first results files | L14, P0 item 7 | `benchmark.yml`, `bench/host.sh`, `bench/record.sh`, results at 256, 128 and 512 bits | 500 |
+| L18 | the jar checked from outside, and the release profile | L12, L13 | `dev/jar-check.sh`, the module name, the `release` profile | 700 |
+| L19 | release 0.1.0 | L1 to L18, P0 item 6 | the jar on Maven Central | 80 |
+| V1 | Varka's test-scope dependency and its cross-check | L19; Varka's rows 678 and 682 merged | `VarkaChronoLibrarySuite` | 450 |
 
 **What can be built side by side by different agents.** L1 to L6 are strictly in line: each edits
-or reads the files of the one before. After L6: L7, L8 and L9. After L8 and L10: L11, L12 and L15.
-L13 and L14 each follow one part and touch no file of the others. Every part that adds a fault
-adds lines to `pom.xml` and to `PlantedFaultTest`; two such parts in flight conflict there, and
-the second one merges `main` and keeps both lists.
+or reads the files of the one before. After L6: L7, L8, L9 and L13. After L10: L11. After L12:
+L15. After L12 and L13: L14 and L18. L16 and L17 each follow one part and touch no file of the
+others. Every part that adds a fault adds lines to `pom.xml` and to `PlantedFaultTest`; two such
+parts in flight conflict there, and the second one merges `main` and keeps both lists.
 
-**Parts that only one later part reads:** L12 (read by L13).
+**Parts that only one later part reads:** L15 (read by L16).
 
 ### 5.1 What every library sheet shares
 
@@ -955,6 +1197,16 @@ the second one merges `main` and keeps both lists.
   A fault execution runs the tests tagged `fault`, which is the one test
   `PlantedFaultTest.plantedFaultIsCaught`: it prints `Tests run: 1, Failures: 0, Errors: 0,
   Skipped: 0`.
+- **Tests are nanosecond-native.** Every test of a form feeds pairs through the checks of
+  `Oracle` (L2), which compare both words with `java.time` at nanosecond precision. The
+  second words are spread over the lanes, one a lane, cycling: element `i` of an input
+  array takes `Inputs.secondWords()[i % 4]`. A case is not run four times; only a case
+  that says "each with each" crosses its first words with the four second words. Where a
+  test table says that a form "equals `Oracle.toLocal`" (or another definition), it means
+  that check: the form's lane is the first word, and for a form that takes the first word
+  alone the input's second word is what `java.time` must return. Where a table lists
+  instants or local times as longs, they are first words. A case computes the oracle once
+  for each input and compares every arm, count and mask with that one answer.
 - **A premise that fails is a stop.** Report the command and its output; do not repair it.
   Stop also when the size passes 900 before the sheet's last step: take the sheet's cut line.
 - **Files of vfdlibm.** Where a sheet says "vfdlibm's" it names the file and the version,
@@ -991,17 +1243,17 @@ him again before item 1; the other answers below hold from then.
 | 2 | Create the repository `vecbricks/vechrono`: public, default branch `main`, issues on, Actions on, the labels `nightly-failure` and `nightly-fault-test`, and no branch rule yet | as written | L1 | **decided: yes,** once item 1 is given |
 | 2a | After L1's first `CI` run is green: on `main`, the rule that a change needs a pull request whose four checks are green: `build (x86 as drawn)`, `build (x86 as AVX2)`, `build (x86 128 bits)`, `build (Arm 128 bits)`. A check can be required only after it has run once, and the rule would block item 5's push | the owner sets it once L1 is green; L7 adds `alloc (x86 as drawn)` and `alloc (x86 as AVX2)` to the list | L2 | open |
 | 3 | The licence: Apache-2.0, with `LICENSE` copied from vfdlibm, and a `NOTICE` of three lines (`vechrono`, `Copyright 2026 the vecbricks contributors`, `Licensed under the Apache License, Version 2.0 (see LICENSE).`). No third-party notice: the library ports no code and ships no zone data. And the licence rule of 5.1 | as written | L1 | the licence and the notice: open. The rule: **decided,** a builder does not open OpenJDK's sources |
-| 4 | The coordinates `io.github.vecbricks:vechrono`, the Java package and the module name `io.github.vecbricks.vechrono`. The namespace is verified at the Central portal already (vfdlibm's `AGENTS.md`, "Releases": "The same setup serves jegg's releases") | as written | L1, L16 | **decided: yes** |
+| 4 | The coordinates `io.github.vecbricks:vechrono`, the Java package and the module name `io.github.vecbricks.vechrono`. The namespace is verified at the Central portal already (vfdlibm's `AGENTS.md`, "Releases": "The same setup serves jegg's releases") | as written | L1, L19 | **decided: yes** |
 | 5 | The first commit goes straight to `main`, as vfdlibm's did (fact 12): an empty repository has no branch to open a pull request against. The lead prepares it locally and pushes it | the lead pushes | L1 | **decided: yes** |
-| 6 | Signing and publishing: after L16's pull request has merged, the owner tags its merge commit `v0.1.0`, pushes the tag, runs `mvn -B -Prelease clean deploy` on the tag with his GPG key and his `central` token in `~/.m2/settings.xml`, and publishes the deployment in the portal. No secret is stored in the repository and no workflow uploads | the owner, on his machine | L16 | open; it is his own step |
-| 7 | Dispatches of `benchmark.yml` in the new repository on the AMD EPYC 7763 and on the Intel Xeon Platinum 8573C | a standing approval for the lead | L14 | **decided: yes,** a standing approval |
+| 6 | Signing and publishing: after L19's pull request has merged, the owner tags its merge commit `v0.1.0`, pushes the tag, runs `mvn -B -Prelease clean deploy` on the tag with his GPG key and his `central` token in `~/.m2/settings.xml`, and publishes the deployment in the portal. No secret is stored in the repository and no workflow uploads | the owner, on his machine | L19 | open; it is his own step |
+| 7 | Dispatches of `benchmark.yml` in the new repository on the AMD EPYC 7763 and on the Intel Xeon Platinum 8573C | a standing approval for the lead | L17 | **decided: yes,** a standing approval |
 | 8 | Dependabot for the workflows' actions and the Maven plugins | yes, with vfdlibm's `.github/dependabot.yml` | L1 | open |
-| 9 | Dispatches of `nightly.yml`: the two that test it in L13, and a replay of a failed night | a standing approval for the lead | L13 | **decided: yes,** a standing approval |
-| 10 | Pushes of part branches and the opening of pull requests in `vecbricks/vechrono` | a standing approval for the lead, each after its review; a merge stays the owner's | L2 to L16 | open |
+| 9 | Dispatches of `nightly.yml`: the two that test it in L16, and a replay of a failed night | a standing approval for the lead | L16 | **decided: yes,** a standing approval |
+| 10 | Pushes of part branches and the opening of pull requests in `vecbricks/vechrono` | a standing approval for the lead, each after its review; a merge stays the owner's | L2 to L19 | open |
 | 11 | Whether the five parts of 5.6 are built in this row (the owner's decision 6 of 10.4) | no: a later row | 5.6 | **decided: a later row;** the every-zone sweep stays |
 
 **Done when** the owner has given item 1 and answered items 2a, 3, 8 and 10. Item 6 waits
-for L16.
+for L19.
 
 #### L1. The repository
 
@@ -1034,7 +1286,7 @@ insertions(+)`.
    `maven-surefire-plugin` with the argument line, its two `<excludes>`
    (`**/jmh_generated/**` and `**/*$*`, without which `verify` runs JMH's generated classes
    as tests) and no fault execution. Not kept: every `fault-*` execution, the manifest's
-   module name and the profile `release` (both L15's), the profiles `one-test` (L2's) and
+   module name and the profile `release` (both L18's), the profiles `one-test` (L2's) and
    `jmh` (L7's).
 4. `src/main/java/io/github/vecbricks/vechrono/package-info.java`: the package's Javadoc,
    the contract of 4.6 in one paragraph. The jar holds the licence files and no class yet.
@@ -1067,7 +1319,7 @@ insertions(+)`.
    5.5). It names vfdlibm's `SKILLS.md` as the place to read about JMH, C2 and the Vector
    API, and copies none of it.
 10. `CHANGELOG.md`: the first paragraph of vfdlibm's, with the contract of 4.6 as its last
-    sentence, then `## [Unreleased]` and nothing under it. It has no link line yet; L16 adds
+    sentence, then `## [Unreleased]` and nothing under it. It has no link line yet; L19 adds
     them.
 
 **Tests.** None yet: the part's proof is the build and the four CI rows.
@@ -1094,27 +1346,64 @@ total under 1000. After the push, the run of `CI` on `main` shows four green row
 2. `M/Resolve.java`: `public enum Resolve { EARLIER, GAP_END, KEPT }`, since `Oracle` names it.
 3. `T/VectorWidth.java`: vfdlibm's (55 lines), over `LongVector`
    (`VectorSpecies.of(long.class, VectorShape.forBitSize(bits))`).
-4. `T/Oracle.java`.
-   - The definitions of 4.6, static: `long toLocal(ZoneId zone, long instant)`, `long
-     toInstant(ZoneId zone, long local, Resolve rule)` (`EARLIER` or `GAP_END`), `long
-     toInstantKept(ZoneId zone, long local, long kept)`, and `instantOf`, `localOf`,
-     `microsOf`.
-   - The checks, each failing with an `AssertionFailedError` at the first lane that differs:
+4. `T/Oracle.java`, at nanosecond precision from the start. A value in a test is a pair of
+   longs, the two words of 2.1; `record Pair(long micros, long nanos)` holds one, and its
+   compact constructor throws `IllegalArgumentException` for a `nanos` outside 0 to 999.
+   - The definitions of 4.6, static, each computed by `java.time` on `Instant` and `LocalDateTime`
+     values with their nanoseconds: `instantOf(Pair)`, `localOf(Pair)`, `pairOf(Instant)`,
+     `pairOf(LocalDateTime)`; `Pair toLocal(ZoneId zone, Pair instant)`; `Pair toInstant(ZoneId
+     zone, Pair local, Resolve rule)` (`EARLIER` or `GAP_END`); `Pair toInstantKept(ZoneId zone,
+     Pair local, long keptMicros)`; `Pair plusNanos(Pair value, Pair delta)`. For the one-long
+     shape: `static long nanosOf(Pair p)`, which is, for `p.micros() >= 0`,
+     `Math.addExact(Math.multiplyExact(p.micros(), 1000), p.nanos())`, and for a negative first
+     word `Math.addExact(Math.multiplyExact(p.micros() + 1, 1000), p.nanos() - 1000)` (the plain
+     product of the first word of `Long.MIN_VALUE` nanoseconds, -9223372036854776, is below a
+     long, though the value is one; the second form has the same sum and no such product); and
+     `static Pair ofNanos(long n)`, by `Math.floorDiv` and `Math.floorMod` with 1000.
+     `nanosOf(ofNanos(n))` is `n` for every long, both ends included, and `nanosOf` throws
+     `ArithmeticException` for a pair outside the range. A one-long expectation is always
+     `nanosOf` of the pair's: the oracle has one definition a form.
+   - The checks, each failing with an `AssertionFailedError` at the first lane that differs.
+     Inputs and results are parallel arrays, a first word and a second word:
 
-         static void check(String what, ZoneId zone, long[] in, long[] got,
-             LongUnaryOperator expected);
-         static void check(String what, ZoneId zone, long[] in, long[] in2, long[] got,
-             LongBinaryOperator expected);              // toInstantKept: in2 is kept
-         static void checkMasked(String what, ZoneId zone, long[] in, long[] got,
-             boolean[] live, LongUnaryOperator expected);
-         static void checkMasked(String what, ZoneId zone, long[] in, long[] in2, long[] got,
-             boolean[] live, LongBinaryOperator expected);
+         static void check(String what, ZoneId zone, long[] inMicros, long[] inNanos,
+             long[] gotMicros, long[] gotNanos, UnaryOperator<Pair> expected);
+         static void check(String what, ZoneId zone, long[] inMicros, long[] inNanos,
+             long[] kept, long[] gotMicros, long[] gotNanos,
+             BiFunction<Pair, Long, Pair> expected);          // toInstantKept
+         static void checkMasked(String what, ZoneId zone, long[] inMicros, long[] inNanos,
+             long[] gotMicros, long[] gotNanos, boolean[] live, UnaryOperator<Pair> expected);
+         static void checkMasked(String what, ZoneId zone, long[] inMicros, long[] inNanos,
+             long[] kept, long[] gotMicros, long[] gotNanos, boolean[] live,
+             BiFunction<Pair, Long, Pair> expected);
+         static void checkNanos(String what, ZoneId zone, long[] in, long[] got,
+             UnaryOperator<Pair> expected);                    // one long in, one long out
+         static void checkNanos(String what, ZoneId zone, long[] in, long[] keptNanos,
+             long[] got, BiFunction<Pair, Long, Pair> expected);   // toInstantKeptNanos
+         static void checkNanosMasked(String what, ZoneId zone, long[] in, long[] got,
+             boolean[] live, UnaryOperator<Pair> expected);
+         static void checkNanosMasked(String what, ZoneId zone, long[] in, long[] keptNanos,
+             long[] got, boolean[] live, BiFunction<Pair, Long, Pair> expected);
+         static void checkPlusNanos(String what, long[] inMicros, long[] inNanos,
+             long[] deltaMicros, long[] deltaNanos, long[] gotMicros, long[] gotNanos);
+         static void checkPlusNanosOneLong(String what, long[] in, long[] delta, long[] got);
 
-     The masked checks also require each lane that is not live to equal `in` at that lane.
-   - The message: `<what> <zone id> lane <i>: input <in[i]> expected <e> got <g> (tzdb
-     <version>)`, and with two inputs `input <in[i]> kept <in2[i]>`. `static String
-     mismatchLine(ZoneId zone, long in)` is `<zone id> <in>`, and with a second input
-     `<zone id> <in> <kept>`: the form a hard-case file and the nightly use.
+     A test of a form that takes the first word alone passes the input's second words as
+     `gotNanos`: the check then holds that `java.time`'s second word is the input's, which
+     is the pass-through of 4.9. `checkNanos` turns each input into a pair by `ofNanos`,
+     and requires `got` to be `nanosOf` of the expected pair; with `keptNanos` it gives the
+     oracle `keptNanos / 1000` as the kept offset in microseconds where `keptNanos` is a
+     multiple of 1000, and `Long.MIN_VALUE` (no offset of any zone) where it is not.
+     `checkPlusNanos` requires both result words to equal `Oracle.plusNanos(new
+     Pair(inMicros[i], inNanos[i]), new Pair(deltaMicros[i], deltaNanos[i]))`;
+     `checkPlusNanosOneLong` requires `got[i]` to be `nanosOf` of `Oracle.plusNanos(ofNanos
+     (in[i]), ofNanos(delta[i]))`. The masked checks also require each lane that is not
+     live to equal its input, in both words. Every check calls the oracle once a lane.
+   - The message: `<what> <zone id> lane <i>: input <micros> <nanos> expected <micros>
+     <nanos> got <micros> <nanos> (tzdb <version>)`, and with a kept offset `input <micros>
+     <nanos> kept <kept>`. `static String mismatchLine(ZoneId zone, Pair in)` is `<zone id>
+     <micros> <nanos>`, and with a kept offset `<zone id> <micros> <nanos> <kept>`: the form
+     a hard-case file and the nightly use. A one-long mismatch is written as its pair.
 5. `T/Inputs.java`:
    - `record RuleSet(int index, String id, ZoneRules rules, List<String> ids)` and `static
      List<RuleSet> sets()`: `ZoneId.getAvailableZoneIds()`, sorted, grouped by
@@ -1134,10 +1423,15 @@ total under 1000. After the push, the run of `CI` on `main` shows four green row
      `Asia/Qostanay`, `America/Goose_Bay` (8 distinct offsets), `America/Boa_Vista` (the
      closest two changes), `Europe/Dublin` (negative daylight saving), `Antarctica/Troll`,
      `Pacific/Kiritimati`, `UTC`, `+01:00`.
-   - `static long[] ends()`: `Long.MIN_VALUE`, `Long.MIN_VALUE + 1`, `Long.MAX_VALUE`,
-     `Long.MAX_VALUE - 64_800_000_000L`, 0, -1, -62135596800000000 (0001-01-01),
-     -12219292800000000 (1582-10-15), 253402300799999999 and 253402300800000000 (the year
-     9999's end).
+   - `static long[] ends()`, first words: `Long.MIN_VALUE`, `Long.MIN_VALUE + 1`,
+     `Long.MAX_VALUE`, `Long.MAX_VALUE - 64_800_000_000L`, 0, -1, -62135596800000000
+     (0001-01-01), -12219292800000000 (1582-10-15), 253402300799999999 and
+     253402300800000000 (the year 9999's end).
+   - `static long[] secondWords()`: 0, 1, 500, 999. A test "over pairs" takes each first
+     word with each of these.
+   - `static long[] nanoEnds()`, one-long values: `Long.MIN_VALUE`, `Long.MAX_VALUE`, each
+     of them `129_600_000_000_000L` in (36 hours, the last accepted end of a range), one
+     nanosecond either side of that, 0, -1, 999, 1000.
    - `static long[] around(long center, long halfWidth, long step)`: `center - halfWidth`
      to `center + halfWidth` by `step`; and `static long[] random(SplittableRandom random,
      long from, long until, int n)`: `n` values uniform in `[from, until)`.
@@ -1169,9 +1463,10 @@ total under 1000. After the push, the run of `CI` on `main` shows four green row
 
 | suite | case | inputs | expected, and its oracle | the failure only it catches |
 | :--- | :--- | :--- | :--- | :--- |
-| `HarnessSelfTest` (JUnit 5, library) | `fakePasses` (body `fakePassesBody`) | 64 longs around 0 at each width | `check` of `fake` against `x -> x + 3_600_000_000L` passes | under `selftest.oneMicro`: a check that compares nothing |
+| `HarnessSelfTest` (JUnit 5, library) | `fakePasses` (body `fakePassesBody`) | 64 first words around 0 at each width, each with the second words of `Inputs.secondWords()` | `check` of `fake`, which adds 3,600,000,000 to the first word, against `p -> new Pair(p.micros() + 3_600_000_000L, p.nanos())` passes | under `selftest.oneMicro`: a check that compares nothing |
 | | `fakeMaskedPasses` (body `fakeMaskedPassesBody`) | the same, under `Inputs.masks` | `checkMasked` passes | under `selftest.notLiveLane`: a masked check that reads live lanes only |
-| | `checkFailsOnOneLane` | `fake`'s output with lane 0 changed by the test; then the two-input check with one `got` changed | `check` throws `AssertionFailedError`, and its message holds the lane, the input and, with two inputs, `kept <value>` | a failure message that cannot be turned into a hard case |
+| | `checkFailsOnOneLane` | `fake`'s output with the first word of lane 0 changed by the test; then with only the second word of lane 1 changed; then the kept check with one result changed; then `checkNanos` with one result changed | each check throws `AssertionFailedError`, and its message holds the lane, both words of the input and, with a kept offset, `kept <value>` | a check that reads the first word only; a failure message that cannot be turned into a hard case |
+| | `pairsAndNanos` | 1000 seeded pairs inside the one-long range, and `Inputs.nanoEnds()` | `ofNanos(nanosOf(p))` is `p`; `pairOf(instantOf(p))` is `p`; `new Pair(0, 1000)` and `new Pair(0, -1)` throw | an oracle whose two shapes disagree |
 | | `checkMaskedFailsOnADeadLane` | a mask with one lane off, that lane changed | `checkMasked` throws | - |
 | | `oracleAgreesWithItself` | `hardZones()` by `ends()`, with three of its values left out because `toLocal` wraps or the way back is outside the clamp there: `Long.MIN_VALUE`, `Long.MIN_VALUE + 1` and `Long.MAX_VALUE` | `toInstant(EARLIER)` of `toLocal(x)` is `x` wherever `rules.getValidOffsets(localOf(toLocal(x)))` has one element | an oracle whose two directions use two units |
 | | `setsAreDistinctRules` | `sets()` | no two entries have equal `ZoneRules`; the ids of all sets are `ZoneId.getAvailableZoneIds()`; prints the counts and `tzdb()` | a sweep that reads one set of rules twice |
@@ -1586,6 +1881,7 @@ padded with the last element.
 | `everyCount` | `hardZones()`; a week, a year and a range of 5 changes; forced counts of 0, 2 and 8, each only where it is not below the range's changes | the same lanes from each count, and the oracle's | a delta's sign (`toLocal.deltaSign`), padding that fires |
 | `armsAgree` | the inputs of the first case | `ToLocal.noMask` equals `ToLocal.masked`, called directly, on every host; the body asserts `noMaskExact()` of each range first | the shift form one off (`toLocal.noMaskOffByOne`) |
 | `noMaskIsRefusedOnAWideRange` | `ZoneSteps.of(zone of +01:00, Long.MIN_VALUE, Long.MAX_VALUE)` | `noMaskExact()` is false, and `dispatch` returns what `masked` returns | the arm with no mask outside its domain |
+| `secondWordPassesThrough` | `hardZones()`; 4096 seeded first words in the year 2025, each with each of `Inputs.secondWords()` | `Oracle.check` with the input's second words as `gotNanos`: `java.time`'s local time to the nanosecond has the form's first word and the input's second word | a form that would need the second word and does not take it |
 | `maskedLanes` | `Inputs.masks`, on a year of `America/Los_Angeles` | `checkMasked`: live lanes equal the oracle, the others their input | a lane that is not live computed (`toLocal.maskedLaneTouched`) |
 | `ruleEra` | each set with `block > 0`: the year 2437 and the year 9999, 4096 seeded instants each | the oracle | steps built from the block wrongly |
 | `endsOfTheRange` | `Inputs.ends()`, each in a range of itself, in `hardZones()` | the oracle, wrapping | a broadcast of a wrapped threshold |
@@ -1645,10 +1941,10 @@ it.
    with the checkout, Java and cache steps of `build`.
 5. `AGENTS.md`: "Measurements, not adjectives", section 7's rule.
 
-**Tests.** `T/ToLocalBenchmarkTest.java` (JUnit 5): `everyRowAnswersTheOracle` runs each
-row's method once for each `inputs` value and compares the output array with
-`Oracle.toLocal`; `unknownInputsThrow`. The failure only it catches: a benchmark row that
-times a wrong answer.
+**Tests.** `T/ToLocalBenchmarkTest.java` (JUnit 5): `everyRowAnswersTheOracle` runs each row's
+method once for each `inputs` value and compares the output array with `java.time` through
+`Oracle.check`, with second words of 0 in and out; `unknownInputsThrow`. The failure only it
+catches: a benchmark row that times a wrong answer.
 
 **Commands.** The oracle of 5.1. `mvn -B -Pjmh test-compile exec:exec
 -Djmh.args="ToLocalBenchmark.steps256 -p inputs=year -f 1 -wi 1 -i 1"` prints one JMH result
@@ -1657,12 +1953,12 @@ CI, the job `alloc` prints `No vector body allocates 1.0 B/op or more.` in both 
 
 **The cut line.** If the size passes 900: `bench/alloc-check.py` and the job `alloc` leave
 this part and become `[VECHRONO-<issue>] Fail CI when a form's vector body allocates`,
-branch `vechrono-l7b-alloc-check`, which L11 then needs.
+branch `vechrono-l7b-alloc-check`, which L14 then needs.
 
 **Done when** CI is green with the job `alloc`, and the owner has added its two checks to
 `main`'s rule (P0 item 2a). If `alloc` fails on a `steps*` row and passes on the
 `kernelShaped*` rows, stop and report: prediction 3 failed, and the owner decides the API
-(risk 2). **Not here:** no results file; the host runs are L14.
+(risk 2). **Not here:** no results file; the host runs are L17.
 
 #### L8. The table form
 
@@ -1688,7 +1984,7 @@ prints `2`. `grep -c 'public long\[\] memo(' M/ZoneData.java` prints `1`.
 | :--- | :--- | :--- | :--- |
 | `everyZoneAtEveryChange` | each set with a table; each change of `changesAt(ORIGIN, LIMIT)`: `T`, one microsecond either side; and 10,000 seeded instants a set over the range | `gather`, `scalarLoads` and the scalar `toLocal` each equal `Oracle.toLocal` | the two halves swapped (`table.halvesSwapped`) |
 | `everyZoneHasATable` | each set | `ZoneTable.has`; prints the sets without one, with the bucket | a tzdb update with two changes in a bucket, seen the night it comes |
-| `edgesOfTheRange` | `ORIGIN`, `LIMIT - 1`, the first and last instant of buckets 0, 1 and 11480, in `hardZones()` | the oracle | an index one bucket off |
+| `edgesOfTheRange` | `ORIGIN`, `LIMIT - 1`, the first and last instant of buckets 0 and 1, and the first instant of bucket 11480 (its last is past `LIMIT - 1`, outside the table's range, and is not tried), in `hardZones()` | the oracle | an index one bucket off |
 | `notLiveLanesOutsideTheTable` | the masked form; lanes that are not live hold `Long.MIN_VALUE`, `Long.MAX_VALUE`, `ORIGIN - 1`, `LIMIT`; the body wraps the call in `assertDoesNotThrow` | no exception, and those lanes keep their input | an index that is not clamped (`table.unclampedIndex`), which would throw `IndexOutOfBoundsException` |
 | `tableEqualsSteps` | `hardZones()`, the year 2025 | the table's lanes equal the steps' lanes | a second definition that drifts |
 | `packWords` | `word(-28800, -25200)`, `word(20700, 20700)`, `word(64800, -64800)`; then `word(64801, 0)` and `word(0, -64801)` | `offsetMicros` gives back each half times 1000000; `index(Long.MIN_VALUE)` and `index(Long.MAX_VALUE)` are from 0 to `BUCKETS - 1`; the last two throw `IllegalArgumentException` | a sign lost in the low half |
@@ -1703,7 +1999,7 @@ prints `2`. `grep -c 'public long\[\] memo(' M/ZoneData.java` prints `1`.
 **The cut line.** If the size passes 900: the arm `TableLookup.scalarLoads` and its lines
 of `everyZoneAtEveryChange` leave this part and become `[VECHRONO-<issue>] Add the table
 lookup by scalar loads, for a host with no gather`, branch `vechrono-l8b-scalar-loads`,
-which L11 then needs.
+which L14 then needs.
 
 **Done when** the oracle passes on the four CI rows. **Not here:** no table of the local
 line (row 693's, after 0.1.0).
@@ -1724,8 +2020,10 @@ fails.
    s)` and `static LongVector gapEnd(LongVector l, LocalSteps s)`, each a `switch` over the
    count with 0, 2 and 8 steps written out, with masks (4.4). One fault:
    `toInstant.gapEndAsEarlier` (the move to `hi` dropped in `gapEnd`).
-3. `M/VChrono.java`: the two `toInstant` vector forms and the scalar `toInstant(long,
-   ZoneData, Resolve)`.
+3. `M/VChrono.java`: the two `toInstant` vector forms, the scalar `toInstant(long,
+   ZoneData, Resolve)`, and `insideGap(LongVector local, LocalSteps steps)` of 4.9, which
+   throws `IllegalArgumentException("insideGap takes GAP_END steps, not " + rule)` for other
+   steps. (L11 adds its unit check.)
 4. `T/ToInstantTest.java`, its catcher, one execution; `README.md` (one sentence under
    "Use") and `CHANGELOG.md`.
 
@@ -1737,6 +2035,8 @@ window it is about, so that it is inside the clamp.
 | `everyZoneAtEveryWindow` | each set, each stored change with two different offsets: the nine edges of L4 and two hours either side at 60 s; `EARLIER` and `GAP_END` | `Oracle.toInstant` in every lane | a threshold of the wrong side |
 | `gapInteriors` | each set, each stored gap: `lo + 1`, the middle, `hi - 1` | `toInstant` under `GAP_END` is the gap's instant | the gap's end taken as the earlier offset (`toInstant.gapEndAsEarlier`) |
 | `everyCount` | `hardZones()`, a year; forced counts of 0, 2 and 8, each only where it is not below `localChanges` | the same lanes | a padded step that fires |
+| `secondWordPassesThrough` | `hardZones()`; 4096 seeded local first words in 2025, half within three hours of a change, each with each of `Inputs.secondWords()`; `EARLIER`, and `GAP_END` with the second word zeroed under `VChrono.insideGap` | the oracle's pair: under `EARLIER` the input's second word; under `GAP_END` 0 inside a gap and the input's elsewhere | a second word carried across a gap's end, where `java.time` has none |
+| `insideGap` | each set, each stored gap: `lo - 1`, `lo`, the middle, `hi - 1`, `hi`; each stored overlap: the same five points | `VChrono.insideGap` is true at `lo`, the middle and `hi - 1` of a gap, and false at every other point | the mask a caller zeroes its second word under, off by one |
 | `maskedLanes` | `Inputs.masks`, both rules, a year of `America/Los_Angeles` | live lanes the oracle's, the others `local`'s | a lane that is not live computed |
 | `ruleEra` | each set with `block > 0`: 4096 seeded local times in the year 2437 and in 9999 | the oracle | steps built from the block wrongly |
 | `clamp` | a range that ends at `Long.MAX_VALUE - 2 * MAX_OFFSET_MICROS + 1`; one that ends a microsecond lower | the first: `LocalSteps.of` throws 4.8's second text; the second: no exception, and the lanes are the oracle's | a threshold that wraps |
@@ -1780,6 +2080,7 @@ sum, no field.
 | `keptInsideEveryOverlap` | each set, each stored overlap: `lo`, the middle, `hi - 1`, with `kept` the offset after | the later of the two instants, and `Oracle.toInstantKept` | the kept offset ignored (`toInstant.keptIgnored`) |
 | `thereAndBack` | each set, a year around each of five seeded changes, 4096 instants `x` in no order | `toInstantKept(toLocal(x), toLocal(x) - x)` is `x` in every lane | an error the oracle's use would share |
 | `maskedLanes` | `Inputs.masks` | live lanes the oracle's, the others `local`'s | a lane that is not live computed |
+| `secondWordPassesThrough` | `hardZones()`; 4096 seeded local first words in 2025, each with each of `Inputs.secondWords()` and `kept` one of the nearest change's two offsets | the oracle's pair has the form's first word and the input's second word | as L6's |
 | `everyCount` | `hardZones()`, the local year 2025, `kept` the offset after the nearest change; forced counts of 0, 2 and 8, each only where it is not below `localChanges`; and a year of `Africa/Casablanca`, which needs the count of 8 | the same lanes from each count, and the oracle's | the 8-step arm of `kept`, which no other case reaches |
 | `ruleEra` | each set with `block() > 0`: 4096 seeded local times in the year 2437 and in 9999, `kept` one of the two offsets of the nearest change | the oracle | steps built from the block wrongly |
 | `clamp` | a range that ends at `Long.MAX_VALUE - 2 * MAX_OFFSET_MICROS + 1`; one that ends a microsecond lower | the first: `LocalSteps.of(zone, KEPT, ...)` throws 4.8's clamp text; the second: no exception, and the lanes are the oracle's | a threshold that wraps |
@@ -1791,16 +2092,135 @@ sum, no field.
 
 **Done when** the oracle passes on the four CI rows. **Not here:** no sum, no field.
 
-#### L11. The benchmarks of the table and of the way back
+#### L11. The one-long arm of the steps
+
+*Title:* `[VECHRONO-<issue>] Add the forms over one long of nanoseconds, by steps`.
+*Branch:* `vechrono-l11-one-long-steps`.
+
+**B0.** `grep -c 'ofNanos' M/ZoneSteps.java M/LocalSteps.java` prints `0` for each file.
+`grep -c 'toInstantKept' M/VChrono.java` is above 0: L10 has merged.
+
+**Steps.**
+
+1. `M/ZoneSteps.java` and `M/LocalSteps.java`: the two `ofNanos` forms and `nanos()` of
+   4.9. `least()` and `greatest()` of steps made by `ofNanos` are in nanoseconds, and
+   `noMaskExact()` is computed from them. Three faults: `nanos.atNotScaled` (the thresholds
+   are not multiplied), `nanos.deltaNotScaled` (the base and the differences are not
+   multiplied), `nanos.noRangeCheck` (a range near an end of a long is not refused).
+2. `M/VChrono.java`: the six `*Nanos` vector forms and the three scalar twins of 4.9; the
+   six microsecond forms and `insideGap` gain the unit check (`insideGap` compares a
+   microsecond lane, so with `ofNanos` steps it throws `IllegalArgumentException("insideGap
+   takes steps in microseconds, these are in nanoseconds")`; the one-long arm needs no such
+   mask, since it writes the gap's end itself). No new arm: they call `ToLocal` and
+   `ToInstant`.
+3. `T/OneLongTest.java`, its catchers, three executions; `README.md` (one paragraph under
+   "Use": the two shapes, and when the one long applies) and `CHANGELOG.md`.
+
+**Tests.** Every vector case at each `VectorWidth`. Inputs are pairs; a one-long input is
+`Oracle.nanosOf` of the pair, and `Oracle.checkNanos` compares.
+
+| case of `OneLongTest` | inputs | expected, and its oracle | the failure only it catches |
+| :--- | :--- | :--- | :--- |
+| `toLocalAtEveryChange` | each set; each change `r` with `-9_000_000_000_000_000L <= atOf(r) <= 9_000_000_000_000_000L` (inside the one-long range, and far from its ends): the range from `(atOf(r) - 86_400_000_000L) * 1000` to `(atOf(r) + 86_400_000_000L) * 1000`, a day either side, which holds at most 2 changes of any zone of the JDK (a set where it holds more than 8 is skipped and counted, and the count is asserted to be 0); lanes at `at * 1000`, one nanosecond, 999 ns, 1000 ns and one second either side | `toLocalNanos` equals `nanosOf(Oracle.toLocal(...))` | thresholds left in microseconds (`nanos.atNotScaled`) |
+| `shapesAgree` | `hardZones()`; 4096 seeded pairs of the year 2025 (first words from 1735689600000000 to 1767225599999999), with the range their least and greatest; each of `toLocal`, `toInstant` under both rules, and `toInstantKept` with `kept` the offset after the change nearest to each value (`zone.offsetSecondsAt` of that change, in microseconds for the one shape and times 1000 for the other) | the one-long result is `micros * 1000 + nanos` of the two-word result (the first word from the microsecond form, the second passed through, zeroed under `insideGap` for `GAP_END`) | the base or a difference left in microseconds (`nanos.deltaNotScaled`) |
+| `wayBackAtEveryWindow` | each set, each stored change inside the range with two different offsets: the nine edges of L4 times 1000, and 1 ns either side of `lo * 1000` and `hi * 1000`; each rule; `kept` the two offsets in nanoseconds | `nanosOf` of the oracle's pair | a window's edge that moves by the scaling |
+| `rangeEnds` | four ranges, each one day long (86,400,000,000,000 ns), in `hardZones()`, for `ZoneSteps.ofNanos` and for `LocalSteps.ofNanos` under each rule, with `E = 129_600_000_000_000L`: (a) `greatest = Long.MAX_VALUE - E`, `least = greatest - 86_400_000_000_000L`; (b) the same shifted by +1 ns; (c) `least = Long.MIN_VALUE + E`, `greatest = least + 86_400_000_000_000L`; (d) the same shifted by -1 ns | (b) and (d): 4.8's clamp text; (a) and (c): no exception, and lanes at `least` and at `greatest` are `nanosOf` of the oracle's pair | a product that leaves a long (`nanos.noRangeCheck`: the body asserts the two exceptions first) |
+| `everyCount` | `hardZones()`; three ranges in nanoseconds: the week from 2025-07-01T00:00:00Z (1751328000000000000, 604,800,000,000,000 ns long), the year 2025 (from 1735689600000000000 to 1767225599999999999) and, for `Africa/Casablanca`, the same year; 4096 seeded values each; forced counts of 0, 2 and 8, each only where it is not below `changes` of the range in microseconds | the same lanes from each count, and `nanosOf` of the oracle's pair | padding multiplied by 1000 |
+| `maskedLanes` | `Inputs.masks`; the year 2025 of `America/Los_Angeles` in nanoseconds, 4096 seeded values; `toLocalNanos`, `toInstantNanos` under both rules, `toInstantKeptNanos` | `Oracle.checkNanosMasked`: live lanes the oracle's, the others their input | a lane that is not live computed in the one-long forms |
+| `armsAgree` | the ranges and lanes of `toLocalAtEveryChange` | `ToLocal.noMask` equals `ToLocal.masked` over `ofNanos` steps, called directly, on every host; the body asserts `noMaskExact()` first | the arm with no mask chosen from a span in the wrong unit |
+| `wrongUnit` | each microsecond form and `insideGap` with `ofNanos` steps; each `*Nanos` form with `of` steps | 4.8's seven texts | a silent answer a thousand times off |
+| `scalarTwins` | 1000 seeded one-long values in `hardZones()`, each rule | the three twins equal `nanosOf` of the oracle's pair | - |
+| `refusals` | null vectors, steps, masks and zones | `NullPointerException` with the parameter's name | - |
+
+**Commands.** The oracle of 5.1; `grep -c '<id>fault-' pom.xml` prints `F0 + 3`.
+
+**Done when** the oracle passes on the four CI rows. **Not here:** no table, no
+`plusNanos`.
+
+#### L12. The one-long arm of the table
+
+*Title:* `[VECHRONO-<issue>] Add the table form over one long of nanoseconds`.
+*Branch:* `vechrono-l12-nano-table`.
+
+**B0.** `ls M/NanoTable.java` fails. `ls M/ZoneTable.java` prints the path.
+`grep -c 'toLocalNanos' M/VChrono.java` is above 0.
+
+**Steps.**
+
+1. `M/NanoTable.java`, all of 4.9's class, with `pack` as 4.9 writes it out.
+2. `M/TableLookup.java`: `static LongVector gatherNanos(LongVector x, NanoTable t, int[]
+   scratch)`, 4.9's operations. One fault: `nanoTable.beforeForAfter` (the blend picks the
+   offset before where the lane is at or after the change).
+3. `M/VChrono.java`: the two `toLocalNanos` forms over a `NanoTable`.
+4. `T/NanoTableTest.java`, its catcher, one execution; `CHANGELOG.md`.
+
+**Tests.** Every vector case at each `VectorWidth`.
+
+| case of `NanoTableTest` | inputs | expected, and its oracle | the failure only it catches |
+| :--- | :--- | :--- | :--- |
+| `everyZoneAtEveryChange` | each set with a table; each change inside `[ORIGIN, LIMIT)`: `T`, 1 ns and 1000 ns either side; 10,000 seeded values a set over the range | the vector form and the scalar `toLocal` equal `nanosOf` of the oracle's pair | the two offsets swapped (`nanoTable.beforeForAfter`) |
+| `equalsZoneTable` | `hardZones()`; 4096 seeded pairs of the years 1900 to 2099 | `toLocalNanos(m * 1000 + n, nanoTable)` is `VChrono.toLocal(m, zoneTable) * 1000 + n` | two tables of one zone that disagree |
+| `everyZoneHasATable` | each set | `NanoTable.has` equals `ZoneTable.has`, or the difference is printed with the bucket and the case fails | a bucket of 2^49 ns that holds two changes where 2^39 microseconds held one |
+| `edgesOfTheRange` | `ORIGIN`, `LIMIT - 1`, the first and last value of buckets 0 and 1, and the first value of bucket 11211 (its last is past `LIMIT - 1` and is not tried), in `hardZones()` | the oracle | an index one bucket off |
+| `packRefuses` | `pack` with `offsetSeconds` as long as `at`; with a change at `ZoneTable.ORIGIN - 1`; at `ZoneTable.LIMIT`; with two changes out of order; with an offset of 64801; with `longs` of `LONGS - 1` | `IllegalArgumentException` for each | a table packed from arrays that do not belong together |
+| `notLiveLanesOutsideTheTable` | the masked form; lanes that are not live hold `Long.MIN_VALUE`, `Long.MAX_VALUE`, `ORIGIN - 1`, `LIMIT`; the body wraps the call in `assertDoesNotThrow` | no exception, and those lanes keep their input | - |
+| `noTable` | the made-up rules of `TableTest.noTable` | `has` is false, and `of` throws 4.8's text | - |
+| `refusals` | a scratch of `2 * lanes - 1` ints; a null vector, table, scratch and mask; the entry of `ZoneFixtures.outOfYear()` | 4.8's texts | - |
+
+**Commands.** The oracle of 5.1; `grep -c '<id>fault-' pom.xml` prints `F0 + 1`.
+
+**Done when** the oracle passes on the four CI rows. **Not here:** no table of the local
+line.
+
+#### L13. `plusNanos` in both shapes
+
+*Title:* `[VECHRONO-<issue>] Add plusNanos: the first form that reads and writes both words`.
+*Branch:* `vechrono-l13-plus-nanos`.
+
+**B0.** `ls M/PlusNanos.java` fails. `ls M/VChrono.java` prints the path.
+
+**Steps.**
+
+1. `M/PlusNanos.java`, package-private: `static LongVector micros(LongVector m, LongVector n,
+   LongVector dm, LongVector dn)`, `static LongVector within(LongVector n, LongVector dn)` and
+   `static LongVector oneLong(LongVector x, LongVector d)`, 4.9's operations. Three faults:
+   `plusNanos.noCarry` (the first word gets no carry), `plusNanos.carryAbove1000` (the carry
+   compares `sum > 1000`, so a sum of exactly 1000 does not carry), `plusNanos.maskedLaneTouched`
+   (the masked forms return the result unblended).
+2. `M/VChrono.java`: the six `plusNanos` forms of 4.9.
+3. `T/PlusNanosTest.java`, its catchers, three executions; `README.md`, `CHANGELOG.md`.
+
+**Tests.** Every vector case at each `VectorWidth`. The oracle is
+`Oracle.plusNanos(value, delta)`, `pairOf(instantOf(value).plusNanos(delta.micros() * 1000 +
+delta.nanos()))`. Inputs are kept where `java.time` and the pair both hold the result:
+first words from -9,000,000,000,000,000,000 / 1000 to 9,000,000,000,000,000,000 / 1000 and
+`deltaMicros` within plus and minus 10^15.
+
+| case of `PlusNanosTest` | inputs | expected, and its oracle | the failure only it catches |
+| :--- | :--- | :--- | :--- |
+| `carryEdges` | second words 0, 1, 499, 500, 998, 999 by `deltaNanos` 0, 1, 500, 501, 999, with first words 0, -1 and 1767225599999999 and `deltaMicros` 0, 1 and -1 | both words equal the oracle's pair; the second word is from 0 to 999 | a carry lost (`plusNanos.noCarry`); a carry at the wrong sum (`plusNanos.carryAbove1000`, at a sum of exactly 1000) |
+| `seeded` | 100,000 seeded pairs and deltas | the oracle | a sum that the edges do not reach |
+| `negativeDelta` | a delta of -1 ns, -999 ns, -1000 ns and -1001 ns, each split by `floorDiv` and `floorMod`, on second words 0 and 999 | the oracle, `Instant.plusNanos` of the negative count | a borrow, which the floor form turns into a carry |
+| `shapesAgree` | 100,000 seeded pairs and deltas: first words uniform from -9,000,000,000,000,000 to 9,000,000,000,000,000, `deltaMicros` uniform from -1,000,000,000,000,000 to 1,000,000,000,000,000, second words and `deltaNanos` from 0 to 999; the one long is formed with wrapping arithmetic, `m * 1000 + n`, so a sum that leaves a long is kept: both shapes wrap modulo 2^64 and must still agree | the one-long `plusNanos(m * 1000 + n, dm * 1000 + dn)` is `micros * 1000 + within` of the two-word result | two shapes of one sum that disagree |
+| `wraps` | two words: `(Long.MAX_VALUE, 0)` plus `(1, 0)`; `(Long.MAX_VALUE, 999)` plus `(0, 1)`, a carry out of the last first word; `(Long.MIN_VALUE, 0)` plus `(-1, 999)`. One long: `Long.MAX_VALUE` plus 1 | `(Long.MIN_VALUE, 0)`; `(Long.MIN_VALUE, 0)`; `(Long.MAX_VALUE, 999)`; `Long.MIN_VALUE`. The expected values are written down, since `java.time` has no wrap; no exception | an overflow check that a kernel does not have |
+| `maskedLanes` | `Inputs.masks`, each of the three masked forms | live lanes the oracle's; the others their first argument's | a lane that is not live computed (`plusNanos.maskedLaneTouched`) |
+| `refusals` | each form with each argument null | `NullPointerException` with the parameter's name | - |
+
+**Commands.** The oracle of 5.1; `grep -c '<id>fault-' pom.xml` prints `F0 + 3`.
+
+**Done when** the oracle passes on the four CI rows. **Not here:** no other form over the
+second word (5.3).
+
+#### L14. The benchmarks of the table, the way back and the two shapes
 
 *Title:* `[VECHRONO-<issue>] Time the table and the three rules against java.time`.
-*Branch:* `vechrono-l11-benchmarks`.
+*Branch:* `vechrono-l14-benchmarks`.
 
 **B0.** `ls src/jmh/java/io/github/vecbricks/vechrono/` prints `ToLocalBenchmark.java` only.
 After `mvn -q -DskipTests compile`, `javap -p -cp target/classes
 io.github.vecbricks.vechrono.TableLookup | grep -c 'scalarLoads(.*, long\[\])'` prints `1`.
 
-**Steps.** Three classes, each built as `ToLocalBenchmark` is (4096 values from
+**Steps.** Four classes, each built as `ToLocalBenchmark` is (4096 values from
 `new SplittableRandom(679)`, a `setUp` that throws on an unknown `inputs` and prints the
 tzdb, no scalar tail since 4096 is a multiple of every lane count), each with a test as
 L7's. No row of any of them throws for a value its `@Param` lists: `benchmark.yml` runs with
@@ -1822,50 +2242,99 @@ L7's. No row of any of them throws for a value its `@Param` lists: `benchmark.ym
   1_000_000L`, the offset after it. Rows: `javaTimeAtZone`, `javaTimeOfLocal`, `earlier256`,
   `earlierPreferred`, `earlierMax`, `gapEndPreferred`, `kept256`, `keptPreferred`.
 
+- `ShapesBenchmark`, `@Param({"year"}) inputs`: 4096 values of the year 2025 of
+  `America/Los_Angeles` in no order, from `new SplittableRandom(679)`, so that both shapes
+  run on the same values inside the one-long range. Its arrays, all `long[4096]`, made in
+  `setUp`: the inputs `m` (first words) and `n` (second words, 0 to 999), and `x`, with
+  `x[i] = m[i] * 1000 + n[i]`; the deltas `dm` (uniform within plus and minus 1,000,000,000
+  microseconds) and `dn` (0 to 999), and `d`, with `d[i] = dm[i] * 1000 + dn[i]`; the
+  outputs `outM`, `outN` and `out`. Its scratch for the two table rows: one `int[]` of
+  `2 * LongVector.SPECIES_MAX.length()`, made in `setUp`. Its steps and tables: `ZoneSteps
+  .of` and `.ofNanos`, `LocalSteps.of` and `.ofNanos` under `EARLIER`, `ZoneTable.of` and
+  `NanoTable.of`, each for the least and greatest of its array. The rows, each at the
+  preferred species and at 256 bits, seventeen in all:
+  - `toLocalTwoWordsPreferred`, `toLocalTwoWords256`: `VChrono.toLocal` from `m` into
+    `outM`; `n` is not touched, since the form leaves the second word;
+  - `toLocalOneLongPreferred`, `toLocalOneLong256`: `toLocalNanos` from `x` into `out`;
+  - `toLocalTableTwoWordsPreferred`, `toLocalTableTwoWords256`: over the `ZoneTable`;
+  - `toLocalTableOneLongPreferred`, `toLocalTableOneLong256`: over the `NanoTable`;
+  - `toInstantTwoWordsPreferred`, `toInstantTwoWords256`, and `toInstantOneLongPreferred`,
+    `toInstantOneLong256`: `EARLIER`, reading `m` or `x` as local times;
+  - `plusNanosTwoWordsPreferred`, `plusNanosTwoWords256`: `plusNanosMicros` from `m`, `n`,
+    `dm`, `dn` into `outM`, and `plusNanosWithin` from `n`, `dn` into `outN`, in one loop:
+    four arrays read, two written;
+  - `plusNanosOneLongPreferred`, `plusNanosOneLong256`: `plusNanos` from `x`, `d` into
+    `out`: two arrays read, one written;
+  - `javaTimePlusNanos`: `Instant.plusNanos` once a row, over `Instant`s made in `setUp`.
+  This is the measurement row 662 asks of its two layouts, outside Spark.
+
 `bench/alloc-check.py` is not edited: its regex takes every row above that ends in `256`,
 `Preferred` or `Max`, and each of them must read under 1 B/op.
 
 **Commands.** The oracle of 5.1; CI's job `alloc` prints its last line in both rows.
 
-**The cut line.** If the size passes 900: `ToInstantBenchmark` and its test leave this part
-and become `[VECHRONO-<issue>] Time the three rules against java.time`, branch
-`vechrono-l11b-to-instant-benchmark`, which L14 then needs.
+**The cut line.** If the size passes 900: `ShapesBenchmark` and its test leave this part and
+become `[VECHRONO-<issue>] Time the two shapes of a nanosecond value on the same data`,
+branch `vechrono-l14b-shapes-benchmark`, which L17 then needs.
 
 **Done when** CI is green. **Not here:** no results file.
 
-#### L12. The every-zone sweep, as a program
+#### L15. The every-zone sweep, as a program
 
 *Title:* `[VECHRONO-<issue>] Sweep every change of every zone, as a main program`.
-*Branch:* `vechrono-l12-sweep`.
+*Branch:* `vechrono-l15-sweep`.
 
-**B0.** `ls T/Sweep.java` fails. `ls M/ZoneTable.java M/ToInstant.java` prints both, and
-`grep -c 'toInstantKept' M/VChrono.java` is above 0: L8 and L10 have merged.
+**B0.** `ls T/Sweep.java` fails. `ls M/ZoneTable.java M/NanoTable.java M/ToInstant.java`
+prints the three, and `grep -c 'toInstantKeptNanos' M/VChrono.java` is above 0: L8, L11 and
+L12 have merged.
 
 **Steps.**
 
-1. `T/Sweep.java`, a `main` over `static int run(String[] args)`, with the options `--form`
-   (`toLocal`, `table`, `earlier`, `gapEnd`, `kept`), `--species` (`128`, `256`, `512`,
-   `max`), `--shard i/n` (the sets of `Inputs.sets()` whose index is `i` modulo `n`) and
-   `--out <file>`. For each set, each change `r` below `size()` (so the stored changes, the
-   head and the block), it checks every second from two hours before to two hours after the
-   change (on the local line: from two hours before `lo` to two hours after `hi`), plus one
-   microsecond either side of each threshold, in ranges of one change each; both arms where
-   a form has two; the unmasked form and the masked form under a mask with every third lane
-   off. Under `kept` each local time runs with `kept` the offset before and the offset
-   after. Under `table` it takes the changes inside the table's range, and a set with no
-   table (`ZoneTable.has` is false) is skipped and counted. It prints the JDK build
-   (`Runtime.version()`), `tzdb <version>`, the sets, the changes, the lanes checked and,
-   under `table`, `no table: <n> sets`; it writes each mismatch to `--out` as
-   `Oracle.mismatchLine` has it; its last line is `<n> mismatches`; `run` returns 0 with
-   none and 1 otherwise. A species the host lacks prints `<bits>: not on this host` and
-   returns 0.
-2. `T/NightlyTest.java` (JUnit 5): `Sweep.run` with `--shard 0/64` for each of the five
-   forms at `max`, each required to return 0.
+1. `T/Sweep.java`. Its seam for the form under test, so that a test can plant a wrong one:
+
+       interface Subject {      // one form in one shape, over arrays; results into outFirst, outSecond
+         void apply(String form, String shape, ZoneData zone, VectorSpecies<Long> species,
+             boolean[] live, long least, long greatest, long[] first, long[] second,
+             long[] kept, long[] outFirst, long[] outSecond);
+       }
+       static final Subject LIBRARY = ...;        // the library's own forms
+       static int run(String[] args);             // run(args, LIBRARY)
+       static int run(String[] args, Subject subject);
+
+   `live` is null for the unmasked form. Under `oneLong`, `first` holds the one long and `second`
+and `outSecond` are not read. Under `twoWords`, `LIBRARY` copies `second` to `outSecond`, and for
+`gapEnd` it then zeroes `outSecond` in the lanes of `VChrono.insideGap` (4.9). `main` calls
+`run(args)` and exits with its result. The options are `--form` (`toLocal`, `table`, `earlier`,
+`gapEnd`, `kept`), `--shape` (`twoWords`, the default, or `oneLong`), `--species` (`128`, `256`,
+`512`, `max`), `--shard i/n` (the sets of `Inputs.sets()` whose index is `i` modulo `n`), `--step
+<seconds>` (default 1) and `--out <file>`. For each set, each change `r` below `size()` (so the
+stored changes, the head and the block), it checks every `--step` seconds from two hours before to
+two hours after the change (on the local line: from two hours before `lo` to two hours after
+`hi`), plus one microsecond either side of each threshold, in ranges of one change each; both arms
+where a form has two; the unmasked form and the masked form under a mask with every third lane
+off. Under `kept` each local time runs with `kept` the offset before and the offset after. Under
+`table` it takes the changes inside the table's range, and a set with no table (`ZoneTable.has` is
+false) is skipped and counted. It prints the JDK build (`Runtime.version()`), `tzdb <version>`,
+the sets, the changes, the lanes checked and, under `table`, `no table: <n> sets`; it writes each
+mismatch to `--out` as `Oracle.mismatchLine` has it; its last line is `<n> mismatches`; `run`
+returns 0 with none and 1 otherwise. A species the host lacks prints `<bits>: not on this host`
+and returns 0. Under `twoWords` the second words are spread one a lane, cycling, as 5.1 says, and
+the check holds both words; no point runs four times. The oracle is called once for each input,
+and each arm and the masked form are compared with that one answer. Under `oneLong` it takes the
+changes inside the one-long range, the same points times 1000 and one nanosecond either side of
+each threshold, through the `*Nanos` forms and, for `table`, the `NanoTable`. `plusNanos` has no
+zone and is not swept: its test is exhaustive at its edges.
+2. `T/NightlyTest.java` (JUnit 5): `Sweep.run` with `--shard 0/64 --step 900` for each of
+   the five forms in each of the two shapes at `max`, each required to return 0. With a
+   step of 900 s a change has 17 points and its thresholds' neighbours, so the ten runs
+   make under 2 million oracle calls (section 7, prediction 8).
 3. `-Dvechrono.fault` reaches the program, since the forms read `Faults`.
 
-**Tests.** `NightlyTest.sweepFindsAPlantedMismatch`: `Sweep`'s checker, given a form that is
-one microsecond off at one input, writes that input's line to its `--out` file and returns
-1. The failure only it catches: a sweep that returns 0 whatever it reads.
+**Tests.** `NightlyTest.sweepFindsAPlantedMismatch`: `Sweep.run(args, subject)` with `--form
+toLocal --shard 0/64 --step 900` and a `subject` that calls `Sweep.LIBRARY` and then adds 1
+to `outFirst[0]` of its first call only. It returns 1, its last line is `1 mismatches`, and
+its `--out` file holds one line, that input's, as `Oracle.mismatchLine` has it. The failure
+only it catches: a sweep that returns 0 whatever it reads.
 
 **Commands.** The oracle of 5.1. Then this prints a last line `0 mismatches` and exits 0:
 
@@ -1874,27 +2343,28 @@ one microsecond off at one input, writes that input's line to its `--out` file a
 
 **Done when** CI is green. **Not here:** no workflow, no `Fuzz` (5.6).
 
-#### L13. The nightly workflow
+#### L16. The nightly workflow
 
 *Title:* `[VECHRONO-<issue>] Run the every-zone sweep every night, with an issue on failure`.
-*Branch:* `vechrono-l13-nightly`. Needs P0 item 9 for its two dispatches.
+*Branch:* `vechrono-l16-nightly`. Needs P0 item 9 for its two dispatches.
 
 **B0.** `ls .github/workflows/nightly.yml` fails; `ls dev/nightly.sh` fails.
 
 **Steps.**
 
-1. `dev/nightly.sh <form> <species>`: it requires
+1. `dev/nightly.sh <form> <shape> <species>`: it requires
    `target/test-classes/io/github/vecbricks/vechrono/Sweep.class` (else it prints
    `dev/nightly.sh: build the classes first: mvn -B -q test-compile` and exits 2); it runs
-   `Sweep --form <form> --species <species> --shard 0/1 --out
-   target/nightly/sweep-<form>-<species>.txt` with the JVM options of `NIGHTLY_JVM_ARGS`,
+   `Sweep --form <form> --shape <shape> --species <species> --shard 0/1 --out
+   target/nightly/sweep-<form>-<shape>-<species>.txt` with the JVM options of `NIGHTLY_JVM_ARGS`,
    and exits with its status.
 2. `.github/workflows/nightly.yml`, written new (vfdlibm's has a `plan` job, stripes, slices
    and a fuzz that this one does not have):
    - `on:` a `schedule` at `7 0 * * *` and a `workflow_dispatch` with the inputs `forms`
      (default `toLocal table earlier gapEnd kept`) and `fault` (default empty);
    - `permissions: contents: read` for the workflow;
-   - the job `sweep`: `ubuntu-latest`, a matrix of the five forms by three settings (`256`
+   - the job `sweep`: `ubuntu-latest`, a matrix of the five forms by the two shapes by
+     three settings (`256`
      with no option, `max` with no option, `128` with `NIGHTLY_JVM_ARGS=-XX:MaxVectorSize=16`
      and the species `128`); steps: checkout, Java, cache, `java -version`, `mvn -B -q
      test-compile`, then `dev/nightly.sh` with, when `inputs.fault` is set,
@@ -1919,10 +2389,10 @@ input: green, and no issue.
 **Done when** both dispatches behaved so, and the first scheduled night is green. **Not
 here:** no new test program; no `fuzz-avx2` and no `arm` job (5.6).
 
-#### L14. The host benchmarks and the first results
+#### L17. The host benchmarks and the first results
 
 *Title:* `[VECHRONO-<issue>] Record each form's cost on the EPYC 7763 at 256 and 128 bits`.
-*Branch:* `vechrono-l14-host-benchmarks`. Needs P0 item 7.
+*Branch:* `vechrono-l17-host-benchmarks`. Needs P0 item 7.
 
 **B0.** `ls bench` prints `alloc-check.py` only.
 
@@ -1968,7 +2438,7 @@ here:** no new test program; no `fuzz-avx2` and no `arm` job (5.6).
    the artifact's file byte for byte; and it prints `wrote <path>`. Nothing is typed by hand
    into a results file.
 4. `ci.yml`: a job `bench-scripts` that runs `bench/host.sh --self-test`.
-5. The lead dispatches, the builder records. Six runs:
+5. The lead dispatches, the builder records. Eight runs:
 
 | name | host | benchmarks | jvm-args |
 | :--- | :--- | :--- | :--- |
@@ -1977,7 +2447,9 @@ here:** no new test program; no `fuzz-avx2` and no `arm` job (5.6).
 | `table` | `epyc7763` | `Table(Steps)?Benchmark` | none |
 | `to-instant` | `epyc7763` | `ToInstantBenchmark` | none |
 | `to-instant-128` | `epyc7763` | `ToInstantBenchmark\.(javaTime\w+\|\w+Preferred)` | `-XX:MaxVectorSize=16` |
-| `all-512` | `xeon8573c` | `(ToLocal\|Table\|TableSteps\|ToInstant)Benchmark` | none |
+| `shapes` | `epyc7763` | `ShapesBenchmark` | none |
+| `shapes-128` | `epyc7763` | `ShapesBenchmark\.(javaTime\w+\|\w+Preferred)` | `-XX:MaxVectorSize=16` |
+| `all-512` | `xeon8573c` | `(ToLocal\|Table\|TableSteps\|ToInstant\|Shapes)Benchmark` | none |
 
    The 128-bit runs name the `javaTime*`, scalar and `*Preferred` rows only: under
    `-XX:MaxVectorSize=16` a `*256` row would run a 256-bit species in software, which is no
@@ -1992,10 +2464,10 @@ here:** no new test program; no `fuzz-avx2` and no `arm` job (5.6).
 **Done when** the files are committed and each prediction of section 7 has its score. **Not
 here:** no change to a form; a form that loses is an issue, not a fix in this part.
 
-#### L15. The jar checked from outside, and the release profile
+#### L18. The jar checked from outside, and the release profile
 
 *Title:* `[VECHRONO-<issue>] Check the jar as a consumer has it, and build a release's jars`.
-*Branch:* `vechrono-l15-jar-check`.
+*Branch:* `vechrono-l18-jar-check`.
 
 **B0.** `ls dev/jar-check.sh` fails. `grep -c 'Automatic-Module-Name' pom.xml` prints `0`.
 `grep -c '<id>release</id>' pom.xml` prints `0`. For each file of `ls M/*.java` but
@@ -2028,8 +2500,9 @@ top-level type a file, which check 3 below assumes.
      `--add-modules jdk.incubator.vector`, on the class path and then as a module that
      `requires io.github.vecbricks.vechrono`. For each of `America/Los_Angeles`,
      `Asia/Kathmandu` and `+01:00` it takes `Zones.of(ZoneId.of(id).getRules())` and 64
-     instants around the first change of 2025 (for the fixed zone, around 0), builds
-     `ZoneSteps`, `LocalSteps` and `ZoneTable` by their public `of` methods, and calls every
+     pairs around the first change of 2025 (for the fixed zone, around 0) with second words
+     of 0 and 999, builds `ZoneSteps`, `LocalSteps`, `ZoneTable` and `NanoTable` by their
+     public `of` and `ofNanos` methods, and calls every
      public static method of `VChrono` by name, vector and scalar, plain and masked, at the
      preferred species. **It passes** when every lane equals `java.time`'s answer by the
      definitions of 4.6, which the consumer computes itself; then it prints `consumer: <n>
@@ -2041,7 +2514,7 @@ top-level type a file, which check 3 below assumes.
    -Dgpg.skip=true -DskipTests package`, then `JAVA_TOOL_OPTIONS="${{ matrix.jvm-args }}"
    dev/jar-check.sh --release`.
 4. `AGENTS.md`: a new public method of `VChrono` goes into the consumer, which fails until
-   it is there; and "Releases", section 5.5 of this plan with L16's steps.
+   it is there; and "Releases", section 5.5 of this plan with L19's steps.
 
 **Commands.** After `mvn -B -Prelease -Dgpg.skip=true -DskipTests package`, `ls target/*.jar
 | wc -l` prints `3` (the jar, the sources jar, the Javadoc jar), and `dev/jar-check.sh
@@ -2050,20 +2523,20 @@ module path), no `skip` line, and `jar-check: passed` as its last line.
 
 **The cut line.** If the size passes 900: the consumer's run as a module (the second half
 of check 4) leaves this part and becomes `[VECHRONO-<issue>] Check the jar on the module
-path too`, branch `vechrono-l15b-module-path`, which L16 does not need.
+path too`, branch `vechrono-l18b-module-path`, which L19 does not need.
 
 **Done when** CI is green. **Not here:** no `--self-test`, no `dev/release.sh`, no
 `release.yml` (5.6), no tag.
 
-#### L16. Release 0.1.0
+#### L19. Release 0.1.0
 
 *Title:* `[VECHRONO-<issue>] Release 0.1.0: the zone database, toLocal and the three rules`.
-*Branch:* `vechrono-l16-release-0.1.0`. Needs P0 item 6.
+*Branch:* `vechrono-l19-release-0.1.0`. Needs P0 item 6.
 
 **B0.** The last scheduled `Nightly` run on `main` is green (`gh run list --workflow
 nightly.yml --event schedule --limit 1 --json conclusion --jq '.[0].conclusion'` prints
 `success`). `git tag --list 'v*'` prints nothing. `ls bench/results/*.txt | wc -l` prints at
-least `6`. `grep -c '<version>0.1.0-SNAPSHOT</version>' pom.xml` prints `1`.
+least `8`. `grep -c '<version>0.1.0-SNAPSHOT</version>' pom.xml` prints `1`.
 
 **Who does what.** The builder does steps 1 to 4 and stops at a local commit. The lead
 pushes the branch and opens the pull request (P0 item 10). Step 5 is the owner's alone: only
@@ -2086,8 +2559,9 @@ its `project.build.outputTimestamp` (step 1), the changelog (step 2) and the REA
        [0.1.0]: https://github.com/vecbricks/vechrono/releases/tag/v0.1.0
 
 3. `README.md`: the status paragraph becomes `**Status: 0.x.** Released as
-   io.github.vecbricks:vechrono 0.1.0: the zone data (ZoneData, Zones), toLocal as steps and
-   as a table, toInstant and toInstantKept.` (with the names in backticks), and "Use" has
+   io.github.vecbricks:vechrono 0.1.0: the zone data (ZoneData, Zones); toLocal as steps and
+   as a table, toInstant, toInstantKept and plusNanos, each to the nanosecond in two shapes,
+   two words and one long.` (with the names in backticks), and "Use" has
    the dependency at `0.1.0`.
 4. The checks of the pull request, locally and in CI: `mvn -B -Prelease -Dgpg.skip=true clean
    verify` ends with `BUILD SUCCESS`, with every test and every fault run; then
@@ -2100,7 +2574,7 @@ its `project.build.outputTimestamp` (step 1), the changelog (step 2) and the REA
    deployment in the portal before a second run: a second upload of one version can be
    refused.
 6. A second pull request of two edits, `[VECHRONO-<issue>] Start 0.1.1-SNAPSHOT`, branch
-   `vechrono-l16b-next-snapshot`: the pom's version becomes `0.1.1-SNAPSHOT` and `<scm><tag>`
+   `vechrono-l19b-next-snapshot`: the pom's version becomes `0.1.1-SNAPSHOT` and `<scm><tag>`
    becomes `HEAD` again.
 
 **Done when** this prints `HTTP/2 200` on its first line, and step 6 has merged:
@@ -2166,6 +2640,12 @@ its `src/test/java` twin.
    `VarkaEmitterZoneSuite` that emits a `ToLocal` under `STEPS_2`, and change only the zone
    and the form (`STEPS_8`, `TABLE`); for case 4 copy row 690's first test of each record
    in that suite the same way.
+   *What is compared.* Varka's kernels of rows 682, 686 and 690 are microsecond kernels:
+   each is held to the library's form over the first word, `VChrono.toLocal`, `toInstant`
+   and `toInstantKept`, which is exact since those forms leave the second word. The
+   nanosecond kernels of rows 662 and 673 to 675 do not exist when V1 is built; each of
+   those rows adds its own case to this suite against the two-word forms, the `*Nanos`
+   forms and `plusNanos`, all of which 0.1.0 already holds, so no new pin is needed for them.
 3. The cases. Cases 1 to 3 are always built. Each of cases 4 and 5 is built when its line of
    B0 printed a count; a case that is not built is named in the description with
    the row it waits for, and joins by 5.4's rule 4.
@@ -2173,7 +2653,7 @@ its `src/test/java` twin.
 | # | case | compares | the failure only it catches |
 | ---: | :--- | :--- | :--- |
 | 1 | `referenceArgsEqualTheLibrarys` | for each zone id, `VarkaJavaTimeZoneData.PROVIDER.of(id)` (row 682's reference, made through its provider) and `Zones.of(ZoneId.of(id).getRules())`: `toLocalArgs` of both, array with array, for the ranges of 0, 2 and 8 changes at `r` (below) at `steps` of 2 and of 8, and `changes` of both. In the one cell where the changes exceed the steps (8 changes, 2 steps) both must throw `IllegalArgumentException`, and the case asserts that and compares no text | Varka's own reference and the library reading the range's ends two ways |
-| 2 | `toLocalKernelEqualsTheLibrary` | an emitted `ToLocal` kernel under `STEPS_2` and under `STEPS_8`, row for row, against `VChrono.toLocal` over the same column at the preferred species (the tail through the scalar `VChrono.toLocal`), and both against `java.time`; a null row is compared by its nullness only | a lowering and a library form that differ, seen before `java.time` is consulted |
+| 2 | `toLocalKernelEqualsTheLibrary` | an emitted `ToLocal` kernel over a microsecond `TIMESTAMP` column under `STEPS_2` and under `STEPS_8`, row for row (the kernel's value is the library's first word; a microsecond column has a zero second word), against `VChrono.toLocal` over the same column at the preferred species (the tail through the scalar `VChrono.toLocal`), and both against `java.time`; a null row is compared by its nullness only | a lowering and a library form that differ, seen before `java.time` is consulted |
 | 3 | `productionDataEqualsTheLibrarys` | for every set of `VarkaChronoZoneFixtures.sets()` (row 678's fixtures: one `RuleSet` for each distinct `ZoneRules` of the JVM), row 678's `VarkaChronoZoneChanges.build(rules)` against `ZoneData.build(rules)`: `served()`, `size()`, `changes` and `localChanges` over 200 seeded ranges, and, for the ranges of 0, 2 and 8 changes at `r` (below), `toLocalArgs` and `toInstantArgs` under each of the three rules with 8 steps, long for long. Varka's side takes its `VarkaChronoZoneChanges.Rule rule`, the library's side `io.github.vecbricks.vechrono.Resolve.valueOf(rule.name())`. Two arrays are compared when neither side throws; when either throws, both must throw `IllegalArgumentException`, and no text is compared, since the clamp's texts differ (4.2.10) | a port of the zone data that drifted from its twin |
 | 4 | `toInstantKernelsEqualTheLibrary` | the emitted `ToInstant` (`EARLIER`, `GAP_END`) and `ToInstantKept` kernels against `VChrono.toInstant` and `VChrono.toInstantKept` | the same, on the way back |
 | 5 | `tableKernelEqualsTheLibrary` | the emitted kernel under `TABLE` against `VChrono.toLocal(x, table, scratch)`, and `VarkaZoneData.toLocalTable`'s longs against `ZoneTable.copyTo`'s | two layouts of one bucket |
@@ -2207,24 +2687,33 @@ dependency, no snapshot version.
 
 Row 679 closes with V1 (question 7 of 10.4). Each later form is one library pull request, built
 with the Varka row that lowers it, from this template. A form's task is small on purpose
-(G5): one function file, one test file, one benchmark file.
+(G5): one function file, one test file, one benchmark file, in both shapes.
 
-| form | its `java.time` definition, over a local time or a day | Varka row | release |
+Every form of the list comes in both shapes, the two words and one long of nanoseconds,
+and names what it does with the second word.
+
+| form | its `java.time` definition | the second word | Varka row |
 | :--- | :--- | :--- | :--- |
-| `hourOfDay`, `minuteOfHour`, `secondOfMinute`, `epochDay` | `LocalDateTime.getHour`, `getMinute`, `getSecond`, `toLocalDate().toEpochDay()` | 657 | 0.1.1 |
-| `year`, `monthOfYear`, `dayOfMonth`, `dayOfYear`, `dayOfWeek`, `quarter`, `weekOfYear`, `weekBasedYear` | `LocalDate.getYear` and its kin, `IsoFields` | 668 | 0.1.x |
-| `localOfDay`, `localOfFields` | `LocalDate.atStartOfDay()` with no zone, `LocalDateTime.of` | 669, 670 | 0.1.x |
-| `truncatedTo` (a unit up to a day), `withDayOfMonth(1)` and its kin | `LocalDateTime.truncatedTo`, `LocalDate.with...` | 670 | 0.1.x |
-| `plusDays`, `plusMonths` on a local time | `LocalDateTime.plusDays`, `plusMonths` | 671 | 0.1.x |
-| `microsBetween` two local times | `ChronoUnit.MICROS.between` | 671 | 0.1.x |
-| the table of the local line | as `toInstant`, by buckets | 693 | 0.1.x |
-| the two-word forms: a microsecond lane and a lane of nanoseconds within it | `Instant.plusNanos`, `LocalDateTime.getNano` and their kin | 662, 673 to 675 | 0.2.0 |
+| `hourOfDay`, `minuteOfHour`, `epochDay` | `LocalDateTime.getHour`, `getMinute`, `toLocalDate().toEpochDay()` | not read | 657 |
+| `secondOfMinute` with its fraction, `nanoOfSecond` | `LocalDateTime.getSecond`, `getNano` | read: the fraction is `micros mod 1,000,000` times 1000 plus `nanos` | 657, 662, 673 |
+| `year`, `monthOfYear`, `dayOfMonth`, `dayOfYear`, `dayOfWeek`, `quarter`, `weekOfYear`, `weekBasedYear` | `LocalDate.getYear` and its kin, `IsoFields` | not read | 668, 673 |
+| `localOfDay`, `localOfFields` | `LocalDate.atStartOfDay()` with no zone, `LocalDateTime.of` with a nanosecond of the second | written: 0, or the field's last three digits | 669, 670 |
+| `truncatedTo` a unit of a day down to a microsecond; `withDayOfMonth(1)` and its kin | `LocalDateTime.truncatedTo`, `LocalDate.with...` | written: 0 | 670, 675 |
+| `truncatedTo` a unit below a microsecond, and the casts between precisions 6 to 9 | `LocalDateTime.withNano(n - n % 10^(9 - p))`: floor, never round (`m9/PLAN.md` 2.5: "a cast to a lower precision floors the nanoseconds to a power of ten") | read and written: `nanos - nanos % 10^(9 - p)` for `p` of 7 and 8, 0 for 6 | 662, 674 |
+| `plusDays`, `plusMonths` on a local time | `LocalDateTime.plusDays`, `plusMonths` | untouched | 671 |
+| `nanosBetween` two values | `ChronoUnit.NANOS.between`; and `ChronoUnit.MICROS.between` for Spark's microsecond difference, which floors toward zero | read: the difference of the two second words, with a borrow | 671, 675 |
+| the pair to one long and back | `micros * 1000 + nanos`; `floorDiv` and `floorMod` by 1000 | written. The way back needs a division of long lanes by 1000, which no host compiles: its issue chooses between a multiply-high form and a scalar loop, by measurement | 662 |
+| the table of the local line, in both shapes | as `toInstant`, by buckets | untouched | 693 |
 
 **The template.** For a form `f`, the issue fixes every name below before the build starts:
 
 1. *The issue* names `f`, its `java.time` definition as one Java expression, its domain, the
    Varka row, the sibling to copy (the merged form nearest to it), and its three faults by
    name with the line each changes.
+   The issue also fixes the two shapes: the two-word signature (which words go in, which
+   come out; a form with two result words is two methods, as `plusNanos` is; a form that
+   leaves the second word takes the first alone and has the `secondWordPassesThrough` test)
+   and the one-long signature `<f>Nanos` with its range and its refusal's text.
 2. *Files to add:* `M/<F>.java` (package-private, the arms); `T/<F>Test.java`;
    `src/jmh/java/.../<F>Benchmark.java` and `T/<F>BenchmarkTest.java`.
    *Files to edit:* `VChrono.java` (the two public forms, `f(x)` and `f(x, live)`),
@@ -2233,7 +2722,9 @@ with the Varka row that lowers it, from this template. A form's task is small on
    `Sweep.java` (the form's name; and `Fuzz.java` once 5.6's part X3 exists), the consumer
    of `dev/jar-check.sh`, `CHANGELOG.md`, and, once 5.6's part X4 exists, `PROOFS.md` when
    the form computes other than its definition reads.
-3. *The test's cases:* every lane against the oracle over seeded inputs of the whole long;
+3. *The test's cases:* `shapesAgree` (the one-long result is `micros * 1000 + nanos` of the
+   two-word result inside the one-long range); every second word of `Inputs.secondWords()`;
+   every lane against the oracle over seeded inputs of the whole long;
    the thresholds the form branches on, each with its 64 neighbours either way; `ends()`;
    `maskedLanes`; each `VectorWidth`.
 4. *The commands:* 5.1's oracle, with the fault count three higher; CI's job `alloc`;
@@ -2284,13 +2775,15 @@ measurement with the results file it is from.
 - **While the version is 0.x:** a minor may break the public API and a patch may not. Adding
   a form is a patch. Changing which arm a form takes is a patch, since every arm gives the
   same lanes. The property `vechrono.fault` and the fault names are no part of the API.
-- **0.1.0** holds 4.1's first scope and is cut when L1 to L15 have merged, the last night is
-  green and the results files of L14 are committed. **0.1.x** adds forms as their Varka rows
-  come, one release for a wave of forms, not one a form. **0.2.0** is the first release that
-  may change a signature; the two-word nanosecond forms are expected to need it.
-- **The release is owner-run, from a tag,** on his machine, with his key (P0 item 6; L16
+- **0.1.0** holds 4.1's first scope and is cut when L1 to L18 have merged, the last night is
+  green and the results files of L17 are committed. **0.1.x** adds forms as their Varka rows
+  come, one release for a wave of forms, not one a form. **No later release changes a
+  signature for nanoseconds:** the two words and the one long are both in 0.1.0, and a form
+  added later is born in both shapes. 0.2.0 is not planned; it is the number a break of the
+  API would take, if one were ever needed.
+- **The release is owner-run, from a tag,** on his machine, with his key (P0 item 6; L19
   has the steps). No workflow publishes and the repository holds no secret. In this row a
-  release is a pull request with five hand edits (L16); the script and the dry run that
+  release is a pull request with five hand edits (L19); the script and the dry run that
   vfdlibm has are part X1 of 5.6.
 - **The changelog** is in the form of Keep a Changelog: a pull request that changes what a
   client sees adds one line under `## [Unreleased]`, in `### Added`, `### Changed` or `###
@@ -2302,17 +2795,17 @@ measurement with the results file it is from.
 
 The row's done-when asks for a repository that builds and tests in its own CI, the every-zone
 sweep, the forms' benchmarks at each vector width, a release on Maven Central, and a Varka suite
-that checks a kernel against it. L1 to L16 and V1 give all of that. The five parts below give none
+that checks a kernel against it. L1 to L19 and V1 give all of that. The five parts below give none
 of it. Each is a part of its own, after the release, and gates nothing. **The plan is written on
 leaving them to a later row** (the owner's decision 6 of 10.4, and P0 item 11): the row closes at
-L16 and V1 without them. If the owner wants one in this row, it is built from its sheet here,
-after L16, with no other sheet changed.
+L19 and V1 without them. If the owner wants one in this row, it is built from its sheet here,
+after L19, with no other sheet changed.
 
 | part | what it is | needs | gives | est. lines |
 | :--- | :--- | :--- | :--- | ---: |
-| X1 | the release automation | L16 | `dev/release.sh`, `dev/release-version.sh`, `release.yml` (a dry run) | 650 |
-| X2 | the jar check's self-test | L15 | `dev/jar-check.sh --self-test` | 250 |
-| X3 | the fuzz, and the nightly's two other jobs | L13 | `Fuzz`, the jobs `fuzz-avx2` and `arm` | 550 |
+| X1 | the release automation | L19 | `dev/release.sh`, `dev/release-version.sh`, `release.yml` (a dry run) | 650 |
+| X2 | the jar check's self-test | L18 | `dev/jar-check.sh --self-test` | 250 |
+| X3 | the fuzz, and the nightly's two other jobs | L16 | `Fuzz`, the jobs `fuzz-avx2` and `arm` | 550 |
 | X4 | the written proofs | L6, L8, L10 | `PROOFS.md`, five lemmas | 200 |
 | X5 | a zone by its id, or an exception | L5 | `Zones.of(ZoneId)`, `ZoneNotServedException` | 120 |
 
@@ -2338,7 +2831,7 @@ all three. `grep -c 'workflow_call' .github/workflows/ci.yml` prints `1`. `grep 
    link line in `CHANGELOG.md`; a pom at `<version>-SNAPSHOT`. It sets the pom's version, its
    `<scm><tag>` and `project.build.outputTimestamp`, dates the changelog section, runs `mvn
    -B -Prelease -Dgpg.skip=true clean verify` and `dev/jar-check.sh --release`, commits
-   "Release <version>", tags, and commits the next snapshot: L16's hand edits, by a script.
+   "Release <version>", tags, and commits the next snapshot: L19's hand edits, by a script.
 2. `.github/workflows/release.yml`, vfdlibm's with three of its four jobs: `version` (the
    two scripts' self-tests, and on a tag `dev/release-version.sh "$GITHUB_REF_NAME"` and the
    test that the tagged commit is on `main`), `ci` (`uses: ./.github/workflows/ci.yml`,
@@ -2347,7 +2840,7 @@ all three. `grep -c 'workflow_call' .github/workflows/ci.yml` prints `1`. `grep 
    the files kept seven days as `dry-run-bundle`). The job `proofs` goes. Its `on:` keeps the
    tag push, the dispatch and the pull-request paths, less `dev/prove.sh` and `proofs/**`.
    Its first comment lines stay: a dry run, which never publishes and holds no secret.
-3. `AGENTS.md`: "Releases" names the script in place of L16's hand edits.
+3. `AGENTS.md`: "Releases" names the script in place of L19's hand edits.
 
 **Commands.** `dev/release-version.sh --self-test` prints `self-test: passed`.
 `dev/release.sh --self-test` prints `release.sh: self-test passed` as its last line.
@@ -2392,7 +2885,9 @@ with "<line>"` and then `jar-check: self-test passed`.
 
 1. `T/Fuzz.java`, a `main` over `static int run(String[] args)`, with `--seed`, `--seconds`,
    `--species`, `--out`. It prints `seed <seed>` first. Each round draws: a set of
-   `Inputs.sets()`; a function (`toLocal`, `earlier`, `gapEnd`, `kept`); a range (a week, a
+   `Inputs.sets()`; a function (`toLocal`, `earlier`, `gapEnd`, `kept`); a shape (the two
+   words, with drawn second words, or the one long, with the range then drawn inside the
+   one-long range); a range (a week, a
    year, ten years, 1000 years, the whole long; three rounds in ten are moved to start or
    end exactly on a change); 4096 inputs inside the range, half within three hours of a
    change of the range; a mask; and whether the count is forced. Then, by the count `c` of
@@ -2478,15 +2973,17 @@ on the same JVM, with that JVM's rules. No expected value is committed (4.6).
 | :--- | :--- | :--- |
 | `HarnessSelfTest` (library, JUnit 5) | the oracle's two directions agree; the checks fail when a lane is wrong | a harness that passes everything |
 | `ZoneDataTest` (11), `ZoneDataLocalTest` (11), `ZonesTest` (7) | row 678's tests of the zone data, ported, by number: every set of rules against `java.time` at every change, in the rule era, at the ends; the counts; the layouts; made-up rules; the cache | a zone whose data differs from `java.time` |
+| `OneLongTest`, `NanoTableTest`, `PlusNanosTest` | the one-long arm of every form against `nanosOf` of the oracle's pair, and against the two-word form on the same values; `plusNanos`' carry in both shapes | a shape that differs from the other; a second word that is wrong |
 | `ToLocalTest`, `TableTest`, `ToInstantTest`, `ToInstantKeptTest` | every form, arm, count and width against the oracle; masks; the there-and-back check | a form whose lanes differ from its definition |
-| `PlantedFaultTest` | 25 faults, each failing one named case in a JVM of its own | a test that passes for another reason |
+| `PlantedFaultTest` | 32 faults, each failing one named case in a JVM of its own | a test that passes for another reason |
 | `*BenchmarkTest` | each benchmark row's output against the oracle | a number that times a wrong answer |
 | `NightlyTest`, then `Sweep` every night | every second around every change of every set of rules, under each rule, at each width | a change or a zone no written case holds; a tzdb update |
 | `VarkaChronoLibrarySuite` (Varka, catalyst, JUnit 5) | Varka's reference, production data and emitted kernels against the library | a kernel and a library form that differ |
 
-**The hard cases** are inputs only: `hard-cases/zones.txt` (L2), and the mismatch lines a
-failed night prints, which go into `hard-cases/<form>.txt` (`<zone> <input>`, and for the
-kept offset `<zone> <input> <kept>`) with the fix; each form's test reads its file when the
+**The hard cases** are inputs only, and nanosecond-native: `hard-cases/zones.txt` (L2), and the
+mismatch lines a failed night prints, which go into `hard-cases/<form>.txt` (`<zone> <micros>
+<nanos>`, and for the kept offset `<zone> <micros> <nanos> <kept>`) with the fix; a line is tried
+in both shapes where it is inside the one-long range; each form's test reads its file when the
 file exists. `Inputs.ends()` holds the calendar's ends and the long's.
 
 **The planted faults,** each with the case whose body must fail by an assertion:
@@ -2517,6 +3014,12 @@ file exists. `Inputs.ends()` holds the calendar's ends and the long's.
 | `table.halvesSwapped` | L8 | `TableTest.everyZoneAtEveryChange` |
 | `toInstant.gapEndAsEarlier` | L9 | `ToInstantTest.gapInteriors` |
 | `toInstant.keptIgnored` | L10 | `ToInstantKeptTest.keptInsideEveryOverlap` |
+| `nanos.atNotScaled` | L11 | `OneLongTest.toLocalAtEveryChange` |
+| `nanos.deltaNotScaled` | L11 | `OneLongTest.shapesAgree` |
+| `nanos.noRangeCheck` | L11 | `OneLongTest.rangeEnds` |
+| `nanoTable.beforeForAfter` | L12 | `NanoTableTest.everyZoneAtEveryChange` |
+| `plusNanos.noCarry`, `plusNanos.carryAbove1000` | L13 | `PlusNanosTest.carryEdges` |
+| `plusNanos.maskedLaneTouched` | L13 | `PlusNanosTest.maskedLanes` |
 
 Why each can fail by an assertion and not by another exception:
 
@@ -2552,7 +3055,7 @@ branch instead:
   `TableTest.everyZoneAtEveryChange` runs both table arms; `maskedLanes` runs each masked
   form; `refusals`, `wrongRule`, `clamp`, `shortScratch`, `noTable` and `packRefuses` reach
   each `throw` of 4.8.
-- *The 25 planted faults* are the hand-written mutants: each shows that one of those cases
+- *The 32 planted faults* are the hand-written mutants: each shows that one of those cases
   fails when its branch is wrong.
 
 In Varka, V1 adds no IR record and no coverage row, so no registry suite is touched.
@@ -2568,7 +3071,7 @@ builder runs locally first:** 5.1's oracle at the laptop's own width, then once 
 **The rule.** A claim about speed traces to a file under `bench/results/`. The method is
 fixed: JMH, `-f 2 -wi 3 -w 2s -i 5 -r 2s -prof gc`, the body inlined with
 `-XX:CompileCommand=inline,io.github.vecbricks.vechrono.*::*`, the arms of a comparison in
-one run. A results file is what `benchmark.yml` wrote (L14): the host, the commit, the run,
+one run. A results file is what `benchmark.yml` wrote (L17): the host, the commit, the run,
 the JDK build, the CPU and its flags, the vector flags, the kernel, the load at start and
 end, the JMH options and the command, then JMH's output with the tzdb version in it. A ratio
 under 1.3 is run again and compared by minimums, and both files are kept. The laptop's
@@ -2576,19 +3079,21 @@ numbers are never quoted.
 
 **Where.** The AMD EPYC 7763 runners at 256 bits and, with `-XX:MaxVectorSize=16`, at 128
 bits: the widths of `m9/PLAN.md` 1.2, item 10. One AVX-512 host, the Intel Xeon Platinum
-8573C, adds 512 bits. Every run is a dispatch of `benchmark.yml` (L14, P0 item 7).
+8573C, adds 512 bits. Every run is a dispatch of `benchmark.yml` (L17, P0 item 7).
 
-**The sections and the arms** are L7's and L11's rows: for each form the `java.time` loop,
+**The sections and the arms** are L7's and L14's rows: for each form the `java.time` loop,
 the public form at 256 bits, at the preferred species and at `SPECIES_MAX`, and the A/B
 arms: `kernelShapedPreferred` (the masked arm) against `noMaskPreferred`; `stepsPreferred`
 (the public form) against `kernelShapedPreferred`; `stepsOf8Preferred` against
 `stepsPreferred`; `gatherPreferred` against `scalarLoadsPreferred`; `gatherPreferred`
-against `stepsPreferred` on `year` data.
+against `stepsPreferred` on `year` data; and, in `ShapesBenchmark`, the two words against
+the one long for `toLocal` by steps and by table, for `toInstant` and for `plusNanos`, on
+the same values.
 
 ### 7.1 Predictions, registered on 27 November 2026, before any run
 
 The laptop's numbers behind them are the probes' (`sql/varka/spikes/zone-offset/results/`
-in Varka); each prediction is scored from the library's results file of L14, or as named.
+in Varka); each prediction is scored from the library's results file of L17, or as named.
 
 1. `ToLocalBenchmark.stepsPreferred` on `year` data at 256 bits on the EPYC 7763: under 0.3
    ns a row (the probe's two steps cost 0.148 at four lanes on the laptop,
@@ -2606,21 +3111,44 @@ in Varka); each prediction is scored from the library's results file of L14, or 
    under 0.6 (the probe: 0.138 and 0.351, `results/kernels.txt`).
 7. At 128 bits (the file `to-instant-128`) `keptPreferred`, which has no arm without a mask
    in 0.1.0, is not faster than `javaTimeOfLocal` (`VARKA-657.md` 2.3). Yes or no.
-8. Test time: the test classes of L3 to L10 add under 90 s to `mvn verify` on a CI row, the
-   25 fault runs under 4 minutes more, and a night's slowest `sweep` job takes under 15
-   minutes. `VARKA-657.md` section 5 prices the
-   full one-second sweep at about 10 s of one core for `toLocal` and about 120 s for the
-   three rules. Scored from the workflow runs' own times.
-9. The row takes one founding commit, 16 library pull requests (L2 to L16, and L16's second,
-   the next snapshot) and one Varka pull request, none over 1000 counted lines. One cut line
-   is taken at most, L3's or L2's. No part of 5.6 is built in the row. Scored at the close.
+8. Test time, from counts. The sets of the JDK hold at most 65,794 stored changes before
+   2100 (`results/facts.txt`, over all ids; fewer over distinct sets). A case over every
+   change with 246 lanes a change (five points and every 60 s for two hours either side) is
+   at most 16 million lanes; with second words cycling it is run once, at up to three
+   widths with the oracle computed once: 16 million oracle calls. L6, L9 (two rules), L10,
+   L11 (three cases) and L12 have ten such cases, L3's test 6 and L4's test 6 add under 80
+   million between them, and `NightlyTest` under 2 million: under 250 million oracle calls
+   in all. The probes price `java.time` at 10 ns for an offset and under 45 ns for a
+   local time resolved (`results/forms.txt`, `results/kernels.txt`): under 12 s of one
+   core. Registered: the test classes of L3 to L13 add under 120 s to `mvn verify` on a CI
+   row, the 32 fault runs under 5 minutes more, and a night's slowest `sweep` job, whose
+   one-second step makes about 58 times those lanes, takes under 15 minutes on four cores.
+   Scored from the workflow runs' own times.
+9. The row takes one founding commit, 19 library pull requests (L2 to L19, and L19's second, the
+   next snapshot) and one Varka pull request, none over 1000 counted lines. At most four cut lines
+   are taken, among L2, L6, L9 and L14, the parts nearest the cap. No part of 5.6 is built in the
+   row. Scored at the close.
 10. No tzdb update between L3's merge and the row's close fails `ZoneDataTest` 1 or
     `TableTest.everyZoneHasATable`. Yes or no, from the nightly's issues.
+11. The two shapes of a form that leaves the second word cost the same: in the file
+    `shapes`, `toLocalOneLongPreferred` and `toLocalTwoWordsPreferred` are within 1.3 times
+    each other at 256 bits, and so are the two `toInstant` rows. The code is the same and
+    the two-word form does not touch its second array.
+12. The table differs: `toLocalTableOneLongPreferred`, three gathers of 24 bytes a bucket,
+    costs between 1.2 and 2 times `toLocalTableTwoWordsPreferred`, two gathers of 16 bytes
+    (`VARKA-657.md` 6.1 predicted the packed table under 0.7 ns a row where three gathers
+    cost 0.9).
+13. `plusNanos` is where the one long wins: `plusNanosOneLongPreferred` is at least 1.5
+    times as fast as `plusNanosTwoWordsPreferred` at 256 bits, since one shape loads two
+    arrays and stores one, and the other loads four and stores two with a compare between.
+14. At 128 bits (the file `shapes-128`) the two-word `plusNanos`, whose carry is a mask, is
+    not faster than `javaTimePlusNanos` by more than 3 times, and the one-long `plusNanos`,
+    a plain add, is at least 10 times as fast as it. Row 689's question, asked of a carry.
 
 ## 8. Who builds it
 
 - **P0:** the owner.
-- **L1 to L16 and V1: at full strength.** They fix the contract, the harness that every later
+- **L1 to L19 and V1: at full strength.** They fix the contract, the harness that every later
   form is judged by, and the release. A fault in the harness passes wrong forms, and a
   review cannot see it from a form's pull request. L3, L4 and L5 are ports: their work is
   the fault constants, the catchers and the proof that nothing else changed.
@@ -2655,7 +3183,7 @@ in Varka); each prediction is scored from the library's results file of L14, or 
    here). The library copies no line of it, and each fact of its behaviour that the design
    rests on is held through the public API by C3, C4 and C7 (decision 4 of 10.4).
 7. **The release depends on one person and one machine,** and in this row on five hand
-   edits. Nothing in Varka waits on it (10.1); L16's pull request runs the release profile
+   edits. Nothing in Varka waits on it (10.1); L19's pull request runs the release profile
    and the jar check in CI before the tag; the script and the dry run are part X1.
 8. **The plan ages.** vfdlibm moves daily. Each sheet names the vfdlibm version it cuts
    from (`v0.3.1`, or a commit), not its `main`.
@@ -2665,13 +3193,18 @@ in Varka); each prediction is scored from the library's results file of L14, or 
     dispatched again; the check is never relaxed.
 11. **The library waits for row 678's parts a to c.** L1 and L2 do not; L3 stops at its B0
     until they have merged. The row's length follows row 678's.
+12. **The second word doubles the arguments of every later form.** A form with two result
+    words is two methods, and a caller that wants both pays the shared work twice unless C2
+    merges it. `ShapesBenchmark`'s `plusNanosTwoWordsPreferred` row measures exactly that,
+    and prediction 13 is its price; if it is worse than 3 times, the template of 5.3 gains
+    a form that writes both words into two arrays.
 
 ## 10. Seams, exclusions and house rules
 
 ### 10.1 Seams with the plans written beside this one
 
-**Row 678** (`VARKA-678.md` of `sql/varka/plans/m9/`, final on 27 November 2026 and in
-review as vecbricks/varka#1782). Its section 11 states the seam, and this plan follows it.
+**Row 678** (`VARKA-678.md` of `sql/varka/plans/m9/`, merged on 27 November 2026 as
+vecbricks/varka#1782). Its section 11 states the seam, and this plan follows it.
 
 | what | row 678 has | this row has |
 | :--- | :--- | :--- |
@@ -2703,8 +3236,26 @@ review as vecbricks/varka#1782). Its section 11 states the seam, and this plan f
 - **A name to mind in V1.** Varka's `VarkaVectorIR.Resolve` (row 690) and the library's
   `Resolve` meet in one test file; V1 writes the library's by its full name.
 
-**Rows 654 and 656.** None. The library reads no census file and no lane, and V1 adds no
-census cell.
+**Rows 654 and 656** (row 654's plan is merged too, as vecbricks/varka#1783). None. The library
+reads no census file and no lane, and V1 adds no census cell.
+
+**Rows 660 and 662** (filed, with no plan yet; `m9/PLAN.md` 2.5). The seam this plan
+assumes:
+
+- Row 660 decides how precisions 7 to 9 enter the census. The library does not depend on
+  the answer: its value has nanosecond precision, and a precision of 7 or 8 is the same two
+  words with a second word that is a multiple of 100 or of 10.
+- Row 662 builds two layouts in kernels, and the library has each first: layout (a), "Two
+  words, the cache's own form", is the library's two words; layout (b), "One long at the
+  column's precision", is the library's one long at precision 9. One long in units of 100
+  ns or of 10 ns (precisions 7 and 8) is not in 0.1.0 (question 13 of 10.4).
+- What row 662 takes: the forms of 4.9 as its test reference, in the suite V1 adds, with no
+  new pin; and the file `shapes` of L17 as the first measurement of its two layouts.
+- What row 662 adds, and the library does not: the lane type of the second word in a kernel
+  (the library's is a `LongVector` for readability, 4.9), the load from the cache's struct
+  of a long and a short, and the range check that sends a batch outside the one-long range
+  to the two-word kernel or to the row path.
+- Rows 673 to 675 take each later form from 5.3 in both shapes, paired as 5.4 says.
 
 **What this row hands to row 657 and to rows 682 to 690,** by name: the classes and methods
 of 4.2 to 4.5 in `io.github.vecbricks:vechrono:0.1.0`, read in Varka's test scope only; the
@@ -2723,7 +3274,8 @@ None of those rows waits for it: each tests against `VarkaJavaTimeZoneData` unti
 | the cost of a form inside a kernel, the default form by width, G7's bars | row 691 |
 | the forms after 0.1.0 | the Varka row of 5.3's table, each with a library issue |
 | the table of the local line | row 693 |
-| the two-word nanosecond forms | rows 662 and 673 to 675 |
+| the forms over the second word beyond `plusNanos` (5.3), in both shapes | rows 662 and 673 to 675, each with a library issue |
+| one long at precisions 7 and 8 | row 662, if its measurement asks (question 13 of 10.4) |
 | parsing, formatting, a zone read from a column | out of the milestone (`m9/PLAN.md` 1.3) |
 | the ledger line of a library pull request | row 658 |
 | the tzdb entry of the register of upstream behaviours | row 681, with row 657 |
@@ -2765,7 +3317,7 @@ headline.
 1. *Start beside milestone 8?* **Decided: no.** "let's finish the milestone 8 first of all".
    Nothing of this row starts, and the repository is not created, before milestone 8 closes
    and the owner says go; the lead confirms with him before P0 item 1. (The plan had
-   recommended starting L1 to L16 beside milestone 8.)
+   recommended starting L1 to L19 beside milestone 8.)
 2. *Create `vecbricks/vechrono`, with the coordinates `io.github.vecbricks:vechrono`?*
    **Decided: yes** (P0 items 2 and 4), once the start is given.
 3. *The founding commit straight to `main`?* **Decided: yes** (P0 item 5).
@@ -2776,24 +3328,41 @@ headline.
 5. *A standing approval of the library's benchmark and nightly dispatches?* **Decided: yes**
    (P0 items 7 and 9).
 6. *Build the five parts of 5.6 in row 679, or move them to a later row?* **Decided: a later
-   row,** keeping the every-zone sweep. The row closes at L16 and V1. (P0 item 11.)
+   row,** keeping the every-zone sweep. The row closes at L19 and V1. (P0 item 11.)
+6a. *Lanes are microseconds only in 0.1.x?* **Decided: no.** "we should focus on the
+   nanosecond precision from the begining I believe. Nanosecond should be prime units."
+   Asked which shape a value takes, he chose both: the two words as the contract over the
+   whole range, and one long of nanoseconds as a measured arm (4.1, 4.9). (The plan had
+   recommended microseconds only.)
 
 **Still open,** each with the recommendation first; the plan is written on the
 recommendation:
 
 7. **Does row 679 close at its done-when, with the later forms riding with their Varka
    rows?** Recommended: yes, as vfdlibm's ports rode with rows 356 to 358.
-8. **One release, 0.1.0, after L15, or an early 0.1.0 after L7?** Recommended: one. A release
+8. **One release, 0.1.0, after L18, or an early 0.1.0 after L7?** Recommended: one. A release
    is owner-run, and no Varka row waits on it.
-9. **Lanes are microseconds only in 0.1.x.** Recommended: yes; another unit is a new form
-   when a caller asks.
 10. **The step counts 0, 2 and 8 only,** as Varka's forms. Recommended: yes; a count of 4 is
-    an arm to add if L14's files show a gain on `casablanca` data.
+    an arm to add if L17's files show a gain on `casablanca` data.
 11. **The licence text and the `NOTICE`** (P0 item 3): Apache-2.0, a `NOTICE` of three lines,
     no third-party notice. Recommended: as written.
 12. **The branch rule on `main` after L1** (P0 item 2a), **Dependabot** (item 8) and **a
     standing approval for pushes and pull requests in the library** (item 10). Recommended:
     yes to each.
+13. **One long at precisions 7 and 8 too?** Row 662's layout (b) is "one long at the
+    column's precision". Recommended: nanoseconds only in 0.1.0. The owner named the
+    nanosecond as the prime unit; the steps of 4.9 need only another factor (100 or 10 in
+    place of 1000) to serve the other two, which is a small pull request once row 662's
+    measurement says the one long is worth keeping at all.
+14. **The second word as a `LongVector`** (4.9), where Spark holds a short. Recommended:
+    yes, for a reference: one species, no conversion, a carry of one compare. The lane type
+    in a kernel stays row 662's to measure.
+15. **`plusNanos` in 0.1.0, as the one form that reads and writes both words.**
+    Recommended: yes; without it the release carries the second word and never computes
+    with it. The other forms over the second word wait for their rows (5.3).
+16. **The one-long table as three longs a bucket** (`NanoTable`), not the packed bucket of
+    row 686. Recommended: yes; an offset in nanoseconds does not fit half a long, and the
+    measurement of prediction 12 says what that costs.
 
 ### 10.5 Where this plan and `VARKA-678.md` differed, and how each was settled
 
@@ -2824,6 +3393,58 @@ JDK's sources (decision 4 of 10.4); and the clamp's exception, whose text in Var
 count's, has a text of its own in the library (4.2.10). The planted faults stay
 system-property constants in the library's main source, which its nightly's fault dispatch
 needs and Varka's main sources do not take.
+
+### 10.6 Edits to other plans, made by this plan's own pull request
+
+Six edits of `sql/varka/plans/m9/PLAN.md` and one of `sql/varka/plans/m9/VARKA-678.md`.
+Each old text was read at `a0e3a62cf2b`; the merges up to `73fad30ead4` (#1782 and #1783)
+changed `m9/PLAN.md` in the lines of rows 654 and 678 and in section 2.4 only, so each old
+text below is still there. Each is given with where it sits; a line break may fall
+elsewhere in the file.
+
+1. **`m9/PLAN.md`, section 2.10, the bullet "What it holds".** Old: "the calendar and clock
+   fields, the sums with days and months, the difference of two local date-times,
+   truncation, and the two-word nanosecond forms. It holds no parsing, no formatting and no
+   `java.time` objects." New: "the calendar and clock fields, the sums with days and months,
+   the difference of two local date-times, and truncation. Every form has nanosecond
+   precision from the library's first release, in two shapes (the owner, 27 November 2026):
+   the two words of 2.5, a long of microseconds and the nanoseconds within it, which is the
+   contract over the whole range; and one long of nanoseconds, a measured arm over the years
+   1677 to 2262. It holds no parsing, no formatting and no `java.time` objects."
+2. **`m9/PLAN.md`, section 2.5, the bullet that starts "Two layouts (row 662), both
+   built."** One sentence is added at the bullet's end, after "The measurement is on the
+   baselines of row 655.": "The library (row 679) holds both layouts first, outside Spark,
+   and its benchmark of the two shapes on the same values (`VARKA-679.md` 5.2, L14 and L17)
+   is their first measurement."
+3. **`m9/PLAN.md`, section 2.10, the bullet "Its contract".** Old: "is `java.time`'s
+   answer, bit for bit, in every zone of the running JVM." New: "is `java.time`'s answer to
+   the nanosecond, bit for bit, in every zone of the running JVM."
+4. **`m9/PLAN.md`, section 3, the line of row 679,** two places. Old: "**Filed** (25
+   November 2026, the owner's decisions 13 and 16;" New: "**Planned** (`VARKA-679.md`, 27
+   November 2026: a founding commit, eighteen parts of the library and one of Varka;
+   nanoseconds are its unit from the first release; it starts after milestone 8 closes, on
+   the owner's word; filed 25 November 2026, the owner's decisions 13 and 16;". And old:
+   "then the fields, the sums and the nanosecond forms as their rows come." New: "then
+   `plusNanos`, the first form over both words of a nanosecond value; then the fields and
+   the sums as their rows come, each in both shapes."
+5. **`m9/PLAN.md`, section 4, the paragraph "Wave 0, now, while milestone 8 runs."** Old:
+   "the library's start (row 679) and row 678, which are new classes and their tests;" New:
+   "row 678, which is new classes and their tests (the library, row 679, starts after
+   milestone 8 closes, on the owner's word of 27 November 2026, and ports row 678's merged
+   files);".
+6. **`m9/PLAN.md`, section 2.2, the paragraph "The zone database (row 678)".** Old: "Its
+   first implementation is the library's (2.10); row 678 is Varka's own, which the
+   evaluator reads." New: "Row 678 is Varka's own, which the evaluator reads, and is built
+   first; the library (2.10) ports its merged files."
+7. **`VARKA-678.md`, section 1, the paragraph that starts "The row adds three classes".** It
+   quotes the sentence that edit 5 replaces. Old: "That is why the milestone plan's wave 0
+   allows it while milestone 8 runs (`m9/PLAN.md` section 4: "the library's start (row 679)
+   and row 678, which are new classes and their tests")." New: "That is why the milestone
+   plan's wave 0 allows it while milestone 8 runs (`m9/PLAN.md` section 4: "row 678, which
+   is new classes and their tests")."
+
+No other text of `VARKA-678.md` changes: the library's nanosecond arms are in classes of
+their own (4.9), and the port's `diff` rule holds.
 
 ## 11. Outcome
 
