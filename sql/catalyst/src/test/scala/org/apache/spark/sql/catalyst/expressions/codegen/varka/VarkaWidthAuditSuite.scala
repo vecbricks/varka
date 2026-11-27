@@ -265,8 +265,10 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
             logInfo(s"${probe.name} took $seconds s")
             // Also on stdout, which a unit's run.log keeps and the unit tests' log does not, so
             // that the next probe to pass its budget can be read against the others.
+            // scalastyle:off println
             println(s"VARKA-AUDIT-PROBE ${probe.name} took $seconds s on " +
               s"${Runtime.getRuntime.availableProcessors()} processors")
+            // scalastyle:on println
             probe -> result
           }
         })
