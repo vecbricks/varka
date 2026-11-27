@@ -183,3 +183,25 @@ average and 1.00x by best. The BIGINT baseline's sections from #1455 were last m
 head and are not re-measured here. The 128-bit companions are not in this change: their run
 (44485256404) drew a CPU other than the EPYC 7763 on all six attempts the retry allows, and a
 second run was dispatched.
+
+## 11. The decimal 128-bit companion (27 November 2026)
+
+The class's two runner files, `VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`, were replaced on 27
+November 2026 from `benchmark.yml` runs 46057445085 (256 bits, no `MaxVectorSize`) and 46057448792
+(`-XX:MaxVectorSize=16`) of vecbricks/varka. Both ran at master `e103a4c548a`, dispatched with
+`pr=1793`, so they measured `refs/pull/1793/head`, `6d1f14ae33a`, each on an AMD EPYC 7763 by its
+provenance and by the job's probe. That head holds this change.
+
+At 128 bits the section the row was opened for, `DECIMAL(15, 2) x * y < z filter`, ties the row
+path. By best time, row path over varka on, the two densities read 0.94x (389 / 413 ms) and 1.02x
+(317 / 310 ms); by average time 0.93x (407 / 439 ms) and 1.02x (331 / 323 ms). Both come from one
+run of two arms that plan alike. Across the 128-bit file's 54 filter sections the ratio is 0.93x to
+1.06x by best time and 0.93x to 1.07x by average, so no filter section runs more than 10% slower
+than the row path. At 256 bits the same section reads 0.98x (386 / 392 ms) and 0.99x (308 / 310 ms)
+by best time.
+
+Left: the day-time baseline's 128-bit companion. Its committed file is from run 43582853857 of 14
+November 2026 at `a376a8215be`, the head of #1534, which holds this change; section 10 still named
+both companions as owed on 19 November 2026. Whether that file closes the row or a run on master is
+wanted is the owner's decision.

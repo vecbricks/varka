@@ -1119,6 +1119,42 @@ that would check them (a reference over two words and an oracle answer above 18 
 until then `VarkaDecimalPairSuite.storedValues` holds the same shapes to Spark by reading the
 sixteen-byte slots, at 20 and 38 digits rather than at 30.
 
+### 10.9 359b's sections on the EPYC 7763 (27 November 2026)
+
+359b merged as #1610 (the conditions) and #1710 (the store and its outputs). The class's two runner
+files, `VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`, were replaced on 27
+November 2026 from `benchmark.yml` runs 46057445085 (256 bits, no `MaxVectorSize`) and 46057448792
+(`-XX:MaxVectorSize=16`) of vecbricks/varka. Both ran at master `e103a4c548a`, dispatched with
+`pr=1793`, so they measured `refs/pull/1793/head`, `6d1f14ae33a`, each on an AMD EPYC 7763 by its
+provenance and by the job's probe. Scored from the files' `Relative` column, without nulls and then
+at one row in ten null:
+
+- *The store's prediction 3* (the `(38, 10)` choice 10 to 30 times faster than the row path at 256
+  bits; at 128 bits it declines and ties): right. It reads 29.3X and 22.5X (843 / 29 and 783 / 35
+  ms, row path / varka on), and at 128 bits 818 / 818 and 760 / 763 ms.
+- *Section 4's prediction 4* (the comparison filter and the choice 10 to 50 times faster) holds for
+  the conditions of the first part too. `IN` reads 14.5X and 11.9X at `(38, 10)` and 14.4X and
+  13.4X at `(20, 2)`; `-x < y` 10.7X, 10.3X, 12.3X and 11.8X; `abs(x) < y` 13.4X, 12.5X, 15.5X and
+  14.3X. The `(38, 10)` comparison itself reads 9.9X and 9.8X, at the band's lower line as it was
+  on 10 November 2026. At 128 bits the twelve sections decline and tie, 0.99x to 1.02x by best
+  time.
+- *The build plan's prediction 4* (`IS NULL` without nulls faster by 1.5 to 4 times only) was
+  scored on 10 November 2026 from two sections that timed an empty scan (row 549). With the scan's
+  batch pruning off (#1683) they read 16.5X (354 / 21 ms) and 15.4X (371 / 24 ms): wrong, on the
+  fast side.
+
+Found, and not explained: at 256 bits the pair's sections that already fused on 19 November 2026
+read lower on the varka on arm in this run, while their row-path arms move by under a tenth. In M
+rows a second, `IS NULL` at one row in ten null falls from 82.6 to 65.3 and from 86.0 to 67.5,
+`x < y` as a value from 84.0 to 75.8, 75.8 to 67.8, 89.3 to 77.6 and 79.0 to 67.1, and the
+`(20, 2)` `<=>` filter from 85.0 to 75.8 and 82.9 to 73.3; the `(38, 10)` `<=>` filter without
+nulls reads higher, 59.2 to 75.2, and the comparison is level. No merged change is known to explain
+it, and one run cannot tell a change from the runner, so a pair run on a runner is owed before it
+is called a regression or noise.
+
+Left in the row: the pair-load node (deferred), the planted faults and the op-count test.
+
 ### Decisions taken while the owner was away (20 November 2026)
 
 1. **359b before the pair-load node.** 10.5 names the node as the next part, but its only proof is
