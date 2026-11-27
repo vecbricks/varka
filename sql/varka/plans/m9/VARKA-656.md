@@ -1617,12 +1617,14 @@ otherwise is a stop, but for the cases under the block.
 
      And in the comment of `fixtures`, the line that ends "and the two timestamps the compiler
      declines." ends "and the two timestamps, `ts` and `ntz`." instead.
-   - `<exect>/benchmark/<Base>.java`: a section whose query has a `WHERE` over the two
-     timestamp columns and none of 4.3's functions takes the class `declinesLongConditions ?
-     Fusion.NONE : Fusion.WHOLE`, as `VarkaTimestampNtzBaselineBenchmark`'s comparison does;
-     a section whose select list is `greatest`, `least`, `CASE`, `if` or `coalesce` over them
-     takes `Fusion.WHOLE`. Every other section stays `Fusion.NONE`. The class comment says
-     which sections row 656 fused.
+   - `<exect>/benchmark/<Base>.java`, in `sections` (`VARKA-655.md` 4.5 and 4.6), three
+     lines: `Fusion comparison = Fusion.NONE;` becomes `Fusion comparison = filter;`, where
+     `filter` is that method's `declinesLongConditions ? Fusion.NONE : Fusion.WHOLE`, as
+     `VarkaTimestampNtzBaselineBenchmark`'s comparison has it; `Fusion pick = Fusion.NONE;`
+     and `Fusion choice = Fusion.NONE;` become `Fusion pick = Fusion.WHOLE;` and `Fusion
+     choice = Fusion.WHOLE;`. `epoch` and `hashes` stay `Fusion.NONE`, and the sections
+     titled `TIMESTAMP_NTZ twin` keep the classes they have. The class comment gains the
+     sentence "The comparison, `greatest` and the choice fuse (VARKA-656)."
 10. The census cells: `python3 $T/ltz_fused.py $M9/census_curated.txt | tee $T/fused.txt`,
     with the script of 4.8 saved as `$T/ltz_fused.py`. It prints one line, `22 entries fused
     for ltz; done again: isnull isnotnull; 656 joined the rows of: in_set`. Any other line,
@@ -1940,9 +1942,12 @@ The lead pushes, opens the pull request and dispatches; the builder makes two lo
          -f create-commit=false -f class=<Base's full name> -f jdk=25 \
          -f expected-cpu="AMD EPYC 7763" -f extra-java-options=-XX:MaxVectorSize=16
 
-   A run on another CPU is dispatched again. The lead downloads each run's artifact and
-   gives the builder one directory, `$R`, that holds the four files as the artifacts name
-   them: the results file and the provenance file of each width.
+   A run on another CPU is dispatched again. The lead downloads each run's artifact, whose
+   two files are named `<Base>-jdk25-results.txt` and `<Base>-jdk25-provenance.txt` at both
+   widths, and renames `<Base>-jdk25-` to `<Base>-jdk25-runner-epyc7763-` for the first run
+   and to `<Base>-jdk25-runner-epyc7763-128bit-` for the second (`VARKA-655.md` 4.9). It
+   gives the builder one directory, `$R`, that holds the four files under those names, which
+   are the names row 655 committed.
 3. **The builder, second commit.** For each of the four files: `cp $R/<file>
    sql/core/benchmarks/<file>`, over the file of the same name that row 655 committed (`ls
    sql/core/benchmarks/<Base>-*` lists the four before the copy; a file of `$R` with no file
@@ -2055,10 +2060,10 @@ again and read by minimums.
    a failure of this row: the kernel is the long lane's.
 10. At 128 bits the filter sections are refused by the host's rule (`Fusion.NONE`) and their
     two arms tie within 1.1; the choice sections are not slower than the row path.
-11. A `TIMESTAMP` section's `varka on` time is within 1.1 of its `TIMESTAMP_NTZ` twin's in the
-    `TIMESTAMP_NTZ` baseline, where the two classes hold the same query over the same rows:
-    it is one kernel class over another Arrow vector class. Not scored where `<Base>` has no
-    such twin; section 11 then says so.
+11. A `TIMESTAMP` section's `varka on` time is within 1.1 of its `TIMESTAMP_NTZ` twin's, the
+    section of `<Base>` titled `TIMESTAMP_NTZ twin` with the same form over the same
+    instants (`VARKA-655.md` 4.7): it is one kernel class over another Arrow vector
+    class. Scored for the comparison, `greatest` and the choice over a year in no order.
 12. The zone of a section does not move its ratio: under each zone `<Base>` runs a section
     in, the section's ratios are within 1.1 of each other.
 
