@@ -284,18 +284,18 @@ the entries would count as fused in the census and gain nothing on such data (G2
 offset is right for UTC, for a fixed offset and for a zone that has stopped changing, and it is
 the first form built.
 
-**The zone database (row 678).** `java.time` keeps a zone for one lookup at a time: a binary
-search, then a rule worked out for a year past its table. Row 678 lays the same data out for
-vector code, once a zone in each JVM, from that JVM's own `ZoneRules`: the zone's class (fixed;
-no change after a given instant; yearly changes), its changes sorted on both time lines with
-the window of each gap and overlap, the instants from which its offsets are whole minutes and
-whole hours, the rule years written out as they are needed and repeated by the 400-year cycle,
-and the bucket table (11,482 buckets a zone from 1900 to 2100: 89 KB at eight bytes a bucket,
-and three times that as the probe's three arrays). Ids with the same rules share an entry. It
-is special data structures over the JVM's data, not a second time-zone database: a shipped copy
-would let a kernel and the row engine disagree after an update of either. Its first
-implementation is the library's (2.10); row 678 is Varka's own, which the evaluator reads.
-(26 November 2026: the packed table of `VARKA-686.md` is 183,712 bytes a zone, 16 a bucket.)
+**The zone database (row 678).** `java.time` keeps a zone for one lookup at a time: a binary search,
+then a rule worked out for a year past its table. Row 678 lays the same data out for vector code,
+once a zone in each JVM, from that JVM's own `ZoneRules`: the zone's class (fixed; no change after a
+given instant; yearly changes), its changes sorted on both time lines with the window of each gap
+and overlap, the instants from which its offsets are whole minutes and whole hours, the rule years
+written out as they are needed and repeated by the 400-year cycle, and the bucket table (11,482
+buckets a zone from 1900 to 2100: 89 KB at eight bytes a bucket, and three times that as the probe's
+three arrays). Ids with the same rules share an entry. It is special data structures over the JVM's
+data, not a second time-zone database: a shipped copy would let a kernel and the row engine disagree
+after an update of either. Row 678 is Varka's own, which the evaluator reads, and is built first;
+the library (2.10) ports its merged files. (26 November 2026: the packed table of `VARKA-686.md` is
+183,712 bytes a zone, 16 a bucket.)
 
 **The forms, and what each cost on the laptop:** nanoseconds a row to write `instant + offset`
 for a batch of 4096 instants in no order, each form equal to `java.time` on every row.
@@ -458,14 +458,16 @@ files, most of its lines generated.
   table. The plan's lean is one type per kind, `ntz_ns` and `ltz_ns`, with the precision a band
   only where an answer depends on it, as `dec` carries its two bands; six types would multiply
   rows whose kernels are the same.
-- **Two layouts (row 662), both built.** (a) Two words, the cache's own form: exact over the
-  whole range, and every field reads the microsecond word alone, so the fields are the
-  microsecond kernels. Only `second` with its fraction and the arithmetic touch the second word.
-  (b) One long at the column's precision, as ClickHouse's `DateTime64`, QuestDB's nanosecond
-  type and DuckDB's and Arrow's unit types hold a timestamp: one word and plain arithmetic, a
-  multiply and an add on load and a division on store. Its range is the years 1677 to 2262 at
-  nine digits, ten times as wide at eight and a hundred times at seven, and a batch outside it
-  declines. The measurement is on the baselines of row 655.
+- **Two layouts (row 662), both built.** (a) Two words, the cache's own form: exact over the whole
+  range, and every field reads the microsecond word alone, so the fields are the microsecond
+  kernels. Only `second` with its fraction and the arithmetic touch the second word. (b) One long at
+  the column's precision, as ClickHouse's `DateTime64`, QuestDB's nanosecond type and DuckDB's and
+  Arrow's unit types hold a timestamp: one word and plain arithmetic, a multiply and an add on load
+  and a division on store. Its range is the years 1677 to 2262 at nine digits, ten times as wide at
+  eight and a hundred times at seven, and a batch outside it declines. The measurement is on the
+  baselines of row 655. The library (row 679) holds both layouts first, outside Spark, and its
+  benchmark of the two shapes on the same values (`VARKA-679.md` 5.2, L14 and L17) is their first
+  measurement.
 - **Floor, never round.** A cast to a lower precision floors in Spark. Trino rounds half up,
   DuckDB rounds half away from zero and Arrow truncates toward zero, so none of the three is a
   reference here.
@@ -592,14 +594,17 @@ repository that row 679 creates when it starts. vfdlibm is the model: its own re
 release on Maven Central,
 a test-scope dependency of `sql/catalyst`, and never a runtime dependency of a kernel.
 
-- **What it holds.** For each `java.time` method that Spark's datetime expressions call, a form
-  over arrays with the same answer in every lane: the zone database of 2.2 and the offset
-  forms, local to instant under the three rules, the calendar and clock fields, the sums with
-  days and months, the difference of two local date-times, truncation, and the two-word
-  nanosecond forms. It holds no parsing, no formatting and no `java.time` objects.
-- **Its contract** is `java.time`'s answer, bit for bit, in every zone of the running JVM. The
-  every-zone sweep of 2.2 is its test, and the forms' benchmarks at each vector width are its
-  record. The probes of 2.2 are its first content.
+- **What it holds.** For each `java.time` method that Spark's datetime expressions call, a form over
+  arrays with the same answer in every lane: the zone database of 2.2 and the offset forms, local to
+  instant under the three rules, the calendar and clock fields, the sums with days and months, the
+  difference of two local date-times, and truncation. Every form has nanosecond precision from the
+  library's first release, in two shapes (the owner, 27 November 2026): the two words of 2.5, a long
+  of microseconds and the nanoseconds within it, which is the contract over the whole range; and one
+  long of nanoseconds, a measured arm over the years 1677 to 2262. It holds no parsing, no
+  formatting and no `java.time` objects.
+- **Its contract** is `java.time`'s answer to the nanosecond, bit for bit, in every zone of the
+  running JVM. The every-zone sweep of 2.2 is its test, and the forms' benchmarks at each vector
+  width are its record. The probes of 2.2 are its first content.
 - **The first implementation.** A form is built there first: a build takes seconds and needs no
   Spark, and a function with `java.time` as its oracle is the smallest task a cheaper model can
   take. Varka then lowers the form in its own IR, by its own measurement, since fused code calls
@@ -608,6 +613,10 @@ a test-scope dependency of `sql/catalyst`, and never a runtime dependency of a k
   `java.time`, as the math ports' suites check against vfdlibm and `StrictMath`.
 - **What does not wait.** No row of this plan waits on a release of the library: a suite reads
   `java.time` alone until the release holds what it calls.
+- *27 November 2026, from the plan of row 679:* a Varka suite can name only a class of the
+  library's pinned release, so the cross-check against the library joins with the Varka pull
+  request that raises the pinned version. And the cheaper models' pull requests in the library
+  count for G5 only if row 658's ledger takes them: that row's plan decides how.
 
 ### 2.11 What the scope catalogue gives this plan
 
@@ -681,7 +690,7 @@ generated plan.
 | 676 | The post. **Filed** (25 November 2026) What of Spark's datetime surface runs in kernels, how it is known in every zone, how much faster it is than vanilla Spark, and what the cheaper models built, with its figures from committed results. **Done when** it is published | owner's decision 5 | medium |
 | 677 | The close. **Filed** (25 November 2026) Section 1.2 read item by item against the tree, G5's report from the ledger, and the house's close: documents only, its numbers quoted from CI's committed runs. **Done when** every item of 1.2 is answered and the milestone's tag is set | the house's close | small |
 | 678 | The time-zone database for vector code. **Planned** (`VARKA-678.md`, 27 November 2026: four parts, the entry and the instant line, the local line, the cache with its measurement, the production zone data; filed 25 November 2026, on the owner's word of that day; the admission check: `java.time` answers one lookup at a time by a binary search, and the probe's sorted changes gave every row `java.time`'s answer under each of the three rules) Section 2.2: a zone's class, its changes on both time lines with each gap's and overlap's window, the instants from which its offsets are whole minutes and whole hours, one cycle of 400 rule years written out when the entry is built, and the changes of 1900 to 2100 that row 686 packs into the bucket table, which answers `VarkaZoneData.toLocalTable` (`VARKA-686.md` 4.5); built once a zone in each JVM, from that JVM's `ZoneRules`; ids with the same rules share an entry. **Done when** every zone id the session accepts has an entry; the steps read from it equal `java.time` over the sweep's instants on both time lines, and the table packed from it equals the reference's (row 686's part a holds that test); the time to build an entry and its size are measured and recorded; and no entry crosses from the driver to an executor | the owner's word of 25 November 2026; `m10/SCOPE.md` item 89; row 682's part c before its last part; row 679 ports its merged files into the library | medium |
-| 679 | `vechrono`, a library of its own for the batch forms of `java.time`. **Filed** (25 November 2026, the owner's decisions 13 and 16; the admission check: none of the eleven engines read converts a named zone in vector code, and vfdlibm is on Maven Central and read by `sql/catalyst` in test scope) Section 2.10: its repository; the zone database, the offset forms and the three rules first, from the probes of 2.2; then the fields, the sums and the nanosecond forms as their rows come. **Done when** the repository builds and tests in its own CI; the every-zone sweep and the forms' benchmarks at each vector width are in it; a release is on Maven Central; and a Varka suite checks a kernel against it in test scope | owner's decision 13; vfdlibm's precedent | medium |
+| 679 | `vechrono`, a library of its own for the batch forms of `java.time`. **Planned** (`VARKA-679.md`, 27 November 2026: a founding commit, eighteen parts of the library and one of Varka; nanoseconds are its unit from the first release; it starts after milestone 8 closes, on the owner's word; filed 25 November 2026, the owner's decisions 13 and 16; the admission check: none of the eleven engines read converts a named zone in vector code, and vfdlibm is on Maven Central and read by `sql/catalyst` in test scope) Section 2.10: its repository; the zone database, the offset forms and the three rules first, from the probes of 2.2; then `plusNanos`, the first form over both words of a nanosecond value; then the fields and the sums as their rows come, each in both shapes. **Done when** the repository builds and tests in its own CI; the every-zone sweep and the forms' benchmarks at each vector width are in it; a release is on Maven Central; and a Varka suite checks a kernel against it in test scope | owner's decision 13; vfdlibm's precedent | medium |
 | 680 | Never slower than Spark: a gate at each width. **Filed** (25 November 2026, decision 14, from the catalogue's item 120; the admission check: no benchmark class reads `coverage.json` and no nightly times a coverage row against the row path, and the item's case, `(d < d2) AND (l < l2)` at 0.8X at 128 bits, was found because a filter control happened to time it) One benchmark class driven by `coverage.json` times each coverage row's kernel against the row path, nightly, at 128 and 256 bits on the EPYC 7763, and fails on a row under 1.0X by more than the band its own reruns give, unless a committed list holds the row with the task row that owns it and the ratio it had; a listed row fails again only when it falls further. The laptop's widths stay with the catalogue's item. **Done when** the nightly runs and its results are committed for each width; each row of the temporal families under 1.0X is made faster or declined by a recorded refusal (G7); every other row under 1.0X is on the list with its owner; and a planted slow row fails the gate | owner's decisions 8 and 14 | medium |
 | 681 | A register of the upstream behaviours Varka depends on or works around. **Filed** (25 November 2026, decision 14, from the catalogue's item 123; the admission check: no such file exists, and 2.4 leans on it) One file, each entry with the version that has the behaviour, the upstream issue, the Varka code that depends on it and the test that pins it. The row builds it with the item's four entries, whose tests exist. This milestone's entries come with the rows that build their tests: SPARK-61352 and SPARK-61538 with row 663, the JDK's time-zone data with row 657, the nanosecond preview (SPARK-56822) and its rejections (SPARK-60335) with rows 661 and 662, and SPARK-57853 with item 50 if it is taken. **Done when** the register exists, each of the four entries names its pinning test, and the steps of the upstream sync and of a JDK upgrade read it; the close (row 677) checks that each later entry is there | owner's decision 14 | small |
 | 682 | `ToLocal` and its batch arguments. **Planned** (`VARKA-682.md`, 26 November 2026: six parts, the record with its registries and the one-offset lowering first, the runner's fill fifth; filed 25 November 2026 from `VARKA-657.md`; the admission check: a kernel's long arguments are a task's own and are passed on every call, and the shape key holds the literals' count and the options, not a value) `VARKA-657.md` 3.1, 3.2 and 3.5: the record under a sealed `Zoned` interface with its registries; the layout of batch arguments from the final IR and the options, read by the emitter and by the runner; the runner's fill, its status, and the warm-up and the reproduction following a batch's values; the lowering of one offset and of the steps, the form an emit option. **Done when** a kernel over a test zone answers two batches with two sets of values from one class, two tasks do not see each other's values, each form's bytes are pinned, and no literal slot moves | `VARKA-657.md`; the catalogue's item 11; row 683 first, for the runner's fill | medium |
@@ -726,13 +735,13 @@ master, a review, a push and CI, in the merge queue's order; the parts over the 
 now. Of wave 0 the plans and the catalogue's move go on; a row of this plan starts on his word.*
 
 **Wave 0, now, while milestone 8 runs.** Nothing here adds a type to the census. This plan; the
-catalogue's move; rows 646 and 642, which are milestone 8's throughput work too; the plans of
-rows 653, 657 and 660; the library's start (row 679) and row 678, which are new classes and
-their tests; row 655's `TIMESTAMP_LTZ` classes and the second run of the `TIMESTAMP_NTZ` ones;
-the carried rows' built parts; rows 590 and 681, which move no census cell; row 663 once #1708
-and #1675 have merged. The carried parts and
-the sync move cells of milestone 8's census while it is open, as its own rows do; its note of 25
-November 2026 says how its close reads them.
+catalogue's move; rows 646 and 642, which are milestone 8's throughput work too; the plans of rows
+653, 657 and 660; row 678, which is new classes and their tests (the library, row 679, starts after
+milestone 8 closes, on the owner's word of 27 November 2026, and ports row 678's merged files); row
+655's `TIMESTAMP_LTZ` classes and the second run of the `TIMESTAMP_NTZ` ones; the carried rows'
+built parts; rows 590 and 681, which move no census cell; row 663 once #1708 and #1675 have merged.
+The carried parts and the sync move cells of milestone 8's census while it is open, as its own rows
+do; its note of 25 November 2026 says how its close reads them.
 
 **Wave 1, from milestone 8's close** (decision 11): the census opens to the new type. Rows 654
 and 656; row 653's code; row 658; and row 680, whose findings before the close would fall on

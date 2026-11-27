@@ -17,10 +17,10 @@ the steps and the table read from it equal `java.time` over the sweep's instants
 lines; the time to build an entry and its size are measured and recorded; and no entry crosses
 from the driver to an executor".
 
-The row adds three classes to `sql/catalyst` and their tests. It adds no IR record, no emit
-option, no lowering and no census cell, and it moves no emitted byte. That is why the milestone
-plan's wave 0 allows it while milestone 8 runs (`m9/PLAN.md` section 4: "the library's start
-(row 679) and row 678, which are new classes and their tests").
+The row adds three classes to `sql/catalyst` and their tests. It adds no IR record, no emit option,
+no lowering and no census cell, and it moves no emitted byte. That is why the milestone plan's wave
+0 allows it while milestone 8 runs (`m9/PLAN.md` section 4: "row 678, which is new classes and their
+tests").
 
 **What it gives the rows after it.**
 
