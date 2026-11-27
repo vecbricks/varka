@@ -499,7 +499,9 @@ fires:
   `LocalDateTime.atZone`.
 - `KEPT`, with `kept` the offset the value had, in microseconds: step `i` fires when `L >=
   hi[i] || (L >= lo[i] && kept == after[i])`. It is `ZonedDateTime.ofLocal(ldt, zone,
-  ZoneOffset.ofTotalSeconds(kept / MICROS))`. For a gap `lo[i]` is `hi[i]`, so no local time
+  ZoneOffset.ofTotalSeconds(kept / MICROS))` for a `kept` that is a whole second within 18
+  hours; any other `kept` equals no `after[i]` and answers as `EARLIER`, with no preferred
+  offset (`VARKA-679.md` 4.6; `VARKA-690.md` 2.5). For a gap `lo[i]` is `hi[i]`, so no local time
   is inside.
 - `GAP_END`: `L'` is `hi[i]` where `lo[i] <= L < hi[i]` for some `i`, else `L`; then
   `EARLIER` on `L'`. For an overlap `lo[i]` is `hi[i]`. Inside a gap the instant is the
@@ -901,7 +903,9 @@ Branch `varka-678b-local-line`.
    - `static long earlier(long[] a, int f, int steps, long L)`, `kept(a, f, steps, L, long
      keptMicros)` and `gapEnd(a, f, steps, L)`: the three scalar meanings of 4.5, over
      arguments at `f`. Every argument and result is in microseconds, the kept offset too; the
-     oracle's `ZoneOffset` is `ZoneOffset.ofTotalSeconds((int) (keptMicros / 1_000_000L))`.
+     oracle's `ZoneOffset` is `ZoneOffset.ofTotalSeconds((int) (keptMicros / 1_000_000L))`
+     for a `keptMicros` that is a whole second within 18 hours, and null, no preference,
+     for any other.
    - `static ZoneRules touching()`: two stored changes whose windows overlap, not served:
 
          ZoneOffset one = ZoneOffset.ofHours(1);
@@ -928,7 +932,8 @@ hiOf(r)`, are `lo - 1000000`, `lo - 1`, `lo`, `lo + 1`, `lo + (hi - lo) / 2`, `h
 `hi + 1`, `hi + 1000000`; "every window" is each change `r` from 0 to `size() - 1`. The
 three oracles, with `ldt = local(L)`: *atZone* is `micros(ldt.atZone(zone).toInstant())`;
 *ofLocal* is `micros(ZonedDateTime.ofLocal(ldt, zone, ZoneOffset.ofTotalSeconds((int)
-(keptMicros / 1000000))).toInstant())`; *gap's end* is, with `t = rules.getTransition(ldt)`,
+(keptMicros / 1000000))).toInstant())`, with a null offset for a `keptMicros` that is no
+whole second within 18 hours; *gap's end* is, with `t = rules.getTransition(ldt)`,
 `t.toEpochSecond() * 1000000` when `t != null && t.isGap()`, else atZone.
 
 | # | test | inputs | expected, and its oracle | the failure only it catches |
@@ -1094,7 +1099,7 @@ stop: the order of the rows is not the one this plan was written for.
 
     flock "$VARKA_HEAVY_LOCK" build/sbt -batch 'catalyst/testOnly *VarkaChronoZoneSuite *VarkaEmitterZoneSuite'
         # VarkaChronoZoneSuite reports 8 tests passed; VarkaEmitterZoneSuite as before this part
-    git grep -l 'implements VarkaZoneData' -- sql/catalyst/src/main                              # $V/VarkaChronoZone.java
+    git grep -l 'implements VarkaZoneData' -- sql/catalyst/src/main                              # $V/VarkaChronoZone.java; $V/VarkaBatchArgs.java too once row 690's part b has merged (its nested LocalLine)
     git grep -n 'VarkaZoneData.Provider PROVIDER' -- sql/catalyst/src/main                       # one line, in VarkaChronoZone.java
     git diff --exit-code -- sql/varka/coverage.json sql/varka/emitted_bytes.json sql/varka/width_audit.json sql/varka/operator_census.json sql/varka/types.tsv
     dev/varka_precommit.sh                                                                     # exits 0

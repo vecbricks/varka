@@ -334,7 +334,9 @@ One final class in catalyst's tests. Every check is a function of a `Spec` and r
   `want[i]` is `rule.expected` of row `i`, computed once a run. `STEPS_8` runs the run as one
   batch, `STEPS_2` each two changes as one, and `ONE` each change's points cut at `cuts`.
 - For a batch, `least` and `greatest` are its first and last live row. `filler.fill` must
-  answer true. The kernel runs inside `VarkaKernelChecks.sanitized`. Its status must be 0 and
+  answer true, except under `ONE` for the segment between the cuts of a rule whose
+  `oneOutsideCutsOnly()` is true, where it must answer false (`VARKA-690.md` 4.12). The
+  kernel runs inside `VarkaKernelChecks.sanitized`. Its status must be 0 and
   every live row valid and equal to `want`. The first failure, in the order of sets, runs,
   forms (`ONE` first) and rows, is the report's `Mismatch`; `got` is a value, `null` or
   `declined`.
@@ -498,7 +500,9 @@ instant comes from `ZoneRules`, not from the harness.
 | 4 | a batch argument not refilled | the fill: a `Filler` that fills a zone's first batch of each form and nothing after; and a wrapper whose `toLocalArgs` leaves the padding unwritten | the first: `sweep`, in the zone's second batch. The second: on one array, a batch over two changes and then one over the next change alone, in `STEPS_2`: every row of the second batch |
 | 5 | the driver's rules read in place of the executor's | the provider: each of the four ids answers with the next id's data, as a driver with other rules would | `sweep`, in the first zone |
 
-Row 690 adds two: `min` for `max` in a local threshold (a wrapper) and the kept offset ignored.
+Row 690 adds four (`VARKA-690.md` 4.12): `min` for `max` in a local threshold (a wrapper), the
+kept offset ignored, the gap's end not taken, and the instant line's arguments for a local
+node.
 
 ### 4.8 The session zone in the Spark-level fuzzer
 
@@ -616,7 +620,7 @@ Title `[VARKA-684] Sweep ToLocal against java.time over every zone of the JVM`; 
     grep -n 'void toLocalArgs(long least, long greatest, int steps' $V/VarkaZoneData.java   # one line
     grep -n 'enum ZoneForm' -A1 $V/VarkaEmitOptions.java $V/VarkaEmitOption.java   # ONE, STEPS_2, STEPS_8
     grep -n 'withZoneForm' $V/VarkaEmitOptions.java                        # one line
-    git grep -l 'implements VarkaZoneData' -- sql/catalyst/src/main        # VarkaChronoZone's file
+    git grep -l 'implements VarkaZoneData' -- sql/catalyst/src/main        # VarkaChronoZone's file; VarkaBatchArgs.java too once row 690's part b has merged (its nested LocalLine)
     git grep -n 'VarkaZoneData.Provider' -- sql/catalyst/src/main sql/core/src/main   # PROD
     ls $T/VarkaJavaTimeZoneData.java $T/VarkaEmitterZoneSuite.java         # both exist
 

@@ -412,7 +412,10 @@ jar): it reads `ZoneId.of(id).getRules()`. It compares in whole seconds
   `Provider.NONE`. Row 657 overrides it with row 678's data. `newRunner` builds the programs
   from `VarkaBatchArgs.layout`, sizes the array with `argsLength`, and throws
   `IllegalStateException("no zone data for " + id)` when the provider returns null. That
-  lands in `fusedRunner`'s catch, which is the emission-failure fallback.
+  lands in `fusedRunner`'s catch, which is the emission-failure fallback. Once
+  `VarkaBatchArgs.dataOf` exists (row 690's part b), the data a program keeps is
+  `VarkaBatchArgs.dataOf(program.node(), data)`: a local-time node reads the local line
+  through it, and the runner itself never calls `toInstantArgs` (`VARKA-690.md` 4.4).
 - **Warm-up:** no code change (fact 13). A test holds it.
 - **Reproduction:** `VarkaReproduction` gains `List<String> zones`, written as an optional
   line `zones: <ids joined by a comma>` after the long literals. `FORMAT` stays 1: a file
