@@ -193,11 +193,9 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       GuardPolicy.ARMED) === UNKNOWN)
   }
 
-  test("table 3.4: next_day shifts by 1 to 7 and re-arms; the Thursday shifts by -3 to 3") {
-    // next_day raises where its result leaves the DATE range (SPARK-60929), so like last_day it
-    // rests on the column bound whatever the policy above it.
+  test("table 3.4: next_day shifts by 1 to 7 and the Thursday by -3 to 3, same policy") {
     assert(day(new NextDay(c0, c1), GuardPolicy.NONE) === contract.shift(1, 7))
-    assert(day(new NextDay(new AddDays(c0, c1), c1), GuardPolicy.NONE) === narrow.shift(1, 7))
+    assert(day(new NextDay(new AddDays(c0, c1), c1), GuardPolicy.NONE) === UNKNOWN)
     assert(day(new NextDay(new AddDays(c0, c1), c1), GuardPolicy.ARMED) === narrow.shift(1, 7))
     assert(day(new ThursdayOf(c0), GuardPolicy.NONE) === contract.shift(-3, 3))
     assert(day(new ThursdayOf(new AddDays(c0, c1)), GuardPolicy.NONE) === UNKNOWN)

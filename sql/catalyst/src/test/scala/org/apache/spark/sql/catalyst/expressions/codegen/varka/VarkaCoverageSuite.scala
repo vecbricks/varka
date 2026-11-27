@@ -1230,7 +1230,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // an exact floor division by a day and its time of day the remainder. The calendar fields
     // run over the date inside a day guard, the five that need none (the weekdays, next_day and
     // trunc to a week) over the unguarded cast, and the time fields over the nanosecond of the
-    // day, which no guard is needed for.
+    // day, which no guard is needed for. The day of a count of microseconds is within 107
+    // million days either way, so next_day and trunc to a week cannot reach the ends of int32
+    // (SPARK-60929).
     Family("TIMESTAMP_NTZ fields", predicates = false, Seq(
       Row("year(ntz)", "the date of the count, held to the calendar lowering's range",
         domain = Some(ntzFieldDays)),

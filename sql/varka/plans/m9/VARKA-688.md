@@ -428,6 +428,8 @@ the fill, the ladder's choice, the warm-up and the reproduction read them as bef
 
 `VarkaEvaluatorBase.newRunner` builds each program's `VarkaOperandRange` where row 685 took
 `VarkaBatchArgs.operandColumn`, with the literal tables of the compiled projection (fact 14).
+Each `zone[p]` stays what row 685 kept: once `VarkaBatchArgs.dataOf` exists (row 690's part
+b), the provider's answer wrapped by it, never the bare answer (`VARKA-690.md` 4.4).
 An operand that reads a derived input (fact 13) makes it throw `IllegalStateException`, which
 lands in the emission-failure fallback: no node with a rule takes such an input today.
 
@@ -786,7 +788,9 @@ form over a computed operand; a new status, metric or option; `VarkaWarmupGate`.
        }
 
    `COMPUTED_OPERAND_REASON` goes; `static String unrangedReason(String node)` returns 4.11's
-   first text with the name in place of `<name>`.
+   first text with the name in place of `<name>`. If the file holds `toInstant` (row 690's
+   part d merged first), its copy of the same statement, with `local` for `instant`, takes
+   the same replacement (`VARKA-690.md` 4.10).
 2. The same file, the arm: a case beside `Hour`'s, `TimestampAddInterval a when
    a.start().dataType() instanceof TimestampType && a.interval().dataType() instanceof
    DayTimeIntervalType`, which calls a new private method `zonedPlusInterval(a, inputs,
