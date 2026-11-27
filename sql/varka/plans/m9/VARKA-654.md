@@ -990,7 +990,8 @@ texts of 4.2.
 ### 4.13 Open questions for the owner
 
 The plan is written on the first answer of each. *27 November 2026:* the owner answered
-questions 1, 3 and 4 with the first answer of each: the tag, accept, and yes.
+questions 1, 3 and 4 with the first answer of each (the tag, accept, and yes), and then
+approved the plan as written, so the first answer of questions 2, 5 and 6 stands too.
 
 1. **Where "its close" is read.** Recommended: the tree of the tag `varka-m8`. The other
    reading is the merge of the close's documents, which by `m8/VARKA-354.md` changes no
