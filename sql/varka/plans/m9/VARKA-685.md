@@ -557,7 +557,9 @@ the suite's call that runs the kernel on a batch: the new tests use both. With n
      `current`; `Kernel` gains `int steps`.
    - `newRunner`: where row 682 builds the programs, build `ranges` first if it is null and the
      layout is not empty (`input[p]` from `VarkaBatchArgs.operandColumn`, `zone[p]` from
-     `zoneData()`, a missing zone throwing as row 682 has it); set `kernel.steps` to the steps
+     `zoneData()`, a missing zone throwing as row 682 has it, and, once
+     `VarkaBatchArgs.dataOf` exists, wrapped as `VarkaBatchArgs.dataOf(<the program's
+     node>, data)`, `VARKA-690.md` 4.4); set `kernel.steps` to the steps
      of `kernel.options.zoneForm()`; pass `ranges` to the runner.
    - `private void prepare(ColumnarBatch input)`: first `fusedRunner();`, which builds
      `ranges` with the runner (4.2). Then, when `ranges` is not null, `need =
