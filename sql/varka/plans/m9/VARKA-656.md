@@ -668,7 +668,9 @@ other pairs are unfused.
 - **Row 656 fuses `in_set`: yes.** Row 654 curates it with row 667 in its rows; this row marks
   it fused and adds `656` (4.8).
 
-**Still open.** Each has the recommendation first; the plan is written on it.
+**Open when the plan was written.** Each has the recommendation first; the plan is written on
+it. *27 November 2026, later:* the owner approved the plan as written, so the recommendation
+of each stands as his answer.
 
 1. **A hand-built comparison of a `TIMESTAMP` with a `TIMESTAMP_NTZ`.** *Recommended: no guard
    in the compiler.* Spark's analyzer never makes that tree; the compiler guards no other pair
