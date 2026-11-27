@@ -237,16 +237,31 @@ class VarkaFarDaySuite extends QueryTest with VarkaMaybeThrows {
             "next_day(date_add(d, 2144000000), 'MONDAY')",
             "trunc(date_add(d, 2144000000), 'WEEK')",
             "trunc(date_sub(d, 2147483000), 'WEEK')",
-            "next_day(date_add(d, v + 2147483000 - 647), 'MONDAY')",
-            // Alone, a column offset below next_day has no guard and the entry declines; under
-            // a calendar consumer the guards below are armed and it fuses.
-            "year(next_day(date_add(d, i), 'MONDAY'))")) {
+            "next_day(date_add(d, v + 2147483000 - 647), 'MONDAY')")) {
           withClue(s"$e, nulls=$nulls: ") {
             check(s"SELECT v, $e AS r FROM varka_far_days")
           }
         }
+        // Alone, a column offset below next_day has no guard and the entry declines; under a
+        // calendar consumer the guards below are armed and it fuses. The fused form rests on
+        // the day producers' guard, so it runs with that guard on.
+        val underYear = "year(next_day(date_add(d, i), 'MONDAY'))"
+        withClue(s"$underYear, nulls=$nulls: ") {
+          withDayGuard(check(s"SELECT v, $underYear AS r FROM varka_far_days"))
+        }
       }
     }
+  }
+
+  /**
+   * Runs `body` with the day producers' guard on over whatever else the option matrix sets.
+   * Under `guardDayProducers=false` a shift by a column has no guard: the kernel computes a
+   * day past the bound wrongly by design, so a test of the guarded form needs the guard.
+   */
+  private def withDayGuard[T](body: => T): T = {
+    val previous = VarkaColumnarToRowExec.currentEmitOptions
+    VarkaColumnarToRowExec.setEmitOptionsForTesting(previous.withGuardDayProducers(true))
+    try body finally VarkaColumnarToRowExec.setEmitOptionsForTesting(previous)
   }
 
   test("a datediff's bound removes no overflow check over days past the bound") {
