@@ -22,7 +22,11 @@ and Spark's intermediate sums stay in int32. At the two ends they do not, and Sp
 arithmetic wraps as `day_count_wraps` does (`DELTAS.md` 1.5). `last_day`, `next_day` and
 `trunc` no longer wrap: since SPARK-60929 (in the sync of 26 November 2026) each raises
 `DATETIME_OVERFLOW`, 22008, where its result would leave the DATE range, so
-`last_day(date_from_unix_date(2147483647))` raises (tested); the month functions raise 22003. `dow(n) = mod(n + 3, 7)` is the day of the week counted from Monday = 0,
+`last_day(date_from_unix_date(2147483647))` raises (tested). Varka's kernels match that for a
+date column, whose days outside the column bound go to the row engine, and for a shift below
+`next_day` or `trunc(d, 'WEEK')` that keeps seven days clear of both ends; any other shift
+declines (tested in `VarkaFarDaySuite`). The month functions raise 22003.
+`dow(n) = mod(n + 3, 7)` is the day of the week counted from Monday = 0,
 since day 0, 1970-01-01, was a Thursday. A test pins the ISO 8601 marks and Spark's two day-of-week
 numberings: "ISO 8601's week rules, and Spark's own day-of-week numberings" in
 `VarkaStandardDeltasSuite`.
