@@ -413,7 +413,9 @@ and the PR build and the option matrix pass.
 
 ### 10.1 Step 1, the baseline addition (20 November 2026)
 
-Built on branch `varka-362-decimal-multiply-256` from master at `0b8be5a33e4`, as a pull request of
+Built on branch `varka-362-decimal-multiply-256` from master at `0b8be5a33e4` and brought to
+master `a5c8d1f0972` on 27 November 2026 as branch `varka-362-363-baseline`, with row 363's
+sections (`VARKA-363.md` 10), after row 350's casts had joined the baseline: a pull request of
 its own, since rows 360 and 361's additions merged in #1460. `VarkaDecimalBaselineBenchmark` gains
 eight sections, four shapes at both null densities, after every existing one so that no committed
 section's values move:
@@ -427,7 +429,7 @@ section's values move:
 
 Every section is `NONE`: no lowering computes a product past a long, and of the filter only the
 null tests Spark infers would fuse, which VARKA-598 leaves on the row path. The three new columns
-come after `l`: `y17s2`, a `DECIMAL(17, 2)`, and `w20` and `w38s2`, a `DECIMAL(20, 2)` and a
+come after `l16`, the last column of row 350's casts: `y17s2`, a `DECIMAL(17, 2)`, and `w20` and `w38s2`, a `DECIMAL(20, 2)` and a
 `DECIMAL(38, 2)` with narrower integer parts than `x20` and `x38s2` (the decisions below). The
 queries suite pins the new columns' types, the sections' result types, the filter's comparison
 type and the product's freedom from nulls. The runner results at 256 and 128 bits are owed: this

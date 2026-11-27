@@ -546,4 +546,23 @@ its predictions scored; and the PR build and the option matrix pass.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 10.1 Step 1, the baseline addition (27 November 2026)
+
+Built on 20 November 2026 and brought to master `a5c8d1f0972` on 27 November 2026, on branch
+`varka-362-363-baseline`, in one pull request with row 362's products (`VARKA-362.md` 10.1).
+`VarkaDecimalBaselineBenchmark` gains six sections, three shapes at both null densities, after
+row 362's, so that no committed section's values move:
+
+| section | exact type | result type |
+|---|---|---|
+| `x19s8 * y19s8` as a value | `DECIMAL(39, 16)` | `DECIMAL(38, 15)`, one digit cut |
+| `x38 * y38` as a value | `DECIMAL(77, 20)` | `DECIMAL(38, 6)`, the floor of six |
+| `x38 + y38` as a value | `DECIMAL(39, 10)` | `DECIMAL(38, 9)`, one digit cut |
+
+Every section is `NONE`: no lowering cuts a scale. `x19s8` and `y19s8` are new columns, after
+row 362's: `DECIMAL(19, 8)`s whose unscaled values stay inside a long, so the section times the
+cut of a product and not operands with bits in the high word, which `x38` has. The queries suite
+pins the columns' types and the sections' result types, and reads them at the default of
+`spark.sql.decimalOperations.allowPrecisionLoss`, which it asserts. The baseline has 180 sections.
+
+Owed: the runner's readings of the six sections at 256 and 128 bits, dispatched after the merge.

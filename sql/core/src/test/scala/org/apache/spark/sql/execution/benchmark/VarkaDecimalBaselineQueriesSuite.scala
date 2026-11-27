@@ -75,6 +75,10 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
 
   test("every section of the decimal baseline runs, and both sessions answer it alike") {
     val rows = 2000
+    // The benchmark times its sections at the sessions' defaults, so this test reads them at
+    // the defaults too. The capped result types below hold only where an operation may cut
+    // its scale, so a session that starts with the setting off fails here and not in a type.
+    assert(conf.decimalOperationsAllowPrecisionLoss)
     withTable(rows) {
       val expected = VarkaDecimalBaselineBenchmark.PRECISIONS.asScala.flatMap { p =>
         Seq("x", "y", "z").flatMap { role =>
@@ -164,7 +168,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // (a decimal output, written by the decimal store, 348b) and the BOOLEAN filter fuse whole
       // where the session takes a 64-bit kernel's masks, the rest stay on the row path.
       for (declines <- Seq(false, true)) {
-        val casts = VarkaDecimalBaselineBenchmark.sections(declines).asScala.drop(126)
+        val casts = VarkaDecimalBaselineBenchmark.sections(declines).asScala.slice(126, 166)
         // The BIGINT column's CAST(l AS DECIMAL(18, 2)) runs on the row path (no BIGINT into a
         // decimal fuses yet), so the titles name the decimal column x.
         val fused = Seq(" AS BIGINT)", "filter CAST(x AS BOOLEAN)",

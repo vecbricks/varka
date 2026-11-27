@@ -420,7 +420,10 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * The columns of row 363's cut product, after those of {@link #PRODUCT_COLUMNS}: {@code x19s8}
    * and {@code y19s8}, {@code DECIMAL(19, 8)}s with integer parts at half their eleven digits'
    * range, so that {@code x19s8 * y19s8} is below {@code 2.6 * 10^21}, inside the 23 integer
-   * digits of its {@code DECIMAL(38, 15)}. The other two cut sections read {@code x38} and
+   * digits of its {@code DECIMAL(38, 15)}. Their unscaled values stay below {@code 5.1 * 10^18},
+   * inside a long, so their pairs' high words hold the sign only: this section times the cut
+   * of a product, and {@code x20} and {@code x38} are the columns with bits in the high word.
+   * The other two cut sections read {@code x38} and
    * {@code y38}, whose integer parts of {@code 5 * 10^12} keep their product below
    * {@code 2.6 * 10^25}, inside the 32 integer digits of its {@code DECIMAL(38, 6)}.
    */
