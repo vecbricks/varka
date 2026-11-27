@@ -403,6 +403,12 @@ and times the kernel with the branch blended against the kernel with it finished
 minimums. A branch finished per lane or declined states its rate beside its time, as
 `SCOPE_STANDARD_MODE.md` 4's decline-rate assertion asks.
 
+*27 November 2026:* `vfdlibm` 0.3.0 and 0.3.1 give two measured cases of this rule. `hypot`'s
+lanes with an infinity or a NaN, finished per lane, made it slower than `StrictMath` on the EPYC
+7763 at one such pair in 16, and as blends it is faster; `expm1` and `log1p` are a tie within
+1.3x between the blended, guarded and finish arms on two hosts. `VARKA-356.md` 11 lists these and
+the library's other fixes as constraints on the ports.
+
 ### 2.5 The opt-in mode: the bound, its keys and where it lives
 
 **The bound is a count of representable doubles.** A kernel lane `a` passes against the row

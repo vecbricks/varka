@@ -731,3 +731,106 @@ the targeted suites, the gate and every runner measurement.
    `coverage.json` holds a row with the class, and regeneration is not run in this window. The
    eight lines are written (`double|done|358` with the form named) and are committed with the
    regenerated files.
+
+## 11. What `vfdlibm` 0.2.0 to 0.3.1 fixes and measures, as constraints on the ports (27 November 2026)
+
+`vfdlibm` released 0.2.0 on 22 November, 0.3.0 on 25 November and 0.3.1 on 27 November 2026, and
+holds all thirteen functions. Each item below is a fix or a measurement of the library that a
+port of 2.6 takes in. A port's pull request cites the item it follows. The commit and file names
+are `vfdlibm`'s, at tag `v0.3.1`.
+
+1. **`hypot` orders its arguments by magnitude; the C alone is not `StrictMath`** (358e;
+   vecbricks/vfdlibm#173 and #174, vecbricks/varka#1691). Line 60 of `e_hypot.c` swaps the
+   arguments by their high words alone. Where the high words are equal and `|y| > |x|`, the C
+   keeps `a = x`, and lines 101 to 108 split the low words the other way round. `StrictMath.hypot`
+   on JDK 17, 21 and 25 equals the C called with the larger magnitude first. The library's
+   nightly fuzz found the first pair after about 5 * 10^9 draws: `hypot(0x5f201b45bbc5eac3,
+   0x5f201b45fffffffe)` is `0x5f26c7304042d063` by `StrictMath` and `...d062` by the C as written.
+   So the port compares the sign-cleared 64-bit patterns as signed longs and swaps on that; every
+   line after the swap is the C's. Lemma L21 of `PROOFS.md` proves that the two swaps agree where
+   the high words differ; that `StrictMath` equals the C on `(max, min)` is observed, not proven.
+   The port's tests take `hard-cases/hypot-order.txt` (19 base pairs, 152 lines), a planted fault
+   that puts the high-word compare back, and a draw of pairs of one high word with both low words
+   random, since a patterned draw finds none (18 pairs in 9 * 10^8).
+2. **`hypot` has no lane finished by a call** (358e; #186 and #187). The lanes with an infinity or
+   a NaN are lines 66 to 70 as blends over line 63's `a + b`: `a` where `a` is an infinity, then
+   `b` where `b` is one, in the C's order. Lemma L22 proves the selection, and that under the
+   magnitude order only line 69's rule (a NaN beside an infinite `b`) can change a lane. Which NaN
+   a vector sum keeps is not specified and is recorded as observed, so the port's test compares
+   NaN lanes with `StrictMath` in a JVM per JIT mode at every width, as
+   `HypotTest.nanLanesAreStrictMathInEveryJitMode` does, and a lane of two NaNs with different
+   bits is compared with the two candidates and not bit for bit. The measurement behind it: with
+   the per-lane finish, one pair in 16 special made the library 0.70x to 0.75x of `StrictMath` on
+   the EPYC 7763; as blends it reads 1.38x to 1.41x there
+   (`bench/results/hypot-epyc7763-2026-11-26.txt`). This is `VARKA-345.md` 2.4's rule with a measured case: a branch that is
+   cheap in lanes is blended even when it is rare.
+3. **`expm1` and `log1p`: the finish arm is the library's default from 0.3.0** (358c, 358d; #165).
+   On the Xeon 8573C and the EPYC 7763, a run and a re-run each, neither the guarded nor the
+   blended arm reads lower than the finish by more than 1.3x at any species, and the library's
+   rule gives such a tie to the finish. Varka's `expm1` port (#1629) and its `log1p` port emit the
+   blended arm, chosen on 20 November because `LANE_CALL` was not on master (`VARKA-345.md` 10.2,
+   decision 1). `LANE_CALL` is on master since #1567, so the finish form of both is now buildable
+   as the measured alternative. The library's tie says that neither form is expected to win by
+   1.3x; the port keeps the blended arm unless Varka's own pair on the EPYC runners says other.
+4. **`pow` computes the common path only** (358f; #160). The vector holds lines 210 to 307 of
+   `e_pow.c` for a positive normal `x` that is not 1 and a finite `y` with `iy <= 0x41e00000` that
+   is not 0, +-1, 2 or 0.5, with `z` inside lines 266 and 272 and a normal result; the C's choices
+   (`bp[k]`, `dp_h[k]`, `dp_l[k]`, line 220's `n += 1`, lines 285 to 293 and line 291's sign) are
+   blends. Every other lane is finished by `StrictMath.pow`: a special, negative or subnormal `x`,
+   a special or huge `y`, overflow, underflow and line 306's subnormal results. Lemmas L19 (the
+   guard admits only lanes that take no early return) and L20 carry it. For the port this means
+   (a) the guard is L19's, and its two redundant parts are named there; (b) the weak branch of
+   owner's decision A3 (`|y| > 2^31`) is outside the vector, on the `LANE_CALL` finish, so the
+   port follows the running JDK there and JDK-8326547 does not reach its vector code; (c) the
+   exact exponents `y == 2`, `0.5` and `+-1` stay Varka's exact nodes before the port; (d) the
+   port's tests take `hard-cases/pow.txt` (4,168 pairs) and the three planted faults
+   (`pow.guardAdmitsNegativeX`, `pow.guardMissesSubnormal`, `pow.dropT2`).
+5. **The finish writes its first eight lanes with constant indices** (every port with a finish;
+   0.2.0). At `DoubleVector.SPECIES_MAX` a finish at a variable index allocated 30,432 to 36,992
+   B/op on mixed data in the library; with constant indices every row reads under 0.1 B/op. The
+   kernel's `LANE_CALL` finish is checked for the same thing: the port's benchmark records the
+   allocation of a warmed pass on mixed data (`VarkaMathPortBenchmark`'s note), and a finish
+   that allocates is a finding of its pull request.
+6. **Words in long lanes are proven per function** (every port; #133, #147, #155). The library
+   keeps the C's int words in int lanes, and Varka's kernel keeps them in long lanes with signed
+   compares of the raw bits. `PROOFS.md` has a lemma for that form of `expm1` (L15), `log10`
+   (L17) and `log1p` (L18, with hypotheses H19 and H20 on the lanes that must be blended over).
+   Each later port whose kernel departs from int words asks for its lemma in the paired `vfdlibm`
+   pull request, before the Varka pull request merges.
+7. **The C2 code of every arm is asserted in the library** (#139, #153): the lane width, no FMA,
+   no scalar arithmetic and no call, at 128, 256 and 512 bits. A port's kernel is read the same
+   way once, by `dev/varka_emit.sh --asm`, and its pull request states the result.
+8. **Hard cases from CORE-MATH** (358e, 358f, and row 367; #144, #167).
+   `hard-cases/hypot-coremath.txt` (20 source pairs, 160 lines) and `hard-cases/pow-coremath.txt` (848 pairs) are
+   selected from CORE-MATH's published worst-case lists (MIT). The whole lists match `StrictMath`
+   in the library, so they are fixed vectors and not a fix. The ports' vectors files
+   (`sql/varka/math/`) take them with their headers, source and licence notice.
+9. **Speed, as a prior and not a result.** The library's own table for 0.3.1, `StrictMath` once a
+   lane over the default arm at the preferred species, common and mixed data:
+
+   | function | Xeon 8573C (AVX-512) | EPYC 7763 (AVX2) |
+   |---|---|---|
+   | `expm1` | 4.03x / 3.03x | 1.90x / 1.74x |
+   | `log` | 4.12x / 2.38x | 2.44x / 1.97x |
+   | `log10` | 4.41x / 2.76x | 2.30x / 1.86x |
+   | `log1p` | 3.39x / 2.81x | 1.95x / 1.56x |
+   | `sinh` | 3.53x / 2.74x | 2.12x / 1.68x |
+   | `cosh` | 3.49x / 1.84x | 2.20x / 1.71x |
+   | `asin` | 2.31x / 2.08x | 2.07x / 1.52x |
+   | `atan` | 3.48x / 2.30x | 1.77x / 1.51x |
+   | `acos` | 2.21x / 1.90x | 1.99x / 1.36x |
+   | `atan2` | 2.72x / 2.08x | 1.72x / 1.55x |
+   | `hypot` | no file of this code | 1.33x / 1.38x |
+   | `pow` | 11.79x / 7.43x | 4.88x / 4.28x |
+
+   These time the library's loop with its bodies inlined, at four or eight lanes. They do not
+   time a kernel, and at two lanes row 635 measured both the library and the kernel several
+   times slower than `StrictMath` (row 636). Each port still registers its own prediction and is
+   the default only where its kernel measures faster on the EPYC runners. What the table changes
+   is the expected value of each port: `pow` has the largest gain on both hosts and is last in
+   2.6's order, and `hypot` and `acos` have the smallest on AVX2.
+
+**An open point for the owner.** 2.6 puts `pow` last because it is the largest port and gains
+most from the others' lessons. The library is done, so those lessons exist, and `pow` is the
+port with the largest measured gain. The recommendation: keep `atan` to `acos` in their order,
+and move `pow` (358f) before `hypot` (358e).
