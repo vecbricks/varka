@@ -500,7 +500,7 @@ the sections it fuses, and the timed run is a results pull request of its own.
 | `grep -n "List<String> zones" <gen>/CompiledVarkaProjection.java` | the record's component |
 | `grep -n "new CompiledVarkaProjection(" <gen>/VarkaExpressionCompiler.java` | one line, in `Tables.projection`; note what it passes for `zones` |
 | `grep -n "interface Provider" -A3 <ir>/VarkaZoneData.java` | `VarkaZoneData of(String zoneId);` Note how a zone that is not served is told: a null, an `Optional`, or a method |
-| `grep -rn "VarkaZoneData.Provider" sql/catalyst/src/main/java` | row 678's provider: a public constant or method. `PROVIDER` below stands for it |
+| `grep -rn "VarkaZoneData.Provider" sql/catalyst/src/main/java` | row 678's provider, `VarkaChronoZone.PROVIDER` (`VARKA-678.md` 4.10). `PROVIDER` below stands for it |
 | `grep -n -i "zone" <gen>/DeclineSink.java` | nothing |
 | `grep -P "^TIMESTAMP\t" sql/varka/types.tsv` | a line with `ltz`, `on_lane` and `LONG` |
 | `grep -n '"timestamp"' sql/varka/coverage.json` | the `TIMESTAMP` column of the coverage table; `ltz` below stands for its name |

@@ -359,6 +359,11 @@ half a day after the yes. About four days in two pull requests and a follow-up.
 
    *1 November 2026, by the owner's word:* both: fetch Gladman et al.'s paper with the owner's yes,
    transcribed into `papers/`, and enter the Handbook's worst cases from the owner's copy.
+   *27 November 2026:* `vfdlibm` 0.3.1 holds two more sources of fixed vectors, each with its
+   provenance in its header: a selection of CORE-MATH's worst-case lists for `hypot` and `pow`
+   (`hard-cases/hypot-coremath.txt`, `hard-cases/pow-coremath.txt`, MIT) and the 19 base pairs on
+   which `e_hypot.c` as written differs from `StrictMath.hypot` (`hard-cases/hypot-order.txt`).
+   The probe's vectors take them from the library's sources (`VARKA-356.md` 11, items 1 and 8).
 2. **The laptop as the third host.** SVML's `z0` symbols bind only at 512 bits (item 0.4). The
    x86 runner pool mixes AVX2 and AVX-512 CPUs (`TestSQLContext.scala`'s comment on
    `VARKA_EMIT_USE_AVX`, VARKA-538), but a dispatch cannot choose its CPU, so a `z0` reading on a

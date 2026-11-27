@@ -620,7 +620,10 @@ Branch: `varka-682c-zone-data`. Estimate: 580 counted lines. Needs part b.
    that states the half-open rule (`least < c <= greatest`) and the padding.
 2. `TJ/VarkaJavaTimeZoneData.java`: the reference of section 4.7. `fixed()` is
    `rules.isFixedOffset()`. `localChanges` counts the changes whose local instant, before or
-   after the change, falls in the range widened by `MAX_OFFSET_MICROS` on both sides.
+   after the change, falls in the range widened by `MAX_OFFSET_MICROS` on both sides. That
+   is an upper bound: the production data counts the windows the range touches, `hi >
+   least` and `lo <= greatest` (`VARKA-678.md` 4.5), which is never more. A test compares
+   the two counts with `<=`, never with equality.
    A static `Provider PROVIDER = VarkaJavaTimeZoneData::new`.
 3. `TJ/VarkaEmitterZoneSuite.java`: new (below).
 

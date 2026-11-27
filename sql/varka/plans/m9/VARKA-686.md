@@ -420,7 +420,9 @@ first row, and the ints past the batch's end are in the slack (4.1).
   `getOffsetBefore()` and `getOffsetAfter()`, and calls `VarkaZoneTable.pack`.
 - **Row 678's production data** must answer the same method: it gives `pack` its changes
   inside `[ORIGIN, LIMIT)` as sorted instants with their offsets, which row 678's line names
-  ("its changes sorted on both time lines"). It may build the packed table once a zone in
+  ("its changes sorted on both time lines"): `VarkaChronoZoneChanges.changesAt(ORIGIN,
+  LIMIT)` and `changeOffsets(ORIGIN, LIMIT)`, with the packed table kept by
+  `VarkaChronoZoneChanges.memo` (`VARKA-678.md` 4.8). It may build the packed table once a zone in
   each JVM, lazily, and answer by `System.arraycopy`; it must not ship a table from the
   driver. `m9/PLAN.md` 2.2 prices the table at "89 KB at eight bytes a bucket"; the packed
   bucket is 16 bytes, so the table is twice that.
