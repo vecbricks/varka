@@ -507,12 +507,12 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `weekofyear(d)` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
 | `extract(YEAROFWEEK FROM d)` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
 | `last_day(d)` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
-| `next_day(d, 'MONDAY')` | `calendar` |  | the day name must be a literal | vector |
+| `next_day(d, 'MONDAY')` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` | the day name must be a literal; a day past the bound goes to the row engine, which raises where the result leaves the DATE range (SPARK-60929) | vector |
 | `make_date(2021, i, 1)` | `calendar` | `i BETWEEN 1 AND 12` | the month under ANSI: an invalid date declines the batch and the row engine raises; the legacy form answers null and declines nothing | vector |
 | `trunc(d, 'YEAR')` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
 | `trunc(d, 'MONTH')` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
 | `trunc(d, 'QUARTER')` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
-| `trunc(d, 'WEEK')` | `calendar` |  |  | vector |
+| `trunc(d, 'WEEK')` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` | next_day over d - 7, so as next_day (SPARK-60929) | vector |
 
 #### Months and year-month intervals
 

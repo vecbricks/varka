@@ -187,7 +187,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   test("next_day with a literal weekday compiles to a literal slot") {
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(NextDay(d, Literal("MO"), false))), childOutput).get
-    assert(compiled.outputs.asScala.toSeq === Seq(new IRNextDay(new ColumnRef(0),
+    assert(compiled.outputs.asScala.toSeq === Seq(new IRNextDay(inBound(0),
         new LiteralSlot(0))))
     assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
     // MONDAY = 4 in DateTimeUtils's private weekday numbering, so k = dayOfWeek - 1 = 3.
@@ -204,7 +204,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // fill that input from it before the kernel.
     val lenient = VarkaExpressionCompiler.compile(
       Seq(out(NextDay(d, dow, false))), withDow).get
-    assert(lenient.outputs.asScala.toSeq === Seq(new IRNextDay(new ColumnRef(0), new ColumnRef(1))))
+    assert(lenient.outputs.asScala.toSeq === Seq(new IRNextDay(inBound(0), new ColumnRef(1))))
     assert(lenient.outputTypes.asScala.toSeq === Seq(DateType))
     assert(lenient.inputOrdinals.asScala.toSeq === Seq(0, 5))
     assert(lenient.literals.asScala.toSeq === Nil)
@@ -225,12 +225,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("two next_day over one weekday column share one derived input, and the " +
       "date column keeps its own slot beside it") {
+    // next_day raises where its result leaves the DATE range (SPARK-60929), so its date column
+    // is read through the column bound's guard, as last_day's is.
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(NextDay(d, dow, false)), out(NextDay(d2, dow, false)), out(DateAdd(d, Literal(1)))),
       withDow).get
     assert(compiled.outputs.asScala.toSeq === Seq(
-      new IRNextDay(new ColumnRef(0), new ColumnRef(1)),
-      new IRNextDay(new ColumnRef(2), new ColumnRef(1)),
+      new IRNextDay(inBound(0), new ColumnRef(1)),
+      new IRNextDay(inBound(2), new ColumnRef(1)),
       new AddDays(new ColumnRef(0), new LiteralSlot(0))))
     assert(compiled.inputOrdinals.asScala.toSeq === Seq(0, 5, 1))
     assert(compiled.derivedInputs.asScala.toSeq === Seq(new VarkaDerivedInput(1, 5,
@@ -274,7 +276,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // k = dayOfWeek - 1 = -1 for THURSDAY: the one weekday a naive [0, 6] assumption misses.
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(NextDay(d, Literal("THURSDAY"), false))), childOutput).get
-    assert(compiled.outputs.asScala.toSeq === Seq(new IRNextDay(new ColumnRef(0),
+    assert(compiled.outputs.asScala.toSeq === Seq(new IRNextDay(inBound(0),
         new LiteralSlot(0))))
     assert(compiled.literals.asScala.toSeq === Seq(-1))
   }
@@ -1853,7 +1855,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(TruncDate(d, Literal("WEEK")))), childOutput).get
     assert(compiled.outputs.asScala.toSeq === Seq(
-      new IRNextDay(new SubDays(new ColumnRef(0), new LiteralSlot(0)), new LiteralSlot(1))))
+      new IRNextDay(new SubDays(inBound(0), new LiteralSlot(0)), new LiteralSlot(1))))
     assert(compiled.literals.asScala.toSeq === Seq(7, 3))
     assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
   }

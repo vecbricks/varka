@@ -431,14 +431,17 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("weekofyear(d)", domain = Some(dayBound)),
       Row("extract(YEAROFWEEK FROM d)", domain = Some(dayBound)),
       Row("last_day(d)", domain = Some(dayBound)),
-      Row("next_day(d, 'MONDAY')", "the day name must be a literal"),
+      Row("next_day(d, 'MONDAY')", "the day name must be a literal; a day past the bound goes to "
+        + "the row engine, which raises where the result leaves the DATE range (SPARK-60929)",
+        domain = Some(dayBound)),
       Row("make_date(2021, i, 1)", "the month under ANSI: an invalid date declines the batch and "
         + "the row engine raises; the legacy form answers null and declines nothing",
         domain = Some("i BETWEEN 1 AND 12")),
       Row("trunc(d, 'YEAR')", domain = Some(dayBound)),
       Row("trunc(d, 'MONTH')", domain = Some(dayBound)),
       Row("trunc(d, 'QUARTER')", domain = Some(dayBound)),
-      Row("trunc(d, 'WEEK')"))),
+      Row("trunc(d, 'WEEK')", "next_day over d - 7, so as next_day (SPARK-60929)",
+        domain = Some(dayBound)))),
 
     Family("Months and year-month intervals", predicates = false, Seq(
       Row("add_months(d, 3)", domain = Some(dayBound)),
