@@ -187,11 +187,9 @@ final class VarkaChronoCompiler {
         if (k.isEmpty()) {
           return Optional.empty();
         }
-        var d = VarkaNodeCompiler.compileNode(n.startDate(), inputs, literals, sink);
-        // Since SPARK-60929 next_day raises where its result leaves the DATE range, so its answer
-        // rests on the column bound: a batch holding a day past it goes to the row engine.
-        return d.map(v -> boundColumns(new VarkaVectorIR.NextDay(
-            v, VarkaNodeCompiler.intSlot(k.getAsInt(), literals)), literals, sink));
+        var d = nextDayOperand(n.startDate(), n, inputs, literals, sink);
+        return d.map(v -> new VarkaVectorIR.NextDay(
+            v, VarkaNodeCompiler.intSlot(k.getAsInt(), literals)));
       };
       // A weekday column: the kernel reads an int32 column the evaluator derives
       // from the names, per batch, by the row engine's own parser (WeekdayLeaf), so the node
@@ -202,9 +200,9 @@ final class VarkaChronoCompiler {
       case NextDay n when n.dayOfWeek() instanceof BoundReference br
           && br.dataType() instanceof StringType -> () -> {
         var kind = n.failOnError() ? VarkaDerivedKind.WEEKDAY_ANSI : VarkaDerivedKind.WEEKDAY;
-        var d = VarkaNodeCompiler.compileNode(n.startDate(), inputs, literals, sink);
-        return d.map(v -> boundColumns(new VarkaVectorIR.NextDay(
-            v, VarkaNodeCompiler.derivedRef(br, kind, inputs)), literals, sink));
+        var d = nextDayOperand(n.startDate(), n, inputs, literals, sink);
+        return d.map(v -> new VarkaVectorIR.NextDay(
+            v, VarkaNodeCompiler.derivedRef(br, kind, inputs)));
       };
       case NextDay n ->
           () -> sink.decline("next_day with a weekday that is neither a literal nor a column", n);
@@ -834,7 +832,13 @@ final class VarkaChronoCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    Optional<VarkaVectorIR> day = VarkaNodeCompiler.compileNode(child, inputs, literals, sink);
+    sink.enterCalendar();
+    Optional<VarkaVectorIR> day;
+    try {
+      day = VarkaNodeCompiler.compileNode(child, inputs, literals, sink);
+    } finally {
+      sink.exitCalendar();
+    }
     return isNtzDate(child) ? day.map(VarkaNodeCompiler::ntzDay) : day;
   }
 
@@ -1013,6 +1017,60 @@ final class VarkaChronoCompiler {
     };
   }
 
+  /** The most days next_day moves a day: 1 to 7 forward, and trunc to a week starts at d - 7. */
+  private static final int NEXT_DAY_REACH = 7;
+
+  /**
+   * The operand of {@code next_day}, and of {@code trunc} to a week, which is next_day over
+   * {@code d - 7}. Since SPARK-60929 they raise {@code DATETIME_OVERFLOW} where the result
+   * leaves the DATE range, which is the int32 day count, and the kernel adds the shift in int32.
+   * So the operand is admitted only where the range analysis, with no guard armed under it,
+   * keeps it {@link #NEXT_DAY_REACH} days clear of both ends of int32, and the date columns that
+   * range rests on get the column bound as a guard: a batch holding a day outside it goes to the
+   * row engine, which raises as Spark does. An operand the analysis does not bound, or whose
+   * range reaches an end, declines, so that the row engine answers.
+   */
+  private static Optional<VarkaVectorIR> admitNextDayOperand(
+      VarkaVectorIR day,
+      Expression calendar,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    var columns = new ArrayList<Integer>();
+    // Under a calendar consumer the guards below are armed, as they were before SPARK-60929;
+    // alone, or under a datediff, nothing arms them and a column offset is not bounded.
+    var policy = sink.underCalendar()
+        ? VarkaRangeAnalysis.GuardPolicy.ARMED : VarkaRangeAnalysis.GuardPolicy.NONE;
+    VarkaValueRange.Range range = VarkaRangeAnalysis.range(day, VarkaRangeAnalysis.Kind.DAY,
+        policy, VarkaNodeCompiler.literalAt(literals), columns::add);
+    return switch (range) {
+      case VarkaValueRange.Bounded b when b.lo() >= Integer.MIN_VALUE + NEXT_DAY_REACH
+          && b.hi() <= Integer.MAX_VALUE - NEXT_DAY_REACH -> {
+        columns.forEach(sink::dayColumnBound);
+        yield Optional.of(day);
+      }
+      case VarkaValueRange.Bounded b -> sink.decline("day range [" + b.lo() + ", " + b.hi()
+          + "] can leave the DATE range, where next_day raises", calendar);
+      case VarkaValueRange.Unknown u ->
+          sink.decline("day producer the next_day range analysis does not bound", calendar);
+    };
+  }
+
+  /**
+   * The compiled operand of {@code next_day} or of {@code trunc} to a week, admitted by
+   * {@link #admitNextDayOperand}. The date of a {@code TIMESTAMP_NTZ} is held to
+   * {@link VarkaNodeCompiler#ntzDay}'s range, as a calendar node's is.
+   */
+  private static Optional<VarkaVectorIR> nextDayOperand(
+      Expression child,
+      Expression calendar,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    Optional<VarkaVectorIR> day = VarkaNodeCompiler.compileNode(child, inputs, literals, sink)
+        .map(v -> isNtzDate(child) ? VarkaNodeCompiler.ntzDay(v) : v);
+    return day.flatMap(v -> admitNextDayOperand(v, calendar, literals, sink));
+  }
+
   /**
    * {@code admitted}, a node {@link #rearm} rewrote and the admission then rested on: every date
    * column its interval read as {@link VarkaRangeAnalysis#CONTRACT} gets that range noted as an
@@ -1092,8 +1150,7 @@ final class VarkaChronoCompiler {
         yield date.map(v -> new VarkaVectorIR.TruncDate(v, l.level()));
       }
       case ToWeek w -> {
-        Optional<VarkaVectorIR> date = VarkaNodeCompiler.compileNode(
-            n.date(), inputs, literals, sink);
+        Optional<VarkaVectorIR> date = nextDayOperand(n.date(), n, inputs, literals, sink);
         if (date.isEmpty()) {
           yield date;
         }
@@ -1102,10 +1159,8 @@ final class VarkaChronoCompiler {
         // foldWeekday uses, so the constant is the definition's, not a retyped 3.
         LiteralSlot monday = VarkaNodeCompiler.intSlot(
             DateTimeUtils.getDayOfWeekFromString(UTF8String.fromString("MONDAY")) - 1, literals);
-        // The WEEK rewrite is next_day over d - 7, which raises where its result leaves the DATE
-        // range (SPARK-60929), so it rests on the column bound as next_day does.
-        yield Optional.of(boundColumns(
-            new VarkaVectorIR.NextDay(new SubDays(date.get(), week), monday), literals, sink));
+        yield Optional.of(
+            new VarkaVectorIR.NextDay(new SubDays(date.get(), week), monday));
       }
     };
   }

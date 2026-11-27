@@ -1111,8 +1111,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `dayofweek(ntz)` | `calendar`, `intArithmetic` |  | exact over every day, so no guard | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 | `weekday(ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 | `extract(DAYOFWEEK_ISO FROM ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
-| `next_day(ntz, 'MONDAY')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
-| `trunc(ntz, 'WEEK')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
+| `next_day(ntz, 'MONDAY')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
+| `trunc(ntz, 'WEEK')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
 | `add_months(ntz, i)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -24576 AND 24564` | the guarded date moved by a column month count | per-lane: mask logic, mask broadcast, mask test, other, load or store, compare to mask |
 | `hour(ntz)` | `time` |  | the microsecond of the day divided; never guarded | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |
 | `minute(ntz)` | `time` |  |  | per-lane: mask broadcast, other, mask logic, load or store, compare to mask, mask test |

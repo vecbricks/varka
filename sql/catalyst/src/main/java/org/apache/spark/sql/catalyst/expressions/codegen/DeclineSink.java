@@ -100,6 +100,28 @@ final class DeclineSink {
   private final boolean declinesTwoLaneChecks;
   private final List<VarkaFamily> used = new ArrayList<>();
   private final List<Bound> bounds = new ArrayList<>();
+
+  /**
+   * How many calendar consumers (a field, {@code last_day}, a week) are compiling the child they
+   * sit above. Such a consumer re-arms the guards below it, so a node that asks the range
+   * analysis a question under it is answered with the guards armed.
+   */
+  private int calendarDepth;
+
+  /** A calendar consumer starts compiling its child. */
+  void enterCalendar() {
+    calendarDepth++;
+  }
+
+  /** The child is compiled. */
+  void exitCalendar() {
+    calendarDepth--;
+  }
+
+  /** Whether a calendar consumer is compiling the node being compiled. */
+  boolean underCalendar() {
+    return calendarDepth > 0;
+  }
   private final LinkedHashMap<Long, Integer> longLiterals = new LinkedHashMap<>();
   /** The decimal compiler's choice conditions compiled in its current call; see below. */
   private final IdentityHashMap<Expression, VarkaVectorIR.Cond> decimalConditions =

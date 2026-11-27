@@ -222,6 +222,29 @@ class VarkaFarDaySuite extends QueryTest with VarkaMaybeThrows {
     }
   }
 
+  test("next_day and trunc to a week over a shifted day answer Spark's at the DATE end") {
+    // Since SPARK-60929 these raise where the result leaves the DATE range. A shift below them,
+    // by a literal or a column, can carry a day inside the column bound past the range: the
+    // kernel must raise as Spark does, or decline to the row engine, and never wrap.
+    for (nulls <- Seq(true, false)) {
+      withDays(Seq(0, 647, 19000), nulls) {
+        for (e <- Seq(
+            "next_day(date_add(d, 2147483000), 'MONDAY')",
+            "trunc(date_add(d, 2147483000), 'WEEK')",
+            "next_day(date_sub(d, 2147483000), 'MONDAY')",
+            "trunc(date_sub(d, 2147483000), 'WEEK')",
+            "next_day(date_add(d, v + 2147483000 - 647), 'MONDAY')",
+            // Alone, a column offset below next_day has no guard and the entry declines; under
+            // a calendar consumer the guards below are armed and it fuses.
+            "year(next_day(date_add(d, i), 'MONDAY'))")) {
+          withClue(s"$e, nulls=$nulls: ") {
+            check(s"SELECT v, $e AS r FROM varka_far_days")
+          }
+        }
+      }
+    }
+  }
+
   test("a datediff's bound removes no overflow check over days past the bound") {
     // Under ANSI, `datediff(d2, d) * 100` and its negation fuse with no overflow check because
     // the bound puts a difference of two columns within 3.7 million days. With a day past the
