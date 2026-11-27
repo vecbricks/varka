@@ -503,8 +503,15 @@ constants, `word`, `offsetMicros`, `pack`, index map and read of a table program
 has the fact a local bucket needs: "closest two local thresholds of one zone: 601200 s apart".
 
 - If `ToInstant` exists when part b starts, its B0 stops and the lead adds the refusal of a
-  table over it. If not, `VarkaBatchArgs.count`'s switch has the `ToLocal` arm alone, and row
-  690's records fail to compile there until that row decides.
+  table over it as `VARKA-690.md` 4.9 gives it (5.1, step 8, and 5.2, step 5): the plan
+  refuses a tree that holds a `ToInstant` or a `ToInstantKept` under a table form
+  (`VarkaKernelPlan.ZONE_LOCAL_TABLE_REASON`), and the ladder of a plan whose programs read
+  the local line (`VarkaBatchArgs.readsLocalLine`) stops at `STEPS_8`. If not,
+  `VarkaBatchArgs.count`'s switch has the `ToLocal` arm alone, and row 690's parts a and b
+  add that refusal and that stop when they find the table forms. Where
+  `VarkaBatchArgs.LocalLine` exists (row 690's part b) when part a adds `toLocalTable`
+  to `VarkaZoneData`, that class gets the method too, and it throws
+  `IllegalStateException("no table form reads the local line (VARKA-693)")`.
 - A zone node over a computed operand stays refused under every form (`ZONE_OPERAND`). A
   batch that the table does not cover declines with `STATUS_BATCH_ARGS`; no new status.
 

@@ -526,10 +526,12 @@ Proofs (`sql/varka/proofs/`, rendered by `VarkaProofFiles`, both solvers):
 
 Baselines first, on the unchanged engine, in row 655's classes. The family's sections:
 `hour(ts)`, `minute(ts)`, `second(ts)`, `CAST(ts AS DATE)`, `CAST(ntz AS TIMESTAMP)`,
-`CAST(d AS TIMESTAMP)` and `ts + INTERVAL '1' DAY`; each under UTC, `+01:00` and
-`America/Los_Angeles`; over a week, a year in time order, a year in no order and ten years in no
-order; with no nulls and with one row in ten null. The control of each section is its
-`TIMESTAMP_NTZ` twin: the difference is the zone's price. Numbers are the EPYC 7763's at 256 and
+`CAST(d AS TIMESTAMP)` and `ts + INTERVAL '1' DAY`; each under UTC and `+01:00` over a year in
+no order, and under `America/Los_Angeles` over a week, a year in time order, a year in no order
+and ten years in no order (`VARKA-655.md` 4.3); with no nulls and with one row in ten null. The
+control of a section is its `TIMESTAMP_NTZ` twin where that twin fuses (`VARKA-655.md` 4.7; the
+two casts to a `TIMESTAMP` have none): the difference is the zone's price. Numbers are the EPYC
+7763's at 256 and
 128 bits; the laptop adds 512.
 
 The A/B arms, each named so that the label outlives a default: 2 steps against 8 against the
@@ -609,7 +611,7 @@ owner's word (decision 4).
 | 687 | the cache's statistics reach the evaluator and replace the pass | 657 | 1 |
 | 688 | the range of a computed operand for each batch | 657 | 2 |
 | 689 | steps with no mask at two lanes; the recorded refusal where a form loses | 657 | 1 |
-| 690 | `ToInstant` and `ToInstantKept`: the records and their registries; `CAST(ntz AS TIMESTAMP)`; `CAST(d AS TIMESTAMP)`; `ts + INTERVAL DAY`; each rule in the sweep, with its planted faults and the there-and-back check | 657, and 688 for the last two | 5 |
+| 690 | `ToInstant` and `ToInstantKept`: the records and their registries; `CAST(ntz AS TIMESTAMP)`; `CAST(d AS TIMESTAMP)`; `ts + INTERVAL DAY`; each rule in the sweep, with its planted faults and the there-and-back check | 657, and 688 for the last two | 9 |
 | 691 | each form measured in kernels at 256 and 128 bits; the defaults by width; G7 for `hour` and the cast to `DATE`; the family's outcome, section 9 | 685 to 690 | 1 |
 | 692 | a conversion shared across method groups: measured, and the store and load built only if it pays | 691 | 2 |
 
