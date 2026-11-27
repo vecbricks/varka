@@ -115,6 +115,8 @@ width_bucket|double,IVL,time|bigint||semantics|344|bucket arithmetic over double
 /|double,dec!|same|double|done|342|zero divisor null or error; decimal division is out of milestone 8
 div|INTEGRAL,dec!,IVL|bigint||semantics|30,103|zero divisor null or error; over INT a long-lane divide over two widening casts (corrects item 33); a decimal div divides decimals, out of milestone 8
 %|NUM|same||semantics|30,95,346,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; unclaimed, suggested home row 30 (VARKA-349.md 7)
+try_abs|NUM,IVL|same||semantics|663|new in the upstream sync of 26 November 2026 (SPARK-62149): an integral or interval argument is `AbsOrNull`, a node with no lowering, so nothing fuses; a float, double or decimal argument is plain `abs`, which fuses on its own
+try_negative|NUM,IVL|same||semantics|663|new in the upstream sync of 26 November 2026 (SPARK-62149): an integral or interval argument is a null-on-overflow negation, a node with no lowering, so nothing fuses; a float, double or decimal argument is plain `negative`, which fuses on its own
 try_add|NUM,IVL|same|byte,short,int,bigint,float,double,dec^|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m10/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a; as an output, 348b); the pair counts with 360 at every precision to 38
 try_divide|double,dec!|same|double|done|342|zero divisor gives null; decimal division is out of milestone 8
 try_mod|NUM|same||semantics|30,346,577|floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577

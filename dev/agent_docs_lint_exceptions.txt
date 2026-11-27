@@ -1,0 +1,3 @@
+# Varka's index, sql/varka/AGENTS.md, is 33 KB: the chain with the root index passes Codex's cap by 7 KB.
+# Moving its branch-only detail into sql/varka/.agents/ behind pointers ends this entry.
+codex-cap sql/varka/AGENTS.md

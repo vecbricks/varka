@@ -21,6 +21,7 @@ import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters._
 
 import org.apache.spark.internal.Logging
+import org.apache.spark.internal.LogKeys.{DESCRIPTION, REASON}
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeSeq, BindReferences, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{PartialVarkaProjection, VarkaExpressionCompiler,
   VarkaOutputSpec}
@@ -168,7 +169,8 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
    * whether it would fuse is known only by compiling it, which a log line does not justify.
    */
   private def leftToSpark(what: String, child: SparkPlan): Unit = notColumnarReason(child) match {
-    case Some(reason) => logInfo(s"Varka left a $what to Spark: $reason")
+    case Some(reason) =>
+      logInfo(log"Varka left a ${MDC(DESCRIPTION, what)} to Spark: ${MDC(REASON, reason)}")
     case None => logDebug(s"Varka left a $what to Spark: its input ${child.nodeName} does not " +
       "produce columnar batches")
   }

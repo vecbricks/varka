@@ -285,18 +285,18 @@ An entry is a function or operator of the census; a type counts *fused* for it o
 | Type | Lanes | Entries | Fused | In part | Left, by need | Declined | Coverage rows |
 | :--- | :--- | ---: | ---: | ---: | :--- | ---: | :--- |
 | `BooleanType` (`bool`) | bitmap | 41 | 31 | 2 | plumbing 4, semantics 4 | 0 | 43 |
-| `ByteType` (`byte`) | BYTE, INT | 75 | 54 | 2 | plumbing 4, semantics 15 | 0 | 60 |
-| `ShortType` (`short`) | SHORT, INT | 75 | 54 | 2 | plumbing 4, semantics 15 | 0 | 58 |
-| `IntegerType` (`int`) | INT | 90 | 68 | 2 | plumbing 4, semantics 16 | 0 | 139 |
-| `LongType` (`bigint`) | LONG | 85 | 62 | 2 | plumbing 5, semantics 16 | 0 | 97 |
-| `FloatType` (`float`) | FLOAT | 66 | 38 | 2 | plumbing 5, semantics 21 | 0 | 66 |
-| `DoubleType` (`double`) | DOUBLE | 102 | 64 | 2 | plumbing 4, semantics 22, ulp 10 | 0 | 97 |
-| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 66 | 4 | 32 | plumbing 3, semantics 27 | 3 | 113: 81 to precision 18, 32 at precision 19 to 38 |
+| `ByteType` (`byte`) | BYTE, INT | 77 | 54 | 2 | plumbing 4, semantics 17 | 0 | 60 |
+| `ShortType` (`short`) | SHORT, INT | 77 | 54 | 2 | plumbing 4, semantics 17 | 0 | 58 |
+| `IntegerType` (`int`) | INT | 92 | 68 | 2 | plumbing 4, semantics 18 | 0 | 139 |
+| `LongType` (`bigint`) | LONG | 87 | 62 | 2 | plumbing 5, semantics 18 | 0 | 97 |
+| `FloatType` (`float`) | FLOAT | 68 | 38 | 2 | plumbing 5, semantics 23 | 0 | 66 |
+| `DoubleType` (`double`) | DOUBLE | 104 | 64 | 2 | plumbing 4, semantics 24, ulp 10 | 0 | 97 |
+| `DecimalType` (`dec`) | LONG, words per value: 1 to precision 18, 2 to precision 38 | 68 | 4 | 32 | plumbing 3, semantics 29 | 3 | 113: 81 to precision 18, 32 at precision 19 to 38 |
 | `DateType` (`date`) | INT | 63 | 51 | 1 | plumbing 1, semantics 10 | 0 | 109 |
 | `TimestampNTZType` (`ntz`) | LONG | 54 | 51 | 0 | plumbing 1, semantics 2 | 0 | 77 |
 | `TimeType` (`time`) | LONG | 49 | 36 | 3 | plumbing 1, semantics 9 | 0 | 49 |
-| `YearMonthIntervalType` (`ym`) | INT | 55 | 38 | 3 | plumbing 3, semantics 11 | 0 | 39 |
-| `DayTimeIntervalType` (`dt`) | LONG | 57 | 37 | 2 | plumbing 5, semantics 13 | 0 | 38 |
+| `YearMonthIntervalType` (`ym`) | INT | 57 | 38 | 3 | plumbing 3, semantics 13 | 0 | 39 |
+| `DayTimeIntervalType` (`dt`) | LONG | 59 | 37 | 2 | plumbing 5, semantics 15 | 0 | 38 |
 
 #### By family
 
@@ -306,7 +306,7 @@ One row per section of Spark's function registry, and per family of the operator
 | :--- | ---: | ---: | ---: | ---: | :--- | :--- |
 | conditional | 11 | 1 | 11 | 10 | float, dec | 329, 331, 338, 341, 348, 359 |
 | predicate | 16 | 6 | 15 | 8 | bool, dec | 27, 329, 331, 336, 338, 341, 347, 348, 359, 497 |
-| math | 59 | 25 | 41 | 8 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621 |
+| math | 61 | 25 | 41 | 8 | bool, byte, short, int, bigint, float, double, dec, time, ym, dt | 30, 95, 103, 104, 329, 330, 333, 341, 342, 344, 346, 348, 349, 351, 356, 357, 358, 359, 360, 361, 362, 363, 367, 577, 621, 663 |
 | bitwise | 13 | 13 | 13 | 0 |  |  |
 | datetime | 41 | 27 | 36 | 0 | byte, short, int, bigint, float, double, dec, ntz, time, ym, dt | 103, 329, 339, 340, 343, 351 |
 | hash | 2 | 0 | 2 | 2 | dec | 337, 359, 368 |
@@ -507,12 +507,12 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `weekofyear(d)` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
 | `extract(YEAROFWEEK FROM d)` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
 | `last_day(d)` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
-| `next_day(d, 'MONDAY')` | `calendar` |  | the day name must be a literal | vector |
+| `next_day(d, 'MONDAY')` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` | the day name must be a literal; a day past the bound goes to the row engine, which raises where the result leaves the DATE range (SPARK-60929) | vector |
 | `make_date(2021, i, 1)` | `calendar` | `i BETWEEN 1 AND 12` | the month under ANSI: an invalid date declines the batch and the row engine raises; the legacy form answers null and declines nothing | vector |
 | `trunc(d, 'YEAR')` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
 | `trunc(d, 'MONTH')` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
 | `trunc(d, 'QUARTER')` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` |  | vector |
-| `trunc(d, 'WEEK')` | `calendar` |  |  | vector |
+| `trunc(d, 'WEEK')` | `calendar` | `unix_date(d) BETWEEN -719162 AND 2932896` | next_day over d - 7, so as next_day (SPARK-60929) | vector |
 
 #### Months and year-month intervals
 

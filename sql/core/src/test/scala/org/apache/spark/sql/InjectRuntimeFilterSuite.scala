@@ -19,21 +19,24 @@ package org.apache.spark.sql
 
 import java.io.File
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, BloomFilterMightContain, DynamicPruningExpression, DynamicPruningSubquery, Expression, Literal, ScalarSubquery, XxHash64}
+import org.apache.spark.sql.catalyst.expressions.{Alias, BloomFilterMightContain, DynamicPruningExpression, DynamicPruningSubquery, Expression, ExternalUserDefinedFunction, Literal, ScalarSubquery, XxHash64}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, BloomFilterAggregate}
+import org.apache.spark.sql.catalyst.optimizer.InjectRuntimeFilter
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, LogicalPlan}
 import org.apache.spark.sql.columnar.CachedBatch
-import org.apache.spark.sql.connector.StorageFilterTestSource
+import org.apache.spark.sql.connector.{CatalystFilterLimitDataSourceV2, CatalystFilterScanBuilder, RotatingLimitDataSourceV2, StorageFilterTestSource}
 import org.apache.spark.sql.connector.catalog.InMemoryTableCatalog
 import org.apache.spark.sql.execution.{FileSourceScanExec, InSubqueryExec, ProjectedBroadcastValueSubqueryExec, ReusedSubqueryExec, SubqueryBroadcastExec, SubqueryExec}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEPropagateEmptyRelation}
 import org.apache.spark.sql.execution.columnar.InMemoryRelation
 import org.apache.spark.sql.execution.datasources.LogicalRelationWithTable
+import org.apache.spark.sql.execution.datasources.v2.DataSourceV2ScanRelation
 import org.apache.spark.sql.execution.planmerging.MergeSubplans
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{IntegerType, StructType}
 import org.apache.spark.storage.StorageLevel
+import org.apache.spark.udf.worker.UDFWorkerSpecification
 
 class InjectRuntimeFilterSuite extends SharedSparkSession
   with AdaptiveSparkPlanHelper {
@@ -347,14 +350,22 @@ class InjectRuntimeFilterSuite extends SharedSparkSession
     assert(dynamicPruningFilters(query) == Seq(Literal.TrueLiteral))
   }
 
+  // The keys that the bloom filters of `plan` check.
+  def bloomFilterKeys(plan: LogicalPlan): Seq[Expression] =
+    plan.flatMap(_.expressions)
+      .flatMap(_.collect { case BloomFilterMightContain(_, XxHash64(Seq(key), _)) => key })
+
   // The keys that the bloom filters of `query` check.
   def bloomFilterKeys(query: String): Seq[Expression] =
-    sql(query).queryExecution.optimizedPlan.flatMap(_.expressions)
-      .flatMap(_.collect { case BloomFilterMightContain(_, XxHash64(Seq(key), _)) => key })
+    bloomFilterKeys(sql(query).queryExecution.optimizedPlan)
+
+  // The names of the columns that the bloom filters of `plan` check.
+  def bloomFilterKeyNames(plan: LogicalPlan): Seq[String] =
+    bloomFilterKeys(plan).flatMap(_.references.map(_.name))
 
   // The names of the columns that the bloom filters of `query` check.
   def bloomFilterKeyNames(query: String): Seq[String] =
-    bloomFilterKeys(query).flatMap(_.references.map(_.name))
+    bloomFilterKeyNames(sql(query).queryExecution.optimizedPlan)
 
   // Asserts that `query` gets `numBloomFilters` bloom filters without DPP, so that a test that sees
   // fewer with DPP shows that the rule kept them out. In the tests for a key or a creation side
@@ -611,6 +622,93 @@ class InjectRuntimeFilterSuite extends SharedSparkSession
               s"JOIN $cacheName ON fact.k = $cacheName.k COLLATE UTF8_LCASE")
           assert(getNumBloomFilters(actual.queryExecution.optimizedPlan) == 0)
           checkAnswer(actual, Row("A"))
+        }
+      }
+    }
+  }
+
+  test("SPARK-60871: no runtime filters for nonbinary collated join keys") {
+    withSQLConf(
+        SQLConf.RUNTIME_BLOOM_FILTER_APPLICATION_SIDE_SCAN_SIZE_THRESHOLD.key -> "0",
+        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+        SQLConf.RUNTIME_BLOOM_FILTER_CREATION_SIDE_THRESHOLD.key -> "1MB") {
+      withTable("bf_variant_fact", "bf_variant_dim") {
+        sql("CREATE TABLE bf_variant_fact (id INT, v VARIANT) USING parquet")
+        sql("""INSERT INTO bf_variant_fact SELECT id, parse_json(j) FROM VALUES
+              |  (1, '{"k": "Open"}'), (2, '{"k": "x"}') AS t(id, j)""".stripMargin)
+        sql("CREATE TABLE bf_variant_dim (id INT, v VARIANT) USING parquet")
+        sql("""INSERT INTO bf_variant_dim SELECT id, parse_json(j) FROM VALUES
+              |  (10, '{"k": "open"}'), (20, '{"k": "y"}') AS t(id, j)""".stripMargin)
+
+        val dim = "(SELECT * FROM bf_variant_dim WHERE id = 10) d"
+        def queries(targetType: String): Seq[String] = {
+          val on = s"ON variant_get(f.v, '$$.k', '$targetType') = " +
+            s"variant_get(d.v, '$$.k', '$targetType')"
+          Seq(
+            s"SELECT f.id FROM bf_variant_fact f JOIN $dim $on",
+            s"SELECT f.id FROM bf_variant_fact f LEFT SEMI JOIN $dim $on",
+            s"SELECT f.id FROM bf_variant_fact f RIGHT OUTER JOIN $dim $on",
+            s"SELECT f.id FROM $dim LEFT OUTER JOIN bf_variant_fact f $on")
+        }
+
+        // Binary keys get a Bloom filter on the fact side.
+        queries("STRING").foreach(assertRewroteWithBloomFilter(_))
+        // A Bloom filter over UTF8_LCASE keys would drop the fact row 'Open', which the join
+        // matches with 'open'.
+        queries("STRING COLLATE UTF8_LCASE").foreach { query =>
+          assertDidNotRewriteWithBloomFilter(query)
+          checkAnswer(sql(query), Row(1))
+        }
+      }
+    }
+  }
+
+  test("SPARK-60871: runtime filters for casts of collated join key columns") {
+    withSQLConf(
+        SQLConf.RUNTIME_BLOOM_FILTER_APPLICATION_SIDE_SCAN_SIZE_THRESHOLD.key -> "0",
+        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+        SQLConf.RUNTIME_BLOOM_FILTER_CREATION_SIDE_THRESHOLD.key -> "1MB") {
+      withTable("bf_cast_fact", "bf_cast_dim") {
+        Seq("bf_cast_fact", "bf_cast_dim").foreach { t =>
+          sql(s"CREATE TABLE $t (id INT, k STRING COLLATE UTF8_LCASE, p STRING) USING parquet")
+        }
+        sql("INSERT INTO bf_cast_fact VALUES (1, 'Open', 'Open'), (2, 'x', 'x')")
+        sql("INSERT INTO bf_cast_dim VALUES (10, 'open', 'open'), (20, 'y', 'y')")
+
+        val dim = "(SELECT * FROM bf_cast_dim WHERE id = 10) d"
+        // Inner, left semi, right outer and left outer joins with the fact table as the
+        // application side.
+        def queries(key: String => String): Seq[String] = {
+          val on = s"ON ${key("f")} = ${key("d")}"
+          Seq(
+            s"SELECT f.id FROM bf_cast_fact f JOIN $dim $on",
+            s"SELECT f.id FROM bf_cast_fact f LEFT SEMI JOIN $dim $on",
+            s"SELECT f.id FROM bf_cast_fact f RIGHT OUTER JOIN $dim $on",
+            s"SELECT f.id FROM $dim LEFT OUTER JOIN bf_cast_fact f $on")
+        }
+        val matched = Seq.fill(4)(Seq(Row(1)))
+        val unmatched = Seq(Seq.empty, Seq.empty, Seq(Row(null)), Seq(Row(null)))
+
+        // Column keys get a Bloom filter on their collation keys.
+        queries(t => s"$t.k").zip(matched).foreach { case (query, answer) =>
+          assertRewroteWithBloomFilter(query)
+          checkAnswer(sql(query), answer)
+        }
+        // Casts of the UTF8_LCASE column to STRING are binary keys, so 'Open' and 'open' differ.
+        Seq[String => String](t => s"CAST($t.k AS STRING)", t => s"$t.k::STRING").foreach { key =>
+          queries(key).zip(unmatched).foreach { case (query, answer) =>
+            assertRewroteWithBloomFilter(query)
+            checkAnswer(sql(query), answer)
+          }
+        }
+        // Casts to UTF8_LCASE are non-binary expression keys, so they get no Bloom filter.
+        Seq[String => String](
+            t => s"CAST($t.p AS STRING COLLATE UTF8_LCASE)",
+            t => s"$t.p::STRING COLLATE UTF8_LCASE").foreach { key =>
+          queries(key).zip(matched).foreach { case (query, answer) =>
+            assertDidNotRewriteWithBloomFilter(query)
+            checkAnswer(sql(query), answer)
+          }
         }
       }
     }
@@ -1017,6 +1115,29 @@ class InjectRuntimeFilterSuite extends SharedSparkSession
       // left anti join unsupported and hasn't selective filter.
       assertRewroteWithBloomFilter("select * from (select * from bf1 left anti join bf2 on " +
         "(bf1.c1 = bf2.c2 and bf1.a1 = 5)) as a join bf3 on bf3.c3 = a.c1", 0)
+    }
+  }
+
+  test("SPARK-61652: add bloom filter if the join type or a hint rules out broadcasting the " +
+    "small side") {
+    withSQLConf(SQLConf.RUNTIME_BLOOM_FILTER_APPLICATION_SIDE_SCAN_SIZE_THRESHOLD.key -> "3000",
+      SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "2000") {
+      // The left side is small enough to broadcast, but a left outer join cannot broadcast it, so
+      // the join shuffles `bf2`.
+      val query = "select * from (select c1 from bf1 where a1 = 5) a left join bf2 on a.c1 = bf2.c2"
+      assertRewroteWithBloomFilter(query)
+      assert(bloomFilterKeyNames(query) == Seq("c2"))
+      // A shuffle hash or merge hint rules out broadcasting the small side of an inner join too.
+      def hinted(hint: String): String = s"select /*+ $hint(a) */ * from bf2 join " +
+        "(select c1 from bf1 where a1 = 5) a on a.c1 = bf2.c2"
+      assertRewroteWithBloomFilter(hinted("shuffle_hash"))
+      assertRewroteWithBloomFilter(hinted("merge"))
+      // Below a broadcast hash join, the same join shuffles `bf1`. A broadcast nested loop join
+      // broadcasts the small side instead.
+      def belowBroadcastJoin(condition: String): String = "select * from (select c1 from bf1) a " +
+        s"left join bf2 on $condition join (select c3 from bf3 where a3 = 5) b on a.c1 = b.c3"
+      assertRewroteWithBloomFilter(belowBroadcastJoin("a.c1 = bf2.c2"))
+      assertDidNotRewriteWithBloomFilter(belowBroadcastJoin("a.c1 < bf2.c2"))
     }
   }
 
@@ -1508,7 +1629,8 @@ class InjectRuntimeFilterSuite extends SharedSparkSession
   test("SPARK-60702: do not add bloom filter whose creation side reads a scan with a pushed " +
     "top-n") {
     // The source picks the rows of a pushed top-N, so a second read can pick other rows. So `p.f5`
-    // gets no bloom filter. `x.k` gets one, from `bf5part`, which the inferred `f5 > 1` filters.
+    // gets no bloom filter, with or without DPP. `x.k` gets one, from `bf5part`, which the inferred
+    // `f5 > 1` filters.
     withTempView("tn") {
       spark.read.format(classOf[StorageFilterTestSource].getName).option("push", "topN").load()
         .createOrReplaceTempView("tn")
@@ -1516,9 +1638,82 @@ class InjectRuntimeFilterSuite extends SharedSparkSession
         "limit 100) where k > 1) x on p.f5 = x.k"
       withDppTestConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false") {
         withSQLConf(SQLConf.DYNAMIC_PARTITION_PRUNING_ENABLED.key -> "false") {
-          assert(bloomFilterKeyNames(query) == Seq("f5"))
+          assert(bloomFilterKeyNames(query) == Seq("k"))
         }
         assert(bloomFilterKeyNames(query) == Seq("k"))
+      }
+    }
+  }
+
+  test("SPARK-61870: no bloom filter from a DSv2 scan whose pushed limit returns other rows " +
+    "when read again") {
+    // Each read of the scan returns other rows, as a LIMIT without ORDER BY may. A bloom filter
+    // built from another read than the join's would miss the join's key and drop its fact rows.
+    // `d.i > 0` keeps every row but is a selective `Filter` above the scan.
+    withTempDir { dir =>
+      val factPath = new File(dir, "fact").getCanonicalPath
+      spark.range(1000).selectExpr("id", "CAST(id % 11 AS INT) AS k").write.parquet(factPath)
+      withTempView("rl_fact", "rl_dim") {
+        spark.read.parquet(factPath).createOrReplaceTempView("rl_fact")
+        spark.read.format(classOf[RotatingLimitDataSourceV2].getName).load()
+          .createOrReplaceTempView("rl_dim")
+        withDppTestConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+            SQLConf.RUNTIME_BLOOM_FILTER_APPLICATION_SIDE_SCAN_SIZE_THRESHOLD.key -> "1",
+            SQLConf.DYNAMIC_PARTITION_PRUNING_ENABLED.key -> "false") {
+          // Every `i` from 1 to 10 has fact rows, so the one row of `d` finds a match.
+          val df = sql("SELECT count_if(f.id IS NULL) FROM (SELECT * FROM rl_dim LIMIT 1) d " +
+            "LEFT JOIN rl_fact f ON d.i = f.k WHERE d.i > 0")
+          assert(bloomFilterKeys(df.queryExecution.optimizedPlan).isEmpty,
+            df.queryExecution.optimizedPlan)
+          checkAnswer(df, Row(0))
+        }
+      }
+    }
+  }
+
+  test("SPARK-61870: a DSv2 scan that reads the same rows again is a creation side") {
+    // A row-wise scan reads the same rows again. So does a scan with a pushed aggregate or join, or
+    // the target read of a copy-on-write UPDATE, which is not row-wise. That one counts under a
+    // selective `Filter`, but not for a key whose DPP filter is dropped, where `canEvaluateAgain`
+    // still asks for `onlyRowWisePushdowns`. The source keeps `i > 3` in a `Filter` above its
+    // scan. The V2 fact takes the inferred `part > 3` in fully, so it gives no bloom filter on
+    // `d.i`.
+    withTempDir { dir =>
+      val factPath = new File(dir, "fact").getCanonicalPath
+      spark.range(100).selectExpr("id", "CAST(id % 10 AS INT) AS part")
+        .write.partitionBy("part").parquet(factPath)
+      withTempView("rr_fact", "rr_dim") {
+        withSQLConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+            SQLConf.RUNTIME_BLOOM_FILTER_APPLICATION_SIDE_SCAN_SIZE_THRESHOLD.key -> "1",
+            SQLConf.USE_V1_SOURCE_LIST.key -> "") {
+          spark.read.parquet(factPath).createOrReplaceTempView("rr_fact")
+          spark.read.format(classOf[CatalystFilterLimitDataSourceV2].getName)
+            .option(CatalystFilterScanBuilder.REPORTED_ROW_COUNT, "10")
+            .option(CatalystFilterScanBuilder.KEEP_RESIDUAL_FILTERS, "true").load()
+            .createOrReplaceTempView("rr_dim")
+          Seq(false, true).foreach { dpp =>
+            val plan = withSQLConf(SQLConf.RUNTIME_BLOOM_FILTER_ENABLED.key -> "false",
+                SQLConf.DYNAMIC_PARTITION_PRUNING_ENABLED.key -> dpp.toString) {
+              sql("SELECT f.id FROM rr_fact f JOIN rr_dim d ON f.part = d.i WHERE d.i > 3")
+                .queryExecution.optimizedPlan
+            }
+            assert(plan.exists(_.expressions.exists(
+              _.exists(_.isInstanceOf[DynamicPruningSubquery]))) === dpp, s"dpp = $dpp:\n$plan")
+            // (onlyRowWisePushdowns, repeatableRead) of the dimension's scan, first as built.
+            Seq((true, false), (false, true), (false, false)).foreach {
+              case (rowWise, repeatable) =>
+                val rewritten = plan.transform {
+                  case r: DataSourceV2ScanRelation if r.output.exists(_.name == "i") =>
+                    assert(r.onlyRowWisePushdowns && !r.repeatableRead, plan)
+                    r.copy(onlyRowWisePushdowns = rowWise, repeatableRead = repeatable)
+                }
+                val expected = if (rowWise || (repeatable && !dpp)) Seq("part") else Nil
+                assert(bloomFilterKeyNames(InjectRuntimeFilter(rewritten)) == expected,
+                  s"dpp = $dpp, onlyRowWisePushdowns = $rowWise, repeatableRead = $repeatable:\n" +
+                    rewritten)
+            }
+          }
+        }
       }
     }
   }
@@ -1654,7 +1849,12 @@ class InjectRuntimeFilterSuite extends SharedSparkSession
         val query = "select v from testcat.cf where k in (select k from testcat.cd where flag = 1)"
         withDppTestConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
             SQLConf.RUNTIME_BLOOM_FILTER_APPLICATION_SIDE_SCAN_SIZE_THRESHOLD.key -> "0") {
-          assertBloomFilterWithoutDpp(query)
+          // Nothing wraps the semi join's keys in CollationKey, so they get no bloom filter
+          // without DPP either (SPARK-60871).
+          assertBloomFilterWithoutDpp(query, numBloomFilters = 0)
+          withSQLConf(SQLConf.DYNAMIC_PARTITION_PRUNING_ENABLED.key -> "false") {
+            checkAnswer(sql(query), Row(1))
+          }
           assert(bloomFilterKeys(query).isEmpty)
           checkAnswer(sql(query), Row(1))
         }
@@ -2044,6 +2244,38 @@ class InjectRuntimeFilterSuite extends SharedSparkSession
           }
         }
       }
+    }
+  }
+
+  test("SPARK-61814: do not add bloom filter that evaluates a scalar external UDF") {
+    // No public API builds a scalar external UDF yet, so the test registers one as a function.
+    // Planning it needs a static conf, which the test sets only for itself.
+    val unifiedUDFExecution = conf.getConf(StaticSQLConf.UNIFIED_UDF_EXECUTION_ENABLED)
+    conf.setConf(StaticSQLConf.UNIFIED_UDF_EXECUTION_ENABLED, true)
+    try {
+      spark.sessionState.functionRegistry.createOrReplaceTempFunction("ext",
+        children => ExternalUserDefinedFunction(Some("ext"),
+          UDFWorkerSpecification.getDefaultInstance, Array.emptyByteArray, IntegerType, children,
+          udfDeterministic = true, udfNullable = true),
+        "scala_udf")
+      withUserDefinedFunction("ext" -> true) {
+        withSQLConf(SQLConf.RUNTIME_BLOOM_FILTER_APPLICATION_SIDE_SCAN_SIZE_THRESHOLD.key -> "3000",
+          SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "2000") {
+          val queries = Seq(
+            // In a filter of the creation side.
+            "select * from bf1 join bf2 on bf1.c1 = bf2.c2 where ext(bf2.a2) = 62",
+            // In the key of the creation side, above its filter.
+            "select * from (select ext(c2) c2 from bf2 where a2 = 62) t " +
+              "left join bf1 on t.c2 = bf1.c1",
+            // In the key of the application side.
+            "select * from bf1 join bf2 on ext(bf1.c1) = bf2.c2 where bf2.a2 = 62",
+            "select * from bf1 join bf2 on bf1.c1 = bf2.c2 where bf2.a2 = 62")
+          assert(queries.map(q => getNumBloomFilters(sql(q).queryExecution.optimizedPlan)) ==
+            Seq(0, 0, 0, 1))
+        }
+      }
+    } finally {
+      conf.setConf(StaticSQLConf.UNIFIED_UDF_EXECUTION_ENABLED, unifiedUDFExecution)
     }
   }
 

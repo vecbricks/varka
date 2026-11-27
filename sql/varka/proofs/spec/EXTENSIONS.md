@@ -19,11 +19,10 @@ owed with the SQL standard's current edition.
 
 Every definition below holds over the int32 day counts of `proleptic_range` as long as its result
 and Spark's intermediate sums stay in int32. At the two ends they do not, and Spark's plain `Int`
-arithmetic wraps as `day_count_wraps` does (`DELTAS.md` 1.5): `last_day` computes `(n - D) + L`,
-so `last_day(date_from_unix_date(2147483647))` is day `-2147483629` (tested); `next_day` and
-`trunc(d, 'WEEK')` compute `n + 1` and `n - 7` first, so within a week of either end their answer
-wraps, and its weekday is no longer the one named, since `2^32` is not a multiple of 7 (from the
-source, not tested); the month functions raise 22003 instead. `dow(n) = mod(n + 3, 7)` is the day of the week counted from Monday = 0,
+arithmetic wraps as `day_count_wraps` does (`DELTAS.md` 1.5). `last_day`, `next_day` and
+`trunc` no longer wrap: since SPARK-60929 (in the sync of 26 November 2026) each raises
+`DATETIME_OVERFLOW`, 22008, where its result would leave the DATE range, so
+`last_day(date_from_unix_date(2147483647))` raises (tested); the month functions raise 22003. `dow(n) = mod(n + 3, 7)` is the day of the week counted from Monday = 0,
 since day 0, 1970-01-01, was a Thursday. A test pins the ISO 8601 marks and Spark's two day-of-week
 numberings: "ISO 8601's week rules, and Spark's own day-of-week numberings" in
 `VarkaStandardDeltasSuite`.
