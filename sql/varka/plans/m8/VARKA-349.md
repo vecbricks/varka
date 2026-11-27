@@ -699,3 +699,31 @@ new coverage rows, which each digest covers, and not with a flag, since none was
   `unknown`; `dev/varka_prove.sh` fails on any verdict other than the expected one, so that would
   show as a failed proof, not a silent pass, and the fix is the planned instantiation of the
   lemma.
+
+### The runner's readings of the baseline (27 November 2026)
+
+The class's two runner files, `VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`, were replaced on 27
+November 2026 from `benchmark.yml` runs 46057445085 (256 bits, no `MaxVectorSize`) and 46057448792
+(`-XX:MaxVectorSize=16`) of vecbricks/varka. Both ran at master `e103a4c548a`, dispatched with
+`pr=1793`, so they measured `refs/pull/1793/head`, `6d1f14ae33a`, each on an AMD EPYC 7763 by its
+provenance and by the job's probe. That head holds 349a and, from 348b (#1628), the three values as
+outputs. Section 4's predictions, scored from the files' `Relative` column, without nulls and then
+at one row in ten null:
+
+1. *The filters at 256 bits, 3 to 10 times faster than the row path*: right in part. `x - w > 0`
+   reads 3.2X and 3.0X: inside the band, the second at its line. `x + y < z` reads 2.0X and 2.0X
+   and `x8 * y < z` 2.9X and 2.8X: below it.
+2. *The projections 2 to 6 times faster*: right in part, the misses on the fast side. `x + y` reads
+   5.9X and 5.0X: inside the band. `x - w` reads 9.6X and 7.9X and `x8 * y` 8.8X and 7.3X: past its
+   top.
+3. *The multiply's filter slower than the sum's by up to a half*: right. `x8 * y < z` takes 114 and
+   96 ms on the varka on arm where `x + y < z` takes 92 and 77 ms, about a quarter more. The
+   `decimalMulIntInputs` arm is not built and this class does not time it.
+5. *At 128 bits, as row 348's prediction 5*: the three filters decline and tie the row path (182 /
+   182, 216 / 216 and 326 / 332 ms without nulls, row path / varka on), and the three values fuse
+   and lose, 0.2X to 0.4X (234 / 587 to 163 / 700 ms). The values' decline at two long lanes is row
+   597's second part, moved to milestone 10.
+
+Left in the row: 349c's `decimalMulIntInputs` arm with its reading and measurement (section 5 item
+5).
