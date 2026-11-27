@@ -3098,7 +3098,7 @@ over 100 columns but those of edits 1, 9 and 10, which are parts of table rows.
             instants (`VARKA-655.md` 4.7): it is one kernel class over another Arrow vector
             class. Scored for the comparison, `greatest` and the choice over a year in no order.
 
-9. `sql/varka/plans/m9/PLAN.md`, section 3, the row of row 691 (the owner, 27 November 2026:
+9. `sql/varka/plans/m9/PLAN.md`, section 3, the line of row 691 (the owner, 27 November 2026:
    row 691 makes the surface's first run with the kernels on); the text is inside one long
    line of the table. Old text:
 
@@ -3108,7 +3108,7 @@ over 100 columns but those of edits 1, 9 and 10, which are parts of table rows.
 
         the default of each option at each width, G7's first reading, the first run of row 655's timestamp surface with the zone kernels on against the stock release (`VARKA-655.md` 4.10: the entries that fuse turned in `Timestamps`, the six arms at 256 and 128 bits), and the family's outcome. **Done when** each form of `VARKA-657.md` 3.5 is measured in a kernel, the default at each width is the fastest, G7's bar holds for `hour` and for the cast to `DATE`, or the miss is recorded with its lever, the surface's twelve files with the kernels on are committed beside row 655's unfused ones, and the outcome in `VARKA-657.md` is written
 
-10. The same file, section 3, the row of row 676, which keeps the post's run; inside one
+10. The same file, section 3, the line of row 676, which keeps the post's run; inside one
    long line of the table. Old text:
 
         and what the cheaper models built, with its figures from committed results. **Done when** it is published
