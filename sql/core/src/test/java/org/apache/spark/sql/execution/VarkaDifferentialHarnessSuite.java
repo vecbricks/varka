@@ -797,6 +797,45 @@ public final class VarkaDifferentialHarnessSuite {
     out.add(new Case("a bigint shifted by an int column and bit_count of a bigint under another "
         + "node match the row engine for every edge count and value, nulls in either operand",
         table("l, c", null, shiftRows.toArray(String[]::new)), shifts));
+    // VARKA-697: the default chain-depth cap of a BIGINT chain follows the long vector's width,
+    // 64 levels at 256 bits or wider and 16 at 128 bits, where the fused chain was measured
+    // slower than the row engine; a cap that is set is the cap at either width. The chain is 24
+    // levels of adds, shifts and subtractions, checked under ANSI. Each part names every option
+    // from the defaults, the lane count included, so the verdicts are the same on any host and
+    // under any matrix configuration: an arm that moves a budget would move the stop.
+    var chainRows = new ArrayList<Object[]>(300);
+    for (int i = 0; i < 300; i++) {
+      chainRows.add(new Object[] {i, i % 17 == 0 ? null : (1L << 40) - 1000003L * i,
+          i % 13 == 0 ? null : 77L * i - (1L << 33)});
+    }
+    Source chainTable = VarkaHarnessCases.source("SELECT * FROM VALUES "
+        + "(0, CAST(NULL AS BIGINT), CAST(NULL AS BIGINT)) AS v(rid, l, m)", chainRows);
+    String deep = "l";
+    for (int k = 0; k < 24; k++) {
+      deep = List.of("(" + deep + " + m)", "shiftright(" + deep + ", 1)",
+          "(" + deep + " - l)").get(k % 3);
+    }
+    Shape fusedChain = shape(deep + " AS deep, l + m AS near", SERVED, "deep: fused");
+    Shape declinedChain = shape(deep + " AS deep, l + m AS near", RUNS,
+        "deep: residual (exceeds the emitter's fused budget", "near: fused");
+    var chainParts = new ArrayList<Part>();
+    for (boolean ansi : new boolean[] {false, true}) {
+      for (int lanes : new int[] {4, 8}) {
+        chainParts.add(new Part(chainTable, Optional.of(ansi),
+            o -> VarkaEmitOptions.DEFAULTS.withLanesOverride(lanes), List.of(fusedChain)));
+      }
+      chainParts.add(new Part(chainTable, Optional.of(ansi),
+          o -> VarkaEmitOptions.DEFAULTS.withLanesOverride(2), List.of(declinedChain)));
+      chainParts.add(new Part(chainTable, Optional.of(ansi),
+          o -> VarkaEmitOptions.DEFAULTS.withLanesOverride(2).withMaxChainDepth(32),
+          List.of(fusedChain)));
+      chainParts.add(new Part(chainTable, Optional.of(ansi),
+          o -> VarkaEmitOptions.DEFAULTS.withLanesOverride(4).withMaxChainDepth(16),
+          List.of(declinedChain)));
+    }
+    out.add(new Case("a bigint chain 24 levels deep fuses by default and matches the row engine "
+        + "where the long vector is 256 bits or wider, runs on the row engine at 128 bits, and a "
+        + "set cap decides at either width", chainParts));
     // VARKA-480: the bigint entry cannot share the first kernel's narrow lane, so it fuses in a
     // second kernel rather than going to the row engine.
     out.add(new Case("a projection of a narrow entry and then a bigint one answers from a kernel "

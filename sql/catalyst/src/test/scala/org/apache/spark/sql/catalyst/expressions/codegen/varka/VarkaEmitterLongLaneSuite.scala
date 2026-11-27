@@ -71,6 +71,100 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     }
   }
 
+  test("a long-lane chain past 16 levels emits to 64 by default where the long vector is 256 " +
+      "bits or wider, and stops at 16 at 128 bits (VARKA-697)") {
+    // The auto cap of a tree of the long lane alone follows the long vector's width
+    // (VarkaEmitBudget.chainDepthCap): a fused BIGINT chain was measured 4.4 to 7.6 times faster
+    // than Spark's row path to depth 64 at 256 bits and slower than it at 128 bits at depth 16
+    // already (VARKA-620.md 9). The lane count is pinned, so the verdicts are the same on any
+    // host: four and eight long lanes are 256 and 512 bits, two are 128. The cap is pinned to
+    // auto and the baked width to on, since a matrix configuration that sets a cap or bakes no
+    // lane count (the kernel then runs at the host's width) decides the verdicts itself.
+    val col = new ColumnRef(0, LaneType.LONG)
+    val col1 = new ColumnRef(1, LaneType.LONG)
+    val lit = new LiteralSlot(0, LaneType.LONG)
+    // An odd multiplier: every level keeps all 64 bits of the wrapped value, so a level lost or
+    // computed at 32 bits changes the answer.
+    val lits = Array(1000003L)
+    def values(c: Int, i: Int): Long = (1L << 40) + i.toLong * (c + 1) * (1L << 20) - (i % 5)
+    def chain(depth: Int): VarkaVectorIR =
+      (0 until depth).foldLeft[VarkaVectorIR](col) { (n, k) =>
+        k % 3 match {
+          case 0 => new IntArith(IntOp.ADD, Overflow.WRAP, n, col1)
+          case 1 => new IntArith(IntOp.MUL, Overflow.WRAP, n, lit)
+          case _ => new IntArith(IntOp.SUB, Overflow.WRAP, n, col1)
+        }
+      }
+    val auto = VarkaMatrix.base.withMaxChainDepth(VarkaEmitBudget.AUTO_CHAIN_DEPTH)
+      .withValidityByWidth(true)
+    def fits(root: VarkaVectorIR, options: VarkaEmitOptions): Boolean =
+      VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](root), 2, options)
+    // The emitter and the compiler's mirror both refuse the chain, the emitter naming the cap.
+    def refused(depth: Int, options: VarkaEmitOptions, cap: Int): Unit = {
+      assert(!fits(chain(depth), options), s"depth $depth")
+      val e = intercept[IllegalArgumentException](emitMulti(Seq(chain(depth)), 2, 1, options))
+      assert(e.getMessage.contains(s"MAX_CHAIN_DEPTH=$cap"), e.getMessage)
+    }
+    // Both accept it, and the kernel answers what the reference says.
+    def served(depth: Int, lanes: Int, options: VarkaEmitOptions): Unit = {
+      assert(fits(chain(depth), options.withLanesOverride(lanes)), s"depth $depth")
+      checkLongMatrix(Seq(chain(depth)), 2, lits, Seq(1, 7, 64, 129), combos(2), values,
+        s"a long chain $depth deep at $lanes lanes", Some(lanes), options)
+    }
+    for (lanes <- Seq(4, 8)) {
+      val wide = auto.withLanesOverride(lanes)
+      assert(VarkaEmitBudget.longVectorBits(wide) === lanes * 64)
+      served(17, lanes, auto)
+      served(VarkaEmitBudget.LONG_LANE_MAX_CHAIN_DEPTH, lanes, auto)
+      refused(VarkaEmitBudget.LONG_LANE_MAX_CHAIN_DEPTH + 1, wide, 64)
+      // An explicit cap is the cap at this width too: 16 refuses the 17th level.
+      served(16, lanes, auto.withMaxChainDepth(16))
+      refused(17, wide.withMaxChainDepth(16), 16)
+    }
+    val narrow = auto.withLanesOverride(2)
+    assert(VarkaEmitBudget.longVectorBits(narrow) === 128)
+    served(16, 2, auto)
+    refused(17, narrow, 16)
+    // And an explicit cap past 16 is honoured at 128 bits, where auto gives 16.
+    served(20, 2, auto.withMaxChainDepth(20))
+    refused(21, narrow.withMaxChainDepth(20), 20)
+  }
+
+  test("the default chain cap of every tree but a long-lane one is the same at every width " +
+      "(VARKA-697)") {
+    // Only a tree that holds the long lane alone reads the width. The int lane keeps 64 at every
+    // width (VARKA-629). The narrow lanes, FLOAT and DOUBLE keep 16: no depth benchmark measured
+    // them, and DOUBLE's vector being as wide as the long one does not make the BIGINT reading
+    // its own. A tree of two lanes keeps 16 too, whichever lane its root is on.
+    val auto = VarkaMatrix.base.withMaxChainDepth(VarkaEmitBudget.AUTO_CHAIN_DEPTH)
+      .withValidityByWidth(true)
+    def greatests(lane: LaneType): VarkaVectorIR =
+      (0 until 3).foldLeft[VarkaVectorIR](new ColumnRef(0, lane))(
+        (n, _) => new Greatest(n, new ColumnRef(1, lane)))
+    val long = greatests(LaneType.LONG)
+    val widened = new Greatest(long, new WidenLane(new ColumnRef(2, LaneType.INT), LaneType.LONG))
+    val narrowed = new NarrowLane(long, LaneType.INT)
+    assert(widened.laneType() == LaneType.LONG && narrowed.laneType() == LaneType.INT)
+    for (lanes <- Seq(2, 4, 8)) {
+      val options = auto.withLanesOverride(lanes)
+      def cap(root: VarkaVectorIR): Int = VarkaEmitBudget.chainDepthCap(options, root)
+      assert(cap(greatests(LaneType.INT)) === VarkaEmitBudget.INT_LANE_MAX_CHAIN_DEPTH, lanes)
+      for (lane <- Seq(LaneType.BYTE, LaneType.SHORT, LaneType.FLOAT, LaneType.DOUBLE)) {
+        assert(cap(greatests(lane)) === VarkaEmitBudget.MAX_CHAIN_DEPTH, s"$lane at $lanes lanes")
+      }
+      assert(cap(widened) === VarkaEmitBudget.MAX_CHAIN_DEPTH, lanes)
+      assert(cap(narrowed) === VarkaEmitBudget.MAX_CHAIN_DEPTH, lanes)
+      assert(cap(long) === (if (lanes == 2) 16 else 64), lanes)
+      // An explicit cap is every tree's, at every width.
+      for (root <- Seq(long, widened, greatests(LaneType.INT), greatests(LaneType.DOUBLE))) {
+        assert(VarkaEmitBudget.chainDepthCap(options.withMaxChainDepth(24), root) === 24)
+      }
+    }
+    // With no lane count baked the kernel runs at this JVM's own width, and the cap reads that.
+    val unbaked = auto.withValidityByWidth(false).withLanesOverride(2)
+    assert(VarkaEmitBudget.longVectorBits(unbaked) === Lane.LONG.preferredLanes * 64)
+  }
+
   /**
    * Values that put the 64-bit sign test under load: both extremes, their neighbours, zero,
    * and magnitudes an int lane cannot hold - so a lowering that had kept 32-bit descriptors

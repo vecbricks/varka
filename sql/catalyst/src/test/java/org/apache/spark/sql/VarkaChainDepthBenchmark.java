@@ -65,13 +65,13 @@ import org.apache.spark.sql.types.DataTypes;
 /**
  * The emitter's chain-depth cap priced past 16 ({@code sql/varka/plans/m8/VARKA-620.md}).
  *
- * <p>{@code VarkaEmitBudget.chainDepthCap} caps one output's height at 16, or 64 for a tree of
- * the int lane alone, a value
- * {@code VARKA-9.md} 5.2 measured a chain up to and no further. The decimal rows of milestone 8
- * build shapes 26 to 60 deep, so this file measures what a deeper chain costs before anyone
- * raises the cap: the fused kernel under the cap raised to {@link #RAISED_CAP} through the
- * {@code maxChainDepth} emit option, against Spark's row path and against a scalar loop of the
- * same steps, at five depths and two lanes.
+ * <p>{@code VarkaEmitBudget.chainDepthCap} caps one output's height at 16, the depth
+ * {@code VARKA-9.md} 5.2 measured a chain up to and no further, or at 64 where this file's
+ * readings support it: a tree of the int lane alone, and one of the long lane alone where the
+ * long vector is 256 bits or wider. The decimal rows of milestone 8 build shapes 26 to 60 deep,
+ * so this file measures what a deeper chain costs: the fused kernel under the cap raised to
+ * {@link #RAISED_CAP} through the {@code maxChainDepth} emit option, against Spark's row path
+ * and against a scalar loop of the same steps, at five depths and two lanes.
  *
  * <p><b>The shape.</b> One output over two columns {@code x} and {@code y}, a decimal-like mix
  * of operations repeated to the target height, ANSI-checked but for the multiply, which wraps
@@ -257,7 +257,8 @@ public class VarkaChainDepthBenchmark extends VarkaBenchmarkBase {
             + fused.derivedInputs());
     int h = height(fused.outputs().get(0), new HashMap<>());
     require(h == depth, label + " compiled to height " + h);
-    // The default cap is the output lane's own: 64 on the int lane, 16 on the BIGINT one.
+    // The default cap is the tree's own: 64 on the int lane, and on the BIGINT lane 64 where
+    // the long vector is 256 bits or wider and 16 at 128 bits.
     int defaultCap = VarkaEmitterTestSupport.chainDepthCap(VarkaEmitOptions.DEFAULTS,
         fused.outputs().get(0));
     boolean defaultFuses = VarkaExpressionCompiler.compile(project, columns,

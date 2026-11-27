@@ -142,7 +142,7 @@ final class VarkaNodeCompiler {
   /**
    * The most literals an {@code IN} list may hold and still fuse, counted after dedup. The basis,
    * recorded in {@code VARKA-20.md}: 16 is depth-safe under any fold shape
-   * ({@code MAX_CHAIN_DEPTH} = 16, the cap of a tree not of the int lane alone, while the
+   * ({@code MAX_CHAIN_DEPTH} = 16, the lowest cap a tree's lanes give it, while the
    * balanced chain here is {@code ceil(log2 16) + 1} = 5 levels), and its 31 op nodes left half
    * the emitter's {@code MAX_FUSED_NODES} = 64 budget to the rest of the projection when that cap
    * bounded every kernel; under the byte budget it

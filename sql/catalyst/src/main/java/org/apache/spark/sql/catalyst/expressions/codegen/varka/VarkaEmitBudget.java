@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
@@ -250,9 +251,10 @@ final class VarkaEmitBudget {
    * gently with depth while sequential passes collapse linearly, so the cap bounds emitted
    * method size and register pressure by policy, well past any depth a real projection
    * produces, rather than marking a measured performance edge. Condition nodes count. It is what
-   * {@link VarkaEmitOptions#maxChainDepth}'s auto value resolves to on every lane but the int one
-   * and a port's ({@link #chainDepthCap}); a benchmark raises the option to price the depths
-   * past it (VARKA-620).
+   * {@link VarkaEmitOptions#maxChainDepth}'s auto value resolves to for every tree but one of
+   * the int lane alone, one of the long lane alone at 256 bits or wider, and a port's
+   * ({@link #chainDepthCap}); a benchmark raises the option to price the depths past it
+   * (VARKA-620).
    */
   public static final int MAX_CHAIN_DEPTH = 16;
 
@@ -266,13 +268,37 @@ final class VarkaEmitBudget {
    * The auto cap of an output whose tree holds only the int lane: a fused chain of int adds,
    * subtractions, multiplications, compares and selects is 8 to 34 times faster than the row path
    * to depth 64 at both vector widths (VARKA-620, {@code VarkaChainDepthBenchmark}). That is the
-   * only shape measured: the BIGINT lane is not in the reading, 128 bits being slower than the
-   * row path (row 628), nor are the narrow and floating lanes, nor the calendar and bounded
-   * division chains, which are int-lane trees too and are admitted to 64 without a measurement.
-   * Any other tree keeps {@link #MAX_CHAIN_DEPTH}, but a port's, which has its own cap
-   * ({@link #PORT_MAX_CHAIN_DEPTH}).
+   * only int shape measured: the narrow and floating lanes are not in the reading, nor are the
+   * calendar and bounded division chains, which are int-lane trees too and are admitted to 64
+   * without a measurement. The long lane has its own cap, by its width
+   * ({@link #LONG_LANE_MAX_CHAIN_DEPTH}), and so has a port ({@link #PORT_MAX_CHAIN_DEPTH}); any
+   * other tree keeps {@link #MAX_CHAIN_DEPTH}.
    */
   public static final int INT_LANE_MAX_CHAIN_DEPTH = 64;
+
+  /**
+   * The auto cap of an output whose tree holds only the long lane, where the long vector is at
+   * least {@link #LONG_LANE_DEEP_MIN_BITS} wide (VARKA-697). The same benchmark's BIGINT chain,
+   * on an AMD EPYC 7763 at 256 bits, is 4.4 to 7.6 times faster fused than on Spark's row path at
+   * depths 16 to 64, and its loop is C2 code at every depth ({@code sql/varka/plans/m8/}
+   * {@code VARKA-620.md} 9, from {@code sql/catalyst/benchmarks/}
+   * {@code VarkaChainDepthBenchmark-jdk25-runner-epyc7763-results.txt}). 64 is the deepest depth
+   * measured. The lowered decimal networks are trees of this lane, 15 to 28 levels high alone
+   * and 26 to 60 once wrapped ({@code results/VARKA-630-decimal-shapes.txt}), so a cap of 16
+   * declines them; the reading is of BIGINT arithmetic and does not price those shapes.
+   */
+  public static final int LONG_LANE_MAX_CHAIN_DEPTH = 64;
+
+  /**
+   * The narrowest long vector, in bits, at which a tree of the long lane takes
+   * {@link #LONG_LANE_MAX_CHAIN_DEPTH}. Under {@code -XX:MaxVectorSize=16} on the same runner,
+   * where a long vector has two lanes, the fused BIGINT chain is 6.4 to 9.3 times slower than the
+   * row path at every depth, depth 16 included ({@code VARKA-620.md} 9, the {@code -128bit-}
+   * results file), so at 128 bits a deeper cap would only fuse more of a chain that loses, and
+   * the cap stays {@link #MAX_CHAIN_DEPTH}. 512 bits has no reading: it takes the deeper cap
+   * because it is wider than the width measured, not because it was measured.
+   */
+  static final int LONG_LANE_DEEP_MIN_BITS = 256;
 
   /**
    * The auto cap of an output whose tree holds an fdlibm port ({@code VarkaMathPort},
@@ -288,12 +314,18 @@ final class VarkaEmitBudget {
 
   /**
    * The deepest op path {@code root} may have under {@code options}: its {@code maxChainDepth}
-   * where one is set, on every lane, which lowers the int lane's 64 as well as raising the others'
-   * 16, and where it is auto 64 for a tree that holds the int lane alone and 16 for any other.
-   * The tree, not the root's lane, decides: a BIGINT chain narrowed to an int root is a long-lane
-   * chain, which row 628 measured slower than the row path at 128 bits. A tree that holds a port
-   * takes {@link #PORT_MAX_CHAIN_DEPTH} by auto, whatever its lanes. An explicit 16 is 16 on the
-   * int lane too, which a default that read 16 as unset could not say.
+   * where one is set, on every lane and at every width, which lowers a 64 as well as raising a
+   * 16, and where it is auto 64 for a tree that holds the int lane alone, 64 for a tree that holds
+   * the long lane alone where the long vector is at least {@link #LONG_LANE_DEEP_MIN_BITS} wide,
+   * and 16 for any other. An explicit 16 is 16 on the int lane too, which a default that read 16
+   * as unset could not say.
+   *
+   * <p>The tree, not the root's lane, decides, and a tree of two lanes is neither's: a BIGINT
+   * chain narrowed to an int root, or an int column widened into a BIGINT chain, keeps 16, since
+   * each reading is of one lane alone. So do the narrow lanes and {@code FLOAT}, which no depth
+   * benchmark has measured, and {@code DOUBLE}: its vector is as wide as the long one, but the
+   * 64-bit reading is of BIGINT arithmetic, not of floating operations. A tree that holds a port
+   * takes {@link #PORT_MAX_CHAIN_DEPTH} by auto, whatever its lanes.
    */
   public static int chainDepthCap(VarkaEmitOptions options, VarkaVectorIR root) {
     int set = options.maxChainDepth();
@@ -303,8 +335,29 @@ final class VarkaEmitBudget {
     if (VarkaVectorIR.holdsReinterpret(root)) {
       return PORT_MAX_CHAIN_DEPTH;
     }
-    return VarkaVectorIR.lanesIn(root).equals(java.util.Set.of(VarkaVectorIR.LaneType.INT))
-        ? INT_LANE_MAX_CHAIN_DEPTH : MAX_CHAIN_DEPTH;
+    Set<VarkaVectorIR.LaneType> lanes = VarkaVectorIR.lanesIn(root);
+    if (lanes.equals(Set.of(VarkaVectorIR.LaneType.INT))) {
+      return INT_LANE_MAX_CHAIN_DEPTH;
+    }
+    // The width is asked only of a long-lane tree, the one tree whose cap it decides.
+    if (lanes.equals(Set.of(VarkaVectorIR.LaneType.LONG))
+        && longVectorBits(options) >= LONG_LANE_DEEP_MIN_BITS) {
+      return LONG_LANE_MAX_CHAIN_DEPTH;
+    }
+    return MAX_CHAIN_DEPTH;
+  }
+
+  /**
+   * The bits of the long vector a kernel emitted under {@code options} computes with: the lane
+   * count the emitter bakes for the long lane ({@link Lane#emitLanes}, which is
+   * {@link VarkaEmitOptions#lanesOverride} where a test or the option matrix pins a width), and
+   * where it bakes none this JVM's {@code LongVector.SPECIES_PREFERRED}, which the kernel then
+   * reads at run time and which {@code -XX:MaxVectorSize} narrows. It is the count the emitted
+   * class carries, so the cap and the kernel cannot disagree on the width.
+   */
+  static int longVectorBits(VarkaEmitOptions options) {
+    int baked = Lane.emitLanes(options, Lane.LONG);
+    return (baked != 0 ? baked : Lane.LONG.preferredLanes) * Long.SIZE;
   }
 
   /**

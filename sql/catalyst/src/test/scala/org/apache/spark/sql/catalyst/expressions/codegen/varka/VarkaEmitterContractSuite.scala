@@ -44,7 +44,8 @@ class VarkaEmitterContractSuite extends VarkaEmitterTestBase {
       assert(e.getMessage.contains(fragment), s"message was: ${e.getMessage}")
     }
     // The chain is on the int lane, whose auto cap is 64 (VARKA-629); an explicit 16 is 16 there
-    // too, and a lane other than the int one keeps 16 (VarkaEmitterBudgetSuite).
+    // too. A tree of two lanes keeps 16 (VarkaEmitterBudgetSuite), and the long lane's cap
+    // follows its vector's width (VarkaEmitterLongLaneSuite).
     val intCap = VarkaEmitBudget.INT_LANE_MAX_CHAIN_DEPTH
     assert(emit(chain(intCap), intCap)._2.nonEmpty)
     rejects(emit(chain(intCap + 1), intCap + 1), "MAX_CHAIN_DEPTH=64")
