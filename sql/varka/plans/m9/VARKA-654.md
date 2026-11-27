@@ -493,6 +493,11 @@ Five functions change or come in:
         errors += closed_errors()
         errors += reader_errors()
 
+   *27 November 2026, from `VARKA-653.md` 5.5:* if `main` already holds the line
+   `ap.add_argument("--docs", ...)` after the `--self-test` line, the `--milestone` argument goes
+   after the `--docs` line; and in the docstring the `--milestone 8 --summary` line goes after the
+   `--summary` line whatever stands above it.
+
 A line of a reader that names a closed milestone's file and holds the lower-case words `milestone 8`
 itself is a record of that milestone, and `reader_errors` lets it stay (5.1, rule R1).
 
