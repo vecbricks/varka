@@ -108,6 +108,13 @@ final class DeclineSink {
   private boolean decimalProbe;
   private VarkaDecline first;
 
+  /**
+   * How many calendar consumers (a field, {@code last_day}, the week of the year) are compiling
+   * the child they sit above. Such a consumer re-arms the guards below it, so a node that asks
+   * the range analysis a question under it is answered with the guards armed.
+   */
+  private int calendarDepth;
+
   DeclineSink(Seq<Attribute> childOutput, VarkaEmitOptions options) {
     this(childOutput, options, Set.of());
   }
@@ -195,6 +202,26 @@ final class DeclineSink {
    */
   void boundSlot(int slot, int lo, int hi) {
     bounds.add(new Bound(slot, true, lo, hi));
+  }
+
+  /** A calendar consumer starts compiling its child. */
+  void enterCalendar() {
+    calendarDepth++;
+  }
+
+  /** The child is compiled. */
+  void exitCalendar() {
+    calendarDepth--;
+  }
+
+  /**
+   * Whether a calendar consumer is compiling the node being compiled. Then the guards below the
+   * node are armed: {@code Analysis.collectRefusals} walks every node reachable below a
+   * {@code Chrono} node and guards its day producers, which is what lets a node ask the range
+   * analysis with the guards armed. If that walk changes, this answer must change with it.
+   */
+  boolean underCalendar() {
+    return calendarDepth > 0;
   }
 
   /**

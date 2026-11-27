@@ -315,11 +315,8 @@ public final class VarkaRangeAnalysis {
           : dayShift(n.days(), n.offset(), 1, policy, literals, columns);
       case SubDays n -> kind != Kind.DAY ? VarkaValueRange.UNKNOWN
           : dayShift(n.days(), n.offset(), -1, policy, literals, columns);
-      // Since SPARK-60929 next_day raises where its result leaves the DATE range, so its answer
-      // rests on the column bound as last_day's and trunc's do: a batch past it goes to the row
-      // engine, which raises.
       case NextDay n -> kind != Kind.DAY ? VarkaValueRange.UNKNOWN
-          : NEXT_DAY_SHIFT.over(range(n.days(), Kind.DAY, GuardPolicy.ARMED, literals, columns));
+          : NEXT_DAY_SHIFT.over(range(n.days(), Kind.DAY, policy, literals, columns));
       case ThursdayOf n -> kind != Kind.DAY ? VarkaValueRange.UNKNOWN
           : THURSDAY_SHIFT.over(range(n.days(), Kind.DAY, policy, literals, columns));
       case AddMonths n -> kind != Kind.DAY ? VarkaValueRange.UNKNOWN
