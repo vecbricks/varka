@@ -280,7 +280,8 @@ them, and the sheet calls each at one place:
   a program a `fill` that declines;
 - the constant of the 18-hour bound, called `OFFSET_BOUND` below;
 - `VarkaEmitOptions.withZoneForm`;
-- the production `VarkaZoneData.Provider`, called `PROD` below;
+- the production `VarkaZoneData.Provider`, `VarkaChronoZone.PROVIDER` (`VARKA-678.md` 4.10),
+  called `PROD` below;
 - how `VarkaReference`'s `ToLocal` arm takes the zone ids, and the kernel check that
   `VarkaEmitterZoneSuite` calls;
 - the column `ts` of the Spark fuzzer's fixture, and how it is derived.
