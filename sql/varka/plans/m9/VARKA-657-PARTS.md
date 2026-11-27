@@ -635,8 +635,9 @@ builds a node; no coverage row; no edit of `SQLConf.scala`, of the runner or of 
    `"CAST(coalesce(ltz, ltz) AS DATE)"`. A cast of a bare column would not do: its switch is
    asked after its lowering.
 6. Row 655's fields class: each section of `hour`, `minute` or `second` over the `TIMESTAMP`
-   column is listed as fused, the way the class's `Section` says it (`Fusion.WHOLE` and a
-   `BatchCheck` of `VarkaSqlBenchmarkBase`), by this table:
+   column is listed as fused in its line of the class's `forms()` (`VARKA-655.md` 4.6:
+   `Fusion.WHOLE`, and a `BatchCheck` of `VarkaSqlBenchmarkBase` for the ten-year cell,
+   which is the table's last row; every other cell is `KERNEL`), by this table:
 
    | zone of the section | data | batch check |
    | :--- | :--- | :--- |
@@ -929,8 +930,9 @@ each sheet stand in for it.
 ## 7. Measurement
 
 **The sections** are row 655's: `hour(ts)`, `minute(ts)`, `second(ts)` and `CAST(ts AS DATE)`;
-under UTC, `+01:00` and `America/Los_Angeles`; over a week, a year in time order, a year in no
-order and ten years in no order; with no nulls and with one row in ten null. The control of
+under UTC and `+01:00` over a year in no order, and under `America/Los_Angeles` over a week,
+a year in time order, a year in no order and ten years in no order (`VARKA-655.md` 4.3);
+with no nulls and with one row in ten null. The control of
 each is its `TIMESTAMP_NTZ` twin. The numbers are the AMD EPYC 7763's at 256 and at 128 bits;
 the laptop adds 512 where the owner asks. The A/B arms of the forms are row 691's.
 

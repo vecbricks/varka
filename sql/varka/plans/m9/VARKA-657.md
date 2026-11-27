@@ -526,10 +526,12 @@ Proofs (`sql/varka/proofs/`, rendered by `VarkaProofFiles`, both solvers):
 
 Baselines first, on the unchanged engine, in row 655's classes. The family's sections:
 `hour(ts)`, `minute(ts)`, `second(ts)`, `CAST(ts AS DATE)`, `CAST(ntz AS TIMESTAMP)`,
-`CAST(d AS TIMESTAMP)` and `ts + INTERVAL '1' DAY`; each under UTC, `+01:00` and
-`America/Los_Angeles`; over a week, a year in time order, a year in no order and ten years in no
-order; with no nulls and with one row in ten null. The control of each section is its
-`TIMESTAMP_NTZ` twin: the difference is the zone's price. Numbers are the EPYC 7763's at 256 and
+`CAST(d AS TIMESTAMP)` and `ts + INTERVAL '1' DAY`; each under UTC and `+01:00` over a year in
+no order, and under `America/Los_Angeles` over a week, a year in time order, a year in no order
+and ten years in no order (`VARKA-655.md` 4.3); with no nulls and with one row in ten null. The
+control of a section is its `TIMESTAMP_NTZ` twin where that twin fuses (`VARKA-655.md` 4.7; the
+two casts to a `TIMESTAMP` have none): the difference is the zone's price. Numbers are the EPYC
+7763's at 256 and
 128 bits; the laptop adds 512.
 
 The A/B arms, each named so that the label outlives a default: 2 steps against 8 against the
