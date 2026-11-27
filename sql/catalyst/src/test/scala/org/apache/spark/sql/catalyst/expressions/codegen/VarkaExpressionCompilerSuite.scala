@@ -2499,8 +2499,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // a checked add, a wrapping multiply by a literal, a shift, and a subtraction of a choice
     // over a comparison, three levels. It is a tree of the long lane alone, whose default cap
     // follows the long vector's width. The lane count is pinned, so the verdicts are the same on
-    // any host: four and eight long lanes are 256 and 512 bits, two are 128. The defaults, not
-    // the matrix's options, since the stops are the default budgets'.
+    // any host: four and eight long lanes are 256 and 512 bits, two are 128. The matrix's
+    // options, with what the cap's rule reads pinned: the cap to auto, the lane count baked,
+    // and no driver's width in place of it.
     import org.apache.spark.sql.catalyst.expressions.ShiftRight
     val x = AttributeReference("x", LongType)()
     val y = AttributeReference("y", LongType)()
@@ -2534,7 +2535,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       assert(partial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)))
       assert(partial.declines.asScala(0).reason === "exceeds the emitter's fused budget")
     }
-    val defaults = VarkaEmitOptions.DEFAULTS
+    val defaults = VarkaMatrix.base.withMaxChainDepth(0).withValidityByWidth(true)
+      .withChainCapLongBits(0)
     for (lanes <- Seq(4, 8)) {
       val wide = defaults.withLanesOverride(lanes)
       assert(fuses(17, wide), lanes)
@@ -2562,6 +2564,60 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       assert(partial(16).specs.asScala.head.isInstanceOf[FusedOutput], lanes)
       assert(partial(17).specs.asScala.head === VarkaOutputSpec.RESIDUAL, lanes)
       assert(partial(17).declines.asScala(0).reason === "exceeds the emitter's fused budget")
+    }
+  }
+
+  test("a filter's chain cap is each conjunct's own, whatever the order and the lane the " +
+      "conjuncts meet on (VARKA-697)") {
+    // The fused conjuncts are one AND fold, lifted to the lane they meet on, and the cap is asked
+    // of each conjunct by the lanes of its own values (VarkaEmitBudget.chainDepthExcess), so a
+    // conjunct fuses or declines the same alone, first or last. Catches: the cap taken of the
+    // fold's whole tree, where an int conjunct lifted beside a BIGINT chain makes it a tree of
+    // two lanes at 16, so the conjunct written second is demoted; the lift's widening or the
+    // fold's levels counted against a conjunct; and a deep conjunct taking its neighbours with
+    // it. The adds wrap, so no conjunct can raise and the order rule (VARKA-380) moves nothing.
+    // The cap is pinned to auto, the lane count is pinned and baked, and no driver's width
+    // stands in for it.
+    val x = AttributeReference("x", LongType)()
+    val y = AttributeReference("y", LongType)()
+    val j = AttributeReference("j", IntegerType)()
+    val columns = Seq(x, y, i, j)
+    // A conjunct `levels` high: the comparison over a chain of levels - 1 wrapping adds.
+    def longDeep(levels: Int): Expression = GreaterThan(
+      (1 until levels).foldLeft[Expression](x)((e, _) => Add(e, y, EvalMode.LEGACY)), Literal(0L))
+    def intDeep(levels: Int): Expression = GreaterThan(
+      (1 until levels).foldLeft[Expression](i)((e, _) => Add(e, j, EvalMode.LEGACY)), Literal(5))
+    val intNear = GreaterThan(i, Literal(5))
+    val longNear = GreaterThan(x, Literal(0L))
+    val auto = VarkaMatrix.base.withMaxChainDepth(0).withValidityByWidth(true)
+      .withChainCapLongBits(0)
+    // Which conjuncts fuse, in every order of them, with the reason of each that does not.
+    def check(lanes: Int, conjuncts: Seq[Expression], residual: Set[Expression]): Unit =
+      for (order <- conjuncts.permutations) {
+        val specs = VarkaExpressionCompiler.explainPredicate(order.reduce(And(_, _)), columns,
+          auto.withLanesOverride(lanes), VarkaAdmission.NO_HOST_REFUSAL).asScala.toSeq
+        val clue = s"$lanes long lanes, heights ${order.map(_.children.head.height)}"
+        assert(specs.map(_.fused) === order.map(c => !residual(c)), clue)
+        for (spec <- specs if !spec.fused) {
+          assert(spec.decline.get.reason === "exceeds the emitter's fused budget", clue)
+        }
+      }
+    for (lanes <- Seq(4, 2)) {
+      val longCap = if (lanes == 4) 64 else 16
+      // The review's example: a BIGINT chain beside a one-level int conjunct.
+      check(lanes, Seq(longDeep(longCap), intNear), Set.empty)
+      check(lanes, Seq(longDeep(16), intNear, longNear), Set.empty)
+      // One level past its cap the chain declines alone, and its neighbours still fuse.
+      val over = longDeep(longCap + 1)
+      check(lanes, Seq(over, intNear, longNear), Set(over))
+      // A deep int conjunct beside a BIGINT one keeps the int lane's 64 at either width.
+      check(lanes, Seq(intDeep(64), longNear), Set.empty)
+      check(lanes, Seq(intDeep(64), longDeep(longCap)), Set.empty)
+      val intOver = intDeep(65)
+      check(lanes, Seq(intOver, longNear, intNear), Set(intOver))
+      // And each alone, the fold of one conjunct.
+      check(lanes, Seq(longDeep(longCap)), Set.empty)
+      check(lanes, Seq(intDeep(64)), Set.empty)
     }
   }
 

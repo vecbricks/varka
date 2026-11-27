@@ -96,7 +96,7 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
         }
       }
     val auto = VarkaMatrix.base.withMaxChainDepth(VarkaEmitBudget.AUTO_CHAIN_DEPTH)
-      .withValidityByWidth(true)
+      .withValidityByWidth(true).withChainCapLongBits(0)
     def fits(root: VarkaVectorIR, options: VarkaEmitOptions): Boolean =
       VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](root), 2, options)
     // The emitter and the compiler's mirror both refuse the chain, the emitter naming the cap.
@@ -130,6 +130,64 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     refused(21, narrow.withMaxChainDepth(20), 20)
   }
 
+  test("a fold of conjuncts is held to the chain cap conjunct by conjunct, the emitter and " +
+      "the compiler's mirror alike (VARKA-697)") {
+    // VarkaEmitBudget.chainDepthExcess: each conjunct under a condition root's And nodes is held
+    // to the cap of its own values at its own height, a lifted one (every compared value a
+    // widening) read below the widenings, and the fold's And levels to 16. Catches: the cap
+    // taken of the whole fold, a tree of two lanes; the widening or an And level counted
+    // against a conjunct; a mixed comparison read as a lifted one; and the analysis and
+    // fitsBudgets drifting apart.
+    val auto = VarkaMatrix.base.withMaxChainDepth(VarkaEmitBudget.AUTO_CHAIN_DEPTH)
+      .withValidityByWidth(true).withChainCapLongBits(0)
+    val lit = new LiteralSlot(0, LaneType.LONG)
+    val intLit = new LiteralSlot(1, LaneType.INT)
+    def chain(lane: LaneType, column: Int, levels: Int): VarkaVectorIR =
+      (0 until levels).foldLeft[VarkaVectorIR](new ColumnRef(column, lane))((n, _) =>
+        new IntArith(IntOp.ADD, Overflow.WRAP, n, new ColumnRef(column + 1, lane)))
+    // A conjunct `levels` high on the long lane: a BIGINT one, and an int one lifted to it.
+    def long(levels: Int): Cond =
+      new Compare(CompareOp.GT, chain(LaneType.LONG, 0, levels - 1), lit)
+    def lifted(levels: Int): Cond = new Compare(CompareOp.GT,
+      new WidenLane(chain(LaneType.INT, 2, levels - 1), LaneType.LONG),
+      new WidenLane(intLit, LaneType.LONG))
+    def verdict(root: VarkaVectorIR, options: VarkaEmitOptions): Option[String] = {
+      val fits = VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](root), 4, options)
+      val refusal = try {
+        emitMulti(Seq(root), 4, 2, options)
+        None
+      } catch {
+        case e: IllegalArgumentException => Some(e.getMessage)
+      }
+      assert(fits === refusal.isEmpty, s"the mirror says $fits, the emitter $refusal")
+      refusal
+    }
+    def refused(root: VarkaVectorIR, options: VarkaEmitOptions, cap: Int): Unit =
+      assert(verdict(root, options).exists(_.contains(s"MAX_CHAIN_DEPTH=$cap")), s"cap $cap")
+    for (lanes <- Seq(2, 4)) {
+      val options = auto.withLanesOverride(lanes)
+      val longCap = if (lanes == 2) 16 else 64
+      assert(verdict(new And(long(longCap), lifted(64)), options).isEmpty, lanes)
+      assert(verdict(new And(lifted(64), new And(long(longCap), long(2))), options).isEmpty)
+      refused(new And(long(longCap + 1), lifted(2)), options, longCap)
+      refused(new And(long(2), lifted(65)), options, 64)
+      // A comparison of a BIGINT value with a widened int one is a tree of two lanes, as it is
+      // alone: 16 at either width.
+      val mixed = new Compare(CompareOp.GT, chain(LaneType.LONG, 0, 16),
+        new WidenLane(intLit, LaneType.LONG))
+      refused(new And(mixed, long(2)), options, 16)
+      refused(mixed, options, 16)
+      // An explicit cap is every conjunct's.
+      refused(new And(long(18), lifted(2)), options.withMaxChainDepth(17), 17)
+      assert(verdict(new And(long(17), lifted(17)), options.withMaxChainDepth(17)).isEmpty)
+      // The fold's own levels: 16 Ands over a conjunct fit, 17 do not.
+      def fold(levels: Int): Cond =
+        (0 until levels).foldLeft[Cond](long(2))((c, _) => new And(c, long(3)))
+      assert(verdict(fold(16), options).isEmpty, lanes)
+      refused(fold(17), options, 16)
+    }
+  }
+
   test("the default chain cap of every tree but a long-lane one is the same at every width " +
       "(VARKA-697)") {
     // Only a tree that holds the long lane alone reads the width. The int lane keeps 64 at every
@@ -137,7 +195,7 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // them, and DOUBLE's vector being as wide as the long one does not make the BIGINT reading
     // its own. A tree of two lanes keeps 16 too, whichever lane its root is on.
     val auto = VarkaMatrix.base.withMaxChainDepth(VarkaEmitBudget.AUTO_CHAIN_DEPTH)
-      .withValidityByWidth(true)
+      .withValidityByWidth(true).withChainCapLongBits(0)
     def greatests(lane: LaneType): VarkaVectorIR =
       (0 until 3).foldLeft[VarkaVectorIR](new ColumnRef(0, lane))(
         (n, _) => new Greatest(n, new ColumnRef(1, lane)))

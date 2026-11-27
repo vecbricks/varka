@@ -678,18 +678,19 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * to replay.
    */
   /**
-   * Whether the emitter's form without a byte budget holds a shape, as it holds every draw: the
-   * op cap and the chain depth. `fitsBudgets` reads only the budget from the options, and the
-   * budget is what is set to 0 here.
+   * Whether the emitter's form without a byte budget holds a shape under `options`, as it holds
+   * every draw: the op cap and the chain depth. The options are the draw's own with the budget
+   * set to 0, since `fitsBudgets` reads the chain cap from them: the cap the draw sets, or the
+   * auto cap of the tree at the lane count the draw emits at (`VarkaEmitBudget.chainDepthCap`).
    */
-  private def fitsWithoutBudget(roots: java.util.List[VarkaVectorIR], numInputs: Int): Boolean =
-    VarkaLoopEmitter.fitsBudgets(roots, numInputs,
-      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0))
+  private def fitsWithoutBudget(roots: java.util.List[VarkaVectorIR], numInputs: Int,
+      options: VarkaEmitOptions): Boolean =
+    VarkaLoopEmitter.fitsBudgets(roots, numInputs, options.withMethodByteBudget(0))
 
   private def runVariants(c: VarkaFuzzCase, iteration: Int): Unit = {
     val emit: VarkaVariantCheck.Emit = (roots, numInputs, numLiterals, options, className) =>
       emitOrSkip(s"${c.label} (a variant)", options,
-          !fitsWithoutBudget(roots.asJava, numInputs))(o => VarkaLoopEmitter.emitTraced(
+          !fitsWithoutBudget(roots.asJava, numInputs, options))(o => VarkaLoopEmitter.emitTraced(
         className, roots.asJava, numInputs, numLiterals, o, randomTrace))
     def failed(what: String, label: String, t: Throwable): Unit = {
       val signature = VarkaFailureSignature.of(t, label)
@@ -708,7 +709,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       val strangers =
         (0 until c.roots.size).map(i => c.roots.get((iteration + 1 + i) % c.roots.size))
       VarkaVariantCheck.variants(c, strangers, pool, iteration,
-        v => fitsWithoutBudget(v.roots, v.numInputs))
+        v => fitsWithoutBudget(v.roots, v.numInputs, c.options))
     } catch {
       case e: VirtualMachineError => throw e
       case e: InterruptedException => throw e
@@ -766,7 +767,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       case _ => VarkaVariants.untakenArm(c.roots, c.numInputs, VarkaVariantCheck.armOracle(c),
         VarkaVariants.valueSubtrees(c.roots), iteration).toScala
     }
-    first.exists(v => !fitsWithoutBudget(v.roots, v.numInputs))
+    first.exists(v => !fitsWithoutBudget(v.roots, v.numInputs, c.options))
   }
 
   /** A kernel's bytes under a class name, as the compiled histories take it. */

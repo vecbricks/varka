@@ -82,10 +82,13 @@ import org.apache.spark.sql.types.DataTypes;
  * single-level steps. The Catalyst tree is built once and handed to both {@code
  * VarkaExpressionCompiler} and Spark's {@code UnsafeProjection}, so the two arms evaluate one
  * expression, and the scalar loop is that expression written out in Java. Each emit asserts that
- * the compiled output's height is the depth its label names and that the default cap refuses it
- * past 16. The literal table is the same at every depth, so the broadcast hoist, a literal count
- * ({@code VarkaEmitBudget.HOIST_LITERALS}), is the same along the ladder; at depth 16 the kernel
- * under the raised cap is checked to be byte for byte the default's.
+ * the compiled output's height is the depth its label names and that the default options fuse
+ * it exactly up to the tree's default cap ({@code VarkaEmitBudget.chainDepthCap}: 64 on the int
+ * lane, and on the BIGINT lane 64 where the long vector is 256 bits or wider and 16 at 128
+ * bits). The literal table is the same at every depth, so the broadcast hoist, a literal count
+ * ({@code VarkaEmitBudget.HOIST_LITERALS}), is the same along the ladder; at every depth the
+ * default cap admits, the kernel under the raised cap is checked to be byte for byte the
+ * default's.
  *
  * <p><b>The values</b> keep the chain inside both lanes: {@code x} below 2^40 (BIGINT) or 2^20
  * (INT) in magnitude, {@code y} in [1, 1000], so each cycle shrinks the value by a quarter and

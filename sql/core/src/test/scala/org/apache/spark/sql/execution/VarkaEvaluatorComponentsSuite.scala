@@ -28,12 +28,16 @@ import org.apache.logging.log4j.Level
 import org.mockito.Mockito.{doAnswer, doThrow, mock, never, verify}
 
 import org.apache.spark.{SparkFunSuite, TaskContext}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, EvalMode,
+  Expression, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.codegen.{VarkaExpressionCompiler, VarkaOutputSpec}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFusedKernel,
-  VarkaHostIsa, VarkaKernelPlan, VarkaReproduction}
+  VarkaHostIsa, VarkaKernelPlan, VarkaMatrix, VarkaReproduction}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.varka.{VarkaBatchLedger, VarkaClassDump,
   VarkaFallbackAccounting, VarkaKernelRunner, VarkaReasonMetric}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.LongType
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
@@ -272,19 +276,25 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     // the two-lane refusal is the host's answer (VARKA-503); everything else is unset.
     conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaEmitOptions.USE_AVX_UNKNOWN)
     val host = VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host())
+    // The long vector's width is the driver's own fact, not a setting (VARKA-697): the lane
+    // count the suite's options pin where they pin one, the host's otherwise.
+    val pinned = VarkaColumnarToRowExec.currentEmitOptions.pinnedLongBits()
+    val bits = if (pinned != 0) pinned else VarkaHostIsa.host().longBits()
     assert(VarkaSessionEmit.of(conf) === new VarkaSessionEmit(
-      VarkaEmitOptions.USE_AVX_UNKNOWN, null, java.util.Set.of(), host))
+      VarkaEmitOptions.USE_AVX_UNKNOWN, null, java.util.Set.of(), host, null, bits))
     val base = VarkaEmitOptions.DEFAULTS
     assert(VarkaSessionEmit.DEFAULTS.apply(base) eq base)
     conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, 2)
     conf.setConfString(SQLConf.VARKA_EMIT_EXACT_REFUSAL_STATUS.key, "true")
     val session = VarkaSessionEmit.of(conf)
-    assert(session === new VarkaSessionEmit(2, java.lang.Boolean.TRUE, java.util.Set.of(), host))
-    assert(session.apply(base) === base.withUseAVX(2).withExactRefusalStatus(true))
+    assert(session ===
+      new VarkaSessionEmit(2, java.lang.Boolean.TRUE, java.util.Set.of(), host, null, bits))
+    assert(session.apply(base) ===
+      base.withUseAVX(2).withExactRefusalStatus(true).withChainCapLongBits(bits))
     conf.setConfString(SQLConf.VARKA_EMIT_EXACT_REFUSAL_STATUS.key, "false")
     val exactBase = base.withExactRefusalStatus(true)
     assert(VarkaSessionEmit.of(conf).apply(exactBase) === exactBase.withExactRefusalStatus(false)
-      .withUseAVX(2))
+      .withUseAVX(2).withChainCapLongBits(bits))
     intercept[IllegalArgumentException](new VarkaSessionEmit(-2, null))
     // The math family's opt-in mode (VARKA-345.md 2.6): unset leaves the base's, which is off,
     // and either value set is laid over a base with the other.
@@ -326,7 +336,9 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     assert(!dq.apply(VarkaEmitOptions.DEFAULTS).convertsFallBack())
     // aarch64 lowers both 64-bit conversions to instructions (VARKA-584), so it names level 3.
     assert(VarkaSessionEmit.of(conf, arm).useAVX === VarkaEmitOptions.AVX512_LEVEL)
-    assert(VarkaSessionEmit.of(conf, unread) === VarkaSessionEmit.DEFAULTS)
+    // An unreadable feature list sets no level; the width, read apart from it, still travels.
+    assert(VarkaSessionEmit.of(conf, unread) === new VarkaSessionEmit(
+      VarkaEmitOptions.USE_AVX_UNKNOWN, null, java.util.Set.of(), false, null, 256))
     for (level <- Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 2, 3)) {
       conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, level)
       assert(VarkaSessionEmit.of(conf, fallsBack).useAVX === level, s"level $level")
@@ -390,6 +402,80 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     }
   }
 
+  test("a deep BIGINT chain is admitted by the driver's long width on every JVM of the plan " +
+      "(VARKA-697)") {
+    // The default chain cap of a BIGINT tree follows the long vector's width, 64 levels at 256
+    // bits or wider and 16 at 128, and the plan's compile on the driver and the task's on an
+    // executor must admit alike. Catches: the width read from the compiling JVM where the
+    // session carries the driver's (a 128-bit driver's plan fusing on a wider executor, or a
+    // wide driver's entry demoted on a 128-bit executor, which is every batch on the fallback);
+    // a width the binding drops, or one that does not survive the trip to an executor; a
+    // suite's pinned lane count ignored by the binding; and a carried width that overrides an
+    // explicit cap. An executor of another width is this JVM with its lane count pinned.
+    val x = AttributeReference("x", LongType)()
+    val y = AttributeReference("y", LongType)()
+    val chain = (0 until 24).foldLeft[Expression](x)((e, _) => Add(e, y, EvalMode.LEGACY))
+    val project = Seq[NamedExpression](Alias(chain, "deep")(),
+      Alias(Add(x, y, EvalMode.LEGACY), "near")())
+    def fuses(options: VarkaEmitOptions): Boolean = VarkaExpressionCompiler.compilePartial(
+      project, Seq(x, y), options).get.specs.get(0).isInstanceOf[VarkaOutputSpec.FusedOutput]
+    val base = VarkaMatrix.base.withMaxChainDepth(0).withValidityByWidth(true)
+      .withLanesOverride(0).withChainCapLongBits(0)
+    val conf = new SQLConf
+    conf.setConfString(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, "false")
+    conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaEmitOptions.USE_AVX_UNKNOWN)
+    def driver(bits: Int): VarkaSessionEmit =
+      VarkaSessionEmit.of(conf, new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null, bits))
+    // The executor's own vector: this JVM's, then two, four and eight long lanes.
+    for (lanes <- Seq(0, 2, 4, 8)) {
+      val executor = base.withLanesOverride(lanes)
+      assert(!fuses(driver(128).apply(executor)),
+        s"a 128-bit driver's plan fused a 24-level BIGINT chain at $lanes executor lanes")
+      for (bits <- Seq(256, 512)) {
+        assert(driver(bits).apply(executor) === executor.withChainCapLongBits(bits))
+        assert(fuses(driver(bits).apply(executor)),
+          s"a $bits-bit driver's 24-level BIGINT chain was demoted at $lanes executor lanes")
+        // A cap that is set is still the cap.
+        assert(!fuses(driver(bits).apply(executor.withMaxChainDepth(16))))
+      }
+    }
+    // A session that carries no width leaves the compile its own, as a suite's evaluator has it.
+    assert(VarkaSessionEmit.DEFAULTS.longBits === 0)
+    assert(fuses(VarkaSessionEmit.DEFAULTS.apply(base.withLanesOverride(4))))
+    assert(!fuses(VarkaSessionEmit.DEFAULTS.apply(base.withLanesOverride(2))))
+    val unreadWidth = new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null, 0)
+    assert(VarkaSessionEmit.of(conf, unreadWidth).apply(base) eq base)
+    intercept[IllegalArgumentException](new VarkaSessionEmit(
+      VarkaEmitOptions.USE_AVX_UNKNOWN, null, java.util.Set.of(), false, null, -1))
+    // The binding the planner calls: the planted host's width, and a suite's pinned lane count
+    // in its place, so a suite pinned at two lanes plans as a 128-bit host does.
+    val hook = VarkaColumnarToRowExec.currentEmitOptions
+    VarkaSessionEmit.setHostForTesting(
+      new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null, 256))
+    try {
+      VarkaColumnarToRowExec.setEmitOptionsForTesting(base)
+      assert(VarkaSessionEmit.of(conf).longBits === 256)
+      for (lanes <- Seq(2, 4, 8)) {
+        VarkaColumnarToRowExec.setEmitOptionsForTesting(base.withLanesOverride(lanes))
+        assert(VarkaSessionEmit.of(conf).longBits === lanes * 64, lanes)
+      }
+      // A lane count the long lane cannot bake is no pin: the kernel runs at the host's width.
+      VarkaColumnarToRowExec.setEmitOptionsForTesting(
+        base.withLanesOverride(2).withValidityByWidth(false))
+      assert(VarkaSessionEmit.of(conf).longBits === 256)
+    } finally {
+      VarkaColumnarToRowExec.setEmitOptionsForTesting(hook)
+      VarkaSessionEmit.setHostForTesting(null)
+    }
+    // The record is what the plan carries: it reaches an executor with the width it left with.
+    val bytes = new java.io.ByteArrayOutputStream
+    val out = new java.io.ObjectOutputStream(bytes)
+    out.writeObject(driver(256))
+    out.close()
+    val in = new java.io.ObjectInputStream(new java.io.ByteArrayInputStream(bytes.toByteArray))
+    assert(in.readObject() === driver(256))
+  }
+
   test("a host's level takes the magic form only at a long species of 256 bits or more") {
     // VARKA-538 9.3: on the EPYC 7763 the magic form beat the conversions' fallback 20 to 1 at
     // 256 bits and lost 1 to 2 at 128, so a fallback host resolves to level 2 only where its
@@ -424,7 +510,11 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
     VarkaSessionEmit.setHostForTesting(new VarkaHostIsa.Reading("amd64", avx2, null, 128))
     try {
-      assert(VarkaSessionEmit.of(conf) === VarkaSessionEmit.DEFAULTS)
+      // Nothing set but the long vector's width, which the record carries beside the level
+      // (VARKA-697): the planted host's, or the lane count this suite's options pin.
+      val planned = VarkaSessionEmit.of(conf)
+      assert(planned === new VarkaSessionEmit(
+        unknown, null, java.util.Set.of(), false, null, planned.longBits))
     } finally {
       VarkaSessionEmit.setHostForTesting(null)
     }

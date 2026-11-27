@@ -18,11 +18,15 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.function.ToIntFunction;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.NarrowConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
@@ -326,16 +330,24 @@ final class VarkaEmitBudget {
    * benchmark has measured, and {@code DOUBLE}: its vector is as wide as the long one, but the
    * 64-bit reading is of BIGINT arithmetic, not of floating operations. A tree that holds a port
    * takes {@link #PORT_MAX_CHAIN_DEPTH} by auto, whatever its lanes.
+   *
+   * <p>This is the cap of a value root, a projection's entry. A condition root, a filter's fold
+   * of conjuncts, is held to it conjunct by conjunct ({@link #chainDepthExcess}).
    */
   public static int chainDepthCap(VarkaEmitOptions options, VarkaVectorIR root) {
+    return capOf(options, VarkaVectorIR.lanesIn(root), VarkaVectorIR.holdsReinterpret(root));
+  }
+
+  /** {@link #chainDepthCap} of a tree that holds {@code lanes}, and a port where {@code port}. */
+  private static int capOf(VarkaEmitOptions options, Set<VarkaVectorIR.LaneType> lanes,
+      boolean port) {
     int set = options.maxChainDepth();
     if (set != AUTO_CHAIN_DEPTH) {
       return set;
     }
-    if (VarkaVectorIR.holdsReinterpret(root)) {
+    if (port) {
       return PORT_MAX_CHAIN_DEPTH;
     }
-    Set<VarkaVectorIR.LaneType> lanes = VarkaVectorIR.lanesIn(root);
     if (lanes.equals(Set.of(VarkaVectorIR.LaneType.INT))) {
       return INT_LANE_MAX_CHAIN_DEPTH;
     }
@@ -348,16 +360,130 @@ final class VarkaEmitBudget {
   }
 
   /**
-   * The bits of the long vector a kernel emitted under {@code options} computes with: the lane
+   * The bits of the long vector the auto cap of a long-lane tree is resolved for. Where
+   * {@code options} name a width ({@link VarkaEmitOptions#chainCapLongBits}), it is that one: a
+   * session resolves it once on the driver and the plan carries it, so the compile at planning
+   * and an executor's compile of the same entry read one value whatever each JVM's own vectors
+   * are. Otherwise it is the width a kernel emitted under {@code options} computes with: the lane
    * count the emitter bakes for the long lane ({@link Lane#emitLanes}, which is
    * {@link VarkaEmitOptions#lanesOverride} where a test or the option matrix pins a width), and
    * where it bakes none this JVM's {@code LongVector.SPECIES_PREFERRED}, which the kernel then
-   * reads at run time and which {@code -XX:MaxVectorSize} narrows. It is the count the emitted
-   * class carries, so the cap and the kernel cannot disagree on the width.
+   * reads at run time and which {@code -XX:MaxVectorSize} narrows.
+   *
+   * <p>A named width decides the cap alone, never what is emitted: an executor whose long vector
+   * is narrower than the driver's emits the tree the driver admitted at its own lane count. The
+   * kernel answers the same and runs slower than the row path there (the 128-bit reading above),
+   * which is the price of one verdict for the whole plan.
    */
   static int longVectorBits(VarkaEmitOptions options) {
+    if (options.chainCapLongBits() != 0) {
+      return options.chainCapLongBits();
+    }
     int baked = Lane.emitLanes(options, Lane.LONG);
     return (baked != 0 ? baked : Lane.LONG.preferredLanes) * Long.SIZE;
+  }
+
+  /**
+   * The cap {@code root}'s chains are over, or 0 where they fit; {@code height} is the height of
+   * each node of its tree, as the caller counts it. The emitter's analysis and the compiler's
+   * budget check both ask here, so the two cannot disagree.
+   *
+   * <p>A value root is held whole: its height against {@link #chainDepthCap} of its tree.
+   *
+   * <p>A condition root is a filter's fused conjuncts, which the compiler folds into one tree of
+   * {@code And} nodes and the emitter computes in one loop. The cap bounds a chain of values,
+   * and the fold has none of its own: each conjunct, a subtree below the root's {@code And}
+   * nodes, is held to the cap of its own values at its own height, so a conjunct fits or not the
+   * same alone, first or last in the WHERE. A conjunct of a narrower lane is lifted to the lane
+   * the conjuncts meet on by widening the values it compares ({@code VarkaConditionCompiler}'s
+   * lifts). Such a conjunct, one whose every compared value is a {@link VarkaVectorIR.WidenLane},
+   * is read below the widenings, by the lanes and the height it has alone: an int conjunct beside
+   * a BIGINT one keeps the int lane's cap, and the BIGINT one the long lane's. Any other
+   * conjunct is read as it stands, so one that compares a BIGINT value with a widened int one is
+   * a tree of two lanes. The fold's own levels are {@code And}s of the conjuncts' masks, a
+   * logarithm of the conjunct count in the compiler's balanced fold; they count against no
+   * conjunct and are held to {@link #MAX_CHAIN_DEPTH}, or to the option where it is set.
+   */
+  static int chainDepthExcess(VarkaEmitOptions options, VarkaVectorIR root,
+      ToIntFunction<VarkaVectorIR> height) {
+    if (root instanceof VarkaVectorIR.Cond cond) {
+      return foldExcess(options, cond, 0, height, new HashMap<>());
+    }
+    int cap = chainDepthCap(options, root);
+    return height.applyAsInt(root) > cap ? cap : 0;
+  }
+
+  /**
+   * {@link #chainDepthExcess} of the fold below {@code cond}, which sits under {@code levels}
+   * of the root's {@code And} nodes; {@code deepest} is the most levels each node was met under,
+   * so a node the fold shares is asked once.
+   */
+  private static int foldExcess(VarkaEmitOptions options, VarkaVectorIR.Cond cond, int levels,
+      ToIntFunction<VarkaVectorIR> height, Map<VarkaVectorIR, Integer> deepest) {
+    Integer met = deepest.put(cond, levels);
+    if (met != null && met >= levels) {
+      deepest.put(cond, met);
+      return 0;
+    }
+    if (cond instanceof VarkaVectorIR.And and) {
+      int left = foldExcess(options, and.left(), levels + 1, height, deepest);
+      return left != 0 ? left : foldExcess(options, and.right(), levels + 1, height, deepest);
+    }
+    int foldCap =
+        options.maxChainDepth() != AUTO_CHAIN_DEPTH ? options.maxChainDepth() : MAX_CHAIN_DEPTH;
+    if (levels > foldCap) {
+      return foldCap;
+    }
+    var values = new ArrayList<VarkaVectorIR>();
+    comparedValues(cond, values, new HashSet<>());
+    boolean lifted = !values.isEmpty()
+        && values.stream().allMatch(v -> v instanceof VarkaVectorIR.WidenLane);
+    if (!lifted) {
+      int cap = chainDepthCap(options, cond);
+      return height.applyAsInt(cond) > cap ? cap : 0;
+    }
+    Set<VarkaVectorIR.LaneType> lanes = EnumSet.noneOf(VarkaVectorIR.LaneType.class);
+    boolean port = false;
+    for (VarkaVectorIR value : values) {
+      VarkaVectorIR own = VarkaVectorIR.unwidened(value);
+      lanes.addAll(VarkaVectorIR.lanesIn(own));
+      port |= VarkaVectorIR.holdsReinterpret(own);
+    }
+    int cap = capOf(options, lanes, port);
+    return liftedHeight(cond, height, new HashMap<>()) > cap ? cap : 0;
+  }
+
+  /** The values {@code cond} compares: its condition nodes' children that are no condition. */
+  private static void comparedValues(VarkaVectorIR.Cond cond, List<VarkaVectorIR> values,
+      Set<VarkaVectorIR> seen) {
+    if (!seen.add(cond)) {
+      return;
+    }
+    for (VarkaVectorIR child : VarkaVectorIR.childrenOf(cond)) {
+      if (child instanceof VarkaVectorIR.Cond c) {
+        comparedValues(c, values, seen);
+      } else {
+        values.add(child);
+      }
+    }
+  }
+
+  /** The height of a lifted conjunct's {@code node} with each compared value read unwidened. */
+  private static int liftedHeight(VarkaVectorIR node, ToIntFunction<VarkaVectorIR> height,
+      Map<VarkaVectorIR, Integer> memo) {
+    if (!(node instanceof VarkaVectorIR.Cond)) {
+      return height.applyAsInt(VarkaVectorIR.unwidened(node));
+    }
+    Integer known = memo.get(node);
+    if (known != null) {
+      return known;
+    }
+    int tallest = -1;
+    for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+      tallest = Math.max(tallest, liftedHeight(child, height, memo));
+    }
+    memo.put(node, tallest + 1);
+    return tallest + 1;
   }
 
   /**

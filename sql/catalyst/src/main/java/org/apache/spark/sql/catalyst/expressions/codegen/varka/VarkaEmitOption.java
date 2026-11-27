@@ -668,10 +668,12 @@ public sealed interface VarkaEmitOption
       // The fuzzer draws 16 and 32, so a draw past 16 is emitted and checked rather than skipped
       // on the trees whose default is 16; on a tree whose default is 64 they only lower it, and
       // no draw above 64 is made yet (VARKA-629 owes one). The long lane's default follows the
-      // width the draw emits at, which the fuzzer draws too (lanesOverride), so its auto draws
-      // run a long-lane tree past 16 at four and eight lanes and stop it at 16 at two. A cap
-      // changes no byte of a shape the default admits, but the matrix runs the suites under it
-      // (VARKA-620), so the tests that assert the default caps are listed in the skip list.
+      // width the draw emits at, which the fuzzer draws too (lanesOverride), but the grammar's
+      // draws are one to four levels deep and a variant grows one by a few, so no draw runs a
+      // long-lane tree between 17 and 64 levels: the emitter's long-lane suite, the compiler
+      // suite and the differential harness hold those depths. A cap changes no byte of a shape
+      // the default admits, but the matrix runs the suites under it (VARKA-620), so the tests
+      // that assert the default caps are listed in the skip list.
       new Count("maxChainDepth", Reason.KNOB, VarkaEmitBudget.AUTO_CHAIN_DEPTH,
           VarkaEmitOptions::maxChainDepth, Builder::maxChainDepth, new CountTag("chainDepth="),
           List.of(VarkaEmitBudget.MAX_CHAIN_DEPTH, 32), List.of(32)),
@@ -684,7 +686,17 @@ public sealed interface VarkaEmitOption
       // draw it. Its tag keeps the default's rendering empty.
       new Flag("uncountedMainLoop", Reason.REFERENCE, false,
           VarkaEmitOptions::uncountedMainLoop, Builder::uncountedMainLoop,
-          new FlagTag("uncountedMainLoop", true)));
+          new FlagTag("uncountedMainLoop", true)),
+      // The long vector's width the auto chain cap of a long-lane tree is resolved for
+      // (VARKA-697): 0, the default, is the width the compile emits at, and a session names its
+      // driver's, so that an executor of another width admits what the plan admitted. A machine
+      // fact and no form: it moves which trees are admitted and no byte. The fuzzer draws both
+      // sides of the 256-bit edge, and the matrix runs the suites as under a 128-bit driver,
+      // where a long-lane tree stops at 16 on a runner of any width. Its tag keeps the default's
+      // rendering empty.
+      new Count("chainCapLongBits", Reason.MACHINE, 0,
+          VarkaEmitOptions::chainCapLongBits, Builder::chainCapLongBits,
+          new CountTag("chainCapLongBits="), List.of(128, 256), List.of(128)));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

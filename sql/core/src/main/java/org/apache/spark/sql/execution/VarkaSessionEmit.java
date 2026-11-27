@@ -79,13 +79,23 @@ import org.apache.spark.sql.internal.SQLConf;
  *        contracted bound ({@code spark.sql.codegen.varka.math.ulpContract.enabled},
  *        {@code VARKA-345.md} 2.6), null to leave the base options' setting, which is off. An
  *        emit option, since it changes the form a math node takes and so its kernel's bytes.
+ * @param longBits the width in bits of the driver's long vector, which the default chain-depth
+ *        cap of a {@code BIGINT} tree is resolved for ({@code VarkaEmitOptions.chainCapLongBits},
+ *        VARKA-697), or 0 to leave the base options', whose default is the width of the JVM
+ *        that compiles. {@link #of} resolves it on the driver: the lane count the base options
+ *        pin where a suite pins one, the host's preferred long species otherwise. The cap reads
+ *        the vector width, and an executor's may differ from the driver's (another CPU, or
+ *        {@code -XX:MaxVectorSize} in its options alone), so the driver's travels with the plan
+ *        and the compile in a task admits the trees the plan admitted. An executor of a narrower
+ *        vector then emits such a tree at its own lane count: the answers are the same, and a
+ *        deep chain is slower there than on the row path ({@code VARKA-620.md} 9).
  */
 public record VarkaSessionEmit(
     int useAVX, @Nullable Boolean exactRefusalStatus, Set<VarkaFamily> familiesOff,
-    boolean declineTwoLaneConditions, @Nullable Boolean mathUlpContract)
+    boolean declineTwoLaneConditions, @Nullable Boolean mathUlpContract, int longBits)
     implements Serializable {
 
-  private static final long serialVersionUID = 4L;
+  private static final long serialVersionUID = 5L;
 
   private static final SparkLogger LOG = SparkLoggerFactory.getLogger(VarkaSessionEmit.class);
 
@@ -136,6 +146,9 @@ public record VarkaSessionEmit(
     if (useAVX < VarkaEmitOptions.USE_AVX_UNKNOWN) {
       throw VarkaErrors.illegalArgument("useAVX is a level from 0 or -1, got " + useAVX);
     }
+    if (longBits < 0) {
+      throw VarkaErrors.illegalArgument("a vector width is 0 or more bits, got " + longBits);
+    }
     familiesOff = Set.copyOf(familiesOff);
   }
 
@@ -144,10 +157,13 @@ public record VarkaSessionEmit(
     this(useAVX, exactRefusalStatus, Set.of(), false);
   }
 
-  /** The settings with the math family's opt-in mode left to the base options. */
+  /**
+   * The settings with the math family's opt-in mode and the long vector's width left to the base
+   * options.
+   */
   public VarkaSessionEmit(int useAVX, @Nullable Boolean exactRefusalStatus,
       Set<VarkaFamily> familiesOff, boolean declineTwoLaneConditions) {
-    this(useAVX, exactRefusalStatus, familiesOff, declineTwoLaneConditions, null);
+    this(useAVX, exactRefusalStatus, familiesOff, declineTwoLaneConditions, null, 0);
   }
 
   /**
@@ -158,18 +174,26 @@ public record VarkaSessionEmit(
     return new VarkaAdmission(familiesOff, declineTwoLaneConditions);
   }
 
-  /** The session's settings, read from {@code conf}: the one place they are bound. */
+  /**
+   * The session's settings, read from {@code conf}: the one place they are bound. The long
+   * vector's width is the one the driver's kernels are emitted for: the lane count the test
+   * hook's options pin where a suite or the option matrix pins one, so that a suite pinned at
+   * two lanes plans as a 128-bit host does, and the host's otherwise.
+   */
   public static VarkaSessionEmit of(SQLConf conf) {
     VarkaHostIsa.Reading planted = hostForTesting;
-    return of(conf, planted != null ? planted : VarkaHostIsa.host());
+    VarkaHostIsa.Reading host = planted != null ? planted : VarkaHostIsa.host();
+    int pinned = VarkaColumnarToRowExec$.MODULE$.currentEmitOptions().pinnedLongBits();
+    return bind(conf, host, () -> VarkaKernelPlan.twoLaneMasksFallBack(host),
+        pinned != 0 ? pinned : host.longBits());
   }
 
   /**
    * The same, with the host given: the level {@link #USE_AVX_FROM_HOST} resolves from it, and so
-   * does the two-lane refusal where the session does not set it.
+   * do the two-lane refusal where the session does not set it and the long vector's width.
    */
   static VarkaSessionEmit of(SQLConf conf, VarkaHostIsa.Reading host) {
-    return bind(conf, host, () -> VarkaKernelPlan.twoLaneMasksFallBack(host));
+    return bind(conf, host, () -> VarkaKernelPlan.twoLaneMasksFallBack(host), host.longBits());
   }
 
   /**
@@ -178,7 +202,8 @@ public record VarkaSessionEmit(
    */
   static VarkaSessionEmit of(SQLConf conf, VarkaHostIsa.Reading host, int preferredLongLanes) {
     return bind(conf, host,
-        () -> VarkaKernelPlan.twoLaneMasksFallBack(host, preferredLongLanes));
+        () -> VarkaKernelPlan.twoLaneMasksFallBack(host, preferredLongLanes),
+        preferredLongLanes * Long.SIZE);
   }
 
   /**
@@ -186,7 +211,7 @@ public record VarkaSessionEmit(
    * set the refusal.
    */
   private static VarkaSessionEmit bind(SQLConf conf, VarkaHostIsa.Reading host,
-      BooleanSupplier twoLaneMasksFallBack) {
+      BooleanSupplier twoLaneMasksFallBack, int longBits) {
     Option<Object> exact = conf.varkaEmitExactRefusalStatus();
     var off = EnumSet.noneOf(VarkaFamily.class);
     for (VarkaFamily family : VarkaFamily.values()) {
@@ -200,7 +225,7 @@ public record VarkaSessionEmit(
     return new VarkaSessionEmit(level == USE_AVX_FROM_HOST ? resolve(host) : level,
         exact.isDefined() ? (Boolean) exact.get() : null, off,
         twoLane.isDefined() ? (Boolean) twoLane.get() : twoLaneMasksFallBack.getAsBoolean(),
-        contract.isDefined() ? (Boolean) contract.get() : null);
+        contract.isDefined() ? (Boolean) contract.get() : null, longBits);
   }
 
   /**
@@ -268,7 +293,7 @@ public record VarkaSessionEmit(
   /** {@code base} with the session's settings laid over it, or {@code base} when none is set. */
   public VarkaEmitOptions apply(VarkaEmitOptions base) {
     if (useAVX == VarkaEmitOptions.USE_AVX_UNKNOWN && exactRefusalStatus == null
-        && mathUlpContract == null) {
+        && mathUlpContract == null && longBits == 0) {
       return base;
     }
     var options = base.toBuilder();
@@ -280,6 +305,9 @@ public record VarkaSessionEmit(
     }
     if (mathUlpContract != null) {
       options.mathUlpContract(mathUlpContract);
+    }
+    if (longBits != 0) {
+      options.chainCapLongBits(longBits);
     }
     return options.build();
   }

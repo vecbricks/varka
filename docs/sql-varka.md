@@ -2819,7 +2819,9 @@ The real current edges, stated with their numbers where they have one:
   `CodegenSupport`; whole-stage codegen splits at the boundary.
 * **Emitter caps**: chain depth 16 (64 for a chain on the `INT` lane alone, and
   on the `BIGINT` lane alone with 256-bit or wider vectors; at 128 bits a
-  `BIGINT` chain stays at 16), 64 distinct ops, 64 input columns per
+  `BIGINT` chain stays at 16; the width is the driver's, for every executor of
+  the plan, and in a filter the depth is each conjunct's own, whatever the
+  order of the conjuncts), 64 distinct ops, 64 input columns per
   kernel, and 16 literals per fused `IN` list. Since VARKA-20 the compiler
   mirrors the depth and op budgets and demotes an overflowing entry to
   residual with a recorded reason, instead of the whole kernel silently
