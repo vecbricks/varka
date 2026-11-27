@@ -1,16 +1,19 @@
 # VARKA-660: How precisions 7 to 9 enter the census
 
-*Planned on 27 November 2026, and revised the same day after a review that read it as the owner
-and as row 661's builder, and again after a confirming read (the band counts a precision only
-where the dependent call or cast is applied to a column of it; the build order is 6.0). The plan
-stands alone: an agent needs this file and the repository's `AGENTS.md` files. The row is a
-design and has no code part: it is done when the owner has chosen (section 13, question 1).
-Nothing is built from it before the owner's word: milestone 9 waits for it (`m9/PLAN.md`
+*Planned on 27 November 2026, revised the same day after two reviews, and decided the same day.
+The owner chose (b), two census types with the precision a band; that the seven date functions
+count over the two types, and over `ntz` and `ltz` too; and that a layout is no census type
+(section 13 has his words). The row's done-when is met by this file's own pull request, which
+also edits `VARKA-654.md` for the date functions (section 12). The plan stands alone: an agent
+needs this file and the repository's `AGENTS.md` files. The row is a design and has no code
+part. Nothing is built from it before the owner's word: milestone 9 waits for it (`m9/PLAN.md`
 decision 18), and row 661, which builds this design, also waits for row 654, which waits for
 milestone 8's close (decision 11). The code facts were checked on master `84d6b2aff10`, in
 `/home/max/proj/varka-m9-read-w`. Every count below was computed by a command of this file on
-that commit, over a scratch copy of the census as row 654's part b leaves it (section 3 says how
-the copy was made). Each count is a prediction: row 661 restates it by the command beside it.*
+that commit, over a scratch copy of the census as row 654's part b leaves it with section 12's
+edits (section 3 says how the copy was made). Each count is a prediction: row 661 restates it
+by the command beside it. The text of choices (a) and (c) stays, as the record of what was not
+chosen.*
 
 ## 1. What this row is
 
@@ -38,7 +41,7 @@ says what stood in for it.
 | :--- | :--- | :--- |
 | 661, the census and the cast matrix with the nanosecond types | the census types and their names, order and forms; the rule that turns Spark's six types into them; the cast table's legality, kinds, proofs and rows; the admission table's format and the command that writes its lines; the band; the one-off script for the curated file; the build order; the commands and what they print | sections 4 and 6 |
 | 662, the nanosecond layout | the two registry ids and their census names; the rule that a layout is not a census type; the 28 entries and the two casts whose cells name row 662 first | 4.4, 4.5, 4.7 |
-| 673, the nanosecond fields | its 17 entries and 34 pairs, each cell naming the row | 4.5 |
+| 673, the nanosecond fields | its 24 entries and 48 pairs, the seven date functions among them, each cell naming the row | 4.5 |
 | 674, the nanosecond casts | its 5 cast entries and the 20 cast pairs, with the forms the probe holds for each | 4.5, 4.6 |
 | 675, the nanosecond functions | its 12 entries and 23 pairs; the one entry whose answer depends on the precision, and what its fused claim needs | 4.4, 4.5 |
 | 655, the baselines | which precision a nanosecond baseline class reads (section 11, a seam) | 11 |
@@ -198,7 +201,12 @@ ANSI setting:
 **How the counts were made.** Row 654's planner left a copy of the census as its part b
 leaves it: the script, the registry's table, the curated file, the probe and the suites'
 record, which pass `--check` and print the summary of `VARKA-654.md` 4.10 (198 entries in
-scope, 1012 pairs, 129 legal cast pairs). This row copied that copy three times and applied
+scope, 1012 pairs, 129 legal cast pairs). This row first ran row 654's own one-off script
+again, with the two insertions of 12.2 that count the seven date functions for `ntz` and
+`ltz`, on the curated file that planner ran it on: 198 entries, 1026 pairs, 129 legal cast
+pairs, and `--check` passes. That is the base of every count here. Without the insertions
+the script gives the planner's curated file byte for byte, which shows the rerun is the
+planner's run. This row then copied the base three times and applied
 each choice to one: the script's edits, the two or six lines of the registry's table, the
 admission table as this row reads Spark, the probe's lines, and the curated file. Each of the
 three was made in the order of 6.0 and passes the script's doctests and `--check`. The edits
@@ -273,13 +281,13 @@ cast entry is not asked, since the cast table is held to `Cast` by its own suite
 | census types in all | 20 | 16 | 16 | row 654's 14 (`VARKA-654.md` 4.10), plus the line above |
 | entries that come into scope | 2 | 2 | 2 | `timestamp_nanos` and `unix_nanos`: command 6 |
 | entries in scope | 200 | 200 | 200 | row 654's 198, plus 2: command 2 |
-| entries asked of Spark | 59 | 59 | 59 | command 5, its first line; 4.5 lists them |
-| lines of the admission table | 354 | 118 | 118 | 59 entries times the new types: 59 x 6, 59 x 2 |
+| entries asked of Spark | 66 | 66 | 66 | command 5, its first line; 4.5 lists them: 59, and the seven date functions |
+| lines of the admission table | 396 | 132 | 132 | 66 entries times the new types: 66 x 6, 66 x 2 |
 | pairs Spark rejects, each with its reason | 15 | 5 | 5 | command 5: 2 cells of `ntz_ns` and 3 of `ltz_ns`; (a) has each at three precisions, 5 x 3 |
-| (entry, type) pairs admitted for each new type | 62 for each `ntz_ns<p>`, 61 for each `ltz_ns<p>` | `ntz_ns` 62, `ltz_ns` 61 | `ntz_ns` 62, `ltz_ns` 61 | command 2. 59 asked less 2 rejected is 57, less 3 is 56; the 5 cast entries admit both (4.5): 57 + 5 and 56 + 5 |
-| (entry, type) pairs admitted over the new types | 369 | 123 | 123 | 62 + 61; (a): 3 x 62 + 3 x 61 |
+| (entry, type) pairs admitted for each new type | 69 for each `ntz_ns<p>`, 68 for each `ltz_ns<p>` | `ntz_ns` 69, `ltz_ns` 68 | `ntz_ns` 69, `ltz_ns` 68 | command 2. 66 asked less 2 rejected is 64, less 3 is 63; the 5 cast entries admit both (4.5): 64 + 5 and 63 + 5 |
+| (entry, type) pairs admitted over the new types | 411 | 137 | 137 | 69 + 68; (a): 3 x 69 + 3 x 68 |
 | pairs the older types gain | 5 | 5 | 5 | `timestamp_nanos` over `byte`, `short`, `int`, `bigint` and `dec` (4.5) |
-| all (entry, type) pairs | 1386 | 1140 | 1140 | row 654's 1012, plus the two lines above: command 2's summary |
+| all (entry, type) pairs | 1442 | 1168 | 1168 | row 654's 1026 with the date functions (12.2), plus the two lines above: command 2's summary |
 | legal cast pairs added | 84 | 20 | 20 | command 3. (b): each new type with `date`, `time`, `ntz` and `ltz` both ways, 2 x 4 x 2 = 16, plus the 2 x 2 = 4 pairs among the two. (a): 6 x 4 x 2 = 48, plus the 6 x 6 = 36 among the six |
 | of them, legal under LEGACY, under ANSI, under TRY | 84, 84, 84 | 20, 20, 20 | 20, 20, 20 | command 3, its second line: `Cast`'s cases are the same in `canCast` and `canAnsiCast` (4.6) |
 | of them, identities the analyzer removes | 6 | 0 | 0 | (a): each of the six types to itself. (b): a type's own pair is a change of precision |
@@ -287,9 +295,9 @@ cast entry is not asked, since the cast table is held to `Cast` by its own suite
 | all legal cast pairs | 213 | 149 | 149 | row 654's 129, plus the pairs added |
 | lines the probe gains (one a legal cast of two forms) | 102 | 102 | 102 | command 4; 4.6 has the sum |
 | what carries a band | nothing: a precision is a type | 1 entry, `timestampadd` (2 pairs), and 6 cast pairs | nothing | 4.4; command 8 |
-| item 4 of 1.2, three quarters of each type's pairs | 47, 47, 47, 46, 46, 46: 279 pairs | 47 and 46: 93 pairs | 47 and 46: 93 pairs | three quarters of 62 is 46 and a half, and of 61 is 45 and three quarters; each is rounded up |
+| item 4 of 1.2, three quarters of each type's pairs | 52, 52, 52, 51, 51, 51: 309 pairs | 52 and 51: 103 pairs | 52 and 51: 103 pairs | three quarters of 69 is 51 and three quarters, rounded up to 52; of 68 it is 51 |
 | item 4 of 1.2, two thirds of the cast pairs | 56 of 84 | 14 of 20 | 14 of 20 | 84 x 2 / 3 is 56; 20 x 2 / 3 is 13.3, rounded up |
-| pairs whose kernel another pair of the same entry already is | 246 | 0 | 0 | (a)'s 369 less (b)'s 123: two of every three |
+| pairs whose kernel another pair of the same entry already is | 274 | 0 | 0 | (a)'s 411 less (b)'s 137: two of every three |
 | cast pairs whose kernel another cast pair already is, but for one literal | 64 | 0 | 0 | (a)'s 84 less (b)'s 20 |
 
 The probe is the same 102 lines in each choice, because the probe is over forms and Spark's
@@ -297,34 +305,36 @@ forms are six either way. The choices differ in how those lines group into pairs
 
 "About 20" cast pairs in `m9/PLAN.md` 1.2 and 2.4 is exactly 20 under (b) and (c).
 
-**The asked entries by a command.** On the census after row 654 this prints 58, and
-`unix_nanos` is the 59th:
+**The asked entries by a command.** On the census after row 654 this prints 65: the 58 that
+listed a timestamp before, and the seven date functions. `unix_nanos` is the 66th:
 
     awk -F'\t' '$4=="in" && (","$6",") ~ /,(ntz|ltz),/ {print $1}' sql/varka/plans/m9/census.tsv | grep -v -x -E 'cast|try_cast|boolean|tinyint|smallint|int|bigint|float|double|decimal|date|time|timestamp' | wc -l
 
-After row 661's edits, `python3 dev/varka_census.py --asked` prints the same count (6.5,
-command 5).
+After row 661's edits, `python3 dev/varka_census.py --asked` prints 66 (6.5, command 5).
 
-**The seven date functions are outside every number above.** `add_months`, `datediff`,
-`date_diff`, `date_add`, `dateadd`, `date_sub` and `unix_date` take a `DATE`, and Spark casts
-a nanosecond timestamp to it (4.5). Counting them would add 7 pairs to each new type: 14 pairs
-under (b) and (c), 42 under (a). Whether they count is question 3 of section 13.
+**The seven date functions are inside every number above**, by the owner's decisions of 27
+November 2026 (section 13, questions 3 and 8). `add_months`, `datediff`, `date_diff`,
+`date_add`, `dateadd`, `date_sub` and `unix_date` take a `DATE`, and Spark casts a timestamp
+to it (4.5). They are 7 pairs of each new type: 14 pairs under (b) and (c), 42 under (a).
+Without them the numbers were 59 entries asked, 62 and 61 pairs a type, 123 pairs, and 47
+and 46 for item 4.
 
 ### 4.3 What `--summary` prints
 
-Under (b), the lines that differ from row 654's summary (`VARKA-654.md` 4.10):
+Under (b), the lines that differ from row 654's summary (`VARKA-654.md` 4.10, with its
+correction for the date functions):
 
     in scope: 200 entries (173 classes)
       datetimeExpressions: 85 / 58
-    in scope, by need: done 62, plumbing 33, semantics 95, ulp 10, hard 0
-    (entry, type) pairs: 1140, fused today 585
+    in scope, by need: done 58, plumbing 33, semantics 99, ulp 10, hard 0
+    (entry, type) pairs: 1168, fused today 585
       byte    existing   54 / 82
       short   existing   54 / 82
       int     existing   68 / 101
       bigint  existing   62 / 92
       dec     existing    4 / 75
-      ntz_ns  new         0 / 62
-      ltz_ns  new         0 / 61
+      ntz_ns  new         0 / 69
+      ltz_ns  new         0 / 68
       up to 18, an unscaled long     45 / 75
       above 18, a lane pair          35 / 75
     nanosecond entries and cast pairs whose answer depends on the precision, with a matching coverage row at each of 7, 8 and 9:
@@ -340,18 +350,18 @@ The line of the excluded names with the reason "nanosecond timestamps, precision
 4.6. Under (c) the line that begins "nanosecond entries" and the three under it are absent,
 and nothing else differs from (b). Under (a) these lines differ from (b):
 
-    (entry, type) pairs: 1386, fused today 585
-      ntz_ns7 new         0 / 62
-      ntz_ns8 new         0 / 62
-      ntz_ns9 new         0 / 62
-      ltz_ns7 new         0 / 61
-      ltz_ns8 new         0 / 61
-      ltz_ns9 new         0 / 61
+    (entry, type) pairs: 1442, fused today 585
+      ntz_ns7 new         0 / 69
+      ntz_ns8 new         0 / 69
+      ntz_ns9 new         0 / 69
+      ltz_ns7 new         0 / 68
+      ltz_ns8 new         0 / 68
+      ltz_ns9 new         0 / 68
     cast pairs over the 20 types: 400 ordered, 213 legal
     legal under LEGACY: 213, under ANSI and TRY: 203
     by proof: SMT 80, exhaustion 70, zone 48, sampled 15
 
-### 4.4 The recommended design: (b)
+### 4.4 The chosen design: (b)
 
 **The types.** `ntz_ns` is `TimestampNTZNanosType(p)` and `ltz_ns` is
 `TimestampLTZNanosType(p)`, for every `p` from 7 to 9. Their registry ids come after
@@ -477,13 +487,18 @@ precision, its line joins `PRECISION` in the sync's pull request; if it is a cas
 ### 4.5 The entries
 
 **The entries asked.** An entry is asked of Spark when its types in the curated file hold
-`ntz` or `ltz`, or name a nanosecond type, and it is not a cast entry. That makes 59
-entries: 58 of the census after row 654, and `unix_nanos` (`asked_entries`, 6.1).
+`ntz` or `ltz`, or name a nanosecond type, and it is not a cast entry. That makes 66
+entries (`asked_entries`, 6.1): the 58 that listed a timestamp in the census before, the
+seven date functions, and `unix_nanos`.
 
-**Seven entries are not asked, though Spark accepts them.** They take a `DATE`, and the
-census lists no timestamp for them (fact 24): for `ntz` since milestone 8, and for `ltz` by
-row 654's question 5, which the owner approved ("keep that reading for `ltz`; a row that
-fuses one adds it", `VARKA-654.md` 4.13).
+**The seven date functions are asked, by the owner's decisions.** They take a `DATE`, and
+milestone 8's census lists no timestamp for them (fact 24). The owner counted them over the
+nanosecond types, and then over `ntz` and `ltz` too, so that every timestamp type reads the
+same way. Row 654 therefore writes `ntz,ltz` into their types (12.2, its rule 4), and they
+are asked here for the same reason as `year` or `last_day`: they list a timestamp. The
+one-off script of 6.3 has a guard for a census in which they list none: it would write the
+group `NS` into their types, which asks Spark and admits nothing by itself. On the base of
+this file it writes none.
 
 | entry | class | what Spark does with a nanosecond timestamp | where it is seen |
 | :--- | :--- | :--- | :--- |
@@ -493,10 +508,23 @@ fuses one adds it", `VARKA-654.md` 4.13).
 | `add_months` | `AddMonths` | accepted over both kinds, by the same rule | fact 25 |
 | `unix_date` | `UnixDate` | accepted over both kinds by the same rule (`UnixDate.inputTypes` is a `DATE`) | read from the code; the golden files have no call |
 
-Each of the seven over a timestamp is the `DATE` kernel behind a cast to `DATE`, and that
-cast is a pair of the cast table (4.6). This design keeps the reading: the three timestamp
-families are then counted alike. The size of the other answer is in 4.2: 7 pairs a type.
-Question 3 of section 13 puts it to the owner.
+Each of the seven over a timestamp is the `DATE` kernel behind a cast to `DATE`: the analyzer
+puts the cast under the node, so the entry's own node takes a `DATE`. A cell of this kind is
+claimed as `year` over `ntz` is claimed today: by the mark `~` and a note that quotes the
+coverage row, as in `last_day|...|date,ntz~|...|ntz through its date, the cast to DATE under
+the node: `last_day(ntz)``. So a claim of `ntz_ns~` for `add_months` quotes a coverage row
+`add_months(c, i)` over a column `c` of a nanosecond type.
+
+**Which row owes the seven.** Row 673, by the rule of this section for an entry on no list:
+not a cast, not an entry of every type, and its result is no timestamp, so it is "a field of a
+timestamp". That is also where its nearest siblings are: `last_day`, `next_day` and `trunc`
+take a `DATE` in the same way and are row 673's, and row 673 builds the kernel all of them
+share, the date of the microsecond word.
+
+**Every timestamp type of milestone 9's census then reads the same way.** The seven count
+over `ntz`, `ltz`, `ntz_ns` and `ltz_ns`. Milestone 8's census does not count them over `ntz`
+and stays so, since its files are frozen at its close; section 16 says where a reader of the
+two summaries finds that.
 
 | entries | count | Spark's answer over `ntz_ns` and `ltz_ns`, and where it is in the code | row that owes them |
 | :--- | ---: | :--- | :--- |
@@ -505,6 +533,7 @@ Question 3 of section 13 puts it to the owner.
 | `extract` | 1 | accepted: its `SECOND` is `SecondWithFractionNanos`, a `DECIMAL(11, 9)` at every precision; its other fields are the ones below | 662, then 673: "`second` with its fraction" |
 | `minute second` | 2 | accepted, as `hour` | 673 |
 | `day dayofmonth dayofyear month quarter dayofweek weekday weekofyear year` | 9 | accepted: `GetDateField` takes a `DATE`, and `AnsiGetDateFieldOperationsTypeCoercion` casts a nanosecond timestamp to it | 673 |
+| `add_months datediff date_diff date_add dateadd date_sub unix_date` | 7 | accepted: a `DATE` parameter, and a nanosecond timestamp is cast to it (the table above) | 673 |
 | `last_day next_day trunc` | 3 | accepted: a `DATE` parameter, and the implicit cast of a nanosecond timestamp to `DATE` stands (`TypeCoercionHelper.isNanosNarrowing` is false for `DATE`) | 673 |
 | `date_part datepart` | 2 | accepted, as `extract` | 673 |
 | `time_bucket` | 1 | accepted: `TimeBucket.inputTypes`; the result has the origin's second word | 673 |
@@ -518,13 +547,13 @@ Question 3 of section 13 puts it to the owner.
 | `months_between` | 1 | rejected over both, `DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE` (fact 10) | none: Spark's rejection is the reason |
 | `ntz_minus_ntz` | 1 | rejected over both, `UNSUPPORTED_FEATURE.TIMESTAMP_NANOS_SUBTRACTION` (fact 9) | none |
 
-So 57 of the 59 are accepted over `ntz_ns` and 56 over `ltz_ns`, and five (entry, type)
+So 64 of the 66 are accepted over `ntz_ns` and 63 over `ltz_ns`, and five (entry, type)
 cells are rejected.
 
 **The cast entries** are not asked. `cast` and `try_cast` admit every type with a legal pair,
 and the aliases `date`, `time` and `timestamp` admit each source `legal()` allows: five
-entries, each admitting both types. Row 674 owes them. With them `ntz_ns` has 62 pairs and
-`ltz_ns` 61.
+entries, each admitting both types. Row 674 owes them. With them `ntz_ns` has 69 pairs and
+`ltz_ns` 68.
 
 **The entries that come into scope**, two, both row 675's:
 
@@ -539,10 +568,10 @@ entries, each admitting both types. Row 674 owes them. With them `ntz_ns` has 62
 | row | entries | pairs under (b) and (c) | pairs under (a) |
 | ---: | ---: | ---: | ---: |
 | 662 | 28 | 56 | 168 |
-| 673 | 17 | 34 | 102 |
+| 673 | 24 | 48 | 144 |
 | 674 | 5, and the cast pairs | 10, and 20 cast pairs | 30, and 84 cast pairs |
 | 675 | 12 | 23 | 69 |
-| all | 62 | 123 | 369 |
+| all | 69 | 137 | 411 |
 
 **An entry on no list, at the build.** Spark's surface and milestone 8's census both move, so
 row 661 may find an accepted entry that the table above does not name. The one-off script of
@@ -642,6 +671,9 @@ over the whole range", and one long of nanoseconds is "an arm of each form over 
 4. The one long does not hold the type: Spark's range is the years 1 to 9999, and a long of
    nanoseconds is 1677 to 2262.
 
+**The owner agreed on 27 November 2026** (section 13, question 6): a layout is no census
+type, and a fused cell holds over the type's whole range.
+
 **What follows for a fused cell.** A cell of `ntz_ns` or `ltz_ns` is fused when the entry
 fuses under the default options and answers over the type's whole range. Row 662 keeps that
 true whatever its measurement says: the default arm is the two words, or it is the one long
@@ -694,22 +726,22 @@ A cast pair of the band that lacks a precision raises no error: it reads fused i
 | the registry's storage of the two types, the Arrow struct in and out, the conformance suites, the coverage columns, the choice of the default layout | 662 |
 | any fused cell of the two types | 662, 673 to 675 |
 | `timestampdiff` and `ts - ts` over nanoseconds, which Spark rejects | none (`m9/PLAN.md` 1.3) |
-| the seven date functions over a nanosecond timestamp (4.5) | none, unless the owner answers question 3 of section 13 the other way |
+| the seven date functions over `ntz` and `ltz`, in the census | 654, by the edits of 12.2; their fused cells: 672 for `ntz`, 668 for `ltz` |
 | one long at precisions 7 and 8 in the library | `VARKA-679.md` question 13, row 662 |
 | the nanosecond baseline classes | 655 |
 
 ## 5. The decision, and what each choice costs the rows after it
 
 The row has no code part. In place of parts it has one decision, and this section says what
-each choice costs. Section 6 is the sheet of the recommended choice, which row 661 takes.
+each choice costs. Section 6 is the sheet of the chosen one, (b), which row 661 takes.
 
 ### 5.1 The decision
 
 | choice | census types | (entry, type) pairs | legal cast pairs | what the census checks about the precision | pairs that repeat another pair's kernel |
 | :--- | :--- | ---: | ---: | :--- | ---: |
-| (a) | 6: `ntz_ns7` `ntz_ns8` `ntz_ns9` `ltz_ns7` `ltz_ns8` `ltz_ns9` | 369 | 84 | every cell at its own precision: a coverage row over a column of each of the six types, for every entry | 246, and 64 cast pairs |
-| **(b), recommended** | 2: `ntz_ns` `ltz_ns` | 123 | 20 | for `timestampadd`, a coverage row that holds its call with the `NANOSECOND` unit and a bare column of each precision as the timestamp; for each of the six cast pairs, a coverage row that casts a bare column of the source to the target at each precision; strings and comments do not count; for the rest, one row at any precision | 0 |
-| (c) | 2: `ntz_ns` `ltz_ns` | 123 | 20 | for every entry and cast pair, one coverage row at any precision; for a cast pair, also that the probe's line of each precision compiles | 0 |
+| (a) | 6: `ntz_ns7` `ntz_ns8` `ntz_ns9` `ltz_ns7` `ltz_ns8` `ltz_ns9` | 411 | 84 | every cell at its own precision: a coverage row over a column of each of the six types, for every entry | 274, and 64 cast pairs |
+| **(b), chosen** | 2: `ntz_ns` `ltz_ns` | 137 | 20 | for `timestampadd`, a coverage row that holds its call with the `NANOSECOND` unit and a bare column of each precision as the timestamp; for each of the six cast pairs, a coverage row that casts a bare column of the source to the target at each precision; strings and comments do not count; for the rest, one row at any precision | 0 |
+| (c) | 2: `ntz_ns` `ltz_ns` | 137 | 20 | for every entry and cast pair, one coverage row at any precision; for a cast pair, also that the probe's line of each precision compiles | 0 |
 
 None of the three checks the values a coverage row runs over (4.4).
 
@@ -722,10 +754,10 @@ words do not show the precision (4.5). Counted from 4.5's table as (a)'s pairs l
 | row | pairs under (a) | of them, a kernel another pair already is |
 | ---: | ---: | ---: |
 | 662 | 168 | 112 |
-| 673 | 102 | 68 |
+| 673 | 144 | 96 |
 | 674 | 30, and 84 cast pairs | 20, and 64 cast pairs |
 | 675 | 69 | 46 |
-| all | 369, and 84 cast pairs | 246, and 64 cast pairs |
+| all | 411, and 84 cast pairs | 274, and 64 cast pairs |
 
 Under (b) and (c) no pair repeats another. The only kernels that differ by precision are the
 six cast pairs of 4.6 and `timestampadd` with the `NANOSECOND` unit, each one kernel with
@@ -744,37 +776,38 @@ serve two entries, so fewer rows can do.
 | 661 | registry ids, and cases in the four switches that have one case an id (`VarkaTypes.entry`, `VarkaFuzzTypes`, `VarkaLaneArrow`, `VarkaConditionCompiler`) | 6, 24 | 2, 8 | 2, 8 | `git grep -l 'case TIMESTAMP ->' -- sql/catalyst/src sql/core/src` prints the four files; ids times 4 |
 | 661 | lines the census script gains, hand-written | 311 | 551 | 305 | on each copy, `diff <the script before> <the script after> \| grep -c '^>'`; at the build, the first number of `git diff --numstat origin/master -- dev/varka_census.py`. (b) less (c) is the band: 246 lines |
 | 661 | lines of `casts.tsv`, each with a kind, a proof and rows | 84 | 20 | 20 | 4.2 |
-| 661 | lines of the admission table, generated | 354 | 118 | 118 | 4.2 |
+| 661 | lines of the admission table, generated | 396 | 132 | 132 | 4.2 |
 | 661 | cast tests in `VarkaTypeConformance`, one a census type, each run by every conformance suite | 6 | 2 | 2 | one a census type (`VARKA-654.md` fact 10) |
 | 661 | columns of each of the three cast matrices in `docs/sql-varka.md` | 20 | 16 | 16 | the census types of 4.2 |
 | 662 | conformance suites, one a census type, about 80 lines each | 6 | 2 | 2 | fact 20: one a census type; `wc -l` of `VarkaTimestampNtzConformanceSuite.java` prints 79 |
 | 662 | first coverage rows of a type: a load, a comparison, a choice, an output | 24 | 8 | 8 | 4 a type (`sql/varka/ADDING_A_TYPE.md`, step 11) |
 | 662 | cells to claim, and coverage rows | 168 | 56 | 56 | 4.5's table of rows |
-| 673 | cells to claim, and coverage rows | 102 | 34 | 34 | 4.5's table of rows |
+| 673 | cells to claim, and coverage rows | 144 | 48 | 48 | 4.5's table of rows |
 | 674 | cells; cast pairs, each with its line and its proof kind | 30; 84 | 10; 20 | 10; 20 | 4.5; 4.2 |
 | 674 | coverage rows for the cast pairs, if all fuse | 78 | 32 | 20 | (a): 84 less the 6 identities, which need none. (c): one a pair. (b): the six pairs of the band need three each, 14 + 6 x 3 |
 | 675 | cells to claim; coverage rows | 69; 69 | 23; 27 | 23; 23 | 4.5; (b) adds two rows a type for `timestampadd` with `NANOSECOND` at the other two precisions |
-| all | coverage rows that item 4's three quarters of the pairs need, beside today's 868 | 279 | 97 | 93 | 4.2's 279 and 93; (b) adds the 4 rows of `timestampadd`; 868 is fact 20 |
+| all | coverage rows that item 4's three quarters of the pairs need, beside today's 868 | 309 | 107 | 103 | 4.2's 309 and 103; (b) adds the 4 rows of `timestampadd`; 868 is fact 20 |
 
 Three things follow that the table does not count.
 
 - **The fan-out's task plans.** A fan-out part is "two to four sibling entries", and a task
   plan is generated "For one entry and one type" (`m9/PLAN.md` section 3 and 2.7). Rows 673
-  and 674 have 22 entries (17 and 5, 4.5): 44 (entry, type) tasks under (b) and (c), 132
-  under (a), where 88 are a sibling's kernel with another type name.
+  and 674 have 29 entries (24 and 5, 4.5): 58 (entry, type) tasks under (b) and (c), 174
+  under (a), where 116 are a sibling's kernel with another type name.
 - **Every coverage row is compiled by every probe of the width audit**, whose cost is row
-  695's subject. The nanosecond pairs alone add 279 rows to 868 under (a), 97 under (b) and
-  93 under (c), before the cast pairs.
+  695's subject. The nanosecond pairs alone add 309 rows to 868 under (a), 107 under (b) and
+  103 under (c), before the cast pairs.
 - **The tests that tell three precisions apart** exist under each choice: the probe's 102
   form lines, and the conformance suite's fixture, which holds the forms of its type. So (b)
   loses no test that (a) has. What (a) adds is three census cells where one kernel is.
 
-### 5.4 The recommendation
+### 5.4 The recommendation, and the choice
 
-**(b).** The reasons, each a fact above:
+**The owner chose (b) on 27 November 2026.** The recommendation was (b), for these reasons,
+each a fact above:
 
 1. **(b) and (c) over (a).** The value is the same two words at every precision (fact 2). Of
-   the 57 entries that are not casts, 56 read the words alone. Six types make 246 pairs and
+   the 64 entries that are not casts, 63 read the words alone. Six types make 274 pairs and
    64 cast pairs out of kernels that already exist.
 2. **No new idea in the cast table.** The census already holds a precision in a type this
    way: `time` is one type with three forms, and its own pair is a real cast (fact 15).
@@ -802,7 +835,7 @@ machinery, (c) is (b) without edits 30 to 37 of 6.1, and the rest of this file s
 would change the names and most of section 6; the prototype of (a) exists and passes the
 same checks, and row 661's plan would be written from it.
 
-## 6. What row 661 builds from the recommended design
+## 6. What row 661 builds from the chosen design
 
 This section is not a part of row 660: row 660 builds nothing. It is the design's half of row
 661's sheet, the half that follows from the choice: the names, the build order, the script,
@@ -837,10 +870,10 @@ stand-in for each suite (section 3); the state after each step is the prototype'
 | 1 | The Java of 6.6: the two ids of `VarkaTypeId`, their two cases in `VarkaTypes.entry` and in the three other switches, `VarkaTypes.idOf`, the two cast tests of `VarkaTypeConformance`, the admission suite `VarkaNanosAdmissionSuite` with its table of calls (6.2), the pinned test | Java sources | `build/sbt catalyst/Test/compile` passes: a switch with no case for a new id does not compile |
 | 2 | `VARKA_TYPES_REGEN=true build/sbt 'catalyst/testOnly *VarkaTypesSuite'` | the two lines of `sql/varka/types.tsv` | `grep -c '_NANOS' sql/varka/types.tsv` prints `2`. Without this step the edited script's doctests fail, and `--asked` stops with `census: sql/varka/types.tsv has no ntz_ns or no ltz_ns: regenerate it first` |
 | 3 | The 38 edits of 6.1 | `dev/varka_census.py` | `python3 dev/varka_census.py --self-test; echo $?` prints `0`. `--check` fails until step 10 |
-| 4 | `python3 target/varka-661/ns_curated.py new sql/varka/plans/m9/census_curated.txt` (6.3) | the two entries that come into scope, and two header lines, in the curated file | it prints `2 entries added, 2 header lines added` |
-| 5 | `python3 dev/varka_census.py --asked` | `sql/varka/plans/m9/nanos_admission.tsv`: its header and a line for each asked entry and type, every answer `?` | it prints `sql/varka/plans/m9/nanos_admission.tsv: 59 entries, 118 lines, 118 to ask`. `--check` now prints one error a line of the table, each `<entry>: no answer yet in ...` |
+| 4 | `python3 target/varka-661/ns_curated.py new sql/varka/plans/m9/census_curated.txt` (6.3) | in the curated file: the two entries that come into scope and two header lines | it prints `2 entries added, 2 header lines added, 0 date functions now ask the two types` |
+| 5 | `python3 dev/varka_census.py --asked` | `sql/varka/plans/m9/nanos_admission.tsv`: its header and a line for each asked entry and type, every answer `?` | it prints `sql/varka/plans/m9/nanos_admission.tsv: 66 entries, 132 lines, 132 to ask`. `--check` now prints one error a line of the table, each `<entry>: no answer yet in ...` |
 | 6 | `VARKA_NANOS_ADMISSION_REGEN=true build/sbt 'catalyst/testOnly *VarkaNanosAdmissionSuite'` (6.2) | the answers of `nanos_admission.tsv`, in place | no `?` is left: `grep -c -P '\t\?\t' sql/varka/plans/m9/nanos_admission.tsv` prints `0` |
-| 7 | `python3 target/varka-661/ns_curated.py rows sql/varka/plans/m9/census_curated.txt sql/varka/plans/m9/nanos_admission.tsv` (6.3) | the row that owes each cell, in the curated file | it prints `61 entries edited, ...` (6.3). `--check` now prints one error, `census: cast date to ntz_ns is legal under legacy and the probe has no form of it` |
+| 7 | `python3 target/varka-661/ns_curated.py rows sql/varka/plans/m9/census_curated.txt sql/varka/plans/m9/nanos_admission.tsv` (6.3) | the row that owes each cell, in the curated file | it prints `68 entries edited, ...` (6.3). `--check` now prints one error, `census: cast date to ntz_ns is legal under legacy and the probe has no form of it` |
 | 8 | `VARKA_CASTS_REGEN=true build/sbt 'catalyst/testOnly *VarkaCastMatrixSuite'` | the probe's 102 lines in `sql/varka/plans/m9/casts_fused.tsv` | the suite writes the file and fails its legality test and the pinned test, because `casts.tsv` has no nanosecond pair yet: the same planned failure as `VARKA-654.md` 5.2, step 7. Any other failure ends the step |
 | 9 | `python3 dev/varka_census.py > /dev/null` | `sql/varka/plans/m9/census.tsv`, `casts.tsv`, and the support table of `docs/sql-varka.md` | it exits 0 |
 | 10 | `dev/varka_regen_generated.sh --all` | every other generated file; among them `sql/varka/plans/m9/casts_suites.tsv`, whose 36 lines get the two names from Spark's three cast suites under Varka in sql/core | it exits 0, and `python3 dev/varka_census.py --check; echo $?` prints `0` |
@@ -1780,11 +1813,11 @@ dev/varka_census.py --asked`, its answers by row 661's suite, and it is read by
   variable `VARKA_NANOS_ADMISSION_REGEN`, set to `true`. Step 6 of 6.0 and the script's
   remedy text use these names, so row 661's plan may not rename them.
 - **The call the suite builds for an entry.** One call an entry, from a table in the suite
-  that row 661's plan gives whole, one line for each of the 59 entries (its section on the
+  that row 661's plan gives whole, one line for each of the 66 entries (its section on the
   admission suite). The rule of each line: the entry's SQL as a user writes it, with a column
   `c` of the line's type in every timestamp parameter, a second column `c2` of the same type
   where the entry takes two, and a literal in every other parameter: `year(c)`, `c < c2`,
-  `date_trunc('HOUR', c)`, `timestampadd(NANOSECOND, 1, c)`.
+  `date_trunc('HOUR', c)`, `timestampadd(NANOSECOND, 1, c)`, `add_months(c, 1)`.
 - **What the suite does.** With its regeneration switch on, it reads the table's lines, and
   for each line builds the entry's call over a column of the line's type at each of the three
   precisions, analyzes it, and writes the three answers and the result. With the switch off,
@@ -1800,7 +1833,7 @@ dev/varka_census.py --asked`, its answers by row 661's suite, and it is read by
   would test Spark's widening, which is the cast table's, not the entry.
 
 What the table holds at the build is Spark's answer, not this file's. This file predicts it
-(section 8): 118 lines for 59 entries, every cell `accepted` but the five of 4.5, and `result`
+(section 8): 132 lines for 66 entries, every cell `accepted` but the five of 4.5, and `result`
 read on the nine entries that keep their input's type and are not curated as `same`:
 `from_utc_timestamp`, `to_utc_timestamp`, `date_trunc`, `convert_timezone`, `time_bucket`,
 `datetime_sub`, `ntz_plus_dt`, `ntz_plus_ym` and `timestampadd`.
@@ -1816,14 +1849,19 @@ spaces of every line removed, so that `#!/usr/bin/env python3` is its first line
 
 - `ns_curated.py new <curated file>` adds the lines of `timestamp_nanos` and `unix_nanos` at
   the end of the section `[registered]`, and two lines to the file's header, after the line
-  that explains `dec`. It prints `2 entries added, 2 header lines added`. It writes nothing
-  and exits non-zero when the entries are already there, or when it does not find exactly one
-  header line that begins `# (dec is DECIMAL up to precision 38` and exactly one line
-  `[implicit]`.
+  that explains `dec`. It also has a guard for the seven date functions (4.5): one that lists
+  neither `ntz` nor `ltz` nor `NS` gets the group `NS` at the end of its types, so that it is
+  asked. Row 654 lists `ntz,ltz` for all seven (12.2), so on this file's base the guard
+  writes nothing, and the step prints `2 entries added, 2 header lines added, 0 date
+  functions now ask the two types`. A number other than 0 there means row 654 was built
+  without 12.2's edits: the builder reports it and goes on, since the census is right either
+  way. The step writes nothing and exits non-zero when the entries are already there, when a
+  date function has no line, or when it does not find exactly one header line that begins
+  `# (dec is DECIMAL up to precision 38` and exactly one line `[implicit]`.
 - `ns_curated.py rows <curated file> <admission table>` gives each entry that Spark accepts
   over a nanosecond type, and each cast entry, the row that owes it (4.5). On the prototype
-  it prints `61 entries edited, 0 of them no longer done; 0 by default, 0 absent`. The 61
-  are the 57 accepted entries less `unix_nanos`, which came with its row in the first step,
+  it prints `68 entries edited, 0 of them no longer done; 0 by default, 0 absent`. The 68
+  are the 64 accepted entries less `unix_nanos`, which came with its row in the first step,
   and the five cast entries. At the build the numbers are the day's: an entry that row 656
   or a later row has made `done` by then loses it here, since an entry is `done` only when
   every type it admits is fused (the script sets `plumbing` for a cell of row 662's
@@ -1856,7 +1894,8 @@ description. The script is not committed.
         " > >= < <= greatest least hash xxhash64 in_set known_not_null try_eval",
         "662,673": "hour extract",
         "673": "day dayofyear dayofmonth last_day month next_day quarter trunc dayofweek weekday"
-        " weekofyear year minute second date_part datepart time_bucket",
+        " weekofyear year minute second date_part datepart time_bucket"
+        " add_months datediff date_diff date_add dateadd date_sub unix_date",
         "674": "cast try_cast date time timestamp",
         "675": "date_trunc timestampadd from_utc_timestamp to_utc_timestamp convert_timezone"
         " unix_seconds unix_millis unix_micros ntz_plus_dt ntz_plus_ym datetime_sub",
@@ -1874,9 +1913,18 @@ description. The script is not committed.
 
     # Two lines for the file's header, after the line that explains dec.
     HEADER = [
-        "# (ntz_ns and ltz_ns are TIMESTAMP_NTZ(p) and TIMESTAMP_LTZ(p), p from 7 to 9; NS is the two. An",
-        "# entry's nanosecond types are not typed here: the census takes them from nanos_admission.tsv)",
+        "# (ntz_ns and ltz_ns are TIMESTAMP_NTZ(p) and TIMESTAMP_LTZ(p), p from 7 to 9; NS is the two. NS in",
+        "# an entry's types asks Spark; the census admits the two types from nanos_admission.tsv alone)",
     ]
+
+
+    # The date functions that Spark takes over a nanosecond timestamp through a cast to DATE, and
+    # that count over the two types by the owner's word of 27 November 2026 (VARKA-660 4.5).
+    DATE_FUNCTIONS = "add_months datediff date_diff date_add dateadd date_sub unix_date".split()
+    DATE_NOTE = (
+        "a nanosecond timestamp through its date, the cast to DATE under the node; the microsecond"
+        " timestamps are not listed here (VARKA-654.md 4.13, question 5)"
+    )
 
 
     def split(line):
@@ -1932,10 +1980,25 @@ description. The script is not committed.
         k = close[0]
         while lines[k - 1] == "":
             k -= 1
+        # A date function is asked of Spark when its types name the nanosecond types. One that
+        # already lists a timestamp (ntz or ltz) is asked without it, and is left as it is.
+        asked, found = 0, set()
+        for i, line in enumerate(lines[: close[0]]):
+            fields = line.split("|")
+            if fields[0] in DATE_FUNCTIONS and len(fields) == 7 and not line.startswith("#"):
+                found.add(fields[0])
+                if not {"ntz", "ltz", "NS"} & set(fields[1].split(",")):
+                    fields[1] += ",NS"
+                    fields[6] = (fields[6] + "; " if fields[6] else "") + DATE_NOTE
+                    lines[i] = "|".join(fields)
+                    asked += 1
+        if len(found) != len(DATE_FUNCTIONS):
+            gone = ", ".join(sorted(set(DATE_FUNCTIONS) - found))
+            sys.exit(f"{path}: no line of [registered] for {gone}: nothing was written")
         lines[k:k] = NEW.rstrip("\n").split("\n")
         lines[anchor[0] + 1 : anchor[0] + 1] = HEADER
         open(path, "w", encoding="utf-8").write("\n".join(lines))
-        print("2 entries added, 2 header lines added")
+        print(f"2 entries added, 2 header lines added, {asked} date functions now ask the two types")
 
 
     def name_rows(path, admission):
@@ -1988,9 +2051,9 @@ description. The script is not committed.
 | file | what changes | by, in step |
 | :--- | :--- | :--- |
 | `sql/varka/types.tsv` | two lines after `TIMESTAMP`'s, with `ntz_ns` and `ltz_ns` in the column `census`, `declined` in `admission` and `-` in `lanes`, `conformance` and `conformance_row` | `VarkaTypesSuite`, from the registry; 2 |
-| `sql/varka/plans/m9/nanos_admission.tsv` | new, 118 lines | `--asked` and the admission suite; 5 and 6 |
+| `sql/varka/plans/m9/nanos_admission.tsv` | new, 132 lines | `--asked` and the admission suite; 5 and 6 |
 | `sql/varka/plans/m9/casts_fused.tsv` | 102 lines, each `declined` in the three modes | `VarkaCastMatrixSuite`; 8 |
-| `sql/varka/plans/m9/census.tsv`, `casts.tsv` | 65 census lines change: 2 move from out to in, 61 gain the types and the row that owes them, and 3 gain a reason, one of them among the 61; 20 cast lines are new | `python3 dev/varka_census.py`; 9 |
+| `sql/varka/plans/m9/census.tsv`, `casts.tsv` | 72 census lines change: 2 move from out to in, 68 gain the types and the row that owes them, and 3 gain a reason, one of them among the 68; 20 cast lines are new | `python3 dev/varka_census.py`; 9 |
 | `docs/sql-varka.md`, the support table | two lines of the by-type table, two columns and two lines of each cast matrix | `python3 dev/varka_census.py`; 9 |
 | `sql/varka/plans/m9/casts_suites.tsv` | 36 lines get `ntz_ns` or `ltz_ns` in `from` or `to`, and the file is sorted again | Spark's three cast suites under Varka; 10 |
 
@@ -2004,11 +2067,11 @@ builder with the command; the ones marked "fixed" are Spark's and move only with
     python3 dev/varka_census.py --check; echo $?                        # 0
     # 2. the two types
     python3 dev/varka_census.py --summary | grep -E '^  (ntz_ns|ltz_ns)  new'
-                                    #   ntz_ns  new         0 / 62
-                                    #   ltz_ns  new         0 / 61
+                                    #   ntz_ns  new         0 / 69
+                                    #   ltz_ns  new         0 / 68
     python3 dev/varka_census.py --summary | grep -E '^in scope:|pairs: '
                                     # in scope: 200 entries (173 classes)
-                                    # (entry, type) pairs: 1140, fused today 585
+                                    # (entry, type) pairs: 1168, fused today 585
     # 3. the cast pairs (fixed)
     awk -F'\t' '$1 ~ /_ns$/ || $2 ~ /_ns$/' $M9/casts.tsv | wc -l                                  # 20
     awk -F'\t' '($1 ~ /_ns$/ || $2 ~ /_ns$/) && $3=="yes" && $4=="yes" && $5=="yes"' $M9/casts.tsv | wc -l   # 20
@@ -2028,7 +2091,7 @@ builder with the command; the ones marked "fixed" are Spark's and move only with
     awk -F'\t' '$1 ~ /_ns$/ || $2 ~ /_ns$/' $M9/casts_fused.tsv | wc -l                            # 102
     awk -F'\t' '($1 ~ /_ns$/ || $2 ~ /_ns$/) && /fused/' $M9/casts_fused.tsv | wc -l               # 0
     # 5. the admission table (the day's Spark; this file's prediction beside it)
-    python3 dev/varka_census.py --asked                                 # sql/varka/plans/m9/nanos_admission.tsv: 59 entries, 118 lines, 0 to ask
+    python3 dev/varka_census.py --asked                                 # sql/varka/plans/m9/nanos_admission.tsv: 66 entries, 132 lines, 0 to ask
     git diff --stat -- $M9/nanos_admission.tsv                          # nothing: --asked changed no line
     awk -F'\t' 'NR>1 && !($3=="accepted" && $4=="accepted" && $5=="accepted") {print $1, $2, $3}' $M9/nanos_admission.tsv
                                     # months_between ntz_ns DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE
@@ -2087,7 +2150,7 @@ builder with the command; the ones marked "fixed" are Spark's and move only with
 | in `legal`, edit 7's list gains `"dt"` | `--self-test`, in `legal`'s doctests | `Expected: [(False, False), (False, False), (False, False), ...` and `Got: [(False, False), (False, False), (True, True), ...`; then `Expected: 20`, `Got: 24` |
 | in `PRECISION`, the keyword `"NANOSECOND"` becomes `"HOUR"` | `--self-test`: six examples of `nanos_bands` fail | the first: `bands("timestampadd(HOUR, i, n7) = n7 AND concat('NANOSECOND', 'x') IS NOT NULL")`, `Expected: []`, `Got: ['p7']` |
 | in `cast_rows`, edit 13's line returns `"674"` for every pair | `--check` exits 1 | `census: sql/varka/plans/m9/casts.tsv is stale; run dev/varka_census.py`; regenerated, command 3's fifth command prints nothing |
-| delete the line of `year` and `ntz_ns` from the admission table | `--check` exits 1 | `census: year: no line in sql/varka/plans/m9/nanos_admission.tsv says whether Spark takes a ntz_ns; run python3 dev/varka_census.py --asked, then VARKA_NANOS_ADMISSION_REGEN=true build/sbt 'catalyst/testOnly *VarkaNanosAdmissionSuite'`. Then `--asked` prints `... 59 entries, 118 lines, 1 to ask` and the line is back with `?` |
+| delete the line of `year` and `ntz_ns` from the admission table | `--check` exits 1 | `census: year: no line in sql/varka/plans/m9/nanos_admission.tsv says whether Spark takes a ntz_ns; run python3 dev/varka_census.py --asked, then VARKA_NANOS_ADMISSION_REGEN=true build/sbt 'catalyst/testOnly *VarkaNanosAdmissionSuite'`. Then `--asked` prints `... 66 entries, 132 lines, 1 to ask` and the line is back with `?` |
 | add a line of `abs` and `ntz_ns`, accepted, at the table's end | `--check` exits 1 | `census: sql/varka/plans/m9/nanos_admission.tsv: a line for abs over ntz_ns, which no entry asks`. Then `--asked` removes it |
 | reverse the table's lines under its header | `--check` exits 1 | `census: sql/varka/plans/m9/nanos_admission.tsv: its lines are not in the row order of census.tsv; run python3 dev/varka_census.py --asked, then VARKA_NANOS_ADMISSION_REGEN=true build/sbt 'catalyst/testOnly *VarkaNanosAdmissionSuite'` |
 | turn `months_between`'s line of `ntz_ns` to accepted | `--check` exits 1 | `census: sql/varka/plans/m9/census.tsv is stale; run dev/varka_census.py` and the same for `docs/sql-varka.md` |
@@ -2100,7 +2163,7 @@ builder with the command; the ones marked "fixed" are Spark's and move only with
 | `VarkaTypeId` | two members after `TIMESTAMP`, in this order: `TIMESTAMP_NTZ_NANOS`, `TIMESTAMP_LTZ_NANOS` | nothing |
 | `VarkaTypes.entry`, the two cases | census names `ntz_ns` and `ltz_ns`; SQL spellings `TIMESTAMP_NTZ(9)` and `TIMESTAMP_LTZ(9)`; three forms each, precisions 7, 8 and 9 in this order; no lanes; `Conformance.NotLanded`; an admission that declines | the decline's text, and the `Storage` of a struct of a long and a short, which it settles with row 662 |
 | `VarkaTypes.idOf` | every precision of a class gives the class's one id | the code |
-| the admission suite | its class `VarkaNanosAdmissionSuite`, its switch `VARKA_NANOS_ADMISSION_REGEN`, the file, who writes its lines and who its cells, what the suite reads and writes, the rule of its calls, and its rules (6.0, 6.2) | the Java, and the table of the 59 calls by 6.2's rule |
+| the admission suite | its class `VarkaNanosAdmissionSuite`, its switch `VARKA_NANOS_ADMISSION_REGEN`, the file, who writes its lines and who its cells, what the suite reads and writes, the rule of its calls, and its rules (6.0, 6.2) | the Java, and the table of the 66 calls by 6.2's rule |
 | `VarkaTypeConformance` | `CAST_TESTS` gains `"ltz_ns"` and `"ntz_ns"`, and two tests call `castTo("ntz_ns")` and `castTo("ltz_ns")`: without them every cast test of every conformance suite fails (`VARKA-654.md` fact 10) | their names and display names |
 | `VarkaCastMatrixSuite` | a pinned test: 20 pairs with a nanosecond type, all legal in the three modes; `ntz_ns>int` and `dt>ltz_ns` absent | the code, on the model of `timestampPairs` in `VARKA-654.md` 5.2, step 6 |
 | the new file among the generated files | it is generated, so it gets what `casts_fused.tsv` has: a line of `sql/varka/.gitattributes`, a `want` line of `dev/varka_regen_generated.sh`, and its name in `FILES` | the edits |
@@ -2132,13 +2195,13 @@ option matrix and the width audit read nothing of it.
 The row times nothing. Its predictions are counts, registered on 27 November 2026 before row
 661 is built. Each is scored by the command named, in row 661's outcome.
 
-1. Under (b), row 661's summary reads `ntz_ns  new  0 / 62` and `ltz_ns  new  0 / 61`, give or
+1. Under (b), row 661's summary reads `ntz_ns  new  0 / 69` and `ltz_ns  new  0 / 68`, give or
    take the entries that milestone 8's close and the syncs before row 661 add. Scored by
    command 2 of 6.5.
 2. The cast table gains exactly 20 legal pairs, each legal in the three modes, and
    `VarkaCastMatrixSuite` agrees with no edit of 4.6's table. Scored by command 3 and by the
    suite.
-3. Spark's analyzer gives the answers of 4.5: of 118 cells, 5 are rejections, with the two
+3. Spark's analyzer gives the answers of 4.5: of 132 cells, 5 are rejections, with the two
    error classes named there, and no entry has two answers at two precisions or under the two
    ANSI settings. Scored by command 5.
 4. The band is one entry, `timestampadd`, and six cast pairs when row 661 merges. Scored by
@@ -2161,7 +2224,7 @@ The row times nothing. Its predictions are counts, registered on 27 November 202
 The row is a design, written by the planner, and it has no part to hand to a cheaper model.
 Row 661 is not a fan-out row either (`m9/PLAN.md` section 3 names rows 667 to 669 and 672 to
 674 as the fan-out). Rows 673 and 674 are the cheaper models' (G5). What this design does for
-them is in 5.3: 44 tasks of one entry and one type, not 132.
+them is in 5.3: 58 tasks of one entry and one type, not 174.
 
 ## 10. Risks
 
@@ -2194,7 +2257,7 @@ them is in 5.3: 44 tasks of one entry and one type, not 132.
 9. **The one long becomes the default layout.** A fused cell would then hold for part of the
    range. Held by the rule of 4.7, which row 662's plan takes or answers.
 10. **A sixth generated file.** The admission table is one more file that a regeneration
-    writes and a merge driver merges. It is 118 lines and changes only at a sync or when an
+    writes and a merge driver merges. It is 132 lines and changes only at a sync or when an
     asked entry comes or goes.
 
 ## 11. Seams with the plans written beside this one
@@ -2222,9 +2285,9 @@ second word is 0 (`VARKA-679.md` 4.9). Nothing of row 690's names is fixed here.
 
 - `VARKA-654.md`: this design extends exactly what it makes (`MILESTONES[9]`, `legal`,
   `cast_kind`, `cast_proof`, `cast_rows`, `NANOS`). Nothing of it must change. Its 4.5 says
-  "the nanosecond types join both lists with row 661", which edit 3 does. Its question 5,
-  which the owner approved, keeps the date functions' reading for `ltz`; question 3 of
-  section 13 recommends the same for the nanosecond types.
+  "the nanosecond types join both lists with row 661", which edit 3 does. Its question 5
+  kept the date functions out of `ltz`'s count; the owner has now counted them for every
+  timestamp type, and 12.2 has the edits of `VARKA-654.md` that follow.
 - `VARKA-656.md`: its registry has "two predicates (`isNtz`, `isLtz`); `isLtz` is false for the
   nanosecond types". This design keeps that: the two new ids are their own.
 - `VARKA-679.md`: its 10.1 assumes "Row 660 decides how precisions 7 to 9 enter the census.
@@ -2234,123 +2297,322 @@ second word is 0 (`VARKA-679.md` 4.9). Nothing of row 690's names is fixed here.
 **Row 662** has no plan yet. What this row assumes of it is 4.7's rule and the registry
 line of 6.6's last table.
 
-## 12. Edits to other plans
+## 12. Edits to other plans, made by this plan's own pull request
 
-### 12.1 Made by this plan's own pull request
+The pull request records the owner's answers of 27 November 2026, so row 660 goes from Filed to
+Done in it. The 22 edits are also a script, `apply_section12.py`, which holds the same old and
+new texts in a table; the lead applies them with it, and it changes nothing unless every old
+text and anchor occurs exactly once. In a block below, the four leading spaces are the page's:
+what follows them is the file's text, its own leading spaces included. Each old text below was
+found exactly once in its file at `84d6b2aff10`, which is `origin/master` (`git -C
+/home/max/proj/vecbricks-varka show origin/master:<file>`); a line is quoted whole, with its
+leading spaces.
 
-One edit of `sql/varka/plans/m9/PLAN.md`: row 660's status. It states no count and no choice.
-The old text was found exactly once, on one line, at `84d6b2aff10`. It is part of row 660's
-line in section 3:
+### 12.1 `sql/varka/plans/m9/PLAN.md`: seven edits
+
+**1. Row 660's line (section 3).** The old text, which is part of the line:
 
     How precisions 7 to 9 enter the census. **Filed** (25 November 2026; the admission check:
 
 The new text in its place, on the same line:
 
-    How precisions 7 to 9 enter the census. **Planned** (`VARKA-660.md`, 27 November 2026: a design with three choices and their counts, and the half of row 661's sheet that follows from the choice; the owner chooses by question 1 of its section 13; filed 25 November 2026; the admission check:
+    How precisions 7 to 9 enter the census. **Done** (`VARKA-660.md`, 27 November 2026: a design with three choices and their counts; the owner chose (b) the same day, two census types, `ntz_ns` and `ltz_ns`, with the precision a band on `timestampadd` and on six cast pairs, and chose that the seven date functions that take a `DATE` count over them: 137 (entry, type) pairs and 20 cast pairs; row 661 builds it from the plan's section 6; filed 25 November 2026; the admission check:
 
-### 12.2 Made when the owner has chosen
+**2. Decision 7 (section 1).** After the line that ends the decision,
 
-The pull request that records the choice makes these edits of `sql/varka/plans/m9/PLAN.md`
-and builds nothing. It also writes this file's section 15. Each old text below was found
-exactly once at `84d6b2aff10`; a line is quoted whole, with its leading spaces. In each new
-text, `<the date>` is the day of the choice.
+       it.
 
-**Decision 7 (section 1).** After the line `   it.`, which ends the decision, one new line.
-For (b): `   *<the date>:* the owner chose two types with a band, choice (b) of `VARKA-660.md`.`
-For (c): `   *<the date>:* the owner chose two types and no band, choice (c) of `VARKA-660.md`.`
-For (a): `   *<the date>:* the owner chose six types, choice (a) of `VARKA-660.md`.`
+two new lines:
 
-**Row 660's line (section 3).** `**Planned**` becomes `**Done**`, and after
-`27 November 2026:` the words `the owner chose (b) on <the date>;` come in, with the
-letter of the choice.
+       *27 November 2026:* the owner chose two types with a band, choice (b) of `VARKA-660.md`, and
+       that the seven date functions that take a `DATE` count over the two types.
 
-**Item 4 of 1.2.** Old, two lines:
+**3. Item 4 of 1.2.** Old, two lines:
 
        least two thirds of the nanosecond types' cast pairs row 661 adds (about 20) fused or
        declined with their reason.
 
-New for (b) and for (c), two lines:
+New, three lines:
 
        least two thirds of the nanosecond types' cast pairs row 661 adds (20, `VARKA-660.md` 4.2)
-       fused or declined with their reason.
+       fused or declined with their reason. On the counts of `VARKA-660.md` 4.2 that is 52 of
+       `ntz_ns`'s 69 pairs, 51 of `ltz_ns`'s 68, and 14 of the 20 cast pairs.
 
-New for (a): the same two lines with `84` in place of `20`.
-
-**Section 2.4, the bullet "The nanosecond types (row 661)".** Old, three lines:
+**4. Section 2.4, the bullet "The nanosecond types (row 661)".** Old, three lines:
 
       census sets it and does not rely on the default. The nanosecond types add about 20 cast pairs:
       with `DATE`, `TIME`, the two microsecond timestamps and each other. Row 681's
       register of upstream behaviours takes SPARK-56822, the preview, as a moving dependency.
 
-New for (b) and for (c), three lines:
+New, three lines:
 
       census sets it and does not rely on the default. The nanosecond types add 20 cast pairs
       (`VARKA-660.md` 4.6): with `DATE`, `TIME`, the two microsecond timestamps and each other. Row
       681's register of upstream behaviours takes SPARK-56822, the preview, as a moving dependency.
 
-New for (a): the same three lines with `84` in place of `20`.
+**5. Section 2.5, the bullet "Precision".** After its last line,
 
-**Section 2.5, the bullet "Precision".** After its last line, `  rows whose kernels are the
-same.`, new lines. For (b), three:
+      rows whose kernels are the same.
 
-      *<the date>:* the owner chose two types with a band (`VARKA-660.md`): 123 (entry, type)
-      pairs and 20 cast pairs, where six types give 369 and 84. The answer depends on the
-      precision in `timestampadd` with the `NANOSECOND` unit and in six cast pairs.
+four new lines:
 
-For (c), three:
+      *27 November 2026:* the owner chose two types with a band (`VARKA-660.md`): 137 (entry, type)
+      pairs and 20 cast pairs, where six types give 411 and 84. The answer depends on the
+      precision in `timestampadd` with the `NANOSECOND` unit and in six cast pairs. The seven date
+      functions that take a `DATE` count over the two types, by his word of the same day.
 
-      *<the date>:* the owner chose two types and no band (`VARKA-660.md`): 123 (entry, type)
-      pairs and 20 cast pairs, where six types give 369 and 84. The answer depends on the
-      precision in `timestampadd` with the `NANOSECOND` unit and in six cast pairs.
+**6. Row 654's line (section 3).** Old, part of the line:
 
-For (a), two:
+    and 70 entries that admit the type
 
-      *<the date>:* the owner chose six types, one a kind and a precision (`VARKA-660.md`): 369
-      (entry, type) pairs and 84 cast pairs, where two types give 123 and 20.
+New:
 
-**If the owner answers question 3 with "count them",** the pair counts above grow by 7 a
-type (4.2), and the pull request writes 137 for 123 under (b) and (c), and 411 for 369 under
-(a); the cast pairs do not change.
+    and 77 entries that admit the type
 
-## 13. Open questions for the owner
+**7. Item 3 of 1.2.** After its last line,
 
-The plan is written on the first answer of each.
+       `m8/casts.tsv` with a temporal side, plus `TIMESTAMP_LTZ`'s pairs row 654 adds (23).
 
-1. **How do precisions 7 to 9 enter the census?** This is the row's decision.
+three new lines:
+
+       *27 November 2026:* milestone 9's census counts the seven date functions that take a `DATE`
+       over `TIMESTAMP_NTZ` and `TIMESTAMP_LTZ` too (`VARKA-660.md` 16): 7 pairs more in this
+       item's count, and 7 more in item 1's, which then reads 77 entries.
+
+### 12.2 `sql/varka/plans/m9/VARKA-654.md`: twelve edits
+
+They make the seven date functions count for `ntz` and `ltz` in milestone 9's census, by the
+owner's answer to question 8. `<the date>` in them is 27 November 2026. The file's other
+mentions of the old numbers stay as registered, under the correction of edit 5: the house
+does not retro-edit a prediction, and row 654's build restates each count by its command.
+
+**1. Section 4.4, where a reader of the two summaries looks.** After the line that ends the
+section's last bullet,
+
+      first two in milestone 9's file.
+
+four new lines:
+
+    - **The seven date functions read two ways across the two milestones, on purpose.** Milestone
+      8's files are frozen, so `--milestone 8 --summary` counts no timestamp for them; milestone
+      9's summary counts `ntz` and `ltz` (4.7, rule 4). For this reason alone `ntz` admits 7 pairs
+      more in milestone 9's summary than in milestone 8's.
+
+**2. Section 4.7, a fourth rule.** After the line
+
+    3. **A cast alias** (types `legal`) takes `ltz` as a source from `legal()`.
+
+five new lines:
+
+    4. **A date function that Spark takes over a timestamp through a cast to `DATE`** (`add_months`,
+       `datediff`, `date_diff`, `date_add`, `dateadd`, `date_sub`, `unix_date`) gets `ntz,ltz` at the
+       end of its types (the owner, 27 November 2026; `VARKA-660.md` 16). Milestone 8's census
+       lists no timestamp for these seven, and stays so (4.4). Row 672 owes `ntz`, and row 668
+       owes `ltz`.
+
+**3. Section 4.7, the table of rows.** After the table's line that begins `| 671 |`, one new
+line:
+
+    | 668, and 672 for `ntz` | `add_months datediff date_diff date_add dateadd date_sub unix_date` (7) | rule 4. `ltz`: row 668, by the rule of this section for an entry that "lists `ntz` otherwise", a field of a timestamp, and beside `last_day`, `next_day` and `trunc`, which take a `DATE` the same way. `ntz`: row 672, "the existing temporal types' tail", named because its done-when is item 3 of `m9/PLAN.md` 1.2, which these pairs join |
+
+**4. Section 4.7, the count.** Old, two lines:
+
+    That is 62 entries on master `a0e3a62cf2b`: 28 by rule 1 (24 registered and 4 implicit), 24 by
+    rule 2, 10 by rule 3. The implicit entries keep their names (`ntz_minus_ntz`, `ntz_plus_dt`,
+
+New, three lines:
+
+    That is 69 entries on master `a0e3a62cf2b`: 28 by rule 1 (24 registered and 4 implicit), 24 by
+    rule 2, 10 by rule 3 and 7 by rule 4. The implicit entries keep their names (`ntz_minus_ntz`,
+    `ntz_plus_dt`,
+
+**5. Section 4.10, a correction.** After the line
+
+      fused of 282 before and 210 of 297 after part b.
+
+six new lines:
+
+    - ***27 November 2026*, a correction: the date functions count for `ntz` and `ltz`** (4.7, rule
+      4; `VARKA-660.md` 16). Part b's numbers, here and wherever this file repeats them, read: 77
+      `ltz` pairs for 70; 1026 pairs for 1012; 53 pairs gained by the other types for 46, `ntz`
+      12 of them for 5; 69 entries edited for 62; 27 no longer `done` for 23, the four more
+      being `add_months`, `datediff`, `date_diff` and `unix_date`; 58 entries `done` for 62; and
+      210 of 304 for 210 of 297 in item 3. The pairs fused stay 585.
+
+**6. Section 4.12, the table's line of the date functions.** Old, the whole line:
+
+    | a date function over a timestamp that milestone 8's census does not list for `ntz` (`date_add`, `add_months`, `datediff`, `unix_date`) | none: the census keeps milestone 8's reading (4.13, question 5) |
+
+New:
+
+    | a fused cell of a date function over a timestamp (4.7, rule 4) | 672 for `ntz`, 668 for `ltz` |
+
+**7. Section 4.13, question 5.** After its last line,
+
+       `DATE` parameter. Recommended: keep that reading for `ltz`; a row that fuses one adds it.
+
+three new lines:
+
+       *27 November 2026:* the owner chose the other answer, after he counted them for the
+       nanosecond types (`VARKA-660.md` 13): the seven date functions, these four and `date_diff`,
+       `dateadd` and `date_sub`, count for `ntz` and `ltz` in milestone 9's census (4.7, rule 4).
+
+**8. Section 1, the check of G1.** Old, the whole line:
+
+      pairs fused and admitted, `0 70` on master `a0e3a62cf2b`.
+
+New:
+
+      pairs fused and admitted, `0 77` on master `a0e3a62cf2b`.
+
+**9. Section 5.2, step 4, what the script prints.** Old, the whole line:
+
+       `a0e3a62cf2b` it prints one line, `62 entries edited, 23 of them no longer done, 16 added; 0
+
+New:
+
+       `a0e3a62cf2b` it prints one line, `69 entries edited, 27 of them no longer done, 16 added; 0
+
+**10. Section 5.2, command 3's comment.** Old, part of the line:
+
+    (the line itself is "  ltz     new         0 / 70" on a0e3a62cf2b)
+
+New:
+
+    (the line itself is "  ltz     new         0 / 77" on a0e3a62cf2b)
+
+**11. Section 7, prediction P3.** Old, the start of the table's line:
+
+    | P3 | `ltz` admits 70 pairs and fuses none | `  ltz     new         0 / 70` |
+
+New:
+
+    | P3 | `ltz` admits 77 pairs and fuses none | `  ltz     new         0 / 77` |
+
+**12. Section 5.2, the script of step 4,** two insertions. After the line
+
+        ZONE_FREE = {"656", "667"}  # their kernels read no zone: what is left is plumbing
+
+five new lines:
+
+        # The date functions that Spark takes over a timestamp through a cast to DATE. Milestone 8's
+        # census lists no timestamp for them; milestone 9's counts them for both microsecond timestamps
+        # (VARKA-660.md 16). ntz is row 672's, the existing temporal types' tail; ltz is row 668's, with
+        # the fields.
+        DATE_FUNCTIONS = "add_months datediff date_diff date_add dateadd date_sub unix_date".split()
+
+And in `edit`, after the line
+
+            types, result, need, rows, note = (first + i for i in (0, 1, 3, 4, 5))
+
+twelve new lines:
+
+            if name in DATE_FUNCTIONS and first == 1:
+                if {"ntz", "ltz"} & set(fields[types].split(",")):
+                    sys.exit(f"already has a timestamp: {name}")
+                fields[types] += ",ntz,ltz"
+                if fields[need] == "done":
+                    fields[need] = "semantics"
+                    UNDONE.append(name)
+                held = [r for r in fields[rows].split(",") if r]
+                fields[rows] = ",".join(held + ["672", "668"])
+                add = "a timestamp through its date, the cast to DATE under the node: ntz is row 672's,"
+                fields[note] = (fields[note] + "; " if fields[note] else "") + add + " ltz row 668's"
+                return fields
+
+**These edits were run.** Row 654's script, taken out of `VARKA-654.md` as merged, gives its
+planner's curated file byte for byte. With the two insertions, on the same input, it prints
+`69 entries edited, 27 of them no longer done, 16 added; 0 by default, 0 skipped, 0 absent`.
+The census then passes `--check`; its summary reads `  ltz     new         0 / 77`,
+`  ntz     existing   49 / 66`, `(entry, type) pairs: 1026, fused today 585` and `in scope, by
+need: done 58, plumbing 33, semantics 97, ulp 10, hard 0`; and command 9 of `VARKA-654.md`
+5.2, "every ltz cell names a row of milestone 9", still prints `0`. This row's own prototype
+was then run on that census (section 3).
+
+### 12.3 `sql/varka/plans/m9/VARKA-656.md`: three edits
+
+It quotes `ltz`'s count as `N`, "70 on the plan's commit". `N` is 77 with the date functions.
+Its `23 / N` keeps its 23: row 656 fuses no date function.
+
+**1. Part A, B0, line 5's comment.** Old, part of the line:
+
+    note N (70 on the plan's commit)
+
+New:
+
+    note N (77 on the plan's commit)
+
+**2. The predictions, item 3.** Old, two lines:
+
+       read `0 / N`: the 22 cells of 4.8 and the alias's identity. With `N` at 70, as row 654's
+       plan has it on the plan's commit, that is 23 of the 53 that G1's three quarters ask.
+
+New, two lines:
+
+       read `0 / N`: the 22 cells of 4.8 and the alias's identity. With `N` at 77, as row 654's
+       plan has it with the date functions, that is 23 of the 58 that G1's three quarters ask.
+
+**3. The seams' table.** Old, the start of the line:
+
+    | the summary's line `  ltz     new         0 / N`, `N` 70 on the plan's commit |
+
+New:
+
+    | the summary's line `  ltz     new         0 / N`, `N` 77 on the plan's commit |
+
+### 12.4 `VARKA-690.md`, which is not merged: nothing moves
+
+It quotes `VARKA-654.md` 4.10's 585 pairs fused, and "585 to 590" after its own casts. The
+date functions add admitted pairs and no fused one: the census with them still reads `fused
+today 585` (12.2). So no number of `VARKA-690.md` moves. The lead applies nothing there.
+
+### 12.5 The record of what was not chosen
+
+Had the owner chosen (c), the edits of 12.1 would say "two types and no band", with the same
+numbers. Had he chosen (a), they would say "six types, one a kind and a precision", with 84
+cast pairs for 20, 411 pairs for 137, and 52, 52, 52, 51, 51 and 51 of 69, 69, 69, 68, 68 and
+68 for item 4. Had he left the date functions out of the nanosecond types, the pairs would be
+123, and item 4 would read 47 of 62 and 46 of 61. Had he left them out of `ntz` and `ltz`,
+12.2 and 12.3 would not be, and the census would read two ways (section 16).
+## 13. Questions for the owner: what he decided, and what is open
+
+**Decided on 27 November 2026.**
+
+1. **How do precisions 7 to 9 enter the census?** The owner: "7. b". Choice (b): two census
+   types, `ntz_ns` and `ltz_ns`, with the precision a band. The recommendation was (b).
 
 | choice | census types | (entry, type) pairs | legal cast pairs | what the census really checks about the precision | what it costs the rows after it |
 | :--- | :--- | ---: | ---: | :--- | :--- |
-| **(b), recommended** | 2: `ntz_ns`, `ltz_ns` | 123 (62 and 61) | 20 | `timestampadd`: a coverage row whose call has the `NANOSECOND` unit and a bare column of each precision as its timestamp. The six casts that read the target's precision: a coverage row that casts a bare column of the source to the target at each precision. Strings and comments do not count. Everything else: one row at any precision. It cannot check the rows' values: the fixture rules of rows 674 and 675 carry them | 97 coverage rows for item 4's pairs, and up to 32 for the casts; 246 lines of the census script for the band |
-| (c) | 2: `ntz_ns`, `ltz_ns` | 123 (62 and 61) | 20 | one coverage row at any precision for every entry and cast pair; for a cast pair, also that the probe's line of each precision compiles. `timestampadd` and the six casts can count fused with no kernel run at precision 7 or 8 | 93 coverage rows, and up to 20 for the casts |
-| (a) | 6: `ntz_ns7` to `ltz_ns9` | 369 (62 or 61 each) | 84 | a coverage row over a column of each of the six types, for every entry; for `timestampadd`, of any unit | 279 coverage rows, and up to 78 for the casts; 246 pairs and 64 cast pairs repeat a kernel; 132 fan-out tasks in place of 44 |
+| **(b), chosen** | 2: `ntz_ns`, `ltz_ns` | 137 (69 and 68) | 20 | `timestampadd`: a coverage row whose call has the `NANOSECOND` unit and a bare column of each precision as its timestamp. The six casts that read the target's precision: a coverage row that casts a bare column of the source to the target at each precision. Strings and comments do not count. Everything else: one row at any precision. It cannot check the rows' values: the fixture rules of rows 674 and 675 carry them | 107 coverage rows for item 4's pairs, and up to 32 for the casts; 246 lines of the census script for the band |
+| (c) | 2: `ntz_ns`, `ltz_ns` | 137 (69 and 68) | 20 | one coverage row at any precision for every entry and cast pair; for a cast pair, also that the probe's line of each precision compiles. `timestampadd` and the six casts can count fused with no kernel run at precision 7 or 8 | 103 coverage rows, and up to 20 for the casts |
+| (a) | 6: `ntz_ns7` to `ltz_ns9` | 411 (69 or 68 each) | 84 | a coverage row over a column of each of the six types, for every entry; for `timestampadd`, of any unit | 309 coverage rows, and up to 78 for the casts; 274 pairs and 64 cast pairs repeat a kernel; 174 fan-out tasks in place of 58 |
 
-   Recommended: (b), for the reasons of 5.4. Under (a) the `NANOSECOND` unit is not asked
-   either, so (b) is the only choice that asks for the dependent shape.
+3. **Do the seven date functions count over a nanosecond timestamp?** The owner: "8. are
+   counted". `add_months`, `datediff`, `date_diff`, `date_add`, `dateadd`, `date_sub` and
+   `unix_date` count over `ntz_ns` and `ltz_ns`. The recommendation was no, to read as row
+   654 read `ltz`; the owner chose the other answer, and this file is written on his. It
+   adds 14 pairs.
+6. **The census does not count a layout as a type, and a fused cell holds over the type's
+   whole range** (4.7). The owner: yes. It asks of row 662 that its default arm answers the
+   whole range.
+8. **Do the seven date functions count for `ntz` and `ltz` too,** so that every timestamp
+   type reads the same way? The owner: yes. It adds 7 pairs to each in milestone 9's census,
+   by the edits of `VARKA-654.md` in 12.2. Milestone 8's census is not touched.
+
+**Still open**, each with its recommendation; the plan is written on the first answer.
+
 2. **A type is admitted for an entry when Spark accepts it at all three precisions** (4.4).
    Recommended: yes. The other rule, any one precision, would count a cell that fails for two
    thirds of the type. No entry is affected today.
-3. **Do the seven date functions count over a nanosecond timestamp?** `add_months`,
-   `datediff`, `date_diff`, `date_add`, `dateadd`, `date_sub` and `unix_date`. Spark accepts
-   each over both kinds, by a cast to `DATE` (4.5). Recommended: no, as today for `ntz` and as
-   the owner approved for `ltz` in row 654's question 5 ("keep that reading for `ltz`; a row
-   that fuses one adds it"). Then the three timestamp families are counted alike, and each of
-   the seven is still reached: its `DATE` kernel fuses behind the cast to `DATE`, which is a
-   pair of the cast table. The other answer adds 7 pairs a type: 14 under (b) and (c), so
-   item 4 reads 52 of `ntz_ns`'s 69 and 51 of `ltz_ns`'s 68; 42 under (a). To be alike it
-   would also add 7 pairs to `ntz` and 7 to `ltz`, which moves items 1 and 3 of 1.2 and is
-   row 654's question again.
 4. **The names and their order**: `ntz_ns` and `ltz_ns`, after `ltz`. Recommended: yes; they
    are `m9/PLAN.md` 2.5's names, and each fits the summary's seven columns.
 5. **Which row owes which cell** (4.5): the 26 zone-free entries, `hour` and `extract` to row
-   662 first; `time_bucket` to row 673 with the fields, as row 668 has it for `ltz`; the three
-   sums with an interval to row 675. Recommended: as 4.5. A row that disagrees moves its cell
-   in its own pull request.
-6. **The census does not count a layout as a type, and a fused cell holds over the type's
-   whole range** (4.7). Recommended: yes. It asks of row 662 that its default arm answers the
-   whole range.
-7. **Item 4 of `m9/PLAN.md` 1.2 is read on two types**: 47 of `ntz_ns`'s 62 pairs, 46 of
-   `ltz_ns`'s 61, and 14 of the 20 cast pairs. Recommended: yes; it follows from questions 1
-   and 3.
+   662 first; `time_bucket` and the seven date functions to row 673 with the fields; the
+   three sums with an interval to row 675. Recommended: as 4.5. A row that disagrees moves
+   its cell in its own pull request.
+7. **Item 4 of `m9/PLAN.md` 1.2 is read on two types**: 52 of `ntz_ns`'s 69 pairs, 51 of
+   `ltz_ns`'s 68, and 14 of the 20 cast pairs. Recommended: yes; it follows from the
+   decisions above. Edit 3 of 12.1 writes these numbers into the item.
 
 ## 14. The house rules that bind this row
 
@@ -2368,10 +2630,10 @@ From `sql/varka/AGENTS.md`:
 
 What not to do with this file:
 
-- Do not build section 6 before the owner has answered question 1, and not before row 654's
-  part b is merged.
-- Do not type a nanosecond type into an entry's types in the curated file: the admission
-  table is the only source.
+- Do not build section 6 before row 654's part b is merged.
+- Do not type `ntz_ns` or `ltz_ns` into an entry's types in the curated file. The group `NS`
+  there, as `unix_nanos` has it, only asks Spark; the admission table is the only source of
+  what is admitted.
 - Do not write a line of the admission table by hand: `--asked` writes its lines and the
   suite its cells.
 - Do not add a census type for a layout or for an option's arm.
@@ -2379,5 +2641,62 @@ What not to do with this file:
 
 ## 15. Outcome
 
-To be written when the owner has chosen: the choice, its date, and what of sections 4 to 6
-changed with it.
+The owner chose on 27 November 2026, the day the plan was written. Choice (b), in his words
+"7. b". For the date functions over the nanosecond types, "8. are counted". Later the same
+day: yes, they count for `ntz` and `ltz` too; and yes, a layout is no census type and a fused
+cell holds over the whole range. The row's done-when, "the plan states the census types and
+the cast pairs each choice gives, with their counts, and the owner has chosen", is met by
+this file's own pull request, which sets the row to Done (12.1).
+
+What the answers changed in this file. The choice of (b) changed nothing of sections 4 to 6,
+which were written on it. The date functions changed the admission of 4.5 (66 entries asked
+for 59, and row 673 owes the seven) and the counts: 137 pairs for 123, 69 and 68 a type for
+62 and 61, 52 and 51 for item 4 where it was 47 and 46, 107 coverage rows for 97. Counting
+them for `ntz` and `ltz` changed row 654's plan (12.2), the base of this file's counts (1026
+pairs after row 654 for 1012, so 1168 after row 661) and the reason the seven are asked: they
+list a timestamp. The script's 38 edits did not change. The predictions of section 8 are
+registered on the new numbers; nothing was built between, so none was scored.
+
+## 16. The date functions over `ntz` and `ltz`
+
+**Decided: they count** (section 13, question 8), so that every timestamp type of milestone
+9's census reads the same way.
+
+| | row 654 as merged | with the date functions (12.2) |
+| :--- | ---: | ---: |
+| `ltz` pairs admitted | 70 | 77 |
+| `ntz` pairs admitted | 59 | 66 |
+| all (entry, type) pairs after row 654 | 1012 | 1026 |
+| pairs fused after row 654 | 585 | 585 |
+| entries row 654's script edits; of them no longer `done` | 62; 23 | 69; 27 |
+| entries with need `done` after row 654 | 62 | 58 |
+| pairs over `date`, `ntz`, `time`, `ym` and `dt`, fused of admitted (item 3 of 1.2) | 210 of 297 | 210 of 304 |
+| all pairs after row 661 | 1154 | 1168 |
+| `ntz_ns` and `ltz_ns` pairs | 69 and 68 | 69 and 68 |
+
+Every number of the right column was printed by the two prototypes, row 654's and then this
+row's on top of it (section 3, 12.2).
+
+**Which rows owe the new cells.** `ltz`: row 668, by row 654's own rule for an entry on no
+list. Once the seven list `ntz`, that rule's line "it lists `ntz` otherwise" gives 668, "a
+field of a timestamp", and 668 already has `last_day`, `next_day` and `trunc`, which take a
+`DATE` in the same way. `ntz`: row 672, a named row, because row 654's rule speaks of `ltz`
+alone. Row 672 is "Fan-out: the existing temporal types' tail", and its done-when is item 3
+of 1.2, the item these 7 pairs join. `ntz_ns` and `ltz_ns`: row 673 (4.5). Each cell is
+claimed with the mark `~` and a quoted coverage row.
+
+**Milestone 8's census is not touched.** Its files are frozen at its close, and there the
+seven entries keep milestone 8's reading: a `DATE` and no timestamp. A reader who holds the
+two summaries side by side finds the reason in `VARKA-654.md` 4.4, where edit 1 of 12.2 puts
+it: `ntz` admits 7 pairs more in milestone 9's summary than in milestone 8's for this reason
+alone.
+
+**The record of the other answer.** Had the owner said no, nothing of `VARKA-654.md` would
+change, and the census would read two ways. The one-off script's guard (6.3) would then write
+`NS` into the types of the seven and this sentence into the note of each, where `census.tsv`
+shows it:
+
+    a nanosecond timestamp through its date, the cast to DATE under the node; the microsecond timestamps are not listed here (VARKA-654.md 4.13, question 5)
+
+That path was run on the prototype too: it gives the same 69 and 68 pairs, with 1154 pairs
+in all.

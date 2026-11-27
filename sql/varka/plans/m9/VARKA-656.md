@@ -817,7 +817,7 @@ otherwise is a stop, but for the two cases under the block.
     grep -P "^TIMESTAMP\t" sql/varka/types.tsv | cut -f3,5                # 2: ltz, declined
     git ls-files $M9/census_curated.txt $M9/casts_suites.tsv | wc -l      # 3: 2
     grep -c 'Family("TIMESTAMP_NTZ columns"' $GENS/varka/VarkaCoverageSuite.scala   # 4: 1
-    python3 dev/varka_census.py --summary | grep '^  ltz '                # 5: "  ltz     new         0 / N"; note N (70 on the plan's commit)
+    python3 dev/varka_census.py --summary | grep '^  ltz '                # 5: "  ltz     new         0 / N"; note N (77 on the plan's commit)
     grep -c -P "\tTIMESTAMP\t" $M9/casts_suites.tsv                       # 6: a count above 0; note it as S (19 on the plan's commit)
     grep -n -A3 "case TIMESTAMP ->" $IR/VarkaTypes.java                   # 7: new Info(id, "ltz", "TIMESTAMP", and new Admission.Declined(
     grep -c "private static <T> Site<T> declined" $GENT/varka/VarkaFuzzTypes.java   # 8: 1
@@ -2027,8 +2027,8 @@ again and read by minimums.
    row's shape hash in `sql/varka/emitted_bytes.json`. Yes or no; scored by part B's command
    19 and by the two rows' entries in that file.
 3. `python3 dev/varka_census.py --summary` reads `23 / N` for `ltz` after part B, where it
-   read `0 / N`: the 22 cells of 4.8 and the alias's identity. With `N` at 70, as row 654's
-   plan has it on the plan's commit, that is 23 of the 53 that G1's three quarters ask.
+   read `0 / N`: the 22 cells of 4.8 and the alias's identity. With `N` at 77, as row 654's
+   plan has it with the date functions, that is 23 of the 58 that G1's three quarters ask.
 4. `dev/varka_new_lane.py --check` prints `LONG/TimestampType: no site is missing (2
    checked)` after part B, and nothing for the type after part A.
 5. Sizes: part A within 680 counted lines by half, part A2 within 270, part B within 720,
@@ -2168,7 +2168,7 @@ where this plan checks it:
 | the entry `ntz_minus_ntz` of class `SubtractTimestamps`, types `ntz,ltz`, rows `339,671` | 4.7; 11 | part B, B0 line 6 |
 | `"timestamp": "ltz"` in `SIMPLE_COLUMN_TYPES` | 4.5 | part B, B0 line 5 |
 | the 23 cast pairs with their rows: `657,669` for `ltz` to `date`, `690,669` for `date` and `ntz` to `ltz`, `669` for the rest; each `declined` in the probe | 4.8, `cast_rows` | 4.3 and part A's table of the 22 forms take the first row of each |
-| the summary's line `  ltz     new         0 / N`, `N` 70 on the plan's commit | 4.10; 5.2 command 3 | part A, B0 line 5 |
+| the summary's line `  ltz     new         0 / N`, `N` 77 on the plan's commit | 4.10; 5.2 command 3 | part A, B0 line 5 |
 | an identity cast over a type a kernel reads counts as fused: one more than this row's cells, by itself | 4.9; 11 | part B, command 7 |
 | the record of Spark's cast suites: 19 lines whose target is `ltz`; lines whose source is `ltz` once a kernel reads the type | 4.8; 11 | part A, commands 6 and 7; part B, commands 13 and 14 |
 | the docs' and the README's sentences that count the census's types, "fourteen", with "which no kernel reads yet" in the README | 5.2 step 8 | part B, B0 line 20 and step 11 |
