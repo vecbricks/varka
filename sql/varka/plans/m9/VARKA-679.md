@@ -3338,6 +3338,9 @@ headline.
 **Still open,** each with the recommendation first; the plan is written on the
 recommendation:
 
+*27 November 2026, later:* the owner read the plan as revised for nanoseconds and approved
+it as written, so the recommendation of each question below stands as his answer.
+
 7. **Does row 679 close at its done-when, with the later forms riding with their Varka
    rows?** Recommended: yes, as vfdlibm's ports rode with rows 356 to 358.
 8. **One release, 0.1.0, after L18, or an early 0.1.0 after L7?** Recommended: one. A release
