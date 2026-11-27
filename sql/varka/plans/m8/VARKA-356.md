@@ -333,6 +333,10 @@ only `e_exp.c` is fetched; each port's pull request confirms its edges in the C 
    `results/VARKA-345-exact-admission.txt`), the one most likely to meet the method budget, and
    the one whose branch layout (the weak branch included) gains most from the others' lessons.
 
+*27 November 2026, by the owner's word:* `pow` is built before `hypot`, so items 4 and 5 change
+places; the parts keep their names, 358f for `pow` and 358e for `hypot` (section 11, the
+decision at its end).
+
 A port's own branch layout is planned in its pull request by 2.5's method: its branches as the C
 source has them, the rare ones finished per lane by the interval or mask that bounds them, the
 alternative blended, the integer and exponent operations by the helpers 2.5 picked.
@@ -487,7 +491,8 @@ Predictions, registered before the build:
    runners, and `mathPort`'s default holding `EXP` only if the port is faster there.
 5. **The ports in 2.6's order**, each a `vfdlibm` and Varka pair, each with its measurement and
    default decision: 358c `expm1`, 357b `sinh` and `cosh`, 358d `log`, `log10`, `log1p`, 356b
-   `atan` and `atan2`, 356c `asin` and `acos`, 358e `hypot`, 358f `pow`.
+   `atan` and `atan2`, 356c `asin` and `acos`, 358f `pow`, 358e `hypot` (*until 27 November
+   2026:* 358e before 358f).
 6. **The opt-in entries** (2.7), per row, after 367 commits a host's lines.
 
 | file | what |
@@ -830,7 +835,8 @@ are `vfdlibm`'s, at tag `v0.3.1`.
    is the expected value of each port: `pow` has the largest gain on both hosts and is last in
    2.6's order, and `hypot` and `acos` have the smallest on AVX2.
 
-**An open point for the owner.** 2.6 puts `pow` last because it is the largest port and gains
-most from the others' lessons. The library is done, so those lessons exist, and `pow` is the
-port with the largest measured gain. The recommendation: keep `atan` to `acos` in their order,
-and move `pow` (358f) before `hypot` (358e).
+**The order of `pow` and `hypot`, the owner's decision of 27 November 2026.** 2.6 put `pow` last
+because it is the largest port and gains most from the others' lessons. The library is done, so
+those lessons exist, and `pow` is the port with the largest measured gain. The owner decided:
+`atan` to `acos` keep their order, and the `pow` port (358f) is built before the `hypot` port
+(358e).
