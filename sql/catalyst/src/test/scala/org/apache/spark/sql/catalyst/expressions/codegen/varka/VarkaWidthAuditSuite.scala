@@ -261,7 +261,12 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
           override def call(): (Probe, Try[Census]) = {
             val begun = System.nanoTime()
             val result = Try(audit(probe))
-            logInfo(s"${probe.name} took ${(System.nanoTime() - begun) / 1000000000L} s")
+            val seconds = (System.nanoTime() - begun) / 1000000000L
+            logInfo(s"${probe.name} took $seconds s")
+            // Also on stdout, which a unit's run.log keeps and the unit tests' log does not, so
+            // that the next probe to pass its budget can be read against the others.
+            println(s"VARKA-AUDIT-PROBE ${probe.name} took $seconds s on " +
+              s"${Runtime.getRuntime.availableProcessors()} processors")
             probe -> result
           }
         })
