@@ -6317,6 +6317,74 @@ composition with a fallback allowed only for the reason that no capped grouping 
 when** that test holds this claim under `driverOutputTable=false` on every seed of the draw it is
 run on (`-Dvarka.groupingBound.seed`).
 
+### Item 140. Moved from milestone 8 on 27 November 2026
+
+Milestone 8's open rows were read against its done-when list on 27 November 2026, and the owner
+decided the same day what its close needs (`m8/PLAN.md` 12.5). The 34 rows below gate no item of
+that list and moved here whole, or with what is left of them, on the precedent of item 138: text
+and task numbers unchanged, each row still in `m8/PLAN.md` with a note at its head that says what
+of it is merged and stays done. Three more lines are parts of rows that stay behind: the unbuilt
+parts of rows 344 and 337, which the owner's decision 1 moved under the named gap of the census
+target, and the eight `PORT` arms of row 345, which his decision 3 moved. Unlike item 138, no plan
+file moves with this item: each stays at `m8/VARKA-<n>.md`, where the row's unmerged branch, if it
+has one, still edits it. The branches named are local, unmerged and kept. None of the rows is
+ordered against this catalogue's spine; each re-enters with its own argument.
+
+Five rows of the same reading went to milestone 9's task plan instead, not here: 577, 604, 579, 609
+and 646 (`m9/PLAN.md` 3.2). Row 544 was withdrawn, overtaken by #1708.
+
+| task | what it is | where its design is | why it left milestone 8 |
+| ---: | :--- | :--- | :--- |
+| 27 | A boolean output's bits packed after the loop behind an option, measured (steps 5 and 6), and the alias `!` over `BOOLEAN` | `m8/VARKA-27.md` | item 1's boolean output holds without it (#1226, #1235); `!` is one census entry and pair, named under item 2's gap; `varka-27-boolean-output-r` (4 commits, 22 November 2026) is kept |
+| 157 | 157c: the decimal store's two arms in the benchmark, the verdict per width and the runner census columns | `m8/VARKA-157.md` | the store and the producers merged; what is left is a measurement that moves no census cell; no branch |
+| 337 | 337b only: `hash` and `xxhash64` over a decimal above 18 digits; with it the grammar productions, `hash.smt2`, two planted faults, the baseline and the spike | `m8/VARKA-337.md` | the owner's decision 1: two census pairs, each function's `dec`, named under item 2's gap; the rest of the row is done (#1566, #1573, #1711); unbuilt, no branch |
+| 344 | 344a3, 344b and 344c only: `BIGINT` rounding at a negative scale; `floor`, `ceil` and `ceiling` over the narrow and floating types; `factorial` and `width_bucket`; the `rint(-NaN)` probe and the measurement | `m8/VARKA-344.md` | the owner's decision 1: 13 pairs of `floor`, `ceil` and `ceiling`, `factorial`'s one and `width_bucket`'s four, named under item 2's gap (rows 622 and 623 give the integral `ceil` pairs and `factorial` their reason); the rest of the row is done (#1257, #1350, #1404, #1418); unbuilt, no branch |
+| 345 | The eight `PORT` arms with no Varka expansion: `pow`, `hypot`, `asin`, `acos`, `atan`, `atan2`, `sinh` and `cosh` | `m8/VARKA-345.md` 2.1; `m8/PLAN.md` 13.2 item 4 | the owner's decision 3: a port is an option arm and moves no census pair, and item 5 is read as met without them; `vfdlibm` 0.3.1 holds the library half of all eight; row 345 stays in milestone 8 for `log1p`'s port |
+| 367 | The opt-in math mode's measurement: the probe's second part, a run on each of three host libraries, the worst-case tables | `m8/VARKA-367.md` | item 5 holds without it while the opt-in mode contracts no entry, which was not checked: if the contract table holds one, the row is owed before milestone 8's close; `varka-367a1-r2` (8 commits, 23 November 2026) is kept |
+| 368 | 368c: Spark's hash suite run under Varka | `m8/VARKA-368.md` | item 3's clause is the cast half, merged (#1636, #1646, #1669); `varka-368c-hash-suites` (17 commits, 23 November 2026) is kept, over the size cap |
+| 369 | The Spark-level fuzzer's count arm, its reproducer and its planted faults | `m8/VARKA-369.md` | fuzzer reach that no item of 1.1 names; three stacked branches kept: `varka-369-fuzz-count-arm` (5 commits), `varka-369a2-reproducer` (7), `varka-369a3-plants-r` (10), all of 23 November 2026 |
+| 375 | Masks built without `fromLong`: the Arm canary's run, the matrix configuration and four review findings | `m8/VARKA-375.md` | the arm merged (#1568); what is left serves no item of 1.1; no branch |
+| 383 | The long lane's warm-up: `uncountedMainLoop` read on an idle machine over 144 draws, the runner tooling, the default | `m8/VARKA-383.md` | warm-up on the existing long lane, not a new type; the arm merged (#1622); `varka-383-profile-predicate` (5 commits, 20 November 2026) is kept |
+| 476 | A fresh JVM's first narrow batch measured against the warm-up | `m8/VARKA-476.md` | a measurement of merged warm-up arms (#993); nothing built, no branch |
+| 479 | The part-form load, one load and whole stores an iteration | `m8/VARKA-479.md` | a 128-bit performance arm; nothing built, no branch |
+| 481 | The checked narrow multiply through the range guard (steps 3 and 4) | `m8/VARKA-481.md` | a refactor of a multiply that fuses today; no branch |
+| 487 | The census held to the compiler | `m8/VARKA-487.md` | it finds under-claims only; the census check item 2 names is row 328's; nothing built, no branch |
+| 490 | Formal verification caught up with the new types: the narrow arithmetic rows refined in three modes, `TINYINT`'s ANSI pairs swept whole | `m8/VARKA-490.md` | item 3's SMT clause holds without it (`casts.smt2`, #1291, and the both-solver nightly); no branch |
+| 504 | Every check the done-when rests on proves it can fail: the differential's completeness, the changed-option-arm and skipped-row plants | `m8/VARKA-504.md` | parts 1 and 2 merged (#1634, #1662); tests only, no census cell; no branch holds unmerged work |
+| 506 | The decimal kernels' proofs rendered from the IR: 506b3, 506c and the proofs of 360 to 363's planted faults | `m8/VARKA-506.md` | waits on rows 359 to 363, which gate milestone 8's close themselves; `varka-506a2-arm-loads` (5 commits, 10 November 2026) is kept |
+| 550 | Narrow kernels' epilogues without AVX-512BW: the narrow-driven epilogue at an unbaked lane count | `m8/VARKA-550.md` 8, question 3, and 11 | **its done-when does not hold**: `BYTE` at 256 and 512 bits and `SHORT` at 512 are still masked, and the form waits on the owner's unanswered question 3; parts 1 and 2 merged (#1672, #1686); no branch |
+| 551 | One record of what the host's C2 lowers, its readers, the mask guard and the epilogue pair | `m8/VARKA-551.md` | after row 550; nothing built, no branch |
+| 570 | The option matrix's rerun workflow (step 4) and a planted-straggler dispatch (step 5) | `m8/VARKA-570.md` | CI or tooling work; the watchdog merged (#1659); `varka-570b-matrix-rerun` (3 commits, 20 November 2026) is kept |
+| 597 | No decimal-reading value slower than the row path at two long lanes | `m8/VARKA-597.md` | a 128-bit performance arm, which milestone 9's row 680 reads; nothing built, no branch |
+| 600 | 600b: the three `L2F` forms measured on the runners at both widths, and the default per width | `m8/VARKA-600.md` | a performance arm, which milestone 9's row 680 reads; 600a merged (#1625); no branch |
+| 601 | 601b: the row copy of a split filter measured at both widths, scored, and the decline rule | `m8/VARKA-601.md` | a performance arm, which milestone 9's row 680 reads; 601a merged (#1664); no branch |
+| 603 | 603c and 603d: `OVERLAP`, the int lane's per-row epilogue, and the narrow store's default at 128 bits | `m8/VARKA-603.md` | a 128-bit performance arm, which milestone 9's row 680 reads; #1508, #1546 and #1565 merged; no branch |
+| 605 | `nullif(ntz, ntz2)` settles to C2 code under the memory sanitizer | `m8/VARKA-605.md` | it closes on row 383's rerun and goes with it; the readings merged (#1621); no branch |
+| 611 | The checked `BIGINT` multiply's option B, redesigned with a pinned shape whose bytes it changes | `m8/VARKA-611.md` 9.2 | item 6 names row 104, which fuses by option A; #1626 merged and #1689 reverted it; the pin test's split comes first; no branch |
+| 624 | `decimal` split by representation in the census inputs | the row | item 1 is read from `coverage.json`; the close quotes the summary's per-band line as an upper bound; nothing built, no branch |
+| 626 | The width audit's regeneration: the 600-second clause | the row | #1603 merged; the clause was never shown, and the audit's cost is `m9/PLAN.md` row 695's; no branch |
+| 628 | A value-position `BIGINT` compare declines at two lanes | the row | a 128-bit performance arm, which milestone 9's row 680 reads; nothing built, no branch |
+| 631 | Common reductions shared between the fdlibm ports of one input | the row | the ports are option arms; waits on row 632; nothing built, no branch |
+| 632 | Two calls of one math port, measured | the row | a measurement of option arms; nothing built, no branch |
+| 636 | Decide what a math port does at two 64-bit lanes | the row | an option arm's speed at two long lanes; nothing built, no branch |
+| 637 | 637b, the failed-bin lookup, and step 1's two dispatches, a live week's counts and four predictions (its steps 2 and 3 are in item 138) | `m8/VARKA-637.md` 4 and 10 | CI or tooling work; 637a merged (#1679); `varka-637b-failed-bins-first` (12 commits, stacked on 637a's, 25 November 2026) is kept |
+| 638 | The arm sweep runs on vecbricks/varka's runners, not on the laptop | `m8/VARKA-638.md` | CI or tooling work; #1678 since lets vecbricks/varka run a pull request's whole matrix, so the owner may withdraw it; nothing built, no branch |
+| 641 | The bounded magic `BIGINT` to `DOUBLE` form at two long lanes | `m8/VARKA-641.md` | an opt-in form's speed, which milestone 9's row 680 reads; nothing built, no branch |
+| 643 | `VarkaFallbackReasonSuite`'s random red bin: a failure message that shows the cause, then the cause and its fix | the row | **the cause is unknown and the bin can still fail at random in any option matrix**; it moves no census cell; nothing built, no branch |
+| 645 | Share one value for Spark-equivalent floating subexpressions instead of declining | the row | item 4 holds by row 341's decline (#1681); an option arm; nothing built, no branch |
+
+Leftovers of rows marked done the same day come here too, since none is in its row's done-when:
+
+* **Row 617's default.** The planner weighs a part run by its own seconds only under the option
+  `--part-weight part-seconds`; that option as the default and the report job's refresh of the
+  part-run file wait on the owner's word (`m8/VARKA-617.md` 12, decisions 8 and 9).
+* **Row 630's other walks.** The row's four parts made the shape hash, the shape key's equality,
+  the lane lifts and the reproduction cheap on a deep shared chain; the other per-path walks of
+  `m8/VARKA-559.md` 2.3 are not measured at depth 64.
+* **Row 629's other lanes.** The narrow and `FLOAT` lanes keep a chain cap of 16 until a depth
+  benchmark measures them, and no arm prices the calendar chains or the bounded divisions that the
+  int lane now admits to 64.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
