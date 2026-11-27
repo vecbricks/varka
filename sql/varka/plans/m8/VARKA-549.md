@@ -296,3 +296,25 @@ flag and has its results regenerated. The rounding sections keep `MAY_FALL_BACK`
 whether their batches decline depends on which of 344b's arms the host or an option picks, and
 they plan `NONE` today. Owed: the committed decimal results, 256- and 128-bit, predate #1700 and
 note no fused cast section, so their notes need a regeneration after the merge with #1700.
+
+### 9.5 The rerun (27 November 2026)
+
+The dispatch that 9.2 and 9.4 owed ran. The class's two runner files,
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`, were replaced on 27
+November 2026 from `benchmark.yml` runs 46057445085 (256 bits, no `MaxVectorSize`) and 46057448792
+(`-XX:MaxVectorSize=16`) of vecbricks/varka. Both ran at master `e103a4c548a`, dispatched with
+`pr=1793`, so they measured `refs/pull/1793/head`, `6d1f14ae33a`, each on an AMD EPYC 7763 by its
+provenance and by the job's probe. That head holds #1683 and #1700.
+
+- The two `IS NULL` sections over a column with no null now time a scan on both arms. At 256 bits
+  the `DECIMAL(38, 10)` one takes 354 ms on the row path and 21 ms as a kernel, 16.5X as the file
+  prints it, and the `DECIMAL(20, 2)` one 371 and 24 ms, 15.4X. The replaced file read the two arms
+  of each at one rate, 178.2 and 178.0 M rows a second and 196.6 and 197.2, the empty scan. At 128
+  bits the two-lane refusal leaves both arms on the row path, 361 / 366 ms and 375 / 371 ms.
+- The notes follow #1700. The 256-bit file opens with 88 notes: 86 sections that time a kernel, the
+  eight fused casts among them, and the two `DECIMAL(18, 4) CAST(x AS DECIMAL(18, 2))` sections,
+  noted as timing the fallback ("ran 0 kernel batches and handed 200 to another path"), 142 / 144
+  ms and 140 / 145 ms. The 128-bit file opens with 16 notes.
+
+Nothing of the row is owed after this.

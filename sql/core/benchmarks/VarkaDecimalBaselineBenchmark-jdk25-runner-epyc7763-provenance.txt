@@ -1,15 +1,11 @@
-benchmark:   *VarkaDecimalBaselineBenchmark
+benchmark:   *.VarkaDecimalBaselineBenchmark
 where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
-run:         https://github.com/vecbricks/varka/actions/runs/44485236913
-commit:      e5d70012bdc (master of vecbricks/varka)
-date:        2026-11-19T08:49:31Z
+run:         https://github.com/vecbricks/varka/actions/runs/46057445085
+commit:      6d1f14ae33a (refs/pull/1793/head of vecbricks/varka)
+date:        2026-11-27T21:36:23Z
 inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=<none>
 jdk:         OpenJDK Runtime Environment Zulu25.38+201-CA (build 25.0.5.1+2-LTS)
-kernel:      7.0.0-1019-azure
+kernel:      7.0.0-1020-azure
 cpu:         AMD EPYC 7763 64-Core Processor
-datapath:    45.0 / 90.5 / 90.5 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.01 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
+datapath:    45.1 / 90.5 / 90.5 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.01 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
 pinned to:   none (the runner is not pinned)
-spliced:     2026-11-20, 40 sections new to this file: row 350's 64-bit decimal casts on the row path (20 sections
-             at each null density, `VARKA-350.md`), from https://github.com/vecbricks/varka/actions/runs/44756465218,
-             commit 9b279f2cf17 (refs/pull/1572/head, #1572), AMD EPYC 7763, extra-java-options=<none>, by
-             dev/varka_bench_sections.py splice; every other section is the runs above

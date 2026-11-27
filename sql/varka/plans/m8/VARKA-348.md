@@ -1054,6 +1054,48 @@ turned out to be; the fifth came from CI after it opened.
    still runs the value as alone does, since the optimizer drops its typed null; a non-null
    decimal stand-in of every type is left open.
 
+### The runner's readings of 348b's sections (27 November 2026)
+
+The class's two runner files, `VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`, were replaced on 27
+November 2026 from `benchmark.yml` runs 46057445085 (256 bits, no `MaxVectorSize`) and 46057448792
+(`-XX:MaxVectorSize=16`) of vecbricks/varka. Both ran at master `e103a4c548a`, dispatched with
+`pr=1793`, so they measured `refs/pull/1793/head`, `6d1f14ae33a`, each on an AMD EPYC 7763 by its
+provenance and by the job's probe. That head holds 348a and 348b (#1628). Section 4's predictions,
+scored from the files' `Relative` column, without nulls and then at one row in ten null:
+
+1. *The filters at 256 bits, 3 to 8 times faster than the row path*: right in part. `IN` reads 6.8X
+   and 6.9X at `(9, 2)` and 8.2X and 7.0X at `(18, 4)`, `<=>` 3.7X, 3.8X, 3.6X and 3.9X, and
+   `abs(x) < y` 3.7X and 3.5X at both precisions: inside the band, `IN` at `(18, 4)` without nulls
+   just past its top. The rescaled comparison `x < w` reads 2.3X, 2.2X, 2.0X and 2.0X and `-x < y`
+   1.9X in all four sections: below it.
+2. *The rescaled comparison within a half of the one-scale comparison on the EPYC 7763*: right.
+   `x < w` takes 69 and 63 ms at `(9, 2)` and 68 and 62 ms at `(18, 4)`, where the one-scale
+   `comparison` sections take 89 and 72 ms and 77 and 69 ms. The two are different queries, so this
+   bounds the multiply's cost and does not isolate it.
+4. *The projections 2 to 5 times faster at 256 bits*: right in part, the misses on the fast side.
+   The cast to `DECIMAL(18, 4)` reads 3.9X and 3.9X and the choices 4.2X and 3.8X at `(9, 2)` and
+   4.4X and 3.9X at `(18, 4)`: inside the band. Row 349's three values read 5.9X and 5.0X
+   (`x + y`), 9.6X and 7.9X (`x - w`) and 8.8X and 7.3X (`x8 * y`): at or past its top.
+5. *At 128 bits the kernels lose to the row path as filters*: overtaken for the filters, and the
+   half that 2.8 left to be measured is a loss. Row 503's refusal (#1262) and row 598's decline
+   (#1486) leave every filter of this row to the row path, and its 20 filter sections tie there,
+   0.94x to 1.04x by best time. The twelve value sections fuse, as 2.8 says they would, and each is
+   slower than the row path: the cast 0.3X at both densities (116 / 401 and 116 / 447 ms, row path
+   / varka on), the choices 0.2X in all four sections (139 / 637 to 145 / 788 ms) and the three
+   arithmetic values 0.2X to 0.4X (234 / 587 to 163 / 700 ms). Their decline at two long lanes is
+   row 597's second part, moved to milestone 10.
+
+Prediction 3, the laptop's `abs` reading, is still owed.
+
+Found, and not explained: at 256 bits most of this row's sections that already fused on 19 November
+2026 read lower on the varka on arm in this run, while their row-path arms move by under a tenth
+but for one. The `IN` filters fall from 96.7 to 73.4 and from 92.0 to 72.7 M rows a second at
+`(9, 2)` and from 100.4 to 77.0 and from 98.6 to 73.6 at `(18, 4)`; `<=>` falls by 4% to 23% and
+`x < y` as a value by 5% to 16%. No merged change is known to explain it, and one run cannot tell a
+change from the runner, so a pair run on a runner is owed before it is called a regression or
+noise.
+
 ## Decisions taken while the owner was away (20 November 2026)
 
 1. **Every `value()` is an output, 349's arithmetic included.** Section 2.4 makes the decimal root

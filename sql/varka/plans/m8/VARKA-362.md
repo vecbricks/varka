@@ -436,6 +436,30 @@ type and the product's freedom from nulls. The runner results at 256 and 128 bit
 window is local only, so the two dispatches of `benchmark.yml` the class's javadoc names are left
 to the next CI window.
 
+### 10.2 Step 1, the runner's readings (27 November 2026)
+
+The step merged as #1793 on 27 November 2026. The class's two runner files,
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`, were replaced on 27
+November 2026 from `benchmark.yml` runs 46057445085 (256 bits, no `MaxVectorSize`) and 46057448792
+(`-XX:MaxVectorSize=16`) of vecbricks/varka. Both ran at master `e103a4c548a`, dispatched with
+`pr=1793`, so they measured `refs/pull/1793/head`, `6d1f14ae33a`, each on an AMD EPYC 7763 by its
+provenance and by the job's probe. Best times in ms, Spark's row path / varka on, without nulls and
+then at one row in ten null:
+
+| section | 256 bits | 128 bits |
+|---|---|---|
+| `x20 * y17s2` as a value | 744 / 755, 665 / 667 | 749 / 744, 658 / 661 |
+| `w20 * l` as a value | 723 / 723, 651 / 636 | 709 / 705, 639 / 644 |
+| `x38s2 * w38s2` as a value | 999 / 1002, 886 / 883 | 995 / 1008, 892 / 889 |
+| `x20 * y17s2 < z20` as a filter | 1208 / 1211, 1013 / 1005 | 1191 / 1195, 999 / 1005 |
+
+Every section prints 1.0X at both widths. The arms plan alike, so they tie: 0.99x to 1.02x by best
+time at 256 bits and 0.99x to 1.01x at 128 bits. None of section 4's predictions is scored, since
+each is about the spike or the build; these are the row-path times its predictions 4 and 5 are read
+against when 362a lands. The baseline step is complete. The spike (step 2) and the kernels, 362a to
+362c, are not built.
+
 ## Decisions taken while the owner was away (20 November 2026)
 
 1. **The checked sections read narrower columns than section 4 names.** Section 4 names
