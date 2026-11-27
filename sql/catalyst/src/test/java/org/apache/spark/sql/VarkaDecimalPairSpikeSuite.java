@@ -23,14 +23,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.foreign.Arena;
 import java.math.BigInteger;
-import java.util.EnumSet;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark.Arm;
 import org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark.Data;
-import org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark.Form;
 import org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark.Op;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
 
@@ -53,17 +54,23 @@ public final class VarkaDecimalPairSpikeSuite {
   @Test
   @DisplayName("each loop is built in the forms section 2.1 names")
   void armsCoverThePlan() {
+    var labels = new HashSet<String>();
     for (Op op : Op.values()) {
-      var forms = EnumSet.noneOf(Form.class);
+      var forms = new ArrayList<String>();
       for (Arm arm : VarkaDecimalPairSpikeBenchmark.arms()) {
         if (arm.op() == op) {
-          assertTrue(forms.add(arm.form()), arm.label() + " twice");
+          assertTrue(labels.add(arm.label()), arm.label() + " twice");
+          forms.add((arm.form() + " " + arm.variant()).strip());
           assertTrue(arm.method().startsWith("loop"), arm.method() + " is not a loop method");
         }
       }
-      boolean arithmetic = op == Op.PRODUCT || op == Op.PRODUCT_CHECK || op == Op.RESCALE;
-      assertEquals(arithmetic ? EnumSet.of(Form.P, Form.S) : EnumSet.allOf(Form.class), forms,
-          op.title);
+      // Row 360's loops are P in its two carry forms, and S (`VARKA-360.md` 2.1).
+      List<String> expected = switch (op) {
+        case PRODUCT, PRODUCT_CHECK, RESCALE -> List.of("P", "S");
+        case ADD, SUB, ADD_CHECK -> List.of("P COMPARE", "P BITS", "S");
+        case CHECK, LT, NEG, ABS, CHOICE -> List.of("P", "A", "S");
+      };
+      assertEquals(expected, forms, op.title);
     }
   }
 
@@ -118,6 +125,34 @@ public final class VarkaDecimalPairSpikeSuite {
       assertTrue(overflow > n / 4 && overflow < 3 * n / 4, overflow + " products past 10^38");
       assertTrue(lowZeroNegative > 0, "no negative value with a zero low word");
       assertTrue(ties > n / 97, ties + " HALF_UP ties");
+      // Row 360's columns: within DECIMAL(20), and their low words carrying and borrowing at
+      // both signs of the sum and the difference, with a sum past 10^38 among the wide ones.
+      BigInteger bound20 = BigInteger.TEN.pow(20);
+      BigInteger two64 = BigInteger.ONE.shiftLeft(64);
+      int[][] carriesBySign = new int[2][2];
+      int[][] borrowsBySign = new int[2][2];
+      int wideOverflow = 0;
+      for (int i = 0; i < n; i++) {
+        BigInteger x = d.x20s()[i];
+        BigInteger y = d.y20s()[i];
+        assertTrue(x.abs().compareTo(bound20) < 0, "x20 out of precision at row " + i);
+        assertTrue(y.abs().compareTo(bound20) < 0, "y20 out of precision at row " + i);
+        assertEquals(x, VarkaDecimalPairSpikeBenchmark.slot(d.x20(), i));
+        assertEquals(y, VarkaDecimalPairSpikeBenchmark.slot(d.y20(), i));
+        boolean carry = x.mod(two64).add(y.mod(two64)).compareTo(two64) >= 0;
+        boolean borrow = x.mod(two64).compareTo(y.mod(two64)) < 0;
+        carriesBySign[x.add(y).signum() < 0 ? 1 : 0][carry ? 1 : 0]++;
+        borrowsBySign[x.subtract(y).signum() < 0 ? 1 : 0][borrow ? 1 : 0]++;
+        wideOverflow += d.xs()[i].add(d.ys()[i]).abs().compareTo(bound) >= 0 ? 1 : 0;
+      }
+      for (int sign = 0; sign < 2; sign++) {
+        for (int bit = 0; bit < 2; bit++) {
+          assertTrue(carriesBySign[sign][bit] > 0, "no sum of sign " + sign + " and carry " + bit);
+          assertTrue(borrowsBySign[sign][bit] > 0, "no difference of sign " + sign + " and borrow "
+              + bit);
+        }
+      }
+      assertTrue(wideOverflow > 0, "no DECIMAL(38) sum past 10^38");
     }
   }
 

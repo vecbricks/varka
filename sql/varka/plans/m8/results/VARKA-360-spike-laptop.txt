@@ -1,0 +1,138 @@
+VARKA-360's spike loops (VarkaDecimalPairSpikeBenchmark, ops 8 to 10) on the laptop, narrowed to
+them by -Dvarka.bench.only=DECIMAL( (the earlier loops' committed results are unchanged).
+commit:  a9227f94512 plus this branch's spike loops (uncommitted at the run)
+host:    AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M, pinned to taskset -c 0,12,13,14,15,1,2,3
+lock:    heavy6 held; NOT an idle machine: other agents' JVMs ran beside it (load below),
+         and no canary was run, so ratios under 1.3x here are ties, read directionally only.
+run:     build/sbt "project catalyst" 'set Test/javaOptions ++= Seq("-XX:MaxVectorSize=<w>",
+         "-XX:CompileCommand=dontinline,org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark::loop*",
+         "-Dvarka.bench.only=DECIMAL(")' "Test/runMain org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark"
+
+==== -XX:MaxVectorSize=64 (512-bit vectors)
+load before 64: 14.82 18.60 12.50 6/2070 1715667
+load after 64: 10.33 16.22 12.29 14/2203 1726704
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4096 rows - in L2, 256 KB:                               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+8. DECIMAL(20, 2) x + y stored, P COMPARE                            7              9           1       2383.2           0.4       1.0X
+8. DECIMAL(20, 2) x + y stored, P BITS                               8              9           1       2155.4           0.5       0.9X
+8. DECIMAL(20, 2) x + y stored, S                                   11             13           1       1459.0           0.7       0.6X
+9. DECIMAL(20, 2) x - y stored, P COMPARE                            7              9           1       2431.9           0.4       1.0X
+9. DECIMAL(20, 2) x - y stored, P BITS                               8              8           1       2157.2           0.5       0.9X
+9. DECIMAL(20, 2) x - y stored, S                                   10             12           1       1748.9           0.6       0.7X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P COMPARE             11             15           2       1521.2           0.7       0.6X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P BITS                 9             13           2       1800.5           0.6       0.8X
+10. DECIMAL(38, 2) x + y and its 10^38 check, S                     24             30           7        688.0           1.5       0.3X
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+262144 rows - in L3, 16 MB:                              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+8. DECIMAL(20, 2) x + y stored, P COMPARE                           10             10           0       1701.5           0.6       1.0X
+8. DECIMAL(20, 2) x + y stored, P BITS                              11             12           1       1573.3           0.6       0.9X
+8. DECIMAL(20, 2) x + y stored, S                                   14             17           2       1194.3           0.8       0.7X
+9. DECIMAL(20, 2) x - y stored, P COMPARE                           10             13           2       1614.2           0.6       0.9X
+9. DECIMAL(20, 2) x - y stored, P BITS                              12             17           5       1392.6           0.7       0.8X
+9. DECIMAL(20, 2) x - y stored, S                                   17             20           3        972.2           1.0       0.6X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P COMPARE             14             16           2       1159.5           0.9       0.7X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P BITS                15             19           2       1125.9           0.9       0.7X
+10. DECIMAL(38, 2) x + y and its 10^38 check, S                     28             36           8        609.3           1.6       0.4X
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4194304 rows - past L3, 256 MB:                          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+8. DECIMAL(20, 2) x + y stored, P COMPARE                           27             29           1        611.4           1.6       1.0X
+8. DECIMAL(20, 2) x + y stored, P BITS                              28             43          32        589.1           1.7       1.0X
+8. DECIMAL(20, 2) x + y stored, S                                   34             45          14        497.3           2.0       0.8X
+9. DECIMAL(20, 2) x - y stored, P COMPARE                           30             41           8        566.3           1.8       0.9X
+9. DECIMAL(20, 2) x - y stored, P BITS                              28             37          11        602.5           1.7       1.0X
+9. DECIMAL(20, 2) x - y stored, S                                   36             41           7        470.0           2.1       0.8X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P COMPARE             14             15           1       1186.6           0.8       1.9X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P BITS                15             16           1       1148.9           0.9       1.9X
+10. DECIMAL(38, 2) x + y and its 10^38 check, S                     34             38           4        500.2           2.0       0.8X
+
+==== -XX:MaxVectorSize=32 (256-bit vectors)
+load before 32: 10.33 16.22 12.29 14/2205 1726708
+load after 32: 7.80 13.91 11.83 4/2214 1751334
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4096 rows - in L2, 256 KB:                               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+8. DECIMAL(20, 2) x + y stored, P COMPARE                            9             10           0       1962.5           0.5       1.0X
+8. DECIMAL(20, 2) x + y stored, P BITS                               8              9           0       2044.3           0.5       1.0X
+8. DECIMAL(20, 2) x + y stored, S                                   12             13           1       1367.3           0.7       0.7X
+9. DECIMAL(20, 2) x - y stored, P COMPARE                            9              9           0       1964.6           0.5       1.0X
+9. DECIMAL(20, 2) x - y stored, P BITS                               9             10           1       1852.4           0.5       0.9X
+9. DECIMAL(20, 2) x - y stored, S                                   12             13           2       1381.8           0.7       0.7X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P COMPARE             18             20           2        949.3           1.1       0.5X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P BITS                16             18           1       1024.8           1.0       0.5X
+10. DECIMAL(38, 2) x + y and its 10^38 check, S                     27             29           2        619.3           1.6       0.3X
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+262144 rows - in L3, 16 MB:                              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+8. DECIMAL(20, 2) x + y stored, P COMPARE                           11             13           2       1578.3           0.6       1.0X
+8. DECIMAL(20, 2) x + y stored, P BITS                              12             16           2       1414.4           0.7       0.9X
+8. DECIMAL(20, 2) x + y stored, S                                   14             15           1       1223.4           0.8       0.8X
+9. DECIMAL(20, 2) x - y stored, P COMPARE                           11             12           1       1553.7           0.6       1.0X
+9. DECIMAL(20, 2) x - y stored, P BITS                              11             13           1       1470.8           0.7       0.9X
+9. DECIMAL(20, 2) x - y stored, S                                   14             16           1       1188.2           0.8       0.8X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P COMPARE             19             21           1        878.6           1.1       0.6X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P BITS                18             20           2        926.6           1.1       0.6X
+10. DECIMAL(38, 2) x + y and its 10^38 check, S                     31             34           3        544.4           1.8       0.3X
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4194304 rows - past L3, 256 MB:                          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+8. DECIMAL(20, 2) x + y stored, P COMPARE                           28             29           2        598.3           1.7       1.0X
+8. DECIMAL(20, 2) x + y stored, P BITS                              25             27           2        664.0           1.5       1.1X
+8. DECIMAL(20, 2) x + y stored, S                                   33             36           3        503.1           2.0       0.8X
+9. DECIMAL(20, 2) x - y stored, P COMPARE                           26             28           3        657.5           1.5       1.1X
+9. DECIMAL(20, 2) x - y stored, P BITS                              25             27           3        669.9           1.5       1.1X
+9. DECIMAL(20, 2) x - y stored, S                                   26             28           2        647.6           1.5       1.1X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P COMPARE             20             21           1        844.5           1.2       1.4X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P BITS                18             22           4        912.5           1.1       1.5X
+10. DECIMAL(38, 2) x + y and its 10^38 check, S                     32             35           2        518.1           1.9       0.9X
+
+==== -XX:MaxVectorSize=16 (128-bit vectors)
+load before 16: 7.80 13.91 11.83 4/2214 1751335
+load after 16: 6.95 7.11 9.04 2/1870 1792989
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4096 rows - in L2, 256 KB:                               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+8. DECIMAL(20, 2) x + y stored, P COMPARE                         2290           2306          24          7.3         136.5       1.0X
+8. DECIMAL(20, 2) x + y stored, P BITS                            2050           2074          29          8.2         122.2       1.1X
+8. DECIMAL(20, 2) x + y stored, S                                   11             12           1       1523.1           0.7     207.9X
+9. DECIMAL(20, 2) x - y stored, P COMPARE                         2863           3008         186          5.9         170.7       0.8X
+9. DECIMAL(20, 2) x - y stored, P BITS                            2250           2298          50          7.5         134.1       1.0X
+9. DECIMAL(20, 2) x - y stored, S                                   12             13           0       1376.8           0.7     188.0X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P COMPARE           2422           2571         150          6.9         144.4       0.9X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P BITS              2201           2261          53          7.6         131.2       1.0X
+10. DECIMAL(38, 2) x + y and its 10^38 check, S                     25             28           2        669.3           1.5      91.4X
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+262144 rows - in L3, 16 MB:                              Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+8. DECIMAL(20, 2) x + y stored, P COMPARE                         2177           2290         175          7.7         129.8       1.0X
+8. DECIMAL(20, 2) x + y stored, P BITS                            2006           2035          33          8.4         119.5       1.1X
+8. DECIMAL(20, 2) x + y stored, S                                   12             14           1       1353.0           0.7     175.6X
+9. DECIMAL(20, 2) x - y stored, P COMPARE                         2139           2158          20          7.8         127.5       1.0X
+9. DECIMAL(20, 2) x - y stored, P BITS                            1973           2005          32          8.5         117.6       1.1X
+9. DECIMAL(20, 2) x - y stored, S                                   13             14           1       1289.4           0.8     167.3X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P COMPARE           3179           3306         171          5.3         189.5       0.7X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P BITS              2446           2699         227          6.9         145.8       0.9X
+10. DECIMAL(38, 2) x + y and its 10^38 check, S                     30             32           1        557.3           1.8      72.3X
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4194304 rows - past L3, 256 MB:                          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------
+8. DECIMAL(20, 2) x + y stored, P COMPARE                         2296           2382         116          7.3         136.9       1.0X
+8. DECIMAL(20, 2) x + y stored, P BITS                            2302           2392          90          7.3         137.2       1.0X
+8. DECIMAL(20, 2) x + y stored, S                                   33             35           2        506.3           2.0      69.3X
+9. DECIMAL(20, 2) x - y stored, P COMPARE                         2093           2146          54          8.0         124.7       1.1X
+9. DECIMAL(20, 2) x - y stored, P BITS                            2090           2123          31          8.0         124.6       1.1X
+9. DECIMAL(20, 2) x - y stored, S                                   32             33           0        531.0           1.9      72.7X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P COMPARE           2613           2771         193          6.4         155.7       0.9X
+10. DECIMAL(38, 2) x + y and its 10^38 check, P BITS              2538           2673         218          6.6         151.3       0.9X
+10. DECIMAL(38, 2) x + y and its 10^38 check, S                     30             36           7        565.7           1.8      77.4X

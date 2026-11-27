@@ -417,5 +417,58 @@ overflow vectors named tests; the measurement against the baseline committed at 
 its predictions scored; and the PR build and the option matrix pass.
 
 ## 10. Outcome
+### 10.1 Step 2: the spike's laptop reading (10 November 2026)
+
+*Loops 8 to 10 of `VarkaDecimalPairSpikeBenchmark` on the laptop at 512, 256 and 128 bits,
+narrowed to them by `-Dvarka.bench.only`, pinned, heavy lock held:
+`results/VARKA-360-spike-laptop.txt`. Not idle (other agents' JVMs, load 15, 10 and 8 at the
+three starts, no canary), so a ratio under 1.3x is a tie and the reading directional; the carry
+form is the laptop's choice pending the EPYC 7763 reading (below).*
+
+Built: 2.1 items 1 and 3, `x + y` and `x - y` over two `DECIMAL(20, 2)` columns stored (class U)
+and `x + y` over two `DECIMAL(38, 2)` columns with the wrapped sum's `10^38` check into a bit a row
+(class K), each in P with the `COMPARE` carry, P with the `BITS` carry, and S, checked against
+`BigInteger` before and after the drive (`VarkaDecimalPairSpikeSuite`). Not built: item 2,
+`l + d` with the rescale by `10^2`, and the three sign words, which need row 361's one-limb
+`WideMul` loop and its `decimalSignWord` arms; they are owed with 360b, beside 361's loops.
+
+`Rate(M/s)` at 512 and 256 bits, P `COMPARE` / P `BITS` / S:
+
+| section | rung | laptop 512 | laptop 256 |
+|---|---|---|---|
+| `x + y`, `DECIMAL(20, 2)` | in L2 | 2383.2 / 2155.4 / 1459.0 | 1962.5 / 2044.3 / 1367.3 |
+| | in L3 | 1701.5 / 1573.3 / 1194.3 | 1578.3 / 1414.4 / 1223.4 |
+| | past L3 | 611.4 / 589.1 / 497.3 | 598.3 / 664.0 / 503.1 |
+| `x - y`, `DECIMAL(20, 2)` | in L2 | 2431.9 / 2157.2 / 1748.9 | 1964.6 / 1852.4 / 1381.8 |
+| | in L3 | 1614.2 / 1392.6 / 972.2 | 1553.7 / 1470.8 / 1188.2 |
+| | past L3 | 566.3 / 602.5 / 470.0 | 657.5 / 669.9 / 647.6 |
+| `x + y` and its check, `DECIMAL(38, 2)` | in L2 | 1521.2 / 1800.5 / 688.0 | 949.3 / 1024.8 / 619.3 |
+| | in L3 | 1159.5 / 1125.9 / 609.3 | 878.6 / 926.6 / 544.4 |
+| | past L3 | 1186.6 / 1148.9 / 500.2 | 844.5 / 912.5 / 518.1 |
+
+At 128 bits every P arm runs 117.6 to 189.5 ns a row and every S arm 0.7 to 2.0.
+
+- **`COMPARE` against `BITS`: a tie at 512 and 256 bits.** No section or rung separates them by
+  1.3x either way; the widest gap is 1.18x (`BITS` ahead on the checked sum in L2 at 512 bits).
+  Prediction 1 held at those widths as a tie within its bound. Its 128-bit half, `BITS` ahead by 5
+  to 20 times, is refuted: `BITS` is at most 1.3x ahead (145.8 against 189.5 ns a row, the checked
+  sum in L3), because both P arms spend their time in the two-vector rearranges of the load and
+  the store, which fall back at two lanes; the carry is lost beside them.
+- **S against P** (prediction 2): P leads at 512 and 256 bits, by 1.2x to 1.7x on the sum and the
+  difference in L2 and L3 and by 1.6x to 2.6x on the checked sum, under the predicted 2 to 4 times
+  for the first two; past L3 the sum and the difference are memory-bound and within 1.3x of S. At
+  128 bits S leads by 70 to 210 times, as predicted.
+- **The pick for 360a: `COMPARE`**: a tie where a pair kernel runs, and four lane calls and two
+  IR nodes to `BITS`' eight and six. At 128 bits on x86 P loses to S by seventy times either way,
+  so a two-lane pair shape goes to the row path whatever its carry (rows 503 and 596).
+- **`decimalCarry` is not built**: the compiler reads no emit option and the carry is IR, so the
+  option needs a carry node the emitter lowers both ways or the options in the compiler; decided
+  after the runner's reading.
+
+**Owed: the EPYC 7763 reading**, `benchmark.yml` on vecbricks/varka with `-f pr=<N>
+-f class=*.VarkaDecimalPairSpikeBenchmark -f jdk=25 -f expected-cpu="AMD EPYC 7763"` and
+`extra-java-options` the class's `dontinline` command, alone and with `-XX:MaxVectorSize=16`. It
+rewrites the class's runner results files whole; should `BITS` lead there by 1.3x, `carry` and
+`borrow` change alone.
 
 (Written when the work lands.)
