@@ -663,10 +663,14 @@ Three rules, applied by the script of 5.2 and by nothing else:
    `m9/PLAN.md` rows 668 and 671 name these entries for `TIMESTAMP_LTZ`.
 3. **A cast alias** (types `legal`) takes `ltz` as a source from `legal()`.
 4. **A date function that Spark takes over a timestamp through a cast to `DATE`** (`add_months`,
-   `datediff`, `date_diff`, `date_add`, `dateadd`, `date_sub`, `unix_date`) gets `ntz,ltz` at the
-   end of its types (the owner, 27 November 2026; `VARKA-660.md` 16). Milestone 8's census
-   lists no timestamp for these seven, and stays so (4.4). Row 672 owes `ntz`, and row 668
-   owes `ltz`.
+   `datediff`, `date_diff`, `date_add`, `dateadd`, `date_sub`) gets `ntz,ltz` at the end of its
+   types (the owner, 27 November 2026; `VARKA-660.md` 16). Milestone 8's census lists no
+   timestamp for these six, and stays so (4.4). Row 672 owes `ntz`, and row 668 owes `ltz`.
+   `unix_date` is not among them (the lead, 27 November 2026; `VARKA-661.md` 4.3): it takes a
+   `DATE`, and Spark casts no timestamp to it. A run of Spark's analyzer on master
+   `1924c7a5afb` rejected `unix_date(c)` over `TIMESTAMP_NTZ` and over `TIMESTAMP`, under both
+   ANSI settings, with `DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE`. Its line keeps `date` alone,
+   as in milestone 8's census.
 
 For each such entry the script appends the row that owes `ltz` to the entry's `rows`, appends
 "ltz is row N's" to its note, and, where the need is `done`, sets it to `plumbing` for a row
@@ -681,7 +685,7 @@ only when every type it admits is fused (fact 8). The fused field is not touched
 | 657 | `hour minute second` (3) | row 657: "`hour`, `minute`, `second` and `CAST(ts AS DATE)`" |
 | 668 | `day dayofyear dayofmonth last_day month next_day quarter trunc dayofweek weekday weekofyear year extract date_part datepart time_bucket` (16) | row 668 names each |
 | 671 | `ntz_minus_ntz datetime_sub ntz_plus_dt ntz_plus_ym timestampadd` (5) | row 671: "`ts - ts`, `ts` plus and minus a day-time and a year-month interval, `timestampadd` and `datetime_sub`" |
-| 668, and 672 for `ntz` | `add_months datediff date_diff date_add dateadd date_sub unix_date` (7) | rule 4. `ltz`: row 668, by the rule of this section for an entry that "lists `ntz` otherwise", a field of a timestamp, and beside `last_day`, `next_day` and `trunc`, which take a `DATE` the same way. `ntz`: row 672, "the existing temporal types' tail", named because its done-when is item 3 of `m9/PLAN.md` 1.2, which these pairs join |
+| 668, and 672 for `ntz` | `add_months datediff date_diff date_add dateadd date_sub` (6) | rule 4. `ltz`: row 668, by the rule of this section for an entry that "lists `ntz` otherwise", a field of a timestamp, and beside `last_day`, `next_day` and `trunc`, which take a `DATE` the same way. `ntz`: row 672, "the existing temporal types' tail", named because its done-when is item 3 of `m9/PLAN.md` 1.2, which these pairs join |
 
 That is 69 entries on master `a0e3a62cf2b`: 28 by rule 1 (24 registered and 4 implicit), 24 by
 rule 2, 10 by rule 3 and 7 by rule 4. The implicit entries keep their names (`ntz_minus_ntz`,
@@ -983,6 +987,15 @@ the command that restates each at the build.
   12 of them for 5; 69 entries edited for 62; 27 no longer `done` for 23, the four more
   being `add_months`, `datediff`, `date_diff` and `unix_date`; 58 entries `done` for 62; and
   210 of 304 for 210 of 297 in item 3. The pairs fused stay 585.
+- ***27 November 2026*, a second correction: `unix_date` does not count for `ntz` and `ltz`**
+  (4.7, rule 4; `VARKA-661.md` 4.3): Spark rejects it over both. Where this file says the
+  seven date functions, read six. Part b's numbers, here and wherever this file repeats them,
+  read: 76 `ltz` pairs for 77; 1024 pairs for 1026; 52 pairs gained by the other types for
+  53, `ntz` 11 of them for 12; 68 entries edited for 69, 6 of them by rule 4 for 7; 26 no
+  longer `done` for 27, the three more than 23 being `add_months`, `datediff` and
+  `date_diff`; 59 entries `done` for 58; and 210 of 303 for 210 of 304 in item 3. The script
+  of 5.2 prints `68 entries edited, 26 of them no longer done, 16 added; 0 by default, 0
+  skipped, 0 absent`, and the summary reads `  ltz     new         0 / 76`.
 - **What does not move in either part:** `sql/varka/coverage.json`, `emitted_bytes.json`,
   `width_audit.json`, `sql/varka/fuzz/types.tsv`, every benchmark results file, and milestone
   8's five files.
@@ -1394,7 +1407,7 @@ which fails two named tests.
         }
 
 7. Regenerate, in this order. The order matters once: the suite writes the probe before the
-   script can write `casts.tsv`, so the first run of the suite fails two tests by design.
+   script can write `casts.tsv`, so the first run of the suite fails three tests by design.
 
         VARKA_TYPES_REGEN=true flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaTypesSuite'
         VARKA_CASTS_REGEN=true flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaCastMatrixSuite'
@@ -1402,8 +1415,9 @@ which fails two named tests.
         dev/varka_regen_generated.sh --all
         python3 dev/varka_census.py --summary > $T/after.txt
 
-   The second command writes `$M9/casts_fused.tsv` and fails exactly two tests, `legality` and
-   `timestampPairs`: `casts.tsv` has no `ltz` pair yet. With any other failure the part ends:
+   The second command writes `$M9/casts_fused.tsv` and fails exactly three tests, `legality`,
+   `plantedLegality` and `timestampPairs`: `casts.tsv` has no `ltz` pair yet, and the planted
+   test reads the same file (`VARKA-661.md` 11). With any other failure the part ends:
    report that test's output (risk 6). The third
    writes `$M9/census.tsv`, `$M9/casts.tsv` and the docs block. The fourth runs every suite
    that writes a file, the three cast suites of sql/core among them, and the census again; it
@@ -1472,7 +1486,7 @@ which fails two named tests.
     # census lists no timestamp for them; milestone 9's counts them for both microsecond timestamps
     # (VARKA-660.md 16). ntz is row 672's, the existing temporal types' tail; ltz is row 668's, with
     # the fields.
-    DATE_FUNCTIONS = "add_months datediff date_diff date_add dateadd date_sub unix_date".split()
+    DATE_FUNCTIONS = "add_months datediff date_diff date_add dateadd date_sub".split()
     NEW = """\
     # TIMESTAMP_LTZ's own entries, in scope since milestone 9 (m9/PLAN.md 2.4, VARKA-654).
     timestamp_seconds|NUM|ltz||semantics|667|seconds since the epoch to microseconds, reading no zone; a fraction truncates, an overflow raises
