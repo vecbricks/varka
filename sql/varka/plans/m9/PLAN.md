@@ -392,7 +392,8 @@ twice. The work is rows 657 and 682 to 692.
 The registry (`VarkaTypes`) declines `TIMESTAMP` today with the reason "its arithmetic is in the
 session time zone, which is not lane arithmetic". The row turns the entry to the long lane, with
 the census name `ltz` (*27 November 2026:* row 654's part b gives the entry that name first,
-while it still declines, `VARKA-654.md` 4.5), and takes the path of `sql/varka/ADDING_A_TYPE.md` for a type that joins a
+while it still declines, `VARKA-654.md` 4.5), and takes the path of
+`sql/varka/ADDING_A_TYPE.md` for a type that joins a
 lane: the registry and `types.tsv` (step 4), the fuzzers' entry and fixture column (step 9),
 `TimeStampMicroTZVector` in `VarkaLaneArrow` in and out (step 10), the coverage rows (step 11),
 the benchmark (step 14), the matrix and the linters (steps 15 and 16). The one new piece of
