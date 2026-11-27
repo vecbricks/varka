@@ -51,7 +51,7 @@ under the census name `ltz`. No kernel is built and no emitted byte moves.
   Item 1 of 1.2: "at least three quarters of `TIMESTAMP_LTZ`'s (entry, type) pairs fused (about
   66 entries are expected to admit it)". This row sets that item's denominator. Check:
   `python3 dev/varka_census.py --summary | grep '^  ltz' | awk '{print $3, $5}'` prints the
-  pairs fused and admitted, `0 70` on master `a0e3a62cf2b`.
+  pairs fused and admitted, `0 77` on master `a0e3a62cf2b`.
 - **The preamble of 1.2**, directly: "The census items are read from `dev/varka_census.py
   --summary`, which prints the pairs fused and admitted for each type; row 654 gives it this
   milestone's files." Check: `git ls-files sql/varka/plans/m9/census.tsv` prints the path.
@@ -581,6 +581,10 @@ source).
   three names stay as the sync curated them: `try_abs` and `try_negative` in scope and unfused
   with row 663 in their `rows`, `farm_fingerprint` out as a `BINARY` input. Row 672 fuses the
   first two in milestone 9's file.
+- **The seven date functions read two ways across the two milestones, on purpose.** Milestone
+  8's files are frozen, so `--milestone 8 --summary` counts no timestamp for them; milestone
+  9's summary counts `ntz` and `ltz` (4.7, rule 4). For this reason alone `ntz` admits 7 pairs
+  more in milestone 9's summary than in milestone 8's.
 
 ### 4.5 `ltz` enters the type set (part b)
 
@@ -653,6 +657,11 @@ Three rules, applied by the script of 5.2 and by nothing else:
    (`AnyTimestampType`, or a `DATE` parameter that either timestamp casts to), and
    `m9/PLAN.md` rows 668 and 671 name these entries for `TIMESTAMP_LTZ`.
 3. **A cast alias** (types `legal`) takes `ltz` as a source from `legal()`.
+4. **A date function that Spark takes over a timestamp through a cast to `DATE`** (`add_months`,
+   `datediff`, `date_diff`, `date_add`, `dateadd`, `date_sub`, `unix_date`) gets `ntz,ltz` at the
+   end of its types (the owner, 27 November 2026; `VARKA-660.md` 16). Milestone 8's census
+   lists no timestamp for these seven, and stays so (4.4). Row 672 owes `ntz`, and row 668
+   owes `ltz`.
 
 For each such entry the script appends the row that owes `ltz` to the entry's `rows`, appends
 "ltz is row N's" to its note, and, where the need is `done`, sets it to `plumbing` for a row
@@ -667,9 +676,11 @@ only when every type it admits is fused (fact 8). The fused field is not touched
 | 657 | `hour minute second` (3) | row 657: "`hour`, `minute`, `second` and `CAST(ts AS DATE)`" |
 | 668 | `day dayofyear dayofmonth last_day month next_day quarter trunc dayofweek weekday weekofyear year extract date_part datepart time_bucket` (16) | row 668 names each |
 | 671 | `ntz_minus_ntz datetime_sub ntz_plus_dt ntz_plus_ym timestampadd` (5) | row 671: "`ts - ts`, `ts` plus and minus a day-time and a year-month interval, `timestampadd` and `datetime_sub`" |
+| 668, and 672 for `ntz` | `add_months datediff date_diff date_add dateadd date_sub unix_date` (7) | rule 4. `ltz`: row 668, by the rule of this section for an entry that "lists `ntz` otherwise", a field of a timestamp, and beside `last_day`, `next_day` and `trunc`, which take a `DATE` the same way. `ntz`: row 672, "the existing temporal types' tail", named because its done-when is item 3 of `m9/PLAN.md` 1.2, which these pairs join |
 
-That is 62 entries on master `a0e3a62cf2b`: 28 by rule 1 (24 registered and 4 implicit), 24 by
-rule 2, 10 by rule 3. The implicit entries keep their names (`ntz_minus_ntz`, `ntz_plus_dt`,
+That is 69 entries on master `a0e3a62cf2b`: 28 by rule 1 (24 registered and 4 implicit), 24 by
+rule 2, 10 by rule 3 and 7 by rule 4. The implicit entries keep their names (`ntz_minus_ntz`,
+`ntz_plus_dt`,
 `ntz_plus_ym`): a name is a key that `VarkaTypeConformance` reads, and row 688's premise finds
 `ntz_plus_dt` by its class, `TimestampAddInterval`.
 
@@ -961,6 +972,12 @@ the command that restates each at the build.
   to `year`, the alias `date`, and the 5 implicit timestamp operators.
 - **Item 3 of `m9/PLAN.md` 1.2.** Over `date`, `ntz`, `time`, `ym` and `dt` the census reads 213
   fused of 282 before and 210 of 297 after part b.
+- ***27 November 2026*, a correction: the date functions count for `ntz` and `ltz`** (4.7, rule
+  4; `VARKA-660.md` 16). Part b's numbers, here and wherever this file repeats them, read: 77
+  `ltz` pairs for 70; 1026 pairs for 1012; 53 pairs gained by the other types for 46, `ntz`
+  12 of them for 5; 69 entries edited for 62; 27 no longer `done` for 23, the four more
+  being `add_months`, `datediff`, `date_diff` and `unix_date`; 58 entries `done` for 62; and
+  210 of 304 for 210 of 297 in item 3. The pairs fused stay 585.
 - **What does not move in either part:** `sql/varka/coverage.json`, `emitted_bytes.json`,
   `width_audit.json`, `sql/varka/fuzz/types.tsv`, every benchmark results file, and milestone
   8's five files.
@@ -984,7 +1001,7 @@ texts of 4.2.
 | the lists as one file an entry | 653 |
 | `try_abs` and `try_negative` fused | 672 |
 | `VarkaZoneSweepSuite`, which the proof column names | 684 |
-| a date function over a timestamp that milestone 8's census does not list for `ntz` (`date_add`, `add_months`, `datediff`, `unix_date`) | none: the census keeps milestone 8's reading (4.13, question 5) |
+| a fused cell of a date function over a timestamp (4.7, rule 4) | 672 for `ntz`, 668 for `ltz` |
 | closing milestone 9's census | 677 |
 
 ### 4.13 Open questions for the owner
@@ -1008,6 +1025,9 @@ approved the plan as written, so the first answer of questions 2, 5 and 6 stands
 5. **A date function over a timestamp** (`date_add`, `add_months`, `datediff`, `unix_date`).
    Milestone 8's census lists no `ntz` for them, though Spark casts a timestamp to their
    `DATE` parameter. Recommended: keep that reading for `ltz`; a row that fuses one adds it.
+   *27 November 2026:* the owner chose the other answer, after he counted them for the
+   nanosecond types (`VARKA-660.md` 13): the seven date functions, these four and `date_diff`,
+   `dateadd` and `date_sub`, count for `ntz` and `ltz` in milestone 9's census (4.7, rule 4).
 6. **Milestone 8's four lines leave `sql/varka/.gitattributes`.** Recommended: yes; a closed
    file is never merged or regenerated.
 
@@ -1324,7 +1344,7 @@ which fails two named tests.
 4. `$M9/census_curated.txt`: the header line of 4.5 by hand. Then save the script below as
    `$T/ltz_curated.py` and run
    `python3 $T/ltz_curated.py $M9/census_curated.txt | tee $T/curated.txt`. On master
-   `a0e3a62cf2b` it prints one line, `62 entries edited, 23 of them no longer done, 16 added; 0
+   `a0e3a62cf2b` it prints one line, `69 entries edited, 27 of them no longer done, 16 added; 0
    by default, 0 skipped, 0 absent`; at the build the numbers are the close's, and each
    `default:`, `skipped:` or `absent:` line above the last goes into the description (4.7).
    The script is not committed. It exits non-zero in two cases only, each with its remedy in
@@ -1443,6 +1463,11 @@ which fails two named tests.
             OWNER[n] = row
     UNDONE, DEFAULTED, SKIPPED = [], [], []
     ZONE_FREE = {"656", "667"}  # their kernels read no zone: what is left is plumbing
+    # The date functions that Spark takes over a timestamp through a cast to DATE. Milestone 8's
+    # census lists no timestamp for them; milestone 9's counts them for both microsecond timestamps
+    # (VARKA-660.md 16). ntz is row 672's, the existing temporal types' tail; ltz is row 668's, with
+    # the fields.
+    DATE_FUNCTIONS = "add_months datediff date_diff date_add dateadd date_sub unix_date".split()
     NEW = """\
     # TIMESTAMP_LTZ's own entries, in scope since milestone 9 (m9/PLAN.md 2.4, VARKA-654).
     timestamp_seconds|NUM|ltz||semantics|667|seconds since the epoch to microseconds, reading no zone; a fraction truncates, an overflow raises
@@ -1496,6 +1521,18 @@ which fails two named tests.
         """`fields` of one entry, `first` the index of its types field."""
         name = fields[0]
         types, result, need, rows, note = (first + i for i in (0, 1, 3, 4, 5))
+        if name in DATE_FUNCTIONS and first == 1:
+            if {"ntz", "ltz"} & set(fields[types].split(",")):
+                sys.exit(f"already has a timestamp: {name}")
+            fields[types] += ",ntz,ltz"
+            if fields[need] == "done":
+                fields[need] = "semantics"
+                UNDONE.append(name)
+            held = [r for r in fields[rows].split(",") if r]
+            fields[rows] = ",".join(held + ["672", "668"])
+            add = "a timestamp through its date, the cast to DATE under the node: ntz is row 672's,"
+            fields[note] = (fields[note] + "; " if fields[note] else "") + add + " ltz row 668's"
+            return fields
         listed = "ntz" in fields[types].split(",")
         reaches = listed or fields[types] in ("ALL", "legal")
         if not reaches:
@@ -1601,7 +1638,7 @@ table of section 5).
     awk -F'|' '/^\[/{s=$0} !/^#/&&s=="[registered]"&&NF>=7{t=$2} !/^#/&&s=="[implicit]"&&NF>=9{t=$4} t!=""{n+=(t=="ALL"||t=="legal"||(","t",")~/,ltz,/); t=""} END{print n}' $M9/census_curated.txt
                                                     # N: the script's first number plus 8
     grep '^  ltz' $T/after.txt | awk '{print $2, $3, $5}'   # new 0 N, the same N
-    grep -c '^  ltz ' $T/after.txt                  # 1 (the line itself is "  ltz     new         0 / 70" on a0e3a62cf2b)
+    grep -c '^  ltz ' $T/after.txt                  # 1 (the line itself is "  ltz     new         0 / 77" on a0e3a62cf2b)
     # 4. the cast matrix and the probe
     awk -F'\t' '$1=="ltz"||$2=="ltz"' $M9/casts.tsv | wc -l             # 23
     awk -F'\t' '($1=="ltz"||$2=="ltz") && $4=="yes"' $M9/casts.tsv | wc -l   # 21
@@ -1725,7 +1762,7 @@ not move in either part. Nothing runs on the EPYC runners for it.
 | ---: | :--- | :--- | :--- | :--- |
 | P1 | part a moves no count and no byte of four files | summary identical; four `same` lines | the same | 5.1, commands 2 and 4 |
 | P2 | milestone 8's summary from its files is the old summary less three lines | yes | yes, where no file moved since the close | 5.1, command 6 |
-| P3 | `ltz` admits 70 pairs and fuses none | `  ltz     new         0 / 70` | 0, and the script's first number plus 8 | 5.2, command 3 |
+| P3 | `ltz` admits 77 pairs and fuses none | `  ltz     new         0 / 77` | 0, and the script's first number plus 8 | 5.2, command 3 |
 | P4 | 23 cast pairs, 21 under ANSI and TRY; 129 legal pairs in all | yes | 23 and 21; the close's count plus 23 | 5.2, command 4 |
 | P5 | the probe gains 28 lines, none fused, and no other line moves | 365 to 393 | plus 28 | 5.2, command 4 |
 | P6 | the pairs fused fall by 3, in `cast` and `try_cast` alone | 588 to 585 | by the number of `$T/lost.txt` | 5.2, command 6 |
