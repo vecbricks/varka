@@ -150,6 +150,13 @@ All required, per the decision of 28 September 2026:
 * the Goldberg and Handbook section numbers checked against the texts: step 6;
 * the owner's edit: step 7.
 
+*27 November 2026, by the owner's word (`m8/PLAN.md` 12.5):* three of these changed with the close
+path. Rows 369 and 490 moved to `m10/SCOPE.md` item 140, so the post does not wait for the
+fuzzer's count arm or for the proofs' further depth; it says what is proved today and names the
+rest as later work. Row 367 moved too: the post owes the opt-in mode's measured bounds only if it
+names the mode, and it does not name it unless that row's probe has run. Row 368's cast half is
+merged, which is what the fourth line asks; its hash suite moved.
+
 ## 7. Steps
 
 1. **Freeze the data** on the commit after the owed rows merge. Done when `python3
