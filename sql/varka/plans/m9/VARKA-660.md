@@ -2599,7 +2599,9 @@ cast pairs for 20, 411 pairs for 137, and 52, 52, 52, 51, 51 and 51 of 69, 69, 6
    type reads the same way? The owner: yes. It adds 7 pairs to each in milestone 9's census,
    by the edits of `VARKA-654.md` in 12.2. Milestone 8's census is not touched.
 
-**Still open**, each with its recommendation; the plan is written on the first answer.
+**Open when the plan was written**, each with its recommendation; the plan is written on the
+first answer. *27 November 2026, later:* the owner approved the plan as written, so the first
+answer of each stands as his.
 
 2. **A type is admitted for an entry when Spark accepts it at all three precisions** (4.4).
    Recommended: yes. The other rule, any one precision, would count a cell that fails for two
