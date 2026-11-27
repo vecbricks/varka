@@ -203,3 +203,53 @@ settles the depth-64 rung of each lane on the tier witness: 8 drives of a millio
 `loopDense0` is C2 code (level 4) at both lanes. The fuzzer's suite, with the option drawn at 16
 and 32, passes in its own JVM on the laptop (41 tests, 2 opt-in cancels); its C2 test took 8
 minutes 24 seconds of the Build's 9-minute cap on a loaded machine.
+
+*27 November 2026, the runner readings scored.* The opening "Not measured yet" is superseded: both
+widths are committed from an AMD EPYC 7763 (#1571, with #1588's swap of the two files' names), 256
+bits in `VarkaChainDepthBenchmark-jdk25-runner-epyc7763-results.txt` and 128 bits, under
+`-XX:MaxVectorSize=16`, in `VarkaChainDepthBenchmark-jdk25-runner-epyc7763-128bit-results.txt`. The
+table holds each arm's rate, in millions of rows a second, at depths 16, 24, 32, 48 and 64.
+
+| lane and arm | 256 bits | 128 bits |
+| :--- | :--- | :--- |
+| INT, fused | 1640.5, 1102.7, 792.8, 427.2, 295.1 | 807.5, 555.5, 387.3, 214.2, 147.8 |
+| INT, Spark's row path | 48.4, 40.1, 35.3, 25.1, 17.5 | 51.9, 39.7, 35.9, 27.1, 17.4 |
+| INT, scalar loop | 277.5, 134.0, 127.6, 100.0, 44.6 | 218.8, 146.4, 123.6, 52.8, 78.7 |
+| BIGINT, fused | 399.4, 273.8, 179.1, 116.0, 80.4 | 8.3, 5.7, 4.2, 2.9, 2.0 |
+| BIGINT, Spark's row path | 52.8, 42.3, 37.4, 26.2, 18.0 | 53.3, 41.5, 36.7, 26.5, 17.9 |
+| BIGINT, scalar loop | 206.6, 104.2, 115.5, 55.5, 78.6 | 206.6, 104.1, 115.6, 55.5, 78.6 |
+
+1. **Prediction 1 is right.** The largest method at any rung is 3358 bytes of the 8000 limit, the
+   masked epilogue at depth 64, and `loopDense0` is C2 code at every rung of both lanes at both
+   widths. The dense loop grows from 619 bytes at depth 16 to 1771 at 64, 24 bytes a level.
+2. **Prediction 2 is right on the steps and wrong on the ratio.** No step between adjacent rungs is
+   more than 1.25 times worse than the depth's growth; the worst, the INT lane from 32 to 48 at 256
+   bits, is 1.24. But the rate at 64 over the rate at 16 is 0.18 on the INT lane at both widths,
+   0.20 on the BIGINT lane at 256 bits and 0.24 at 128, a fifth where a quarter to a third was
+   predicted: four times the depth costs 4.2 to 5.6 times the time.
+3. **Prediction 3 is wrong as written.** At 256 bits the fused rate over the scalar loop's is 5.9,
+   8.2, 6.2, 4.3 and 6.6 on the INT lane and 1.9, 2.6, 1.6, 2.1 and 1.0 on the BIGINT lane, more
+   than a fifth from its value at 16 at depth 24 on both lanes, at 48 on the INT lane and at 64 on
+   the BIGINT lane. The arm that moves is the scalar loop, whose rate does not fall steadily with
+   depth (the BIGINT loop reads 104.2 at 24, 115.5 at 32, 55.5 at 48 and 78.6 at 64), while the
+   fused arm falls as prediction 2's steps say. So the ratio reads the control, not a cliff in the
+   fused chain.
+4. **Prediction 4 is wrong.** The fused rate over Spark's falls with depth: 34, 27, 22, 17 and 17
+   times on the INT lane at 256 bits, 16, 14, 11, 8 and 8 times at 128, and 7.6, 6.5, 4.8, 4.4 and
+   4.5 times on the BIGINT lane at 256 bits, under the predicted five at 64. At 128 bits the fused
+   BIGINT chain is slower than Spark's row path at every depth, depth 16 included: the file's
+   relative column puts the row path at 6.4X to 9.3X of it.
+5. **Prediction 5 is right.** At 256 bits the BIGINT lane's fused rate is about a quarter of the
+   INT lane's at every depth, 399.4 against 1640.5 at 16 and 80.4 against 295.1 at 64.
+
+**The deepest cap the readings support.** By the decision rule of 6.1 as registered, predictions 1
+and 3 at every rung, no raise is supported, since prediction 3 fails at depth 24. That failure is
+the scalar control's, so the rule does not say what it was written to say, and row 629 read the
+files against Spark's row path instead, the path a declined chain runs on. Read that way the INT
+lane supports 64, the deepest rung measured, at both widths: the fused chain is 8 to 34 times the
+row path, its loop is C2 code and every method is under the byte limit. The BIGINT lane supports
+64 at 256 bits, at 4.4 to 7.6 times the row path, and no depth at 128 bits, where it loses at 16
+already; that is a finding about two long lanes, row 628's, and not about depth. Row 629 took this
+reading (#1605): the auto cap is 64 for a tree of the int lane alone and 16 for every other. The
+limit written on 20 November 2026 in 6.1 stands: every rung keeps a handful of vectors live, so
+nothing here prices a wide shape such as a 128-bit decimal pair's words.
