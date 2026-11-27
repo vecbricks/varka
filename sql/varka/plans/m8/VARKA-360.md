@@ -499,3 +499,29 @@ at the three widths on an idle machine, after which the reading above is replace
 `results/VARKA-360-spike-laptop.txt` stays as the record of what the pick was made beside.
 
 (Written when the work lands.)
+
+### 10.1 Step 1, the baseline's readings (27 November 2026)
+
+Step 1's twelve sections merged with row 361's in #1460, and #1475 committed their first runner
+results. The class's two runner files,
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`, were replaced on 27
+November 2026 from `benchmark.yml` runs 46057445085 (256 bits, no `MaxVectorSize`) and 46057448792
+(`-XX:MaxVectorSize=16`) of vecbricks/varka. Both ran at master `e103a4c548a`, dispatched with
+`pr=1793`, so they measured `refs/pull/1793/head`, `6d1f14ae33a`, each on an AMD EPYC 7763 by its
+provenance and by the job's probe. Best times in ms, Spark's row path / varka on, without nulls and
+then at one row in ten null:
+
+| section | 256 bits | 128 bits |
+|---|---|---|
+| `x20 + y20` as a value | 1036 / 1032, 935 / 921 | 1069 / 1057, 940 / 952 |
+| `x20 - y20s4` as a value | 1088 / 1099, 962 / 964 | 1127 / 1119, 998 / 979 |
+| `x38s2 + y38s2` as a value | 1021 / 1026, 914 / 911 | 1064 / 1042, 955 / 952 |
+| `l + x9` as a value | 344 / 328, 297 / 308 | 347 / 322, 287 / 286 |
+| `l + x18` as a value | 347 / 360, 308 / 317 | 346 / 333, 298 / 303 |
+| `x20 + y20 < z20` as a filter | 1464 / 1457, 1245 / 1271 | 1492 / 1526, 1277 / 1274 |
+
+No lowering of this row is built, so both arms run the row path and tie: 0.96x to 1.05x by best
+time at 256 bits and 0.98x to 1.08x at 128 bits. None of section 4's predictions is scored, since
+each is about the spike or the build. The baseline is in place before the kernel; everything of the
+build is left.

@@ -66,7 +66,7 @@ for the first clause, and the owner signed them with the edited done-when (secti
 
 | row | what it reads from this row |
 | :--- | :--- |
-| 658 (the task template and its oracle) | the files a generated task plan names: one `.row` file, three record files that the regeneration writes, at most one skip file (4.2 to 4.8); the commands `python3 dev/varka_rows.py --check` and `dev/varka_regen_generated.sh --all`; and that a task does not touch `docs/sql-varka.md` |
+| 658 (the task template and its oracle) | the files a generated task plan names: one `.row` file a coverage row, three record files a row that the regeneration writes, at most one skip file (4.2 to 4.8); the commands `python3 dev/varka_rows.py --check` and `dev/varka_regen_generated.sh --all`; and that a task does not touch `docs/sql-varka.md` |
 | 659 (the pilot) | its second round, three sibling casts in flight together, is the case of this row's done-when; they still share the census's files until the new row |
 | 667 to 669 and 672 to 674 (the fan-out) | parts of one family in flight together merge in any order in the files this row moves |
 | 657, 682 to 690 and every full-strength row | the same files; a row whose coverage rows need Scala code keeps them in the Scala table (4.6) |
@@ -4077,7 +4077,7 @@ insertions go if the order is ever broken.
 | `VARKA-690.md` 11 (the two `ToInstant` records) | "it may move the coverage rows or the curated census to one file an entry. The content of a step is the same and its home is the one B0 prints" | its coverage rows may stay in the Scala table or be row files; part B rewrites its two closing `git diff` commands and its two status lists (11.2), and part D takes the docs page out of those lists (11.3) |
 | `VARKA-657-PARTS.md` 5.0, merged | "Rows 653, 646 and 654 may have moved a list to one file an entry or to milestone 9's folder; where B0 shows that, the content of a step is the same and its home is the one B0 prints." | its sheets add rows to the table, which still works; parts B and D rewrite its commands and its status list (11.2, 11.3) |
 | `VARKA-678.md`, `VARKA-682.md` to `VARKA-688.md`, merged | their sheets end with a `git diff` over the three JSON files | part B rewrites those commands (11.2) |
-| row 658 (the template), no plan yet | - | it names, for one entry and one type: one row file, at most one skip file, the census edit as row 654 has it until row 696, and the command `dev/varka_regen_generated.sh --all`; it rewrites `ADDING_AN_EXPRESSION.md` step 7, which this row leaves; it says where a task's compile tests go |
+| row 658 (the template), no plan yet | - | it names, for a task of one to four units: one row file a coverage row, at most one skip file, the census edit as row 654 has it until row 696, and the command `dev/varka_regen_generated.sh --all`; it rewrites `ADDING_AN_EXPRESSION.md` step 7, which this row leaves; it says where a task's compile tests go |
 | milestone 8's row 646 | - | it moves the task table; this row does not touch `PLAN.md`'s rows but its own status |
 | row 642 | - | it owns `VarkaEmitOptions` and the option suites' lists; part C touches one comment line of `VarkaEmitOptions.java` |
 | row 590 | - | its Build on the merge with master is what catches risk 5 |

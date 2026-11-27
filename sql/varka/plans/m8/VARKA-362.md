@@ -411,4 +411,68 @@ and the PR build and the option matrix pass.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 10.1 Step 1, the baseline addition (20 November 2026)
+
+Built on branch `varka-362-decimal-multiply-256` from master at `0b8be5a33e4` and brought to
+master `a5c8d1f0972` on 27 November 2026 as branch `varka-362-363-baseline`, with row 363's
+sections (`VARKA-363.md` 10), after row 350's casts had joined the baseline: a pull request of
+its own, since rows 360 and 361's additions merged in #1460. `VarkaDecimalBaselineBenchmark` gains
+eight sections, four shapes at both null densities, after every existing one so that no committed
+section's values move:
+
+| section | result type | class of 2.3 |
+|---|---|---|
+| `x20 * y17s2` as a value | `DECIMAL(38, 4)`, uncapped | the shortcut |
+| `w20 * l` as a value, `l` the `BIGINT` | `DECIMAL(38, 2)`, capped, scale kept | 128 by 64, checked |
+| `x38s2 * w38s2` as a value | `DECIMAL(38, 4)`, capped, scale kept | checked |
+| `x20 * y17s2 < z20` as a filter | compares at `DECIMAL(38, 4)` | the shortcut |
+
+Every section is `NONE`: no lowering computes a product past a long, and of the filter only the
+null tests Spark infers would fuse, which VARKA-598 leaves on the row path. The three new columns
+come after `l16`, the last column of row 350's casts: `y17s2`, a `DECIMAL(17, 2)`, and `w20` and `w38s2`, a `DECIMAL(20, 2)` and a
+`DECIMAL(38, 2)` with narrower integer parts than `x20` and `x38s2` (the decisions below). The
+queries suite pins the new columns' types, the sections' result types, the filter's comparison
+type and the product's freedom from nulls. The runner results at 256 and 128 bits are owed: this
+window is local only, so the two dispatches of `benchmark.yml` the class's javadoc names are left
+to the next CI window.
+
+### 10.2 Step 1, the runner's readings (27 November 2026)
+
+The step merged as #1793 on 27 November 2026. The class's two runner files,
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`, were replaced on 27
+November 2026 from `benchmark.yml` runs 46057445085 (256 bits, no `MaxVectorSize`) and 46057448792
+(`-XX:MaxVectorSize=16`) of vecbricks/varka. Both ran at master `e103a4c548a`, dispatched with
+`pr=1793`, so they measured `refs/pull/1793/head`, `6d1f14ae33a`, each on an AMD EPYC 7763 by its
+provenance and by the job's probe. Best times in ms, Spark's row path / varka on, without nulls and
+then at one row in ten null:
+
+| section | 256 bits | 128 bits |
+|---|---|---|
+| `x20 * y17s2` as a value | 744 / 755, 665 / 667 | 749 / 744, 658 / 661 |
+| `w20 * l` as a value | 723 / 723, 651 / 636 | 709 / 705, 639 / 644 |
+| `x38s2 * w38s2` as a value | 999 / 1002, 886 / 883 | 995 / 1008, 892 / 889 |
+| `x20 * y17s2 < z20` as a filter | 1208 / 1211, 1013 / 1005 | 1191 / 1195, 999 / 1005 |
+
+Every section prints 1.0X at both widths. The arms plan alike, so they tie: 0.99x to 1.02x by best
+time at 256 bits and 0.99x to 1.01x at 128 bits. None of section 4's predictions is scored, since
+each is about the spike or the build; these are the row-path times its predictions 4 and 5 are read
+against when 362a lands. The baseline step is complete. The spike (step 2) and the kernels, 362a to
+362c, are not built.
+
+## Decisions taken while the owner was away (20 November 2026)
+
+1. **The checked sections read narrower columns than section 4 names.** Section 4 names
+   `x20 * l` and `x38s2 * y38s2`, but over the table's columns both products overflow their
+   types: `x20`'s integer parts reach `5 * 10^17` and `l` reaches `2^63`, past the 36 integer
+   digits of `DECIMAL(38, 2)`, and `x38s2 * y38s2` reaches `25 * 10^34`, past the 34 of
+   `DECIMAL(38, 4)`. An overflow raises under ANSI and stops the timed run, and the baseline's rule
+   is that no section's value overflows. So the sections read two new columns, `w20` with integer
+   parts to `10^17` and `w38s2` with integer parts below `2 * 10^16`, which keep every product
+   inside its type (the bounds are in `PRODUCT_COLUMNS`'s javadoc), rather than narrowing `x20` or
+   `x38s2`, whose values earlier sections' committed results were timed over. What the checked
+   product costs does not depend on its values in forms N and C; only the gate G does, and the
+   spike, not the baseline, measures it over small and full-width columns.
+2. **The filter compares with `z20`**, the existing `DECIMAL(20, 2)` column, which coercion casts
+   to the product's `DECIMAL(38, 4)`, as row 360's `x20 + y20 < z20` does, rather than adding a
+   `z` of the product's type.

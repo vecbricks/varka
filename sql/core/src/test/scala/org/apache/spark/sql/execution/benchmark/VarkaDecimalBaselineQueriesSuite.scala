@@ -75,6 +75,10 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
 
   test("every section of the decimal baseline runs, and both sessions answer it alike") {
     val rows = 2000
+    // The benchmark times its sections at the sessions' defaults, so this test reads them at
+    // the defaults too. The capped result types below hold only where an operation may cut
+    // its scale, so a session that starts with the setting off fails here and not in a type.
+    assert(conf.decimalOperationsAllowPrecisionLoss)
     withTable(rows) {
       val expected = VarkaDecimalBaselineBenchmark.PRECISIONS.asScala.flatMap { p =>
         Seq("x", "y", "z").flatMap { role =>
@@ -89,7 +93,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         Seq("w9", "w9n").map(_ -> DecimalType(9, 4)) ++
         Seq("w18", "w18n").map(_ -> DecimalType(10, 2)) ++
         Seq("x8", "x8n").map(_ -> DecimalType(8, 2)) ++
-        // The widening sections' columns of rows 360 and 361, and the BIGINT last.
+        // The widening sections' columns of rows 360 and 361, then the BIGINT.
         Seq("x15", "x15n", "y15", "y15n", "z15", "z15n").map(_ -> DecimalType(15, 2)) ++
         Seq("z20", "z20n").map(_ -> DecimalType(20, 2)) ++
         Seq("y20s4", "y20s4n").map(_ -> DecimalType(20, 4)) ++
@@ -98,12 +102,17 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         // The cast sections' columns of row 350, after the BIGINT.
         Seq("x15s4", "x15s4n").map(_ -> DecimalType(15, 4)) ++
         Seq("x18s14", "x18s14n").map(_ -> DecimalType(18, 14)) ++
-        Seq("l16", "l16n").map(_ -> LongType)
+        Seq("l16", "l16n").map(_ -> LongType) ++
+        // Row 362's products' columns, and row 363's cut product's last.
+        Seq("y17s2", "y17s2n").map(_ -> DecimalType(17, 2)) ++
+        Seq("w20", "w20n").map(_ -> DecimalType(20, 2)) ++
+        Seq("w38s2", "w38s2n").map(_ -> DecimalType(38, 2)) ++
+        Seq("x19s8", "x19s8n", "y19s8", "y19s8n").map(_ -> DecimalType(19, 8))
       val schema = spark.table("varka_decimal").schema
       assert(schema.map(f => f.name -> f.dataType) === expected)
 
       val sections = VarkaDecimalBaselineBenchmark.sections(false).asScala
-      assert(sections.size === 166)
+      assert(sections.size === 180)
       // The result type of each shape, as Spark's decimal rules give it: the chain widens at each
       // node and is capped at 38, and the cast is the one the precision names. The time sections
       // are time_to_seconds, DECIMAL(14, 6), and the seconds with their fraction, DECIMAL(8, 6).
@@ -117,7 +126,11 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // x15 * (1 - y15), DECIMAL(32, 4), l * x9, DECIMAL(30, 2), and l * x18, whose precision 39
       // Spark caps at 38 keeping the scale (VARKA-361.md 0 item 5), DECIMAL(38, 4). Their two
       // filters return x20 and x15. The casts of row 350 have their targets' types, the filter
-      // returning x9.
+      // returning x9. Row 362's products keep their scale: x20 * y17s2 is DECIMAL(38, 4)
+      // uncapped, w20 * l over l cast to DECIMAL(20, 0) is capped to DECIMAL(38, 2),
+      // x38s2 * w38s2 to DECIMAL(38, 4), and their filter returns x20. Row 363's cut their
+      // scale: x19s8 * y19s8, DECIMAL(39, 16), to DECIMAL(38, 15), x38 * y38, DECIMAL(77, 20),
+      // to DECIMAL(38, 6), and x38 + y38, DECIMAL(39, 10), to DECIMAL(38, 9).
       val chain = Map(9 -> DecimalType(21, 4), 18 -> DecimalType(38, 7), 38 -> DecimalType(38, 6))
       val resultTypes = VarkaDecimalBaselineBenchmark.PRECISIONS.asScala.flatMap { p =>
         val own = DecimalType(p.precision, p.scale)
@@ -144,7 +157,10 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         Seq.fill(2)(Seq(LongType, IntegerType, IntegerType, ShortType, DoubleType, FloatType,
           DecimalType(9, 0), DecimalType(9, 2), LongType, IntegerType, DoubleType, FloatType,
           DecimalType(18, 2), FloatType, IntegerType, IntegerType, DoubleType, FloatType,
-          DecimalType(18, 2), DecimalType(18, 2))).flatten
+          DecimalType(18, 2), DecimalType(18, 2))).flatten ++
+        Seq.fill(2)(Seq(DecimalType(38, 4), DecimalType(38, 2), DecimalType(38, 4),
+          DecimalType(20, 2))).flatten ++
+        Seq.fill(2)(Seq(DecimalType(38, 15), DecimalType(38, 6), DecimalType(38, 9))).flatten
       // The one section null on most rows by design; named once, so a reworded title fails here.
       val mostlyNullTitle = "try_cast(x AS SMALLINT), past the range on most rows"
       assert(sections.count(_.title.contains(mostlyNullTitle)) === 2)
@@ -152,7 +168,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // (a decimal output, written by the decimal store, 348b) and the BOOLEAN filter fuse whole
       // where the session takes a 64-bit kernel's masks, the rest stay on the row path.
       for (declines <- Seq(false, true)) {
-        val casts = VarkaDecimalBaselineBenchmark.sections(declines).asScala.drop(126)
+        val casts = VarkaDecimalBaselineBenchmark.sections(declines).asScala.slice(126, 166)
         // The BIGINT column's CAST(l AS DECIMAL(18, 2)) runs on the row path (no BIGINT into a
         // decimal fuses yet), so the titles name the decimal column x.
         val fused = Seq(" AS BIGINT)", "filter CAST(x AS BOOLEAN)",
@@ -207,13 +223,14 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // So do the three arithmetic filters of 349: x9 + y9 < z9 compares at DECIMAL(10, 2),
       // x9 - w9 > 0 at DECIMAL(12, 4) and x8 * y9 < z9 at DECIMAL(18, 4). The widening filters
       // of 360 and 361 do not: x20 + y20 < z20 compares at DECIMAL(21, 2) and x15 * y15 < z15
-      // at DECIMAL(31, 4).
+      // at DECIMAL(31, 4), and row 362's x20 * y17s2 < z20 at DECIMAL(38, 4).
       val arithmetic = sections.filter(s => Seq(" x + y < z filter", " x - w > 0 filter",
         " x8 * y < z filter", " x * y < z filter").exists(s.title.contains))
         .map(s => comparison(s.query).left.dataType)
       assert(arithmetic === Seq.fill(2)(
         Seq(DecimalType(10, 2), DecimalType(12, 4), DecimalType(18, 4))).flatten ++
-        Seq.fill(2)(Seq(DecimalType(21, 2), DecimalType(31, 4))).flatten)
+        Seq.fill(2)(Seq(DecimalType(21, 2), DecimalType(31, 4))).flatten ++
+        Seq.fill(2)(DecimalType(38, 4)))
       // No IN casts its column, its literals being of the column's scale: the eight IN filters,
       // the lane pair's at precisions 38 and 20 and the 64-bit ones at 9 and 18, each at both
       // densities.
@@ -228,14 +245,14 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // condition, so each arithmetic operand of its condition is run as a value instead and
       // must return no null: the negation and abs of the lane pair's and the 64-bit filters
       // (eight), the three arithmetic filters' sums, difference and product, and the widening
-      // filters' sum and product.
+      // filters' sum and product, and row 362's product.
       val operands = for {
         s <- sections if s.title.endsWith("no nulls") && s.query.contains(" WHERE ")
         e <- condition(s.query).collect {
           case e @ (_: BinaryArithmetic | _: UnaryMinus | _: Abs) => e
         }
       } yield s.title -> e.sql
-      assert(operands.size === 13)
+      assert(operands.size === 14)
       // Each operand is projected and its values collected, one per row, rather than filtered
       // on IS NULL: the optimizer folds that filter to false for an operand it takes as never
       // null, and the check would then pass without evaluating the operand at all.

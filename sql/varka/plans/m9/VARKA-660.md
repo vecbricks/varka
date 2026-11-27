@@ -861,6 +861,28 @@ the old text and how many times it was found.
 
 ### 6.0 The order, and where each file comes from
 
+*27 November 2026, from `VARKA-661.md`:* row 661 builds this section in four pull requests,
+and its sheets are the ones to follow where they differ from the text below. The order
+becomes: the registry and the cast matrix (steps 1 to 3 in part, 8 to 10); the admission
+table (steps 5 and 6); the census's cells (steps 4 and 7); the band (edits 30 to 37). The
+one-off script of 6.3 gets a third step, `casts`, for the cast entries. A difference
+between the two ANSI settings does not fail the suite of 6.2. By the owner's answer of
+27 November 2026 the cell then reads `ANSI:<condition>` or `LEGACY:<condition>`, after the
+setting that rejects; the type is admitted where Spark takes it under at least one setting
+at every precision; the census's reason column says under which setting alone; and a
+fused claim over such a cell owes a kernel that declines under the other setting and a
+test of that decline (`VARKA-661.md` 4.3). The script gets nine edits of row 661's own
+beside the 38 of 6.1. The suite asks `timestampadd` with the unit `HOUR`, since Spark
+rejects `NANOSECOND` over a microsecond timestamp and the suite's control asks every call
+over one. And the first run of step 8 fails three tests, not two: the planted legality
+test reads the same file. `unix_date` is not asked (the lead, 27 November 2026, on a run of
+Spark's analyzer on master `1924c7a5afb`): Spark rejects it over the microsecond and the
+nanosecond timestamps alike, with `DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE`, where 4.5 read
+it as accepted. So the date functions of 4.5, of 6.3 and of section 16 are six, row 661's
+tool takes the name out of 6.3's `DATE_FUNCTIONS`, and each count of this file that holds
+the entry is smaller: 68 and 67 pairs a type for 69 and 68, 135 for 137, 1164 pairs for
+1168, and 1024 after row 654 for 1026 (`VARKA-661.md` 4.3 and 4.5).
+
 Five files are written only by a JVM suite, and the census and those suites need each other's
 output. The order below breaks each circle. It was run on the prototype in this order, with a
 stand-in for each suite (section 3); the state after each step is the prototype's.

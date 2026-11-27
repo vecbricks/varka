@@ -546,4 +546,46 @@ its predictions scored; and the PR build and the option matrix pass.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 10.1 Step 1, the baseline addition (27 November 2026)
+
+Built on 20 November 2026 and brought to master `a5c8d1f0972` on 27 November 2026, on branch
+`varka-362-363-baseline`, in one pull request with row 362's products (`VARKA-362.md` 10.1).
+`VarkaDecimalBaselineBenchmark` gains six sections, three shapes at both null densities, after
+row 362's, so that no committed section's values move:
+
+| section | exact type | result type |
+|---|---|---|
+| `x19s8 * y19s8` as a value | `DECIMAL(39, 16)` | `DECIMAL(38, 15)`, one digit cut |
+| `x38 * y38` as a value | `DECIMAL(77, 20)` | `DECIMAL(38, 6)`, the floor of six |
+| `x38 + y38` as a value | `DECIMAL(39, 10)` | `DECIMAL(38, 9)`, one digit cut |
+
+Every section is `NONE`: no lowering cuts a scale. `x19s8` and `y19s8` are new columns, after
+row 362's: `DECIMAL(19, 8)`s whose unscaled values stay inside a long, so the section times the
+cut of a product and not operands with bits in the high word, which `x38` has. The queries suite
+pins the columns' types and the sections' result types, and reads them at the default of
+`spark.sql.decimalOperations.allowPrecisionLoss`, which it asserts. The baseline has 180 sections.
+
+Owed: the runner's readings of the six sections at 256 and 128 bits, dispatched after the merge.
+
+### 10.2 Step 1, the runner's readings (27 November 2026)
+
+The step merged as #1793 on 27 November 2026. The class's two runner files,
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and
+`VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`, were replaced on 27
+November 2026 from `benchmark.yml` runs 46057445085 (256 bits, no `MaxVectorSize`) and 46057448792
+(`-XX:MaxVectorSize=16`) of vecbricks/varka. Both ran at master `e103a4c548a`, dispatched with
+`pr=1793`, so they measured `refs/pull/1793/head`, `6d1f14ae33a`, each on an AMD EPYC 7763 by its
+provenance and by the job's probe. Best times in ms, Spark's row path / varka on, without nulls and
+then at one row in ten null:
+
+| section | 256 bits | 128 bits |
+|---|---|---|
+| `x19s8 * y19s8` as a value | 1132 / 1137, 990 / 983 | 1110 / 1087, 974 / 980 |
+| `x38 * y38` as a value | 1432 / 1433, 1241 / 1240 | 1432 / 1407, 1218 / 1250 |
+| `x38 + y38` as a value | 1173 / 1166, 1014 / 1021 | 1210 / 1207, 1042 / 1056 |
+
+Every section prints 1.0X at both widths. The arms plan alike, so they tie: 0.99x to 1.01x by best
+time at 256 bits and 0.97x to 1.02x at 128 bits. None of section 4's predictions is scored, since
+each is about the spike or the build; these are the row-path times its predictions 4 and 5 are read
+against when the kernels land. The baseline step is complete. The kernels, 363a0 onward, are not
+built.
