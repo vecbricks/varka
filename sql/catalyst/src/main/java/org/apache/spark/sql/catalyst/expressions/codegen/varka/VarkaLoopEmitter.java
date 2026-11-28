@@ -553,6 +553,8 @@ public final class VarkaLoopEmitter {
       this.classDesc = ClassDesc.of(className);
       this.source = sourceFile != null
           ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
+      // The summary and the line map both render the lowered outputs, the graph the class was
+      // emitted from: a composite (VarkaDecimalLowering) appears as its primitive network.
       this.debugInfo = new VarkaDebugInfo(
           "outputs=" + VarkaBodyEmitter.renderOutputs(outputs) + ", numInputs=" + numInputs
               + ", numLiterals=" + numLiterals,
@@ -1940,8 +1942,8 @@ public final class VarkaLoopEmitter {
     java.util.HashMap<VarkaVectorIR, Integer> heights = new java.util.HashMap<>();
     int[] opNodes = {0};
     // Counted over the lowered graph, which is what the analysis and the walk read; the plan
-    // reads the lanes, which a lowering keeps.
-    for (VarkaVectorIR root : lowered(outputs, options)) {
+    // reads the lanes, which a lowering keeps. A list with no composite comes back as it is.
+    for (VarkaVectorIR root : VarkaDecimalLowering.lowerAll(outputs, options, Set.of())) {
       if (budgetWalk(root, heights, opNodes)
               > VarkaEmitBudget.chainDepthCap(options, root)
           || (capOps && opNodes[0] > MAX_FUSED_NODES)) {

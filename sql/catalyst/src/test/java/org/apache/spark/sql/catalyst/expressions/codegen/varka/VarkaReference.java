@@ -527,6 +527,12 @@ public final class VarkaReference {
         }
         long a = l.getAsLong();
         long b = r.getAsLong();
+        // The one-limb flag is the caller's promise, which the lowering trusts: a row that
+        // breaks it is refused here rather than answered exactly, so a wrong flag is a failure.
+        if (m.rightOneLimb() && (b >>> 32) != 0) {
+          throw new IllegalStateException("a one-limb wide product's right operand " + b
+              + " is outside [0, 2^32): " + m);
+        }
         yield OptionalLong.of(m.word() == VarkaVectorIR.Word.LOW ? a * b
             : Math.multiplyHigh(a, b));
       }

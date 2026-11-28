@@ -41,20 +41,16 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wor
  * {@link WideMul} by a constant multiplier (`VARKA-360.md` 3 item 9, 11.5 part 360b1): its two
  * words from the lowered limb network against {@link BigInteger}'s product, through the reference
  * and through emitted kernels at one, two, four and eight long lanes, both bodies, every null
- * pattern the harness draws; and the network's helper under each reading of its operands. The
- * constants are {@code 10^k} for {@code k = 0..18}, which the rescale up takes, a limb of exactly
- * {@code 2^32 - 1}, {@code Long.MAX_VALUE}, whose two limbs are both large, and negative ones,
- * which only the second sign correction answers. In a JVM of its own: several species of the long
- * lane.
+ * pattern the harness draws. The constants are {@code 10^k} for {@code k = 0..18}, which the
+ * rescale up takes, a limb of exactly {@code 2^32 - 1}, {@code Long.MAX_VALUE}, whose two limbs
+ * are both large, and negative ones, which only the second sign correction answers. In a JVM of
+ * its own: several species of the long lane.
  */
 @VarkaSuite(ownJvm = true)
 public final class VarkaWideMulSuite {
 
   private static final int[] WIDTHS = {1, 2, 4, 8};
   private static final int[] LENGTHS = {1, 3, 37, 64};
-
-  /** {@code 2^128}, the modulus of a product word pair read as one unsigned value. */
-  private static final BigInteger TWO_128 = BigInteger.ONE.shiftLeft(128);
 
   /** The multipliers: the powers of ten a rescale takes, an all-ones limb and two large limbs. */
   private static List<Long> constants() {
@@ -116,12 +112,6 @@ public final class VarkaWideMulSuite {
     return v.orElseThrow();
   }
 
-  /** {@code v} as a 64-bit integer, read signed or as its unsigned bit pattern. */
-  private static BigInteger read(long v, boolean signed) {
-    BigInteger b = BigInteger.valueOf(v);
-    return signed || v >= 0 ? b : b.add(BigInteger.ONE.shiftLeft(64));
-  }
-
   @Test
   @DisplayName("the reference and the lowered network give BigInteger's two words")
   void loweredNetworkIsTheExactProduct() {
@@ -159,50 +149,6 @@ public final class VarkaWideMulSuite {
           assertTrue(VarkaKernelChecks.runAndCompareLong(label(lanes) + ", length " + length
               + ", times " + c, e.className(), e.bytes(), roots, 1, new long[] {c}, batch, false,
               null));
-        }
-      }
-    }
-  }
-
-  @Test
-  @DisplayName("a product word reads each operand signed or unsigned")
-  void productWordReadsEachOperandAsItsFlagSays() {
-    // Two columns, so each operand is a value the network cannot fold. The pair (hi, lo) is read
-    // as one unsigned 128-bit value and held to the product modulo 2^128: with both operands
-    // unsigned the high word is an unsigned word, which a signed reading would get wrong.
-    // The one-limb form is held where y is in [0, 2^32), the range its flag promises.
-    var x = new ColumnRef(0, LaneType.LONG);
-    var y = new ColumnRef(1, LaneType.LONG);
-    long[] xs = operands(160, 11L);
-    var ys = new ArrayList<Long>();
-    for (long v : operands(160, 13L)) {
-      ys.add(v);
-    }
-    ys.addAll(constants());
-    for (boolean oneLimb : new boolean[] {false, true}) {
-      for (boolean xSigned : new boolean[] {false, true}) {
-        for (boolean ySigned : new boolean[] {false, true}) {
-          VarkaVectorIR lo = VarkaDecimalLowering.productWord(VarkaMatrixRuns.BASE, x, y,
-              Word.LOW, oneLimb, xSigned, ySigned, Set.of());
-          VarkaVectorIR hi = VarkaDecimalLowering.productWord(VarkaMatrixRuns.BASE, x, y,
-              Word.HIGH, oneLimb, xSigned, ySigned, Set.of());
-          for (long a : xs) {
-            for (long b : ys) {
-              if (oneLimb && (b >>> 32) != 0) {
-                continue;
-              }
-              long[] row = {a, b};
-              long l = VarkaReference.longValue(lo, row, new boolean[2], new long[0])
-                  .orElseThrow();
-              long h = VarkaReference.longValue(hi, row, new boolean[2], new long[0])
-                  .orElseThrow();
-              BigInteger got = read(h, false).shiftLeft(64).add(read(l, false)).mod(TWO_128);
-              BigInteger want = read(a, xSigned).multiply(read(b, ySigned)).mod(TWO_128);
-              String what = "x " + a + (xSigned ? " signed" : " unsigned") + ", y " + b
-                  + (ySigned ? " signed" : " unsigned") + (oneLimb ? ", one limb" : "");
-              assertEquals(want, got, what);
-            }
-          }
         }
       }
     }

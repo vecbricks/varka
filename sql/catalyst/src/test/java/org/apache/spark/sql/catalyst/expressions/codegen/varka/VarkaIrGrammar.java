@@ -1841,7 +1841,8 @@ public final class VarkaIrGrammar {
     /**
      * A value of the wide product's draw: every result reaches any long, and none checks. A
      * product's operands are leaves, since its lowered network is eight nodes deep and a product
-     * over a product would pass the kernel's height budget (MAX_CHAIN_DEPTH).
+     * over a product, 16 deep, would leave nothing of the kernel's height budget of 16
+     * (MAX_CHAIN_DEPTH) for the nodes above it.
      */
     private Gen wideProduct(int depth) {
       Word word = rnd.nextBoolean() ? Word.LOW : Word.HIGH;

@@ -37,8 +37,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wor
  * The lowerings of the decimal composites to primitive nodes (`VARKA-506.md` 2.1): a pure function
  * from a composite to a graph of nodes the walk emits one by one, its masks and shift counts
  * {@link WordConst}s, so the emitter and the proof printer read one network. The emitter lowers
- * every output before it plans the kernel ({@link #lowerAll}); the shape key, the compiler, the
- * reference and the cost model see the composite.
+ * every output before it plans the kernel ({@link #lowerAll}); the shape key, the compiler and
+ * the reference see the composite, and the analysis, the grouping, the cost model's tallies and
+ * the walk see the lowered network.
  *
  * <p>{@link WideMul}, the one composite so far, is 32-bit limbs in the carry-free order of
  * `VARKA-361.md` 2.3, built by {@link #productWord}. With {@code M = 2^32 - 1}:
@@ -58,8 +59,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wor
  * inverse, reads one operand signed, and an operand read unsigned drops its correction. Each limb
  * is a mask by a constant or a shift by 32, which C2 reads as 32 unsigned bits, so each product is
  * one {@code vpmuludq}. With {@code rightOneLimb}, {@code yh}, {@code p2}, {@code p3} and the
- * second correction are zero. {@code VarkaWideMulSuite} holds both forms, and every reading of
- * the operands, against {@code BigInteger}.
+ * second correction are zero. {@code VarkaWideMulSuite} holds both forms of the signed product
+ * against {@code BigInteger}.
  */
 final class VarkaDecimalLowering {
 
@@ -94,6 +95,9 @@ final class VarkaDecimalLowering {
    */
   static List<VarkaVectorIR> lowerAll(List<VarkaVectorIR> outputs, VarkaEmitOptions options,
       Set<PlantedFault> faults) {
+    if (!holdsComposite(outputs)) {
+      return outputs;
+    }
     Map<VarkaVectorIR, VarkaVectorIR> memo = new HashMap<>();
     List<VarkaVectorIR> lowered = new ArrayList<>(outputs.size());
     boolean changed = false;
@@ -103,6 +107,32 @@ final class VarkaDecimalLowering {
       lowered.add(l);
     }
     return changed ? List.copyOf(lowered) : outputs;
+  }
+
+  /** Whether a root of {@code outputs} reaches a composite, each shared node visited once. */
+  private static boolean holdsComposite(List<VarkaVectorIR> outputs) {
+    Set<VarkaVectorIR> seen = new HashSet<>();
+    for (VarkaVectorIR root : outputs) {
+      if (holdsComposite(root, seen)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean holdsComposite(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
+    if (node instanceof WideMul) {
+      return true;
+    }
+    if (!seen.add(node)) {
+      return false;
+    }
+    for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+      if (holdsComposite(child, seen)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static VarkaVectorIR lowered(VarkaVectorIR node, VarkaEmitOptions options,
@@ -181,7 +211,8 @@ final class VarkaDecimalLowering {
     }
     VarkaVectorIR high = add(p3, bit(BitOpKind.USHR, t, HALF));
     // The corrections are summed beside the carries, which keeps the chain one level lower
-    // than subtracting them in turn: height 8 (the kernel's height budget, MAX_CHAIN_DEPTH).
+    // than subtracting them in turn: the network is 8 deep, under the kernel's height budget of
+    // 16 (MAX_CHAIN_DEPTH).
     if (!corrections.isEmpty()) {
       high = sub(high, corrections.size() == 1 ? corrections.get(0)
           : add(corrections.get(0), corrections.get(1)));
@@ -191,14 +222,31 @@ final class VarkaDecimalLowering {
 
   /**
    * The lane calls {@code n}'s word lowers to, each operator once and its operands not counted:
-   * its budget weight. It lowers under the default options and walks the lowered nodes only,
-   * never asking {@code n} for its properties, since {@link WideMul#props()} calls it.
+   * its budget weight. It depends on the word and the limb count alone, so it is read from a
+   * table computed once over two distinct columns; where an operand is itself a node of the
+   * network (a right operand already masked to its low limb) the walk would share it, and the
+   * table's count is the larger one. The table lowers under the default options and never asks
+   * a node for its properties, since {@link WideMul#props()} calls this.
    */
   static int laneCalls(WideMul n) {
-    Set<VarkaVectorIR> seen = new HashSet<>();
-    seen.add(n.left());
-    seen.add(n.right());
-    return calls(lower(n, VarkaEmitOptions.DEFAULTS, Set.of()), seen);
+    return LANE_CALLS[n.word().ordinal() * 2 + (n.rightOneLimb() ? 1 : 0)];
+  }
+
+  /** {@link #laneCalls} by word and limb count, the index {@code word * 2 + oneLimb}. */
+  private static final int[] LANE_CALLS = laneCallTable();
+
+  private static int[] laneCallTable() {
+    var x = new VarkaVectorIR.ColumnRef(0, VarkaVectorIR.LaneType.LONG);
+    var y = new VarkaVectorIR.ColumnRef(1, VarkaVectorIR.LaneType.LONG);
+    int[] table = new int[Word.values().length * 2];
+    for (Word word : Word.values()) {
+      for (int oneLimb = 0; oneLimb < 2; oneLimb++) {
+        Set<VarkaVectorIR> seen = new HashSet<>(Set.of(x, y));
+        table[word.ordinal() * 2 + oneLimb] = calls(productWord(VarkaEmitOptions.DEFAULTS, x, y,
+            word, oneLimb == 1, true, true, Set.of()), seen);
+      }
+    }
+    return table;
   }
 
   private static int calls(VarkaVectorIR node, Set<VarkaVectorIR> seen) {

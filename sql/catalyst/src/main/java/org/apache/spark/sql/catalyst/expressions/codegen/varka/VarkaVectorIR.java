@@ -1518,10 +1518,14 @@ public sealed interface VarkaVectorIR
    * equal by value. The reference answers {@code a * b} and {@code Math.multiplyHigh(a, b)}.
    *
    * <p>{@code rightOneLimb} says {@code right} is a non-negative value below {@code 2^32}, so its
-   * high limb and the products and the sign correction it feeds are dropped. Only the compiler
-   * sets it, over a constant it knows ({@code 10^k} for {@code k <= 9}); it is in the shape, and a
-   * right operand outside that range under it answers a wrong product. Row 360 builds the node
-   * over constant multipliers, row 361 over two columns. Null-intolerant; it never overflows.
+   * high limb and the products and the sign correction it feeds are dropped. The flag is a
+   * promise the caller proves before setting it, over a constant it knows ({@code 10^k} for
+   * {@code k <= 9}) or a value masked to its low 32 bits: the constructor checks a
+   * {@link WordConst} alone, and a literal slot or a column under the flag is trusted, so a
+   * right operand outside that range answers a wrong high word. No compiler arm sets it yet;
+   * {@code VarkaReference} refuses a row that breaks it. It is in the shape. Row 360 builds the
+   * node over constant multipliers, row 361 over two columns. Null-intolerant; it never
+   * overflows.
    */
   record WideMul(VarkaVectorIR left, VarkaVectorIR right, Word word, boolean rightOneLimb,
       int hash) implements VarkaVectorIR {
