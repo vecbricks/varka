@@ -2169,6 +2169,11 @@ audit of that day (`results/VARKA-708-readiness-audit.md`). They change document
 kernel, and belong to no item of 1.1; they hold the first build of milestone 9, which waits on row
 708. Row 104 is marked done in part, its comparison of the multiply's options gone with row 611.
 
+*28 November 2026, the owner's answer of that day:* the ten rows are done in this milestone and
+gate its close, with the 23 above: 33 rows gate the close, and 34 with row 697 once its pull
+request merges. Row 708's rerun of the audit is by a cheaper model than the one that leads the
+work, as its row says.
+
 **What moved.** To milestone 9: 577, 604, 579, 609 and 646. To `m10/SCOPE.md` item 140: 34 rows,
 and the unbuilt parts of 344, 337 and 345. Of the 15 rows read as done, 14 are marked; row 104 is
 not, since `VARKA-104.md` 8 step 4 asks for options B and C built and measured, and #1689 reverted
