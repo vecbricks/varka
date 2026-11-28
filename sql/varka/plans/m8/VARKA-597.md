@@ -1019,8 +1019,9 @@ edit; the queries suite of step 9 names each one that needs it.
 `VarkaTwoLaneDefault128Suite` five, six after step 7. On a host that is not x86 the 128-bit suite
 checks the default and skips its queries.
 
-**Step 10, the measurement.** After the pull request is open the lead dispatches, on the pull
-request's head:
+**Step 10, the measurement.** After the pull request is open the builder dispatches (the owner's
+answer of 28 November 2026 to question 3 of 11.7; dispatching is approved for any open pull
+request), on the pull request's head:
 
     gh workflow run benchmark.yml -R vecbricks/varka --ref master -f pr=<the PR> \
       -f class=VarkaDecimalBaselineBenchmark -f jdk=25 -f generate-tpcds=false \
@@ -1077,7 +1078,7 @@ predicate compile. Any `.smt2` file. `width_audit.json` on a host other than the
 
 ### 11.7 Questions for the owner
 
-*Questions 1 and 2 were answered by the owner on 28 November 2026; each answer follows its
+*Questions 1 to 3 were answered by the owner on 28 November 2026; each answer follows its
 question.*
 
 1. **Should 597b also remove the arm-level two-lane tests it makes redundant?** They are the
@@ -1099,7 +1100,8 @@ question.*
    decline-by-default is the answered rule. **Default applied: (a).** **Answered on
    28 November 2026: yes, (a).** The gap of review 1's finding 3c (who adds the call when 597b
    lands before `bigintPair` does) is closed in 11.5 step 2: the side that lands second adds it.
-3. **The measurement's dispatch** is the lead's (step 10). If no dispatch is possible before the
+3. **The measurement's dispatch** is the builder's (step 10); **answered on 28 November 2026**:
+   the builder dispatches, as recommended, not the lead. If no dispatch is possible before the
    close, done-when items 2 and 3 are read from `VarkaDecimalBaselineQueriesSuite` instead (the
    twelve sections are `NONE` under the refusal), and the splice is owed to the next refresh of
    `R128`. **Recommended and applied:** dispatch.

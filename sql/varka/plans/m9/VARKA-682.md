@@ -158,7 +158,7 @@ and `TS` are the `src/test/java` and `src/test/scala` twins of `V`. Every fact w
     `VarkaKernelRunner(entry, lane, inputOrdinals, derived, bounds, numOutputs, scalarArgs,
     longArgs, scratch, accounting, hooks)`. `VarkaKernelRunner.fill` checks input bounds and
     throws `VarkaBatchDeclined(STATUS_INPUT_BOUND)`. Statuses in use: `1 << 10`, `1 << 11`,
-    `1 << 12` once row 346's parts 346b1 and 346a have merged (they take the kernel's bits 8 and
+    `1 << 12` once row 346's parts 346b1a and 346a have merged (they take the kernel's bits 8 and
     9 and move the runner's three bits up by two; before that, `1 << 8` to `1 << 10`). Command: `grep -n 'STATUS_.* = 1 <<' $E/varka/VarkaKernelRunner.java`.
 12. **A status gets its metric from two arrays.** `VarkaFallbackAccounting.STATUS_BITS` and
     `STATUS_NAMES`; `VarkaEvaluatorComponentsSuite` asserts `evaluatorBits.size == 3`.

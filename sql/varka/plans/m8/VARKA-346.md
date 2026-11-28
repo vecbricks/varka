@@ -733,7 +733,8 @@ one item before January and one in January.]*
 
 ### 11.3 Decisions taken here, each with its evidence
 
-1. **The order is 346b1, 346b2, 346a, 346c, 346p, 346m.** Section 5 put the remainder first, for
+1. **The order of the parts** (first written as 346b1, 346b2, 346a, 346c, 346p, 346m). Section 5
+   put the remainder first, for
    want of the `Fma` node; the node is on master now, and the branches stack the other way
    (346a's `REMAINDER_BAND` is bit 9, above 346b's bit 8). Keeping the branches' order keeps
    their status bits and their file hunks. *[E1 rework, 28 November 2026.]* Now: the lead's
@@ -1801,7 +1802,8 @@ question. Question 4 is moot by decision E1, question 5 (E1 rework, 28 November 
 10. **346b1's branch passes the cap**: `python3 dev/varka_msg_check.py size --base
     0345dd29a53^ --head 0345dd29a53` prints 1004 counted lines; its 54-line plan record is most
     of the excess, which 346b1's sheet cut. *[E1 rework, 28 November 2026: the lead split the
-    part into 346b1a, about 850, and 346b1b, about 180 (11.4).]*
+    part into 346b1a, about 850, and 346b1b, about 180 (11.4). The owner confirmed this cut on
+    28 November 2026: the band's refusal ships in 346b1a, so its guard is tested from the start.]*
 11. **Section 3 item 6's refutation "one binade wider" may not exist.** At binary16 the
     remainder construction gives the exact `fmod` with the window at `2^12` as well (346p2's
     sheet, `rem16_sample.py`), as item 0.17 found nothing different in the declined band at

@@ -1816,7 +1816,8 @@ The lead runs these before 350b1 starts; each is one compile, no timing.
    **Recommended: (a).** No default is applied: this plan builds nothing for it.
    **Answered on 28 November 2026:** the owner asked for a gate row that first checks master.
    That gate is folded into part 350a1n's first step (11.4 step 1), and no row is filed; the
-   owner is asked to confirm the fold. The evidence that the wrong answer is the branch's and not
+   owner confirmed the fold on 28 November 2026. The evidence that the wrong answer is the
+   branch's and not
    master's: #1708 (`e52b6bc082a`, SPARK-60843) made vanilla Spark truncate a
    `BigDecimal`-backed decimal exactly (`Decimal.roundToNumeric` and `truncatedLong`,
    `Decimal.scala` lines 271 to 334 on `6dafb8bd2f6`); a `try_cast` of a decimal takes that
