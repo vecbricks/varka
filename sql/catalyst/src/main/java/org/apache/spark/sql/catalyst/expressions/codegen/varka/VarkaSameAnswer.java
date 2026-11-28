@@ -284,7 +284,8 @@ public final class VarkaSameAnswer {
           // floating, is matched by its family).
           case VarkaVectorIR.ColumnRef _, VarkaVectorIR.DecimalColumn _,
               VarkaVectorIR.DecimalWord _,
-              VarkaVectorIR.LiteralSlot _, VarkaVectorIR.NullValue _, VarkaVectorIR.AddDays _,
+              VarkaVectorIR.LiteralSlot _, VarkaVectorIR.WordConst _, VarkaVectorIR.WideMul _,
+              VarkaVectorIR.NullValue _, VarkaVectorIR.AddDays _,
               VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _, VarkaVectorIR.CondValue _,
               VarkaVectorIR.BoolOutput _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,
               VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _,

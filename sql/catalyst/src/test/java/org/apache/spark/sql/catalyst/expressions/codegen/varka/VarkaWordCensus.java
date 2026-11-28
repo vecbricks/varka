@@ -146,6 +146,7 @@ public final class VarkaWordCensus {
       case DecimalColumn c -> new In(c.ordinal());
       case VarkaVectorIR.DecimalWord c -> new In(c.ordinal());
       case LiteralSlot l -> CONSTANT;
+      case VarkaVectorIR.WordConst w -> CONSTANT;
       case AddDays x -> andW(pure(x.days(), coalesce, absorb), pure(x.offset(), coalesce, absorb),
           absorb);
       case SubDays x -> andW(pure(x.days(), coalesce, absorb), pure(x.offset(), coalesce, absorb),
@@ -161,6 +162,8 @@ public final class VarkaWordCensus {
       case BitOp x -> andW(pure(x.left(), coalesce, absorb), pure(x.right(), coalesce, absorb),
           absorb);
       case BitCount x -> pure(x.child(), coalesce, absorb);
+      case VarkaVectorIR.WideMul x -> andW(pure(x.left(), coalesce, absorb),
+          pure(x.right(), coalesce, absorb), absorb);
       case MathUnary x -> pure(x.child(), coalesce, absorb);
       case Fma x -> andW(andW(pure(x.a(), coalesce, absorb), pure(x.b(), coalesce, absorb),
           absorb), pure(x.c(), coalesce, absorb), absorb);

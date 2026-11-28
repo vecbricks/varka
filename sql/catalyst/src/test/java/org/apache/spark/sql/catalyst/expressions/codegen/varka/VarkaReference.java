@@ -100,6 +100,10 @@ public final class VarkaReference {
       case VarkaVectorIR.DecimalWord c ->
           throw new IllegalArgumentException("a decimal word is on the long lane: " + c);
       case LiteralSlot l -> OptionalInt.of(lits[l.index()]);
+      case VarkaVectorIR.WordConst w ->
+          throw new IllegalArgumentException("a word constant is on the long lane: " + w);
+      case VarkaVectorIR.WideMul m ->
+          throw new IllegalArgumentException("a wide product is on the long lane: " + m);
       case AddDays(var days, var offset, _) ->
           both(days, offset, row, isNull, lits, (d, o) -> d + o);
       case SubDays(var days, var offset, _) ->
@@ -510,6 +514,28 @@ public final class VarkaReference {
           : OptionalLong.of(c.word() == VarkaVectorIR.Word.LOW ? row[c.ordinal()]
               : row[c.ordinal()] >> 63);
       case LiteralSlot l -> OptionalLong.of(lits[l.index()]);
+      case VarkaVectorIR.WordConst w -> OptionalLong.of(w.value());
+      // The exact product's word, as Math.multiplyHigh and the wrapping multiply give them.
+      case VarkaVectorIR.WideMul m -> {
+        var l = longValue(m.left(), row, isNull, lits);
+        if (l.isEmpty()) {
+          yield l;
+        }
+        var r = longValue(m.right(), row, isNull, lits);
+        if (r.isEmpty()) {
+          yield r;
+        }
+        long a = l.getAsLong();
+        long b = r.getAsLong();
+        // The one-limb flag is the caller's promise, which the lowering trusts: a row that
+        // breaks it is refused here rather than answered exactly, so a wrong flag is a failure.
+        if (m.rightOneLimb() && (b >>> 32) != 0) {
+          throw new IllegalStateException("a one-limb wide product's right operand " + b
+              + " is outside [0, 2^32): " + m);
+        }
+        yield OptionalLong.of(m.word() == VarkaVectorIR.Word.LOW ? a * b
+            : Math.multiplyHigh(a, b));
+      }
       case IntArith n when n.laneType() == LaneType.DOUBLE -> doubleArith(n, row, isNull, lits);
       case IntArith n -> longArith(n, row, isNull, lits);
       // Java's double negation and Math.abs, which flip and clear the sign bit, NaN included.

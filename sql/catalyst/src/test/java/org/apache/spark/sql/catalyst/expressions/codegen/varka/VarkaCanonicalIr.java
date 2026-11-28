@@ -262,6 +262,16 @@ public final class VarkaCanonicalIr {
         yield BoundedDivide.of(node(), Integer.parseInt(pair[0]), Integer.parseInt(pair[1]));
       }
       case "bit" -> new BitOp(BitOpKind.valueOf(parts[1]), node(), node());
+      case "wmul" -> {
+        boolean oneLimb = parts.length == 3 && parts[2].equals("1");
+        if (!(parts[1].equals("lo") || parts[1].equals("hi"))
+            || !(parts.length == 2 || oneLimb)) {
+          throw new IllegalArgumentException("a wide product is wmul:lo or wmul:hi, then :1 "
+              + "for one limb, not '" + head + "'");
+        }
+        yield new VarkaVectorIR.WideMul(node(), node(),
+            parts[1].equals("lo") ? VarkaVectorIR.Word.LOW : VarkaVectorIR.Word.HIGH, oneLimb);
+      }
       case "bitCount" -> new BitCount(node());
       case "math" -> new MathUnary(MathFn.valueOf(parts[1]), node());
       case "fma" -> new Fma(node(), node(), node());
@@ -300,7 +310,8 @@ public final class VarkaCanonicalIr {
   /**
    * {@code col:N}, {@code lit:N} or {@code bool:N}, each with {@code :long} on the long lane, or
    * {@code dec:N:long:pP}, a decimal column, which always names its lane and its precision, or
-   * {@code decw:N:lo:pP} and {@code decw:N:hi:pP}, the two words of a 128-bit one.
+   * {@code decw:N:lo:pP} and {@code decw:N:hi:pP}, the two words of a 128-bit one, or
+   * {@code wconst:V:long}, a lowering's word constant.
    */
   private static VarkaVectorIR leaf(String token) {
     String[] parts = token.split(":");
@@ -313,6 +324,14 @@ public final class VarkaCanonicalIr {
       return new VarkaVectorIR.DecimalWord(Integer.parseInt(parts[1]),
           parts[2].equals("lo") ? VarkaVectorIR.Word.LOW : VarkaVectorIR.Word.HIGH,
           Integer.parseInt(parts[3].substring(1)));
+    }
+    if (parts[0].equals("wconst")) {
+      if (parts.length != 3) {
+        throw new IllegalArgumentException("not a word constant: '" + token + "'");
+      }
+      // The record refuses a lane other than the long one.
+      return new VarkaVectorIR.WordConst(Long.parseLong(parts[1]),
+          LaneType.valueOf(parts[2].toUpperCase(Locale.ROOT)));
     }
     if (parts[0].equals("dec")) {
       if (parts.length != 4 || !parts[3].startsWith("p")) {

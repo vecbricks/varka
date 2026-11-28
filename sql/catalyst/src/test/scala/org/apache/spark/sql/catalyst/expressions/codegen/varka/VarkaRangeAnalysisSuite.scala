@@ -418,6 +418,9 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
         case _: DecimalColumn =>
         case _: DecimalWord =>
         case _: LiteralSlot =>
+        case _: WordConst =>
+        // A product word of the long lane, which no range rule reads.
+        case x: WideMul => value(x.left(), Kind.INT); value(x.right(), Kind.INT)
         // A typed null reads no column, so it gives no column a role; its range at the int lane
         // is the zero its vector holds.
         case _: NullValue =>
@@ -569,6 +572,8 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: BoundedDivide => go(x.child(), armed)
       case x: BitOp => go(x.left(), armed) && go(x.right(), armed)
       case x: BitCount => go(x.child(), armed)
+      case x: WideMul => go(x.left(), armed) && go(x.right(), armed)
+      case _: WordConst => true
       case x: MathUnary => go(x.child(), armed)
       case x: Fma => go(x.a(), armed) && go(x.b(), armed) && go(x.c(), armed)
       case x: RoundToIntegral => go(x.child(), armed)

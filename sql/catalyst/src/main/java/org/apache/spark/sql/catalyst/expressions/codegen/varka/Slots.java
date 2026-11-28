@@ -1006,11 +1006,13 @@ final class Slots {
           if (tree.contains(node) && !body.contains(node)) {
             continue;
           }
-          // A leaf the walk re-emits at each use is never shared: a literal, and the null of a
-          // lane, a broadcast zero and an all-clear word a local would only hold across the body.
-          // Nor is a decimal word, whose every later visit reads the local its pair's load parks
-          // it in (decimalTmp), so a shared slot would hold the same vector twice.
+          // A leaf the walk re-emits at each use is never shared: a literal, a lowering's word
+          // constant, and the null of a lane, a broadcast zero and an all-clear word a local
+          // would only hold across the body. Nor is a decimal word, whose every later visit
+          // reads the local its pair's load parks it in (decimalTmp), so a shared slot would
+          // hold the same vector twice.
           if (cse && bodyUses.getOrDefault(node, 0) > 1 && !(node instanceof LiteralSlot)
+              && !(node instanceof VarkaVectorIR.WordConst)
               && !(node instanceof VarkaVectorIR.NullValue) && !(node instanceof DecimalWord)) {
             s.sharedSlot.put(node, slot++);
           }
@@ -1686,6 +1688,7 @@ final class Slots {
         case DecimalColumn c -> { }
         case DecimalWord c -> { }
         case LiteralSlot l -> { }
+        case VarkaVectorIR.WordConst l -> { }
         // Writes its all-clear word itself and reads none.
         case VarkaVectorIR.NullValue x -> { }
         case AddDays x -> { }
@@ -1727,6 +1730,8 @@ final class Slots {
         case CanonicalBits x -> { }
         // The null skip blends by the word's validity, so that word has to survive.
         case HashStep x -> demand(analysis.wordOwner.get(x.word()));
+        case VarkaVectorIR.WideMul x ->
+            throw VarkaErrors.illegalState("WideMul is lowered before the analysis");
         case IfElse x -> { }
         // Its word is the condition's two known words ORed, and the condition demands its
         // operands' words in its own arms; its own word is demanded like any value node's.

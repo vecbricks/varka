@@ -125,6 +125,9 @@ public final class VarkaReproductionSuite {
         new IfElse(new Compare(CompareOp.LT, x, new LiteralSlot(0, LaneType.LONG)), x,
             new VarkaVectorIR.NullValue(LaneType.LONG)),
         new BitCount(new BitOp(BitOpKind.XOR, new ColumnRef(0), new LiteralSlot(0))),
+        // A wide product's high word by a right operand masked to one limb (VARKA-360).
+        new VarkaVectorIR.WideMul(x, new BitOp(BitOpKind.AND, new LiteralSlot(0, LaneType.LONG),
+            new VarkaVectorIR.WordConst(0xFFFFFFFFL)), VarkaVectorIR.Word.HIGH, true),
         // An int column converted to the float lane, at the int lane's count.
         new ConvertLane(new ColumnRef(0), LaneType.FLOAT),
         // A double column's bits at the long lane, an fdlibm port's word access (VARKA-345).

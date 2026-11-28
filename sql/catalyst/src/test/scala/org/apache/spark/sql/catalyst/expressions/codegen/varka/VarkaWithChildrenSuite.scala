@@ -46,9 +46,10 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
       val nulling = drawNullingShape(shapeRandom(NULLING_FUZZ_SEED, k))
       val nullingLong = drawNullingLongShape(shapeRandom(NULLING_FUZZ_SEED, k))
       val decimal = drawDecimalShape(shapeRandom(DECIMAL_FUZZ_SEED, k))
+      val wide = drawWideProductShape(shapeRandom(WIDE_PRODUCT_FUZZ_SEED, k))
       val drawn = int.roots.asScala ++ long.roots.asScala ++ mixed.roots.asScala ++
         narrow.roots.asScala ++ nulling.roots.asScala ++ nullingLong.roots.asScala ++
-        decimal.roots.asScala
+        decimal.roots.asScala ++ wide.roots.asScala
       for (root <- drawn; node <- nodes(root)) {
         val rebuilt = VarkaVectorIR.withChildren(node, VarkaVectorIR.childrenOf(node): _*)
         assert(rebuilt == node, s"${VarkaVectorIR.canonical(node)} rebuilt as " +

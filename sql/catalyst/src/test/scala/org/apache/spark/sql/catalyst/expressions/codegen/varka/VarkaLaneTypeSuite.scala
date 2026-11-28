@@ -125,11 +125,13 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // decimal column, an unscaled long whose constructor refuses the int lane until the int arm
     // of VARKA-347 2.3 is built, the decimal output, which widens a long value into a decimal
     // slot and refuses an int child (VARKA-157), and the conversion, one side of which is
-    // floating (VARKA-343), as is the reinterpretation's (VARKA-345).
+    // floating (VARKA-343), as is the reinterpretation's (VARKA-345). The wide product and the
+    // word constant are on the long lane by their records (VARKA-360).
     assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] +
       classOf[Fma] + classOf[RoundToIntegral] + classOf[CanonicalFloat] +
       classOf[DecimalColumn] + classOf[DecimalWord] + classOf[WidenDecimal] +
-      classOf[VarkaVectorIR.InterleaveDecimal] + classOf[ConvertLane] + classOf[ReinterpretLane] ===
+      classOf[VarkaVectorIR.InterleaveDecimal] + classOf[ConvertLane] + classOf[ReinterpretLane] +
+      classOf[WideMul] + classOf[WordConst] ===
       concreteNodeTypes(classOf[VarkaVectorIR]) - classOf[CrossLane]) // its child: another lane
     val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
     assert(new MathUnary(MathFn.SQRT, doubleCol).laneType() === LaneType.DOUBLE)
@@ -533,6 +535,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "ReinterpretLane" => new ReinterpretLane(c,
           if (lane == LaneType.INT) LaneType.FLOAT else LaneType.DOUBLE)
         case "CrossLane" => new CrossLane(new IsNotNull(c), LaneType.DOUBLE)
+        // Long-lane only by their records (VARKA-360); the product is lowered at emission.
+        case "WordConst" => new BitOp(BitOpKind.SHR, c, new WordConst(63, lane))
+        case "WideMul" => new WideMul(c, c1, Word.HIGH, false)
         case other => fail(s"no instance recipe for $other; a node type was added")
       }) catch {
         // The IR's own refusal: a calendar node over a wider child cannot be built at all.
@@ -560,8 +565,10 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     val atLong = buildable.filter(_._1 == LaneType.LONG).map(_._2).toSet
     val atInt = buildable.filter(_._1 == LaneType.INT).map(_._2).toSet
     assert(atInt + "MathUnary" + "Fma" + "RoundToIntegral" + "CanonicalFloat" ===
-      types.map(_.getSimpleName).toSet - "DecimalColumn" - "DecimalWord",
-      "every integral node type is emittable at INT but the decimal column and the decimal word")
+      types.map(_.getSimpleName).toSet - "DecimalColumn" - "DecimalWord" - "WideMul" -
+        "WordConst",
+      "every integral node type is emittable at INT but the decimal column, the decimal word, " +
+        "the wide product and the word constant")
     val sqrt = new MathUnary(MathFn.SQRT, new ColumnRef(0, LaneType.DOUBLE))
     val sqrtBytes = VarkaLoopEmitter.emit("VarkaReachMathUnaryDOUBLE",
       java.util.List.of[VarkaVectorIR](sqrt), 1, 0, null, null, VarkaMatrix.base)
@@ -587,13 +594,14 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
       "DecimalColumn", "DecimalWord", "NullValue", "WidenDecimal", "InterleaveDecimal",
       "ConvertLane", "CrossLane",
-      "HashStep", "CanonicalBits", "ReinterpretLane"),
+      "HashStep", "CanonicalBits", "ReinterpretLane", "WideMul", "WordConst"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
         "the two conversions, which build over the other lane's child whatever the row, " +
         "VARKA-335's bitwise operations, VARKA-336's null-safe equality, VARKA-460's " +
         "condition as a value, VARKA-27's boolean output, VARKA-347's decimal column, " +
         "VARKA-157's decimal output, VARKA-343's conversion to the double lane and VARKA-333's " +
-        "null leaf, VARKA-337's hash step and floating bits, and VARKA-345's reinterpretation")
+        "null leaf, VARKA-337's hash step and floating bits, VARKA-345's reinterpretation, " +
+        "and VARKA-360's wide product and word constant")
   }
 
   test("a narrowing is an int over a long child, and a kernel that holds one is driven at the " +

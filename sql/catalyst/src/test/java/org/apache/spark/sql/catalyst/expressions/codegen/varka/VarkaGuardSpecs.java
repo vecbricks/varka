@@ -556,7 +556,7 @@ public final class VarkaGuardSpecs {
           VarkaVectorIR.NullValue _, BoolOutput _, WidenLane _, NarrowLane _, ConvertLane _,
           ReinterpretLane _,
           WidenDecimal _, VarkaVectorIR.InterleaveDecimal _, CanonicalFloat _, CanonicalBits _,
-          HashStep _ ->
+          HashStep _, VarkaVectorIR.WordConst _, VarkaVectorIR.WideMul _ ->
           throw new IllegalArgumentException("no guard spec for " + reason + " on " + node);
     };
   }

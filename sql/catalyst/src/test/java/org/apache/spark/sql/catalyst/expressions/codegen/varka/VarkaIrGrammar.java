@@ -86,8 +86,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncLevel;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WideMul;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Word;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WordConst;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 import org.apache.spark.sql.types.Decimal;
 
@@ -192,6 +195,14 @@ public final class VarkaIrGrammar {
    * reference evaluator; nothing pins its bytes.
    */
   public static final long UNSIGNED_FUZZ_SEED = 20261101L;
+
+  /**
+   * The seed of {@link #drawWideProductShape}, the wide product's sequence (VARKA-360): a
+   * sequence of its own for the reason {@link #NARROW_FUZZ_SEED} gives, so the committed corpora
+   * draw neither {@code WideMul} nor {@code WordConst} until row 352's refit joins them.
+   * {@code VarkaIrFuzzSuite} runs it against the reference evaluator; nothing pins its bytes.
+   */
+  public static final long WIDE_PRODUCT_FUZZ_SEED = 20261113L;
 
   /**
    * The seeds of the narrow sequences, {@code fuzz_byte} and {@code fuzz_short}
@@ -346,6 +357,9 @@ public final class VarkaIrGrammar {
       case VarkaVectorIR.DecimalWord _ ->
           throw new IllegalArgumentException("the grammar draws no decimal word: " + node);
       case LiteralSlot _ -> new Bounds(LITERAL_BOUND, 0L);
+      // Long.MIN_VALUE has no absolute value, and bounds the long lane as Long.MAX_VALUE does.
+      case WordConst w -> new Bounds(w.value() == Long.MIN_VALUE ? Long.MAX_VALUE
+          : Math.abs(w.value()), 0L);
       case AddDays n -> shift(n.days(), n.offset());
       case SubDays n -> shift(n.days(), n.offset());
       case DateDiff n -> over(n.end(), n.start(), VarkaIrGrammar::satAdd);
@@ -408,6 +422,8 @@ public final class VarkaIrGrammar {
       // A mask or a shift reaches any int; the count is at most 64.
       case BitOp n -> new Bounds(INT_LANE_BOUND, guard(n.left(), n.right()));
       case BitCount n -> new Bounds(Long.SIZE, guard(n.child()));
+      // Either word of a product reaches any long.
+      case WideMul n -> new Bounds(Long.MAX_VALUE, guard(n.left(), n.right()));
       // The grammar draws no floating tree, whose values have no integer bound.
       case MathUnary n -> throw new IllegalArgumentException("a floating node: " + n);
       case Fma n -> throw new IllegalArgumentException("a floating node: " + n);
@@ -1518,6 +1534,16 @@ public final class VarkaIrGrammar {
     return drawLongShape(rnd, false, true);
   }
 
+  /**
+   * Shape {@code k} of {@link #WIDE_PRODUCT_FUZZ_SEED}'s sequence: {@link #drawLongShape}'s draw
+   * with a value one time in three a {@code WideMul} word, over any two leaves or, one limb, a
+   * right operand masked to its low 32 bits, or a {@code BitOp} or multiply by a
+   * {@code WordConst}: a shift count of 0, 1, 31, 32 or 63, a mask of {@code 2^32 - 1}, 0 or -1.
+   */
+  public static DrawnLong drawWideProductShape(Random rnd) {
+    return drawLaneShape(rnd, LaneType.LONG, false, false, true);
+  }
+
   private static DrawnLong drawLongShape(Random rnd, boolean nullingGuards) {
     return drawLongShape(rnd, nullingGuards, false);
   }
@@ -1541,10 +1567,16 @@ public final class VarkaIrGrammar {
 
   private static DrawnLong drawLaneShape(Random rnd, LaneType lane, boolean nullingGuards,
       boolean unsignedCompares) {
+    return drawLaneShape(rnd, lane, nullingGuards, unsignedCompares, false);
+  }
+
+  private static DrawnLong drawLaneShape(Random rnd, LaneType lane, boolean nullingGuards,
+      boolean unsignedCompares, boolean wideProducts) {
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
     var shapes = new LongShapes(rnd, numInputs, numLiterals, nullingGuards, unsignedCompares,
         lane);
+    shapes.wideProducts = wideProducts;
     int depth = 1 + rnd.nextInt(4);
     List<VarkaVectorIR> roots;
     if (rnd.nextInt(5) == 0) {
@@ -1800,6 +1832,45 @@ public final class VarkaIrGrammar {
     private final LaneType lane;
     private final long literalBound;
     private int budget = 20;
+    /** Whether a value may be a wide product or a {@code WordConst} operation (VARKA-360). */
+    private boolean wideProducts;
+
+    private static final long[] WORD_COUNTS = {0, 1, 31, 32, 63};
+    private static final long[] WORD_MASKS = {0xFFFFFFFFL, 0, -1};
+
+    /**
+     * A value of the wide product's draw: every result reaches any long, and none checks. A
+     * product's operands are leaves, since its lowered network is eight nodes deep and a product
+     * over a product, 16 deep, would leave nothing of the kernel's height budget of 16
+     * (MAX_CHAIN_DEPTH) for the nodes above it.
+     */
+    private Gen wideProduct(int depth) {
+      Word word = rnd.nextBoolean() ? Word.LOW : Word.HIGH;
+      switch (rnd.nextInt(4)) {
+        case 0:
+          return new Gen(new WideMul(leaf().node(), leaf().node(), word, false), Long.MAX_VALUE);
+        case 1: {
+          // One limb: the right operand masked into [0, 2^32), the range the flag promises.
+          VarkaVectorIR b = new BitOp(BitOpKind.AND, leaf().node(), new WordConst(0xFFFFFFFFL));
+          return new Gen(new WideMul(leaf().node(), b, word, true), Long.MAX_VALUE);
+        }
+        default:
+          break;
+      }
+      Gen a = value(depth - 1);
+      switch (rnd.nextInt(2)) {
+        case 0: {
+          BitOpKind op = BitOpKind.values()[rnd.nextInt(BitOpKind.values().length)];
+          long[] from = op == BitOpKind.SHL || op == BitOpKind.SHR || op == BitOpKind.USHR
+              ? WORD_COUNTS : WORD_MASKS;
+          return new Gen(new BitOp(op, a.node(), new WordConst(from[rnd.nextInt(from.length)])),
+              Long.MAX_VALUE);
+        }
+        default:
+          return new Gen(new IntArith(IntOp.MUL, Overflow.WRAP, a.node(),
+              new WordConst(rnd.nextLong())), Long.MAX_VALUE);
+      }
+    }
 
     public LongShapes(Random rnd, int numInputs, int numLiterals) {
       this(rnd, numInputs, numLiterals, false);
@@ -1867,6 +1938,9 @@ public final class VarkaIrGrammar {
         return leaf();
       }
       budget -= 1;
+      if (wideProducts && rnd.nextInt(3) == 0) {
+        return wideProduct(depth);
+      }
       switch (rnd.nextInt(11)) {
         case 0:
         case 1: {

@@ -197,7 +197,8 @@ public final class VarkaLoopEmitter {
   /** The refusals {@link #analyze} declares for {@code outputs}, for the suite that checks them. */
   static Map<VarkaVectorIR, Analysis.Refusal> refusalsForTest(List<VarkaVectorIR> outputs,
       int numInputs, int numLiterals, VarkaEmitOptions options) {
-    return Map.copyOf(analyze(List.copyOf(outputs), numInputs, numLiterals, options).refusals);
+    return Map.copyOf(
+        analyze(lowered(outputs, options), numInputs, numLiterals, options).refusals);
   }
 
   /**
@@ -214,7 +215,7 @@ public final class VarkaLoopEmitter {
    */
   static Map<VarkaVectorIR, GuardForTest> guardsForTest(List<VarkaVectorIR> outputs,
       int numInputs, int numLiterals, VarkaEmitOptions options) {
-    Analysis analysis = analyze(List.copyOf(outputs), numInputs, numLiterals, options);
+    Analysis analysis = analyze(lowered(outputs, options), numInputs, numLiterals, options);
     var guards = new HashMap<VarkaVectorIR, GuardForTest>();
     for (Map.Entry<VarkaVectorIR, Analysis.Refusal> e : analysis.refusals.entrySet()) {
       guards.put(e.getKey(), new GuardForTest(e.getValue(), analysis.armChainsOf(e.getKey())));
@@ -231,7 +232,7 @@ public final class VarkaLoopEmitter {
    */
   static long[] shortcutColumnSetsForTest(List<VarkaVectorIR> outputs, int numInputs,
       int numLiterals, VarkaEmitOptions options) {
-    outputs = List.copyOf(outputs);
+    outputs = lowered(outputs, options);
     return VarkaBodyEmitter.shortcutColumnSets(false, outputs,
         analyze(outputs, numInputs, numLiterals, options));
   }
@@ -256,12 +257,22 @@ public final class VarkaLoopEmitter {
    */
   static VarkaEmittedClass plannedDriversForTest(List<VarkaVectorIR> outputs, int numInputs,
       int numLiterals, VarkaEmitOptions options) {
-    outputs = List.copyOf(outputs);
+    outputs = lowered(outputs, options);
     Analysis analysis = analyze(outputs, numInputs, numLiterals, options);
     List<List<Integer>> groups = groupOutputs(outputs, options);
     analysis.planMaterialized(outputs, groups);
     return driverAlone(ClassDesc.of("org.apache.spark.sql.varka.execution.VarkaPlannedDriver"),
         outputs, analysis, numLiterals, groups);
+  }
+
+  /**
+   * {@code outputs} copied and lowered as {@link #emit} lowers them, for the passes that plan
+   * the kernel: the analysis, the grouping and the budgets read the primitive nodes a composite
+   * is emitted as (VarkaDecimalLowering).
+   */
+  private static List<VarkaVectorIR> lowered(List<VarkaVectorIR> outputs,
+      VarkaEmitOptions options) {
+    return VarkaDecimalLowering.lowerAll(List.copyOf(outputs), options, Set.of());
   }
 
   /**
@@ -332,7 +343,18 @@ public final class VarkaLoopEmitter {
       String className, List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
       String sourceFile, String planFragment, VarkaEmitOptions options) {
     return emit(className, outputs, numInputs, numLiterals, sourceFile, planFragment, options,
-        new VarkaEmitTrace());
+        new VarkaEmitTrace(), Set.of());
+  }
+
+  /**
+   * {@link #emit} with {@code faults} planted in the composites' lowerings, for the suites that
+   * show a check fails a wrong network (`VARKA-506.md` 2.7). No production path reaches it.
+   */
+  static byte[] emitPlantedForTest(String className, List<VarkaVectorIR> outputs,
+      int numInputs, int numLiterals, VarkaEmitOptions options,
+      Set<VarkaDecimalLowering.PlantedFault> faults) {
+    return emit(className, outputs, numInputs, numLiterals, null, null, options,
+        new VarkaEmitTrace(), Set.copyOf(faults));
   }
 
   /**
@@ -345,7 +367,8 @@ public final class VarkaLoopEmitter {
       int numLiterals, VarkaEmitOptions options, int[] builds) {
     VarkaEmitTrace trace = new VarkaEmitTrace();
     try {
-      return emit(className, outputs, numInputs, numLiterals, null, null, options, trace);
+      return emit(className, outputs, numInputs, numLiterals, null, null, options, trace,
+          Set.of());
     } finally {
       builds[0] = trace.builds;
       if (builds.length > 1) {
@@ -360,12 +383,14 @@ public final class VarkaLoopEmitter {
    */
   static byte[] emitTraced(String className, List<VarkaVectorIR> outputs, int numInputs,
       int numLiterals, VarkaEmitOptions options, VarkaEmitTrace trace) {
-    return emit(className, outputs, numInputs, numLiterals, null, null, options, trace);
+    return emit(className, outputs, numInputs, numLiterals, null, null, options, trace,
+        Set.of());
   }
 
   private static byte[] emit(
       String className, List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
-      String sourceFile, String planFragment, VarkaEmitOptions options, VarkaEmitTrace trace) {
+      String sourceFile, String planFragment, VarkaEmitOptions options, VarkaEmitTrace trace,
+      Set<VarkaDecimalLowering.PlantedFault> faults) {
     if (outputs.isEmpty()) {
       throw VarkaErrors.illegalArgument("no output chains to emit");
     }
@@ -384,6 +409,10 @@ public final class VarkaLoopEmitter {
       // VarkaShapeKey rejects a null the same way, so this closes the other door in.
       throw VarkaErrors.illegalArgument("emit options must not be null");
     }
+    // The composites become the primitive nodes they are emitted as, before any pass plans the
+    // kernel, so the analysis, the grouping and the walk read one graph (VarkaDecimalLowering).
+    // After the options check, since a lowering may read them.
+    outputs = VarkaDecimalLowering.lowerAll(outputs, options, faults);
     Analysis analysis = analyze(outputs, numInputs, numLiterals, options);
 
     // Method layout, all sharing the seven-parameter shape so slots line up everywhere: `run`
@@ -524,6 +553,8 @@ public final class VarkaLoopEmitter {
       this.classDesc = ClassDesc.of(className);
       this.source = sourceFile != null
           ? sourceFile : className.substring(className.lastIndexOf('.') + 1) + ".java";
+      // The summary and the line map both render the lowered outputs, the graph the class was
+      // emitted from: a composite (VarkaDecimalLowering) appears as its primitive network.
       this.debugInfo = new VarkaDebugInfo(
           "outputs=" + VarkaBodyEmitter.renderOutputs(outputs) + ", numInputs=" + numInputs
               + ", numLiterals=" + numLiterals,
@@ -1285,13 +1316,13 @@ public final class VarkaLoopEmitter {
    */
   static List<List<Integer>> groupsForTest(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options) {
-    return groupOutputs(List.copyOf(outputs), options);
+    return groupOutputs(lowered(outputs, options), options);
   }
 
   /** As above, with {@code forcedStarts}: outputs that begin a group whatever the rule says. */
   static List<List<Integer>> groupsForTest(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options, Set<Integer> forcedStarts) {
-    return groupOutputs(List.copyOf(outputs), options, forcedStarts, null, new ExactRuns());
+    return groupOutputs(lowered(outputs, options), options, forcedStarts, null, new ExactRuns());
   }
 
   /**
@@ -1302,7 +1333,7 @@ public final class VarkaLoopEmitter {
   static List<VarkaEmitCost.Tally> talliesForTest(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options, Map<String, double[]> prices) {
     List<VarkaEmitCost.Tally> tallies = new ArrayList<>();
-    groupOutputs(List.copyOf(outputs), options, Set.of(),
+    groupOutputs(lowered(outputs, options), options, Set.of(),
         new TallyRecord(prices, tallies, true), new ExactRuns());
     return tallies;
   }
@@ -1666,7 +1697,7 @@ public final class VarkaLoopEmitter {
    */
   static List<List<RunForTest>> runsForTest(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options) {
-    outputs = List.copyOf(outputs);
+    outputs = lowered(outputs, options);
     if (outputs.isEmpty()) {
       return List.of();
     }
@@ -1910,7 +1941,9 @@ public final class VarkaLoopEmitter {
     }
     java.util.HashMap<VarkaVectorIR, Integer> heights = new java.util.HashMap<>();
     int[] opNodes = {0};
-    for (VarkaVectorIR root : outputs) {
+    // Counted over the lowered graph, which is what the analysis and the walk read; the plan
+    // reads the lanes, which a lowering keeps. A list with no composite comes back as it is.
+    for (VarkaVectorIR root : VarkaDecimalLowering.lowerAll(outputs, options, Set.of())) {
       if (budgetWalk(root, heights, opNodes)
               > VarkaEmitBudget.chainDepthCap(options, root)
           || (capOps && opNodes[0] > MAX_FUSED_NODES)) {
@@ -1939,7 +1972,7 @@ public final class VarkaLoopEmitter {
    */
   public static int[] bitmapPassCounts(List<VarkaVectorIR> outputs, int numInputs,
       int numLiterals, VarkaEmitOptions options) {
-    Analysis analysis = analyze(List.copyOf(outputs), numInputs, numLiterals, options);
+    Analysis analysis = analyze(lowered(outputs, options), numInputs, numLiterals, options);
     int served = 0;
     for (BitmapPass pass : analysis.served) {
       if (pass != null) {
@@ -1952,7 +1985,8 @@ public final class VarkaLoopEmitter {
   /**
    * The height of {@code node}, memoized per distinct node like {@code Analysis.height}. The
    * leaves are the nodes {@code Analysis} gives height 0 and counts as no op: the column reads,
-   * the decimal ones among them, the literal slots and the two constants.
+   * the decimal ones among them, the literal slots, the two constants and a lowering's word
+   * constants.
    */
   private static int budgetWalk(VarkaVectorIR node,
       Map<VarkaVectorIR, Integer> heights, int[] opNodes) {
@@ -1964,7 +1998,7 @@ public final class VarkaLoopEmitter {
     if (node instanceof ColumnRef || node instanceof VarkaVectorIR.DecimalColumn
         || node instanceof VarkaVectorIR.DecimalWord || node instanceof LiteralSlot
         || node instanceof BoolColumn || node instanceof CondConst
-        || node instanceof VarkaVectorIR.NullValue) {
+        || node instanceof VarkaVectorIR.NullValue || node instanceof VarkaVectorIR.WordConst) {
       height = 0;
     } else {
       opNodes[0]++;
