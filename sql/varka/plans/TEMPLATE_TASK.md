@@ -31,7 +31,9 @@
      option switch. New behaviour goes behind a VarkaEmitOptions switch with the
      old form kept as a live reference variant under the same tests (the
      FloorMod7 precedent), and the default flips in the last commit per the rule
-     in 6.1. -->
+     in 6.1. For a refactor or a port, the list of members it moves is generated
+     with dev/varka_members.py and the seam chosen with dev/varka_callgraph.py,
+     never written from memory. -->
 
 ### 3.2 What is deliberately unchanged
 

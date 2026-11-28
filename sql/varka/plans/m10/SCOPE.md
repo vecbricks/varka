@@ -896,6 +896,13 @@ corpus audit below.
   node type: a representation attribute, and conversion nodes as first-class
   IR. Then an e-graph later is a change of engine, not of language. The
   `DateDayVector`-only match in `isArrowBacked` is the first line to redesign.
+  *28 November 2026:* the nanosecond timestamps are the first type measured this way
+  (`m9/VARKA-662.md` 4.8 to 4.10): four representations, a measured cost an operation in
+  each and a cost a conversion between each two
+  (`m9/results/VARKA-662/nanos_representation_costs.tsv`), with what a cost model may and
+  may not conclude from them, and each conversion an equality under a range condition in
+  `proofs/nanos_representations.smt2`. No conversion node exists yet: row 699 adds one a
+  conversion it builds.
 * Keep analyses semilattice-shaped (make, join, modify), as `dayRange` is;
   add nullability and encoding facts in the same shape.
 * Keep the IR as immutable records with structural equality - they are

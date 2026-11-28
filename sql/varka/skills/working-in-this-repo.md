@@ -8,15 +8,13 @@ these files by `dev/varka_toc.py`.
 
 ## Repo Workflow (vecbricks/varka)
 
-- Remotes here: `origin` = `vecbricks/varka` (PR base, `master`), `fork` =
-  `MaxGekk/spark` (PR head). Push the PR branch to `fork`, then open against
-  `vecbricks/varka:master`.
-- No JIRA IDs. Titles are `[VARKA] <short summary>`; PR descriptions are prose in
-  the five standard template sections; sign off with a `Generated-by:` line naming
-  the actual tool (recent PRs: `Generated-by: Claude Code (Claude Fable 5)`).
-- Branch naming: `varka-<topic>` tracks `origin/master` and stays one commit ahead
-  per PR.
-- The standing gate is one command, `dev/varka_gate.sh`: compile, the Varka suites
+- The remotes, the branch's name, the title's forms and who merges are in
+  `sql/varka/.agents/pull-requests.md`; the gate before a push is in
+  `dev/varka_ops/AGENTS.md`; the milestone in flight and the plan template are in
+  `sql/varka/plans/README.md`. This file states none of them.
+- No JIRA IDs. PR descriptions are prose in the five standard template sections; sign
+  off with a `Generated-by:` line naming the actual tool and model.
+- `dev/varka_gate.sh` is a full local run in one command: compile, the Varka suites
   at both widths, the opt-in exhaustive sweeps, `catalyst/doc`, both linters, each
   step logged under `target/varka-gate/`, one summary table, non-zero exit on any
   failure. `--only`/`--skip` take step names, `--list` shows them. It finds
@@ -67,13 +65,13 @@ these files by `dev/varka_toc.py`.
   declared in the pom) passes with `VARKA_LINT_SKIP=<rule>` for that one commit. A pull
   request's text has its own check, `dev/varka_msg_check.py pr --title T --body-file F`, which
   the docs job also runs on the open pull request: the template's headings verbatim,
-  soft-wrapped paragraphs, a title of at most 80 characters, and a "Why" that opens with the
+  soft-wrapped paragraphs, the title's length, and a "Why" that opens with the
   reason rather than a task id.
 - `VarkaIrFuzzSuite` fuzzes the emitter: random IR over random null patterns, lengths
   and option variants against the shared reference evaluator, reproducible by seed
   and iteration.
-- A task starts with `dev/varka_task_new.sh <n> "<title>"` (worktree, branch, plan from
-  `sql/varka/plans/TEMPLATE_TASK.md`, hook); a regeneration ends with
+- A task starts with `dev/varka_task_new.sh <n> "<title>"`
+  (`sql/varka/plans/README.md`); a regeneration ends with
   `dev/varka_bench_diff.py --git HEAD <file> --requote`; the volume checks run from
   `dev/varka_nightly.sh`.
 - Before registering op counts in a plan, print them: `dev/varka_emit.sh "<sql>"`

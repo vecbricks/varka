@@ -3251,6 +3251,14 @@ assumes:
   ns or of 10 ns (precisions 7 and 8) is not in 0.1.0 (question 13 of 10.4).
 - What row 662 takes: the forms of 4.9 as its test reference, in the suite V1 adds, with no
   new pin; and the file `shapes` of L17 as the first measurement of its two layouts.
+  *28 November 2026:* row 662 now measures four representations in Varka's own harness
+  (`VARKA-662.md` 4.1), with divisions that neither divide nor convert to a double (its 4.2) and
+  guards with no minimum or maximum (its 4.3), which the library's kernels can take. The
+  library's contract stands: a caller hands it Spark's two parts, and one long is its arm. Where
+  this plan says that row 662 builds a layout or a kernel, read row 699. Row 699 builds seconds
+  and days too, by the owner's answer of the same day (`VARKA-662.md` section 19), so the forms
+  of 5.3 gain those two shapes as arms, by an issue each; the file `shapes` stays the library's
+  own measurement.
 - What row 662 adds, and the library does not: the lane type of the second word in a kernel
   (the library's is a `LongVector` for readability, 4.9), the load from the cache's struct
   of a long and a short, and the range check that sends a batch outside the one-long range

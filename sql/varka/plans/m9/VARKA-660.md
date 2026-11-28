@@ -681,6 +681,15 @@ with the two-word kernel behind it for a batch outside the range. A cell fused i
 one-long arm alone would be fused for six centuries of Spark's hundred. This is a seam with
 row 662, which has no plan yet (section 11).
 
+*28 November 2026:* the owner changed this for the nanosecond timestamps (`VARKA-662.md` section
+15, answer 2; the kernels are row 699's). The one long may be built where it is the fastest, and
+a batch that holds a value outside 1677 to 2262 then goes to the row path: no two-word kernel
+has to stand behind it. So a cell's default arm may be the one long, and such a cell is fused
+for the years 1677 to 2262 and answers on the row path outside them. The rule that a fused cell
+holds over the type's whole range no longer binds these two types; the census rule above stands,
+a layout is no census type. How the census marks a cell whose default arm is the one long is for
+row 699's plan to say.
+
 **Where the precision and the one long meet.** In the two words a precision changes no word.
 In "One long at the column's precision" the long's unit is 10 to the power 9 minus `p`
 nanoseconds, so the precision is a literal of the load and of the store. The library holds
