@@ -4,7 +4,9 @@
 and 12 are new; nothing else in the file is edited.] What is left of the row, cut into parts a
 builder can take with nobody to ask, is section 11. Sections 0 to 10 are the plan of 30 October
 2026 and the record of what was built; section 11.2 lists what in them is stale, and where they
-and section 11 differ, section 11 holds.*
+and section 11 differ, section 11 holds.* *[E1 rework, 28 November 2026: by the owner's decision
+E1 (a), part 362b3, form C's proof layers, is January 2027's, full strength, and no gate before
+then; nothing waits on it, and every other part is Sonnet-class (11.6, 11.9).]*
 
 ## 0. What exists now (admission check)
 
@@ -795,12 +797,23 @@ named in the parts.
 | 362a3 | the shortcut's proof layer | about 200 | Sonnet-class | master, code from `varka-362a-shortcut` | 362a2 |
 | 362b1 | form C in the lowering, the planted column | about 420 | Sonnet-class | master, code from `varka-362b-column-sum` | 362a1 |
 | 362b2 | the checked product in the compiler, the guard | about 600 | Sonnet-class | master | 362b1, 362a2, 360c1, row 697 (#1798) |
-| 362b3 | the ring, carry and check layers of the proof | 300 to 500 | full strength, before 1 December | master | 362b1 |
+| 362b3 | the ring, carry and check layers of the proof | 300 to 500 | **January 2027, full strength; not a gate before then** (E1, 11.9) | master | 362b1; nothing waits on it |
 | 362c | the runner's readings, predictions scored, the row closed | under 100 and results | Sonnet-class | master | 362b2 |
 
 The order: the node before its caller, so that each pull request is green alone; the shortcut
 before the checked product, because it moves the census mark and two benchmark shapes with no
-dependency on row 697; the proofs beside the code they prove, never ahead of it. In every
+dependency on row 697; the proofs beside the code they prove, never ahead of it.
+*[E1 rework, 28 November 2026.]* One proof comes after its code: 362b3, January 2027, by the
+owner's decision E1 (11.9). Form C ships before it in 362b1 and 362b2 with the differential
+tests the sheets name (362b1's 20000 patterns, the carry corners, the plant and the IR
+grammar's form C draw; 362b2's 5000 seeded draws against Spark's `Decimal` in the three modes
+and the coverage rows). Until January: no part writes a placeholder, a marker line or an empty
+check for 362b3 into `decimal128.smt2` or `VarkaProofFiles`; a part that regenerates
+`decimal128.smt2` (362a3, and rows 360 and 361's proof parts) expects no form C layer in it;
+and the pull requests of 362b1 and 362b2 say in their bodies, in one sentence, "Form C's proof
+layers are part 362b3, January 2027, by the owner's decision E1 of 28 November 2026", since
+`sql/varka/AGENTS.md`'s rule "A new bounded lowering comes with its proof file" is met for
+form C only then. In every
 command below that reads a branch, `C/` and `T/` are not expanded by `git`: the commands are
 written with whole paths.
 
@@ -1033,7 +1046,10 @@ three lines, Velox's `P < 38`, the row's `P <= 38` and the sharp `P <= 39`), re-
 
 State both solvers' times before and after in the pull request. If a check answers `unknown` or
 passes 60 seconds, stop and report: that is full-strength work (the branch's first form of the
-words' layer hung cvc5 until each wrap was a named quotient).
+words' layer hung cvc5 until each wrap was a named quotient). *[E1 rework, 28 November 2026.]* By
+the owner's decision E1 such work is January 2027's: the claims that decide land in this
+part, the ones that do not move to part 362b3's January text with their solver output quoted,
+and nothing waits on them.
 
 #### Part 362b1, `[VARKA-362] Add the 256-bit product's column sum to the pair product`
 
@@ -1120,7 +1136,7 @@ Plant it once (drop `upper` from the guard) and see test 2 fail.
 
 **Not here:** a cut scale, an option, the gate.
 
-#### Part 362b3, the proofs of form C (full strength, before 1 December)
+#### Part 362b3, the proofs of form C (January 2027, full strength; not a gate before then)
 
 `decimal128.smt2` gains, rendered from `columnSum` by `VarkaProofFiles`: the ring layer (the
 sixteen products' weighted sum is `Xu * Yu`, stated whole and row by row); the carry layer (each
@@ -1132,6 +1148,12 @@ answer `unknown`; the four-word carry layers took Z3 47 seconds in the branch's 
 transcription; choosing how to cut the claims so that both solvers decide them is a judgement, not
 a transcription.
 
+*[E1 rework, 28 November 2026.]* By the owner's decision E1 (a) this part waits for a
+full-strength builder in January 2027; the text above is kept for that day. It starts from the
+master of that day, after 362b2 and whatever proof parts of rows 360, 361 and 363 have merged,
+and adds its layers to `decimal128.smt2` beside theirs. Nothing waits on it: 362c scores and
+marks the row without it.
+
 #### Part 362c, `[VARKA-362] Score the full product against its baseline`
 
 After 362b2 merges: dispatch `benchmark.yml` for `VarkaDecimalBaselineBenchmark` at 256 bits and
@@ -1139,7 +1161,9 @@ with `-XX:MaxVectorSize=16`, as section 10.2 records the runs of #1797; commit t
 files; score predictions 4 to 6 of section 4 in section 10; mark the row in `PLAN.md`. The
 decision rule: a section of this row whose `varka on` best time is not under its row path's at
 256 bits is reported to the lead before anything is committed; at 128 bits every section ties,
-since each declines (11.3 decision 8).
+since each declines (11.3 decision 8). *[E1 rework, 28 November 2026.]* Part 362b3 does not
+count as left when the row is marked: the note adds "part 362b3, form C's proof layers, is
+January 2027's, by the owner's decision E1 of 28 November 2026; not a gate".
 
 ### 11.7 Declines, census cells and benchmark sections, by part
 
@@ -1159,7 +1183,8 @@ since each declines (11.3 decision 8).
    within the cap.
 3. Whether C2 folds `w & 0` and what the null rule costs: `dev/varka_emit.sh "x * y" --columns
    x:dec20s2,y:dec17s2 --asm`.
-4. The proofs' solver times (parts 362a3 and 362b3): `dev/varka_prove.sh --solver both`.
+4. The proofs' solver times (part 362a3; part 362b3's in January 2027, E1): `dev/varka_prove.sh
+   --solver both`.
 5. Every speed: part 362c.
 
 6. Whether a compile that stops at the cap reports `chain deeper than MAX_CHAIN_DEPTH=16` word
@@ -1172,6 +1197,9 @@ since each declines (11.3 decision 8).
 The decimal chain's owner decisions are numbered across its four plans: D1 to D3 in
 `VARKA-360.md` section 12, D4 in `VARKA-361.md` section 12, D5 to D7 here, D8 in `VARKA-363.md`
 11.9. All three below were answered by the owner on 28 November 2026 with the default.
+*[E1 rework, 28 November 2026.]* E1, last below, is the owner's decision of the same day on
+the proof parts of rows 346, 362 and 363; it carries no D number, being no question of this
+chain alone.
 
 - **D5. When is a 128-bit product null.** Answered: (a). The node `PairMul` multiplies two
   values of two 64-bit words each. One of its output words (the low word of the short form)
@@ -1196,6 +1224,14 @@ The decimal chain's owner decisions are numbered across its four plans: D1 to D3
   decide is decided in 11.3 from readings that are committed. (a) Neither is landed or run: 0
   lines. (b) Fix the findings, land and run them for the record: about 700 lines and two
   runner dispatches, changing no decision. Applied: (a).
+- **E1. The proof parts that need a full-strength builder.** *[E1 rework, 28 November 2026.]*
+  From 1 December 2026 the project is built by Sonnet-class agents only, for one or two months.
+  (a) Move those parts to January 2027, when a full-strength builder is back, and ship the
+  parts they prove before them with their differential tests and fuzz coverage; (b) build them
+  before 1 December; (c) hold the parts they prove until the proofs land. **Answered on 28
+  November 2026: (a).** Here: part 362b3, "January 2027, full strength; not a gate before
+  then" (11.6). The same decision moves 363b3 (`VARKA-363.md` 11.9) and claim C of row 346's
+  proofs (`VARKA-346.md` section 12, question 5). Every other part of this row is Sonnet-class.
 
 ## 12. What this row leaves rows 363, 351, 364 and 366 (28 November 2026)
 

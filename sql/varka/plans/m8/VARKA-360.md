@@ -780,7 +780,10 @@ do not wait on it go ahead. Nothing is built against an unmerged branch.
 
 Beside the queue, since they touch no file a code part of the list touches:
 
-- the lead's proof parts: **362b3** after 362b1, **363b3** after 363a2;
+- the proof parts **362b3** (after 362b1) and **363b3** (after 363a2): *[E1 rework, 28 November
+  2026]* January 2027, full strength; not a gate before then, by the owner's decision E1 (a) of
+  28 November 2026 (`VARKA-362.md` and `VARKA-363.md` 11.9). No step of the list above waits
+  on either, and neither is built before January;
 - the measurements: **360s** (after #1799 and the lead's download), **361s** (after #1799),
   **361c** (after 361b, 361s and the lead's dispatches), **360d** (after 360c2), **362c**
   (after 362b2), **363d** (after 363b2 and 363c3);

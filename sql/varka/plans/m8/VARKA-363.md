@@ -7,6 +7,9 @@ findings of the plan's first review, took the shared names and the chain's order
 is left of the row, cut into parts a builder can take with nobody to ask, is section 11.
 Sections 0 to 10 are the plan of 30 October 2026 and the record of what was built; section
 11.2 lists what in them is stale, and where they and section 11 differ, section 11 holds.*
+*[E1 rework, 28 November 2026: by the owner's decision E1 (a), part 363b3, the four-word carry
+network's proof, is January 2027's, full strength, and no gate before then; nothing waits on
+it, and every other part is Sonnet-class (11.6, 11.9).]*
 
 ## 0. What exists now (admission check)
 
@@ -1042,7 +1045,7 @@ named in the parts.
 | 363a3 | the cut product and the cut sum over 128 bits | about 600 | Sonnet-class | master, code from `varka-363a2-callers` | 363a1, 362a2, row 697 |
 | 363b1 | `PairMul`'s unsigned form | about 250 | Sonnet-class | master | 362b1; 363a1 in the file queue |
 | 363b2 | the cut product over 256 bits, the live check, the products' class sweep | about 750 | Sonnet-class | master | 363b1, 363a3, 362b2, 360c1, row 697 |
-| 363b3 | the four-word carry network's proof | 200 to 400 | full strength, before 1 December | master | 363a2 |
+| 363b3 | the four-word carry network's proof | 200 to 400 | **January 2027, full strength; not a gate before then** (E1, 11.9) | master | 363a2; nothing waits on it |
 | 363c1 | class C at two scales, the split form | about 750 | Sonnet-class | master | 363a3, 360b2, 360c1, row 697 |
 | 363c2 | class C at two scales with `k = j + 1`, the digit form | 600 to 750 | Sonnet-class, with a stop rule on the method byte budget | master | 363c1, row 697 |
 | 363c3 | class C at two scales past 38 rescaled digits, the guarded split form; the sums' class sweep | 400 to 550 | Sonnet-class | master | 363c2 (the file queue), 360c2, 363b2 (`AUTO_CAP`; fix round 3), row 697 |
@@ -1054,6 +1057,18 @@ shape and turns two benchmark sections; the 256-bit product after row 362's form
 form after the 128-bit pieces it stands on; then the digit form and the guarded split form,
 which reuse the split form's `Cut.ofSplit`, its suite and its file. 363c3 goes last of the
 sums because it holds the sums' census sweep, which needs every sum arm built.
+
+*[E1 rework, 28 November 2026.]* 363b3 is January 2027's, by the owner's decision E1 (11.9),
+and comes after the code it proves: `ScaleDown`'s four-word rungs ship in 363a1 and are first
+called by 363b2, with the differential tests those sheets name (363a1's network tests and the
+IR grammar's draw of the node at every rung; 363b2's tests against Spark's `Decimal`, its
+products' class sweep, and the coverage rows). Until January: no part writes a placeholder, a
+marker line or an empty check for 363b3 into `decimal_scale.smt2` or `VarkaProofFiles`; the
+parts that regenerate `decimal_scale.smt2` (363a2, 363c1, 363c2) expect two-word rungs only in
+its carry layer; and the pull requests of 363a1 and 363b2 say in their bodies, in one sentence,
+"The four-word carry network's proof is part 363b3, January 2027, by the owner's decision E1
+of 28 November 2026", since `sql/varka/AGENTS.md`'s rule "A new bounded lowering comes with its
+proof file" is met for the four-word rungs only then.
 
 #### Part 363a1, `[VARKA-363] Add the rounding division by a power of ten, null where any word is`
 
@@ -1168,7 +1183,10 @@ sum reaching `2^63`, the kept limbs equal to `N * c + 2^L`; the plant refuted at
 
 State both solvers' times before and after. The decision rule: if the file's whole time under
 either solver passes 60 seconds, stop and report (the branch's hand transcription ran in under
-ten); the four-word rungs are part 363b3's and are not rendered here.
+ten); the four-word rungs are part 363b3's and are not rendered here. *[E1 rework, 28 November
+2026.]* By the owner's decision E1 work past that stop is January 2027's: a two-word check that
+does not decide within the 60 seconds moves to part 363b3's January text with its solver
+output quoted, the rest lands here, and nothing waits on it.
 
 #### Part 363a3, `[VARKA-363] Round the decimal products and sums cut by one digit`
 
@@ -1388,13 +1406,18 @@ in `T/varka/VarkaDecimalProductSuite.java` (362a2's suite of products), under
 `VarkaDecimalPairSuite.DEEP`, but for test (8). `P0` is 14 in the chain's order (362a2's six,
 362b2's eight), so 21 here.
 
-#### Part 363b3, the four-word carry network's proof (full strength, before 1 December)
+#### Part 363b3, the four-word carry proof (January 2027, full strength; not a gate before then)
 
 The carry layer of part 363a2 for rungs 5 to 9 (195 entries), `DOWN`'s network if rows 351 or
 364 are to call it, and the check of 11.4.5. **What makes it hard:** in the branch's hand
 transcription the four-word rungs took Z3 47 seconds and cvc5 23, a free witness of the plant
 ran past two minutes, and whether the layer joins `decimal_scale.smt2` or a file of its own,
 and how its claims are cut to stay decidable, is a judgement on solver behaviour.
+
+*[E1 rework, 28 November 2026.]* By the owner's decision E1 (a) this part waits for a
+full-strength builder in January 2027; the text above is kept for that day. It starts from the
+master of that day, after 363b2 and the claims 363c1 and 363c2 add to `decimal_scale.smt2`, and
+adds its layer beside them. Nothing waits on it: 363d scores and marks the row without it.
 
 #### Part 363c1, `[VARKA-363] Round a decimal sum of two scales by its finer operand alone`
 
@@ -1769,7 +1792,9 @@ As `VARKA-362.md` part 362c: the two runner files of `VarkaDecimalBaselineBenchm
 and 363c3 merge, predictions 4 to 6 of section 4 scored in section 10, the row marked. The
 section `DECIMAL(38, 10) arithmetic chain` stays on the row path: its three cuts sit in one
 tree, each alone 36 levels or more by the model, so the tree is past the cap, and the note says
-so.
+so. *[E1 rework, 28 November 2026.]* Part 363b3 does not count as left when the row is marked:
+the note adds "part 363b3, the four-word carry network's proof, is January 2027's, by the
+owner's decision E1 of 28 November 2026; not a gate".
 
 ### 11.7 Declines, census cells and benchmark sections, by part
 
@@ -1788,7 +1813,8 @@ so.
    part 363b2's class sweep (test 8), or by hand
    `dev/varka_emit.sh "x * y" --columns x:dec38s10,y:dec38s10`.
 2. That test 6 of part 363a1 fails without the NULL rule and passes with it.
-3. The proofs' times: `dev/varka_prove.sh --solver both sql/varka/proofs/decimal_scale.smt2`.
+3. The proofs' times: `dev/varka_prove.sh --solver both sql/varka/proofs/decimal_scale.smt2`
+   (two-word rungs now; the four-word ones are 363b3's, January 2027, E1).
 4. Whether anything folds `m & 0` away and drops the NULL rule's validity: C2 by
    `dev/varka_emit.sh "<a cut product>" --asm`, and the IR passes `VarkaRangeAnalysis` and
    `Analysis` by part 363a1's test 6 in the kernel (the planner found no folding of `AND` with
@@ -1813,6 +1839,10 @@ The decimal chain's owner decisions are numbered across its four plans: D1 to D3
 (D7 covers this row's `varka-363a3-spike`), D8 here. *[Rewritten in the fix round of 28
 November 2026.]*
 
+*[E1 rework, 28 November 2026.]* E1, after D8 below, is the owner's decision of the same day on
+the proof parts of rows 346, 362 and 363; it carries no D number, being no question of this
+chain alone.
+
 - **D8. Two groups of decimal sums at two scales that Spark rounds.** Answered by the owner on
   28 November 2026: build both. A sum of two decimals of different scales whose exact result
   has too many digits is rounded by Spark to fewer decimal places. Part 363c1 builds the common
@@ -1822,6 +1852,14 @@ November 2026.]*
   `+`, `-`, `try_add` and `try_subtract` stays "fused in part". (b) Build both: parts 363c2
   and 363c3, about 1000 to 1300 counted lines in all, and the census can move to "fused". The
   owner chose (b); the plan applies it.
+- **E1. The proof parts that need a full-strength builder.** *[E1 rework, 28 November 2026.]*
+  From 1 December 2026 the project is built by Sonnet-class agents only, for one or two months.
+  (a) Move those parts to January 2027, when a full-strength builder is back, and ship the
+  parts they prove before them with their differential tests and fuzz coverage; (b) build them
+  before 1 December; (c) hold the parts they prove until the proofs land. **Answered on 28
+  November 2026: (a).** Here: part 363b3, "January 2027, full strength; not a gate before
+  then" (11.6). The same decision moves 362b3 (`VARKA-362.md` 11.9) and claim C of row 346's
+  proofs (`VARKA-346.md` section 12, question 5). Every other part of this row is Sonnet-class.
 
 The interval quotients by a decimal stay declined, naming the missing division by a variable,
 as 2.5 has it (11.3 decision 5); no row owns that division, and it is not a question.
@@ -1830,8 +1868,9 @@ as 2.5 has it (11.3 decision 5); no row owns that division, and it is not a ques
 
 - **`ScaleDown(magnitude, k, bound, HALF_UP or DOWN, word)`**, two or four words, null where any
   word is, its constants proven at every rung and `k`, its `HALF_UP` carry network proven at two
-  words (363a2) and at four (363b3). Row 364's rescale down and truncation and row 351's 128-bit
-  rounding call it; `DOWN`'s carry network is theirs to prove.
+  words (363a2) and at four (363b3, January 2027 by the owner's E1; until then the four-word
+  network is held by its differential tests). Row 364's rescale down and truncation and row
+  351's 128-bit rounding call it; `DOWN`'s carry network is theirs to prove.
 - **`negatedWhere` and `rounded`** in `VarkaDecimalCompiler`: the magnitude, the division, the
   sign back. The digit form (11.4.7) is a pattern for a rounding of a sum that one operand
   cannot hold alone; no row of `m9/PLAN.md` needs it today.
