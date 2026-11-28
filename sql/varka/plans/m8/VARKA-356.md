@@ -1,5 +1,9 @@
 # VARKA-356: Spark's math family, bit for bit: trigonometric, hyperbolic, exp, log, pow, roots
 
+*Changed on 28 November 2026: section 12 is new (what is left of row 356 for the close, cut
+into parts). Sections 0 to 11 are unchanged, word for word. Rows 357 and 358 have plans of their
+own from that day, `VARKA-357.md` and `VARKA-358.md`, which hold what is left of them.*
+
 This file plans three rows of the milestone table: **356**, the trigonometric functions; **357**,
 the hyperbolic functions; **358**, the exponential, logarithmic, power and root functions. They
 share one design, row 345's (`VARKA-345.md`), and one kernel shape, so they are planned together;
@@ -840,3 +844,313 @@ because it is the largest port and gains most from the others' lessons. The libr
 those lessons exist, and `pow` is the port with the largest measured gain. The owner decided:
 `atan` to `acos` keep their order, and the `pow` port (358f) is built before the `hypot` port
 (358e).
+
+## 12. What is left of row 356 for the close, and how it is built (new, 28 November 2026)
+
+*This section is new and stands alone for a builder. Rows 357 and 358 now have plans of their
+own, `VARKA-357.md` and `VARKA-358.md`; sections 0 to 11 above stay as the three rows' shared
+design and record. The code facts below were checked on master `6dafb8bd2f6`. No JVM was started
+for this section.*
+
+*Revised the same day after review 1: 12.1's table (356b waits on nothing), 12.5 (step 4's
+`operands`, step 6's line, command 2), 12.6 (356c's oracle, 356b's start), 12.7 and 12.8.*
+
+### 12.1 What the close asks of row 356
+
+Item 5 of `m8/PLAN.md` 1.1 is read by the close path (12.5, decision 3 of 27 November 2026) as
+met by the per-lane calls and the ports that exist, and "the per-lane calls the item asks for
+and master lacks stay owed here: `atan2` (356)". Nine of the row's ten functions fuse since
+#1567. So the row owes:
+
+| part | what | counted lines | builder | waits on |
+| :--- | :--- | ---: | :--- | :--- |
+| 356a2 | `atan2` as `Math.atan2(y + 0.0, x + 0.0)` over the two-operand call node | about 300 | Sonnet-class | 358a2 of `VARKA-358.md`, which adds `MathBinary` |
+| 356c | the exact suite on the Arm runner | about 25 | Sonnet-class | 356a2 |
+| 356b | `asin`, `acos` and `atan` call `Math`, as Spark's code does | about 40 | Sonnet-class | nothing: it starts from master, built by the default of 12.7, question 1 |
+
+The runner measurement of `atan2`'s section is part 358r of `VARKA-358.md`.
+
+Not owed for the close and not built from this section (defaults; 12.7 asks the owner): the
+`PORT` arms of `atan`, `atan2`, `asin` and `acos` (`m10/SCOPE.md` item 140, the owner's decision
+3); the call that skips null lanes ("the live-word narrowing"); the IR fuzz productions and the
+vectors files (`VARKA-358.md` section 10, questions 3 and 4); the opt-in entries, which wait on
+row 367 in milestone 10.
+
+### 12.2 What a builder must know
+
+Spark's `atan2(y, x)` generates `java.lang.Math.atan2(c1 + 0.0, c2 + 0.0)`, and evaluates the
+same interpreted. It is null only where an operand is null. The `+ 0.0` changes answers: it
+turns `-0.0` into `+0.0` before the call, so `atan2(-0.0, -1.0)` is `pi` in Spark and `-pi` by
+the bare method, and `atan2(-0.0, -0.0)` is `0.0` and not `-pi`
+(`results/VARKA-356-admission.txt` part 6). A kernel must add the zero, never drop it.
+
+The names the part reads, all on master once 358a2 is merged:
+
+| name | where | meaning |
+| :--- | :--- | :--- |
+| `MathBinary(MathFn fn, VarkaVectorIR left, VarkaVectorIR right)` | `VarkaVectorIR` | a two-operand per-lane call; null where either operand is |
+| `MathFn.binary()` | `VarkaVectorIR` | true for a member a `MathBinary` takes |
+| `IntArith(IntOp.ADD, Overflow.WRAP, a, b)` | `VarkaVectorIR` | the IEEE sum at the double lane |
+| `VarkaMathDomain` | catalyst main | a tree builder the compiler and the suite share |
+| `VarkaSameAnswer`, `Step.Arith(left, right, true)` | catalyst main | a NaN made from two NaN operands of different bits may carry either payload |
+| `FloatingFault`, `DeclineSink.floatingFault()` | `VarkaEmitOptions`, `DeclineSink` | the planted faults, read by the compiler |
+
+A node holds no literal value, only a literal slot's index, so the emitter cannot fold `v + 0.0`
+away: it does not know the slot holds a zero.
+
+### 12.3 The admission check
+
+1. `grep -c 'Map.entry(Atan2.class, new Owner("atan2", 356))'` on `VarkaMathCompiler.java`
+   prints `1`: `atan2` declines today.
+2. `grep -c 'record MathBinary'` on `VarkaVectorIR.java` prints `1`. On master `6dafb8bd2f6`
+   it prints `0`: 358a2 is not merged, and this part waits.
+3. `grep -c -F 'java.lang.Math.atan2($c1 + 0.0, $c2 + 0.0)'` on `mathExpressions.scala` prints `1`.
+4. On JDK 25 `Math.atan2` is `StrictMath.atan2` at every tier: the intrinsic's name exists and
+   C2 refuses it.
+
+        grep -n -B1 -A1 'case vmIntrinsics::_datan2:' /home/max/proj/openjdk-build/jdk25/src/hotspot/share/opto/library_call.cpp | grep -c 'not yet correctly implemented\|return false'
+
+   prints `2` (the comment and the `return false` of the second site).
+5. `git branch --list 'varka-356a2*' 'varka-356b*' 'varka-356c*'` prints nothing. No branch
+   holds `atan2`: `varka-356-trig` is the merged #1567's branch, 27 commits that master has
+   in squashed form, and no part starts from it.
+
+### 12.4 The design of 356a2
+
+**The member.** `ATAN2("java/lang/Math", "atan2", true)`, after `HYPOT`. It names the class
+Spark's generated code names (`VARKA-358.md` 4.1 gives the reason and the evidence: a method
+that delegates to `StrictMath` on JDK 25 can be a host routine on the next JDK).
+
+**The tree.** In `VarkaMathDomain`, beside `nullAtOrBelow`, shared by the compiler and the suite:
+
+    /**
+     * Spark's {@code atan2}: {@code Math.atan2(y + 0.0, x + 0.0)}. {@code zero} is a
+     * {@code DOUBLE} literal slot holding {@code 0.0}; the sum turns {@code -0.0} into
+     * {@code +0.0} before the call, as Spark's code does, and
+     * {@link FloatingFault#MATH_ATAN2_BARE} leaves it out.
+     */
+    public static VarkaVectorIR atan2(VarkaVectorIR y, VarkaVectorIR x, VarkaVectorIR zero,
+        FloatingFault fault) {
+      if (fault == FloatingFault.MATH_ATAN2_BARE) {
+        return new MathBinary(MathFn.ATAN2, y, x);
+      }
+      return new MathBinary(MathFn.ATAN2, new IntArith(IntOp.ADD, Overflow.WRAP, y, zero),
+          new IntArith(IntOp.ADD, Overflow.WRAP, x, zero));
+    }
+
+**The compiler arm**, in `VarkaMathCompiler.arm`:
+
+    case Atan2 f -> () -> atan2(f, inputs, literals, sink);
+
+    /** Spark's {@code atan2(y, x)}: the per-lane call over each operand plus {@code 0.0}. */
+    private static Optional<VarkaVectorIR> atan2(Atan2 f, VarkaSlotTable inputs,
+        VarkaSlotTable literals, DeclineSink sink) {
+      Optional<VarkaVectorIR> y = operand(f.left(), inputs, literals, sink);
+      if (y.isEmpty()) {
+        return y;
+      }
+      return operand(f.right(), inputs, literals, sink).map(x -> VarkaMathDomain.atan2(y.get(),
+          x, VarkaNodeCompiler.doubleSlot(0.0, sink), sink.floatingFault()));
+    }
+
+**The special cases** (each is the method's own answer once the zeros are added; the pair test
+of 12.5 holds each):
+
+| `y`, `x` | Spark's answer | what goes wrong without the `+ 0.0` |
+| :--- | :--- | :--- |
+| `-0.0`, `-1.0` | `pi` | `-pi` |
+| `-0.0`, `-0.0` | `0.0` | `-pi` |
+| `+0.0`, `-0.0` | `0.0` | `pi` |
+| `-0.0`, `+1.0` | `+0.0` | `-0.0` |
+| `+-1.0`, `+-0.0` | `+-pi/2` | the same |
+| `+-inf`, `+-inf` | `+-pi/4` or `+-3pi/4` | the same |
+| a NaN and a number | the NaN, quieted by the sum | the same payload |
+| two NaNs of different bits | a NaN, either payload | 12.4's last paragraph |
+| a null in either operand | null | |
+
+**Two NaN operands.** fdlibm's `atan2` answers `x + y` where either operand is a NaN. With two
+different NaNs the payload of that sum is the processor's rule over the order the JIT gave the
+operands, and the interpreter and C2 differ (`VARKA-358.md` 4.4, measured for `hypot`). The IR
+front of `VarkaSameAnswer` already reads every `MathBinary` as `Step.Arith(left, right, true)`.
+This part adds `Atan2` to the Catalyst front beside `Pow` and `Hypot`, so that the coverage
+differential opens the same lanes.
+
+### 12.5 The build sheet of 356a2
+
+- **Title:** `[VARKA-356] Fuse atan2 bit for bit, with Spark's + 0.0 on both operands`
+- **Branch:** `varka-356a2-atan2`, from master after 358a2 merged.
+
+**B0.** 12.3's lines 1 to 3 print `1`, and line 5 prints nothing.
+
+Every sbt line is run as
+
+    JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 SPARK_LOCAL_IP=127.0.0.1 build/sbt '<task>'
+
+**Steps.**
+
+1. `VarkaVectorIR.MathFn`: the member of 12.4; the enum's Javadoc gains a sentence on it.
+   `VarkaEmitOptions.FloatingFault`: `MATH_ATAN2_BARE`, with the comment "Spark's `atan2`
+   without its `+ 0.0`: `atan2(-0.0, -1.0)` answers `-pi` where Spark answers `pi`."
+2. `build/sbt catalyst/Test/compile` names the switches that lack `ATAN2`:
+   `VarkaVectorWalk.emitMathUnary`'s arm that throws "is a per-lane call", and in
+   `VarkaReference` the two-operand evaluator 358a2 added (`case ATAN2 -> Math.atan2(a, b);`,
+   by name) and the two one-operand switches' throwing arms.
+3. `VarkaMathDomain.atan2` and the compiler arm (12.4); `VarkaSameAnswer`'s Catalyst front
+   (`if (n instanceof Atan2 a) { return new Step.Arith<>(a.left(), a.right(), true); }`).
+4. `VarkaMathExactSuite`:
+   - the cell, in `functions(fault)` after `hypot`:
+
+            new Fn("atan2", VarkaMathDomain.atan2(X, B, lit(0), fault), bits(0.0), 2,
+                (c, b) -> Math.atan2(c + 0.0, b + 0.0), Domain.PLAIN, false, false),
+
+     `X` is `y` and `B` is `x`, Spark's order.
+   - the row helper `operands`. Part 358a2 added it to this suite, directly after `mismatch`;
+     its whole text is `VARKA-358.md` 5.1, step 7, piece f. Its signature is
+     `private static VarkaSameAnswer.IrRow operands(VarkaVectorIR root, double want, double x,
+     double b)`: it returns the row `VarkaSameAnswer` reads, an object with two methods,
+     `OptionalLong value(VarkaVectorIR node)` and `boolean holds(VarkaVectorIR.Cond cond)`.
+     As 358a2 leaves it, `value` answers only the root and the two columns. `atan2`'s operands
+     are the two sums, so `value` becomes (the two `if` statements are new, the `return` is
+     358a2's):
+
+            @Override public OptionalLong value(VarkaVectorIR node) {
+              if (node instanceof IntArith sum && sum.left().equals(X)) {
+                return OptionalLong.of(Double.doubleToRawLongBits(x + 0.0));
+              }
+              if (node instanceof IntArith sum && sum.left().equals(B)) {
+                return OptionalLong.of(Double.doubleToRawLongBits(b + 0.0));
+              }
+              return node.equals(root) ? OptionalLong.of(Double.doubleToRawLongBits(want))
+                  : node.equals(X) ? OptionalLong.of(Double.doubleToRawLongBits(x))
+                  : node.equals(B) ? OptionalLong.of(Double.doubleToRawLongBits(b))
+                  : OptionalLong.empty();
+            }
+
+     `holds` stays as it is. B0 of this part already asks that `MathBinary` is on master; the
+     helper came with it (`grep -c 'private static VarkaSameAnswer.IrRow operands'` on the
+     suite's file prints `1`).
+   - a test of the zero and sign cells, which the reversed second column of the fixed vectors
+     never pairs. It runs these 22 pairs `(y, x)` through the kernel at 2 and 8 lanes
+     (`VarkaMatrixRuns.BASE.withLanesOverride(lanes)`, the columns built as
+     `fixedVectorFailures` builds them) and asserts `mismatch(...)` is null for each: every
+     pair of `{+0.0, -0.0}` with `{+0.0, -0.0, +1.0, -1.0, +inf, -inf}` (12 pairs), the same
+     with the operands swapped for the four non-zero values (8 pairs), and `(+inf, -inf)` and
+     `(-inf, -inf)`. Its display name: "atan2 answers Spark's bits on every pairing of the
+     zeros with the zeros, the ones and the infinities".
+   - a test of the plant, in the form of `domainAtLessThanIsCaught`: the same pairs through
+     `functions(FloatingFault.MATH_ATAN2_BARE)`'s `atan2` cell must give at least one
+     mismatch, and the first must name `atan2(-0.0` .
+5. `VarkaMathCompilerSuite`: `atan2(y, x)` moves from `FUNCTIONS` to `FUSED`.
+   `VarkaCoverageSuite`, family "Math functions":
+
+        Row("atan2(x, x2)", "Math.atan2(x + 0.0, x2 + 0.0) as Spark writes it: the sums make "
+          + "a -0.0 operand +0.0 before the call",
+          math = Some(MathCell(exactForms(2), operator = Some(VarkaMathBinding.Operator.ATAN2)))),
+
+6. `skips.tsv`: two lines for the row, copied from the lines of
+   `Math functions: expm1(x) matches the row engine under both consumers`, the function list
+   `(atan2)` and the row `(VARKA-356)`. The file is tab separated, five fields a line; the
+   first of the two lines, with `<TAB>` standing for one tab character:
+
+        validityByWidth=false<TAB>VarkaCoverageHarnessSuite<TAB>Math functions: atan2(x, x2) matches the row engine under both consumers<TAB>fails<TAB>validityByWidth=false leaves no baked lane count, and a per-lane math call (atan2) is unrolled over the baked double lanes, so the compiler declines the row (VARKA-356); the row engine answers it
+
+   `VarkaMathBaselineBenchmark`: `atan2(Y, X)` becomes
+   `Fusion.WHOLE`. `census_curated.txt`:
+
+        atan2|double|double|double|done|356|exact: a per-lane Math.atan2 call over y + 0.0 and x + 0.0, as Spark writes it (VARKA-356)
+
+7. This file: 12.8's entry; `PLAN.md`: row 356's text opens as 12.8 gives it.
+
+**The commands, in order.**
+
+1. `catalyst/Test/compile`, then `sql/Test/compile`: `[success]`.
+2. `catalyst/testOnly *VarkaMathExactSuite *VarkaMathCompilerSuite
+   *VarkaSameAnswerContractSuite`: `Failed 0, Errors 0`; the exact suite runs its count before
+   the part plus 2 (step 4's two tests), the other two suites their counts before the part.
+   The count before is `grep -c '^  @Test$' <the suite's file>`, read before the first edit;
+   it depends on which parts of rows 357 and 358 merged first, so no number is written here.
+3. `catalyst/testOnly *VarkaCoverageSuite`: `All tests passed.`
+4. `dev/varka_matrix.sh --config validityByWidth=false --config lanesOverride=16 --suites
+   VarkaCoverageHarnessSuite,VarkaCoverageDifferentialSuite`: no failing test, no stale line.
+5. `dev/varka_ops/pre-pr-slot.sh <worktree>`: `pre-pr: passed on <sha>`; in the regenerated
+   files only `atan2`'s row, shape and census line move.
+
+**Done when** merged with a green Build and a green option matrix; `VarkaMathCompilerSuite`'s
+`FUNCTIONS` no longer holds `atan2`; the census reads one more entry fused.
+
+**Not here.** No port of `atan2`. No change to `ASIN`, `ACOS`, `ATAN` (356b). No fuzz draw.
+
+### 12.6 The build sheets of 356c and 356b
+
+**356c, `[VARKA-356] Run the math family's exact suite on the Arm runner`** (branch
+`varka-356c-arm`). `Math`'s answer is per host, and section 9 asks for the sampled differential
+on the Arm runner; today that job runs `VarkaMathBindingSuite` alone.
+
+- B0: `grep -c 'VarkaMathExactSuite' .github/workflows/varka-width-audit.yml` prints `0`.
+- Step 1: in `.github/workflows/varka-width-audit.yml`, after the step "Check the math library
+  binding", a step "Check the math family's exact forms" with the same `if:` line, a comment
+  saying that the kernel's per-lane calls are held to Spark's code on this host and that a
+  failure is a finding, and the run lines `set -o pipefail` and
+  `./build/sbt "catalyst/testOnly *VarkaMathExactSuite" 2>&1 | tail -60`.
+- Step 2: under `on: push: paths:`, add the paths of `VarkaMathExactSuite.java`,
+  `VarkaMathDomain.java` and `VarkaMathHyperbolic.java`, so that a change to them runs the job.
+- The oracle: the workflow run of the pull request's push, job "Width audit on aarch64", whose
+  step prints the JUnit summary. Two things must hold, and the second is what makes the first
+  mean anything. First, `Failed 0, Errors 0`. Second, the count of tests that ran: with N the
+  number `grep -c '^  @Test$'` prints on `VarkaMathExactSuite.java` at the pull request's head
+  (`5` on master `6dafb8bd2f6`, more after the parts of rows 356 to 358), the summary shows N
+  tests in total, N minus 1 passed and 1 skipped. The one skip is `otherClassIsCaught`, by its
+  own `assumeTrue` on x86. Every other test opens with `assumeTrue(Lane.emitLanes(...) != 0)`,
+  so on a runner whose width bakes no lane count the whole suite skips and the step is green
+  with nothing checked: any skip beyond the one is red for this part. The one more skip that
+  is not red is `noAllocationPerBatch` saying "thread allocation accounting unavailable";
+  name it in 12.8 if it shows. Write N and the three numbers into 12.8.
+- Registered before the run: the step takes under 30 minutes of the job's 90.
+- If the step is red, do not edit the suite: copy the failing lines into 12.8 as a finding and
+  report. A red step on Arm is a result about that host, and what to do with it is the lead's.
+- Not here: no change to the suite, no new runner.
+
+**356b, `[VARKA-356] Call Math for asin, acos and atan, as Spark's code does`** (branch
+`varka-356b-math-owner`, from master; it waits on no other part and on no answer: 12.7,
+question 1, applies the default that it is built).
+
+- B0: `grep -c 'ASIN("java/lang/StrictMath", "asin")'` on `VarkaVectorIR.java` prints `1`.
+- Steps: the three members' owner becomes `java/lang/Math`; the enum's Javadoc and
+  `VarkaMathCompiler`'s say that the call names Spark's class, which is fdlibm's on JDK 25; the
+  three coverage rows' notes read "exact: a per-lane Math.asin call, as Spark's code makes"
+  (and `acos`, `atan`) with `exactForms(2)`; the three `census_curated.txt` notes the same.
+  `VarkaMathExactSuite`'s cells stay as they are: their `classesDiffer` is `false` either way.
+- Commands: `catalyst/testOnly *VarkaMathExactSuite *VarkaMathCompilerSuite
+  *VarkaCoverageSuite`, then the gate. In the regenerated `emitted_bytes.json` exactly the
+  shapes that hold `asin`, `acos` or `atan` move (the class name in their constant pool), and
+  no other; say so in the pull request, since "no existing shape's bytes move" is broken here
+  on purpose.
+- Not here: `SIN`, `COS`, `TAN` and the rest already name Spark's class.
+
+### 12.7 Questions for the owner
+
+1. **Should `asin`, `acos` and `atan` call `Math`, as Spark's code does?** This is one case of
+   `VARKA-358.md` section 10, question 1 (which class a call names where Spark calls `Math` and
+   JDK 25 delegates to `StrictMath`); the question is asked once, there, and this entry only
+   says what it means for this row. (a) `Math`, part 356b: exact on every JDK. (b) Keep
+   `StrictMath` and rely on the build requiring JDK 25. Evidence for (a): the JDK 26 runtime
+   on this laptop holds an intrinsic for `Math.sinh` that JDK 25 lacks (`VARKA-358.md` 4.1),
+   so delegation is a fact of one JDK; and JDK 25's own source already names an `atan2`
+   intrinsic it does not yet implement (12.3, line 4). *Recommended: (a).* **Answered on 28 November
+   2026: (a). The new member `ATAN2` names `Math`, and 356b is built.**
+2. **Is the Arm runner's cell (356c) part of the close?** Section 9 asks it; item 5 of 1.1 does
+   not name a host. (a) Yes, 356c. (b) No, a milestone 10 row. *Recommended: (a)*: it is one
+   workflow step, and `tan`, `tanh` and `cbrt` are other routines on aarch64. **Default applied:
+   (a).**
+3. **The call that skips null and masked lanes** (2.2's live word). *Recommended: not in this
+   milestone*; the bits do not depend on it. **Default applied: not built.**
+
+### 12.8 Outcome of the parts of this section
+
+To be written by each part. 356a2 opens row 356's text in `PLAN.md` with: "**Done in part**
+(*<date>*: 356a2 merged as #<n>: `atan2` fuses as `Math.atan2(y + 0.0, x + 0.0)` over the
+two-operand call node, bit for bit, a lane of two different NaNs open; all ten functions of the
+row fuse; left: 356c, the Arm runner's cell, 356b unless it merged first, and the runner
+measurement, part 358r of `VARKA-358.md`; moved to `m10/SCOPE.md` item 140: the four ports)".
+356c writes here the test counts its oracle asks for. 356b writes here which shapes' bytes
+moved.
