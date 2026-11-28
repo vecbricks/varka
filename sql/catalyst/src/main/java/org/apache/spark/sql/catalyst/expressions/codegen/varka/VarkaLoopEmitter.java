@@ -398,10 +398,8 @@ public final class VarkaLoopEmitter {
     // The planner and the body emitters index the outputs per method, so a caller's list that is
     // not random access - a Scala List seen through asJava, as the tools pass it - would make every
     // lookup a walk and the emission quadratic in the width for that reason alone. The shape
-    // cache already hands in a copy; copying here makes it true of every caller. The composites
-    // become the primitive nodes they are emitted as, before any pass plans the kernel, so the
-    // analysis, the grouping and the walk read one graph (VarkaDecimalLowering).
-    outputs = VarkaDecimalLowering.lowerAll(List.copyOf(outputs), options, faults);
+    // cache already hands in a copy; copying here makes it true of every caller.
+    outputs = List.copyOf(outputs);
     if (numInputs < 1 || numInputs > MAX_INPUTS) {
       throw VarkaErrors.illegalArgument(
           "numInputs " + numInputs + " outside [1, " + MAX_INPUTS + "]");
@@ -411,6 +409,10 @@ public final class VarkaLoopEmitter {
       // VarkaShapeKey rejects a null the same way, so this closes the other door in.
       throw VarkaErrors.illegalArgument("emit options must not be null");
     }
+    // The composites become the primitive nodes they are emitted as, before any pass plans the
+    // kernel, so the analysis, the grouping and the walk read one graph (VarkaDecimalLowering).
+    // After the options check, since a lowering may read them.
+    outputs = VarkaDecimalLowering.lowerAll(outputs, options, faults);
     Analysis analysis = analyze(outputs, numInputs, numLiterals, options);
 
     // Method layout, all sharing the seven-parameter shape so slots line up everywhere: `run`

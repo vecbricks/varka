@@ -106,9 +106,9 @@ final class VarkaSmtNodes {
       entry(InRanges.class, "a range set of the int lane; no decimal shape builds one"),
       entry(BoolCompare.class, "an order of two booleans; no decimal shape builds one"),
       entry(BoolNullSafeEq.class, "a boolean <=>; no decimal shape builds one"),
-      entry(VarkaVectorIR.WideMul.class, "a composite, whose lowering (VarkaDecimalLowering) "
-          + "the printer renders in row 506c (m10/SCOPE.md item 140)"),
-      entry(VarkaVectorIR.WordConst.class, "a lowering's constant, rendered with 506c's"));
+      entry(WideMul.class, "a composite, whose lowering (VarkaDecimalLowering) the printer "
+          + "renders in row 506c (m10/SCOPE.md item 140)"),
+      entry(WordConst.class, "a lowering's constant, rendered with 506c's"));
 
   private final int[] intLits;
   private final long[] longLits;
@@ -277,7 +277,7 @@ final class VarkaSmtNodes {
           ConstDivide _, BoundedDivide _, BitCount _, MathUnary _, Fma _, RoundToIntegral _,
           ConvertLane _, ReinterpretLane _, InterleaveDecimal _,
           CrossLane _, InRanges _, BoolCompare _, BoolNullSafeEq _, CanonicalFloat _,
-          CanonicalBits _, HashStep _, VarkaVectorIR.WideMul _, VarkaVectorIR.WordConst _ ->
+          CanonicalBits _, HashStep _, WideMul _, WordConst _ ->
           throw refused(node);
     };
   }
