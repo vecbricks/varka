@@ -161,8 +161,8 @@ final class VarkaSteering {
         strangers.add(c.roots().get((step + 1 + i) % c.roots().size()));
       }
       for (VarkaVariantChecks.KindVariant kv : VarkaVariantChecks.variants(c, strangers,
-          VarkaVariants.valueSubtrees(c.roots()), step, VarkaSteering::fits)) {
-        kv.variant().filter(VarkaSteering::fits).ifPresent(fitting::add);
+          VarkaVariants.valueSubtrees(c.roots()), step, v -> fits(v, c.options()))) {
+        kv.variant().filter(v -> fits(v, c.options())).ifPresent(fitting::add);
       }
       if (!fitting.isEmpty()) {
         VarkaVariants.Variant v = fitting.get(rnd.nextInt(fitting.size()));
@@ -186,10 +186,13 @@ final class VarkaSteering {
     return c.withOptions(options).withLabel(c.label() + " -> " + option.name() + " changed");
   }
 
-  /** Whether the emitter's form without a byte budget holds a variant, as it holds every draw. */
-  private static boolean fits(VarkaVariants.Variant v) {
+  /**
+   * Whether the emitter's form without a byte budget holds a variant under the case's
+   * {@code options}, whose chain cap is the one the variant is emitted under.
+   */
+  private static boolean fits(VarkaVariants.Variant v, VarkaEmitOptions options) {
     return VarkaLoopEmitter.fitsBudgets(v.roots(), v.numInputs(),
-        VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0));
+        options.withMethodByteBudget(0));
   }
 
   /**

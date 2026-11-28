@@ -556,10 +556,12 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        {@code VARKA-103.md} 3.7). {@link IntervalFault#NONE} in production.
  * @param maxChainDepth the deepest op path one output may have, which the emitter's analysis and
  *        the compiler's budget check both refuse past. Zero, the default, is auto: the cap of the
- *        output's tree, {@link VarkaEmitBudget#chainDepthCap} (64 for a tree of the int lane alone
- *        or one holding a math port, 16 for any other); any other value is the cap on every
- *        lane, so one below 64 lowers the int lane's cap too. A measurement knob (VARKA-620): a
- *        benchmark sets it to price depths past a cap, and no session conf sets it.
+ *        output's tree, {@link VarkaEmitBudget#chainDepthCap} (64 for a tree of the int lane
+ *        alone, for a tree of the long lane alone where the long vector is 256 bits or wider,
+ *        and for one holding a math port; 16 for any other, a long-lane tree at 128 bits
+ *        included); any other value is the cap on every lane at every width, so one below 64
+ *        lowers a 64 too. A measurement knob (VARKA-620): a benchmark sets it to price depths
+ *        past a cap, and no session conf sets it.
  * @param uncountedMainLoop whether the main lane-group loop, and the epilogue loop of a kernel
  *        that converts between lanes or whose narrowing load spans more than one group, step by a
  *        value C2 cannot fold ({@link VarkaLoopStride#one()} times the lane count) rather than by
@@ -571,6 +573,12 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        one of them that fails is recompiled and fails again until the method's trap limit, and
  *        the warm-up releases the kernel still allocating. True keeps every range check in the
  *        loop and every answer the same.
+ * @param chainCapLongBits the width in bits of the long vector that the auto
+ *        {@code maxChainDepth} of a long-lane tree is resolved for
+ *        ({@link VarkaEmitBudget#longVectorBits}), or 0, the default, for the width this compile
+ *        emits at. A session names the driver's width here (sql/core's {@code VarkaSessionEmit},
+ *        VARKA-697), so that the plan's compile and an executor's admit the same trees. It
+ *        changes which trees are admitted and no byte of one that is.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -633,7 +641,8 @@ public record VarkaEmitOptions(
     FloatingFault floatingFault,
     IntervalFault intervalFault,
     int maxChainDepth,
-    boolean uncountedMainLoop) {
+    boolean uncountedMainLoop,
+    int chainCapLongBits) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -886,7 +895,7 @@ public record VarkaEmitOptions(
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
           false, false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
           NarrowConversionForm.ROUND_TO_ODD, false, NarrowGroupStore.MASKED, FloatingFault.NONE,
-          IntervalFault.NONE, VarkaEmitBudget.AUTO_CHAIN_DEPTH, false);
+          IntervalFault.NONE, VarkaEmitBudget.AUTO_CHAIN_DEPTH, false, 0);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -940,6 +949,10 @@ public record VarkaEmitOptions(
     }
     if (maxChainDepth < 0) {
       throw VarkaErrors.illegalArgument("maxChainDepth must not be negative: " + maxChainDepth);
+    }
+    if (chainCapLongBits < 0) {
+      throw VarkaErrors.illegalArgument(
+          "chainCapLongBits must not be negative: " + chainCapLongBits);
     }
     if (lanesOverride != 0 && (lanesOverride < 1 || Integer.bitCount(lanesOverride) != 1)) {
       throw VarkaErrors.illegalArgument(
@@ -1023,6 +1036,7 @@ public record VarkaEmitOptions(
       b.intervalFault = intervalFault;
       b.maxChainDepth = maxChainDepth;
       b.uncountedMainLoop = uncountedMainLoop;
+      b.chainCapLongBits = chainCapLongBits;
     return b;
   }
 
@@ -1089,6 +1103,7 @@ public record VarkaEmitOptions(
     private IntervalFault intervalFault;
     private int maxChainDepth;
     private boolean uncountedMainLoop;
+    private int chainCapLongBits;
 
     private Builder() {
     }
@@ -1398,6 +1413,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder chainCapLongBits(int bits) {
+      this.chainCapLongBits = bits;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1415,7 +1435,7 @@ public record VarkaEmitOptions(
           decimalStore, wideConversionForm, roundToOddByShifts, narrowConversionForm,
           mathUlpContract,
           narrowGroupStore,
-          floatingFault, intervalFault, maxChainDepth, uncountedMainLoop);
+          floatingFault, intervalFault, maxChainDepth, uncountedMainLoop, chainCapLongBits);
     }
   }
 
@@ -1438,6 +1458,19 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withMaxChainDepth(int depth) {
     return toBuilder().maxChainDepth(depth).build();
+  }
+
+  public VarkaEmitOptions withChainCapLongBits(int bits) {
+    return toBuilder().chainCapLongBits(bits).build();
+  }
+
+  /**
+   * The bits of the long vector a lane count pinned by {@link #lanesOverride} bakes
+   * ({@link Lane#emitLanes}), or 0 where none is pinned or the pinned one is not baked: the
+   * width a session carries in place of its host's when a suite's options pin one.
+   */
+  public int pinnedLongBits() {
+    return lanesOverride == 0 ? 0 : Lane.emitLanes(this, Lane.LONG) * Long.SIZE;
   }
 
   public VarkaEmitOptions withHeavyGroupOutputs(int outputs) {

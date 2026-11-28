@@ -1903,7 +1903,9 @@ class has a deliberate method anatomy:
   The epilogue, the one method every output shares, decomposes once per date
   as well, which is what keeps a wide date projection's epilogue small enough
   for HotSpot to compile at all.
-* Caps: chains up to `MAX_CHAIN_DEPTH` (16) deep, and up to `MAX_INPUTS` (64)
+* Caps: chains up to 16 levels deep, or 64 for a chain whose values are all on
+  the `INT` lane and for one whose values are all on the `BIGINT` lane where a
+  vector is 256 bits or wider, and up to `MAX_INPUTS` (64)
   input columns per kernel. A projection over more columns is served by
   several kernels, run in turn over each batch into one output batch: the
   compiler compiles the entries one kernel sets aside into a further kernel,
@@ -2815,7 +2817,11 @@ The real current edges, stated with their numbers where they have one:
   eligible batches.
 * **No whole-stage codegen integration.** The Varka nodes are not
   `CodegenSupport`; whole-stage codegen splits at the boundary.
-* **Emitter caps**: chain depth 16, 64 distinct ops, 64 input columns per
+* **Emitter caps**: chain depth 16 (64 for a chain on the `INT` lane alone, and
+  on the `BIGINT` lane alone with 256-bit or wider vectors; at 128 bits a
+  `BIGINT` chain stays at 16; the width is the driver's, for every executor of
+  the plan, and in a filter the depth is each conjunct's own, whatever the
+  order of the conjuncts), 64 distinct ops, 64 input columns per
   kernel, and 16 literals per fused `IN` list. Since VARKA-20 the compiler
   mirrors the depth and op budgets and demotes an overflowing entry to
   residual with a recorded reason, instead of the whole kernel silently

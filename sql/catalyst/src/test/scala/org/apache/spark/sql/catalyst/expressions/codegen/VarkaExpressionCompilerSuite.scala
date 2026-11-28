@@ -2493,6 +2493,139 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(partial.declines.asScala(0).reason === "unsupported expression")
   }
 
+  test("a BIGINT chain past 16 levels fuses to 64 by default where the long vector is 256 " +
+      "bits or wider, and stops at 16 at 128 bits (VARKA-697)") {
+    // VarkaChainDepthBenchmark's BIGINT chain, the shape the readings are of (VARKA-620.md 9):
+    // a checked add, a wrapping multiply by a literal, a shift, and a subtraction of a choice
+    // over a comparison, three levels. It is a tree of the long lane alone, whose default cap
+    // follows the long vector's width. The lane count is pinned, so the verdicts are the same on
+    // any host: four and eight long lanes are 256 and 512 bits, two are 128. The matrix's
+    // options, with what the cap's rule reads pinned: the cap to auto, the lane count baked,
+    // and no driver's width in place of it. CSE is pinned on as well: the choice reads the chain
+    // below it twice, and with sharing off the 64-level chain's dense loop is about 10.5 KB, over
+    // the 8000 HotSpot compiles, so it declines on the method budget, which is not the depth cap.
+    import org.apache.spark.sql.catalyst.expressions.ShiftRight
+    val x = AttributeReference("x", LongType)()
+    val y = AttributeReference("y", LongType)()
+    val steps: Seq[(Int, Expression => Expression)] = Seq(
+      1 -> (e => Add(e, y, EvalMode.ANSI)),
+      1 -> (e => Multiply(e, Literal(3L), EvalMode.LEGACY)),
+      1 -> (e => ShiftRight(e, Literal(2))),
+      3 -> (e => Subtract(e, If(GreaterThan(e, y), y, Literal(0L)), EvalMode.ANSI)))
+    def chain(depth: Int): Expression = {
+      var e: Expression = x
+      var levels = 0
+      var k = 0
+      while (levels < depth) {
+        // The choice only where its three levels fit; the one-level steps fill the rest.
+        val (height, step) = steps(k % steps.size)
+        if (levels + height <= depth) {
+          e = step(e)
+          levels += height
+        }
+        k += 1
+      }
+      e
+    }
+    def partialOf(depth: Int, options: VarkaEmitOptions): PartialVarkaProjection =
+      VarkaExpressionCompiler.compilePartial(
+        Seq(out(chain(depth)), out(Add(x, y, EvalMode.LEGACY))), Seq(x, y), options).get
+    def fuses(depth: Int, options: VarkaEmitOptions): Boolean =
+      partialOf(depth, options).specs.asScala.head.isInstanceOf[FusedOutput]
+    def declinesOnDepth(depth: Int, options: VarkaEmitOptions): Unit = {
+      val partial = partialOf(depth, options)
+      assert(partial.specs.asScala.toSeq === Seq(VarkaOutputSpec.RESIDUAL, new FusedOutput(0)))
+      assert(partial.declines.asScala(0).reason === "exceeds the emitter's fused budget")
+    }
+    val defaults = VarkaMatrix.base.withMaxChainDepth(0).withValidityByWidth(true)
+      .withChainCapLongBits(0).withCse(true)
+    for (lanes <- Seq(4, 8)) {
+      val wide = defaults.withLanesOverride(lanes)
+      assert(fuses(17, wide), lanes)
+      assert(fuses(64, wide), lanes)
+      declinesOnDepth(65, wide)
+      // An explicit cap is the cap at this width too.
+      assert(fuses(16, wide.withMaxChainDepth(16)), lanes)
+      declinesOnDepth(17, wide.withMaxChainDepth(16))
+    }
+    val narrow = defaults.withLanesOverride(2)
+    assert(fuses(16, narrow))
+    declinesOnDepth(17, narrow)
+    assert(fuses(32, narrow.withMaxChainDepth(32)))
+    declinesOnDepth(33, narrow.withMaxChainDepth(32))
+    // DOUBLE shares the 64-bit vector and not the reading, which is of BIGINT arithmetic: a
+    // DOUBLE chain keeps 16 at every width.
+    val u = AttributeReference("u", DoubleType)()
+    val v = AttributeReference("v", DoubleType)()
+    def doubles(depth: Int): Expression =
+      (0 until depth).foldLeft[Expression](u)((e, _) => Add(e, v, EvalMode.LEGACY))
+    for (lanes <- Seq(2, 4, 8)) {
+      val options = defaults.withLanesOverride(lanes)
+      def partial(depth: Int): PartialVarkaProjection = VarkaExpressionCompiler.compilePartial(
+        Seq(out(doubles(depth)), out(Add(u, v, EvalMode.LEGACY))), Seq(u, v), options).get
+      assert(partial(16).specs.asScala.head.isInstanceOf[FusedOutput], lanes)
+      assert(partial(17).specs.asScala.head === VarkaOutputSpec.RESIDUAL, lanes)
+      assert(partial(17).declines.asScala(0).reason === "exceeds the emitter's fused budget")
+    }
+  }
+
+  test("a filter's chain cap is each conjunct's own, whatever the order and the lane the " +
+      "conjuncts meet on (VARKA-697)") {
+    // The fused conjuncts are one AND fold, lifted to the lane they meet on, and the cap is asked
+    // of each conjunct by the lanes of its own values (VarkaEmitBudget.chainDepthExcess), so a
+    // conjunct fuses or declines the same alone, first or last. Catches: the cap taken of the
+    // fold's whole tree, where an int conjunct lifted beside a BIGINT chain makes it a tree of
+    // two lanes at 16, so the conjunct written second is demoted; the lift's widening or the
+    // fold's levels counted against a conjunct; and a deep conjunct taking its neighbours with
+    // it. The adds wrap, so no conjunct can raise and the order rule (VARKA-380) moves nothing.
+    // The cap is pinned to auto, the lane count is pinned and baked, and no driver's width
+    // stands in for it. The byte budget is pinned to its default: a filter is one kernel, and
+    // without a byte budget (methodByteBudget 0) a kernel is capped at MAX_FUSED_NODES ops, so a
+    // 64-level chain leaves its neighbour no op and the neighbour declines on size, not depth
+    // ("the budget mirror demotes conjuncts past MAX_FUSED_NODES to residual" states that cap).
+    val x = AttributeReference("x", LongType)()
+    val y = AttributeReference("y", LongType)()
+    val j = AttributeReference("j", IntegerType)()
+    val columns = Seq(x, y, i, j)
+    // A conjunct `levels` high: the comparison over a chain of levels - 1 wrapping adds.
+    def longDeep(levels: Int): Expression = GreaterThan(
+      (1 until levels).foldLeft[Expression](x)((e, _) => Add(e, y, EvalMode.LEGACY)), Literal(0L))
+    def intDeep(levels: Int): Expression = GreaterThan(
+      (1 until levels).foldLeft[Expression](i)((e, _) => Add(e, j, EvalMode.LEGACY)), Literal(5))
+    val intNear = GreaterThan(i, Literal(5))
+    val longNear = GreaterThan(x, Literal(0L))
+    val auto = VarkaMatrix.base.withMaxChainDepth(0).withValidityByWidth(true)
+      .withChainCapLongBits(0).withMethodByteBudget(VarkaEmitOptions.DEFAULTS.methodByteBudget())
+    // Which conjuncts fuse, in every order of them, with the reason of each that does not.
+    def check(lanes: Int, conjuncts: Seq[Expression], residual: Set[Expression]): Unit =
+      for (order <- conjuncts.permutations) {
+        val specs = VarkaExpressionCompiler.explainPredicate(order.reduce(And(_, _)), columns,
+          auto.withLanesOverride(lanes), VarkaAdmission.NO_HOST_REFUSAL).asScala.toSeq
+        val clue = s"$lanes long lanes, heights ${order.map(_.children.head.height)}"
+        assert(specs.map(_.fused) === order.map(c => !residual(c)), clue)
+        for (spec <- specs if !spec.fused) {
+          assert(spec.decline.get.reason === "exceeds the emitter's fused budget", clue)
+        }
+      }
+    for (lanes <- Seq(4, 2)) {
+      val longCap = if (lanes == 4) 64 else 16
+      // The review's example: a BIGINT chain beside a one-level int conjunct.
+      check(lanes, Seq(longDeep(longCap), intNear), Set.empty)
+      check(lanes, Seq(longDeep(16), intNear, longNear), Set.empty)
+      // One level past its cap the chain declines alone, and its neighbours still fuse.
+      val over = longDeep(longCap + 1)
+      check(lanes, Seq(over, intNear, longNear), Set(over))
+      // A deep int conjunct beside a BIGINT one keeps the int lane's 64 at either width.
+      check(lanes, Seq(intDeep(64), longNear), Set.empty)
+      check(lanes, Seq(intDeep(64), longDeep(longCap)), Set.empty)
+      val intOver = intDeep(65)
+      check(lanes, Seq(intOver, longNear, intNear), Set(intOver))
+      // And each alone, the fold of one conjunct.
+      check(lanes, Seq(longDeep(longCap)), Set.empty)
+      check(lanes, Seq(intDeep(64)), Set.empty)
+    }
+  }
+
   test("the compiler mirrors the emitter budgets and demotes the overflow entry") {
     def inIf(base: Int): NamedExpression =
       out(If(In(d, (1 to 16).map(k => Literal(base + k, DateType))), d, d2))

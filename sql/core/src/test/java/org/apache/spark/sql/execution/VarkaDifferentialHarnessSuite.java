@@ -306,6 +306,25 @@ public final class VarkaDifferentialHarnessSuite {
     return new Part(source, Optional.empty(), options, List.of(shapes));
   }
 
+  /**
+   * The options handed to a part with what the chain cap's rule reads pinned (VARKA-697): the
+   * long lane count, baked, the cap, 0 being auto, and no driver's width in place of the lanes'.
+   */
+  private static UnaryOperator<VarkaEmitOptions> atLanes(int lanes, int maxChainDepth) {
+    return o -> o.withLanesOverride(lanes).withValidityByWidth(true)
+        .withMaxChainDepth(maxChainDepth).withChainCapLongBits(0);
+  }
+
+  /** {@code levels} of add, shift and subtract over {@code column}, as SQL (VARKA-697). */
+  private static String chain(String column, String other, int levels) {
+    String e = column;
+    for (int k = 0; k < levels; k++) {
+      e = List.of("(" + e + " + " + other + ")", "shiftright(" + e + ", 1)",
+          "(" + e + " - " + column + ")").get(k % 3);
+    }
+    return e;
+  }
+
   private static Part part(Source source, Shape... shapes) {
     return new Part(source, List.of(shapes));
   }
@@ -797,6 +816,75 @@ public final class VarkaDifferentialHarnessSuite {
     out.add(new Case("a bigint shifted by an int column and bit_count of a bigint under another "
         + "node match the row engine for every edge count and value, nulls in either operand",
         table("l, c", null, shiftRows.toArray(String[]::new)), shifts));
+    // VARKA-697: the default chain-depth cap of a BIGINT chain follows the long vector's width,
+    // 64 levels at 256 bits or wider and 16 at 128 bits, where the fused chain was measured
+    // slower than the row engine; a cap that is set is the cap at either width. The chain is 24
+    // levels of adds, shifts and subtractions, checked under ANSI. Each part starts from the
+    // matrix's options and pins what the cap's rule reads (atLanes), so the verdicts are the
+    // same on any host.
+    var chainRows = new ArrayList<Object[]>(300);
+    for (int i = 0; i < 300; i++) {
+      chainRows.add(new Object[] {i, i % 17 == 0 ? null : (1L << 40) - 1000003L * i,
+          i % 13 == 0 ? null : 77L * i - (1L << 33)});
+    }
+    Source chainTable = VarkaHarnessCases.source("SELECT * FROM VALUES "
+        + "(0, CAST(NULL AS BIGINT), CAST(NULL AS BIGINT)) AS v(rid, l, m)", chainRows);
+    String deep = chain("l", "m", 24);
+    Shape fusedChain = shape(deep + " AS deep, l + m AS near", SERVED, "deep: fused");
+    Shape declinedChain = shape(deep + " AS deep, l + m AS near", RUNS,
+        "deep: residual (exceeds the emitter's fused budget", "near: fused");
+    var chainParts = new ArrayList<Part>();
+    for (boolean ansi : new boolean[] {false, true}) {
+      for (int lanes : new int[] {4, 8}) {
+        chainParts.add(new Part(chainTable, Optional.of(ansi), atLanes(lanes, 0),
+            List.of(fusedChain)));
+      }
+      chainParts.add(new Part(chainTable, Optional.of(ansi), atLanes(2, 0),
+          List.of(declinedChain)));
+      chainParts.add(new Part(chainTable, Optional.of(ansi), atLanes(2, 32),
+          List.of(fusedChain)));
+      chainParts.add(new Part(chainTable, Optional.of(ansi), atLanes(4, 16),
+          List.of(declinedChain)));
+      // The width a session carries from its driver decides in place of the compiling JVM's: an
+      // executor at two lanes serves the chain a 256-bit driver planned, at its own lane count,
+      // and one at four lanes leaves the row engine the chain a 128-bit driver declined.
+      chainParts.add(new Part(chainTable, Optional.of(ansi),
+          o -> atLanes(2, 0).apply(o).withChainCapLongBits(256), List.of(fusedChain)));
+      chainParts.add(new Part(chainTable, Optional.of(ansi),
+          o -> atLanes(4, 0).apply(o).withChainCapLongBits(128), List.of(declinedChain)));
+    }
+    out.add(new Case("a bigint chain 24 levels deep fuses by default and matches the row engine "
+        + "where the long vector is 256 bits or wider, runs on the row engine at 128 bits, and a "
+        + "set cap decides at either width", chainParts));
+    // VARKA-697: in a filter the cap is each conjunct's own, by the lanes of its own values, so
+    // which conjuncts fuse depends neither on their order nor on the lane they meet on. A
+    // BIGINT conjunct 25 levels high beside an int one, and an int one 21 levels high beside a
+    // BIGINT one, fuse whole in either order at 256 bits; at 128 bits the int one still does,
+    // and the BIGINT one fuses to 16 levels and declines alone past them, its neighbour served.
+    // That one is written last: its adds can raise, and the order rule (VARKA-380) demotes a
+    // conjunct written after a residual one that can.
+    String long25 = deep + " > 0";
+    String long16 = chain("l", "m", 15) + " > 0";
+    String int21 = chain("rid", "rid", 20) + " > 5";
+    List<String> alone = List.of("(rid > 5): fused",
+        "residual (exceeds the emitter's fused budget");
+    var foldParts = new ArrayList<Part>();
+    for (boolean ansi : new boolean[] {false, true}) {
+      foldParts.add(new Part(chainTable, Optional.of(ansi), atLanes(4, 0), List.of(
+          where(long25 + " AND rid > 5", WHOLE), where("rid > 5 AND " + long25, WHOLE),
+          where(int21 + " AND l > 0", WHOLE), where("l > 0 AND " + int21, WHOLE))));
+      foldParts.add(new Part(chainTable, Optional.of(ansi), atLanes(2, 0), List.of(
+          where(long16 + " AND rid > 5", WHOLE), where("rid > 5 AND " + long16, WHOLE),
+          where(int21 + " AND l > 0", WHOLE), where("l > 0 AND " + int21, WHOLE),
+          new Shape("SELECT * FROM t WHERE rid > 5 AND " + long25, RUNS, alone))));
+      // And under a 256-bit driver's width the two-lane executor serves the whole filter.
+      foldParts.add(new Part(chainTable, Optional.of(ansi),
+          o -> atLanes(2, 0).apply(o).withChainCapLongBits(256),
+          List.of(where(long25 + " AND rid > 5", WHOLE))));
+    }
+    out.add(new Case("a filter's deep bigint or int conjunct fuses beside one of the other lane "
+        + "in either order and matches the row engine, and one past its cap declines alone",
+        foldParts));
     // VARKA-480: the bigint entry cannot share the first kernel's narrow lane, so it fuses in a
     // second kernel rather than going to the row engine.
     out.add(new Case("a projection of a narrow entry and then a bigint one answers from a kernel "

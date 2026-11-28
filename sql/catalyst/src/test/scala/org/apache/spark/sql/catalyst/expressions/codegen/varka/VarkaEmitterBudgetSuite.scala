@@ -52,7 +52,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     assert(fits(Seq(chain(0, intCap)), 1, VarkaMatrix.base))
     assert(!fits(Seq(chain(0, intCap + 1)), 1, VarkaMatrix.base))
     // The tree, not the root, decides: the same count of long-lane XORs narrowed to an int root
-    // holds the long lane, whose cap stays 16, where 17 int levels fit under 64.
+    // holds the long lane beside the int one, and a tree of two lanes keeps 16 at every width
+    // (VARKA-697), where 17 int levels fit under 64.
     val lit = new LiteralSlot(0, LaneType.LONG)
     val narrowed = new NarrowLane(
       (0 until 20).foldLeft[VarkaVectorIR](new DecimalColumn(0, LaneType.LONG, 9))(
@@ -80,21 +81,25 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
   test("fitsBudgets counts a decimal leaf as Analysis does: height 0, no op") {
     // A chain of 64-bit XORs over a decimal column or one word of a decimal pair. Analysis
     // registers both leaves as inputs of height 0, so the chain's height is its XOR count and
-    // the emitter accepts exactly MAX_CHAIN_DEPTH of them; fitsBudgets must agree at the cap and
-    // one past it, or the compiler declines a shape the emitter would serve.
+    // the emitter accepts exactly the cap of them; fitsBudgets must agree at the cap and
+    // one past it, or the compiler declines a shape the emitter would serve. The cap is set to
+    // 16: the chain is a tree of the long lane alone, whose default cap follows the host's long
+    // vector (64 at 256 bits or wider, 16 at 128, VARKA-697), and the subject here is the leaf's
+    // height, not that default, which VarkaEmitterLongLaneSuite pins at each width.
     val lit = new LiteralSlot(0, LaneType.LONG)
     def xors(leaf: VarkaVectorIR, depth: Int): VarkaVectorIR =
       (0 until depth).foldLeft(leaf)((n, _) => new BitOp(BitOpKind.XOR, n, lit))
     val cap = VarkaEmitBudget.MAX_CHAIN_DEPTH
+    val sixteen = VarkaMatrix.base.withMaxChainDepth(cap)
     for (leaf <- Seq[VarkaVectorIR](new DecimalColumn(0, LaneType.LONG, 9),
         new DecimalWord(0, Word.LOW, 38))) {
       val atCap = java.util.List.of[VarkaVectorIR](xors(leaf, cap))
       val past = java.util.List.of[VarkaVectorIR](xors(leaf, cap + 1))
-      assert(VarkaLoopEmitter.fitsBudgets(atCap, 1, VarkaMatrix.base), leaf)
-      assert(emitMulti(atCap.asScala.toSeq, 1, 1)._2.nonEmpty, leaf)
-      assert(!VarkaLoopEmitter.fitsBudgets(past, 1, VarkaMatrix.base), leaf)
-      val e = intercept[IllegalArgumentException](emitMulti(past.asScala.toSeq, 1, 1))
-      assert(e.getMessage.contains("MAX_CHAIN_DEPTH="), e.getMessage)
+      assert(VarkaLoopEmitter.fitsBudgets(atCap, 1, sixteen), leaf)
+      assert(emitMulti(atCap.asScala.toSeq, 1, 1, sixteen)._2.nonEmpty, leaf)
+      assert(!VarkaLoopEmitter.fitsBudgets(past, 1, sixteen), leaf)
+      val e = intercept[IllegalArgumentException](emitMulti(past.asScala.toSeq, 1, 1, sixteen))
+      assert(e.getMessage.contains("MAX_CHAIN_DEPTH=16"), e.getMessage)
     }
   }
 

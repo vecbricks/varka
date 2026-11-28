@@ -711,8 +711,9 @@ final class VarkaConditionCompiler {
    * Folds the fused conjuncts back into one root, <b>balanced</b> like {@link #orFold} and for
    * the same reason: Kleene AND is associative, so the shape is a canonicalization, and a left
    * fold would grow the chain depth by one per conjunct - a WHERE of 16 fusible conjuncts would
-   * trip {@code MAX_CHAIN_DEPTH} (the cap of a tree not of the int lane alone) for no semantic
-   * reason, where the balanced fold stays logarithmic.
+   * trip {@code MAX_CHAIN_DEPTH} (the cap of a tree whose lane has no deeper one,
+   * {@code VarkaEmitBudget.chainDepthCap}) for no semantic reason, where the balanced fold stays
+   * logarithmic.
    */
   static Cond andFold(List<Cond> conds) {
     return balancedFold(new ArrayList<>(conds), VarkaVectorIR.And::new);

@@ -388,9 +388,13 @@ public final class VarkaDecimalValueSuite {
         assertEquals(expected, VarkaExpressionCompiler.decimalConditionsCompiledForTesting(),
             () -> "conditions compiled in " + sql.substring(0, 40));
         assertEquals(1, specs.size());
-        // The levels are past the emitter's fused budget, a decline made after the compile.
+        // The levels are past one of the emitter's size bounds, a decline made after the
+        // compile: the fused budget, or the method budget where the chain cap lets the 20
+        // levels through (64 on the long lane at 256 bits) and the body comes out larger, as
+        // with cse=false.
         String reason = specs.get(0).decline().map(d -> d.reason()).orElse("");
-        assertTrue(reason.isEmpty() || reason.startsWith("exceeds the emitter's fused budget"),
+        assertTrue(reason.isEmpty() || reason.startsWith("exceeds the emitter's fused budget")
+            || reason.startsWith("over the emitter's method budget"),
             () -> "declined in the compile: " + reason);
       }, () -> "compiling " + sql.substring(0, 40) + " took over 20 s");
     }

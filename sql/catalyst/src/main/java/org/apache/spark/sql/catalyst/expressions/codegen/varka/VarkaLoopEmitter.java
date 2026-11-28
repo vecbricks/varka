@@ -1887,7 +1887,7 @@ public final class VarkaLoopEmitter {
 
   /**
    * Whether {@code outputs} over {@code numInputs} kernel columns fit this emitter's
-   * structural budgets ({@link VarkaEmitBudget#chainDepthCap} height per output,
+   * structural budgets ({@link VarkaEmitBudget#chainDepthExcess} per output,
    * {@link VarkaEmitBudget#MAX_INPUTS} columns, and {@link VarkaEmitBudget#MAX_FUSED_NODES}
    * distinct ops across all outputs where {@code options} have no byte budget), counted exactly as
    * {@link Analysis} and {@link #emit} count them. The compiler mirrors the budgets with this
@@ -1911,8 +1911,8 @@ public final class VarkaLoopEmitter {
     java.util.HashMap<VarkaVectorIR, Integer> heights = new java.util.HashMap<>();
     int[] opNodes = {0};
     for (VarkaVectorIR root : outputs) {
-      if (budgetWalk(root, heights, opNodes)
-              > VarkaEmitBudget.chainDepthCap(options, root)
+      budgetWalk(root, heights, opNodes);
+      if (VarkaEmitBudget.chainDepthExcess(options, root, heights::get) != 0
           || (capOps && opNodes[0] > MAX_FUSED_NODES)) {
         return false;
       }
