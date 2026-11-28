@@ -10,6 +10,13 @@ lands alone first (11.4's head); 346b2's premises allow 346c merged first; 346a'
 status-bit collisions in two m9 plans are listed for the lead (13 item 8); the owner's answers
 are in section 12. Every changed passage is marked "fix round".*
 
+***E1 rework of 28 November 2026.** The owner's decision E1 (a) moves claim C of the old part
+346p to part 346p2, January 2027, no gate before then (section 12, question 5; question 4 is
+moot); claims A, B and D are part 346p1. The lead split 346b1 into 346b1a (the node, its
+lowering and its band's refusal) and 346b1b (the compiler arm), both Sonnet-class once the
+lead's registry run on 346b1a passes; every later part waits on the half it reads (11.2).
+Every changed passage is marked "E1 rework".*
+
 ## 0. What exists now (admission check)
 
 From master at `7ea5b6242c7` (30 October 2026; Varka paths under
@@ -688,32 +695,52 @@ band column; the measurement.
 
 | part | what | counted lines | builder | starts from | waits on |
 |---|---|---|---|---|---|
-| 346b1 | `round`, `bround`, `truncate` over a `DOUBLE`: the node, its lowering, `ROUNDING_BAND` | about 945 (the branch counts 1004; 11.4 has the split rule) | **full strength, before 1 December** | `0345dd29a53`, re-ported onto `props()` | nothing |
-| 346b2 | the probes, the binary16 twin, the binary32 twin, the binary64 sampling | about 600 (350 and 243 on the branch) | Sonnet-class | `e6e639c4056` and `299c082ccbc`, cherry-picked | 346b1 |
-| 346a | the floating remainder and `pmod` over `DOUBLE` and `FLOAT`: the node, `REMAINDER_BAND` | about 930 (968 on the branch); split off the query suite if it passes the cap | Sonnet-class, with 346b1's merged pull request as its worked example | `bb377a93cbf`, re-ported | 346b1 |
-| 346c | the cast of `DOUBLE` and `FLOAT` into a decimal of 18 digits or fewer | about 820 (858 on the branch) | Sonnet-class | `9ca2d818541` and `1a7e5cd2ca6`, re-ported | 346b1, and row 350's part 350a1b |
-| 346p | the proof files: the `2^52` conversion and the float sum (both decided here under a solver), and the remainder's claim | about 150 to 300 | the first two Sonnet-class; the remainder's claim **full strength, before 1 December or beside 346a** | master | 346a, 346c |
-| 346m | the measurement at both widths, the census's band column, the row marked | about 150, results apart | Sonnet-class | master | all above |
+| 346b1a | the node `RoundToScale`, its `props()`, its lowering, `ROUNDING_BAND` at bit 8 and the runner's bits moved, the registry fixtures, the node's suite built by hand; no compiler arm | about 850 (11.4 has the size stop rule) | Sonnet-class once **the lead's registry run** on it has passed (11.4, 346b1a's sheet) | `0345dd29a53`, re-ported onto `props()` | the lead's registry run |
+| 346b1b | the compiler arm of `round`, `bround`, `truncate` over a `DOUBLE`, the coverage family, the benchmark flags, the session tests | about 180 and the regenerated rows | Sonnet-class, on 346b1a's condition | the compiler and test hunks of `0345dd29a53` | 346b1a |
+| 346b2 | the probes, the binary16 twin, the binary32 twin, the binary64 sampling | about 600 (350 and 243 on the branch) | Sonnet-class | `e6e639c4056` and `299c082ccbc`, cherry-picked | 346b1b |
+| 346a | the floating remainder and `pmod` over `DOUBLE` and `FLOAT`: the node, `REMAINDER_BAND` | about 930 (968 on the branch); split off the query suite if it passes the cap | Sonnet-class, with 346b1a's merged pull request as its worked example (and 346b1b's, if merged) | `bb377a93cbf`, re-ported | 346b1a |
+| 346c | the cast of `DOUBLE` and `FLOAT` into a decimal of 18 digits or fewer | about 820 (858 on the branch) | Sonnet-class | `9ca2d818541` and `1a7e5cd2ca6`, re-ported | 346b1a, and row 350's part 350a1b |
+| 346p1 | the proof files' claims A, B and D: the `2^52` conversion, the float sum, the stepped floor (each decided here under both solvers or one) | about 150 to 250 | Sonnet-class | master | 346a, 346c |
+| 346p2 | claim C, the remainder's construction in SMT | about 50 to 150 | **January 2027, full strength; not a gate before then** (the owner's E1, section 12) | master | 346p1 |
+| 346m | the measurement at both widths, the census's band column, the row marked | about 150, results apart | Sonnet-class | master | 346b1a, 346b1b, 346b2, 346a, 346c, 346p1 (not 346p2) |
+
+*[E1 rework, 28 November 2026.]* The table above replaces the parts 346b1 and 346p of the first
+pass: 346b1 is split in two by the lead (11.4, 346b1a's sheet, says why the refusal sits in the
+first half), and 346p's claim C moves to January 2027 by the owner's decision E1 (a) of 28
+November 2026 (section 12, question 5). Nothing waits on 346p2. Until it lands, the remainder
+is held by 346a's differential tests (its five emitter tests against Java's `%` and the
+exponent-pair sweep against `BigDecimal`'s exact remainder, 346a's sheet) and by the floating
+coverage rows 346a adds, as 346p's decision rule already provided for an undecided claim C.
 
 **Why 346c waits on 350a1b** (`PLAN.md` 12.5, "350 before 346c"): both edit one arm of
 `VarkaDecimalCompiler.cast`, the sources that are not a decimal. Part 350a1b of `VARKA-350.md`
 11.5 leaves a floating source declining there with the text "row 346's"; 346c replaces that half.
 
-**What makes each full-strength part hard.**
+**What makes each full-strength part hard.** *[E1 rework, 28 November 2026: the list is now
+one item before January and one in January.]*
 
-- 346b1: a new IR record written before row 489 and re-ported after it, across about forty
-  files, with a new refusal that takes status bit 8 and moves the runner's three bits; the
-  lowering emits bytecode. Every later part of this row copies what it settles.
-- 346p: the remainder's claim in SMT-LIB's floating-point theory, which neither pinned solver
-  decides as stated (11.4, 346p's table): it must be split into lemmas that converge, which a
-  builder cannot be told how to find. The other two claims decided here in seconds.
+- Before January, the only full-strength work: **the lead's registry run on 346b1a** (11.4,
+  346b1a's sheet, "The lead's run first"). A new IR record written before row 489 and re-ported
+  after it, across about forty files, with a new refusal that takes status bit 8 and moves the
+  runner's three bits; a missed switch fails at compile time, but a wrong `props()` answer
+  fails only in a registry suite, and every later part of this row copies what it settles. The
+  lead applies the sheet once and runs the eleven registry suites; a failure is fixed in the
+  sheet's text before any builder starts.
+- January 2027, **346p2**: the remainder's claim in SMT-LIB's floating-point theory, which
+  neither pinned solver decides as stated (11.4, 346p2's sheet): it must be split into lemmas
+  that converge, which a builder cannot be told how to find. The other three claims (346p1)
+  decided here in seconds.
 
 ### 11.3 Decisions taken here, each with its evidence
 
 1. **The order is 346b1, 346b2, 346a, 346c, 346p, 346m.** Section 5 put the remainder first, for
    want of the `Fma` node; the node is on master now, and the branches stack the other way
    (346a's `REMAINDER_BAND` is bit 9, above 346b's bit 8). Keeping the branches' order keeps
-   their status bits and their file hunks.
+   their status bits and their file hunks. *[E1 rework, 28 November 2026.]* Now: the lead's
+   registry run, then 346b1a; then 346b1b, 346a and 346c in any order once 346b1a is merged
+   (346c also after 350a1b); 346b2 after 346b1b; 346p1 after 346a and 346c; 346m last. 346p2
+   is January 2027's and nothing waits on it. Where two of 346b1b, 346a and 346c edit one
+   place, each sheet says what the second one to land finds there.
 2. **`ROUNDING_BAND` is status bit 8 and `REMAINDER_BAND` bit 9; the runner's three bits end at
    10, 11 and 12.** Section 10's decision 3, and 346a's record on its branch. On master the
    kernels hold bits 0 to 7 and `VarkaKernelRunner` bits 8, 9 and 10 (11.1). The runner's bits
@@ -777,20 +804,71 @@ fixtures (`VarkaIrGrammar`, `VarkaLaneTypeSuite`, `VarkaReproductionSuite`, `Var
 `VarkaRangeAnalysisSuite.admissible`). `build/sbt catalyst/Test/compile` names every switch
 that lacks the record, and R1 of `dev/varka_push_check.py` every fixture.
 
-#### 346b1: `round`, `bround` and `truncate` over a `DOUBLE` (finished sheet)
+#### 346b1a: the node `RoundToScale`, its lowering and its band's refusal (finished sheet)
 
-**Builder: full strength, before 1 December.** Branch `varka-346b1-round-double` from master.
-Source: `0345dd29a53` on `varka-346b3-sweeps-r`; read it with `git show 0345dd29a53 -- <path>`.
-Short names beside `C`, `V` and `CT`: `VT` is `CT/varka`, `ST` is
-`sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka`, `E` is
-`sql/core/src/main/java/org/apache/spark/sql/execution/varka`, `B` is
+*[E1 rework, 28 November 2026: the lead's split of the old sheet 346b1 (about 957 counted
+lines) into 346b1a and 346b1b. The old sheet's B0, record text, arms table and tests are divided
+between the two; what changed beyond the division is said where it is: the refusal's place, the
+hand-built `Case.of`, the registry list and the lead's run.]*
+
+**Builder: Sonnet-class, on one condition: the lead's registry run below has passed.** Until
+the line "Registry run on 346b1a" below reads "passed", no builder starts 346b1a or 346b1b.
+Branch `varka-346b1a-round-node` from master. Source: `0345dd29a53` on `varka-346b3-sweeps-r`;
+read it with `git show 0345dd29a53 -- <path>`. Short names beside `C`, `V` and `CT`: `VT` is
+`CT/varka`, `ST` is `sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/
+codegen/varka`, `E` is `sql/core/src/main/java/org/apache/spark/sql/execution/varka`, `B` is
 `sql/core/src/test/java/org/apache/spark/sql/execution/benchmark`.
 
+**What this part is.** The record and its `props()`, every structural arm of the IR, the
+lowering, the band's refusal `ROUNDING_BAND` at kernel status bit 8 with the runner's three
+bits moved up by one, the registry fixtures, and the node's suite with the node built by hand.
+No compiler arm admits the node: `round`, `bround` and `truncate` over a double still decline by
+b8's text, so no compiled plan, coverage row, census cell or benchmark section changes.
+
+**Why the refusal and the bits are here, not in 346b1b** (the one change from the lead's split
+of 28 November; facts on `6dafb8bd2f6`). The lowering calls `emitGuardCollect` at every scale
+with a band, which is every scale from 1 to 22 (`hasBand(s)` is false at 0 alone), and
+`VarkaVectorWalk.guardAcc` throws "a guard collect with no mask planned for its reason" for a
+guarded node with no refusal (a1 below). So a node with no refusal could be emitted at scale 0
+only, and the guard, its scratch slot and its word would go untested until 346b1b. Bit 8 is
+the runner's `STATUS_INPUT_BOUND` today (b5), and `VarkaEvaluatorComponentsSuite` holds every
+kernel bit below every evaluator bit, so taking bit 8 moves the runner's bits in the same part.
+
+**The lead's run first.** The lead applies this sheet once, on a local branch
+`varka-346b1a-lead-run` that is never pushed, and runs proving steps 1 to 5 below. Step 3 is
+the rule of `BRIEF-M8.md` and `sql/varka/plans/m8/VARKA-563.md`: a part that adds an IR record
+runs every registry suite, the list `dev/varka_push_check.py` computes (`registry_suites`: the
+test files matching `REGISTRY_PATTERN` plus `REGISTRY_NAMED`, each file's `class ...Suite`).
+On `6dafb8bd2f6` that list is eleven suites, all in catalyst:
+
+    build/sbt 'catalyst/testOnly *VarkaEmitCostSuite *VarkaEmitterBudgetSuite
+      *VarkaFuzzTypesSuite *VarkaIrFuzzSuite *VarkaLaneTypeSuite *VarkaNodePropsSuite
+      *VarkaRangeAnalysisSuite *VarkaReproductionSuite *VarkaSmtNodesSuite
+      *VarkaVectorIRSharingSuite *VarkaWithChildrenSuite'
+
+The same list, with no JVM, from the branch: `python3 dev/varka_push_check.py --dry-run --base
+master` prints `R1: the IR records RoundToScale changed; the registry suites run` and the
+suites it would run; where its list and the eleven differ (master moved), its list wins. Or
+in one call under the heavy lock: `python3 dev/varka_push_check.py --base master`, exit 0.
+
+- **All pass:** the lead replaces the line below by "Registry run on 346b1a: passed on <date>,
+  master `<sha>`, branch `varka-346b1a-lead-run` at `<sha>`." in a plan-only pull request (or
+  in the plan's landing pull request, 11.4's head). Both halves are then Sonnet-class. A
+  builder may compare its branch against the lead's with `git diff varka-346b1a-lead-run HEAD
+  -- sql/catalyst/src/main`: an empty diff of the main code is expected.
+- **One fails:** the lead fixes the port text of this sheet (the `props()` text, an arm's
+  text, a fixture line) and runs again, before any builder starts; the line stays "not yet
+  run" until a run passes.
+
+Registry run on 346b1a: not yet run.
+
 **B0, the premises** (run on `6dafb8bd2f6` from the repository root; a different count means
-master moved: stop and re-read the anchor before editing).
+master moved: stop and re-read the anchor before editing). Numbered as in the old sheet; b8,
+b9, b13, b16 and b17 are 346b1b's.
 
 | # | premise | command | prints |
 |---|---|---|---|
+| g0 | the lead's run passed (the builder's premise; the lead's own run skips it) | `grep -c 'Registry run on 346b1a: passed' sql/varka/plans/m8/VARKA-346.md` | `1` |
 | b1 | every record answers `props()` | `grep -c 'public VarkaNodeProps props()' V/VarkaVectorIR.java` | `62` |
 | b2 | the anchor for the two enums | `grep -c '  enum RoundMode { RINT }' V/VarkaVectorIR.java` | `1` |
 | b3 | nothing of this row in the tree | `grep -rl 'RoundToScale\|ScaleRoundingLowering\|ROUNDING_BAND' sql/catalyst/src sql/core/src \| wc -l` | `0` |
@@ -798,19 +876,17 @@ master moved: stop and re-read the anchor before editing).
 | b5 | the runner's bits are 8, 9, 10 | `grep -c 'public static final int STATUS_[A-Z_]* = 1 << \(8\|9\|10\);' E/VarkaKernelRunner.java` | `3` |
 | b6 | the last refusal ends the enum | `grep -c 'DECIMAL_SLOT(Family.REARMED, true, VarkaFusedKernel.STATUS_DECIMAL_SLOT);' V/Analysis.java` | `1` |
 | b7 | the mechanism switch's last arm | `grep -c 'case DECIMAL_SLOT -> GUARD_DECIMAL_SLOT;' V/VarkaEmitMechanism.java` | `1` |
-| b8 | the decline arm 346b1 deletes | `grep -c 'case Round _, BRound _, Truncate _ -> "round, bround or truncate over a floating value "' C/VarkaNodeCompiler.java` | `1` |
-| b9 | the comment 346b1 replaces | `grep -c 'floating operand never reaches here: VarkaNodeCompiler.floatingDecline declines it first.' C/VarkaRoundingCompiler.java` | `1` |
 | b10 | the lowering's `rint` call | `grep -c 'static void emitRoundToNearest(CodeBuilder cb)' V/VarkaRoundingLowering.java` | `1` |
 | b11 | the scratch map the node parks in | `grep -c 'final Map<VarkaVectorIR, int\[\]> roundTmp' V/Slots.java` | `1` |
 | b12 | the awaiting-refit list's line | `grep -c '"WidenDecimal", "InterleaveDecimal", "MathUnary", "Fma", "RoundToIntegral",' ST/VarkaEmitCostSuite.scala` | `1` |
-| b13 | the benchmark section is unlisted | `grep -c 'new Form("DOUBLE round(x, 2)", "round(" + x + ", 2)", "DOUBLE"),' B/VarkaRoundingBaselineBenchmark.java` | `1` |
 | b14 | the status names' last line | `grep -c '"decimal-slot", "divide-by-zero", "input-bound", "derived-input", "forced"};' E/VarkaFallbackAccounting.java` | `1` |
 | b15 | the guard's lane, unchanged here | `grep -c 'private static Lane guardLane(VarkaVectorIR node, Analysis analysis)' V/VarkaVectorWalk.java` | `1` |
-| b16 | no coverage family yet | `grep -c 'Family("Shortest decimal"' ST/VarkaCoverageSuite.scala` | `0` |
-| b17 | the test that reads b8's text | `grep -rn 'over a floating value (row 346)' sql/catalyst/src/test sql/core/src/test \| wc -l` | `1` |
+| a1 | a guard needs its refusal | `grep -c 'a guard collect with no mask planned for its reason' V/VarkaVectorWalk.java` | `1` |
+| a2 | the grammars' undrawn lists, where the name goes | `grep -c '"Fma" - "RoundToIntegral" -' ST/VarkaIrFuzzSuite.scala ST/VarkaWithChildrenSuite.scala` | `1` each |
+| a3 | no node suite yet | `git ls-files \| grep -c 'VarkaEmitterScaleRoundingSuite'` | `0` |
 | b18 | the size of the source commit | `python3 dev/varka_msg_check.py size --base 0345dd29a53^ --head 0345dd29a53` | `pull request size: 1004 counted lines ...` |
 
-The emission API the lowering calls was checked on master too: every descriptor it imports
+The emission API the lowering calls was checked on master: every descriptor it imports
 (`VECTOR_OPERATORS`, `VO_UNARY`, `DOUBLE_VECTOR`, `LANEWISE_VD`, `VECTOR`, `REINTERPRET_L`,
 `REINTERPRET_D`, `LONG_VECTOR`, `VO_COMPARISON`, `VECTOR_MASK`, `MASK_BINARY`) is a
 `static final` of `V/VarkaDescriptors.java`; `Lane.LONG.lanewiseVI`, `lanewiseVV` and
@@ -819,11 +895,9 @@ and `emitGuardCollect` keep their signatures in `V/VarkaVectorWalk.java`
 (`grep -n 'static void emitGuardCollect(CodeBuilder cb, VarkaVectorIR node, Integer word,'`
 prints one line). So the lowering file is taken whole.
 
-**Files taken whole from the commit** (`git show 0345dd29a53:<path> > <path>`):
-
-- `V/VarkaScaleRoundingLowering.java` (311 lines): `power`, `lowerBound`, `keepBound`, `inBand`,
-  `hasBand(int)`, `weight`, `SCRATCH = 4`, `emit` and its helpers. Unchanged.
-- `VT/VarkaEmitterScaleRoundingSuite.java` (273 lines, 3 tests). Unchanged.
+**File taken whole from the commit** (`git show 0345dd29a53:<path> > <path>`):
+`V/VarkaScaleRoundingLowering.java` (311 lines: `power`, `lowerBound`, `keepBound`, `inBand`,
+`hasBand(int)`, `weight`, `SCRATCH = 4`, `emit` and its helpers). Unchanged.
 
 **The record**, in `V/VarkaVectorIR.java` after `RoundToIntegral`'s record (the branch's place);
 the two enums after `enum RoundMode { RINT }` (b2), with the branch's javadoc for each:
@@ -849,8 +923,8 @@ the branch's deleted switch arms of `VarkaEmitBudget.weightOf` and `VarkaEmitCos
           FILLS_NOTHING, RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
 
-**The arms, in master's names** (each beside `RoundToIntegral`'s arm of the same switch, which
-b-greps in the right column find; the compiler names any one missed):
+**The arms, in master's names** (each beside `RoundToIntegral`'s arm of the same switch; the
+compiler names any one missed):
 
 | file | where | text |
 |---|---|---|
@@ -867,17 +941,14 @@ b-greps in the right column find; the compiler names any one missed):
 | the same | the switch with `case RoundToIntegral x -> { }` | `case RoundToScale x -> { }` (master has one such switch; the branch's second one is gone with 489) |
 | `V/VarkaVectorWalk.java` | the emission switch | `case RoundToScale n -> VarkaScaleRoundingLowering.emit(cb, n, dense, analysis, s, computed);` |
 | `V/VarkaRangeAnalysis.java` | beside `case Fma n -> VarkaValueRange.UNKNOWN;` | `case RoundToScale n -> VarkaValueRange.UNKNOWN;` |
-| `V/VarkaSameAnswer.java` | the IR switch's `byValueChildren` list | `VarkaVectorIR.RoundToScale _,`: a NaN operand is returned as it is |
-| the same | the Catalyst step, before `if (children.size() == 1)` | `if (n instanceof RoundBase r) { return new Step.Pass<>(r.left()); }` with the import of `RoundBase` |
+| `V/VarkaSameAnswer.java` | the IR switch's `byValueChildren` list | `VarkaVectorIR.RoundToScale _,`: a NaN operand is returned as it is (the Catalyst step is 346b1b's) |
 | `V/VarkaKernelPlan.java` | `longNarrowRole`'s `NONE` list | `VarkaVectorIR.RoundToScale _,` |
-| `C/VarkaChronoCompiler.java` | the `Rebuilt(node, false, false)` list | `VarkaVectorIR.RoundToScale _,` |
+| `C/VarkaChronoCompiler.java` | the `Rebuilt(node, false, false)` list | `VarkaVectorIR.RoundToScale _,` (an exhaustive switch over the IR, not a compiler arm) |
 | `V/VarkaFusedKernel.java` | after `STATUS_DIVIDE_BY_ZERO` (b4) | `int STATUS_ROUNDING_BAND = 1 << 8;` with the branch's javadoc |
 | `V/VarkaEmitMechanism.java` | after `GUARD_DECIMAL_SLOT`, and the switch (b7) | `GUARD_ROUNDING_BAND(Family.GUARDS, "a guard on a double's rounding to a scale, its band"),`; `case ROUNDING_BAND -> GUARD_ROUNDING_BAND;` |
 | `E/VarkaKernelRunner.java` | b5 | `STATUS_INPUT_BOUND = 1 << 9`, `STATUS_DERIVED_INPUT = 1 << 10`, `STATUS_FORCED = 1 << 11`, and their javadocs ("bit 9, above the kernels' refusal bits, bits 0 to 8") |
 | `E/VarkaFallbackAccounting.java` | `STATUS_BITS`, `STATUS_NAMES` (b14) | `VarkaFusedKernel.STATUS_ROUNDING_BAND` after `STATUS_DIVIDE_BY_ZERO`; `"rounding-band"` after `"divide-by-zero"` |
 | `docs/sql-varka.md` | the line ``decimal-slot`, `divide-by-zero`, `input-bound`, ...`` | `rounding-band` after `divide-by-zero` |
-| `C/VarkaRoundingCompiler.java` | imports, class javadoc, b9, a new private method | the branch's hunks whole: the `DOUBLE` test calling `toScale`, the `FLOAT` decline, and `toScale` |
-| `C/VarkaNodeCompiler.java` | after `\|\| e instanceof Rint \|\| e instanceof Floor \|\| e instanceof Ceil`; b8 | the branch's two lines admitting `Round`, `BRound`, `Truncate`; delete the two-line arm of b8 |
 
 None of `VarkaEmitBudget`, `VarkaEmitCost` or `VarkaOperandPosition` is edited: their switches
 are gone since row 489, and the branch's hunks there are what `props()` above answers.
@@ -886,87 +957,204 @@ are gone since row 489, and the branch's hunks there are what `props()` above an
 
 - `VT/VarkaCanonicalIr.java`: `case "roundScale" -> new RoundToScale(ScaleMode.valueOf(parts[1]),
   Integer.parseInt(parts[2]), node(), ScaleOut.valueOf(parts[3]));` beside `case "round"`.
-- `VT/VarkaEmitterRoundingSuite.java`: the four-line comment change.
-- `VT/VarkaGuardSpecs.java`: the `ROUNDING_BAND` throw beside `case DIVIDE_BY_ZERO` (line 469 on
-  master), the band predicate before `if (reason == Analysis.Refusal.DIVIDE_BY_ZERO)`, and
-  `RoundToScale _` in the node list.
+- `VT/VarkaGuardSpecs.java`: the `ROUNDING_BAND` throw beside `case DIVIDE_BY_ZERO`, the band
+  predicate before `if (reason == Analysis.Refusal.DIVIDE_BY_ZERO)`, and `RoundToScale _` in
+  the node list.
 - `VT/VarkaIrGrammar.java`, `VT/VarkaReference.java` (both arms), `VT/VarkaReproductionSuite.java`,
   `VT/VarkaSmtNodes.java` (the `entry` and the list), `VT/VarkaWordCensus.java`.
 - `ST/VarkaEmitCostSuite.scala` (b12: `"RoundToScale"` after `"RoundToIntegral"`),
   `ST/VarkaEmitterBudgetSuite.scala` (the four register rows), `ST/VarkaEmitterChronoSuite.scala`
-  (`ROUNDING_BAND` in the set and "four" in its comment), `ST/VarkaIrFuzzSuite.scala`,
-  `ST/VarkaLaneTypeSuite.scala` (three hunks), `ST/VarkaRangeAnalysisSuite.scala` (two arms),
-  `ST/VarkaWithChildrenSuite.scala`.
-- `ST/../VarkaExpressionCompilerSuite.scala` (in `codegen`, one directory up): the declines'
-  assertions replacing b17's line, and the test "round, bround and truncate over a double are one
-  rounding-to-scale node".
-- `ST/VarkaCoverageSuite.scala`: `bandDomain`, the family "Shortest decimal" (four rows),
-  `"ROUNDING_BAND"` in the refusal list between `"MONTH_COUNT"` and `"VALUE_RANGE"`, and
-  `"Shortest decimal" -> Owed(346)`.
-- `B/VarkaRoundingBaselineBenchmark.java`: the four `DOUBLE` forms gain `, true` (b13) and the
-  javadoc's sentence; `round(f, 1)` stays unlisted.
+  (`ROUNDING_BAND` in the set and "four" in its comment), `ST/VarkaLaneTypeSuite.scala` (three
+  hunks), `ST/VarkaRangeAnalysisSuite.scala` (two arms).
+- `ST/VarkaIrFuzzSuite.scala` and `ST/VarkaWithChildrenSuite.scala` (a2): `- "RoundToScale"`
+  after `- "RoundToIntegral"` in each undrawn list. No grammar draws the node, so the node's
+  suite below is its only test against Spark in this part.
+- `VT/VarkaEmitterScaleRoundingSuite.java`: the branch's file (273 lines, 3 tests), then
+  `Case.of` replaced by the text below, which builds the node by hand as 346c's suite does,
+  since no compiler arm admits it yet. Spark's side is unchanged: the same SQL, parsed and bound
+  by `VarkaSqlResolve`, evaluated by Spark. Delete the imports that fall unused
+  (`java.util.Optional`, `CompiledVarkaProjection`, `VarkaExpressionCompiler`), and in the class
+  javadoc "compiled from Spark's own expression" becomes "built as part 346b1b's compiler arm
+  builds it, from Spark's own expression".
+
+      static Case of(String fn, int scale) {
+        var x = VarkaSqlResolve.column("x", DataTypes.DoubleType);
+        var cols = CollectionConverters.asScala(List.<Attribute>of(x)).toSeq();
+        String sql = fn + "(x, " + scale + ")";
+        Expression e = VarkaSqlResolve.parse(sql, cols);
+        // Built by hand: no compiler arm admits the node before part 346b1b.
+        var node = new VarkaVectorIR.RoundToScale(modeOf(fn), scale,
+            new VarkaVectorIR.ColumnRef(0, VarkaVectorIR.LaneType.DOUBLE),
+            VarkaVectorIR.ScaleOut.DOUBLE);
+        var emitted = VarkaEmitterFixtures.emit(List.of(node), 1, 0, VarkaMatrixRuns.BASE);
+        return new Case(sql, VarkaEmitterFixtures.load(emitted), VarkaSqlResolve.bind(e, cols));
+      }
+
+      /** Spark's function to the node's mode: VarkaRoundingCompiler.toScale's map (346b1b). */
+      private static VarkaVectorIR.ScaleMode modeOf(String fn) {
+        return switch (fn) {
+          case "round" -> VarkaVectorIR.ScaleMode.HALF_UP;
+          case "bround" -> VarkaVectorIR.ScaleMode.HALF_EVEN;
+          case "truncate" -> VarkaVectorIR.ScaleMode.DOWN;
+          default -> throw new IllegalArgumentException("no rounding function " + fn);
+        };
+      }
+
+  The APIs it calls hold on `6dafb8bd2f6`: `VarkaEmitterFixtures.emit(List<VarkaVectorIR>,
+  int, int, VarkaEmitOptions)`, `VarkaMatrixRuns.BASE`, `VarkaSqlResolve.parse`, `bind`,
+  `column` (a Scala object in `ST`), and the kernel's nine-argument `run` with `long[]` and the
+  scratch address (`V/VarkaFusedKernel.java`).
 - `sql/varka/plans/m8/PLAN.md` row 346 and `sql/varka/plans/m8/VARKA-346.md`: a record of the
-  part in section 10 of **at most 15 lines** (the decisions are here; the record says what
-  merged and what ran). The branch's 54-line record is not taken. *[Fix round, 28 November 2026,
-  finding 2:]* this plan file is not in the part's pull request; it lands first, alone (11.4's
-  head, "Landing the plan").
+  part in section 10 of **at most 12 lines** (what merged and what ran). The branch's 54-line
+  record is not taken; this plan file lands first, alone (11.4's head, "Landing the plan").
 
 **Proving it, in order** (JVM steps are the builder's; each is done at the output named):
 
-1. `build/sbt catalyst/Test/compile`: `[success]`. Before the arms are in, it fails, and its
-   `[error]` lines name each switch of the table above; that is the check that none is missed.
-2. `python3 dev/varka_push_check.py --no-jvm`: no finding under `R1` (its note line
-   "the IR records RoundToScale changed; the registry suites run" is not a finding) and none
-   under `R2`.
-3. `build/sbt 'catalyst/testOnly *VarkaEmitterScaleRoundingSuite *VarkaEmitterRoundingSuite
-   *VarkaExpressionCompilerSuite *VarkaEmitterChronoSuite *VarkaCoverageSuite'`: no failure;
-   `VarkaEmitterScaleRoundingSuite` prints its 3 test sentences with no `*** FAILED ***`.
-4. The registry suites: `build/sbt 'catalyst/testOnly *VarkaWithChildrenSuite *VarkaIrFuzzSuite
-   *VarkaLaneTypeSuite *VarkaEmitterBudgetSuite *VarkaReproductionSuite *VarkaEmitCostSuite
-   *VarkaSmtNodesSuite *VarkaRangeAnalysisSuite *VarkaNodePropsSuite
-   *VarkaCoverageCompositionFuzzSuite'`, then
-   the list R1 itself names in step 2's output: no failure.
-5. `build/sbt 'sql/testOnly *VarkaEvaluatorComponentsSuite *VarkaRoundingBaselineQueriesSuite
-   *VarkaFallbackReasonSuite'`: no failure. The first holds every kernel bit below every
-   evaluator bit; the second fails if the four sections do not fuse as listed.
-6. `dev/varka_regen_generated.sh --all`: `varka regen: done`; `git diff --stat` then shows only
-   `coverage.json`, the generated blocks of `docs/sql-varka.md`, `emitted_bytes.json` (new shapes
-   only: prediction 1 of section 4) and `census.tsv` if its reason text moved.
+1. `build/sbt catalyst/Test/compile sql/Test/compile`: `[success]`. Before the arms are in, it
+   fails, and its `[error]` lines name each switch of the table above; that is the check that
+   none is missed.
+2. `python3 dev/varka_push_check.py --no-jvm`: no finding under `R1` (its note line "the IR
+   records RoundToScale changed; the registry suites run" is not a finding) and none under `R2`
+   (this part removes no string literal from a main file).
+3. The eleven registry suites, the command of "The lead's run first" above: no failure. For
+   the Scala suites that is `*** FAILED ***` absent; for the JUnit ones, `Failed 0`.
+4. `build/sbt 'catalyst/testOnly *VarkaEmitterScaleRoundingSuite *VarkaEmitterChronoSuite
+   *VarkaExpressionCompilerSuite *VarkaEmitterRoundingSuite'`: no failure;
+   `VarkaEmitterScaleRoundingSuite` prints its 3 test sentences. `VarkaExpressionCompilerSuite`
+   still asserts b17's decline: the node is admitted nowhere.
+5. `build/sbt 'sql/testOnly *VarkaEvaluatorComponentsSuite *VarkaFallbackReasonSuite'`: no
+   failure. The first holds every kernel bit below every evaluator bit.
+6. `dev/varka_regen_generated.sh --all`: `varka regen: done`; then `git status --short` lists
+   no file the part did not edit by hand. A moved `emitted_bytes.json`, `coverage.json` or
+   `census.tsv` is a stop: no shape compiles differently in this part, so a moved byte is a bug
+   in the port; report it.
 7. `python3 dev/varka_census.py --check`: exit 0.
-8. `python3 dev/varka_msg_check.py size --base master --head HEAD`: `under the cap of 1000`.
+8. `python3 dev/varka_msg_check.py size --base master --head HEAD`: `under the cap of 1000`,
+   expected near 850 (main code about 480: the branch's 534 less the compiler arm's 53, the
+   Catalyst step's 5 and the three deleted switches' 8, plus the 12-line `props()`; the registry
+   fixtures 72; the node's suite about 285; the record 12).
 9. `dev/varka_ops/pre-pr-slot.sh <w>`: `pre-pr: passed on <sha>`. Then the review and
    `open-pr.sh` as `ADDING_AN_EXPRESSION.md`, "Closing a row", says.
 
-**The split rule.** b18 prints 1004 for the branch; the re-port deletes about 20 lines of switch
-arms, adds the 12-line `props()`, and cuts the plan record from 54 lines to 15, so step 8 is
-expected near 957 (`1004 - 20 + 12 - 54 + 15`; *fix round:* the first text said 945). If step 8
-prints 1000 or more, move `ST/VarkaCoverageSuite.scala`'s family and
-its `Owed` entry (about 25 lines) and their regenerated rows to part 346b2, and nothing else: the
-compiler arm, the emitter suite and the benchmark flags stay together, since the suite compiles
-SQL through the arm and the queries suite fails on a fused section left unlisted.
+**Size stop rule.** If step 8 prints 950 or more, move the node suite's third test
+(`nullRowsNeitherDeclineNorAnswer`, about 35 lines) to 346b1b, whose step 4 then takes it from
+the branch's file; if it still prints 1000 or more, stop and report to the lead, who splits
+again. Nothing else moves: the record, its arms, the refusal and the registry fixtures compile
+only together.
 
-**Must not touch:** the `FLOAT` operand (it declines by name, 11.3 decision 3); any other
-record's `props()`; `VarkaSuiteCheck.VALUE_STATUSES` (a band is a refusal, not a value status:
-Spark never raises on it); the results files.
+**Must not touch:** `C/VarkaRoundingCompiler.java`, `C/VarkaNodeCompiler.java`, the Catalyst
+step of `V/VarkaSameAnswer.java`, `ST/VarkaCoverageSuite.scala`,
+`B/VarkaRoundingBaselineBenchmark.java` (all 346b1b's); the `FLOAT` operand (it declines by
+name, 11.3 decision 3); any other record's `props()`; `VarkaSuiteCheck.VALUE_STATUSES` (a band
+is a refusal, not a value status: Spark never raises on it); the results files.
 
-**Why full strength.** The first new record after row 489 on a stack written before it, a new
-refusal that moves the runner's bits, and a lowering that emits bytecode: a missed switch fails at
-compile time, but a wrong `props()` answer (weight, validity) fails only in the budget register
-or the fuzzer, and every later part of this row copies what this one settles.
+#### 346b1b: the compiler arm of `round`, `bround` and `truncate` over a `DOUBLE` (finished sheet)
 
-#### 346b2: the probes, the twins and the sampling of `RoundToScale` (finished sheet)
+*[E1 rework, 28 November 2026: the second half of the old sheet 346b1.]*
 
-**Builder: Sonnet-class.** Branch `varka-346b2-round-twins` from master once 346b1 is merged.
-Tests and two manifest rows only; no main code. Source: two commits on `varka-346b3-sweeps-r`,
-`e6e639c4056` (350 counted lines) and `299c082ccbc` (243), both written on top of `0345dd29a53`.
+**Builder: Sonnet-class, on the condition of 346b1a** (the line "Registry run on 346b1a" reads
+"passed"). Branch `varka-346b1b-round-arm` from master once 346b1a is merged. Source: the
+compiler and test hunks of `0345dd29a53`. This part admits the node 346b1a built: from it on,
+`round(x, s)`, `bround(x, s)` and `truncate(x, s)` over a `DOUBLE` at a constant scale from 0 to
+22 compile to one `RoundToScale`, and four benchmark sections and four coverage rows fuse.
 
-**B0, the premises** (on master after 346b1's merge; the first three are 346b1's own output).
+**B0, the premises** (on master after 346b1a's merge; f1 to f3 are 346b1a's output).
 
 | # | premise | command | prints |
 |---|---|---|---|
-| c1 | 346b1 is merged (346c, which adds `int precision` after `out`, may be too) | `grep -c 'record RoundToScale(ScaleMode mode, int scale, VarkaVectorIR child, ScaleOut out,' V/VarkaVectorIR.java` | `1` |
+| f1 | 346b1a's record (346c, which adds `int precision` after `out`, may be merged too) | `grep -c 'record RoundToScale(ScaleMode mode, int scale, VarkaVectorIR child, ScaleOut out,' V/VarkaVectorIR.java` | `1` |
+| f2 | 346b1a's bit | `grep -c 'int STATUS_ROUNDING_BAND = 1 << 8;' V/VarkaFusedKernel.java` | `1` |
+| f3 | 346b1a's hand-built suite | `grep -c 'no compiler arm admits the node before part 346b1b' VT/VarkaEmitterScaleRoundingSuite.java` | `1` |
+| b8 | the decline arm this part deletes | `grep -c 'case Round _, BRound _, Truncate _ -> "round, bround or truncate over a floating value "' C/VarkaNodeCompiler.java` | `1` |
+| b9 | the comment this part replaces | `grep -c 'floating operand never reaches here: VarkaNodeCompiler.floatingDecline declines it first.' C/VarkaRoundingCompiler.java` | `1` |
+| b13 | the benchmark section is unlisted | `grep -c 'new Form("DOUBLE round(x, 2)", "round(" + x + ", 2)", "DOUBLE"),' B/VarkaRoundingBaselineBenchmark.java` | `1` |
+| b16 | no coverage family yet | `grep -c 'Family("Shortest decimal"' ST/VarkaCoverageSuite.scala` | `0` |
+| b17 | the test that reads b8's text | `grep -rn 'over a floating value (row 346)' sql/catalyst/src/test sql/core/src/test \| wc -l` | `1` |
+| f4 | the guards the coverage rows carry | `grep -c '"ROUNDING_BAND"' ST/VarkaCoverageSuite.scala` | `0`; `1` if 346c merged first (its cast rows carry the band; step 3 below) |
+
+**The main hunks**, each the branch's unless said:
+
+| file | where | text |
+|---|---|---|
+| `C/VarkaRoundingCompiler.java` | imports, class javadoc, b9, a new private method | the branch's hunks whole: the imports of `RoundToScale`, `ScaleMode`, `ScaleOut`; the javadoc's "and, at a scale from 0 to 22, over a `DOUBLE` (VARKA-346)"; the `DOUBLE` test calling `toScale` and the `FLOAT` decline in place of b9's comment; `toScale` (negative, null, non-constant and above-22 scales decline by name; the mode map `HALF_UP`, `HALF_EVEN`, `DOWN`) |
+| `C/VarkaNodeCompiler.java` | after `\|\| e instanceof Rint \|\| e instanceof Floor \|\| e instanceof Ceil`; b8 | the branch's three lines admitting `Round`, `BRound`, `Truncate` with their comment; delete b8's two-line arm |
+| `V/VarkaSameAnswer.java` | the Catalyst step, before `if (children.size() == 1)` | `if (n instanceof RoundBase r) { return new Step.Pass<>(r.left()); }` with its comment and the import of `RoundBase` |
+
+**The tests:**
+
+1. `ST/../VarkaExpressionCompilerSuite.scala` (in `codegen`, one directory up): the branch's
+   decline assertions in place of b17's three lines (a negative scale, a scale above 22, a null
+   scale, a `FLOAT` operand, each by name), and the test "round, bround and truncate over a
+   double are one rounding-to-scale node". Its import line: master's line gains
+   `RoundToScale, ScaleMode, ScaleOut` after `RoundToIntegral` (the branch's line is an older
+   one; do not copy it).
+2. `VT/VarkaEmitterRoundingSuite.java`: the branch's four-line comment change.
+3. `ST/VarkaCoverageSuite.scala`: `bandDomain`, the family "Shortest decimal" (four rows), and
+   `"Shortest decimal" -> Owed(346)`, the branch's hunks. In the set of guards the rows carry
+   (the test "every row whose kernel can decline a batch names its domain"), add
+   `"ROUNDING_BAND"` in its sorted place, before `"VALUE_RANGE"` (after `"REMAINDER_BAND"` if
+   346a put that there), unless f4 printed `1`.
+4. `VT/VarkaEmitterScaleRoundingSuite.java`: back to the branch's text whole
+   (`git show 0345dd29a53:<path> > <path>`), so that `Case.of` compiles the SQL through this
+   part's arm and asserts that it lowers through the node. `git diff 0345dd29a53 HEAD -- <path>`
+   then prints nothing, which 346b2's premise c3 reads.
+5. `B/VarkaRoundingBaselineBenchmark.java`: the four `DOUBLE` forms gain `, true` (b13) and the
+   javadoc's sentence; `round(f, 1)` stays unlisted.
+6. `sql/varka/plans/m8/PLAN.md` row 346 and `VARKA-346.md` section 10: a record of at most 12
+   lines.
+
+**Proving it, in order** (JVM steps the builder's):
+
+1. `build/sbt catalyst/Test/compile sql/Test/compile`: `[success]`.
+2. `python3 dev/varka_push_check.py --no-jvm`: nothing under `R1` (no record changed) and no
+   finding under `R2`: b8's literal is gone from every test, since test 1 replaced b17's line.
+3. `build/sbt 'catalyst/testOnly *VarkaEmitterScaleRoundingSuite *VarkaEmitterRoundingSuite
+   *VarkaExpressionCompilerSuite *VarkaCoverageSuite'`: no failure;
+   `VarkaEmitterScaleRoundingSuite` prints its 3 test sentences.
+4. The session tests: `build/sbt 'sql/testOnly *VarkaRoundingBaselineQueriesSuite
+   *VarkaCoverageHarnessSuite *VarkaCoverageDifferentialSuite *VarkaFallbackReasonSuite'`: no
+   failure. The first fails if the four sections do not fuse as listed; the differential one
+   holds the four coverage rows to Spark in a session.
+5. `dev/varka_regen_generated.sh --all`: `varka regen: done`; `git diff --stat` then shows only
+   `coverage.json`, the generated blocks of `docs/sql-varka.md`, `emitted_bytes.json` (new shapes
+   only: prediction 1 of section 4) and `census.tsv` if its reason text moved.
+6. `python3 dev/varka_census.py --check`: exit 0.
+7. `python3 dev/varka_msg_check.py size --base master --head HEAD`: under the cap, expected
+   near 180 and the regenerated rows (the compiler arm 53, the Catalyst step 5, the compiler
+   suite 25, the coverage hunks 24, the benchmark 13, the suite's restored `Case.of` about 20,
+   the comment 7, the record 12).
+8. `dev/varka_ops/pre-pr-slot.sh <w>`: `pre-pr: passed on <sha>`.
+
+**Size stop rule.** If step 7 prints 600 or more, something outside this sheet is in the
+branch (a regenerated file the msg check counts, a stray hunk): stop and report it. Nothing of
+this part moves to another.
+
+**Must not touch:** any file of 346b1a's table but `V/VarkaSameAnswer.java`'s Catalyst step;
+the `FLOAT` operand's decline (its text is the branch's); any other record's `props()`; the
+results files.
+
+**Why both halves were one full-strength part, and are Sonnet-class now.** The first new record
+after row 489 on a stack written before it: a missed switch fails at compile time, but a wrong
+`props()` answer (weight, validity) fails only in the budget register or the fuzzer, and every
+later part of this row copies what this one settles. The lead's registry run on 346b1a settles
+exactly that before a builder starts; what is left is the branch's text, re-typed by the
+tables above.
+
+#### 346b2: the probes, the twins and the sampling of `RoundToScale` (finished sheet)
+
+**Builder: Sonnet-class.** Branch `varka-346b2-round-twins` from master once 346b1b is merged
+*[E1 rework, 28 November 2026: 346b1b, which restores the cells suite to the branch's text]*.
+Tests and two manifest rows only; no main code. Source: two commits on `varka-346b3-sweeps-r`,
+`e6e639c4056` (350 counted lines) and `299c082ccbc` (243), both written on top of `0345dd29a53`.
+
+**B0, the premises** (on master after 346b1b's merge; the first three are the output of 346b1a
+and 346b1b).
+
+| # | premise | command | prints |
+|---|---|---|---|
+| c1 | 346b1a is merged (346c, which adds `int precision` after `out`, may be too) | `grep -c 'record RoundToScale(ScaleMode mode, int scale, VarkaVectorIR child, ScaleOut out,' V/VarkaVectorIR.java` | `1` |
 | c2 | the five names the tests use are the branch's | `git diff 0345dd29a53 HEAD -- V/VarkaScaleRoundingLowering.java \| grep -c '^-.*\(static double lowerBound(int\|static double keepBound(int\|static boolean inBand(int\|static boolean hasBand(int\|MAX_SCALE =\)'` | `0` (the whole diff is empty before 346c; 346c only adds overloads and one weight line) |
-| c3 | the cells suite is the branch's file | `git diff 0345dd29a53 HEAD -- VT/VarkaEmitterScaleRoundingSuite.java \| wc -l` | `0` |
+| c3 | the cells suite is the branch's file (346b1b's test 4 restored it) | `git diff 0345dd29a53 HEAD -- VT/VarkaEmitterScaleRoundingSuite.java \| wc -l` | `0` |
 | c4 | no twin or sweep suite yet | `git ls-files \| grep -c 'VarkaShortestRound'` | `0` |
 | c5 | the manifest's rows (on `6dafb8bd2f6`) | `grep -c 'varka-sweeps' sql/varka/ci/sweeps.tsv` | `18` |
 
@@ -991,10 +1179,11 @@ which 346c adds overloads that take the node.
    - `sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaFallbackReasonSuite.scala`:
      keep master's text and add the commit's one test, "a double rounded to a scale with a
      value in its band is counted under rounding-band", after the file's last test.
-   - any test file 346b1 changed by its split rule: master's side, then the commit's hunk.
+   - any test file 346b1a or 346b1b changed by its size stop rule: master's side, then the
+     commit's hunk.
    - A conflict in any other file is not expected: stop and report it.
-3. If 346b1 moved the coverage family here by its split rule, add it now as 346b1's sheet
-   lists it, and regenerate.
+3. *[E1 rework, 28 November 2026.]* Nothing moves here from 346b1a or 346b1b: their size stop
+   rules move tests between those two parts only.
 
 **Proving it** (JVM steps the builder's):
 
@@ -1013,18 +1202,20 @@ which 346c adds overloads that take the node.
 6. `dev/varka_ops/pre-pr-slot.sh <w>`: `pre-pr: passed on <sha>`.
 
 **Must not touch:** any main file; the lowering's bounds (a test that disagrees with them is a
-346b1 bug, reported, not a test to change).
+346b1a bug, reported, not a test to change).
 
 #### 346a: the floating remainder and `pmod` (finished sheet)
 
-**Builder: Sonnet-class, with 346b1's merged pull request open beside the sheet as the worked
-example** (the same kind of record, refusal and status bit, one bit up). Branch
-`varka-346a-remainder-r` from master once 346b2 is merged (346b2 touches no file 346a does, so
-346a may start after 346b1 alone if 346b2 is late). Source: `bb377a93cbf` on
-`varka-346a-remainder`, 968 counted lines against its parent `65fdfcfa1a7`. The branch carries
-the old 346b stack and row 342's old `Fma` commits below it; take nothing from them.
+**Builder: Sonnet-class, with 346b1a's merged pull request open beside the sheet as the worked
+example** (the same kind of record, refusal and status bit, one bit up; 346b1b's, if merged,
+for the compiler arm). Branch `varka-346a-remainder-r` from master once 346b1a is merged
+*[E1 rework, 28 November 2026: it waited on 346b1 and preferred 346b2; it needs only the node's
+half, since 346b2 and 346b1b touch no line 346a's sheet does not place by a rule below]*.
+Source: `bb377a93cbf` on `varka-346a-remainder`, 968 counted lines against its parent
+`65fdfcfa1a7`. The branch carries the old 346b stack and row 342's old `Fma` commits below it;
+take nothing from them.
 
-**B0, the premises** (on master after 346b1; d1 to d3 are 346b1's output, the rest hold on
+**B0, the premises** (on master after 346b1a; d1 to d3 are 346b1a's output, the rest hold on
 `6dafb8bd2f6` too).
 
 | # | premise | command | prints |
@@ -1041,8 +1232,8 @@ the old 346b stack and row 342's old `Fma` commits below it; take nothing from t
 | d10 | `Fma`'s word handling, which the lowering copies | `grep -c 'if (!dense && s.ownWord.contains(n)) {' V/VarkaVectorWalk.java` | `1` or more |
 | d11 | the coverage suite's second double column | `grep -c 'private val x2 = AttributeReference("x2", DoubleType)()' ST/VarkaCoverageSuite.scala` | `1` |
 
-The lowering's API, checked on master as for 346b1: the descriptors and `Lane` fields it uses
-are those 346b1's lowering uses plus `Lane.DOUBLE.lanewiseVV` (a field of `V/Lane.java`), and
+The lowering's API, checked on master as for 346b1a: the descriptors and `Lane` fields it uses
+are those 346b1a's lowering uses plus `Lane.DOUBLE.lanewiseVV` (a field of `V/Lane.java`), and
 `loadWord` and `storeWord` keep their signatures (`static void loadWord(CodeBuilder cb, Slots s,
 int ref)`, `static void storeWord(CodeBuilder cb, Slots s, int ref)` in `V/VarkaVectorWalk.java`).
 The FMA is `DoubleVector.fma`, emitted inside the lowering (the branch's decision a), not the
@@ -1087,7 +1278,7 @@ and `planWordRef` (`andRef`) arms: the operands' AND.
 | `V/Analysis.java` | `enum Refusal`, after d3 | d3's `;` becomes `,`, then `REMAINDER_BAND(Family.SELF, false, VarkaFusedKernel.STATUS_REMAINDER_BAND);` with the branch's javadoc |
 | the same | `collectRefusals` | `case FloatRemainder n -> refuse(node, Refusal.REMAINDER_BAND);` |
 | the same | `analyze` | `case FloatRemainder n -> analyzeOp(node, false, n.dividend(), n.divisor());` |
-| `V/Slots.java` | the scratch allocation beside 346b1's `RoundToScale` block | the branch's block: `VarkaFloatRemainderLowering.SCRATCH` slots into `s.roundTmp` |
+| `V/Slots.java` | the scratch allocation beside 346b1a's `RoundToScale` block | the branch's block: `VarkaFloatRemainderLowering.SCRATCH` slots into `s.roundTmp` |
 | the same | the switch with `case Fma x -> { }` | `case FloatRemainder x -> { }` (the operands' words are demanded by `propagate`, as `Fma`'s are) |
 | `V/VarkaVectorWalk.java` | the emission switch | `case FloatRemainder n -> VarkaFloatRemainderLowering.emit(cb, n, dense, analysis, s, computed);` |
 | `V/VarkaRangeAnalysis.java` | beside `Fma` | `case FloatRemainder n -> VarkaValueRange.UNKNOWN;` |
@@ -1098,9 +1289,9 @@ and `planWordRef` (`andRef`) arms: the operands' AND.
 | `V/VarkaEmitMechanism.java` | after `GUARD_ROUNDING_BAND`, and the switch | `GUARD_REMAINDER_BAND(Family.GUARDS, "a guard on a floating remainder, its quotient's band"),`; `case REMAINDER_BAND -> GUARD_REMAINDER_BAND;` |
 | `E/VarkaKernelRunner.java` | d2 | `1 << 10`, `1 << 11`, `1 << 12` and the javadocs ("bit 10, above ... bits 0 to 9") |
 | `E/VarkaFallbackAccounting.java` | `STATUS_BITS`, `STATUS_NAMES` | `STATUS_REMAINDER_BAND` after `STATUS_ROUNDING_BAND`; `"remainder-band"` after `"rounding-band"` |
-| `docs/sql-varka.md` | the reasons line 346b1 edited | `remainder-band` after `rounding-band` (**the branch lacks this**) |
+| `docs/sql-varka.md` | the reasons line 346b1a edited | `remainder-band` after `rounding-band` (**the branch lacks this**) |
 | `C/VarkaFloatingCompiler.java` | imports, class javadoc, the `arm` switch, a new method | the branch's hunks whole: `case Remainder r -> ...`, `case Pmod p -> ...`, and `remainder(...)` |
-| `C/VarkaNodeCompiler.java` | after 346b1's `Round` line; d5 | `\|\| e instanceof Remainder \|\| e instanceof Pmod` with its comment; delete d5's line |
+| `C/VarkaNodeCompiler.java` | after 346b1b's `Round` line if `grep -c 'e instanceof Round \|\| e instanceof BRound \|\| e instanceof Truncate' C/VarkaNodeCompiler.java` prints `1`, else directly after `\|\| e instanceof Rint \|\| e instanceof Floor \|\| e instanceof Ceil`; d5 | `\|\| e instanceof Remainder \|\| e instanceof Pmod` with its comment; delete d5's line |
 
 **The tests, in master's names** (the branch's hunks unless said):
 
@@ -1108,7 +1299,7 @@ and `planWordRef` (`andRef`) arms: the operands' AND.
   `VT/VarkaIrGrammar.java`, `VT/VarkaReference.java` (two arms and `doubleRemainder`),
   `VT/VarkaSmtNodes.java`, `VT/VarkaWordCensus.java`.
 - `ST/VarkaEmitCostSuite.scala` *[fix round, finding 8]*: `"FloatRemainder"` after
-  `"RoundToScale"` in the `awaitingRefit` list, on b12's line as 346b1 left it, not a price; the
+  `"RoundToScale"` in the `awaitingRefit` list, on b12's line as 346b1a left it, not a price; the
   branch's hunk adds the same name on an older form of that line, so its text is not applied.
   `ST/VarkaEmitterChronoSuite.scala` (the set gains
   `REMAINDER_BAND`, "five" in its comment), `ST/VarkaIrFuzzSuite.scala`,
@@ -1116,6 +1307,10 @@ and `planWordRef` (`andRef`) arms: the operands' AND.
   `ST/VarkaWithChildrenSuite.scala`,
   `ST/VarkaCoverageSuite.scala` (`remainderDomain`, the family "Floating remainder", five rows,
   `"REMAINDER_BAND"` in the refusal list, `"Floating remainder" -> Owed(346)`).
+  *[E1 rework, 28 November 2026.]* The refusal list is the set of guards the rows carry (the
+  test "every row whose kernel can decline a batch names its domain"); `"REMAINDER_BAND"`
+  goes in its sorted place, after `"MONTH_COUNT"` and before `"ROUNDING_BAND"` where 346b1b or
+  346c put that name there first, else before `"VALUE_RANGE"`.
 - **Not on the branch, added here** (R1 and the suites need them):
   - `VT/VarkaReproductionSuite.java`, after the `Fma` entry: a comment line and
     `new VarkaVectorIR.FloatRemainder(new ColumnRef(0, LaneType.DOUBLE),
@@ -1147,7 +1342,8 @@ and `planWordRef` (`andRef`) arms: the operands' AND.
    `refusal true` only (the two-lane refusal of rows 503 and 612, the 128-bit host's default):
    that section takes `declinesLongConditions ? Fusion.NONE : Fusion.WHOLE`, and the record
    says so. Under `refusal false`: a bug of this part; stop and report it.
-5. The registry suites, as 346b1's step 4.
+5. The registry suites, as 346b1a's proving step 3 (the eleven, or the list
+   `python3 dev/varka_push_check.py --dry-run --base master` prints).
 6. `dev/varka_regen_generated.sh --all`: `varka regen: done`; then `python3 dev/varka_census.py
    --check`: exit 0.
 7. `python3 dev/varka_msg_check.py size --base master --head HEAD`: under the cap, expected near
@@ -1166,19 +1362,21 @@ test reuses as they are; the cast sections of the benchmark (346c's).
 
 #### 346c: the cast of `DOUBLE` and `FLOAT` into a decimal of 18 digits or fewer (finished sheet)
 
-**Builder: Sonnet-class.** Branch `varka-346c-decimal-cast-r` from master once 346b1 and row
-350's part 350a1b are merged (346a and 346b2 need not be). Source: `9ca2d818541` (841 counted
+**Builder: Sonnet-class.** Branch `varka-346c-decimal-cast-r` from master once 346b1a and row
+350's part 350a1b are merged (346a, 346b1b and 346b2 need not be; *[E1 rework, 28 November
+2026: it waited on 346b1; it reads the node, its lowering and its refusal, all 346b1a's]*).
+Source: `9ca2d818541` (841 counted
 lines against its parent `ca412ad7b51`) and `1a7e5cd2ca6` (17) on `varka-346c-decimal-cast`.
 That branch's cast compiler is the old 350 stack's; master's after 350a1b has the same three
 places this part edits, written by `VARKA-350.md` 11.5 steps 2, 3 and 5, so the hunks below are
 re-typed onto those, not cherry-picked.
 
-**B0, the premises** (on master after 346b1 and 350a1b; e1 to e5 are their output, e6 to e9 hold
+**B0, the premises** (on master after 346b1a and 350a1b; e1 to e5 are their output, e6 to e9 hold
 on `6dafb8bd2f6` too; a different answer to e7 is allowed, as said).
 
 | # | premise | command | prints |
 |---|---|---|---|
-| e1 | 346b1's record, no precision yet | `grep -c 'record RoundToScale(ScaleMode mode, int scale, VarkaVectorIR child, ScaleOut out, int hash)' V/VarkaVectorIR.java` | `1` |
+| e1 | 346b1a's record, no precision yet | `grep -c 'record RoundToScale(ScaleMode mode, int scale, VarkaVectorIR child, ScaleOut out, int hash)' V/VarkaVectorIR.java` | `1` |
 | e2 | 350a1b's decline of a floating source | `grep -c "(floating ? \"row 346's\"" C/VarkaDecimalCompiler.java` | `1` |
 | e3 | 350a1b's claim | `grep -c '&& (integralLane(from).isPresent() \|\| DataTypes.BooleanType.equals(from));' C/VarkaDecimalCastCompiler.java` | `1` |
 | e4 | 350a1b's overflow test | `grep -c 'static boolean sourceCanOverflow(DataType from, DecimalType to)' C/VarkaDecimalCastCompiler.java` | `1` |
@@ -1189,7 +1387,7 @@ on `6dafb8bd2f6` too; a different answer to e7 is allowed, as said).
 | e9 | the node compiler's floating test | `grep -c 'private static boolean isFloating(org.apache.spark.sql.types.DataType t)' C/VarkaNodeCompiler.java` | `1` |
 | e10 | the tests that read e2's text | `grep -rln "row 346's" sql/catalyst/src/test sql/core/src/test` | the files to change in step 6 |
 
-**The record change**, `V/VarkaVectorIR.java`, the branch's hunks re-typed onto 346b1's record:
+**The record change**, `V/VarkaVectorIR.java`, the branch's hunks re-typed onto 346b1a's record:
 
 - `enum ScaleOut { DOUBLE, UNSCALED }` and its javadoc.
 - The record gains `int precision` before `hash`:
@@ -1217,10 +1415,10 @@ paragraph, `overflowBound`, `inCastBand`, `hasBand(RoundToScale)`, `inBand(Round
 double)`, `TWO_52`, `TWO_52_BITS`, the `UNSCALED` weight, the `UNSCALED` branch of `emit`,
 `emitUnscaled`, `BLEND_SCALAR_L`, `longPower`, `emitToLong`, `emitMagnitudeBitsCompare`,
 `emitCastBand`) and the import of `ConstantDescs`, with one change: `TWO_52_BITS` is
-package-private (`static final long`), so that 346p's renderer reads it. Its arms, as
+package-private (`static final long`), so that 346p1's renderer reads it. Its arms, as
 `verify_346c.py` models them:
 
-    n      = the HALF_UP tie test's integer (346b1), below L_s
+    n      = the HALF_UP tie test's integer (346b1a), below L_s
     v      = a < L_s ? toLong(n) : toLong(a) * 10^s        toLong(t) = bits(t + 2^52) - bits(2^52)
     v      = x < 0 ? -v : v                                 (the sign bit of x, on the long lane)
     v      = (bits(x) & MAX) >= bits(10^(p - s)) ? 10^p : v NaN, the infinities, the overflow
@@ -1234,7 +1432,7 @@ answers NaN as null and raises on the overflow.
 
 | file | where | text |
 |---|---|---|
-| `V/Analysis.java` | 346b1's `collectRefusals` arm | `hasBand(n.scale())` becomes `hasBand(n)` |
+| `V/Analysis.java` | 346b1a's `collectRefusals` arm | `hasBand(n.scale())` becomes `hasBand(n)` |
 | `V/VarkaVectorWalk.java` | `guardLane` (e6) | `analysis.laneOf(node instanceof ConvertLane c ? c.child() : node instanceof RoundToScale r ? r.child() : node)` and its javadoc clause: the band compares the double, while the node's own lane is the long |
 | `C/VarkaDecimalCastCompiler.java` | `claimsIntoDecimal` (e3) | the condition gains `\|\| isFloating(from)`, and a new `static boolean isFloating(DataType type)` follows it |
 | the same | `sourceCanOverflow` (e4), first lines | `if (isFloating(from)) { return true; }` with the branch's comment |
@@ -1284,6 +1482,10 @@ in both orders the cast declines at two long lanes, and the benchmark rule of st
 7. `ST/VarkaCoverageSuite.scala`: the branch's two rows read through `BIGINT`, and two more as
    outputs (11.3 decision 6), `CAST(x AS DECIMAL(10, 2))` and `CAST(f AS DECIMAL(9, 1))`, each
    with the same `domain` string as its `BIGINT` row.
+   *[E1 rework, 28 November 2026.]* These rows carry the band's guard, `ROUNDING_BAND`: if
+   `grep -c '"ROUNDING_BAND"' ST/VarkaCoverageSuite.scala` prints `0` (346b1b not merged yet),
+   add `"ROUNDING_BAND"` to the set of guards the rows carry (the test "every row whose kernel
+   can decline a batch names its domain") in its sorted place, before `"VALUE_RANGE"`.
 8. `sql/varka/plans/m8/PLAN.md` and `VARKA-346.md`: a record of at most 15 lines.
 
 **Proving it** (JVM steps the builder's):
@@ -1299,7 +1501,7 @@ in both orders the cast declines at two long lanes, and the benchmark rule of st
 5. `build/sbt 'sql/testOnly *VarkaFloatDecimalCastQuerySuite *VarkaDecimalCastQuerySuite
    *VarkaFloatingBaselineQueriesSuite *VarkaCoverageHarnessSuite
    *VarkaCoverageDifferentialSuite'`: no failure; the first prints 6 sentences.
-6. The registry suites, as 346b1's step 4.
+6. The registry suites, as 346b1a's proving step 3.
 7. `dev/varka_regen_generated.sh --all`: `varka regen: done`; `casts_fused.tsv` gains the
    `double` and `float` to `dec` forms, and nothing in `sql/varka/proofs/` moves
    (`git diff --stat -- sql/varka/proofs/` prints nothing).
@@ -1312,14 +1514,17 @@ to a pull request of its own right after, and nothing else.
 
 **Must not touch:** the decimal sources' arms of `intoDecimal`, `rescaled`, the integral and
 boolean arms 350a1b wrote; `decimal_casts.smt2`; the `DOUBLE` output of `RoundToScale`. The
-`2^52` conversion's claim is 346p's proof file, not this part's.
+`2^52` conversion's claim is 346p1's proof file, not this part's.
 
-#### 346p: the proof files (finished sheet)
+#### 346p1: the proof files' claims A, B and D (finished sheet)
 
-**Builder: full strength for the remainder claim, before 1 December or beside 346a; the other
-two claims are Sonnet-class and may go first, in this part's first pull request.** Branch
-`varka-346p-proofs` from master once 346a (for the remainder and the float sum) and 346c (for the
-conversion) are merged; the first two checks below need only 346c, the third only 346a.
+*[E1 rework, 28 November 2026: the old sheet 346p split by the owner's decision E1 (a). Claims
+A, B and D stay here, Sonnet-class, buildable now; claim C is part 346p2, January 2027.]*
+
+**Builder: Sonnet-class.** Branch `varka-346p1-proofs` from master once 346a (for the float sum
+and the remainder's floor) and 346c (for the conversion) are merged; the checks of claim A need
+only 346c, those of claims B and D only 346a, so if one of the two is late the builder may land
+the other's claims first, in a pull request of their own.
 
 Every proof file is rendered by `VT/VarkaProofFiles.java` (a method per file, registered by
 `files.put("<name>.smt2", <method>())` beside `files.put("fp_round.smt2", fpRound());`) and
@@ -1336,20 +1541,7 @@ and cvc5 1.4.1, on the drafts in `scratch-346/smt/`; times on the laptop beside 
 | A: `bits(t + 2^52) - bits(2^52) = t` for every integral double `t` in `[-0, 2^52)`, and wrong at `2^52 + 1` | `conv52.smt2` | unsat, sat; 0.6 s | unsat, sat; 0.7 s |
 | B: `RN32(RN64(a + b)) = RN32(a + b)` for binary32 `a`, `b`, and wrong narrowed toward zero | `sum32b.smt2` | the unsat check timed out at 280 s | unsat, sat; 15 s (default mode) |
 | D: the floor both lowerings build, `rint(Q)` stepped down by 1 where it passed `Q` below `2^52` and `Q` itself above, is `fp.roundToIntegral RTN` for every non-negative binary64 `Q`, and wrong without the step | `floor52.smt2` | unsat, sat; 2.9 s | unsat, sat; 1.9 s |
-| C: 2.5's construction is Java's `%` outside the band, at binary16 and binary32, and wrong without the correction | `fp_remainder_draft.smt2`, `lemma16.smt2`, `lemma32.smt2` | see below | see below |
-
-Claim C did not decide. cvc5 (`--fp-exp`, 280 s a check): the binary16 claim `unknown`, a
-check with the window one binade wider `unknown`, the refutation without the correction `sat`,
-the binary32 claim `unknown`, the run stopped at 900 s. z3 (280 s and 300 s): the binary16 claim and
-`lemma16.smt2` and `lemma32.smt2`, the positive finite case alone, all `timeout`. The
-construction itself is not in doubt: `scratch-346/rem16_sample.py` runs it at binary16 on exact
-integers against the exact `fmod` and prints `rem16_sample: 1989440 checks, 0 failures` (the
-same with the correction dropped: 157453 failures), and `verify_346.py`'s 2.5 checks pass at
-binary64; what is missing is a form a solver decides. The same sample with the window one binade
-wider also prints 0 failures (2147323 checks), so the window is a sufficient bound and maybe not
-a tight one, as item 0.17 found at binary64 (none of 1638331 declined pairs differed); the
-draft's "a binade wider is wrong" check is therefore not a refutation and is dropped. Widening
-the window would be a lift with its own proof, not this row's.
+| C: 2.5's construction is Java's `%` outside the band, at binary16 and binary32, and wrong without the correction | `fp_remainder_draft.smt2`, `lemma16.smt2`, `lemma32.smt2` | part 346p2 | part 346p2 |
 
 **The files.**
 
@@ -1360,26 +1552,14 @@ the window would be a lift with its own proof, not this row's.
    gains "and the cast's conversion `bits(t + 2^52) - bits(2^52)` exact on every integral `t`
    below `2^52`, wrong at `2^52 + 1`, and the floor the rounding and the remainder build from
    `rint` (VARKA-346)". A few seconds per solver: no list in `dev/varka_prove.sh`.
-2. `fp_remainder.smt2`, new, `fpRemainder()`: claim B's two checks (from `sum32b.smt2`), then
-   claim C. Claim B runs under cvc5 only in the linters' job: add `fp_remainder.smt2` to
-   `CVC5_IN_LINT` in `dev/varka_prove.sh` with a comment giving the times above.
-3. Claim C, the hard one. The statement is `fp_remainder_draft.smt2`'s: over `x`, `y` of the
-   format, `y` not zero, the lane not declined (`ax` finite, `Q = RN(ax / ay) >= 2^p`), the
-   construction `out` equals `spec = sign(x) * fmod(ax, ay)` with `fmod` from `fp.rem` corrected
-   by `ay` where it is negative; and the refutation without the correction. The floor is
-   `fp.roundToIntegral RTN`, which claim D proves the lowering's stepped `rint` is; the FMA is
-   `fp.fma RNE`. The lead's task is to make it
-   decide: split it into lemmas, for instance the special values (`ax < ay`, an infinite `x`, an
-   infinite `y`, a NaN) apart from `lemma16.smt2`'s positive finite case, and that case by the
-   binade of `Q`. The **decision rule**, numbers only: a claim C check is in the file if it is
-   `unsat` (or `sat` for a refutation) under z3 or cvc5 within 600 s on the laptop; a binary16
-   check needs cvc5's `--fp-exp` (cvc5 1.4.1 refuses the format otherwise, and
-   `dev/varka_prove.sh` does not pass it), so the binary16 checks run under z3, or the runner
-   gains the flag for this file, the lead's choice recorded in the file's header. If no form of
-   the binary16 positive case decides within 600 s, claim C is not in the file: the remainder's
-   proof is then 346a's tests (the five emitter tests and the exponent-pair sweep), the README
-   row says so, and section 9's "proven at binary16 and binary32" for `fp_remainder.smt2` is
-   reported to the owner as not met.
+2. `fp_remainder.smt2`, new, `fpRemainder()`: claim B's two checks (from `sum32b.smt2`) and
+   nothing else. Its header comment, rendered by `fpRemainder()`, ends with the line "Claim C,
+   the remainder's construction, is part 346p2 of VARKA-346, January 2027 (the owner's E1 of
+   28 November 2026); until then 346a's tests hold it." Claim B runs under cvc5 only in the
+   linters' job: add `fp_remainder.smt2` to `CVC5_IN_LINT` in `dev/varka_prove.sh` with a
+   comment giving the times above. Its README row: "the float sum of `pmod` over `FLOAT`,
+   `RN32(RN64(a + b)) = RN32(a + b)`, and wrong narrowed toward zero (VARKA-346); the
+   remainder's construction is held by 346a's tests until part 346p2, January 2027".
 
 **Proving it** (JVM where named):
 
@@ -1388,16 +1568,67 @@ the window would be a lift with its own proof, not this row's.
 2. `dev/varka_prove.sh --solver both fp_round.smt2 fp_remainder.smt2` (no JVM): every verdict as
    expected; `dev/varka_prove.sh --lint` (no JVM): passes, `fp_remainder.smt2` under cvc5.
 3. `python3 dev/varka_msg_check.py size --base master --head HEAD`: an SMT-LIB file counts
-   nothing; the Java renderer and the README do (about 150 to 300 lines).
+   nothing; the Java renderer and the README do (about 150 to 250 lines).
 4. `dev/varka_ops/pre-pr-slot.sh <w>`: `pre-pr: passed on <sha>`.
 
-**Must not touch:** the lowerings; a claim whose statement is changed to make it decide must
-still say what the lowering emits (the README row names any weakening).
+**Must not touch:** the lowerings; claim C (346p2's); a claim whose statement is changed to make
+it decide must still say what the lowering emits (the README row names any weakening).
+
+#### 346p2: claim C (January 2027, full strength; not a gate before then)
+
+*[E1 rework, 28 November 2026: by the owner's decision E1 (a) of 28 November 2026 this part
+waits for a full-strength builder, back in January 2027. Nothing waits on it: 346a ships before
+it with its differential tests, 346p1 and 346m do not read it, and the row is marked by 346m
+without it (346m step 6). Its text is the old sheet's, kept for January.]*
+
+**Builder: January 2027, full strength; not a gate before then.** Branch
+`varka-346p2-remainder-proof` from master once 346p1 is merged (it adds claim C to the
+`fp_remainder.smt2` that 346p1 creates).
+
+**What was run here, with no JVM.** Claim C did not decide. cvc5 (`--fp-exp`, 280 s a check):
+the binary16 claim `unknown`, a check with the window one binade wider `unknown`, the refutation
+without the correction `sat`, the binary32 claim `unknown`, the run stopped at 900 s. z3 (280 s
+and 300 s): the binary16 claim and `lemma16.smt2` and `lemma32.smt2`, the positive finite case
+alone, all `timeout`. The construction itself is not in doubt: `scratch-346/rem16_sample.py`
+runs it at binary16 on exact integers against the exact `fmod` and prints `rem16_sample: 1989440
+checks, 0 failures` (the same with the correction dropped: 157453 failures), and
+`verify_346.py`'s 2.5 checks pass at binary64; what is missing is a form a solver decides. The
+same sample with the window one binade wider also prints 0 failures (2147323 checks), so the
+window is a sufficient bound and maybe not a tight one, as item 0.17 found at binary64 (none of
+1638331 declined pairs differed); the draft's "a binade wider is wrong" check is therefore not a
+refutation and is dropped. Widening the window would be a lift with its own proof, not this
+row's.
+
+**The claim.** The statement is `fp_remainder_draft.smt2`'s: over `x`, `y` of the format, `y`
+not zero, the lane not declined (`ax` finite, `Q = RN(ax / ay) >= 2^p`), the construction `out`
+equals `spec = sign(x) * fmod(ax, ay)` with `fmod` from `fp.rem` corrected by `ay` where it is
+negative; and the refutation without the correction. The floor is `fp.roundToIntegral RTN`,
+which claim D (346p1) proves the lowering's stepped `rint` is; the FMA is `fp.fma RNE`. The
+builder's task is to make it decide: split it into lemmas, for instance the special values
+(`ax < ay`, an infinite `x`, an infinite `y`, a NaN) apart from `lemma16.smt2`'s positive finite
+case, and that case by the binade of `Q`. The **decision rule**, numbers only: a claim C check
+is in the file if it is `unsat` (or `sat` for a refutation) under z3 or cvc5 within 600 s on the
+laptop; a binary16 check needs cvc5's `--fp-exp` (cvc5 1.4.1 refuses the format otherwise, and
+`dev/varka_prove.sh` does not pass it), so the binary16 checks run under z3, or the runner gains
+the flag for this file, the builder's choice recorded in the file's header. If no form of the
+binary16 positive case decides within 600 s, claim C is not in the file and the header line of
+346p1 stays; the remainder's proof stays 346a's tests.
+
+**What makes it hard.** The remainder's claim in SMT-LIB's floating-point theory, which neither
+pinned solver decides as stated: it must be split into lemmas that converge, which a builder
+cannot be told how to find.
+
+**Proving it:** 346p1's four steps, over `fp_remainder.smt2`; the header line of 346p1 is
+deleted, and the README row's last clause becomes "and the remainder's construction, outside its
+band, at binary16 and binary32 (VARKA-346, part 346p2)".
+
+**Must not touch:** the lowerings; claims A, B and D.
 
 #### 346m: the measurement, the census's bands and the row marked (finished sheet)
 
-**Builder: Sonnet-class.** Branch `varka-346m-close` from master once 346b1, 346b2, 346a, 346c
-and 346p are merged. A results-and-plan pull request: no code.
+**Builder: Sonnet-class.** Branch `varka-346m-close` from master once 346b1a, 346b1b, 346b2,
+346a, 346c and 346p1 are merged *[E1 rework, 28 November 2026: not 346p2, January 2027's, by
+the owner's E1]*. A results-and-plan pull request: no code.
 
 **Steps.**
 
@@ -1429,7 +1660,7 @@ and 346p are merged. A results-and-plan pull request: no code.
    `P4 remainder: HELD`, every ratio between 0.94 and 1.03, as a baseline must. Its output is
    committed beside it as `score.txt`, and section 10 quotes each verdict, held or failed; a
    failed prediction is recorded, never re-run until it holds.
-4. P1: `python3 dev/varka_bytes_moved.py <the merge base of 346b1> --head HEAD --ignore
+4. P1: `python3 dev/varka_bytes_moved.py <the merge base of 346b1a> --head HEAD --ignore
    option_arms` lists no existing shape's digest; P5: the PR Build's time for the row's suites
    (from its test report) under 60 s, and 346b2's sweep-step time under 600 s.
 5. The census's band column: each form's line in `sql/varka/plans/m8/census_curated.txt` gets its
@@ -1439,7 +1670,11 @@ and 346p are merged. A results-and-plan pull request: no code.
    2^53`"); then `dev/varka_regen_generated.sh --all` and `python3 dev/varka_census.py --check`.
 6. Mark the row in `PLAN.md`: **Done** if every form of section 1 but the `FLOAT` rounding
    output fuses (or declines its band) and the owner's answer to question 1 is (a); else **Done
-   in part**, naming what is left.
+   in part**, naming what is left. *[E1 rework, 28 November 2026.]* Part 346p2 does not count
+   as left: the mark is **Done** by that rule, and the note adds "part 346p2, the remainder's
+   SMT claim C, is January 2027's, by the owner's E1 of 28 November 2026; not a gate". Section
+   10's record says the same of section 9's "proven at binary16 and binary32" for
+   `fp_remainder.smt2`: not met until 346p2, by E1, with 346a's tests holding the remainder.
 7. `python3 dev/varka_plan_lint.py --offline`: `0 finding(s)`; `python3 dev/varka_quote_check.py
    sql/varka/plans/m8/VARKA-346.md`: 0 orphans.
 8. *[Fix round, 28 November 2026: the owner's answer to question 3 of section 12.]* Add the
@@ -1453,7 +1688,7 @@ keeps them); any item of `m10/SCOPE.md` but the one step 8 adds.
 ## 12. Questions for the owner (28 November 2026)
 
 *Questions 1 to 3 were answered by the owner on 28 November 2026; each answer follows its
-question. Question 4 keeps its default.*
+question. Question 4 is moot by decision E1, question 5 (E1 rework, 28 November 2026).*
 
 1. **The `FLOAT` output of `round`, `bround` and `truncate`.** Options: (a) not in this
    milestone, declined by name, moved to `m10/SCOPE.md` item 140; (b) built here at full
@@ -1498,6 +1733,21 @@ question. Question 4 keeps its default.*
    and section 10 say so, and the row closes; (b) the row stays **Done in part** until a proof
    decides. **Recommended: (a)**: the other two claims and every rounding lowering are proven or
    exhausted, and the remainder is exact by 2.5's argument. **Default applied: (a).**
+   **Answered on 28 November 2026: moot by the owner's decision E1 (question 5).** Claim C
+   moves to part 346p2, January 2027, and is no gate before then; the row closes on 346m's rule
+   with 346a's tests holding the remainder, which is option (a) in effect, and in January
+   claim C either decides by 346p2's rule or stays 346a's tests, with no question left.
+5. ***E1 rework, 28 November 2026.* E1: the proof parts that need a full-strength builder.**
+   From 1 December 2026 the project is built by Sonnet-class agents only, for one or two
+   months. Options: (a) move the proof parts that need a full-strength builder to January 2027,
+   when one is back, and ship the parts they prove before them with their differential tests
+   and fuzz coverage; (b) build them before 1 December; (c) hold the parts they prove until the
+   proofs land. **Answered on 28 November 2026: (a).** In this row: claim C of the old part
+   346p is part 346p2, "January 2027, full strength; not a gate before then"; claims A, B and D
+   stay Sonnet-class as part 346p1; nothing waits on 346p2 (11.2). In rows 362 and 363 the same
+   decision moves 362b3 and 363b3 (`VARKA-362.md` 11.9, `VARKA-363.md` 11.9). With the lead's
+   split of 346b1 on the same day, the only full-strength work left in this plan before January
+   is the lead's registry run on 346b1a (11.2).
 
 ## 13. Stale against the tree, found while planning (28 November 2026)
 
@@ -1530,11 +1780,13 @@ question. Question 4 keeps its default.*
    row path" cannot hold there; 346m's scoring leaves the cast's 128-bit sections unscored.
 8. **Two m9 plans collide with this row's status bits.** *[Fix round, 28 November 2026,
    finding 4: the line numbers corrected and row 685 added.]* After 346b1 and 346a the runner's
-   bits are 10, 11 and 12 (11.3 decision 2), so row 682 takes `1 << 13`. The lead edits, in
+   bits are 10, 11 and 12 (11.3 decision 2), so row 682 takes `1 << 13`. *[E1 rework, 28
+   November 2026: 346b1's bit 8 and the runner's first move are part 346b1a's; the lead's text
+   below says 346b1a.]* The lead edits, in
    `/home/max/varka-ops/m9-row-plans/` (and in `sql/varka/plans/m9/` once those plans merge):
    - `VARKA-682.md` lines 154 and 155: "Statuses in use: `1 << 8`, `1 << 9`, `1 << 10`."
-     becomes "Statuses in use: `1 << 10`, `1 << 11`, `1 << 12` once row 346's parts 346b1 and
-     346a merged (346b1 takes kernel bit 8, 346a bit 9)."
+     becomes "Statuses in use: `1 << 10`, `1 << 11`, `1 << 12` once row 346's parts 346b1a and
+     346a merged (346b1a takes kernel bit 8, 346a bit 9)."
    - `VARKA-682.md` line 388: `VarkaKernelRunner.STATUS_BATCH_ARGS = 1 << 11` becomes
      `VarkaKernelRunner.STATUS_BATCH_ARGS = 1 << 13`.
    - `VARKA-685.md` line 529: `grep -c 'STATUS_BATCH_ARGS = 1 << 11'` becomes
@@ -1545,12 +1797,13 @@ question. Question 4 keeps its default.*
    and `VARKA-684.md` line 163 (`SWEEP_ROWS = 1 << 16`, not a status) and nothing else.
 9. **Section 3 item 6's binary16 checks under cvc5** are refused by cvc5 1.4.1 without
    `--fp-exp` ("only Float32 (8/24) or Float64 (11/53) types are supported in default mode"),
-   and `dev/varka_prove.sh` passes no such flag; 346p's sheet handles it.
+   and `dev/varka_prove.sh` passes no such flag; 346p2's sheet handles it.
 10. **346b1's branch passes the cap**: `python3 dev/varka_msg_check.py size --base
     0345dd29a53^ --head 0345dd29a53` prints 1004 counted lines; its 54-line plan record is most
-    of the excess, which 346b1's sheet cuts.
+    of the excess, which 346b1's sheet cut. *[E1 rework, 28 November 2026: the lead split the
+    part into 346b1a, about 850, and 346b1b, about 180 (11.4).]*
 11. **Section 3 item 6's refutation "one binade wider" may not exist.** At binary16 the
-    remainder construction gives the exact `fmod` with the window at `2^12` as well (346p's
+    remainder construction gives the exact `fmod` with the window at `2^12` as well (346p2's
     sheet, `rem16_sample.py`), as item 0.17 found nothing different in the declined band at
     binary64: the `2^53` window is sufficient, perhaps not tight, so a check that a wider
-    window is wrong would not be `sat`. 346p states only the refutation without the correction.
+    window is wrong would not be `sat`. 346p2 states only the refutation without the correction.
