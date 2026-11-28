@@ -1658,7 +1658,7 @@ s, <r> rows held to Spark`:
 
 | sweep | full: run, answered, in-range | slice: run, answered, in-range |
 |---|---|---|
-| every unguarded sweep (LEGACY and TRY, 14 of them) | 65536, 65536, 0 | 257, 257, 0 |
+| every unguarded sweep (LEGACY and TRY, 16 of them) | 65536, 65536, 0 | 257, 257, 0 |
 | `INT` to `TINYINT` or `SMALLINT` in ANSI; `INTERVAL MONTH` to either in ANSI; `INTERVAL YEAR` to `TINYINT` in ANSI | 65536, 0, 1 | 258, 0, 1 |
 | `INT` to `INTERVAL YEAR` in ANSI | 65536, 5460, 5462 | 259, 21, 23 |
 | `INT` to `INTERVAL DAY` in ANSI | 65536, 3256, 3258 | 259, 13, 14 |
@@ -1689,7 +1689,7 @@ SPARK_LOCAL_IP=127.0.0.1`:
            and 24 lines holding ' in-range batches, in ', one a slice, with the slice
            numbers of the table above
     python3 dev/varka_sweeps.py --check   -> varka_sweeps: 22 rows listed, none missing
-    grep -c 'opt-in: -Dvarka.sweep=true' S                                -> 24
+    grep -c 'opt-in: -Dvarka.sweep=true' S                                -> 25   (the 24 display names and the naming test's tail string)
     python3 dev/varka_sweeps.py --matrix | grep -o 'VarkaEmitterIntegralCastSuite: ' | wc -l   -> 4
 
 **The slices' cost, and its stop rule.** A registered prediction: the 24 slices add under 120 s
