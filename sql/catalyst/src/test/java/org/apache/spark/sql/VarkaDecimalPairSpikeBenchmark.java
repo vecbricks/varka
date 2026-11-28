@@ -91,6 +91,23 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestS
  * The first four are timed in all three forms; the three arithmetic loops in P and S only, as
  * section 2.1 names them, since an adjacent-lane product has every limb product cross a lane.
  *
+ * <p>Row 360's loops (`VARKA-360.md` 2.1, its items 1 and 3), in P and S, P in each of the two
+ * carry forms the plan's option {@code decimalCarry} names: {@code COMPARE}, the carry as the
+ * unsigned compare {@code s.lo < a.lo} made a value, a broadcast 0 with 1 added under the mask,
+ * as the IR's {@code CondValue} emits it, and {@code BITS}, Hacker's Delight 2-13's
+ * {@code ((a & b) | ((a | b) & ~s)) >>> 63}, mask-free (the borrow
+ * {@code ((~a & b) | (~(a ^ b) & d)) >>> 63}):
+ * <ol start="8">
+ *   <li>ADD: {@code x + y} over two {@code DECIMAL(20, 2)} columns, the pair stored (class U,
+ *       no check);</li>
+ *   <li>SUB: {@code x - y} over the same two columns, the pair stored (class U, no check);</li>
+ *   <li>ADD_CHECK: {@code x + y} over the two {@code DECIMAL(38, 2)} columns with the wrapped
+ *       sum's {@code 10^38} check into a bit a row (class K, its lemma: the wrapped sum fails the
+ *       check exactly where the exact one does).</li>
+ * </ol>
+ * The {@code DECIMAL(20, 2)} columns are drawn from a generator of their own, so the earlier
+ * columns hold the values the committed results were measured on.
+ *
  * <p>The two arithmetic loops of P are long enough that C2 passes its parse-time node cutoff
  * for inlining ({@code NodeCountInliningCutoff}, 18000 nodes, a develop flag) partway through
  * them: a call to one of this class's helpers after that point is refused with that reason, stays
@@ -155,18 +172,23 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
    * EPYC 7763 core complex and at the edge of the laptop's 16 MB; of 4194304 rows 256 MB, past
    * either.
    *
-   * <p>A rung allocates more native memory than its largest arm touches, 240 bytes a row: the
-   * columns {@code x}, {@code y} and {@code wild} of 16 bytes a row and the product's four words
-   * of 32 (80 in all); one output for each operation that stores, reused by its arms, 16 bytes a
-   * row for each of the four that store slots and 32 for PRODUCT (96); and the {@code BigInteger}
-   * answer of each of those four, 16 bytes a row each (64). The outputs and answers live until
-   * the rung's cases have run, so at 4194304 rows the rung holds 960 MB. Arena memory counts
-   * against {@code -XX:MaxDirectMemorySize}, which defaults to the heap's maximum, {@code -Xmx}.
+   * <p>A rung allocates more native memory than its largest arm touches, 336 bytes a row: the
+   * columns {@code x}, {@code y}, {@code wild}, {@code x20} and {@code y20} of 16 bytes a row and
+   * the product's four words of 32 (112 in all); one output for each operation that stores,
+   * reused by its arms, 16 bytes a row for each of the six that store slots and 32 for PRODUCT
+   * (128); and the {@code BigInteger} answer of each of those six, 16 bytes a row each (96). The
+   * outputs and answers live until the rung's cases have run, so at 4194304 rows the rung holds
+   * 1344 MB. Arena memory counts against {@code -XX:MaxDirectMemorySize}, which defaults to the
+   * heap's maximum, {@code -Xmx}.
    *
    * <p>The heap separately holds the rung's values as {@code BigInteger}s, the arrays {@code xs},
    * {@code ys} and {@code wilds}. A {@code y} is {@code x}'s own object one row in eight and a
    * {@code wild} fifteen in sixteen, so a row has about two objects of some 40 bytes with a
-   * magnitude array of up to 32, and three references: about 650 MB at the pastl3 rung, an
+   * magnitude array of up to 32, and three references, 156 bytes a row: about 650 MB at the
+   * pastl3 rung. Row 360's arrays {@code x20s} and {@code y20s} add as much again: a {@code y20}
+   * is {@code x20}'s own object one row in eight, so about two more objects of the same 72 bytes
+   * (a magnitude of up to 67 bits is three ints, an array of 32 bytes too) and two references,
+   * 152 bytes a row, about 640 MB. So the five arrays hold about 1.3 GB at that rung, an
    * estimate from the objects' layout under compressed references, not a measurement. The rungs
    * run one after another, each in an arena closed before the next, so that rung is the peak.
    * The catalyst test fork that {@code Test/runMain} starts runs at {@code -Xmx4g} (the build's
@@ -246,6 +268,9 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
   private static final LongVector P_NBH = LongVector.broadcast(LS, NBH);
   private static final LongVector P_NBL = LongVector.broadcast(LS, NBL);
 
+  /** A zero in every lane, which the {@code COMPARE} carry adds its 1 to under a mask. */
+  private static final LongVector ZERO = LongVector.zero(LS);
+
   /**
    * The rescale's constants (`VARKA-363.md` 2.3; `results/VARKA-363-magic.txt`, the row
    * {@code k = 6} of a 128-bit dividend): the magnitude {@code n <= 10^38 - 1} shifted right by
@@ -311,6 +336,27 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
   private static void storePair(MemorySegment out, long at, LongVector lo, LongVector hi) {
     lo.rearrange(ZIP1, hi).intoMemorySegment(out, at, LE);
     lo.rearrange(ZIP2, hi).intoMemorySegment(out, at + VB, LE);
+  }
+
+  /** The carry of {@code s = a + b}, 1 or 0 a lane, from the unsigned compare {@code s < a}. */
+  private static LongVector carryCompare(LongVector a, LongVector s) {
+    return ZERO.add(1L, s.compare(VectorOperators.ULT, a));
+  }
+
+  /** The same carry from the words' top bits: {@code ((a & b) | ((a | b) & ~s)) >>> 63}. */
+  private static LongVector carryBits(LongVector a, LongVector b, LongVector s) {
+    return a.and(b).or(a.or(b).and(s.not())).lanewise(VectorOperators.LSHR, 63);
+  }
+
+  /** The borrow of {@code d = a - b}, 1 or 0 a lane, from the unsigned compare {@code a < b}. */
+  private static LongVector borrowCompare(LongVector a, LongVector b) {
+    return ZERO.add(1L, a.compare(VectorOperators.ULT, b));
+  }
+
+  /** The same borrow from the top bits: {@code ((~a & b) | (~(a ^ b) & d)) >>> 63}. */
+  private static LongVector borrowBits(LongVector a, LongVector b, LongVector d) {
+    return a.not().and(b).or(a.lanewise(VectorOperators.XOR, b).not().and(d))
+        .lanewise(VectorOperators.LSHR, 63);
   }
 
   // ---------------------------------------------------------------------------------------
@@ -909,6 +955,155 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
     }
   }
 
+  // Loops 8 and 9, ADD and SUB (VARKA-360): x + y and x - y over two DECIMAL(20, 2) columns,
+  // the pair stored, the carry or the borrow into the high word in each of the two forms.
+
+  static void loopAddCompareP(MemorySegment x, MemorySegment y, MemorySegment out,
+      long[] words, int n) {
+    for (int i = 0; i < n; i += L) {
+      long at = i * 16L;
+      var xa = load(x, at);
+      var xb = load(x, at + VB);
+      var ya = load(y, at);
+      var yb = load(y, at + VB);
+      var xl = xa.rearrange(EVEN, xb);
+      var s = xl.add(ya.rearrange(EVEN, yb));
+      var hi = xa.rearrange(ODD, xb).add(ya.rearrange(ODD, yb)).add(carryCompare(xl, s));
+      storePair(out, at, s, hi);
+    }
+  }
+
+  static void loopAddBitsP(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    for (int i = 0; i < n; i += L) {
+      long at = i * 16L;
+      var xa = load(x, at);
+      var xb = load(x, at + VB);
+      var ya = load(y, at);
+      var yb = load(y, at + VB);
+      var xl = xa.rearrange(EVEN, xb);
+      var yl = ya.rearrange(EVEN, yb);
+      var s = xl.add(yl);
+      var hi = xa.rearrange(ODD, xb).add(ya.rearrange(ODD, yb)).add(carryBits(xl, yl, s));
+      storePair(out, at, s, hi);
+    }
+  }
+
+  static void loopAddS(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    for (int i = 0; i < n; i++) {
+      long at = i * 16L;
+      long xl = x.get(WORD, at);
+      long s = xl + y.get(WORD, at);
+      out.set(WORD, at, s);
+      out.set(WORD, at + 8, x.get(WORD, at + 8) + y.get(WORD, at + 8)
+          + (Long.compareUnsigned(s, xl) < 0 ? 1 : 0));
+    }
+  }
+
+  static void loopSubCompareP(MemorySegment x, MemorySegment y, MemorySegment out,
+      long[] words, int n) {
+    for (int i = 0; i < n; i += L) {
+      long at = i * 16L;
+      var xa = load(x, at);
+      var xb = load(x, at + VB);
+      var ya = load(y, at);
+      var yb = load(y, at + VB);
+      var xl = xa.rearrange(EVEN, xb);
+      var yl = ya.rearrange(EVEN, yb);
+      var hi = xa.rearrange(ODD, xb).sub(ya.rearrange(ODD, yb)).sub(borrowCompare(xl, yl));
+      storePair(out, at, xl.sub(yl), hi);
+    }
+  }
+
+  static void loopSubBitsP(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    for (int i = 0; i < n; i += L) {
+      long at = i * 16L;
+      var xa = load(x, at);
+      var xb = load(x, at + VB);
+      var ya = load(y, at);
+      var yb = load(y, at + VB);
+      var xl = xa.rearrange(EVEN, xb);
+      var yl = ya.rearrange(EVEN, yb);
+      var d = xl.sub(yl);
+      var hi = xa.rearrange(ODD, xb).sub(ya.rearrange(ODD, yb)).sub(borrowBits(xl, yl, d));
+      storePair(out, at, d, hi);
+    }
+  }
+
+  static void loopSubS(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    for (int i = 0; i < n; i++) {
+      long at = i * 16L;
+      long xl = x.get(WORD, at);
+      long yl = y.get(WORD, at);
+      out.set(WORD, at, xl - yl);
+      out.set(WORD, at + 8, x.get(WORD, at + 8) - y.get(WORD, at + 8)
+          - (Long.compareUnsigned(xl, yl) < 0 ? 1 : 0));
+    }
+  }
+
+  // Loop 10, ADD_CHECK (VARKA-360): x + y over the two DECIMAL(38, 2) columns, a bit a row set
+  // where the wrapped sum is outside (-10^38, 10^38), which is where the exact sum is.
+
+  static void loopAddCheckCompareP(MemorySegment x, MemorySegment y, MemorySegment out,
+      long[] words, int n) {
+    for (int i = 0, w = 0; i < n; i += 64, w++) {
+      long word = 0;
+      for (int g = 0; g < GROUPS; g++) {
+        long at = (i + g * L) * 16L;
+        var xa = load(x, at);
+        var xb = load(x, at + VB);
+        var ya = load(y, at);
+        var yb = load(y, at + VB);
+        var xl = xa.rearrange(EVEN, xb);
+        var s = xl.add(ya.rearrange(EVEN, yb));
+        var hi = xa.rearrange(ODD, xb).add(ya.rearrange(ODD, yb)).add(carryCompare(xl, s));
+        word |= outOfPrecision(hi, s).toLong() << (g * L);
+      }
+      words[w] = word;
+    }
+  }
+
+  static void loopAddCheckBitsP(MemorySegment x, MemorySegment y, MemorySegment out,
+      long[] words, int n) {
+    for (int i = 0, w = 0; i < n; i += 64, w++) {
+      long word = 0;
+      for (int g = 0; g < GROUPS; g++) {
+        long at = (i + g * L) * 16L;
+        var xa = load(x, at);
+        var xb = load(x, at + VB);
+        var ya = load(y, at);
+        var yb = load(y, at + VB);
+        var xl = xa.rearrange(EVEN, xb);
+        var yl = ya.rearrange(EVEN, yb);
+        var s = xl.add(yl);
+        var hi = xa.rearrange(ODD, xb).add(ya.rearrange(ODD, yb)).add(carryBits(xl, yl, s));
+        word |= outOfPrecision(hi, s).toLong() << (g * L);
+      }
+      words[w] = word;
+    }
+  }
+
+  static void loopAddCheckS(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    for (int i = 0, w = 0; i < n; i += 64, w++) {
+      long word = 0;
+      for (int k = 0; k < 64; k++) {
+        long at = (i + k) * 16L;
+        long xl = x.get(WORD, at);
+        long lo = xl + y.get(WORD, at);
+        long hi = x.get(WORD, at + 8) + y.get(WORD, at + 8)
+            + (Long.compareUnsigned(lo, xl) < 0 ? 1 : 0);
+        boolean below = hi < BH || (hi == BH && Long.compareUnsigned(lo, BL) < 0);
+        boolean above = NBH < hi || (NBH == hi && Long.compareUnsigned(NBL, lo) < 0);
+        word |= (below && above ? 0L : 1L) << k;
+      }
+      words[w] = word;
+    }
+  }
+
   // ---------------------------------------------------------------------------------------
   // The operations, the forms and the arms
   // ---------------------------------------------------------------------------------------
@@ -916,10 +1111,16 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
   /** What a loop writes: a selection word a 64 rows, sixteen-byte slots, or four word columns. */
   enum Output { WORDS, SLOTS, PRODUCT }
 
-  /** What a loop reads as its {@code x}: the in-precision column, the wild one, the product. */
-  enum Input { X, WILD, PRODUCT }
+  /**
+   * A column a loop reads: the in-precision {@code x} and {@code y}, the wild one, the product,
+   * and row 360's two {@code DECIMAL(20, 2)} columns.
+   */
+  enum Input { X, Y, WILD, PRODUCT, X20, Y20 }
 
-  /** The loops of section 2.1, by the number the plan gives them. */
+  /**
+   * The loops of section 2.1, by the number the plan gives them, then row 360's; {@code input}
+   * is the loop's {@code x} and {@code second} its {@code y}.
+   */
   enum Op {
     CHECK("1. the load and its 10^38 check", Input.WILD, Output.WORDS),
     LT("2. x < y into a selection word", Input.X, Output.WORDS),
@@ -928,15 +1129,24 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
     CHOICE("4. CASE WHEN x < y THEN x ELSE y END stored", Input.X, Output.SLOTS),
     PRODUCT("5. x * y into 256 bits, stored", Input.X, Output.PRODUCT),
     PRODUCT_CHECK("6. the product's 10^38 check", Input.PRODUCT, Output.WORDS),
-    RESCALE("7. HALF_UP of x / 10^6 stored", Input.X, Output.SLOTS);
+    RESCALE("7. HALF_UP of x / 10^6 stored", Input.X, Output.SLOTS),
+    ADD("8. DECIMAL(20, 2) x + y stored", Input.X20, Input.Y20, Output.SLOTS),
+    SUB("9. DECIMAL(20, 2) x - y stored", Input.X20, Input.Y20, Output.SLOTS),
+    ADD_CHECK("10. DECIMAL(38, 2) x + y and its 10^38 check", Input.X, Input.Y, Output.WORDS);
 
     final String title;
     final Input input;
+    final Input second;
     final Output output;
 
     Op(String title, Input input, Output output) {
+      this(title, input, Input.Y, output);
+    }
+
+    Op(String title, Input input, Input second, Output output) {
       this.title = title;
       this.input = input;
+      this.second = second;
       this.output = output;
     }
   }
@@ -950,15 +1160,22 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
     }
   }
 
-  /** One arm: an operation in a form, the loop's method name (for the code list), the loop. */
-  record Arm(Op op, Form form, String method, Loop loop) {
+  /**
+   * One arm: an operation in a form, a variant within the form (row 360's carry form, or empty),
+   * the loop's method name (for the code list), the loop.
+   */
+  record Arm(Op op, Form form, String variant, String method, Loop loop) {
 
     Arm(Op op, Form form, Loop loop) {
-      this(op, form, methodOf(loop), loop);
+      this(op, form, "", loop);
+    }
+
+    Arm(Op op, Form form, String variant, Loop loop) {
+      this(op, form, variant, methodOf(loop), loop);
     }
 
     String label() {
-      return op.title + ", " + form;
+      return op.title + ", " + form + (variant.isEmpty() ? "" : " " + variant);
     }
   }
 
@@ -996,7 +1213,17 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
         new Arm(Op.PRODUCT_CHECK, Form.P, VarkaDecimalPairSpikeBenchmark::loopProductCheckP),
         new Arm(Op.PRODUCT_CHECK, Form.S, VarkaDecimalPairSpikeBenchmark::loopProductCheckS),
         new Arm(Op.RESCALE, Form.P, VarkaDecimalPairSpikeBenchmark::loopRescaleP),
-        new Arm(Op.RESCALE, Form.S, VarkaDecimalPairSpikeBenchmark::loopRescaleS));
+        new Arm(Op.RESCALE, Form.S, VarkaDecimalPairSpikeBenchmark::loopRescaleS),
+        new Arm(Op.ADD, Form.P, "COMPARE", VarkaDecimalPairSpikeBenchmark::loopAddCompareP),
+        new Arm(Op.ADD, Form.P, "BITS", VarkaDecimalPairSpikeBenchmark::loopAddBitsP),
+        new Arm(Op.ADD, Form.S, VarkaDecimalPairSpikeBenchmark::loopAddS),
+        new Arm(Op.SUB, Form.P, "COMPARE", VarkaDecimalPairSpikeBenchmark::loopSubCompareP),
+        new Arm(Op.SUB, Form.P, "BITS", VarkaDecimalPairSpikeBenchmark::loopSubBitsP),
+        new Arm(Op.SUB, Form.S, VarkaDecimalPairSpikeBenchmark::loopSubS),
+        new Arm(Op.ADD_CHECK, Form.P, "COMPARE",
+            VarkaDecimalPairSpikeBenchmark::loopAddCheckCompareP),
+        new Arm(Op.ADD_CHECK, Form.P, "BITS", VarkaDecimalPairSpikeBenchmark::loopAddCheckBitsP),
+        new Arm(Op.ADD_CHECK, Form.S, VarkaDecimalPairSpikeBenchmark::loopAddCheckS));
   }
 
   // ---------------------------------------------------------------------------------------
@@ -1005,20 +1232,65 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
 
   private static final BigInteger TWO64 = BigInteger.ONE.shiftLeft(64);
   private static final BigInteger MAX38 = TEN38.subtract(BigInteger.ONE);
+  private static final BigInteger MAX20 = BigInteger.TEN.pow(20).subtract(BigInteger.ONE);
   private static final BigInteger HALF = BigInteger.TEN.pow(RESCALE_K).shiftRight(1);
   private static final BigInteger TEN_K = BigInteger.TEN.pow(RESCALE_K);
 
   /** The columns of one rung, in native memory as a kernel finds them, and their values. */
   record Data(int numRows, MemorySegment x, MemorySegment y, MemorySegment wild,
-      MemorySegment product, BigInteger[] xs, BigInteger[] ys, BigInteger[] wilds) {
+      MemorySegment product, MemorySegment x20, MemorySegment y20, BigInteger[] xs,
+      BigInteger[] ys, BigInteger[] wilds, BigInteger[] x20s, BigInteger[] y20s) {
 
     MemorySegment input(Input in) {
       return switch (in) {
         case X -> x;
+        case Y -> y;
         case WILD -> wild;
         case PRODUCT -> product;
+        case X20 -> x20;
+        case Y20 -> y20;
       };
     }
+  }
+
+  /** A value of 1 to 20 digits, either sign, below {@code 10^20}. */
+  private static BigInteger inPrecision20(Random r) {
+    BigInteger v = new BigInteger(70, r).mod(BigInteger.TEN.pow(1 + r.nextInt(20)));
+    return r.nextBoolean() ? v.negate() : v;
+  }
+
+  /**
+   * Row {@code i}'s {@code x20}: the extremes {@code +-(10^20 - 1)}, zero, -1 and the words'
+   * edges {@code 2^64 - 1}, {@code 2^64} and {@code -2^64} among every 89 rows, and otherwise any
+   * digit count, so the low words carry and borrow both ways at both signs.
+   */
+  private static BigInteger columnX20(int i, Random r) {
+    return switch (i % 89) {
+      case 0 -> MAX20;
+      case 1 -> MAX20.negate();
+      case 2 -> BigInteger.ZERO;
+      case 3 -> BigInteger.ONE.negate();
+      case 4 -> TWO64.subtract(BigInteger.ONE);
+      case 5 -> TWO64;
+      case 6 -> TWO64.negate();
+      default -> inPrecision20(r);
+    };
+  }
+
+  /**
+   * Row {@code i}'s {@code y20}: {@code x20} itself, its negation, the value whose low word sums
+   * with {@code x20}'s to exactly {@code 2^64}, and {@code x20}'s low word alone (a difference
+   * of zero low word) one row in eight each, and otherwise independent.
+   */
+  private static BigInteger columnY20(int i, BigInteger x, Random r) {
+    BigInteger low = x.mod(TWO64);
+    return switch (i % 8) {
+      case 0 -> x;
+      case 1 -> x.negate();
+      case 2 -> TWO64.subtract(low);
+      case 3 -> low;
+      default -> inPrecision20(r);
+    };
   }
 
   /** A value of 1 to 38 digits, either sign, below {@code 10^38}. */
@@ -1106,10 +1378,19 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
     var y = arena.allocate(n * 16L + 64, 64);
     var wild = arena.allocate(n * 16L + 64, 64);
     var product = arena.allocate(n * 32L + 64, 64);
+    var x20 = arena.allocate(n * 16L + 64, 64);
+    var y20 = arena.allocate(n * 16L + 64, 64);
     var xs = new BigInteger[n];
     var ys = new BigInteger[n];
     var wilds = new BigInteger[n];
+    var x20s = new BigInteger[n];
+    var y20s = new BigInteger[n];
+    var r20 = new Random(360);
     for (int i = 0; i < n; i++) {
+      x20s[i] = columnX20(i, r20);
+      y20s[i] = columnY20(i, x20s[i], r20);
+      setSlot(x20, i, x20s[i]);
+      setSlot(y20, i, y20s[i]);
       xs[i] = columnX(i, r);
       ys[i] = columnY(i, xs[i], r);
       wilds[i] = columnWild(i, xs[i], r);
@@ -1121,7 +1402,7 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
         product.set(WORD, k * n * 8L + i * 8L, p.shiftRight(64 * k).longValue());
       }
     }
-    return new Data(n, x, y, wild, product, xs, ys, wilds);
+    return new Data(n, x, y, wild, product, x20, y20, xs, ys, wilds, x20s, y20s);
   }
 
   /** {@code HALF_UP} of {@code v / 10^6}: half away from zero. */
@@ -1143,7 +1424,8 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
             case CHECK -> d.wilds()[i].abs().compareTo(TEN38) >= 0;
             case LT -> d.xs()[i].compareTo(d.ys()[i]) < 0;
             case PRODUCT_CHECK -> d.xs()[i].multiply(d.ys()[i]).abs().compareTo(TEN38) >= 0;
-            case NEG, ABS, CHOICE, PRODUCT, RESCALE ->
+            case ADD_CHECK -> d.xs()[i].add(d.ys()[i]).abs().compareTo(TEN38) >= 0;
+            case NEG, ABS, CHOICE, PRODUCT, RESCALE, ADD, SUB ->
                 throw new IllegalStateException(op + " writes no words");
           };
           words[i >>> 6] |= (bit ? 1L : 0L) << (i & 63);
@@ -1159,7 +1441,9 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
             case ABS -> xv.abs();
             case CHOICE -> xv.compareTo(d.ys()[i]) < 0 ? xv : d.ys()[i];
             case RESCALE -> halfUp(xv);
-            case CHECK, LT, PRODUCT, PRODUCT_CHECK ->
+            case ADD -> d.x20s()[i].add(d.y20s()[i]);
+            case SUB -> d.x20s()[i].subtract(d.y20s()[i]);
+            case CHECK, LT, PRODUCT, PRODUCT_CHECK, ADD_CHECK ->
                 throw new IllegalStateException(op + " writes no slots");
           };
           setSlot(out, i, v);
@@ -1225,7 +1509,7 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
             // otherwise pass on the previous arm's bytes.
             out.fill((byte) 0);
             long[] words = new long[n / 64];
-            arm.loop().apply(d.input(op.input), d.y(), out, words, n);
+            arm.loop().apply(d.input(op.input), d.input(op.second), out, words, n);
             requireAgrees(arm, e, out, words, n, "at " + n + " rows");
           }
         }
@@ -1431,22 +1715,23 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
         MemorySegment out = outputFor(op, n, arena);
         for (Arm arm : ofOp) {
           MemorySegment in = d.input(op.input);
+          MemorySegment second = d.input(op.second);
           long[] words = new long[n / 64];
           out.fill((byte) 0);
-          arm.loop().apply(in, d.y(), out, words, n);
+          arm.loop().apply(in, second, out, words, n);
           requireAgrees(arm, e, out, words, n, "before it is timed");
           var settled = new AtomicBoolean();
           benchmark.addTimerCase(arm.label(), timer -> {
             if (settled.compareAndSet(false, true)) {
               out.fill((byte) 0);
               Arrays.fill(words, 0L);
-              driveToCompiledCode(arm, in, d.y(), out, words, n, reps);
+              driveToCompiledCode(arm, in, second, out, words, n, reps);
               // The output the compiled code wrote, not the first call's: the check before the
               // timing ran the loop in the interpreter, where the Vector API is its Java code.
               requireAgrees(arm, e, out, words, n, "in compiled code");
             }
             timer.startTiming();
-            drive(arm, in, d.y(), out, words, n, reps);
+            drive(arm, in, second, out, words, n, reps);
             timer.stopTiming();
           });
         }

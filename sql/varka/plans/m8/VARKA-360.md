@@ -418,9 +418,7 @@ its predictions scored; and the PR build and the option matrix pass.
 
 ## 10. Outcome
 
-(Written when the work lands.)
-
-### 10.1 Step 1, the baseline's readings (27 November 2026)
+### 10.0 Step 1, the baseline's readings (27 November 2026)
 
 Step 1's twelve sections merged with row 361's in #1460, and #1475 committed their first runner
 results. The class's two runner files,
@@ -445,6 +443,87 @@ No lowering of this row is built, so both arms run the row path and tie: 0.96x t
 time at 256 bits and 0.98x to 1.08x at 128 bits. None of section 4's predictions is scored, since
 each is about the spike or the build. The baseline is in place before the kernel; everything of the
 build is left.
+
+### 10.1 Step 2: the spike's laptop reading (10 November 2026)
+
+*Loops 8 to 10 of `VarkaDecimalPairSpikeBenchmark` on the laptop at 512, 256 and 128 bits,
+narrowed to them by `-Dvarka.bench.only`, pinned, heavy lock held:
+`results/VARKA-360-spike-laptop.txt`. What the reading is: a busy machine (other agents' JVMs
+beside it, load 15, 10 and 8 at the three starts), no canary, and the class's 3 iterations over
+1-second windows, where the house asks for five over two seconds on an idle machine
+(`sql/varka/AGENTS.md`, "Measurements, not adjectives"). It is kept as measured and was not run
+again. So it scores only a gap of 1.3x or more; a ratio under 1.3x is written below as a tie this
+reading cannot score, in either direction, and nothing is picked from one. What settles the ties
+is owed (below).*
+
+Built: 2.1 items 1 and 3, `x + y` and `x - y` over two `DECIMAL(20, 2)` columns stored (class U)
+and `x + y` over two `DECIMAL(38, 2)` columns with the wrapped sum's `10^38` check into a bit a row
+(class K), each in P with the `COMPARE` carry, P with the `BITS` carry, and S, checked against
+`BigInteger` before and after the drive (`VarkaDecimalPairSpikeSuite`). Not built: item 2,
+`l + d` with the rescale by `10^2`, and the three sign words, which need row 361's one-limb
+`WideMul` loop and its `decimalSignWord` arms; they are owed with 360b, beside 361's loops.
+
+`Rate(M/s)` at 512 and 256 bits, P `COMPARE` / P `BITS` / S:
+
+| section | rung | laptop 512 | laptop 256 |
+|---|---|---|---|
+| `x + y`, `DECIMAL(20, 2)` | in L2 | 2383.2 / 2155.4 / 1459.0 | 1962.5 / 2044.3 / 1367.3 |
+| | in L3 | 1701.5 / 1573.3 / 1194.3 | 1578.3 / 1414.4 / 1223.4 |
+| | past L3 | 611.4 / 589.1 / 497.3 | 598.3 / 664.0 / 503.1 |
+| `x - y`, `DECIMAL(20, 2)` | in L2 | 2431.9 / 2157.2 / 1748.9 | 1964.6 / 1852.4 / 1381.8 |
+| | in L3 | 1614.2 / 1392.6 / 972.2 | 1553.7 / 1470.8 / 1188.2 |
+| | past L3 | 566.3 / 602.5 / 470.0 | 657.5 / 669.9 / 647.6 |
+| `x + y` and its check, `DECIMAL(38, 2)` | in L2 | 1521.2 / 1800.5 / 688.0 | 949.3 / 1024.8 / 619.3 |
+| | in L3 | 1159.5 / 1125.9 / 609.3 | 878.6 / 926.6 / 544.4 |
+| | past L3 | 1186.6 / 1148.9 / 500.2 | 844.5 / 912.5 / 518.1 |
+
+At 128 bits every P arm runs 117.6 to 189.5 ns a row and every S arm 0.7 to 2.0.
+
+- **`COMPARE` against `BITS`: not separated at 512 and 256 bits.** All 18 cells (three loops,
+  three rungs, two widths) are under 1.3x, the widest 1.18x, so each is a tie this reading cannot
+  score. `BITS` has the higher rate in 8 of the 18 and `COMPARE` in 10, which on a busy machine
+  is no direction. So prediction 1's first half, `COMPARE` ahead by up to 1.3 times on the
+  laptop, is **not shown by this reading**, neither held nor refuted; it waits for the owed
+  readings. Its 128-bit half, `BITS` ahead by 5 to 20 times, is refuted: the largest gap there is
+  1.3x (145.8 against 189.5 ns a row, the checked sum in L3) and the other eight cells are ties,
+  because both P arms spend their time in the two-vector rearranges of the load and the store,
+  which fall back at two lanes; the carry is lost beside them.
+- **S against P** (prediction 2, P ahead by 2 to 4 times in L2 for class U): refuted in size at
+  512 and 256 bits. On the sum and the difference in L2, P leads by 1.3x to 1.6x in seven of the
+  eight cells and the eighth is a tie; with L3, by 1.3x to 1.7x in 12 of the 16 cells, the other
+  four ties. On the checked sum (class K, outside the prediction) P leads by 1.5x to 2.6x at
+  every rung. Past L3 the sum and the difference are memory-bound: seven of the eight cells are
+  ties and the eighth is 1.32x. At 128 bits S leads by 66 to 233 times by `Rate(M/s)`, as
+  predicted.
+- **The pick for 360a: `COMPARE`, made on simplicity, not on this reading**, which does not
+  separate the two forms. What is simpler, from the spike's code: the `COMPARE` carry reads one
+  operand and the sum, `s.lo < a.lo`, where `BITS` reads both operands and the sum; it is two
+  lane calls, an unsigned compare and a masked add of 1, to the six of `BITS` (four to eight for
+  the high word and four to nine for the difference's, section 2.3); and it is row 359's
+  `CondValue` over one compare, two IR nodes to six. At 128 bits on x86 P loses to S by 66 times
+  or more in either form, so a two-lane pair shape goes to the row path whatever its carry (rows
+  503 and 596).
+- **`decimalCarry` is not built**: the compiler reads no emit option and the carry is IR, so the
+  option needs a carry node the emitter lowers both ways or the options in the compiler; decided
+  after the runner's reading.
+
+**Owed: the EPYC 7763 reading at 256 and 128 bits**, which settles the carry form. The lead
+dispatches it once this pull request is open: `benchmark.yml` on vecbricks/varka, two runs, with
+`-f pr=<N> -f class=*.VarkaDecimalPairSpikeBenchmark -f jdk=25 -f expected-cpu="AMD EPYC 7763"
+-f extra-java-options="-XX:CompileCommand=dontinline,org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark::loop*"`
+for 256 bits, and the same with ` -XX:MaxVectorSize=16` after the `dontinline` command for 128.
+Each run's artifact holds the class's whole results file, every loop, and its provenance file;
+they replace `sql/catalyst/benchmarks/VarkaDecimalPairSpikeBenchmark-jdk25-runner-epyc7763-results.txt`
+and its `-128bit` companion. The two forms are compared there by their minimums; should `BITS`
+lead by 1.3x, `carry` and `borrow` change alone.
+
+**Owed too: the laptop's own files.** The class now has 30 arms a rung, and the three committed
+laptop files, `sql/catalyst/benchmarks/VarkaDecimalPairSpikeBenchmark-jdk25-laptop-results.txt`
+and its `-laptop-256bit` and `-laptop-128bit` companions, hold loops 1 to 7 only, measured on
+1 November 2026. Row 359 recorded those loops there, on an idle machine with the canary passing,
+so loops 8 to 10 belong there too: the three files are owed a regeneration of the whole class
+at the three widths on an idle machine, after which the reading above is replaced by theirs and
+`results/VARKA-360-spike-laptop.txt` stays as the record of what the pick was made beside.
 
 ### 10.2 360a, part 1: class U under a comparison (10 November 2026)
 
