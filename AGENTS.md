@@ -1,5 +1,21 @@
 # Apache Spark
 
+## Varka: Read This First
+
+This repository is `vecbricks/varka`, a fork of Apache Spark that holds Varka, a vectorized
+expression compiler. Read `sql/varka/AGENTS.md` next. The sections below are Apache Spark's,
+merged from upstream; they hold unless that file or this list says otherwise:
+
+- Remotes: `origin` is `vecbricks/varka`, the base of every pull request (`master`). `fork` is
+  the personal fork and the only remote a branch is pushed to. `upstream` is `apache/spark`:
+  fetch only.
+- A task's worktree starts at `origin/master`, not `<upstream>/master`
+  (`dev/varka_task_new.sh`). Never `git stash`.
+- A title is `[VARKA-<n>] <what the change achieves>`, 80 characters at most. There is no JIRA
+  ticket and no `[SPARK-xxxx]` title: skip `.agents/pr-workflow.md`.
+- Push and open a pull request with the scripts in `dev/varka_ops/`, never by hand: read
+  `dev/varka_ops/AGENTS.md` first.
+
 ## Agent Instructions in This Repo
 
 Each `AGENTS.md` is an index: what every task in its scope needs, plus pointers to detail in a
