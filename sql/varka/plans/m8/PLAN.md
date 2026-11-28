@@ -2154,7 +2154,8 @@ then 650, 651 and 652, and 354. Rows 344 and 337 left the gates by decision 1, t
 moved.
 
 *28 November 2026:* row 597's second half, the decline of decimal-reading values at two long lanes,
-came back as a gate under item 3, by the owner's word (the row's note): 23 rows gate the close.
+came back as a gate under item 3, by the owner's word (the row's note): 23 rows gate the close,
+and 24 with row 697.
 
 **What moved.** To milestone 9: 577, 604, 579, 609 and 646. To `m10/SCOPE.md` item 140: 34 rows,
 and the unbuilt parts of 344, 337 and 345. Of the 15 rows read as done, 14 are marked; row 104 is
