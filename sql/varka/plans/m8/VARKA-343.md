@@ -12,7 +12,9 @@ records of 343b2a and 343b2b as built on their branches are added at the end, ma
 build sheet says "Follow `BUILD_SHEETS.md`": its rules (the exports, the lock, the linters, the
 local commit and where the builder stops) bind each part in full. Revised again in fix round 2
 (28 November 2026, after review 1 and the owner's answers of that day): each changed place
-says "Changed in fix round 2" or "fix round 2".*
+says "Changed in fix round 2" or "fix round 2". Reworked the same day after the owner's
+decisions E1 (a), E2 (c) and E3 (a): each changed place says "rework", "reworked" or "after E2
+(c)" or "after E3 (a)"; no part of this row is full strength before January 2027 (A.8).*
 
 ### A.1 What this row is, and which done-when clause holds it
 
@@ -32,8 +34,8 @@ $9 == ""' sql/varka/plans/m8/casts.tsv | wc -l` prints `14`: these 12 and the tw
 | pairs | why unfused today | part |
 | :--- | :--- | :--- |
 | `float`, `double` to `byte`, `short`, `int` (6) | no conversion to an integral lane is built | 343b2a2 |
-| `float`, `double` to `bigint` (2) | the same; and at the unknown emit level `D2L` declines | 343b2a2, 343b2b (credited because 343L merges first) |
-| `bigint` to `float`, `double` (2) | merged and fused in a session, but the probe compiles at the unknown level, which declines | 343L |
+| `float`, `double` to `bigint` (2) | the same; and below level 3 `D2L` has no form yet | 343b2a2, 343b2b (credited at emit level 2, 343L's rule) |
+| `bigint` to `float`, `double` (2) | merged and fused in an x86 session, but the probe compiles at the unknown level, which declines | 343L (the probe compiles at emit level 2) |
 | `date` to `float`, `double` (2) | always null; a kernel that reads no column is not compiled | declined with its reason (A.12, question 2) |
 
 `fused_today` of `casts.tsv` is derived by `dev/varka_census.py` from `casts_fused.tsv`, which
@@ -218,7 +220,9 @@ The Vector API reads a shift count modulo 64, and `m < 2^53`, so any right count
 must give 0: hence the raise to 63. A zero or a subnormal has `e = -1075` and gives 0.
 
 The reference arm, under `wideConversionForm=MAGIC`, behind a guard `|x| <= 2^51` on the child
-that declines the batch (NaN and the infinities with it), with `M = 0x1.8p52`:
+that declines the batch (NaN and the infinities with it), with `M = 0x1.8p52` (*after E3 (a),
+28 November 2026: built in January 2027 by 343b2m, after its proof 343b2p; until then `D2L`
+takes the assembly under every arm*):
 
     r = (x + M) - M                             rint(x)
     l = bits(r + M) - bits(M)                   that integer as a long
@@ -228,7 +232,8 @@ that declines the batch (NaN and the infinities with it), with `M = 0x1.8p52`:
     out = l - (((-(bits(x) >>> 63)) | 1) & nz & differ)      one toward zero where r passed x
 
 `F2L` is `F2D`, exact, then the same form. Weights, in lane calls: the assembly 38, the magic
-22, as the branch counted them; 343b2b pins each to the count the emitter writes (its sheet).
+22, as the branch counted them; 343b2b pins the assembly's to the count the emitter writes (its
+sheet), and 343b2m the magic's.
 
 **Checked in Python** (`scratch-343/check_conversions.py`, both forms in 64-bit two's
 complement against JLS 5.1.3): `floating casts: 8 bound pairs equal VARKA-343.md 2.4; the
@@ -251,25 +256,41 @@ raises (checked above on 1200016 values). Cells: `-1e-9` raises; its `nextUp` gi
 `86399.99999999999` gives 86399999999999; 86400 raises; the float below 86400 gives
 86399992187500; `-0.0` gives 0.
 
-#### A.4.5 The unknown emit level (343L)
+#### A.4.5 The unknown emit level and the records (343L)
 
-Today `VarkaConversionLowering.takesWideForm` asks `options.convertsFallBack()`, which is
-false at the unknown level, and `VarkaKernelPlan.conversionRefusal` declines a `BIGINT`
-source there. The software forms are exact on every host, so the change is: a new predicate
-on `VarkaEmitOptions`, `softwareLongConversions()`, true where `levelUnknown() ||
-convertsFallBack()`; `takesWideForm`, `VarkaEmitBudget.weightOf`'s overload and the refusal
-read it; the refusal's unknown-level arm goes. `VarkaDivisionLowering`'s use of
-`convertsFallBack()` stays. Then the defaults fuse `CAST(l AS DOUBLE)` and `CAST(l AS
-FLOAT)`, which get coverage rows, and `casts_fused.tsv` reads them fused.
+*Rewritten after the owner's decision E2 (c) of 28 November 2026.* At the unknown emit level,
+the defaults' and that of a session on a host it cannot read, `VarkaKernelPlan.conversionRefusal`
+declines a `BIGINT` conversion to `FLOAT` or `DOUBLE` (and, after 343b2b, a floating one to
+`BIGINT`), and that stays. What changes is where the records read: `VarkaCastMatrixSuite`, the
+coverage suite and every suite that writes or holds a record crediting a fused form compile at
+`VarkaMatrixRuns.CREDIT`, the defaults at emit level 2, the level an x86 session without
+AVX512DQ resolves to at a 256-bit species (`VarkaSessionEmit.FALLBACK_LEVEL`). A cell of
+`casts_fused.tsv`, a coverage row and a census claim then mean "fused on an x86 host at that
+level". Production does not change. The known limit: a session keeps the unknown level, and
+declines these conversions, on a host whose level it cannot detect (another architecture, an
+unread feature list, an x86 species under 256 bits without AVX512DQ) and wherever the level is
+set to -1, as the test sessions set it; an explicit `spark.sql.codegen.varka.emit.useAVX=2`
+lifts it (343L's sheet, its first list).
 
 ### A.5 The parts
 
-Order: 343L, 343b2a1, 343b2a2, 343b2p, 343b2b, 343b3, 343r; 343t at any time. The reason: the guard
-is under the casts, the casts under the AVX2 `D2L`, and `time_from_seconds` needs `D2L` at every
-named level; 343L first so that each later part adds its `BIGINT` coverage rows once.
+Order: 343L, 343b2a1, 343b2a2, 343b2b, 343b3, 343r; 343t at any time; in January 2027,
+343b2p then 343b2m. The reason: the guard is under the casts, the casts under the AVX2 `D2L`,
+and `time_from_seconds` needs `D2L` at every named level; 343L first so that each later part
+adds its `BIGINT` coverage rows once, credited at emit level 2.
+
+*Reworked on 28 November 2026 after the owner's decisions E1 (a), E2 (c) and E3 (a):* 343L is
+a Sonnet-class part that changes no production code (A.4.5); 343b2b builds the assembly alone;
+the truncated magic (343b2m) and its proof (343b2p) are January 2027 parts at full strength,
+not gates before then. No part of this row is full strength before January. Every sheet that
+depends on 343L has the premise `grep -c 'public static final VarkaEmitOptions CREDIT ='
+$T/VarkaMatrixRuns.java` printing `1`; if it prints `0`, 343L has not merged: stop and report,
+do not adapt the sheet. The fix-round-2 paragraph below is kept as the record; its premise
+(`softwareLongConversions()`) no longer exists in any sheet.
 
 *Changed in fix round 2 (review 1, finding 3; the owner's answer to question 1, 28 November
-2026: build 343L).* The order is fixed, and every sheet below is written for it, with ONE text:
+2026: build 343L). Superseded in its builder and premise by the rework paragraph above; kept
+as the record.* The order is fixed, and every sheet below is written for it, with ONE text:
 343L merges first (full strength, built by the lead before 1 December), so 343b2a2, 343b2b,
 343b3 and row 342's 342e and 342q are written for a master that has 343L. 343b2a1, 343b2p and
 343t do not depend on it and may start before it merges. Each sheet that depends on it has the
@@ -282,14 +303,15 @@ its `conversionRefusal` hunk differ (review 1, F3), and there was no variant for
 
 | part | title | size, counted | builder | starts from | waits on |
 | :--- | :--- | ---: | :--- | :--- | :--- |
-| 343L | `[VARKA-343] Convert BIGINT and floating values at the unknown emit level by the exact forms` | 150 | full strength, before 1 December | master | nothing (Q1 answered (b), 28 November 2026) |
+| 343L | `[VARKA-343] Credit the cast matrix and the coverage table at an x86 session's emit level` | 190 | Sonnet-class | master | nothing (Q1 answered (c), 28 November 2026) |
 | 343b2a1 | `[VARKA-343] Guard a floating value's range, NaN outside` | 380 | Sonnet-class | master; code written out below and on `varka-343b2a-r2` | nothing |
 | 343b2a2 | `[VARKA-343] Cast FLOAT and DOUBLE to the integral types in three modes` | 780 | Sonnet-class | master after 343b2a1 and 343L; `varka-343b2a-r2` | 343b2a1, 343L |
-| 343b2p | `[VARKA-343] Prove the truncated magic D2L inside its window` | 150 | full strength, before 1 December | master | nothing |
-| 343b2b | `[VARKA-343] Convert DOUBLE and FLOAT to BIGINT on AVX2 by exact forms` | 700 | Sonnet-class | `varka-343b2b-r2` | 343b2a2 (so 343L); merges after 343b2p (B0 item 7) |
+| 343b2b | `[VARKA-343] Convert DOUBLE and FLOAT to BIGINT on AVX2 by the integer assembled from the bits` | 560 | Sonnet-class | `varka-343b2b-r2` | 343b2a2 (so 343L) |
 | 343b3 | `[VARKA-343] Fuse time_from_seconds over a floating value` | 330 | Sonnet-class | master | 343b2b |
 | 343t | `[VARKA-343] Exhaust the split and the rounding to odd at half width` | 200 | Sonnet-class | master | nothing |
 | 343r | `[VARKA-343] Results: the floating casts on their kernels` | 40 | Sonnet-class | master | 343b3 |
+| 343b2p | `[VARKA-343] Prove the truncated magic D2L inside its window` | 150 | January 2027, full strength; not a gate before then | master | nothing |
+| 343b2m | `[VARKA-343] Take D2L and F2L by the truncated magic under wideConversionForm=MAGIC` | 150 | January 2027, full strength; not a gate before then | `varka-343b2b-r2` | 343b2b, 343b2p |
 
 The sizes of 343b2a1 and 343b2a2 are the branch's per-file counts (`git diff --numstat
 8e631d8ed41 varka-343b2a-r2`) split by hunk, plus the new guard suite and a short outcome
@@ -705,7 +727,10 @@ item of `BUILD_SHEETS.md` 8, and if command 4 moves a byte.
   `BUILD_SHEETS.md`. If `python3 dev/varka_push_check.py` reports between 901 and 999 counted
   lines, report the count in the outcome and go on; do not trim tests to get under 900 (fix
   round 2, review 1 finding 11). From 1000 up, stop. *Changed in fix round 2 (finding 3): the
-  sheet is written for a master with 343L merged (A.5); B0 item 8 checks it.*
+  sheet is written for a master with 343L merged (A.5); B0 item 8 checks it. Reworked on 28
+  November 2026 after E2 (c): 343L no longer touches `conversionRefusal` or
+  `VarkaEmitterFloatingCastSuite`, so the branch's hunks of both apply as they are (step 1),
+  and step 1d extends 343L's `fusedIn`.*
 - **What it adds:** `FLOAT` and `DOUBLE` to `TINYINT`, `SMALLINT`, `INT` in LEGACY, ANSI and
   TRY at every emit level, and to `BIGINT` at level 3 (below it 343b2b); a narrow target stored
   from a double kernel; eight coverage rows; the fuzz grammar's draw; the baselines' fuse lists.
@@ -723,14 +748,14 @@ item of `BUILD_SHEETS.md` 8, and if command 4 moves a byte.
    `grep -rn "row 343's second part" sql/core/src/test sql/catalyst/src/test` prints one line,
    `VarkaFloatingLaneSuite.scala`'s assertion.
 6. `awk -F'\t' '$10 ~ /343/ && $9 == ""' sql/varka/plans/m8/casts.tsv | wc -l`: `12` (master
-   before 343L prints `14`; 343L fuses `bigint` to `float` and `double`).
+   before 343L prints `14`; 343L credits `bigint` to `float` and `double` at emit level 2).
 7. `git cat-file -t 96047835ca4`: `commit`. If not, A.5.0 "Where the code comes from" (the
    fork's `varka-343b2a-r2`); if still not, stop: this part's suite and baselines are quoted
    from the branch, not written out.
-8. 343L is merged: `grep -c 'public boolean softwareLongConversions()'
-   $CG/varka/VarkaEmitOptions.java`: `1`; `grep -c 'at an unknown emit level, which may be a
-   host' $CG/varka/VarkaKernelPlan.java`: `0`; `grep -c 'so no level declines them (part
-   343L)' $CG/varka/VarkaKernelPlan.java`: `1`. If any differs, stop (A.5).
+8. 343L is merged: `grep -c 'public static final VarkaEmitOptions CREDIT ='
+   $T/VarkaMatrixRuns.java`: `1`; and it left production alone: `grep -c 'at an unknown emit
+   level, which may be a host' $CG/varka/VarkaKernelPlan.java`: `1`. If either differs, stop
+   (A.5).
 
 **Steps.**
 
@@ -741,11 +766,10 @@ item of `BUILD_SHEETS.md` 8, and if command 4 moves a byte.
    - `$CG/VarkaNodeCompiler.java` (whole: `floatingDecline`'s floating-source text becomes
      `"a cast from a floating type to " + c.dataType().simpleString() + ", which no floating
      lowering serves"`);
-   - `$CG/varka/VarkaKernelPlan.java`: `narrowRefusal`'s double-drive test admits
+   - `$CG/varka/VarkaKernelPlan.java` (whole: `narrowRefusal`'s double-drive test admits
      `narrowsAnIntAtRoot(root)`; the new `narrowsAnIntAtRoot`; `wholeNarrowStoreAtLong` tests
-     `lane.bits == Long.SIZE`. `conversionRefusal` (its javadoc and its body) is NOT the
-     branch's, since 343L rewrote both: whatever the apply leaves there (conflict markers
-     included), make it read as step 1a says;
+     `lane.bits == Long.SIZE`; `conversionRefusal`'s javadoc and its first arm, step 1a);
+   - `$T/VarkaEmitterFloatingCastSuite.java` (whole: step 1b);
    - `$CG/varka/VarkaTypes.java` (whole: `castBounds`, `passes`, `edge`, `step`);
    - `$T/VarkaIrGrammar.java`, `$S/VarkaIrFuzzSuite.scala`,
      `$T/VarkaGuardSpecs.java`, `$S/VarkaCoverageSuite.scala`;
@@ -755,73 +779,69 @@ item of `BUILD_SHEETS.md` 8, and if command 4 moves a byte.
      `$BS/VarkaFloatingBaselineQueriesSuite.scala`,
      `$BS/VarkaFloatingCastBaselineQueriesSuite.scala`.
 
-   If the 3-way apply of a file other than `VarkaKernelPlan.java` leaves a conflict, stop and
-   report it: none was found against `6dafb8bd2f6` plus 343L's hand-off (A.1's table), and the
-   sheet decides no other.
+   If a 3-way apply leaves a conflict, stop and report it: none was found against
+   `6dafb8bd2f6` (A.1's table), and 343L, under E2 (c), edits none of these files but
+   `VarkaCoverageSuite.scala` (two rows and a comment in the family "Floating casts", away
+   from this part's hunk, which reads only the family's last row).
 
-   1a. `$CG/varka/VarkaKernelPlan.java`, `conversionRefusal`, by hand (fix round 2, finding 3).
-   In its javadoc, the lines from the one that ends "so no level declines them (part 343L). A
-   floating source converted to an" down to the one that ends "to the int lane first." (343L's
-   hand-off, below) become
+   1a. `$CG/varka/VarkaKernelPlan.java`, `conversionRefusal`, as the apply leaves it
+   (*reworked after E2 (c)*: the hand edit of fix round 2 is gone, since 343L keeps master's
+   method): the first arm is the branch's, `if (c.target() == LaneType.LONG &&
+   (options.levelUnknown() || options.convertsFallBack()))` with the text "a ... conversion to
+   BIGINT below emit level 3, which may be a host's without AVX512DQ: its AVX2 form is not built
+   yet (row 343)", and the second is master's `BIGINT` source arm at the unknown level. Then
+   `grep -c '"a conversion from "' $CG/varka/VarkaKernelPlan.java` prints `0`, `grep -c 'is
+   not built yet (row 343)' ...` prints `1` and `grep -c 'at an unknown emit level, which may
+   be a host' ...` prints `1`.
 
-         * on every host, so no level declines them (part 343L). A floating source converted to the
-         * int lane, {@code F2I} or {@code D2I}, is one {@code convertShape} at every level, intrinsic
-         * from AVX2 up; one converted to the long lane, {@code F2L} or {@code D2L}, has x86's AVX512DQ
-         * rule too, and is admitted at level 3 alone until its AVX2 form is built (part 343b2b). A
-         * boolean whose condition compares longs is not a conversion from a long: the compiler narrows
-         * its one or zero to the int lane first.
-
-   and in its body the block `if (node instanceof ConvertLane c) { ... }` (after 343L it holds
-   one `if`, master's D2I arm with its three-line comment) becomes
-
-         if (node instanceof ConvertLane c) {
-           // F2I and D2I are one convertShape at every level; F2L and D2L are at level 3 alone
-           // until their AVX2 forms (part 343b2b), so they decline wherever the long lane's
-           // conversions take the software forms.
-           if (c.target() == LaneType.LONG && options.softwareLongConversions()) {
-             return Optional.of(new Refusal(Kind.CONVERSION, "a " + c.child().laneType()
-                 + " conversion to BIGINT below emit level 3, which may be a host's without"
-                 + " AVX512DQ: its AVX2 form is not built yet (row 343)"));
-           }
-         }
-
-   `softwareLongConversions()` is `levelUnknown() || convertsFallBack()`, the branch's test.
-   Then `grep -c '"a conversion from "' $CG/varka/VarkaKernelPlan.java` prints `0` and `grep -c
-   'is not built yet (row 343)' $CG/varka/VarkaKernelPlan.java` prints `1`.
-
-   1b. `$T/VarkaEmitterFloatingCastSuite.java`, by hand (343L turned the test before the last
-   one, `unknownLevelRefusal`, so the branch's hunks may not apply): in the test `hostRefusal`
-   the two lines
-
-         // A floating source converted to an integral lane waits for 343b2 at every level.
-         assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(F, LaneType.INT)), DQ).isPresent());
-
-   become
-
-         // A floating source converted to the int lane is admitted at every level, and to the long
-         // lane at level 3 (VarkaEmitterFloatToIntegralSuite).
-         assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(F, LaneType.INT)), DQ).isEmpty());
-
-   and the last test of the file, `conversionRefusal` (its `@Test`, its `@DisplayName("the plan
-   refuses a floating source converted to an integral lane but D2I, at " + "every level")` and
-   its body, 16 lines with the blank line before it), is deleted. It is replaced, not dropped to
+   1b. `$T/VarkaEmitterFloatingCastSuite.java`, as the apply leaves it: in the test
+   `hostRefusal` the two lines "A floating source converted to an integral lane waits for 343b2
+   at every level." and its `assertTrue(... .isPresent())` become the branch's "A floating
+   source converted to the int lane is admitted at every level, and to the long lane at level 3
+   (VarkaEmitterFloatToIntegralSuite)." and `assertTrue(... .isEmpty())`; the last test of the
+   file, `conversionRefusal`, is deleted by the branch's hunk. It is replaced, not dropped to
    make a run pass (review 1 finding 12): it asserted the old refusal of `F2I`, `F2L` and `D2L`
    at every level, which this part lifts; `VarkaEmitterFloatToIntegralSuite.levels` (step 3)
    asserts the new behaviour, `F2I` and `D2I` admitted at every level and `F2L`, `D2L` refused
-   below level 3 with the kind `CONVERSION`.
+   below level 3 with the kind `CONVERSION`. The test `unknownLevelRefusal` stays master's.
 
    1c. `$CG/VarkaFloatingCastCompiler.java`, the javadoc of `admits`, by hand after the apply
-   (343L leaves this file alone, its hand-off item 6; the branch did not update the sentence):
+   (343L leaves this file alone, its hand-off item 8; the branch did not update the sentence):
    the six javadoc lines between `/**` and `*/` (on master they begin "Whether {@code c} is
    one of this family's pairs" and end "and are its child where one does.") become
 
          * Whether {@code c} is one of this family's pairs: an integral or boolean source to a floating
          * target, one floating type to the other, or a floating source to an integral target. A
-         * {@code BIGINT} source takes the software forms of {@code VarkaConversionLowering} below
-         * level 3 and at the unknown level (part 343L); a {@code BIGINT} target is refused by the
-         * kernel plan there until part 343b2b. The level is an emit option the compiler's arms do not
-         * read ({@code VarkaKernelPlan}). The identities never reach here, as the optimizer removes
-         * them, and are its child where one does.
+         * {@code BIGINT} source and a {@code BIGINT} target are admitted here and refused by the
+         * kernel plan at the unknown emit level, which may be an AVX2 host's (and a {@code BIGINT}
+         * target below level 3 too, until part 343b2b); the level is an emit option the compiler's
+         * arms do not read ({@code VarkaKernelPlan}). The identities never reach here, as the
+         * optimizer removes them, and are its child where one does.
+
+   1d. `$T/VarkaTypeConformance.java`, `CastPair.fusedIn`, by hand (*new after E2 (c)*; a gap
+   of the earlier text: at a matrix run of `useAVX=3` this part's `F2L` and `D2L` fuse while
+   the register, written at level 2, says declined until 343b2b). 343L's `if` (its step 5)
+   becomes
+
+         // The compiler writes the register at VarkaMatrixRuns.CREDIT, an x86 session's emit
+         // level (VARKA-343, part 343L). A BIGINT cast to or from FLOAT or DOUBLE declines at
+         // the unknown level, the defaults', where the kernel plan refuses it
+         // (VarkaKernelPlan.conversionRefusal): there it is owed, whatever the register says.
+         // A FLOAT or DOUBLE cast to BIGINT is one instruction at level 3 and above, which the
+         // register, written below it, does not see.
+         boolean fromLong = source.equals(DataTypes.LongType)
+             && (target.equals(DataTypes.FloatType) || target.equals(DataTypes.DoubleType));
+         boolean toLong = target.equals(DataTypes.LongType)
+             && (source.equals(DataTypes.FloatType) || source.equals(DataTypes.DoubleType));
+         if ((fromLong || toLong) && VarkaMatrixRuns.BASE.levelUnknown()) {
+           return false;
+         }
+         if (toLong && !VarkaMatrixRuns.BASE.convertsFallBack()) {
+           return true;
+         }
+
+   (343b2b changes nothing here: once it merges the register reads `fused` for the floating
+   sources at level 2, and the level-3 arm stays true.)
 
    For `VarkaVectorIR.java`, `Analysis.java` and `VarkaVectorWalk.java` take only the hunks
    343b2a1 left: in `VarkaVectorIR` the `ConvertLane` javadoc (branch lines 1106 to 1108); in
@@ -878,8 +898,12 @@ their own placed directly after the family "Floating casts" (that is, after the 
 | `try_cast(f AS TINYINT)` | the byte twin over a float, in a kernel of the int lane | none |
 | `CAST(x AS TINYINT)` | the int conversion stored as a byte from a double kernel | `x BETWEEN -100.0D AND 100.0D` |
 
-No `BIGINT` target: the rows compile at the unknown level, where `D2L` still declines until
-343b2b, which adds the four `BIGINT` rows (343L serves `L2D` and `L2F` there, not `D2L`).
+No `BIGINT` target: the rows compile at emit level 2 (343L's `VarkaMatrixRuns.CREDIT`), where
+`D2L` still declines until 343b2b, which adds the four `BIGINT` rows. The family's comment from
+the branch ends "A BIGINT target is not listed: the rows compile at the defaults' unknown emit
+level, where D2L declines."; make that sentence read "A BIGINT target is not listed: the rows
+compile at emit level 2 (VarkaMatrixRuns.CREDIT), where D2L declines until part 343b2b."
+(*reworked after E2 (c)*).
 
 **The tests.**
 
@@ -890,6 +914,7 @@ No `BIGINT` target: the rows compile at the unknown level, where `D2L` still dec
 | `VarkaFloatingLaneSuite` (Scala) | `try_cast(f1 AS INT)` fuses end to end and answers as the row engine; the decline text of a floating cast to `STRING` | the session path |
 | `VarkaFloatingCastBaselineQueriesSuite`, `VarkaFloatingBaselineQueriesSuite` | the sections' fuse lists: `CAST(w AS INT)` and `CAST(x AS INT)` `WHOLE` at every level, `try_cast(w AS BIGINT)` and `DOUBLE cast to BIGINT` at level 3 alone | a benchmark section timing the row path when it should time a kernel |
 | `VarkaIrFuzzSuite` | the floating casts corpus draws `FLOAT->INT`, `DOUBLE->INT`, `FLOAT->LONG`, `DOUBLE->LONG` | a conversion the grammar never draws |
+| `*ConformanceSuite` (step 1d) | `VarkaFloatConformanceSuite` and `VarkaDoubleConformanceSuite`'s casts to `BIGINT`: owed at the unknown level, fused at level 3, the register's answer at the level-2 class | a matrix run at `useAVX=3` calling the fused cast drift |
 
 **Commands, in order.**
 
@@ -899,8 +924,11 @@ No `BIGINT` target: the rows compile at the unknown level, where `D2L` still dec
    `Passed: Total 8, Failed 0, Errors 0, Passed 8` (on the branch: 9 of 9 with `guardRefusals`,
    23 November).
 3. `flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaEmitterFloatingGuardSuite
-   *VarkaEmitterFloatingCastSuite *VarkaExpressionCompilerSuite *VarkaIrFuzzSuite'`: no test
-   fails.
+   *VarkaEmitterFloatingCastSuite *VarkaExpressionCompilerSuite *VarkaIrFuzzSuite
+   *ConformanceSuite'`: no test fails; then once more with `-Dvarka.matrix.config=useAVX=3`
+   (`'set LocalProject("catalyst") / Test / javaOptions += "-Dvarka.matrix.config=useAVX=3"'`
+   before the `testOnly`) for `*VarkaFloatConformanceSuite *VarkaDoubleConformanceSuite`: no
+   test fails (step 1d).
 4. `dev/varka_regen_generated.sh --all` (bare): its last line begins `varka regen: done`. Then:
    `grep -c '"family" : "Floating casts to integral types"' sql/varka/coverage.json` prints
    `8`; `grep -P '^(float|double)\t(byte|short|int)\t' sql/varka/plans/m8/casts_fused.tsv`
@@ -930,27 +958,30 @@ outcome: the masked store is then the only store and the fault is not visible.
 **Done when** commands 1 to 7 print what they say, and the census reads the six pairs fused.
 
 **Not here:** `D2L` or `F2L` below level 3; the weight of a conversion to the long lane; any
-`BIGINT` coverage row; `time_from_seconds`; the unknown level (343L); the `DATE` pairs beyond
-the decline text.
+`BIGINT` coverage row; `time_from_seconds`; the unknown level (it keeps declining, 343L's known
+limit); the `DATE` pairs beyond the decline text.
 
-#### Part 343b2b: `D2L` and `F2L` below level 3 (build sheet, fix round)
+#### Part 343b2b: `D2L` and `F2L` below level 3, the assembly (build sheet, rework E2 and E3)
 
-*Changed in fix round 2 (review 1, findings 3, 8 and 9): one text, for a master with 343L and
-343b2a2 merged (A.5); the old variant A is gone and the old step 7 (variant B) is folded into
-the steps; the rule for 343b2p's merge is B0 item 7.*
+*Rewritten on 28 November 2026 after the owner's decisions E2 (c) and E3 (a): this part builds
+the exact assembly of A.4.3 only, under every arm of `wideConversionForm`; the truncated magic
+and its proof move to January 2027 (parts 343b2m and 343b2p). With 343L under E2 (c) the
+unknown level keeps declining `D2L` and `F2L`, so `conversionRefusal` and `Kind.CONVERSION`
+stay, and the branch's hunks of `VarkaKernelPlan`, the `levels` test and the two `sql/core`
+files apply as they are. The old hold rule keyed on 343b2p's marker is gone: no bounded
+lowering is built here, so house rule VARKA-242 owes no proof.*
 
-- **Title:** `[VARKA-343] Convert DOUBLE and FLOAT to BIGINT on AVX2 by exact forms`.
-  **Branch:** `varka-343b2b-d2l-avx2` from master after 343b2a2 merged (the names
-  `varka-343b2b-avx2` and `-r` are taken). **Builder:** Sonnet-class. **Size:** about 700
-  counted lines (the suite's new half is 286); between 901 and 999, report the count and go
-  on, do not trim tests. Merges after 343b2p (the proof of its bounded arm, house rule
-  VARKA-242); it may be built beside it (B0 item 7). Follow `BUILD_SHEETS.md`.
-- **What it adds:** below level 3 and at the unknown level (where 343L's
-  `softwareLongConversions()` holds), `D2L` by the integer assembled from the bits (`SPLIT` and
-  `XOR_SPLIT`, so by default) and by the truncated magic under `wideConversionForm=MAGIC`
-  behind `|x| <= 2^51`; `F2L` as `F2D` then the same (A.4.3). So no conversion declines at any
-  level any more: `conversionRefusal` and the refusal kind `CONVERSION` go; the casts to
-  `BIGINT` fuse at every level, and get their four coverage rows.
+- **Title:** `[VARKA-343] Convert DOUBLE and FLOAT to BIGINT on AVX2 by the integer assembled
+  from the bits`. **Branch:** `varka-343b2b-d2l-assembly` from master after 343b2a2 merged (the
+  names `varka-343b2b-avx2` and `-r` are taken). **Builder:** Sonnet-class. **Size:** about
+  560 counted lines (the branch's 649 less the magic arm's code, test and twin); between 901
+  and 999 is impossible here. Follow `BUILD_SHEETS.md`.
+- **What it adds:** below level 3 (`convertsFallBack()`, levels 0 to 2), `D2L` by the integer
+  assembled from the bits, whole-range, no mask, under `SPLIT`, `XOR_SPLIT` and `MAGIC` alike
+  (the option keeps reading `L2D` alone); `F2L` as the exact `F2D`, then the same. Level 3
+  keeps its one instruction (343b2a2). At the unknown level both still decline, with master's
+  wording for the `BIGINT` sources ("at an unknown emit level, which may be a host's without
+  AVX512DQ"). The casts to `BIGINT` get their four coverage rows, credited at level 2 (343L).
 
 **B0, the premises.**
 
@@ -959,84 +990,100 @@ the steps; the rule for 343b2p's merge is B0 item 7.*
 2. `grep -c 'emitAssembly\|emitTruncatedMagic\|ASSEMBLY_CALLS'
    $CG/varka/VarkaConversionLowering.java`: `0`.
 3. `grep -c 'conversion to BIGINT below emit level 3' $CG/varka/VarkaKernelPlan.java`: `1`
-   (343b2a2's refusal, the one arm `conversionRefusal` has left).
+   (343b2a2's refusal of `F2L` and `D2L` wherever `levelUnknown() || convertsFallBack()`).
 4. `grep -c 'return node.props().weight();' $CG/varka/VarkaEmitBudget.java`: `1`.
-5. 343L is merged: `grep -c 'public boolean softwareLongConversions()'
-   $CG/varka/VarkaEmitOptions.java`: `1`, and `grep -c 'analysis.options.softwareLongConversions()'
-   $CG/varka/VarkaConversionLowering.java`: `1` (its `takesWideForm`). If not, stop (A.5).
+5. 343L is merged: `grep -c 'public static final VarkaEmitOptions CREDIT ='
+   $T/VarkaMatrixRuns.java`: `1`. If not, stop (A.5).
 6. `git cat-file -t 163aac5ecd6`: `commit` (if not, A.5.0 "Where the code comes from": the
    fork's `varka-343b2b-r2`).
-7. 343b2p is merged: `grep -c "D2L's truncated magic inside |x| <= 2^51 (VARKA-343, part
-   343b2p)" sql/varka/proofs/round_to_odd.smt2` prints at least `1` (343b2p's sheet puts that
-   comment in the file). If it prints `0`, build the part all the same and commit it locally,
-   with the line `Held: merges after 343b2p (house rule VARKA-242).` in the commit message's
-   body and the same sentence first in the outcome; the lead holds the merge until 343b2p is
-   in. Nothing else in the sheet changes.
-8. `grep -rn 'conversionRefusal\|Kind.CONVERSION' sql/catalyst/src sql/core/src` prints exactly
-   four lines: `VarkaKernelPlan.java`'s call in `of`, its method's declaration, its one
-   `new Refusal(Kind.CONVERSION, ...`, and `VarkaEmitterFloatToIntegralSuite.java`'s
-   `toLong.ifPresent(r -> assertEquals(VarkaKernelPlan.Kind.CONVERSION, r.kind()));`. Any
-   other line: stop and report it (343L's hand-off says it leaves no other).
+7. `grep -c 'x86.s AVX512DQ rule too, and is' $CG/varka/VarkaKernelPlan.java`: `1` (the
+   javadoc sentence of 343b2a2 that the branch's hunk rewrites).
 
 **Steps.**
 
 1. For each of these files, `git diff fa1031645a7 163aac5ecd6 -- <file> | git apply --3way`
-   (each merges clean on master after 343b2a; computed, see A.1):
-   - `$CG/varka/Analysis.java`: the `VALUE_RANGE` javadoc names the magic's window.
-   - `$CG/varka/VarkaConversionLowering.java`: the class javadoc's two items; the constants
-     `EXPONENT_MASK`, `EXPONENT_BIAS`, `MAX_LEFT_SHIFT`, `INFINITY_BITS`, `ASSEMBLY_CALLS =
-     38`, `TRUNCATED_MAGIC_CALLS = 22`; `toLong`, `takesMagic`, `scratch`, `emit`'s first
-     branch, `emitToLong`, `emitAssembly`, `emitTruncatedMagic` (A.4.3 is their arithmetic).
-     `takesWideForm` conflicts with 343L's line: whatever the apply leaves there, make the
-     method's body read
+   (each merges clean on master after 343b2a; computed, see A.1), then the hand edits named:
+   - `$CG/varka/VarkaKernelPlan.java`, whole: the `F2L`/`D2L` arm of `conversionRefusal`
+     tests `options.levelUnknown()` alone, with the text "... conversion to BIGINT at an
+     unknown emit level, which may be a host's without AVX512DQ (row 343)", and its javadoc
+     says the long lane's conversions take their AVX2 form below level 3 and decline at the
+     unknown level. Then `grep -c 'conversion to BIGINT at an unknown emit level'
+     $CG/varka/VarkaKernelPlan.java` prints `1` and B0 item 3's grep prints `0`.
+   - `$CG/varka/VarkaConversionLowering.java`, then by hand, so that the magic arm is not
+     built: (i) in the class javadoc keep the first new `<li>` ("`D2L`, and `F2L` after an
+     exact `F2D` ...") with "under {@code SPLIT} and {@code XOR_SPLIT}" replaced by "under
+     every arm of {@link WideConversionForm}, which picks {@code L2D}'s form alone", and delete
+     the second (`<li>The same under {@link WideConversionForm#MAGIC}: the truncated magic,
+     ...</li>`, five lines); (ii) delete the line `static final int TRUNCATED_MAGIC_CALLS =
+     22;`; (iii) `takesMagic` and its javadoc stay master's: undo the branch's hunk there, so
+     the method reads `return takesWideForm(analysis, n) && n.target() == LaneType.DOUBLE &&
+     analysis.options.wideConversionForm() == WideConversionForm.MAGIC;` under the javadoc
+     "Whether {@code n} is the bounded {@code L2D}, whose guard declines a batch past 2^51.";
+     (iv) in `scratch`, `return takesMagic(analysis, n) ? 4 : 6;` becomes `return 6;`, and its
+     javadoc's "the assembly's six and the truncated magic's four for a conversion to the long
+     lane" becomes "the assembly's six for a conversion to the long lane"; (v) `emitToLong`
+     becomes
 
-         return analysis.options.softwareLongConversions() && (toLong(n)
-             || n.child().laneType() == LaneType.LONG && n.target().isFloating());
-
-     and its javadoc stay 343L's.
-   - `$CG/varka/VarkaVectorWalk.java`: `emitShapeConversion`'s javadoc; `emitRangeMask`'s
-     floating arm passes `g.loValue()`, `g.hiValue()`; the new `static void
-     emitValueRangeGuard(CodeBuilder, VarkaVectorIR, Integer, int, boolean, Analysis, Slots,
-     double, double)`; `emitFloatingRangeMask(CodeBuilder cb, int guardTmp, Lane lane, double
-     lo, double hi)` takes the bounds as values.
-   - `$T/VarkaEmitterFloatToIntegralSuite.java`: the imports; seven more `CELLS` (`0x1p51`,
-     `-0x1p51`, `0x1p51 - 0.5`, `-(0x1p51 - 0.5)`, `0x1p62`, `Math.nextDown(0x1p63)`,
-     `-Math.nextDown(0x1p63)`); the tests `avx2ToLong`, `magicDeclines`, `twinSlices`,
-     `twinsWhole`, `sweepSlices`, `sweepsWhole` and their helpers. The branch's hunk of
-     `levels` is replaced by step 7's text.
-   - `sql/varka/ci/sweeps.tsv`: the suite's line.
-
-   Not from the branch: `VarkaKernelPlan.java` (step 1a), the queries suite and the
-   benchmark's javadoc (step 7). If any other file's apply leaves a conflict, stop and report.
-
-   1a. `$CG/varka/VarkaKernelPlan.java`, by hand: no conversion is refused any more, so delete
-   (i) in `of`, the four lines
-
-           Optional<Refusal> conversion = conversionRefusal(roots, options);
-           if (conversion.isPresent()) {
-             return refused(conversion.get());
+         /** {@code [x] -> [(long) x]} for {@code D2L} or {@code F2L}: a float child is widened
+          *  exactly first. */
+         private static void emitToLong(CodeBuilder cb, ConvertLane n, boolean dense,
+             Analysis analysis, Slots s) {
+           int[] tmp = s.convertTmp.get(n);
+           if (tmp == null) {
+             throw VarkaErrors.illegalState("a D2L form with no scratch planned: " + n);
            }
+           if (n.child().laneType() == LaneType.FLOAT) {
+             VarkaVectorWalk.emitShapeConversion(cb, Lane.FLOAT, Lane.DOUBLE, analysis);
+           }
+           emitAssembly(cb, tmp);
+         }
 
-   (ii) the method `conversionRefusal` whole, from the `/**` of its javadoc (the paragraph that
-   begins "Why a conversion of these roots has no kernel yet" and its second paragraph, "The
-   test reads the options' {@code UseAVX} level") to its closing brace and the blank line after
-   it; (iii) in `enum Kind`, the two lines `/** A conversion this part of row 343 does not
-   lower: from BIGINT, or to an integral lane. */` and `CONVERSION,` (no `switch` over `Kind`
-   exists: `grep -rn 'case CONVERSION' sql/catalyst/src sql/core/src` prints nothing on
-   master). No import becomes unused: `HashSet` and `ArrayDeque` have other uses in the file
-   (master: `grep -c 'new HashSet\|new ArrayDeque' $CG/varka/VarkaKernelPlan.java` prints `12`,
-   of which the deleted method holds 2). The facts the deleted javadoc held are 2.2 and 2.3 of
-   this file and `VarkaConversionLowering`'s class javadoc, which keep them.
+     (`dense` stays a parameter, unread, so that `emit`'s call is the branch's; if the
+     linters flag it, drop it here and in the call); (vi) delete `emitTruncatedMagic` and its
+     javadoc whole; (vii) `emitAssembly`'s javadoc: "{@link WideConversionForm#SPLIT} and {@link
+     WideConversionForm#XOR_SPLIT}'s {@code D2L}" becomes "{@code D2L} under every arm". Then
+     `grep -c 'emitTruncatedMagic\|TRUNCATED_MAGIC_CALLS' $CG/varka/VarkaConversionLowering.java`
+     prints `0` and `grep -c 'emitAssembly' ...` prints at least `2`. `takesWideForm` is the
+     branch's (it reads `convertsFallBack()`, as master's does; 343L did not touch it).
+   - `$CG/varka/VarkaVectorWalk.java`: the first hunk only (the `emitShapeConversion`
+     javadoc), with "the assembly or the truncated magic of {@link VarkaConversionLowering}"
+     replaced by "the assembly of {@link VarkaConversionLowering}". The branch's other two
+     hunks (`emitRangeMask`'s floating arm, `emitValueRangeGuard`, the new signature of
+     `emitFloatingRangeMask`) serve the magic's guard alone: do not take them. `git apply`
+     cannot take one hunk of a file, so copy the javadoc lines by hand from `git show
+     163aac5ecd6:$CG/varka/VarkaVectorWalk.java`, lines 858 to 866.
+   - `$T/VarkaEmitterFloatToIntegralSuite.java`, then by hand: (i) `avx2ToLong`: delete the
+     line `boolean magic = ...`, use `long[] cells = cells(source);`, pass `false` as the last
+     argument of the ANSI `check`, and its `@DisplayName` becomes `"AVX2: the assembled D2L
+     and F2L are Java's cast at every cell, under every arm of wideConversionForm"`; (ii) delete
+     `window` (with its javadoc) and the test `magicDeclines` whole; (iii) delete `magicTwin`
+     (with its javadoc); in `twins`, the filter's body becomes `return assemblyTwin(x) != (int)
+     x;` (the local `window` goes), and its javadoc reads "Every {@code every}-th float pattern
+     through the assembly's twin, against Java's cast."; `twinSlices`' `@DisplayName` becomes
+     `"the assembly's float-to-int twin over every 97th float is Java's cast"`. The seven new
+     `CELLS`, `levels` (the branch's: `F2L` and `D2L` refused at the unknown level alone),
+     `twinsWhole`, `sweepSlices`, `sweepsWhole` stay as the branch has them. Then `grep -c
+     'magic\|MAGIC' $T/VarkaEmitterFloatToIntegralSuite.java` prints `1` (the `MAGIC` arm of
+     `avx2Arms`, which takes the assembly too).
+   - `$BJ/VarkaFloatingCastBaselineBenchmark.java` and
+     `$BS/VarkaFloatingCastBaselineQueriesSuite.scala`, whole: `fusesToBigint`'s javadoc and
+     `val toBigint = level != -1` (D2L fuses at the named levels).
+   - `sql/varka/ci/sweeps.tsv`: the suite's line, with "and the two float-to-int twins" read
+     "and the assembly's float-to-int twin".
 
+   Not from the branch: `Analysis.java` (its one hunk names the magic's window),
+   `VarkaEmitBudget.java` (step 3), `VarkaEmitOptions.java` (master's `@param
+   wideConversionForm`, "the form of {@code L2D} where {@link #convertsFallBack()} holds ...
+   No other shape reads it.", stays true, and the enum's javadoc stays master's). If any other
+   file's apply leaves a conflict, stop and report.
 2. `$CG/varka/VarkaVectorIR.java`, `ConvertLane.props()`, by hand (master's weight is here,
-   since row 489; the branch's arm in the old switch of `VarkaEmitBudget` does not apply): the
-   weight and its comment become
+   since row 489): the weight and its comment become
 
          // One lanewise op, the conversion; a long converted to a floating lane is one
          // convertShape at level 3, and below it the default AVX2 form; a floating lane
          // converted to the long one likewise, the assembly (and F2L's exact F2D before it).
-         // Another form the options choose is weighed by VarkaEmitBudget.weightOf's overload,
-         // which reads them.
+         // Another L2F form the options choose is weighed by VarkaEmitBudget.weightOf's
+         // overload, which reads them.
          int weight = child.laneType() == LaneType.LONG
              ? (target == LaneType.FLOAT
                  ? VarkaConversionLowering.ODD_CALLS : VarkaConversionLowering.SPLIT_CALLS)
@@ -1045,45 +1092,21 @@ the steps; the rule for 343b2p's merge is B0 item 7.*
                      + (child.laneType() == LaneType.FLOAT ? 1 : 0)
                  : 1;
 
-3. `$CG/varka/VarkaEmitBudget.java`, `weightOf(VarkaVectorIR node, VarkaEmitOptions options,
-   NarrowConversionForm narrow)`, by hand: before its last line `return
-   node.props().weight();` add
+3. `$CG/varka/VarkaEmitBudget.java`: nothing in code (no form of `D2L` depends on the options);
+   add to the javadoc of `weightOf(VarkaVectorIR node, VarkaEmitOptions options,
+   NarrowConversionForm narrow)`: "A floating lane converted to the long one weighs the
+   assembly under every arm, in {@code ConvertLane.props()}."
+4. `$T/VarkaIrGrammar.java`, the javadoc of `FloatingCastShapes`: "one to the long lane is
+   admitted at level 3 alone, below which its draw declines" becomes "one to the long lane is
+   admitted at every named level, and its draw declines at the unknown one".
+5. `$S/VarkaEmitterBudgetSuite.scala`, a new test after "a bigint conversion to a floating lane
+   weighs its AVX2 form: ...":
 
-         // The truncated magic, the bounded arm of D2L and F2L, where the options pick it
-         // (the review of 23 November 2026: the budget charged it the assembly's 38).
-         if (node instanceof ConvertLane n && VarkaConversionLowering.toLong(n)
-             && options.softwareLongConversions()
-             && options.wideConversionForm() == VarkaEmitOptions.WideConversionForm.MAGIC) {
-           return VarkaConversionLowering.TRUNCATED_MAGIC_CALLS
-               + (n.child().laneType() == VarkaVectorIR.LaneType.FLOAT ? 1 : 0);
-         }
-
-   and add to its javadoc: "A floating lane converted to the long one weighs the assembly,
-   or the truncated magic under {@code wideConversionForm=MAGIC}."
-4. `$CG/varka/VarkaEmitOptions.java`, by hand (the conflict): keep master's `@param
-   decimalStore` (four lines; it names `InterleaveDecimal`), and make the `@param
-   wideConversionForm` entry (two lines, whatever 343L left) read "the form of {@code L2D},
-   and of {@code D2L} and {@code F2L}, where {@link #softwareLongConversions()} holds: see
-   {@link WideConversionForm}. No other shape reads it.", wrapped as its neighbours are. The
-   enum's javadoc hunk ("The option also picks {@code D2L}'s ...") merges clean.
-5. Two comments the branch left stale (the review of 23 November, entry 26/26), by hand:
-   - `$CG/varka/VarkaEmitOption.java`, the comment above `new Choice<>("wideConversionForm",
-     ...` (three lines, whatever 343L left) becomes "A machine choice of the AVX2 forms of L2D,
-     D2L and F2L (`VARKA-343.md` 2.3, VARKA-583), read by a ConvertLane between the long and
-     the double lanes below level 3 and at the unknown level, so it runs over useAVX=2. Its tag
-     keeps the default rendering empty.", wrapped at 100 columns as `//` lines.
-   - `$T/VarkaIrGrammar.java`, the javadoc of `FloatingCastShapes`: "one to the long lane is
-     admitted at level 3 alone, below which its draw declines" becomes "one to the long lane
-     is admitted at every level".
-6. `$S/VarkaEmitterBudgetSuite.scala`, a new test after "a bigint conversion to a floating lane
-   weighs its AVX2 form: ...", pinning the weights to what the forms emit, as that test pins
-   `L2D`'s and `L2F`'s:
-
-         test("a floating conversion to the long lane weighs its AVX2 form: the assembly, or " +
-             "the truncated magic under MAGIC", PinsDefaults) {
+         test("a floating conversion to the long lane weighs its AVX2 form, the assembly, " +
+             "under every arm of wideConversionForm", PinsDefaults) {
            // D2L and F2L below level 3 (VARKA-343, part 343b2b): ConvertLane.props() weighs
-           // the assembly and the options overload the truncated magic where MAGIC is set;
-           // each is the count of lane ops its form emits over the level-3 kernel's one call.
+           // the assembly, the count of lane ops its form emits over the level-3 kernel's one
+           // call, and no arm of the option moves it.
            import VarkaEmitOptions.WideConversionForm._
            def ops(source: LaneType, options: VarkaEmitOptions): Int = vectorOps(emitMulti(
              Seq(new ConvertLane(new ColumnRef(0, source), LaneType.LONG)), 1, 0, options)._2)
@@ -1101,129 +1124,116 @@ the steps; the rule for 343b2p's merge is B0 item 7.*
            }
          }
 
-   **The rule if it fails** (the branch counted 38 and 22 by hand, never by this count): set
-   `ASSEMBLY_CALLS` to the count the assertion prints for `DOUBLE` under `XOR_SPLIT`, and
-   `TRUNCATED_MAGIC_CALLS` to the count it prints for `DOUBLE` under `MAGIC`, then rerun. If
-   the `FLOAT` counts are then not one more than the `DOUBLE` ones, or `SPLIT` and `XOR_SPLIT`
+   **The rule if it fails** (the branch counted 38 by hand, never by this count): set
+   `ASSEMBLY_CALLS` to the count the assertion prints for `DOUBLE` under `XOR_SPLIT`, then
+   rerun. If the `FLOAT` counts are then not one more than the `DOUBLE` ones, or the three arms
    differ, stop and report the six counts. Record the counts in the outcome.
-7. The `BIGINT` targets at the unknown level, by hand (was "variant B"; one text now):
-   - `$T/VarkaEmitterFloatToIntegralSuite.java`, the test `levels`: its `@DisplayName` becomes
-     `"the plan admits F2I, D2I, F2L and D2L at every level"`, and the five lines from `var
-     toLong = VarkaKernelPlan.of(` to `toLong.ifPresent(r -> ...);` (343b2a2's text, at the
-     branch's lines 388 to 392 of `git show 96047835ca4:$T/VarkaEmitterFloatToIntegralSuite.java`:
-     `var toLong`, `.refusal();`, `boolean level3`, `assertEquals(!level3, ...)`,
-     `toLong.ifPresent`) become
-
-           assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(source, LaneType.LONG)), options)
-               .isEmpty(), source + " to BIGINT at " + options.useAVX());
-
-     Then `grep -rn 'conversionRefusal\|Kind.CONVERSION' sql/catalyst/src sql/core/src` prints
-     nothing.
-   - `$BS/VarkaFloatingCastBaselineQueriesSuite.scala`: the two lines `// D2L fuses at level 3
-     alone until its AVX2 form is built.` and `val toBigint = level == 3` become `// D2L fuses
-     at every level, by its AVX2 form at 2 and at the unknown one (-1), as the BIGINT sources
-     do (343L).` and `val toBigint = true`.
-   - `$BJ/VarkaFloatingCastBaselineBenchmark.java`, the javadoc of `fusesToBigint`: "{@code
-     D2L}, which the kernel plan admits where the level assures AVX512DQ until its AVX2 form is
-     built;" becomes "{@code D2L}, which the kernel plan admits at every level, by its AVX2 form
-     below level 3 and at the unknown one;".
-   - `$CG/VarkaFloatingCastCompiler.java`, the javadoc of `admits`: the sentence "a {@code
-     BIGINT} target is refused by the kernel plan there until part 343b2b." (343b2a2's step
-     1c) becomes "a {@code BIGINT} target, {@code D2L} or {@code F2L}, takes them as well
-     (part 343b2b)."
+6. The casts to `BIGINT`, by hand:
+   - `$CG/VarkaFloatingCastCompiler.java`, the javadoc of `admits`: the clause "(and a
+     {@code BIGINT} target below level 3 too, until part 343b2b)" (343b2a2's step 1c) is
+     deleted, so that the sentence says a `BIGINT` source and a `BIGINT` target are refused by
+     the kernel plan at the unknown emit level alone.
    - `sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaFloatingLaneSuite.scala`
-     (343b2a2's text): the comment and value
+     (343b2a2's text): the comment above `declined` that begins "// The divisors are literals"
+     keeps `try_cast(x1 AS BIGINT)` in the list, and its last line "waits for emit level 3,
+     which these sessions leave unknown (VARKA-343)." becomes "declines at the unknown emit
+     level these sessions keep (VARKA-343 A.4.5, the known limit)."; after the
+     `declined.foreach` block add
 
-           // cast from a floating type is TRY's, since the fixtures' NaNs raise under ANSI; to BIGINT it
-           // waits for emit level 3, which these sessions leave unknown (VARKA-343).
-           private val declined = Seq("x1 % 2.5D", "pmod(f1, 2.5F)", "try_cast(x1 AS BIGINT)")
-
-     become
-
-           // cast from a floating type is TRY's, since the fixtures' NaNs raise under ANSI.
-           private val declined = Seq("x1 % 2.5D", "pmod(f1, 2.5F)")
-
-           test("SELECT try_cast(x1 AS BIGINT) fuses and answers as the row engine does") {
-             // D2L fuses at every level, at the sessions' unknown one by the assembly (VARKA-343).
-             checkFused("SELECT try_cast(x1 AS BIGINT) AS v FROM $t")
+           test("SELECT try_cast(x1 AS BIGINT) fuses at emit level 2 and answers as the row " +
+               "engine does") {
+             // D2L by the integer assembled from the bits, an x86 session's level without
+             // AVX512DQ (VARKA-343, part 343b2b); the sessions here keep the unknown one.
+             withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, "2") {
+               checkFused("SELECT try_cast(x1 AS BIGINT) AS v FROM $t")
+             }
            }
 
-     (the first comment line is the second line of the comment that begins "// The divisors
-     are literals"; keep its first line). This turns the decline into the fused check, as
-     343b2a2 turned `try_cast(f1 AS INT)`: the query fuses now, so the decline test would fail.
+     (`$t` is `checkFused`'s placeholder, not an interpolation; `withBothConf` is
+     `VarkaSharedSessions`').
    - `$S/VarkaCoverageSuite.scala`, the family "Floating casts to integral types": its comment's
-     last sentence "A BIGINT target is not listed: the rows compile at the defaults' unknown
-     emit level, where D2L declines." becomes "A BIGINT target takes D2L's AVX2 form at the
-     defaults' unknown emit level (part 343b2b).", and after its row `CAST(x AS TINYINT)` (and
-     its domain) add, each as `Row(sql, note, domain = Some(...))` where a domain is given:
+     last sentence (343b2a2's: "A BIGINT target is not listed: the rows compile at emit level 2
+     (VarkaMatrixRuns.CREDIT), where D2L declines until part 343b2b.") becomes "A BIGINT target
+     takes D2L's assembly at emit level 2, which the rows compile at (part 343b2b), and
+     declines at an unknown level.", and after its row `CAST(x AS TINYINT)` (and its domain)
+     add, each as `Row(sql, note, domain = Some(...))` where a domain is given:
 
      | row | note | domain |
      | :--- | :--- | :--- |
-     | `CAST(x AS BIGINT)` | the integer assembled from the bits; a value past the long range declines its batch | `x BETWEEN -9.0E18 AND 9.0E18` |
+     | `CAST(x AS BIGINT)` | the integer assembled from the bits at emit level 2; a value past the long range declines its batch | `x BETWEEN -9.0E18 AND 9.0E18` |
      | `try_cast(x AS BIGINT)` | null past the long range and at a NaN; `2^63` saturates as Spark reads `Long.MaxValue` | none |
      | `CAST(f AS BIGINT)` | the float widened exactly, then the same | `f BETWEEN -9.0E18F AND 9.0E18F` |
      | `try_cast(f AS BIGINT)` | the float twin | none |
 
-8. `sql/varka/plans/m8/PLAN.md`, row 343: after `**Started** (` insert `*343b2b built <date>,
-   \`VARKA-343.md\` A.5: D2L and F2L fuse below level 3 and at the unknown level by the
-   assembly, the truncated magic behind its option;* `. `VARKA-343.md` section 10: `###
-   343b2b as built (<date>)`, at most 15 lines, with the six counts of step 6.
+7. `sql/varka/plans/m8/PLAN.md`, row 343: after `**Started** (` insert `*343b2b built <date>,
+   \`VARKA-343.md\` A.5: D2L and F2L fuse below level 3 by the integer assembled from the
+   bits, under every arm; the truncated magic is January's (343b2m);* `. `VARKA-343.md` section
+   10: `### 343b2b as built (<date>)`, at most 15 lines, with the counts of step 5.
 
 **The tests.**
 
 | suite | what it holds | the failure only it catches |
 | :--- | :--- | :--- |
-| `VarkaEmitterFloatToIntegralSuite` (now 14 tests) | `avx2ToLong`: at `useAVX=2` under `XOR_SPLIT`, `SPLIT` and `MAGIC`, both sources to `BIGINT` in LEGACY, TRY and ANSI over every cell (the window's cells under `MAGIC`), every width, length, null pattern, both bodies; `magicDeclines`: under `MAGIC` at 4 lanes, `nextUp(2^51)`, its negation, NaN and `-Infinity` at row 9 of 17 decline both bodies, and a null row 9 only the other; `twinSlices`: the two forms' 32-bit twins (`assemblyTwin`, `magicTwin` with `0x1.8p23f` inside `2^22`) against Java's `(int)` over every 97th float; `sweepSlices`: every 257th chunk of `2^16` float patterns through the emitted kernels of `CAST` and `try_cast` to the four types, `BIGINT` at level 3 and under both whole-range AVX2 arms; `twinsWhole` and `sweepsWhole` the same over every pattern under `-Dvarka.sweep=true`; `levels`: no conversion refused at any level | an off-by-one shift, a lost sign, a saturation or NaN case, a magic step taken the wrong way, a window that lets a raising lane answer |
-| `VarkaEmitterBudgetSuite` (Scala, new test) | the weights equal the emitted counts | a group over its budget unseen (the review's finding) |
-| `VarkaFloatingCastBaselineQueriesSuite` | `fusesToBigint` at every level | a benchmark section left on the row path |
-| `VarkaFloatingLaneSuite` | `try_cast(x1 AS BIGINT)` fused through a session at the unknown level | the session path of the default level |
+| `VarkaEmitterFloatToIntegralSuite` (now 13 tests) | `avx2ToLong`: at `useAVX=2` under `XOR_SPLIT`, `SPLIT` and `MAGIC`, both sources to `BIGINT` in LEGACY, TRY and ANSI over every cell, every width, length, null pattern, both bodies; `twinSlices`: the assembly's 32-bit twin (`assemblyTwin`) against Java's `(int)` over every 97th float; `sweepSlices`: every 257th chunk of `2^16` float patterns through the emitted kernels of `CAST` and `try_cast` to the four types, `BIGINT` at level 3 and under both whole-range AVX2 arms; `twinsWhole` and `sweepsWhole` the same over every pattern under `-Dvarka.sweep=true`; `levels`: `F2L` and `D2L` refused at the unknown level alone | an off-by-one shift, a lost sign, a saturation or NaN case |
+| `VarkaEmitterBudgetSuite` (Scala, new test) | the weight equals the emitted count under each arm | a group over its budget unseen (the review's finding) |
+| `VarkaFloatingCastBaselineQueriesSuite` | `fusesToBigint` at every named level, not at -1 | a benchmark section left on the row path |
+| `VarkaFloatingLaneSuite` | `try_cast(x1 AS BIGINT)` declined at the sessions' unknown level, fused at level 2 | the session path at both levels |
+| `*ConformanceSuite` | `VarkaFloatConformanceSuite`, `VarkaDoubleConformanceSuite`: the casts to `BIGINT` held to the register at the credit level's class, owed at the unknown level (343b2a2's `fusedIn`) | a register that drifted from the compiler |
 
 **Commands, in order.**
 
 1. `flock "$VARKA_HEAVY_LOCK" build/sbt catalyst/Test/compile sql/Test/compile`: `[success]`.
 2. `flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaEmitterFloatToIntegralSuite'`:
-   sbt's summary shows `Total 14`, `Failed 0`, `Errors 0`; the two opt-in tests (`twinsWhole`,
+   sbt's summary shows `Total 13`, `Failed 0`, `Errors 0`; the two opt-in tests (`twinsWhole`,
    `sweepsWhole`) are reported as skipped or canceled, since they assume the property. Any
    failed or errored test is a stop.
 3. `flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaEmitterBudgetSuite
-   *VarkaIrFuzzSuite *VarkaEmitterWideConversionSuite *VarkaEmitterFloatingCastSuite'`: no
-   test fails (step 6's rule first).
+   *VarkaIrFuzzSuite *VarkaEmitterWideConversionSuite *VarkaEmitterFloatingCastSuite
+   *ConformanceSuite'`: no test fails (step 5's rule first).
 4. `dev/varka_regen_generated.sh --all` (bare): last line begins `varka regen: done`; the
    bytes check prints `bytes: 0 committed shapes moved, 8 shapes added` (the four rows at both
-   pinned widths; another added count is reported, not a stop; a moved shape is a stop).
+   pinned widths, each `<declined>` at the oracle's unknown level, 343L's hand-off item 3;
+   another added count is reported, not a stop; a moved shape is a stop).
 5. `grep -P '^(float|double)\tbigint\t' sql/varka/plans/m8/casts_fused.tsv` prints two lines
    ending `fused	fused	fused`; `awk -F'\t' '$10 ~ /343/ && $9 == ""'
    sql/varka/plans/m8/casts.tsv | wc -l` prints `4` (the two `DATE` pairs and the two
-   identities); `python3 dev/varka_census.py --check` prints nothing.
+   identities); `awk -F'\t' '$1=="bigint"{print $8}' sql/varka/plans/m8/census.tsv` prints
+   `bool,byte,short,int,bigint,float,double,dt`; `python3 dev/varka_census.py --check` prints
+   nothing.
 6. `flock "$VARKA_HEAVY_LOCK" build/sbt 'sql/testOnly *VarkaFloatingCastBaselineQueriesSuite
-   *VarkaFloatingBaselineQueriesSuite *VarkaFloatingLaneSuite *VarkaCoverageHarnessSuite'`: no
-   test fails.
+   *VarkaFloatingBaselineQueriesSuite *VarkaFloatingLaneSuite *VarkaCoverageHarnessSuite
+   *VarkaCastWithAnsiOffSuite *VarkaCastWithAnsiOnSuite *VarkaTryCastSuite'`: no test fails.
 7. Once, the whole sweeps: `flock "$VARKA_HEAVY_LOCK" build/sbt 'set LocalProject("catalyst") /
    Test / javaOptions += "-Dvarka.sweep=true"' 'catalyst/testOnly
    *VarkaEmitterFloatToIntegralSuite'`: no test fails, none skipped; put the run's time in the
    suite's line of `sql/varka/ci/sweeps.tsv` in place of "not yet timed".
-8. `BUILD_SHEETS.md` 6, the commit, `python3 dev/varka_push_check.py` (B0 item 7 for the
-   message's held line).
+8. `BUILD_SHEETS.md` 6, the commit, `python3 dev/varka_push_check.py`.
 
 **Planted faults.** (a) `MAX_LEFT_SHIFT` of 10 becomes 11: at `e = 11` the left shift of `m`
 leaves the long instead of saturating, so `0x1p63` gives `Long.MIN_VALUE`; command 2 fails in
-`avx2ToLong` (the cell `0x1p63` is in `CELLS`). (b) In `emitTruncatedMagic`, `emitScalar(cb,
-"or", 1L)` becomes `emitScalar(cb, "or", 0L)`: for a positive `x` the step toward zero is then
-0, so `0.7` gives 1; `avx2ToLong` fails under `MAGIC`. (c) Step 3's arm returns
-`ASSEMBLY_CALLS`: the budget test fails.
+`avx2ToLong` (the cell `0x1p63` is in `CELLS`). (b) In `emitAssembly`, the
+`"sub"` of `r = (mag ^ s) - s` (the `invokevirtual(LONG_VECTOR, "sub", ...)` right after
+`cb.aload(neg)`) becomes `"add"`: `-0.7` then gives -2, not 0, and `avx2ToLong` fails at that
+cell. (c) `ASSEMBLY_CALLS = 37`: the budget test fails.
 
 **Done when** commands 1 to 8 print what they say and the three faults fail as said.
 
-**Not here:** the proof file (343b2p); `time_from_seconds`; `VarkaDivisionLowering`'s use of
-`convertsFallBack()`.
+**Not here:** the truncated magic (343b2m, January 2027) and its proof (343b2p, January 2027);
+`time_from_seconds`; `VarkaDivisionLowering`'s use of `convertsFallBack()`; the unknown level
+(343L's known limit).
 
-#### Part 343b2p: the truncated magic's proof (full strength, before 1 December)
+#### Part 343b2p (January 2027, full strength; not a gate before then)
+
+*The truncated magic's proof. Moved on 28 November 2026 by the owner's decisions E1 (a) and E3 (a):
+this proof and the arm it proves (343b2m) wait for a full-strength builder, back in January 2027.
+Neither gates the milestone 8 close: 343b2b builds the whole-range assembly, which owes no proof.
+The text below is kept as written; read "343b2m" where it says "343b2b" about the magic arm.*
 
 - **Title:** `[VARKA-343] Prove the truncated magic D2L inside its window`. **Branch:**
-  `varka-343b2p-magic-proof` from master. **Builder:** full strength: a new section of an SMT
-  file in the floating-point theory that mixes `Float64` operations with a double's bits,
-  under both solvers' time limits; the encoding of `bits(x)` is the design work. **Size:**
-  about 150 counted lines; the `.smt2` is generated. Merges before 343b2b.
+  `varka-343b2p-magic-proof` from master. **Builder:** full strength, January 2027: a new
+  section of an SMT file in the floating-point theory that mixes `Float64` operations with a
+  double's bits, under both solvers' time limits; the encoding of `bits(x)` is the design work.
+  **Size:** about 150 counted lines; the `.smt2` is generated. Merges before 343b2m.
 - **What it proves**, in `round_to_odd.smt2` (rendered by `VarkaProofFiles.roundToOdd()`,
   whose header lists the AVX2 forms of 2.3 already), from `VarkaConversionLowering.MAGIC`
   (`0x1.8p52`) and `MAGIC_WINDOW` (`2^51`), which master has:
@@ -1239,8 +1249,8 @@ leaves the long instead of saturating, so `0x1p63` gives `Long.MIN_VALUE`; comma
      is still exact, so above zero the bound is the guard's, one double inside the form's.
 - **The marker** (fix round 2, review 1 finding 8): the new section of the rendered
   `round_to_odd.smt2` opens with the comment line `; D2L's truncated magic inside |x| <= 2^51
-  (VARKA-343, part 343b2p)`, written by `VarkaProofFiles` word for word, on one line. 343b2b's
-  B0 item 7 greps for it to know whether this part has merged.
+  (VARKA-343, part 343b2p)`, written by `VarkaProofFiles` word for word, on one line. 343b2m's
+  B0 item 3 greps for it to know whether this part has merged.
 - **A hint for the encoding**, not a decision: the bits of a non-NaN `Float64` `v` are the one
   bit-vector `b` with `((_ to_fp 11 53) b) = v` whose sign bit is `v`'s (so the two zeros are
   told apart); `round_to_odd.smt2` defines `rto.bitsToDouble` already.
@@ -1254,120 +1264,424 @@ leaves the long instead of saturating, so `0x1p63` gives `Long.MIN_VALUE`; comma
 - **Not here:** the assembly (whole-range, held by 343b2b's cells, sweeps and twins); any code
   under `sql/catalyst/src/main`.
 
-#### Part 343L: the unknown emit level takes the exact forms (full strength, before 1 December)
+#### Part 343b2m (January 2027, full strength; not a gate before then)
 
-*Changed in fix round 2 (review 1, finding 3; the owner's answer to question 1 of A.12, 28
-November 2026: (b), build it). 343L is first in the order (A.5) and the later sheets are
-written against the state it leaves, so this sheet ends with that state, the hand-off: the
-builder of 343L meets it exactly, or changes the later sheets in the same pull request.*
+*The truncated magic arm of `D2L` and `F2L`. New on 28 November 2026 (the owner's decision E3
+(a)): the reference arm, which 343b2b no longer builds. Its code is on the branch and stays
+there; this part is the list of what to take, after 343b2b and 343b2p have merged. Not to be
+started before January 2027.*
 
-- **Title:** `[VARKA-343] Convert BIGINT and floating values at the unknown emit level by the
-  exact forms`. **Branch:** `varka-343L-unknown-level` from master. **Builder:** full strength
-  (A.8): it changes what the defaults fuse, so the shape key, the generated records and every
-  test that pinned the decline must be read; built by the lead before 1 December. **Size:**
-  about 150 counted lines plus the turned tests. Waits on nothing.
-- **The change.** `VarkaEmitOptions.softwareLongConversions()`, `public boolean`, true where
-  `levelUnknown() || convertsFallBack()`, its javadoc saying why: the software forms are exact
-  on every host, and the unknown level may be a host without AVX512DQ. Read it in
-  `VarkaConversionLowering.takesWideForm`, in `VarkaEmitBudget.weightOf`'s overload (its `L2F`
-  arm's `options.convertsFallBack()`), and in `VarkaKernelPlan.conversionRefusal`, whose arm
-  `c.child().laneType() == LaneType.LONG && options.levelUnknown()` goes. Keep
-  `VarkaDivisionLowering`'s `convertsFallBack()` (its double division is no conversion form).
-  The subjects of `wideConversionForm`, `narrowConversionForm` and `roundToOddByShifts` in
-  `VarkaEmitOption` ("read ... below level 3 alone, so it runs over useAVX=2") now hold at the
-  unknown level too: say so, and keep `Subject(o -> o.withUseAVX(2))`. Whether the unknown
-  level's new lowering must reach `VarkaEmitOptions.canonical()` (its javadoc: "a level that
-  changes a lowering has to reach the shape key") is this part's to settle and to state in the
-  description.
-- **Every reader to read and turn, never delete.** `grep -rn -i -e levelUnknown -e 'unknown
-  emit level' -e 'unknown level' -e USE_AVX_UNKNOWN -e conversionRefusal sql/catalyst/src
-  sql/core/src` on `6dafb8bd2f6` lists them; in the tests: `VarkaEmitterFloatingCastSuite`
-  (the javadoc near "the unknown level dec", the assertion near "unknown level; at a named
-  level", the test `unknownLevelRefusal`), `VarkaFloatingLaneSuite` (the assertion that a
-  decline names "unknown emit level", and the level test after it), `VarkaEmittedBytesSuite`
-  ("Level 3 keys apart from the unknown level only" and its `armDigest` over
-  `USE_AVX_UNKNOWN`), `VarkaMatrixSuite`, `VarkaLaneTypeSuite`, `VarkaEmitterDivisionSuite`,
-  `VarkaShapeCacheSuite`, `VarkaIrFuzzSuite` (the skip of a draw the plan refuses),
-  `VarkaMatrixRuns`, `VarkaTypeConformance` (`CastPair.fusedIn`'s comment that names
-  `conversionRefusal`), `VarkaCoverageSuite` (the comment of the family "Floating casts"); in
-  the main sources the javadoc of
-  `sql/core/src/main/java/org/apache/spark/sql/execution/VarkaSessionEmit.java` and of
-  `VarkaEmitOptions.levelUnknown()`. Each test that asserted a decline at the unknown level
-  asserts the fused kernel there, its answers held to the reference as at level 2.
-- **Rows.** "Floating casts": `CAST(l AS DOUBLE)`, `CAST(l AS FLOAT)`; the benchmark's
-  `fusesLongCasts` holds at every level.
-- **Commands.** The compile; the suites named above; `dev/varka_regen_generated.sh --all`,
-  after which `grep -P '^bigint\t(float|double)\t' sql/varka/plans/m8/casts_fused.tsv` prints
-  two lines ending `fused	fused	fused`, and `awk -F'\t' '$1=="bigint" && ($2=="float" ||
-  $2=="double") {print $9}' sql/varka/plans/m8/casts.tsv` prints `LEGACY,ANSI,TRY` twice; the
-  bytes check: the committed shapes that hold an `L2F` or `L2D` move (list them in the
-  description), no other; the option matrix.
-- **Not here:** `D2L`, `F2L` (343b2b); `VarkaFloatingCastCompiler.java` (343b2a2 rewrites its
-  `admits` javadoc, hand-off item 6).
+- **Title:** `[VARKA-343] Take D2L and F2L by the truncated magic under wideConversionForm=MAGIC`.
+  **Builder:** full strength, January 2027: a bounded lowering whose guard sits on the child,
+  a second floating-guard emission path beside 343b2a1's, and a weight that depends on the
+  options. **Size:** about 150 counted lines. Waits on 343b2b and 343b2p.
+- **What it adds:** below level 3, under `wideConversionForm=MAGIC`, `D2L` by A.4.3's truncated
+  magic behind a guard `|x| <= 2^51` on the child that declines the batch (NaN and the
+  infinities with it); `F2L` as `F2D`, then the same. Under `SPLIT` and `XOR_SPLIT` the
+  assembly stays.
+- **B0:** 343b2b merged (`grep -c 'emitAssembly' $CG/varka/VarkaConversionLowering.java` at
+  least `2`, `grep -c 'emitTruncatedMagic' ...` `0`); `git cat-file -t 163aac5ecd6` prints
+  `commit`; 343b2p merged (`grep -c "D2L's truncated magic inside |x| <= 2^51 (VARKA-343, part
+  343b2p)" sql/varka/proofs/round_to_odd.smt2` at least `1`; if `0`, stop: house rule VARKA-242
+  wants the proof first).
+- **What to take from `git diff fa1031645a7 163aac5ecd6`**, the hunks 343b2b left out: in
+  `VarkaConversionLowering` the class javadoc's second `<li>` (the magic), `TRUNCATED_MAGIC_CALLS =
+  22`, the `takesMagic` hunk (`n.target() == LaneType.DOUBLE || toLong(n)`, and its javadoc),
+  `scratch`'s `takesMagic(analysis, n) ? 4 : 6`, `emitToLong`'s guard block and its `magic` branch,
+  `emitTruncatedMagic`; in `VarkaVectorWalk` the two hunks after `emitShapeConversion`
+  (`emitRangeMask`'s floating arm passing `g.loValue()`, `g.hiValue()`; the new
+  `emitValueRangeGuard`; `emitFloatingRangeMask(CodeBuilder cb, int guardTmp, Lane lane, double lo,
+  double hi)`), and the javadoc's "or the truncated magic"; `Analysis`'s `VALUE_RANGE` javadoc hunk;
+  `VarkaEmitOptions`' two hunks (the `@param wideConversionForm` and the enum's javadoc: "The option
+  also picks {@code D2L}'s and {@code F2L}'s form ..."), merged by hand over master's text (343L
+  leaves the file alone); in `VarkaEmitterFloatToIntegralSuite` the branch's `avx2ToLong` (the
+  window's cells under `MAGIC`, ANSI declines expected there), `window`, `magicDeclines`,
+  `magicTwin` and `twins`' window term.
+- **The weight**, in `VarkaEmitBudget.weightOf`'s options overload, before its last line:
+
+        // The truncated magic, the bounded arm of D2L and F2L, where the options pick it
+        // (the review of 23 November 2026: the budget charged it the assembly's 38).
+        if (node instanceof ConvertLane n && VarkaConversionLowering.toLong(n)
+            && options.convertsFallBack()
+            && options.wideConversionForm() == VarkaEmitOptions.WideConversionForm.MAGIC) {
+          return VarkaConversionLowering.TRUNCATED_MAGIC_CALLS
+              + (n.child().laneType() == VarkaVectorIR.LaneType.FLOAT ? 1 : 0);
+        }
+
+  and 343b2b's budget test then expects the magic's count under `MAGIC` (its rule: set
+  `TRUNCATED_MAGIC_CALLS` to the count printed for `DOUBLE` under `MAGIC`).
+- **Planted fault:** in `emitTruncatedMagic`, `emitScalar(cb, "or", 1L)` becomes
+  `emitScalar(cb, "or", 0L)`: for a positive `x` the step toward zero is then 0, so `0.7` gives
+  1; `avx2ToLong` fails under `MAGIC`.
+- **Then** 343r's 4.4 rule (the assembly within 1.5 times the magic; the default flips only if
+  the ratio passes 1.3 at 256 bits) is scored by a results part of its own, on
+  `VarkaWideConversionBenchmark`'s D2L section with a third arm, `cast(x AS bigint), the
+  truncated magic`.
+
+#### Part 343L: the records compile at an x86 session's emit level (build sheet, rework E2)
+
+*Rewritten on 28 November 2026 after the owner's decision E2 (c), which replaces the answer
+(b) to question 1 of A.12: this part no longer builds the exact software forms at the unknown
+emit level, and production does not change. The suites that write a generated record crediting
+a fused form compile at emit level 2, the level an x86 session without AVX512DQ resolves to,
+in place of the unknown level of `VarkaEmitOptions.DEFAULTS`. The earlier full-strength sheet
+is gone; its hand-off is replaced by the one at the end of this sheet.*
+
+- **Title:** `[VARKA-343] Credit the cast matrix and the coverage table at an x86 session's emit
+  level`. **Branch:** `varka-343L-credit-level` from master. **Builder:** Sonnet-class.
+  **Size:** about 190 counted lines plus the regenerated records (not counted). The owner's
+  estimate was about 40; the grep of B0 item 6 found eight readers beyond the cast matrix and
+  the coverage suite that hold the records' rows, each a few lines. Between 901 and 999 counted
+  lines is impossible here; above 400, stop and report. Follow `BUILD_SHEETS.md`. Waits on
+  nothing.
+- **What it changes:** test code, the census script's captions, one curated header and the
+  regenerated records. No file under `sql/catalyst/src/main` or `sql/core/src/main` changes.
+- **What it credits:** `bigint` to `float` and `double` in `casts.tsv` (two pairs, all three
+  modes) and the census's cast entries. The other six of the eight pairs E2 names are credited
+  by the parts that build them, on this part's rule: `float` and `double` to `bigint` by
+  343b2b; `dt_times_num` over `float` and `double` by 342e; `dt_div_num` over `float` and
+  `double` by 342q.
+- **The known limit, stated in the records' captions:** a session keeps the unknown level, and
+  so still declines a `BIGINT` conversion to or from a floating lane, on a host it cannot read:
+  an x86 host without AVX512DQ whose preferred long species is under 256 bits (the runners'
+  `-XX:MaxVectorSize=16` runs among them), an x86 host whose feature list could not be read,
+  and any architecture but x86 and aarch64; also wherever the session sets
+  `spark.sql.codegen.varka.emit.useAVX=-1`, as the test sessions do. The remedy there is an
+  explicit `spark.sql.codegen.varka.emit.useAVX=2` (or 3 on AVX512DQ). Checked on
+  `6dafb8bd2f6` by reading `VarkaSessionEmit.resolve` (its body: `FALLBACK_LEVEL` only where
+  `host.longBits() >= MAGIC_MIN_LONG_BITS`, 256; `AVX512_LEVEL` where the conversions are
+  instructions; `USE_AVX_UNKNOWN` otherwise) and B0 item 2.
+
+**B0, the premises.** `CG`, `T`, `S` as in A.3, and two more names:
+
+    E=sql/core/src/test/scala/org/apache/spark/sql/execution
+    EJ=sql/core/src/test/java/org/apache/spark/sql/execution
+    CT=sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen
+
+1. `grep -c 'static final int FALLBACK_USE_AVX = 2;' $T/VarkaMatrixRuns.java`: `1`; `grep -c
+   'CREDIT\|credited' $T/VarkaMatrixRuns.java`: `0`.
+2. `grep -c 'at an unknown emit level, which may be a host' $CG/varka/VarkaKernelPlan.java`:
+   `1` (the refusal this part keeps).
+3. `grep -c 'VarkaEmitOptions.DEFAULTS' $T/VarkaCastMatrixSuite.java`: `2`; `grep -c
+   'VarkaEmitOptions.DEFAULTS' $S/VarkaCoverageSuite.scala`: `11`.
+4. `grep -P '^bigint\t(float|double)\t' sql/varka/plans/m8/casts_fused.tsv` prints two lines
+   ending `declined	declined	declined`; `grep -c 'unknown emit level'
+   sql/varka/plans/m8/casts_suites.tsv`: `6`.
+5. `awk -F'\t' '$10 ~ /343/ && $9 == ""' sql/varka/plans/m8/casts.tsv | wc -l`: `14`.
+6. The readers, `grep -rln 'coverage.json\|VarkaCoverageRows\|casts_fused\|casts_suites'
+   sql/catalyst/src/test sql/core/src/test`: 25 files on `6dafb8bd2f6`. The ones that require
+   a row or a cast to fuse at the unknown level, and so are edited below:
+   `VarkaCastMatrixSuite`, `VarkaCoverageSuite`, `VarkaEmittedBytesSuite`,
+   `VarkaTypeConformance`, `VarkaSuiteArm` (through `VarkaSuiteCheck` and `VarkaSuiteRecord`,
+   which write `casts_suites.tsv`), `VarkaCoverageHarnessSuite`, `VarkaFamilySwitchSuite`,
+   `VarkaCoverageCompositionFuzzSuite`, `VarkaWidthAuditSuite`. The others read rows over
+   columns the new rows do not use (`VarkaFarDaySuite`), skip a declined row
+   (`VarkaDivisorProofSuite`, `VarkaMaskFromWordSuite`, `VarkaMaskOfWordSuite`,
+   `VarkaWarmupReach`), or run one row per family through a session
+   (`VarkaCoverageDifferentialSuite`: no row added here is a family's first). Left at the
+   defaults on purpose: `VarkaSQLQueryTestSuite` and `VarkaGoldenCorpusSuite` record what
+   Spark's own tests serve through their sessions, which pin the level to -1; no census input
+   reads them (`grep -c 'served.json\|golden' dev/varka_census.py` prints `0`).
+
+**Steps.**
+
+1. `$T/VarkaMatrixRuns.java`, directly after `static final int FALLBACK_USE_AVX = 2;`:
+
+        /**
+         * The emit level the generated records that credit a fused form are written at
+         * ({@code casts_fused.tsv}, {@code casts_suites.tsv}, the coverage table and the census
+         * read from them), and the harnesses that hold those rows run at: the level an x86
+         * session without AVX512DQ resolves to at a 256-bit species, as the runners' EPYC 7763
+         * does ({@code VarkaSessionEmit.FALLBACK_LEVEL}). A record's "fused" means fused on an
+         * x86 host at this level. The defaults' unknown level, which a session keeps on a host
+         * it cannot read, still declines a {@code BIGINT} conversion to or from a floating lane
+         * (`VARKA-343.md` A.4.5, part 343L). Production code does not read it.
+         */
+        public static final int CREDIT_USE_AVX = FALLBACK_USE_AVX;
+
+        /**
+         * {@code options} at {@link #CREDIT_USE_AVX} where they name no level, and unchanged
+         * where they name one (a matrix configuration of {@code useAVX}).
+         */
+        public static VarkaEmitOptions credited(VarkaEmitOptions options) {
+          return options.levelUnknown() ? options.withUseAVX(CREDIT_USE_AVX) : options;
+        }
+
+        /** The defaults at {@link #CREDIT_USE_AVX}: what the records compile under. */
+        public static final VarkaEmitOptions CREDIT = credited(VarkaEmitOptions.DEFAULTS);
+
+        /** Whether {@code reason} is the kernel plan's refusal of a conversion at the unknown level. */
+        public static boolean isUnknownLevelDecline(String reason) {
+          return reason.contains("at an unknown emit level");
+        }
+
+   (wrap the javadoc line of `isUnknownLevelDecline` at 100 columns). The text matches both
+   refusals: master's `BIGINT` source ("a BIGINT conversion to DOUBLE at an unknown emit
+   level") and, after 343b2b, a floating source to `BIGINT`.
+2. `$T/VarkaCastMatrixSuite.java`, `fuses`: both `VarkaEmitOptions.DEFAULTS` become
+   `VarkaMatrixRuns.CREDIT`, and in its javadoc the sentence "The defaults' options, not the
+   matrix's: the file records what production fuses." becomes "The options are
+   {@link VarkaMatrixRuns#CREDIT}, the defaults at the emit level of an x86 session without
+   AVX512DQ, and not the matrix's: a cell of the file means fused on an x86 host at that level
+   (part 343L of `VARKA-343.md`). At the defaults' unknown level a {@code BIGINT} conversion to
+   or from a floating lane declines, which {@code VarkaEmitterFloatingCastSuite} holds."
+3. `$S/VarkaCoverageSuite.scala`:
+   - every `VarkaEmitOptions.DEFAULTS` (11: nine in code, two in the comments above `guardsOf`
+     and `kernelsOf`) becomes `VarkaMatrixRuns.CREDIT`;
+   - the seven calls that pass no options get `VarkaMatrixRuns.CREDIT` as their last argument:
+     the `compile` and `compilePartial` of `declinedRows`, the `compilePartial`, `compile` and
+     `declines` of the test "every predicate row compiles as a projection entry to a boolean
+     output", the `compilePartial` of the test "every operand the compiler builds in a
+     restricted position is one the position admits" and the `compile` of the test "an
+     expression matched only to decline really does decline". Then `grep -c 'VarkaEmitOptions.DEFAULTS'` prints
+     `0` and, after the next two bullets too, `grep -c 'VarkaMatrixRuns.CREDIT'` prints `19`;
+   - the comment above `guardsOf`: "Read under `VarkaMatrixRuns.CREDIT`, the options the rest
+     of this suite compiles under: the defaults at an x86 session's emit level (VARKA-343, part
+     343L), and not the matrix's base: the table documents the engine as an x86 session runs
+     it, and a configuration that turns a check off does not take a row's domain away.";
+   - the comment above the family "Floating casts" (four lines on master): its last sentence
+     "A BIGINT's cast is not listed: the rows compile at the defaults' unknown emit level, where
+     the plan declines L2F and L2D." becomes "A BIGINT's cast takes the exact AVX2 forms at emit
+     level 2, which the rows compile at (VarkaMatrixRuns.CREDIT, VARKA-343 part 343L), and
+     declines at an unknown level.";
+   - in that family, directly after the row `CAST(CAST(l AS INT) AS FLOAT)` and its `domain`
+     line, before the comment `// A choice's condition of the other kind than its values`:
+
+         Row("CAST(l AS DOUBLE)", "the long split into exact halves at emit level 2, one "
+           + "convertShape at level 3; declined at an unknown level"),
+         Row("CAST(l AS FLOAT)", "rounded to odd without a mask at emit level 2, one "
+           + "convertShape at level 3; declined at an unknown level"),
+
+   - `renderJson`'s `"description"`: after "Anything absent runs on Spark's row engine. " add
+     `"The rows compile at emit level 2, the level an x86 session without AVX512DQ resolves " +
+     "to; at an unknown level, a host the session cannot read, a BIGINT conversion to or from " +
+     "a floating type declines. "`.
+4. `$S/VarkaEmittedBytesSuite.scala`:
+   - `coverageOf`, the `val compiled = ...` block (its `if (form == "predicate")` and the two
+     compiles) becomes
+
+         // The defaults' IR where the defaults fuse the row, so the oracle pins what production
+         // emits; a row only the credit level fuses (VARKA-343, part 343L: a BIGINT conversion
+         // to or from a floating lane, refused at the unknown level) takes its IR from that
+         // level, and the oracle's unknown-level emissions record the plan's refusal of it.
+         def compileAt(options: VarkaEmitOptions) =
+           if (form == "predicate") {
+             VarkaExpressionCompiler.compilePredicate(claimed, cols, options,
+               VarkaAdmission.NO_HOST_REFUSAL).toScala.map(_.fused)
+           } else {
+             VarkaExpressionCompiler.compile(Seq(Alias(claimed, "c")()), cols, options).toScala
+           }
+         val compiled = compileAt(VarkaEmitOptions.DEFAULTS)
+           .orElse(compileAt(VarkaMatrixRuns.CREDIT))
+
+     (the `compiled match` after it is unchanged);
+   - `armDigest` gains a last parameter `admits: Seq[VarkaVectorIR] => Boolean = _ => true`,
+     and its local `line` begins `if (!pinsAt(roots, lanes) || !admits(roots)) return ""`;
+   - in the test "an arm the option matrix runs in another's place emits that arm's bytes", the
+     comment that begins "Level 3 keys apart from the unknown level only" and the
+     `widths.foreach` after it, to the end of the test, become
+
+         // Level 3 keys apart from the unknown level by the BIGINT conversions to and from the
+         // floating lanes it admits. The oracle holds such rows since part 343L of VARKA-343,
+         // which the unknown level records as refused, so the two emit the same bytes over the
+         // shapes both admit, and only there.
+         def bothAdmit(roots: Seq[VarkaVectorIR]): Boolean =
+           Seq(VarkaMatrix.base.withUseAVX(3),
+             VarkaMatrix.base.withUseAVX(VarkaEmitOptions.USE_AVX_UNKNOWN)).forall(o =>
+             VarkaKernelPlan.refusalOf(roots.asJava, o).isEmpty)
+         assert(coverage.exists(r => !bothAdmit(r.roots)),
+           "no coverage row is refused at the unknown level alone, so the narrowing is moot")
+         widths.foreach { w =>
+           assert(armDigest(_.withUseAVX(3), w, admits = bothAdmit) ===
+             armDigest(_.withUseAVX(VarkaEmitOptions.USE_AVX_UNKNOWN), w, admits = bothAdmit),
+             s"useAVX=3 emits other bytes than the unknown level at $w lanes")
+         }
+
+5. `$T/VarkaTypeConformance.java`, `CastPair.fusedIn`: the comment and the `if` between
+   `String answer = ...` and `return answer.equals("fused");` become
+
+         // The compiler writes the register at VarkaMatrixRuns.CREDIT, an x86 session's emit
+         // level (VARKA-343, part 343L). A BIGINT cast to FLOAT or DOUBLE fuses there and at
+         // level 3, and declines at the unknown level, the defaults', where the kernel plan
+         // refuses it (VarkaKernelPlan.conversionRefusal); there it is owed, whatever the
+         // register says.
+         if (source.equals(DataTypes.LongType)
+             && (target.equals(DataTypes.FloatType) || target.equals(DataTypes.DoubleType))
+             && VarkaMatrixRuns.BASE.levelUnknown()) {
+           return false;
+         }
+
+   and the class javadoc's sentence "The one exception is the {@code BIGINT} casts to
+   {@code FLOAT} and {@code DOUBLE}, which the compiler admits by the options' {@code useAVX}
+   level and which this class takes from that level rather than the register" ends "... which
+   this class owes at the unknown level, whatever the register, written at
+   {@code VarkaMatrixRuns.CREDIT}, says". 343b2a2 extends this `if` (its step 1d).
+6. `$E/VarkaSuiteArm.scala`: import `org.apache.spark.sql.catalyst.expressions.codegen.varka.
+   {VarkaEmitOptions, VarkaMatrixRuns}`; before `afterAll` add
+
+         // The verdicts this trait records and the fused checks it runs are taken at the level
+         // the records are written at (VarkaMatrixRuns.CREDIT's, VARKA-343 part 343L), so that
+         // casts_suites.tsv agrees with casts_fused.tsv; a configuration that names a level
+         // keeps its own. Put back after the suite.
+         private var emitOptionsBefore: VarkaEmitOptions = _
+
+         override protected def beforeAll(): Unit = {
+           super.beforeAll()
+           emitOptionsBefore = VarkaColumnarToRowExec.currentEmitOptions
+           VarkaColumnarToRowExec.setEmitOptionsForTesting(
+             VarkaMatrixRuns.credited(emitOptionsBefore))
+         }
+
+   and in `afterAll`, first in its `finally` block, before `super.afterAll()`:
+   `VarkaColumnarToRowExec.setEmitOptionsForTesting(emitOptionsBefore)`.
+7. `$EJ/VarkaCoverageHarnessSuite.java`: each of the eight `VarkaMatrixRuns.BASE` becomes
+   `VarkaMatrixRuns.credited(VarkaMatrixRuns.BASE)` (a `.with...(...)` after one stays after
+   it); the `@BeforeAll` method's javadoc, if any, need not change.
+8. `$CT/VarkaFamilySwitchSuite.java`: `OPTIONS = VarkaMatrixRuns.BASE;` becomes `OPTIONS =
+   VarkaMatrixRuns.credited(VarkaMatrixRuns.BASE);`.
+9. `$S/VarkaCoverageCompositionFuzzSuite.scala`, `unbakedAlone`: the `.exists(...)` becomes
+   `.exists(d => VarkaMatrixRuns.isUnbakedWidthDecline(VarkaMatrix.base, d.reason) ||
+   VarkaMatrixRuns.isUnknownLevelDecline(d.reason))`, and its comment gains the sentence "So
+   does a row the unknown emit level refuses alone, a BIGINT conversion to or from a floating
+   lane (VARKA-343, part 343L), wherever the configuration names no level."
+10. `$S/VarkaWidthAuditSuite.scala`, the test "at the host's preferred width, every shape is
+    emitted ...": `val unexplained = unexplainedDeclines(census.declined, recorded)` becomes
+
+          // A row only an x86 session's level fuses (VARKA-343, part 343L) declines at the
+          // defaults' unknown level, which the audit emits at: the known limit, not a width's.
+          val unexplained = unexplainedDeclines(census.declined, recorded)
+            .filterNot { case (_, reason) => VarkaMatrixRuns.isUnknownLevelDecline(reason) }
+
+    This test runs on its host alone (A.5.0's regeneration note); the lead runs it.
+11. `dev/varka_census.py`:
+    - the module docstring: after "casts.tsv's fused_today is derived (VARKA-486)." add "Both
+      the cast matrix and the coverage table compile at emit level 2, an x86 session's
+      (VarkaMatrixRuns.CREDIT, VARKA-343 part 343L), so a fused cell or row means fused on an
+      x86 host at that level; the unknown level still declines a BIGINT conversion to or from
+      a floating type." (wrapped as its neighbours);
+    - `support_block`: in the paragraph after `"#### By type\n"`, before "An entry is a
+      function", add `"A form is *fused* where the compiler fuses it at emit level 2, the level
+      an x86 session without AVX512DQ resolves to; level 3 converts in one instruction what
+      level 2 converts by exact forms. A session whose level is unknown (another architecture,
+      an unread CPU feature list, or a 64-bit species under 256 bits without AVX512DQ) declines
+      a BIGINT conversion to or from FLOAT or DOUBLE unless it names a level"` + `" with
+      `spark.sql.codegen.varka.emit.useAVX`. "` as string pieces of the same paragraph; and at
+      the end of the "#### Casts by mode" paragraph, before its `\n"`, add `" A fused cell is
+      fused on an x86 host at emit level 2, as above."`. Run `python3 -m doctest
+      dev/varka_census.py` after: it prints nothing.
+12. `sql/varka/plans/m8/census_curated.txt`, the header: after the two lines that end
+    "derived from m8/casts_fused.tsv, VARKA-606)" add
+
+        # A fused type is fused at emit level 2, an x86 session's without AVX512DQ: the cast
+        # matrix and the coverage table compile there (VARKA-343 part 343L); an unknown level
+        # declines a BIGINT conversion to or from FLOAT or DOUBLE.
+
+13. `sql/varka/plans/m8/PLAN.md`, row 343: after `**Started** (` insert `*343L built <date>,
+    \`VARKA-343.md\` A.5: the cast matrix, the coverage table and the cast suites' record
+    compile at emit level 2, an x86 session's; BIGINT to FLOAT and DOUBLE credited, production
+    unchanged;* `. `VARKA-343.md` section 10: `### 343L as built (<date>)`, at most 12 lines,
+    with the counts of command 4.
+
+**What each generated record gains** (the regeneration of command 3):
+
+| record | before | after 343L | the later parts on the same rule |
+| :--- | :--- | :--- | :--- |
+| `casts_fused.tsv` | `bigint float` and `bigint double`: `declined` x 3 | `fused` x 3 each | 343b2b: `float bigint`, `double bigint` |
+| `casts.tsv` | the two pairs' `fused_today` empty | `LEGACY,ANSI,TRY`, `fused_forms` `all` | 343b2b: two more pairs |
+| `casts_suites.tsv` | six lines `declined`, reason "... at an unknown emit level ..." | six lines `fused`, reason empty | 343b2b: the `FLOAT`/`DOUBLE` to `BIGINT` lines |
+| `census.tsv` | cast aliases `float`, `double`: fused today `bool,byte,short,int,float,double` | `bool,byte,short,int,bigint,float,double` | 343b2b: alias `bigint` gains `float,double`; 342e: `dt_times_num` gains `float,double`; 342q: `dt_div_num` likewise |
+| `coverage.json`, `docs/sql-varka.md` | | the two rows, the description sentence, the support table's captions and its bigint cells | 342e, 342q, 343b2b, 343b3 add their rows |
+| `emitted_bytes.json` | | `lanes`: the two rows at both widths, each `<declined>` (the oracle emits at the unknown level); `option_arms`: every digest moves (a row is added) | each later row likewise |
+| `results/VARKA-612-refused.txt` | `# 26 of 547 value rows refused` | `# 26 of 549 value rows refused` | |
+
+**The tests that pinned the old answer, and how each is turned.** None asserted a decline of a
+record: production is unchanged, so the tests that assert the unknown level's decline
+(`VarkaEmitterFloatingCastSuite.unknownLevelRefusal`, `VarkaFloatingLaneSuite`'s two "unknown
+emit level" assertions, `VarkaMatrixRuns.emissionKey`'s three classes) stay as they are and now
+pin the known limit. What pinned "the records equal the defaults" is turned in steps 2 to 10:
+the cast matrix and the coverage suite (compile at `CREDIT`), the bytes oracle (DEFAULTS
+first, `CREDIT` for the rest; level 3 against the unknown level over the shapes both admit),
+the conformance's `fusedIn` (owed at the unknown level), the cast suites' record, the coverage
+harness and the family switches (`credited(BASE)`), the composition fuzz (a row the unknown
+level refuses alone is left out, counted), the width audit (that decline explained).
+
+**Commands, in order.**
+
+1. `flock "$VARKA_HEAVY_LOCK" build/sbt catalyst/Test/compile sql/Test/compile`: `[success]`
+   for both. Then `git diff --stat origin/master -- sql/catalyst/src/main sql/core/src/main`
+   prints nothing.
+2. `python3 -m doctest dev/varka_census.py`: prints nothing.
+3. `dev/varka_regen_generated.sh --all --full` (`--full`, since only test files changed and
+   the bare `--all` may skip the JVM steps): its last line begins `varka regen: done`.
+4. Then: `grep -P '^bigint\t(float|double)\t' sql/varka/plans/m8/casts_fused.tsv` prints two
+   lines ending `fused	fused	fused`; `awk -F'\t' '$1=="bigint" && ($2=="float" ||
+   $2=="double") {print $9}' sql/varka/plans/m8/casts.tsv` prints `LEGACY,ANSI,TRY` twice;
+   `awk -F'\t' '$10 ~ /343/ && $9 == ""' sql/varka/plans/m8/casts.tsv | wc -l` prints `12`;
+   `grep -c 'unknown emit level' sql/varka/plans/m8/casts_suites.tsv` prints `0`; `awk
+   -F'\t' '$1=="double"{print $8}' sql/varka/plans/m8/census.tsv` prints
+   `bool,byte,short,int,bigint,float,double`; `grep -c '"sql" : "CAST(l AS DOUBLE)"\|"sql" :
+   "CAST(l AS FLOAT)"' sql/varka/coverage.json` prints `2`; `sed -n 4p
+   sql/varka/plans/m8/results/VARKA-612-refused.txt` prints `# 26 of 549 value rows refused;
+   family, row, reason:` (another count of refused rows: stop and report, since the level
+   would then reach the two-lane rule, which reads no level); the bytes check of A.5.0 prints
+   `bytes: 0 committed shapes moved, 4 shapes added` (a moved shape: stop).
+5. `python3 dev/varka_census.py --check`: prints nothing and exits 0.
+6. `flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaCastMatrixSuite
+   *VarkaCoverageSuite *VarkaEmittedBytesSuite *ConformanceSuite *VarkaFamilySwitchSuite
+   *VarkaCoverageCompositionFuzzSuite *VarkaDivisorProofSuite *VarkaMaskFromWordSuite
+   *VarkaMaskOfWordSuite *VarkaWarmupReachSuite *VarkaEmitterFloatingCastSuite'`: no test
+   fails. (`*ConformanceSuite` is the 15 suites that use `VarkaTypeConformance`: 14 by type,
+   `VarkaBigIntConformanceSuite`, `VarkaFloatConformanceSuite` and
+   `VarkaDoubleConformanceSuite` among them, and `VarkaConformancePlantSuite`.)
+7. `flock "$VARKA_HEAVY_LOCK" build/sbt 'sql/testOnly *VarkaCastWithAnsiOffSuite
+   *VarkaCastWithAnsiOnSuite *VarkaTryCastSuite *VarkaCoverageHarnessSuite
+   *VarkaCoverageDifferentialSuite *VarkaFloatingLaneSuite *VarkaFloatingCastBaselineQueriesSuite'`:
+   no test fails.
+8. `BUILD_SHEETS.md` 6, the commit, `python3 dev/varka_push_check.py` (under 400).
+
+**Stop rules.** A suite of command 6 or 7 that fails on a coverage row the unknown level
+refuses, and is not in B0 item 6's list: stop and report the suite and its line (a reader the
+grep missed). A newly fused check of a Spark expression suite (step 6 reaches every
+`VarkaSuiteArm` suite, not the cast suites alone) that finds a `varka` difference: stop and
+report it; it is a wrong answer at level 2, not this part's to explain away.
+
+**Planted fault.** In step 2 keep `VarkaEmitOptions.DEFAULTS` for the projection: command 4's
+`casts_fused.tsv` lines stay `declined`, and `VarkaCastMatrixSuite` passes against the
+regenerated file while `--check` reports the coverage row `CAST(l AS DOUBLE)` casting a pair the
+matrix calls declined. Undo it.
+
+**Done when** commands 1 to 8 print what they say.
+
+**Not here:** any production change (the unknown level keeps declining); `D2L`, `F2L`
+(343b2a2, 343b2b); `VarkaFloatingCastCompiler.java`.
 
 **The hand-off: the state 343L leaves, which 343b2a2, 343b2b, 343b3, 342e and 342q read.**
 
-1. `VarkaEmitOptions` has, after `levelUnknown()`, `public boolean softwareLongConversions()`
-   returning `levelUnknown() || convertsFallBack()`: `grep -c 'public boolean
-   softwareLongConversions()' $CG/varka/VarkaEmitOptions.java` prints `1`.
-2. `VarkaConversionLowering.takesWideForm`'s body is
-
-         return n.child().laneType() == LaneType.LONG && n.target().isFloating()
-             && analysis.options.softwareLongConversions();
-
-   (`grep -c 'analysis.options.softwareLongConversions()'
-   $CG/varka/VarkaConversionLowering.java` prints `1`), and `VarkaEmitBudget.weightOf`'s
-   overload tests `options.softwareLongConversions()` in its `L2F` arm.
-3. `VarkaKernelPlan.conversionRefusal`: its body keeps master's first arm (the `D2I` comment
-   and `if (!c.target().isFloating() && !d2i)`, text "is not built yet (row 343)") unchanged,
-   and has no other arm (`grep -c 'at an unknown emit level, which may be a host'
-   $CG/varka/VarkaKernelPlan.java` prints `0`). The first paragraph of its javadoc reads
-   exactly:
-
-         * Why a conversion of these roots has no kernel yet. The emitter lowers the four conversions
-         * that are one {@code convertShape} on every x86 host, {@code I2F}, {@code I2D}, {@code F2D}
-         * and {@code D2F}, in a kernel of one lane count or of two (`VARKA-343.md` 2.2). A
-         * {@code BIGINT} source, {@code L2F} or {@code L2D}, takes the AVX2 forms of
-         * {@code VarkaConversionLowering} where {@link VarkaEmitOptions#softwareLongConversions()}
-         * holds: below level 3, where x86 has no rule for either without AVX512DQ, and at the unknown
-         * level, the defaults' and an unset session's, which may be such a host; the forms are exact
-         * on every host, so no level declines them (part 343L). A floating source converted to an
-         * integral lane waits for part 343b2, at every level, but {@code D2I}, which an fdlibm port
-         * takes for its int {@code k}. A boolean whose condition compares longs
-         * is not a conversion from a long: the compiler narrows its one or zero to the int lane first.
-
-   (its last three lines are master's, unchanged; its second paragraph, "The test reads the
-   options' {@code UseAVX} level", stays as master's).
-4. `$S/VarkaCoverageSuite.scala`: the two rows sit in the family "Floating casts" directly
-   after the row `CAST(CAST(l AS INT) AS FLOAT)` and its `domain` line, before the comment `//
-   A choice's condition of the other kind than its values`; the family still ends with
-   `Row("CAST((f > 1.5F AND i > 3) AS INT)", "the mixed AND as its one or zero"))),`, which
-   343b2a2's hunk reads as context.
+1. `grep -c 'public static final VarkaEmitOptions CREDIT =' $T/VarkaMatrixRuns.java` prints
+   `1`; `credited(...)`, `CREDIT_USE_AVX` (2) and `isUnknownLevelDecline(...)` are beside it.
+   This is the premise every later sheet checks for 343L.
+2. Production is master's: `VarkaKernelPlan.conversionRefusal` keeps both arms (B0 item 2 still
+   prints `1`, and `grep -c 'is not built yet (row 343)' $CG/varka/VarkaKernelPlan.java` prints
+   `1`); `VarkaConversionLowering.takesWideForm` still reads `convertsFallBack()`.
+3. Every record that credits a fused form compiles at `VarkaMatrixRuns.CREDIT` (level 2), and
+   every harness that holds the records' rows runs at `credited(...)` of its options. A
+   coverage row that fuses at level 2 and not at the unknown level is legal; the bytes oracle
+   records it as `<declined>` at its unknown-level emissions (so a later part's bytes check
+   counts each such row once per width under "shapes added").
+4. The two rows sit in "Floating casts" after `CAST(CAST(l AS INT) AS FLOAT)` and its
+   `domain` line; the family still ends with `Row("CAST((f > 1.5F AND i > 3) AS INT)", "the
+   mixed AND as its one or zero"))),`, which 343b2a2's hunk reads as context. A row that only
+   level 2 fuses is never a family's first row (`VarkaCoverageDifferentialSuite` runs each
+   family's first row through a session at the unknown level).
 5. `awk -F'\t' '$10 ~ /343/ && $9 == ""' sql/varka/plans/m8/casts.tsv | wc -l` prints `12`.
-6. `VarkaFloatingCastCompiler.java` is untouched (`git diff master^ master --
-   $CG/VarkaFloatingCastCompiler.java` on 343L's merge prints nothing).
-7. `grep -rn 'conversionRefusal\|Kind.CONVERSION' sql/catalyst/src sql/core/src` prints
-   exactly: in `VarkaKernelPlan.java` the call in `of`, the method's declaration and its one
-   `new Refusal(Kind.CONVERSION, ...`; in `VarkaEmitterFloatingCastSuite.java` the lines of the
-   test `conversionRefusal` (343b2a2 deletes it). So `unknownLevelRefusal`, turned, no longer
-   names the kind, and `VarkaTypeConformance`'s comment no longer names the method.
-8. In `VarkaEmitterFloatingCastSuite`, the test `hostRefusal` keeps its last two lines
-   ("A floating source converted to an integral lane waits for 343b2 at every level." and its
-   `assertTrue(... .isPresent())`) as master's: 343b2a2 turns them.
-9. In `VarkaFloatingLaneSuite`, the value `declined` and the comment above it (the one that
-   begins "// The divisors are literals") stay as master's: 343b2a2 and 343b2b turn them.
-
-10. 343b2a2's 3-way applies (its step 1) leave no conflict over 343L's head: 343L also edits
-    `VarkaFloatingLaneSuite.scala`, `VarkaFloatingCastBaselineQueriesSuite.scala` (its `val
-    fuses = level != -1`, two lines above a 343b2a2 hunk), `VarkaCoverageSuite.scala` and
-    `VarkaIrFuzzSuite.scala`. The builder of 343L checks it: on a throwaway branch from 343L's
-    head, run 343b2a2's step 1 apply for those files (`git diff 8e631d8ed41 96047835ca4 --
-    <file> | git apply --3way`), and if one conflicts, either change 343L so it does not or
-    write the resolution into 343b2a2's step 1; then delete the throwaway branch.
-
-If 343L cannot meet an item (for example because the shape key needs more), its pull request
-edits the later sheets of this file and `VARKA-342.md` to the state it leaves, in the same
-commit, and says so in its description.
+6. `VarkaTypeConformance.CastPair.fusedIn` holds the `if` of step 5, which 343b2a2 extends to
+   the floating sources to `BIGINT`.
+7. A session test that must see a `BIGINT` conversion to or from a floating lane fuse sets
+   `withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, "2")` (`VarkaSharedSessions`): the shared
+   sessions pin the level to -1.
+8. `VarkaFloatingCastCompiler.java`, `VarkaEmitterFloatingCastSuite.java`,
+   `VarkaFloatingLaneSuite.scala` and `VarkaFloatingCastBaselineQueriesSuite.scala` are
+   master's (343b2a2's 3-way applies meet no 343L hunk there).
 
 #### Part 343b3: `time_from_seconds` over a floating value (build sheet, fix round)
 
@@ -1375,10 +1689,13 @@ commit, and says so in its description.
   `varka-343b3-time-seconds` from master after 343b2b merged. **Builder:** Sonnet-class.
   **Size:** about 330 counted lines. Follow `BUILD_SHEETS.md`. Nothing of it is on a branch.
   *Changed in fix round 2 (review 1, findings 3, 5 and 7): one text, for a master with 343L
-  and 343b2b merged; the session test is written out; the census field is named.*
+  and 343b2b merged; the session test is written out; the census field is named. Reworked on
+  28 November 2026 after E2 (c): the form fuses at every named level and declines at the
+  unknown one, so the session test runs at level 2.*
 - **What it adds:** `time_from_seconds(x)` over `DOUBLE` and `FLOAT`: A.4.4's one guard on
-  the product in nanoseconds, then `D2L`, at every emit level, the unknown one included (343L
-  and 343b2b).
+  the product in nanoseconds, then `D2L`, at every named emit level (343b2b); at the unknown
+  level `D2L` declines, and the form with it (343L's known limit). The coverage rows compile at
+  level 2 (343L), so the census credits them.
 
 **B0, the premises.**
 
@@ -1395,9 +1712,9 @@ commit, and says so in its description.
 5. `grep -n '"DOUBLE time_from_seconds(s)" + density' -A1
    $BJ/VarkaFloatingCastBaselineBenchmark.java`
    prints the section with `Fusion.NONE`.
-6. 343L is merged: `grep -c 'public boolean softwareLongConversions()'
-   $CG/varka/VarkaEmitOptions.java`: `1`; and 343b2b: `grep -c 'conversionRefusal'
-   $CG/varka/VarkaKernelPlan.java`: `0`. If not, stop (A.5).
+6. 343L is merged: `grep -c 'public static final VarkaEmitOptions CREDIT ='
+   $T/VarkaMatrixRuns.java`: `1`; and 343b2b: `grep -c 'conversion to BIGINT at an unknown emit
+   level' $CG/varka/VarkaKernelPlan.java`: `1`. If not, stop (A.5).
 7. `grep -n '^time_from_seconds|' sql/varka/plans/m8/census_curated.txt` prints
    `163:time_from_seconds|NUM|time||semantics|351,343|from a decimal or a double` (a registered
    line: name, types, result, fused today, need, rows, note; its fourth field, fused today, is
@@ -1456,8 +1773,8 @@ commit, and says so in its description.
    adding the imports of `ConvertLane` and `LaneType` from `VarkaVectorIR` if the file lacks
    them (`GuardedRange`, `IntArith`, `IntOp`, `Overflow` are imported there already).
 3. `$BJ/VarkaFloatingCastBaselineBenchmark.java`: the section `DOUBLE time_from_seconds(s)`
-   takes `fusesToBigint ? Fusion.WHOLE : Fusion.NONE` (true at every level after 343b2b), and
-   its javadoc says so.
+   takes `fusesToBigint ? Fusion.WHOLE : Fusion.NONE` (true at every named level after 343b2b,
+   false at -1), and its javadoc says so.
 4. `sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaFloatingLaneSuite.scala`, one
    test, at the end of the section of the interval tests (before the comment block that begins
    "What still declines, by name"), with the value above it:
@@ -1470,59 +1787,64 @@ commit, and says so in its description.
              "value outside it declines its batch and raises the row engine's error") {
            def cause(t: Throwable): Throwable =
              if (t.getCause == null || (t.getCause eq t)) t else cause(t.getCause)
-           withBothConf(SQLConf.TIME_TYPE_ENABLED.key, "true") {
-             // Spark admits a FLOAT argument; without that the FLOAT half has nothing to fuse.
-             assert(spark.sql("SELECT time_from_seconds(CAST(1.5 AS FLOAT)) AS v").schema.nonEmpty)
-             // A.4.4's cells: both zeros, the double next above -1e-9 (its product rounds to a
-             // count of 0), the last double second of the day, the float below 86400 (Spark
-             // answers 86399992187500 nanoseconds), and nulls.
-             val rows = Seq[(java.lang.Double, java.lang.Float)]((0.0, 86399.99f), (-0.0, 0.25f),
-               (-9.999999999999999E-10, null), (86399.99999999999, 0.0f), (0.5, -0.0f),
-               (12345.6789, 1.0f), (null, null))
-             for (session <- Seq(spark, varkaSpark)) {
-               session.createDataFrame(spark.sparkContext.parallelize(
-                 rows.map { case (s, f) => Row(s, f) }, 1),
-                 StructType(Seq(StructField("s", DoubleType), StructField("f", FloatType))))
-                 .createOrReplaceTempView(floatSeconds)
-               session.catalog.cacheTable(floatSeconds)
-             }
-             for (ansi <- Seq(false, true)) withAnsi(ansi) {
-               val q = "SELECT time_from_seconds(s) AS a, time_from_seconds(f) AS b " +
-                 s"FROM $floatSeconds"
-               withClue(s"$q, ansi $ansi") {
-                 val actual = varkaSpark.sql(q)
-                 assertFused(actual.queryExecution.executedPlan)
-                 checkAnswer(actual, spark.sql(q))
+           // D2L fuses at a named level; the shared sessions keep the unknown one (343L
+           // hand-off item 7).
+           withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, "2") {
+             withBothConf(SQLConf.TIME_TYPE_ENABLED.key, "true") {
+               // Spark admits a FLOAT argument; without that the FLOAT half has nothing to fuse.
+               assert(spark.sql("SELECT time_from_seconds(CAST(1.5 AS FLOAT)) AS v").schema.nonEmpty)
+               // A.4.4's cells: both zeros, the double next above -1e-9 (its product rounds to a
+               // count of 0), the last double second of the day, the float below 86400 (Spark
+               // answers 86399992187500 nanoseconds), and nulls.
+               val rows = Seq[(java.lang.Double, java.lang.Float)]((0.0, 86399.99f), (-0.0, 0.25f),
+                 (-9.999999999999999E-10, null), (86399.99999999999, 0.0f), (0.5, -0.0f),
+                 (12345.6789, 1.0f), (null, null))
+               for (session <- Seq(spark, varkaSpark)) {
+                 session.createDataFrame(spark.sparkContext.parallelize(
+                   rows.map { case (s, f) => Row(s, f) }, 1),
+                   StructType(Seq(StructField("s", DoubleType), StructField("f", FloatType))))
+                   .createOrReplaceTempView(floatSeconds)
+                 session.catalog.cacheTable(floatSeconds)
                }
-               // Each raises in every mode; a column operand, so the optimizer folds nothing.
-               for (e <- Seq("s - 1.0E-9D", "s + 86400.0D", "s + CAST('NaN' AS DOUBLE)",
-                   "s + CAST('Infinity' AS DOUBLE)")) {
-                 val raising = s"SELECT time_from_seconds($e) AS a FROM $floatSeconds " +
-                   "WHERE s = 0.0D"
-                 withClue(s"$raising, ansi $ansi") {
-                   val actual = varkaSpark.sql(raising)
+               for (ansi <- Seq(false, true)) withAnsi(ansi) {
+                 val q = "SELECT time_from_seconds(s) AS a, time_from_seconds(f) AS b " +
+                   s"FROM $floatSeconds"
+                 withClue(s"$q, ansi $ansi") {
+                   val actual = varkaSpark.sql(q)
+                   assertFused(actual.queryExecution.executedPlan)
+                   checkAnswer(actual, spark.sql(q))
+                 }
+                 // Each raises in every mode; a column operand, so the optimizer folds nothing.
+                 for (e <- Seq("s - 1.0E-9D", "s + 86400.0D", "s + CAST('NaN' AS DOUBLE)",
+                     "s + CAST('Infinity' AS DOUBLE)")) {
+                   val raising = s"SELECT time_from_seconds($e) AS a FROM $floatSeconds " +
+                     "WHERE s = 0.0D"
+                   withClue(s"$raising, ansi $ansi") {
+                     val actual = varkaSpark.sql(raising)
+                     assertFused(actual.queryExecution.executedPlan)
+                     val got = intercept[Exception](actual.collect())
+                     val want = intercept[Exception](spark.sql(raising).collect())
+                     assert(cause(got).getClass === cause(want).getClass)
+                     assert(cause(got).getMessage === cause(want).getMessage)
+                   }
+                 }
+                 val floatRaising = "SELECT time_from_seconds(f + 86399.75F) AS a " +
+                   s"FROM $floatSeconds WHERE f = 0.25F"
+                 withClue(s"$floatRaising, ansi $ansi") {
+                   val actual = varkaSpark.sql(floatRaising)
                    assertFused(actual.queryExecution.executedPlan)
                    val got = intercept[Exception](actual.collect())
-                   val want = intercept[Exception](spark.sql(raising).collect())
+                   val want = intercept[Exception](spark.sql(floatRaising).collect())
                    assert(cause(got).getClass === cause(want).getClass)
                    assert(cause(got).getMessage === cause(want).getMessage)
                  }
-               }
-               val floatRaising = "SELECT time_from_seconds(f + 86399.75F) AS a " +
-                 s"FROM $floatSeconds WHERE f = 0.25F"
-               withClue(s"$floatRaising, ansi $ansi") {
-                 val actual = varkaSpark.sql(floatRaising)
-                 assertFused(actual.queryExecution.executedPlan)
-                 val got = intercept[Exception](actual.collect())
-                 val want = intercept[Exception](spark.sql(floatRaising).collect())
-                 assert(cause(got).getClass === cause(want).getClass)
-                 assert(cause(got).getMessage === cause(want).getMessage)
                }
              }
            }
          }
 
-   `withBothConf`, `withAnsi` and `assertFused` are `VarkaSharedSessions`' (in
+   (*Reworked after E2 (c)*: the outer `withBothConf` of `VARKA_EMIT_USE_AVX`.) `withBothConf`,
+   `withAnsi` and `assertFused` are `VarkaSharedSessions`' (in
    `sql/core/src/test/scala/org/apache/spark/sql/execution/`, on master); `Row`, `StructType`,
    `StructField`, `DoubleType`, `FloatType` and `SQLConf` are imported by the suite already.
    `s - 1.0E-9D` at `s = 0.0` is `-1e-9`,
@@ -1647,28 +1969,32 @@ emitted code.
   `varka-343r-results` from master after 343b3 (and 343b2b) merged. **Builder:** Sonnet-class;
   the dispatches are the lead's unless the builder has `gh` rights. **Size:** the benchmark
   section below (about 60 counted lines), results files (not counted), about 40 plan lines.
-- **First, a correction** (fix round): the rule of 4.4 (the assembly within 1.5 times the
-  truncated magic) has no numbers to read: `VarkaWideConversionBenchmark` (catalyst,
+- **It measures the assembly only** (*reworked on 28 November 2026 after E3 (a)*): the
+  truncated magic is not built before January 2027 (343b2m), so 4.4's rule (the assembly within
+  1.5 times the magic) is not scored here; it moves to 343b2m's results.
+- **First, a correction** (fix round): `VarkaWideConversionBenchmark` (catalyst,
   `sql/catalyst/src/test/java/org/apache/spark/sql/VarkaWideConversionBenchmark.java`) times
   `L2D` and `L2F` only. So this part adds a second section to it, "a double cast to bigint by
-  the AVX2 forms", with the arms `cast(x AS bigint), the assembly` (`useAVX=2`,
-  `wideConversionForm=XOR_SPLIT`), `cast(x AS bigint), the truncated magic` (`MAGIC`) and
-  `cast(x AS bigint), a scalar loop`, over doubles of every exponent inside `2^51` (the window
-  rung) and of magnitudes `2^52` to `2^62` (past it, where the magic arm is left out, as the
-  bounded `L2D` is), each kernel checked against Java's `(long)` before it is timed, as the
-  existing section's `check` does. Built on the existing section's `runRung` and `check`, with
-  the column of doubles `(double)` of its longs.
+  the AVX2 assembly", with the arms `cast(x AS bigint), the assembly` (`useAVX=2`,
+  `wideConversionForm=XOR_SPLIT`) and `cast(x AS bigint), a scalar loop`, over doubles of every
+  exponent inside `2^51` (the window rung, kept so that 343b2m can add its arm on the same
+  inputs) and of magnitudes `2^52` to `2^62`, each kernel checked against Java's `(long)`
+  before it is timed, as the existing section's `check` does. Built on the existing section's
+  `runRung` and `check`, with the column of doubles `(double)` of its longs.
 - **Steps:** the results procedure of A.5.0 for `VarkaWideConversionBenchmark` (its files are
   under `sql/catalyst/benchmarks/`), `VarkaFloatingCastBaselineBenchmark` and
   `VarkaFloatingBaselineBenchmark` (under `sql/core/benchmarks/`), each at both widths.
 - **Score**, into section 10: 4.3 (`DOUBLE` to `BIGINT` under ANSI at least three times
   faster than 39.8 ns a row at 256 bits; `time_from_seconds` at least three times) from
-  `python3 dev/varka_bench_diff.py --git master <file> --control "spark row path"`; 4.4 from
-  the new section, by minimums: the assembly's time over the magic's. **The rule, a number:**
-  the assembly stays the default unless that ratio is above 1.3 at 256 bits; if it is, record
-  it and file a row to flip the default (the flip is not this part's). **The two-lane rule:**
-  if `DOUBLE CAST(x AS INT), ANSI` or `DOUBLE try_cast(w AS BIGINT)` at 128 bits with no nulls
-  is under the row path's rate, record it and file a row; decline nothing here.
+  `python3 dev/varka_bench_diff.py --git master <file> --control "spark row path"`; and the
+  new section's assembly over the scalar loop, by minimums, recorded as a number with no rule
+  attached. 4.4: "not scored, the magic arm is January's (343b2m)".
+- **At 128 bits** the benchmark sessions resolve their level from the host
+  (`fusesLongCasts`' javadoc), and the EPYC 7763 under `-XX:MaxVectorSize=16` resolves the
+  unknown level (`VarkaSessionEmit.MAGIC_MIN_LONG_BITS`, 256): there the `BIGINT` sections and
+  `time_from_seconds` time the row path by design, the known limit of 343L. **The two-lane
+  rule** therefore reads `DOUBLE CAST(x AS INT), ANSI` alone: if, at 128 bits with no nulls,
+  its "varka on" rate is under the row path's, record it and file a row; decline nothing here.
 
 ### A.6 Tests, proofs, fuzzing and coverage
 
@@ -1677,7 +2003,7 @@ emitted code.
 | `VarkaEmitterFloatingGuardSuite` (new, JUnit) | 343b2a1 | the guard alone, both modes, three kernels |
 | `VarkaEmitterFloatToIntegralSuite` (new, JUnit) | 343b2a2, 343b2b | the casts, the bounds against Spark, the AVX2 forms, the twins and sweeps |
 | `round_to_odd.smt2` | merged | `L2F` |
-| `round_to_odd.smt2`, its new `D2L` section | 343b2p | the truncated magic over `|x| <= 2^51`, and the first doubles past it where it fails |
+| `round_to_odd.smt2`, its new `D2L` section | 343b2p, January 2027 | the truncated magic over `|x| <= 2^51`, and the first doubles past it where it fails |
 
 Fuzzing: the IR grammar's floating casts corpus draws a conversion into an integral lane
 (343b2a2, by the branch's hunk). The planner's claim that 343b2a1 draws a floating guard in
@@ -1694,10 +2020,13 @@ under 15 s (a registered guess: it compiles 3 kernels at 3 widths per test).
 
 ### A.8 Who builds it
 
-343L at full strength: it changes what the defaults fuse, so every generated record moves and each
-test that pinned the decline must be read and turned. 343b2p at full strength: the encoding of a
-double's bits in the floating-point theory, under both solvers' limits. Everything else
-Sonnet-class: the code is written out or on a branch, and its hard parts are checked in A.4.
+*Reworked on 28 November 2026 after E1 (a), E2 (c) and E3 (a).* Before January 2027 every part
+is Sonnet-class: 343L, 343b2a1, 343b2a2, 343b2b, 343b3, 343t, 343r. 343L changes test code and
+captions only, each edit written out; the code of the others is written out or on a branch, and
+its hard parts are checked in A.4. January 2027, full strength, not gates before then: 343b2p
+(the encoding of a double's bits in the floating-point theory, under both solvers' limits) and
+343b2m (a bounded lowering with its guard on the child, after its proof). The earlier text, "343L
+at full strength", held for the answer (b), which E2 (c) replaced.
 
 ### A.9 Risks
 
@@ -1708,11 +2037,20 @@ Sonnet-class: the code is written out or on a branch, and its hard parts are che
    loops. Not a wrong answer; 343r's rule reads the cost.
 4. The branches lived on one laptop. Held: they are on the fork since 28 November 2026 (A.12
    question 3, A.5.0).
+5. A reader of the records that requires a row to fuse at the unknown level and that 343L's
+   grep missed. Held by 343L's commands 6 and 7 and its stop rule; the option matrix runs every
+   suite.
+6. A credit at level 2 that a level-3 host does not have. None is known (level 3 converts in
+   one instruction what level 2 converts by exact forms); 343b2a2's step 1d makes the
+   conformance suites say so at `useAVX=3` for the casts to `BIGINT`.
 
 ### A.10 The house rules that bind this row
 
-From `sql/varka/AGENTS.md`: "A new bounded lowering comes with its proof file" (343b2b's
-magic); "Never remove, skip or weaken a failing test" (343L turns tests, never deletes them);
+From `sql/varka/AGENTS.md`: "A new bounded lowering comes with its proof file" (343b2m's
+magic, after 343b2p, January 2027; nothing bounded is built before then); "Never remove, skip
+or weaken a failing test" (343L points the records' readers at the credit level and deletes no
+test; 343b2b deletes `magicDeclines` because the arm it tests is not built, and 343b2m brings it
+back);
 generated files are regenerated, never edited (`BUILD_SHEETS.md` 5); "A pull request stays
 under 1000 changed lines". Do not: copy a branch's `PLAN.md` hunk; edit `coverage.json`,
 `emitted_bytes.json`, `casts_fused.tsv`, `casts.tsv` or the census by hand; push or open a
@@ -1735,7 +2073,13 @@ the answers.*
    fuses these casts, and only the records lag. **Answered on 28 November 2026: (b), build
    343L.** So 343L is first in the order (A.5), built at full strength before 1 December, and
    every later sheet has the one text for a master with 343L merged; the no-343L variants are
-   gone.
+   gone. **Answered on 28 November 2026, later: (c)** (decision E2): 343L does not take the
+   software forms at the unknown level; the cast matrix, the coverage table and every suite that
+   writes or holds a crediting record compile at emit level 2, an x86 session's, and a cell
+   means "fused on an x86 host at that level" (A.4.5). (b) was replaced because it changed
+   production (what the defaults fuse, the shape key, every bytes record) and so needed a
+   full-strength builder before 1 December; (c) credits the same eight pairs with production
+   unchanged, which a Sonnet-class builder can do.
 2. **The `DATE` pairs**, always null under LEGACY. (a) Declined with the reason "always null;
    a kernel that reads no column is not compiled", the decline text in `floatingDecline`
    saying so; one design with row 332's `DATE` pairs to the integral types. (b) A null leaf
@@ -1751,6 +2095,10 @@ the answers.*
    `varka-339-ntz-arith` is an older, different history and is not used). Each sheet takes its
    code from the local branch, or from the fork branch of the same commit when the local one
    is gone (A.5.0, "Where the code comes from"). This row's parts read the first two.
+4. **The truncated magic and its proof** (decisions E3 (a) and E1 (a), 28 November 2026): 343b2b
+   builds only the exact assembly of `D2L` and `F2L` below level 3; the magic arm (343b2m) and
+   its proof (343b2p) move to January 2027, when a full-strength builder is back, and gate
+   nothing before then. 343r measures the assembly only.
 
 ### A.13 What only a JVM settles
 
@@ -1759,7 +2107,9 @@ the answers.*
 | each part's merged code compiles and its suites pass | the part's commands |
 | `F2I`, `D2I` and level 3's `F2L`, `D2L` answer Java's cast on the host (C2's instruction selection) | `build/sbt 'catalyst/testOnly *VarkaEmitterFloatToIntegralSuite'` |
 | float against double rounding in `castBounds` (the script rounds through `struct`) | the suite's `bounds` test against Spark's `FloatExactNumeric` |
-| the forms are vector code with no call under AVX2 | `JDK_JAVA_OPTIONS=-XX:UseAVX=2 dev/varka_emit.sh "CAST(x AS BIGINT)" --columns x:double --options useAVX=2 --asm` |
+| the assembly is vector code with no call under AVX2 | `JDK_JAVA_OPTIONS=-XX:UseAVX=2 dev/varka_emit.sh "CAST(x AS BIGINT)" --columns x:double --options useAVX=2 --asm` |
+| no record reader beyond 343L's list requires a row to fuse at the unknown level; the level-3 and unknown digests agree over the shapes both admit | 343L's commands 6 and 7, then the option matrix |
+| a session on an unreadable host still declines (the known limit) | `build/sbt 'sql/testOnly *VarkaFloatingLaneSuite'` (its "unknown emit level" assertions, master's) |
 | the regeneration, the option matrix, the runners' results | the parts' commands, then 343r |
 
 ## 0. What exists now (admission check)

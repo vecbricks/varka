@@ -13,7 +13,9 @@ sheet says "Follow `BUILD_SHEETS.md`": its rules bind each part in full. A.5.0 o
 `VARKA-343.md` (the shared names `CG`, `T`, `S`, the output lines of a run, the bytes check)
 applies to these sheets too. Revised again in fix round 2 (28 November 2026, after
 review 1 and the owner's answers of that day): each changed place says "Changed in fix
-round 2" or "fix round 2".*
+round 2" or "fix round 2". Reworked the same day after the owner's decision E2 (c) for
+`VARKA-343.md`'s part 343L: each changed place says "after E2 (c)". No part of this row is
+full strength.*
 
 ### A.1 What this row is, and which done-when clause holds it
 
@@ -33,8 +35,8 @@ locally": it is stale.
 | :--- | :--- | :--- | :--- | :--- |
 | `ym_times_num` | `float`, `double` | no | yes | 342d |
 | `ym_div_num` | `float`, `double` | no | yes | 342q |
-| `dt_times_num` | `float`, `double` | no | yes (343L of `VARKA-343.md` merges first) | 342e |
-| `dt_div_num` | `float`, `double` | no | yes (343L merges first) | 342q |
+| `dt_times_num` | `float`, `double` | no | yes, credited at emit level 2 (343L of `VARKA-343.md` merges first) | 342e |
+| `dt_div_num` | `float`, `double` | no | yes, credited at emit level 2 (343L merges first) | 342q |
 
 A census claim of a plain type needs a coverage row whose node of the entry's class takes an
 operand of that type (`dev/varka_census.py`, `claim`), and the coverage suite compiles under the
@@ -44,7 +46,12 @@ named level) and could not be credited until 343L makes the unknown level take t
 software forms. *Changed in fix round 2:* the owner answered `VARKA-343.md` A.12 question 1
 on 28 November 2026 with (b), build 343L, and 343L is first in that row's order; so 342e and
 342q are written for a master with 343L (and 343b2b) merged, with one text, and add the
-day-time coverage rows and census claims.
+day-time coverage rows and census claims. *After E2 (c), the same day:* 343L does not make the
+unknown level take the forms; it makes the coverage suite (and every suite that holds its rows)
+compile at emit level 2, an x86 session's. So the day-time forms fuse at every named level and
+still decline at the unknown one, the defaults' and the shared test sessions'; their coverage
+rows are credited at level 2, and each session test of them runs at
+`withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, "2")`.
 
 **Not this row's, though the row's line lists it as left:** "the cost model's `DIV` and
 `SQRT` prices". The floating lanes are unpriced until row 352's refit
@@ -177,8 +184,8 @@ and the emitted kernel itself, which `VarkaEmitterIntervalScaleSuite` holds to S
 ### A.5 The parts
 
 Order: 342d, 342e, 342q, 342r. 342d needs row 343's 343b2a2 (`D2I`, the floating guard, `D2L`
-at level 3); 342e and the day-time half of 342q need 343b2b (`D2L` below level 3 and at the
-unknown level) as well. Row 343's order puts 343L before 343b2a2 (`VARKA-343.md` A.5), so
+at level 3); 342e and the day-time half of 342q need 343b2b (`D2L` below level 3, the
+assembly) as well. Row 343's order puts 343L before 343b2a2 (`VARKA-343.md` A.5), so
 every part here runs on a master with 343L merged; 342e and 342q check it in B0 and stop if
 it is not (fix round 2, review 1 finding 3). Where the code comes from, and what a "branch's
 lines N to M" is: `VARKA-343.md` A.5.0, "Where the code comes from" (this row reads the
@@ -397,11 +404,13 @@ lane); record that in the outcome.
   `varka-342e-dt-product` from master after 342d and 343b2b merged. **Builder:**
   Sonnet-class. **Size:** about 150 counted lines. Follow `BUILD_SHEETS.md`. *Changed in fix
   round 2 (review 1, findings 3 and 5): one text, for a master with 343L and 343b2b merged;
-  the old variant A is gone; the session's decline test of 342d is turned for `dt * x`.*
-- **What it adds:** `dt * x`, `x * dt`, `dt * f` fuse at every emit level, the unknown one
-  included, by 342d's `floatingProduct` over the long lane (`L2D`, `D2L`; below level 3 and
-  at the unknown level their AVX2 forms, 343L and 343b2b); two coverage rows; the census
-  claim.
+  the old variant A is gone. After E2 (c): the form fuses at every named level and declines at
+  the unknown one, so 342d's session decline test keeps `dt * x` and the fused test runs at
+  level 2.*
+- **What it adds:** `dt * x`, `x * dt`, `dt * f` fuse at every named emit level by 342d's
+  `floatingProduct` over the long lane (`L2D`, `D2L`; below level 3 their AVX2 forms, 343b2b);
+  at the unknown level the kernel plan declines both conversions, and the form with them
+  (343L's known limit). Two coverage rows, credited at level 2; the census claim.
 
 **B0, the premises.**
 
@@ -412,9 +421,9 @@ lane); record that in the outcome.
    (the type decline of `dayTimeMultiply`).
 3. `grep -c 'case MultiplyDTInterval _ -> "a day-time interval product by a floating factor'
    $CG/VarkaNodeCompiler.java`: `1`.
-4. 343L is merged: `grep -c 'public boolean softwareLongConversions()'
-   $CG/varka/VarkaEmitOptions.java`: `1`; and 343b2b: `grep -c 'conversionRefusal'
-   $CG/varka/VarkaKernelPlan.java`: `0`. If not, stop (`VARKA-343.md` A.5).
+4. 343L is merged: `grep -c 'public static final VarkaEmitOptions CREDIT ='
+   $T/VarkaMatrixRuns.java`: `1`; and 343b2b: `grep -c 'conversion to BIGINT at an unknown emit
+   level' $CG/varka/VarkaKernelPlan.java`: `1`. If not, stop (`VARKA-343.md` A.5).
 5. `git cat-file -t 7c79e9ab581`: `commit` (if not, `VARKA-343.md` A.5.0: the fork's
    `varka-342de-r`).
 6. `grep -n '^dt_times_num|' sql/varka/plans/m8/census_curated.txt` prints the line whose
@@ -455,19 +464,24 @@ lane); record that in the outcome.
    the branch's next commit only fused it at the named levels): the test "`dt * x` and `dt / x`
    by a double decline, each with its own reason" (342d's, whole) becomes
 
-         test("`dt * x` by a double fuses at every emit level, and `dt / x` declines") {
-           // D2L and L2D are one call at level 3 and exact AVX2 forms below it and at the
-           // unknown level (VARKA-343, parts 343L and 343b2b).
-           for (options <- Seq(VarkaEmitOptions.DEFAULTS, VarkaMatrix.base.withUseAVX(2),
+         test("`dt * x` by a double fuses at the named emit levels and declines at the " +
+             "unknown one, and `dt / x` declines") {
+           // D2L and L2D are one call at level 3 and exact AVX2 forms below it; the defaults'
+           // unknown level refuses both (VARKA-343, parts 343L and 343b2b).
+           for (options <- Seq(VarkaMatrix.base.withUseAVX(2),
                VarkaMatrix.base.withUseAVX(VarkaEmitOptions.AVX512_LEVEL))) {
              assert(VarkaExpressionCompiler.compile(Seq(out(MultiplyDTInterval(dt, Literal(2.5d)))),
                withLong, options).isPresent, s"level ${options.useAVX}")
            }
+           val unknown = declineReason(MultiplyDTInterval(dt, Literal(2.5d)), withLong)
+           assert(VarkaMatrixRuns.isUnknownLevelDecline(unknown), unknown)
            assert(declineReason(DivideDTInterval(dt, Literal(2.5d)), withLong) ===
              quotientByFloatingReason)
          }
 
-   (`VarkaEmitOptions` and `VarkaMatrix` are imported by the suite on master.)
+   (`VarkaEmitOptions` and `VarkaMatrix` are imported by the suite on master; import
+   `VarkaMatrixRuns` from `codegen.varka` beside them if it is not. `declineReason` compiles at
+   the defaults, the unknown level, whatever the matrix's configuration.)
 5. Coverage rows in "Floating arithmetic over other types" (`$S/VarkaCoverageSuite.scala`),
    after `ym * 0.5D`: `Row("dt * x", "the long count's double product, guarded to the doubles
    whose HALF_UP fits the long, truncated by D2L and stepped away from zero at a half", domain
@@ -477,29 +491,32 @@ lane); record that in the outcome.
    `dt,int~,dec~` becomes `dt,int~,dec~,float,double`, and its note loses its last clause, "; a
    floating factor is 342's lowering". Nothing else of the line moves.
 5a. `sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaFloatingLaneSuite.scala`
-   (342d's text), by hand: the decline test "an interval quotient or a day-time product by a
-   floating factor plans no Varka node" is renamed "an interval quotient by a floating factor
-   plans no Varka node", and its list `Seq("ym / x", "dt * x", "dt / x", "ym / 4.0D")` becomes
-   `Seq("ym / x", "dt / x", "ym / 4.0D")`: `dt * x` fuses now, so the decline would fail. After
-   that test add the fused one that replaces the dropped case:
+   (342d's text), by hand (*after E2 (c)*): the decline test "an interval quotient or a day-time
+   product by a floating factor plans no Varka node" stays as 342d wrote it, `dt * x` in its
+   list included: the shared sessions keep the unknown level, where `dt * x` declines. After
+   that test add the fused one, at level 2:
 
          // varka-session-lint: allow the day-time product's one path test, through the cached scan
-         test("dt * x and dt * f fuse and round to the microseconds as the row engine does") {
+         test("dt * x and dt * f fuse at emit level 2 and round to the microseconds as the row " +
+             "engine does") {
            // The factors at most one in magnitude, since the fixture holds the long's ends, past
-           // which Spark raises; the cells themselves are VarkaEmitterIntervalScaleSuite's.
-           val q = "SELECT dt * x AS a, x * dt AS b, dt * CAST(x AS FLOAT) AS c, dt * 0.5D AS d " +
-             s"FROM $intervals WHERE x BETWEEN -1.0D AND 1.0D"
-           val actual = varkaSpark.sql(q)
-           assertFused(actual.queryExecution.executedPlan)
-           checkAnswer(actual, spark.sql(q))
-           assertKernelsRan(actual.queryExecution.executedPlan)
+           // which Spark raises; the cells themselves are VarkaEmitterIntervalScaleSuite's. An
+           // x86 session's level: these sessions keep the unknown one (VARKA-343, part 343L).
+           withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, "2") {
+             val q = "SELECT dt * x AS a, x * dt AS b, dt * CAST(x AS FLOAT) AS c, " +
+               s"dt * 0.5D AS d FROM $intervals WHERE x BETWEEN -1.0D AND 1.0D"
+             val actual = varkaSpark.sql(q)
+             assertFused(actual.queryExecution.executedPlan)
+             checkAnswer(actual, spark.sql(q))
+             assertKernelsRan(actual.queryExecution.executedPlan)
+           }
          }
 
    The rows the filter keeps (`$intervals`, master's fixture) are `(Long.MinValue, 0.5)`, `(-1,
    -1.0)`, `(Long.MaxValue, 0.25)` and `(0, 1.0)`: every product fits the long (`(double)
    Long.MaxValue` is `2^63`, so the third is `2^61`).
 6. `PLAN.md` row 342: after `**Started** (` insert `*342e built <date>, \`VARKA-342.md\` A.5:
-   a day-time interval times a FLOAT or DOUBLE factor fuses at every emit level;* `.
+   a day-time interval times a FLOAT or DOUBLE factor fuses at every named emit level;* `.
    `VARKA-342.md` section 10: `### 342e as built (<date>)`, at most 10 lines.
 
 **The two-lane host.** The arm is reached through `twoLaneMeasured(.., IntOp.MUL, ..)`, whose
@@ -526,7 +543,9 @@ check of `d250fd3eb78` declines it). **Not here:** the quotients.
   about 290 counted lines. Nothing of it is on a branch but the lowering (`scaledHalfUp`'s
   `DIV`, which 342d's suite already holds to Spark at the IR). *Changed in fix round 2 (review
   1, findings 3, 5 and 6): one text, for a master with 343L and 343b2b merged; the session
-  test's fixture and names are written out.*
+  test's fixture and names are written out. After E2 (c): `dt / x` fuses at the named levels
+  and declines at the unknown one, so its tests run at level 2 and its benchmark sections name
+  that level.*
 
 **B0.** 342e is merged (`grep -c 'e instanceof MultiplyDTInterval' $CG/VarkaNodeCompiler.java`
 at least `1`); `grep -c 'case DivideYMInterval _, DivideDTInterval _ ->'
@@ -564,11 +583,13 @@ prints the two lines, `ym_div_num`'s sixth field (fused today) empty and `dt_div
 4. `$CS/VarkaExpressionCompilerSuite.scala`: the two assertions `=== quotientByFloatingReason`
    become, for `DivideYMInterval(ymm, Literal(2.5d))`, an assertion that it compiles at the
    defaults (`VarkaExpressionCompiler.compile(Seq(out(DivideYMInterval(ymm, Literal(2.5d)))),
-   withIntervals).isPresent`), and for `DivideDTInterval(dt, Literal(2.5d))` the loop of 342e's
-   product test over the same three options (`VarkaEmitOptions.DEFAULTS`, levels 2 and 3),
-   asserting `compile(Seq(out(DivideDTInterval(dt, Literal(2.5d)))), withLong,
-   options).isPresent`; 342e's test is renamed "`dt * x` and `dt / x` by a double fuse at every
-   emit level"; the value `quotientByFloatingReason` goes.
+   withIntervals).isPresent`: `I2D` and `D2I` need no level), and for `DivideDTInterval(dt,
+   Literal(2.5d))` what 342e's test holds of the product: inside its loop over levels 2 and 3
+   also `compile(Seq(out(DivideDTInterval(dt, Literal(2.5d)))), withLong, options).isPresent`,
+   and after it `VarkaMatrixRuns.isUnknownLevelDecline(declineReason(DivideDTInterval(dt,
+   Literal(2.5d)), withLong))`. 342e's test is renamed "`dt * x` and `dt / x` by a double fuse
+   at the named emit levels and decline at the unknown one"; the value
+   `quotientByFloatingReason` goes.
 5. `sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaFloatingLaneSuite.scala`:
    - after the value `scaledIntervals` (342d's), the fixture, written out (review 1 finding 6;
      modelled on master's `cacheIntervals`):
@@ -591,7 +612,8 @@ prints the two lines, `ym_div_num`'s sixth field (fused today) empty and `dt_div
            session.catalog.cacheTable(quotients)
          }
 
-         /** The two quotient forms: both fuse at every emit level (343L, 343b2b, 342q). */
+         /** The two quotient forms: both fuse at emit level 2, at which the test runs (343b2b,
+          *  342q); `dt / x` declines at the unknown one these sessions keep (343L). */
          private def quotientForms: Seq[String] = Seq("ym / x", "dt / x")
 
    - in `beforeAll`, after `cacheIntervals(varkaSpark)`, the two lines
@@ -601,33 +623,36 @@ prints the two lines, `ym_div_num`'s sixth field (fused today) empty and `dt_div
 
          test("ym / x and dt / x by a zero divisor raise INTERVAL_DIVIDED_BY_ZERO with the " +
              "query's context, and past the type Guava's error, as the row engine does") {
-           for (ansi <- Seq(false, true)) withAnsi(ansi) {
-             for (e <- quotientForms) {
-               val zero = s"SELECT $e AS v FROM $quotients WHERE x = 0.0D"
-               withClue(s"$zero, ansi $ansi") {
-                 val actual = varkaSpark.sql(zero)
+           // An x86 session's level, at which both forms fuse (VARKA-343, part 343L).
+           withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, "2") {
+             for (ansi <- Seq(false, true)) withAnsi(ansi) {
+               for (e <- quotientForms) {
+                 val zero = s"SELECT $e AS v FROM $quotients WHERE x = 0.0D"
+                 withClue(s"$zero, ansi $ansi") {
+                   val actual = varkaSpark.sql(zero)
+                   assertFused(actual.queryExecution.executedPlan)
+                   val got = intercept[org.apache.spark.SparkArithmeticException](actual.collect())
+                   val want =
+                     intercept[org.apache.spark.SparkArithmeticException](spark.sql(zero).collect())
+                   assert(got.getCondition === "INTERVAL_DIVIDED_BY_ZERO", got.getMessage)
+                   assert(got.getCondition === want.getCondition)
+                   assert(got.getMessage === want.getMessage)
+                   assert(got.getMessage.contains("== SQL"), got.getMessage)
+                 }
+                 val past = s"SELECT $e AS v FROM $quotients WHERE x = 1.0E-30D"
+                 withClue(s"$past, ansi $ansi") {
+                   val actual = varkaSpark.sql(past)
+                   assertFused(actual.queryExecution.executedPlan)
+                   val got = intercept[Exception](actual.collect())
+                   val want = intercept[Exception](spark.sql(past).collect())
+                   assert(rootCause(got).getClass === rootCause(want).getClass)
+                   assert(rootCause(got).getMessage === rootCause(want).getMessage)
+                 }
+                 val fits = s"SELECT $e AS v FROM $quotients WHERE x IS NULL OR x = 2.0D"
+                 val actual = varkaSpark.sql(fits)
                  assertFused(actual.queryExecution.executedPlan)
-                 val got = intercept[org.apache.spark.SparkArithmeticException](actual.collect())
-                 val want =
-                   intercept[org.apache.spark.SparkArithmeticException](spark.sql(zero).collect())
-                 assert(got.getCondition === "INTERVAL_DIVIDED_BY_ZERO", got.getMessage)
-                 assert(got.getCondition === want.getCondition)
-                 assert(got.getMessage === want.getMessage)
-                 assert(got.getMessage.contains("== SQL"), got.getMessage)
+                 checkAnswer(actual, spark.sql(fits))
                }
-               val past = s"SELECT $e AS v FROM $quotients WHERE x = 1.0E-30D"
-               withClue(s"$past, ansi $ansi") {
-                 val actual = varkaSpark.sql(past)
-                 assertFused(actual.queryExecution.executedPlan)
-                 val got = intercept[Exception](actual.collect())
-                 val want = intercept[Exception](spark.sql(past).collect())
-                 assert(rootCause(got).getClass === rootCause(want).getClass)
-                 assert(rootCause(got).getMessage === rootCause(want).getMessage)
-               }
-               val fits = s"SELECT $e AS v FROM $quotients WHERE x IS NULL OR x = 2.0D"
-               val actual = varkaSpark.sql(fits)
-               assertFused(actual.queryExecution.executedPlan)
-               checkAnswer(actual, spark.sql(fits))
              }
            }
          }
@@ -638,10 +663,13 @@ prints the two lines, `ym_div_num`'s sixth field (fused today) empty and `dt_div
      imported by the suite on master. The rows each query keeps: `zero`, the two zero divisors
      (the null count beside a zero answers null in Spark, raising nothing); `past`, the counts'
      maxima over `1e-30`; `fits`, `7 / 2.0`, a tie that rounds to 4, and the null divisor;
-   - the decline test "an interval quotient by a floating factor plans no Varka node" (342e's
-     name) is deleted: its three forms fuse now, and the test above holds `ym / x` and `dt / x`
-     through a session and the compiler suite holds the literal `ym / 4.0D`'s arm (step 4).
-     It is replaced, not dropped to make a run pass.
+   - the decline test "an interval quotient or a day-time product by a floating factor plans
+     no Varka node" (342d's, unchanged by 342e) is renamed "a day-time product or quotient by a
+     floating factor plans no Varka node at the sessions' unknown emit level", and its list
+     `Seq("ym / x", "dt * x", "dt / x", "ym / 4.0D")` becomes `Seq("dt * x", "dt / x")`: the two
+     year-month forms fuse now at every level (the test above holds `ym / x` through a session,
+     the compiler suite the literal `ym / 4.0D`'s arm, step 4), and the two day-time ones still
+     decline at -1. It is narrowed to what still holds, not dropped to make a run pass.
    **If the context assertions fail, stop and report**: before SPARK-61352 the Varka side lost
    the `== SQL ==` block (`VARKA-414.md` 9). Do not weaken them.
 6. Coverage rows in "Floating arithmetic over other types" (`$S/VarkaCoverageSuite.scala`,
@@ -656,9 +684,13 @@ prints the two lines, `ym_div_num`'s sixth field (fused today) empty and `dt_div
    `dt,int~,dec~` becomes `dt,int~,dec~,float,double` and its note loses its last clause, "; a
    floating factor is 342's lowering".
 7. `$BJ/VarkaFloatingArithmeticBaselineBenchmark.java`: the `day-time interval dt / x`
-   sections become `Fusion.WHOLE`. The class and its queries suite plan at the emitter's
-   defaults, the unknown level (`VarkaFloatingArithmeticBaselineQueriesSuite`, "The benchmark
-   plans under the emitter's default options"), where `dt / x` fuses since 343L and 343b2b.
+   sections become `Fusion.WHOLE` with the settings `Map.of(SQLConf.VARKA_EMIT_USE_AVX().key(),
+   "2")` in place of `Map.of()` (import `org.apache.spark.sql.internal.SQLConf` if the file
+   lacks it), and the class javadoc says so: an x86 session's level, at which `dt / x` fuses
+   (*after E2 (c)*: at the emitter's default, the unknown level, it declines). Each section is
+   planned under its own settings by the queries suite too (its comment: "Each section is
+   planned under its own settings, as the benchmark plans it"), so the fuse check agrees on
+   every host.
 8. `sql/varka/fuzz/expected_errors.tsv`: an `INTERVAL_DIVIDED_BY_ZERO` line, `both`,
    `LEGACY,ANSI`, family `Floating arithmetic over other types`, reason "ym / x with a zero x
    (either sign) raises in every mode; the kernel's checked division declines the batch and
@@ -692,12 +724,14 @@ product, and `checkAnswer` fails.
   `VarkaFloatingArithmeticBaselineBenchmark` and `VarkaFloatingBaselineBenchmark`
   (`sql/core/benchmarks`), at both widths.
 - **Score** section 4's predictions 3 and 4 and A.7's (`dt / x` is a kernel section since
-  342q: 343L is merged, `VARKA-343.md` A.5).
+  342q, at emit level 2 by its settings, `VARKA-343.md` A.5).
 - **The two-lane rule, a number:** if, at 128 bits with no nulls, "varka on" of `year-month
-  interval ym * x` or of `day-time interval dt / x` is under its "spark row
-  path" rate, record it and file a row whose change is, in `floatingScaled`, `if
-  (sink.declinesTwoLaneChecks()) return sink.decline(VarkaKernelPlan.TWO_LANE_CHECK_REASON,
-  whole);`. Otherwise nothing.
+  interval ym * x` is under its "spark row path" rate, record it and file a row whose change
+  is, in `floatingScaled`, `if (sink.declinesTwoLaneChecks()) return
+  sink.decline(VarkaKernelPlan.TWO_LANE_CHECK_REASON, whole);`. Otherwise nothing. *After E2
+  (c):* `day-time interval dt / x` at 128 bits runs at level 2 by its settings, a level a
+  session on that host does not resolve to (it keeps the unknown level, where `dt / x`
+  declines: `VARKA-343.md` A.4.5), so its 128-bit number is recorded, not ruled on.
 - **The lead's JVM command, owed since step 3:** `dev/varka_emit.sh "(x * y) + z" --columns
   x:double,y:double,z:double --asm` shows no `vfmadd` in the dense loop.
 
@@ -717,8 +751,8 @@ Fuzzing: the Spark fuzzer draws fused coverage rows, so it draws the new rows;
 
 1. No committed shape's bytes move in any part (the bytes check).
 2. `ym * x` at least twice the row path at 256 bits with no nulls; `dt / x` at least 1.5
-   times (the `D2L` assembly is 38 lane calls; the class plans at the unknown level, which
-   takes the assembly since 343L and 343b2b).
+   times (the `D2L` assembly is 38 lane calls; the section runs at emit level 2, which takes
+   the assembly since 343b2b).
 3. At 128 bits both are within 0.7 to 1.5 times the row path: masks at two 64-bit lanes fall
    back on x86.
 4. `VarkaEmitterIntervalScaleSuite` under 60 s in its own JVM (44 s on the branch with 4 tests).
@@ -766,7 +800,12 @@ To be written when the row closes.
    coverage table fuses them and the four pairs are credited. *Recommended: (b).* **Answered
    on 28 November 2026: (b), build 343L.** 343L is first in row 343's order, so 342e and 342q
    are written for a master with it merged (one text, A.5): they add the day-time coverage rows
-   and claims, and `dt / x`'s benchmark sections fuse.
+   and claims, and `dt / x`'s benchmark sections fuse. **Answered on 28 November 2026, later:
+   (c)** (decision E2 of `VARKA-343.md` A.12): the coverage table compiles at emit level 2, an
+   x86 session's, so the four pairs are credited while the unknown level keeps declining; (b)
+   was replaced because it changed production and needed a full-strength builder before 1
+   December. 342e and 342q add the same rows and claims; their session tests and `dt / x`'s
+   benchmark sections name level 2.
 2. **Push `varka-342de-r` to the fork.** *Recommended: yes.* **Answered on 28 November 2026:
    done.** It is on the fork `MaxGekk/spark` as `varka-342de-r` (`688414d4e10`); the sheets
    take the code from the local branch, or from the fork branch when the local one is gone
