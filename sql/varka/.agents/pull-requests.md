@@ -55,7 +55,8 @@ From the main checkout, with the script's own two steps:
   on row `<n>`: the row must then open with its state in bold.
 - The size cap of `sql/varka/AGENTS.md` ("A pull request stays under 1000 changed lines") is for
   code. A plan-only pull request may pass it by the owner's rule, but the tool has no exemption:
-  `dev/varka_msg_check.py size` counts plan files, so its count still fails.
+  `dev/varka_msg_check.py size` counts plan files, so its count still fails. The pre-push hook
+  runs that count in its rule `R4`, and `VARKA_PUSH_CHECK_SKIP=R4` passes over it for such a push.
 
 The body's rules are in the header of `dev/varka_msg_check.py`.
 
