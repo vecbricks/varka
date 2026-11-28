@@ -1136,9 +1136,8 @@ question 1, applies the default that it is built).
    `StrictMath` and rely on the build requiring JDK 25. Evidence for (a): the JDK 26 runtime
    on this laptop holds an intrinsic for `Math.sinh` that JDK 25 lacks (`VARKA-358.md` 4.1),
    so delegation is a fact of one JDK; and JDK 25's own source already names an `atan2`
-   intrinsic it does not yet implement (12.3, line 4). *Recommended: (a).* **Default applied:
-   (a): the new member `ATAN2` names `Math`, and 356b is built.** An answer of (b) reverts
-   356b, three tokens.
+   intrinsic it does not yet implement (12.3, line 4). *Recommended: (a).* **Answered on 28 November
+   2026: (a). The new member `ATAN2` names `Math`, and 356b is built.**
 2. **Is the Arm runner's cell (356c) part of the close?** Section 9 asks it; item 5 of 1.1 does
    not name a host. (a) Yes, 356c. (b) No, a milestone 10 row. *Recommended: (a)*: it is one
    workflow step, and `tan`, `tanh` and `cbrt` are other routines on aarch64. **Default applied:
