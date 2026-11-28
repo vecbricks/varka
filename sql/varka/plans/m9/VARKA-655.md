@@ -1174,7 +1174,11 @@ arms that separate the cache format's share from the kernels'.
     the list of the labels that are still `notYet`, in place of "all 16";
   - the lead dispatches the same three commands as part E's step 10, with the six arms, and
     the label suffixes `-zen3` and `-zen3-128bit`. The Varka arm's `--expect-fused` then
-    fails the run if a turned entry does not fuse or hands a batch to the row path;
+    fails the run if a turned entry does not fuse or hands a batch to the row path. At 128
+    bits an entry whose conversion the record of `VARKA-689.md` 4.9 calls `refused` does
+    not fuse on the runner, by design: row 691's plan says how the 128-bit dispatch
+    expects those entries (the row path), and it does not turn the refusal off for the
+    surface, since a user's session would not;
   - the twelve files `TimestampSurface-<arm>-zen3-results.txt` and
     `...-zen3-128bit-results.txt` are committed beside this row's `unfused` twelve, and the
     kernels' share of an entry is read from that run's `varka-cache-jdk25` and `varka-jdk25`.

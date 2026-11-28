@@ -647,6 +647,17 @@ builds a node; no coverage row; no edit of `SQLConf.scala`, of the runner or of 
 
    If the class cannot say `ALL_FALL_BACK` for one section, stop.
 7. The suites of the next paragraph. Regenerate the docs and the proof file.
+8. `<gent>/varka/VarkaMatrixRuns.java`: `COMPILED_NODE_KINDS` gains
+   `VarkaVectorIR.Zoned.class`, the class that `zoneForm`'s `readOnlyBy` names: its value
+   becomes `Set.of(VarkaVectorIR.WidenDecimal.class, VarkaVectorIR.ConvertLane.class,` and,
+   on the next line, `VarkaVectorIR.Zoned.class);`. Its Javadoc gains, at its end: "A
+   {@code Zoned} node is what a field of a {@code TIMESTAMP} compiles to in a zone with
+   changes (VARKA-657), so {@code zoneForm}'s other arms run." From this part on the
+   compiler builds a `ToLocal`, so the option matrix runs the options that only a zone
+   node reads. Check: `dev/varka_matrix.sh --list | grep zoneForm` prints `zoneForm=ONE`
+   and `zoneForm=STEPS_8`, the two lines part C's B0 expects; `VarkaTimestampZoneSuite`
+   sets its form itself and is not moved by them. Row 689's `zoneStepMask=false` joins
+   them with its part a (`VARKA-689.md` 3, fact 3).
 
 **The tests.** `<exect>/VarkaTimestampZoneSuite.java`, new, `@VarkaSuite`, modelled on
 `VarkaTimeHarnessSuite`. It calls `VarkaExpressionHarness.projection` and `filter` with a conf
