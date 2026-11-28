@@ -735,7 +735,10 @@ decisions) is not on master; a part that lands a branch's code brings those para
    `sink.declinesTwoLaneChecks()` and declines with `VarkaDecimalCompiler.TWO_LANE_WIDE_REASON`.
    Behind it stand the roots' refusals in `VarkaKernelPlan` (a filter's conjunct, a pair
    output, a comparison written as a value). Row 597's second half writes the decline once and
-   removes these uses; row 698 measures whether a pair can win there. On aarch64 at 128 bits the cap
+   removes these uses (*28 November 2026:* the owner's answer to `VARKA-597.md` 11.7 question 1;
+   a part built after 597b merged writes no such test and expects `TWO_LANE_READ_REASON`, by
+   `VARKA-360.md` 11.7, "The two-lane rule once row 597's part 597b merges"); row 698 measures
+   whether a pair can win there. On aarch64 at 128 bits the cap
    is 16 and every shape of this row is taller, so each declines with the cap's reason.
 9. **The cap.** Every caller needs row 697 (#1798, open): the long lane's auto cap of 64 at 256
    bits and wider. By the model (a leaf counts 0; the taller of an output root and a comparison
@@ -1001,7 +1004,7 @@ here and there differ, that table holds. What this row takes:
 | `WordConst`; `VarkaDecimalLowering`: `lowerAll(outputs, options, faults)`, `enum PlantedFault`, `laneCalls`, the private `bit`, `mul`, `add`, `sub` | 360b1 | `ScaleDown`'s lowering goes in this file with the parameter order of `lower(WideMul, ...)`: `lower(ScaleDown n, VarkaEmitOptions options, Set<PlantedFault> faults)` |
 | `carry(a, s)`, `borrow(a, b)`, `widePair`, `signExtended` | the waiting branch `varka-360a-sums`, merged by the lead | the pair sums of 11.4.4 and 11.4.6 to 11.4.8 |
 | `bigintPair(Cast c, DecimalType type, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink)` | the waiting branch `varka-360a-bigint-cast` only | a `BIGINT` operand of a cut product (363a3's test 6) |
-| `TWO_LANE_WIDE_REASON` | 360b2 | the two-lane decline of every arm |
+| `TWO_LANE_WIDE_REASON` | 360b2, unless 597b merged first (`VARKA-360.md` 11.7's two-lane rule); 597b removes it | the two-lane decline of every arm |
 | `pairTimesWord(Pair x, int k, DecimalType type, DeclineSink sink)`, `1 <= k <= 18` | 360b2 (the old branch's `pairRescale`, renamed; no branch holds the new name) | `A` of 11.4.6 and 11.4.8 (363c1, 363c3) |
 | `decimalOverflow(Object evalMode)`, `evalModeOf(Expression e)`, `outside38(lo, hi, sink)`, `guardedPair(over, lo, hi, mode, type)` | 360c1 | every live check: 363b2, 363c1, 363c3 |
 | `rescaleGuard(Pair x, int k, DeclineSink sink)` | 360c2 | 363c3's guard on its rescaled operand |

@@ -594,8 +594,11 @@ is not on master. A part that lands a branch's code brings that branch's paragra
    (`TWO_LANE_DECIMAL_PAIR_OUTPUT_REASON`), a comparison written as a value
    (`TWO_LANE_DECIMAL_VALUE_REASON`). The arm's own test closes the one form the roots leave, a
    choice with branches that are not decimals over a decimal condition, `IF(x * y < z, l, 0)`.
-   Row 597's second half then writes the decline once over the readers and removes these uses;
-   row 698 measures whether a pair can win there. On aarch64 at 128 bits the cap is 16, so form N
+   Row 597's second half then writes the decline once over the readers and removes these uses
+   (*28 November 2026:* the owner's answer to `VARKA-597.md` 11.7 question 1; a part built after
+   597b merged writes no such test and expects `TWO_LANE_READ_REASON`, by `VARKA-360.md` 11.7,
+   "The two-lane rule once row 597's part 597b merges"); row 698 measures whether a pair can
+   win there. On aarch64 at 128 bits the cap is 16, so form N
    (13 levels under a comparison) fuses and form C declines with the cap's reason.
 9. **No new emit option in this row.** A new shape is a new kernel where the row path ran,
    under the family switch its expression has already (`VarkaFamily`), as the shapes of rows
@@ -746,7 +749,7 @@ here and there differ, that table holds. What this row takes, with the part that
 | `VarkaWideMulSuite` and the wide-product draw in `VarkaIrGrammar` | 360b1 | where `PairMul`'s draw joins |
 | `widePair`, `signExtended`, `carry(a, s)`, `borrow(a, b)` | the waiting branch `varka-360a-sums`, merged by the lead | operands of a product as pairs |
 | `bigintPair(Cast c, DecimalType type, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink)` | the waiting branch `varka-360a-bigint-cast` only (it is not on `varka-360a-sums`) | a `BIGINT` under its cast as a pair (362a2) |
-| `TWO_LANE_WIDE_REASON` | 360b2 | the two-lane decline of each new arm |
+| `TWO_LANE_WIDE_REASON` | 360b2, unless 597b merged first (`VARKA-360.md` 11.7's two-lane rule); 597b removes it | the two-lane decline of each new arm |
 | `decimalOverflow(Object evalMode)`, `outside38(lo, hi, sink)`, `guardedPair(over, lo, hi, mode, type)` | 360c1 | the checked product's mode and guard (362b2) |
 | `longValued`, `pairWidening`, `wideningProduct` | 361a | `ProductForm.WIDENING` is exactly `pairWidening`; the shortcut reads `longValued` |
 | `VarkaEmitBudget.LONG_LANE_MAX_CHAIN_DEPTH` (64) | row 697, pull request #1798, branch `varka-long-lane-chain-cap`, not merged | 362b2: the checked product is 29 or 30 levels |

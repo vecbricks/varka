@@ -1470,7 +1470,10 @@ the compiler changed under it in 360a.
 - **B0**, on master after 360b1 and the three 360a pieces: `grep -c 'rescaledPastLong(' DC`
   prints 3; `grep -c 'bigintPair(' DC` prints 2; `grep -c 'reachesScale(' DC` prints 3;
   `grep -c 'declinesTwoLaneChecks' DC` prints 0; `grep -c 'record WideMul'
-  VARKA/VarkaVectorIR.java` prints 1.
+  VARKA/VarkaVectorIR.java` prints 1. *[28 November 2026.]* Once row 597's part 597b merged,
+  `declinesTwoLaneChecks` prints 1 and 11.7's two-lane rule applies to this sheet; then
+  `grep -c 'declinesAtTwoLanes(c, sink)' DC` must print 1, and where it prints 0 this part adds
+  `bigintPair`'s two-lane call and its test line as 11.7 writes them.
 - **Step 1, three helpers in `DC`**, beside `signExtended`:
 
         static final String TWO_LANE_WIDE_REASON = "a decimal rescale, checked sum or product "
@@ -2008,8 +2011,8 @@ waiting branch the lead merges (11.1); every other entry is a part.
 | `VarkaLoopEmitter.emitPlantedForTest` | `static byte[] emitPlantedForTest(String className, List<VarkaVectorIR> outputs, int numInputs, int numLiterals, VarkaEmitOptions options, Set<VarkaDecimalLowering.PlantedFault> faults)` | 360b1 | 360b1p, 361p, 362b1, 363a1 |
 | `carry`, `borrow` | `private static VarkaVectorIR carry(VarkaVectorIR a, VarkaVectorIR s)` (an addend's low word and the wrapped low sum); `private static VarkaVectorIR borrow(VarkaVectorIR a, VarkaVectorIR b)` (the low words of `a - b`) | branch `varka-360a-sums` | 363a3, 363c1, 363c2, 363c3 |
 | `widePair`, `atPairScale`, `uncappedSum`, `signExtended` | `signExtended(VarkaVectorIR x, DecimalType type, DeclineSink sink)` returns `Pair`; the others as on the branch | branch `varka-360a-sums` | 360b2, 360c1, 361a, 362a2 |
-| `bigintPair` | `private static Optional<Pair> bigintPair(Cast c, DecimalType type, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink)` | branch `varka-360a-bigint-cast` only | 360b2, 362a2, 363a3 |
-| `TWO_LANE_WIDE_REASON` | `static final String` | 360b2 | 360c1, 360c2, 361a, 362a2, 362b2, 363a3, 363b2, 363c1, 363c2, 363c3 |
+| `bigintPair` | `private static Optional<Pair> bigintPair(Cast c, DecimalType type, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink)`; its first statement the two-lane call below this table | branch `varka-360a-bigint-cast` only | 360b2, 362a2, 363a3 |
+| `TWO_LANE_WIDE_REASON` | `static final String` | 360b2, unless row 597's part 597b merged first (the rule below this table); 597b removes it | 360c1, 360c2, 361a, 362a2, 362b2, 363a3, 363b2, 363c1, 363c2, 363c3 |
 | `wideRescale`, `pairTimesWord`, `longTimesTwoWords` | `(VarkaVectorIR x, int k, DecimalType type, DeclineSink sink)`; `pairTimesWord(Pair x, int k, DecimalType type, DeclineSink sink)`, `1 <= k <= 18` (the old branch's `pairRescale`, renamed) | 360b2 | 360c2, 363c1, 363c3 |
 | `decimalOverflow`, `evalModeOf`, `outside38`, `guardedPair` | `static Overflow decimalOverflow(Object evalMode)`, `static Object evalModeOf(Expression e)`, `static Cond outside38(VarkaVectorIR lo, VarkaVectorIR hi, DeclineSink sink)`, `static Pair guardedPair(VarkaVectorIR over, VarkaVectorIR lo, VarkaVectorIR hi, Overflow mode, DecimalType type)`; bodies in 11.4, "The overflow mode of the whole chain" | 360c1 | 362b2, 363b2, 363c1, 363c3 |
 | `cappedKeepingScale` | `private static boolean cappedKeepingScale(Expression e)` | 360c1 | 360c2, 361a |
@@ -2023,9 +2026,33 @@ waiting branch the lead merges (11.1); every other entry is a part.
 | `VarkaEmitBudget.LONG_LANE_MAX_CHAIN_DEPTH`, option `chainCapLongBits` | `public static final int ... = 64` | row 697 (#1798, branch `varka-long-lane-chain-cap`) | 360c2, 362b2, 363a3, 363b2, 363c1, 363c2, 363c3 |
 | `VarkaDecimalPairSuite`'s harness | section 3, "Harness names"; `storedOrDeclined` (360c1), `DEEP` (360b2) | 361a, 360c1, 360b2 | 360c2, 361a, 362a2 |
 
-Emit options of this row: none; `decimalCarry` exists only if 360e is built. Row 597's second
-half then writes its two-lane decline once over the readers; where it does, the uses of
-`TWO_LANE_WIDE_REASON` become redundant and 597 removes them.
+Emit options of this row: none; `decimalCarry` exists only if 360e is built.
+
+**The two-lane rule once row 597's part 597b merges** *[28 November 2026: the owner answered
+`VARKA-597.md` 11.7 question 1 "remove"]*. 597b writes the two-lane decline once, in the
+decimal readers (`VarkaDecimalCompiler.TWO_LANE_READ_REASON`), and removes
+`TWO_LANE_WIDE_REASON` with every arm's two-lane statement that is on master when it is built
+(`VARKA-597.md` 11.5 step 3b). Each part of rows 360 to 363 first reads
+`grep -c 'TWO_LANE_READ_REASON' C/VarkaDecimalCompiler.java`. `0`: it builds as its sheet
+writes. `1` or more: it adds no `TWO_LANE_WIDE_REASON` and no two-lane statement in an arm; a
+B0 line that counts `TWO_LANE_WIDE_REASON` is read as `0`, and one that counts
+`declinesTwoLaneChecks` in `DC` as `1`; a test that expects `TWO_LANE_WIDE_REASON` expects
+`VarkaDecimalCompiler.TWO_LANE_READ_REASON` under the same admission, and the sheet's test
+counts stand. The table above names who adds the constant; after 597b no part does.
+
+**`bigintPair`'s two-lane call** (the owner: it declines with the readers). If 597b is on master
+when the lead merges master into `varka-360a-bigint-cast` (step 0 of 11.2's chain), the lead
+adds `if (declinesAtTwoLanes(c, sink)) { return Optional.empty(); }` as `bigintPair`'s first
+statement, and `Cast(l, DecimalType(20, 0))` to the `pair` list of `VarkaExpressionCompilerSuite`'s
+test "a value that reads a decimal column declines on a two-lane host, and fuses elsewhere";
+360b2's B0 checks it and adds both where that merge did not. If `bigintPair` reaches master
+first, 597b adds them (`VARKA-597.md` 11.5 step 2).
+
+Section 10.5 item 6, the branch's record kept as it will merge, says row 597 moved to
+milestone 10. That is stale since the owner's word of 28 November 2026: part 597b is milestone
+8's and gates its close, and 597a stays in `m10/SCOPE.md` item 140. The case it names, a
+comparison of pairs built from `BIGINT` casts alone projected as a `BOOLEAN`, declines at two
+lanes once `bigintPair` has the call above.
 
 ### 11.8 Risks
 
@@ -2081,20 +2108,20 @@ D3 here, D4 in `VARKA-361.md` section 12, D5 to D7 in `VARKA-362.md` 11.9, D8 in
   option `decimalCarry`, about 600 counted lines and one part of the lead's; if not, nothing is
   built and there is no option. (b) In the first case swap the two helpers, about 30 lines, and
   drop the slower form. Recommended and applied: (a), the house keeps a losing arm.
-- **D2. A capped sum whose wide operand is rescaled by 19 digits or more.** Open; the default
-  (a) is applied. The shape: `x + y` with `x` a `DECIMAL(38, 0)` and `y` a `DECIMAL(38, 30)`
-  and `spark.sql.decimalOperations.allowPrecisionLoss=false`, which is not the default. Spark
-  types the sum `DECIMAL(38, 30)`, so `x` is multiplied by `10^30` before the add. (a) Varka
-  declines the expression by name and the query runs on Spark's row path, as it does today:
-  0 lines; 61600 of the 606841 ordered type pairs under that setting and none under the default
-  setting; recorded in `m10/SCOPE.md` item 140 and named in the census note of `+` and `-`.
-  (b) Build it in part 360c2: about 80 counted lines and one proof claim. Recommended: (a).
-- **D3. Starting the build before the carry's measurement is committed.** Open; the default (a)
-  is applied. Section 9 of this plan says the spike's verdict is committed for each vector
-  width before the build. (a) The two parts the lead builds this week, 360b1 (the multiply
-  node) and 360c1 (the capped sum), start before part 360s has merged: neither reads the carry
-  form, and a verdict for the second form adds one part (D1) and changes neither. (b) They wait
-  for 360s, which waits for the lead's download of two runner artifacts; the whole chain of
+- **D2. A capped sum whose wide operand is rescaled by 19 digits or more.** Answered by the owner
+  on 28 November 2026: (a), as applied. The shape: `x + y` with `x` a `DECIMAL(38, 0)` and `y` a
+  `DECIMAL(38, 30)` and `spark.sql.decimalOperations.allowPrecisionLoss=false`, which is not the
+  default. Spark types the sum `DECIMAL(38, 30)`, so `x` is multiplied by `10^30` before the add.
+  (a) Varka declines the expression by name and the query runs on Spark's row path, as it does
+  today: 0 lines; 61600 of the 606841 ordered type pairs under that setting and none under the
+  default setting; recorded in `m10/SCOPE.md` item 140 and named in the census note of `+` and
+  `-`. (b) Build it in part 360c2: about 80 counted lines and one proof claim. Recommended: (a).
+- **D3. Starting the build before the carry's measurement is committed.** Answered by the owner on
+  28 November 2026: (a), as applied. Section 9 of this plan says the spike's verdict is committed
+  for each vector width before the build. (a) The two parts the lead builds this week, 360b1 (the
+  multiply node) and 360c1 (the capped sum), start before part 360s has merged: neither reads the
+  carry form, and a verdict for the second form adds one part (D1) and changes neither. (b) They
+  wait for 360s, which waits for the lead's download of two runner artifacts; the whole chain of
   21 steps starts that much later. Recommended: (a).
 
 Two former questions are decided in the text and are not the owner's: class U at one scale at

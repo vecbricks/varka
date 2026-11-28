@@ -526,7 +526,10 @@ lead before any part of this row starts; no part here starts from one.
    until row 698 of `m9/PLAN.md` shows a two-lane pair load that wins (`VARKA-360.md` section 11,
    decision 4 has the argument). Section 2.4's hope that the mask-free network beats the row path
    there is not tested by this row: the pair's store and every decimal load fall back at two
-   lanes whatever the network.
+   lanes whatever the network. *[28 November 2026.]* Once row 597's part 597b merged, the arm
+   writes no two-lane test and its tests expect `TWO_LANE_READ_REASON`, by the paragraph "The
+   two-lane rule once row 597's part 597b merges" of `VARKA-360.md`, after its table of shared
+   names.
 6. **The options: `decimalWideMulLow` (`LIMBS`, `MULVL`) and `decimalSignWord` (`ASHR`, `NEG_LSHR`,
    `BLEND`), both `Reason.MACHINE`, defaults `LIMBS` and `ASHR`**, the forms the proof layer of
    360b1p and 361p covers. The defaults move only by this rule, applied in 361c to the 256-bit EPYC
@@ -1030,17 +1033,18 @@ section titled "its scale cut" (row 363).
 in `VARKA-360.md` section 12, D4 here, D5 to D7 in `VARKA-362.md` 11.9, D8 in `VARKA-363.md`
 11.9.
 
-- **D4. Building the widening product before its measurement is committed.** Open; the default
-  (a) is applied. The shape: `x * y` over two `DECIMAL(15, 2)` columns, a `DECIMAL(31, 4)`: two
-  64-bit values multiplied into 128 bits. Two details of the kernel have more than one form
-  (how the low word is computed, two forms; how a sign mask is computed, three forms), each
-  behind an emit option. The lead's answer of 30 October 2026 has the runner's measurement of
-  those forms committed before the kernel is built. (a) Part 361a builds the kernel now with
-  the two forms that are already proven as defaults, and part 361c, after the measurement,
-  moves a default by a fixed rule (a form replaces the default if it is 1.3x ahead in a cell
-  and behind in none); the measurement can change two defaults and no answer of any query. (b)
-  The spike's loops (part 361s, about 500 lines) and the lead's runner dispatch come first, and
-  361a and the 14 steps of the chain behind it wait for them. Recommended: (a).
+- **D4. Building the widening product before its measurement is committed.** Answered by the owner
+  on 28 November 2026: (a), as applied. The shape: `x * y` over two `DECIMAL(15, 2)` columns, a
+  `DECIMAL(31, 4)`: two 64-bit values multiplied into 128 bits. Two details of the kernel have
+  more than one form (how the low word is computed, two forms; how a sign mask is computed, three
+  forms), each behind an emit option. The lead's answer of 30 October 2026 has the runner's
+  measurement of those forms committed before the kernel is built. (a) Part 361a builds the kernel
+  now with the two forms that are already proven as defaults, and part 361c, after the
+  measurement, moves a default by a fixed rule (a form replaces the default if it is 1.3x ahead in
+  a cell and behind in none); the measurement can change two defaults and no answer of any query.
+  (b) The spike's loops (part 361s, about 500 lines) and the lead's runner dispatch come first,
+  and 361a and every step of the chain that waits on it (361p, 361b, 362a2 and the parts after
+  them in 11.2 of `VARKA-360.md`) wait for them. Recommended: (a).
 
 Two former questions are decided in the text and are not the owner's: `BLEND`, a third way to
 compute a sign mask that can never be the default, is kept as an arm (11.3 decision 6); and
