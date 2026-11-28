@@ -1601,7 +1601,7 @@ fixtures.
 
 | part | counted lines (estimate) | builder | starts from | waits on | why |
 | :--- | ---: | :--- | :--- | :--- | :--- |
-| 1 | about 715: conf 20, node and evaluator 215, rule 45, the two suites 420, docs and plan 15 | full strength, before 1 December | master | row 650 need not be merged | facts F8, F10 and F11 are read from code and not run; if an admission test fails, the match of 4.2 and 4.5 is redesigned against the tree the test prints, with nobody to ask |
+| 1 | about 715: conf 20, node and evaluator 215, rule 45, the two suites 420, docs and plan 15 | Sonnet-class (since the lead's admission run of 28 November, section 8) | master | row 650 need not be merged | facts F8, F10 and F11 are read from code and not run; if an admission test fails, the match of 4.2 and 4.5 is redesigned against the tree the test prints, with nobody to ask |
 | 1b | about 285: rule 40, conf doc and docs 6, the node suite's test 80, the SQL suite's five tests 105, the surface driver's plan check and its test 45, plan 9 | Sonnet-class | master | part 1 | the arm, the method and every plan and query of its tests are written out; the node's `Complete` mode exists and is tested |
 | 2 | about 400: suite 300, benchmark 40, helpers 5, skills and plan 55 | Sonnet-class | master | parts 1 and 1b, and row 650's part 650a | every query, fixture and assertion is listed; the node and the rule exist |
 | 3a | about 150: conf and docs 20, the suite 45, `VarkaCountBenchmark` 20, two benchmark guards 10, pinned tests 40, plan 15 | Sonnet-class | master | part 2 | each edit is named; the tests follow one rule and a table, and an undecided failure stops the builder |
@@ -1622,6 +1622,13 @@ the same trait) the two tests of part 1's step 7 and the suite's `key`, `P`, `Q`
 
 That is ten minutes of the lead's time. If the first fails, the `Partial` match is redesigned;
 if the second fails, the `Complete` match is, against the tree it prints.
+
+**Run on 28 November 2026.** The lead ran both admission tests on master `b646e6bb012`, as a
+scratch suite `VarkaFusedCountAdmissionSuite` with the two tests of part 1's step 7 and their
+helpers (the switch's key set to a name no conf has, the two `VarkaFilterCountExec` lines left
+out): `Tests: succeeded 2, failed 0`, in 242 s. So facts F8, F10 and F11 hold on the real
+planner, in both modes, and part 1 is Sonnet-class. The builder still writes and runs the two
+tests first, as step 7 says: a later sync of Spark could change the shapes.
 
 ## 9. Risks
 
