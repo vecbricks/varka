@@ -372,6 +372,14 @@ jobs:
           varka_engine=`./dev/is-changed.py -m varka-engine`
           varka_bench=`./dev/is-changed.py -m varka-bench`
           varka_docs=`./dev/is-changed.py -m varka-docs`
+          # The docs job's tool index check (VARKA-702) reads every entry under dev/ whose name
+          # starts with varka, so a change to one runs the job, whichever module claims the file:
+          # a new benchmark script is the bench module's alone, and would land without its line
+          # in the index. Asked here and not in the module's sources, where the pattern would
+          # take the scripts no module claims away from `root`.
+          if echo "${changed_files:-}" | grep -E '^dev/varka' > /dev/null; then
+            varka_docs=true
+          fi
           # The assembly gate reads the instructions of both the emitted loops and the
           # hand-written kernels, so it runs when either side moves (VARKA-124).
           varka_asm=`./dev/is-changed.py -m "catalyst,varka-engine"`
@@ -1999,6 +2007,11 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: ./dev/varka_plan_lint.py --check
+    # An agent finds a tool in the index, sql/varka/.agents/tools.md, and not by listing dev/
+    # (VARKA-702): every entry under dev/ whose name starts with varka has one bullet there, and
+    # no bullet names an entry that is gone.
+    - name: Every Varka tool under dev/ is in the tool index
+      run: ./dev/varka_tools_lint.py
     - name: The scheduled-failure reporter's issue and comment decisions
       run: python3 dev/varka_scheduled_failure_test.py
     - name: The CI queue's admission decision, over recorded API responses
@@ -2014,6 +2027,7 @@ jobs:
       run: |
         python3 dev/varka_lint.py --selftest
         python3 dev/varka_sweeps.py --self-test
+        python3 dev/varka_tools_lint.py --self-test
         python3 dev/varka_msg_check.py --selftest
         python3 dev/varka_matrix_shards.py --selftest
         python3 dev/varka_bench_cpu_retry.py --selftest

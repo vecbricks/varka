@@ -5,6 +5,9 @@ testing, or committing to Spark.
 
 Many of these scripts require Apache credentials to work correctly.
 
+The Varka tools, the entries here whose names start with `varka`, are indexed in
+`sql/varka/.agents/tools.md`.
+
 ## Testing `sparktestsupport`
 
 The tests in `sparktestsupport/tests/`, which include the doctests of every `sparktestsupport`
