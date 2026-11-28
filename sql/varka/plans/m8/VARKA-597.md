@@ -4,6 +4,17 @@ Row 597 of `PLAN.md`. Added on 10 November 2026 on the owner's word, from row 59
 (#1478, branch `varka-596-pair-value-two-lanes`, open), whose diagnosis found the decimal load,
 not the comparison, losing at two long lanes. Planned on 11 November 2026.
 
+***Changed on 28 November 2026.** The owner brought the row's second half, 597b, back to
+milestone 8 as a gate of its close; the first half, 597a, stays in `m10/SCOPE.md` item 140.
+Section 11 is new and is the plan of what is left: one part, written for a builder with nobody
+to ask. Sections 0 to 9 are the plan of 11 November 2026, kept word for word as the record;
+where section 11 differs it wins, and 11.9 lists each difference. Section 10 is unchanged.*
+
+***Fix round of 28 November 2026** (review 1 of the plans of rows 350, 346 and 597b). The owner
+answered 11.7's questions 1 and 2: 597b removes the arm-level reasons `TWO_LANE_REASON` and
+`TWO_LANE_WIDE_REASON` (11.5 step 3b), and `bigintPair` declines with the readers, the side
+that lands second adding its call (11.5 step 2). Every changed passage is marked "fix round".*
+
 ## 0. What exists now (admission check)
 
 From master at `d241c12372d`, by reading the compilers, the IR, the decimal baseline's committed
@@ -447,3 +458,696 @@ Or, under question 4's answer (b), the same for every form of 0 item 11 as its r
 ## 10. Outcome
 
 Nothing built yet.
+
+## 11. What is left, as one part a Sonnet-class agent can build (28 November 2026)
+
+*New on 28 November 2026. Code facts were read on master `6dafb8bd2f6`, with no JVM. This section
+stands alone: a builder needs it, the `AGENTS.md` files and `sql/varka/ADDING_AN_EXPRESSION.md`.
+Where it differs from sections 0 to 9 it wins, and 11.9 lists each difference. Short names:
+`C` is `sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen`,
+`CT` is the same path under `src/test/java`, `CS` under `src/test/scala`,
+`DC` is `C/VarkaDecimalCompiler.java`, `KP` is `C/varka/VarkaKernelPlan.java`,
+`BENCH` is `sql/core/src/test/java/org/apache/spark/sql/execution/benchmark`, and `R128` is
+`sql/core/benchmarks/VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`.*
+
+### 11.1 What row 597 is on this day
+
+The owner split the row on 28 November 2026 (the row's note in `PLAN.md`). Part 597a, the 36
+baseline sections of section 4, stays in `m10/SCOPE.md` item 140 and is not built here. Part 597b,
+the decline, gates the close of milestone 8 under item 3 of `PLAN.md` 1.1 (`PLAN.md` 12.5).
+
+**The term.** A "two-lane host" is an x86 JVM whose preferred 64-bit vector species has two lanes
+or fewer: an x86 CPU without AVX2, or any x86 JVM started with `-XX:MaxVectorSize=16`. There C2
+lowers no vector mask and no two-vector rearrange, so those calls run the Vector API's Java
+fallback, which allocates. Arm is never a two-lane host in this sense: its back end lowers the
+same calls at 128 bits, so nothing declines there.
+
+**Why the row came back.** Three facts, each with its command, run from the repository root:
+
+| fact | command | prints |
+|---|---|---|
+| every 64-bit decimal value is a projection output since #1628 | `git log --oneline -1 59924639192` | `[VARKA-348] Fuse every 64-bit decimal value as a projection output (#1628)` |
+| the 128-bit runner file is from #1797 | `git log --oneline -1 9e7b1612402` | `[VARKA-362][VARKA-363] Refresh the decimal baseline's runner results at both widths (#1797)` |
+| twelve fused decimal sections lose there | `python3 two_lane_rule.py R128 \| tail -1` (the script is 11.4's) | `RULE: 180 sections, 12 fused decimal readers: 12 LOSER, 0 TIE, 0 WINNER` |
+
+**What exists.** Three refusals at the roots, in `KP.hostRefusal` (rows 503, 596 and 359), and
+three declines in compiler arms (rows 104, 612 and 350). All read one session setting:
+
+| name | where it sits | what it stops on a two-lane host |
+|---|---|---|
+| `TWO_LANE_CONDITION_REASON` | root, `KP.hostRefusal` | a filter's condition in a kernel driven at a 64-bit lane |
+| `TWO_LANE_DECIMAL_VALUE_REASON` | root, `KP.hostRefusal` with `readsDecimal` | a `BOOLEAN` output whose condition reads a decimal column |
+| `TWO_LANE_DECIMAL_PAIR_OUTPUT_REASON` | root, `KP.hostRefusal` | a decimal output wider than 18 digits (its store) |
+| `TWO_LANE_CHECK_REASON` | compiler, `VarkaNodeCompiler` and `VarkaIntervalCompiler.twoLaneMeasured` | a checked `BIGINT` or day-time interval operation |
+| `VarkaDecimalCastCompiler.TWO_LANE_REASON` | compiler, three arms of the cast compiler | a decimal cast to `BIGINT`, to `BOOLEAN` and between decimals; 597b removes it (11.5 step 3b) |
+
+Not on master on this day, and named by the plans of rows 360 to 363 written the same day:
+`VarkaDecimalCompiler.TWO_LANE_WIDE_REASON`, tested first in each new wide arm (the rescales past
+a long, the checked sums, the products and the cut scales). *[Fix round, 28 November 2026.]* The
+owner answered 11.7 question 1 "remove": 597b removes both arm-level reasons, whichever of their
+uses are on master when it is built, and 11.5 step 3b says what a chain part built after 597b
+does instead.
+
+**How the host is told.** One chain, and 597b adds nothing to it:
+
+1. `VarkaHostIsa.host()` reads `os.arch`; `Reading.x86()` is true for `amd64` and `x86_64`.
+2. `KP.twoLaneMasksFallBack(Reading host, int preferredLongLanes)` returns
+   `host.x86() && preferredLongLanes <= 2`. Arm answers false before the lane count is read.
+3. `VarkaSessionEmit.bind` (sql/core) takes the setting
+   `spark.sql.codegen.varka.declineTwoLaneConditions` where the session sets it, else step 2's
+   answer, into `VarkaSessionEmit.declineTwoLaneConditions`.
+4. `VarkaSessionEmit.admission()` hands it to the compiler as
+   `VarkaAdmission.declineTwoLaneConditions`.
+5. A projection's `DeclineSink` (the constructor that takes a `VarkaAdmission`) exposes it as
+   `sink.declinesTwoLaneChecks()`. A predicate's sink is built from the families alone
+   (`VarkaExpressionCompiler.predicateOnce`), so its flag is always false: a filter never meets a
+   compiler-arm decline and keeps `TWO_LANE_CONDITION_REASON`.
+
+    grep -c 'return host.x86() && preferredLongLanes <= 2;' KP                    -> 1
+    grep -c 'new DeclineSink(childOutput, options, admission.familiesOff())' \
+        C/VarkaExpressionCompiler.java                                            -> 1
+    grep -c 'new DeclineSink(childOutput, options, admission)' \
+        C/VarkaExpressionCompiler.java                                            -> 2
+
+### 11.2 The decision rule, as numbers
+
+The numbers are the best times of `R128` (vecbricks/varka run 46057448792, commit `6d1f14ae33a`,
+AMD EPYC 7763, `-XX:MaxVectorSize=16`), row path over Varka arm, as `two_lane_rule.py` prints
+them. Every section the file's header lists as fused that reads a decimal column:
+
+| section of `VarkaDecimalBaselineBenchmark` | kind | no nulls, ms | ratio | one in ten null, ms | ratio |
+|---|---|---|---|---|---|
+| `DECIMAL(9, 2) cast to DECIMAL(18, 4)` | rescaling cast | 116 / 401 | 0.29 | 116 / 447 | 0.26 |
+| `DECIMAL(9, 2) choice` | choice | 139 / 637 | 0.22 | 145 / 788 | 0.18 |
+| `DECIMAL(18, 4) choice` | choice | 144 / 639 | 0.23 | 143 / 784 | 0.18 |
+| `DECIMAL(9, 2) x + y as a value` | sum | 168 / 588 | 0.29 | 163 / 700 | 0.23 |
+| `DECIMAL(9, 2) x - w as a value, w at another scale` | difference over a rescale | 234 / 587 | 0.40 | 212 / 700 | 0.30 |
+| `DECIMAL(9, 2) x8 * y as a value, x8 a DECIMAL(8, 2)` | product | 221 / 592 | 0.37 | 205 / 707 | 0.29 |
+
+The file's four other fused sections read no decimal column and win: `time_to_seconds over
+TIME(6)` at 3.19 and 2.92 (731 / 229 and 652 / 223 ms) and `extract(SECOND) over TIME(6)` at 1.28
+and 1.16 (418 / 327 and 389 / 336 ms). They write a decimal through the same store, so the store
+is not what loses. The load is: section 0 item 8, and the skill
+`sql/varka/skills/vector-api-and-width.md`, "At two long lanes a decimal read loses before its
+compare does". Row 596's reading before its refusal had `x < y` as a value at 0.2X and 0.3X on the
+long lane and 0.7X to 0.9X for the pair (section 0 item 7).
+
+**The rule.** With `ratio` as above, and the house's band of 1.3 (`sql/varka/AGENTS.md`,
+"Measurements, not adjectives"):
+
+1. **A kind with a section declines where any of its sections is below 1.0.** All four measured
+   kinds are: the highest of the twelve ratios is 0.40.
+2. **A kind with no section declines too.** This is the owner's answer to question 2 of section 7
+   (11 November 2026): every decimal operand declines by default at two long lanes, and a form is
+   lifted only by a measured win and the owner's word. A win is a ratio of 1.3 or more by best
+   times in two runs on the EPYC 7763 at 128 bits. The kinds with no section, all of which pay the
+   same load: `-x`, `abs(x)`, `coalesce`, `greatest`, `least`, a decimal `IN` or null test written
+   as a value, `hash` and `xxhash64` over a decimal, `CAST(x < y AS INT)`, `IF(x < y, l, 0)`,
+   `nvl2(x, l, 0)`, and each of these over the lane pair.
+3. **A value that reads no decimal column and builds no decimal pair is not declined by this
+   row.** The `TIME` producers, the `BIGINT` and `DOUBLE` values, a constant.
+
+So the rule today has no exception, and 597b builds no exemption mechanism (2.2).
+
+### 11.3 The design
+
+**The key is the decimal operand, in the decimal compiler's readers** (the owner's answer to
+question 1 of section 7). Every decimal leaf of the IR is built in `DC`, at three sites:
+
+    grep -n 'new DecimalColumn(\|new DecimalWord(' DC
+        -> four lines at three sites: 837 and 838 (columnPair), 1116 (valid), 1537 (leaf)
+
+`leaf` is called by `column` and by `valid`. `valid` runs only after its caller compiled or probed
+the value (`nullTested` probes through `value` or `wideProbe`, which reach `column` and
+`columnPair`). So two guarded readers cover every decimal read of a projection:
+
+- `column(BoundReference, DecimalType, VarkaSlotTable, DeclineSink)`: a decimal column on the
+  long lane, 18 digits or fewer;
+- `columnPair(BoundReference, DecimalType, VarkaSlotTable, DeclineSink)`: a wider column as its
+  two words.
+
+A third exists once row 360's `BIGINT` cast is on master: `bigintPair`, the pair of a long and
+its sign with no decimal leaf (section 0 item 10). It declines by the same test, as the owner's
+answer says ("and 360's `bigintPair` when it lands"): as an output it is refused by its store
+already, and under a value root its three compares and two mask joins are the fallback. The
+owner confirmed it on 28 November 2026 (11.7 question 2). It reaches master by the lead's merge
+of `varka-360a-bigint-cast` (step 0 of the chain's order, `VARKA-360.md` 11.2), so who adds its
+call depends on the order: 11.5 step 2 has the rule.
+
+*[Fix round, 28 November 2026.]* **A fourth source: a cast into a decimal from a source that is
+not a decimal.** With the arm-level reasons removed (11.7 question 1, answered "remove"), a
+decimal value that reads no decimal column could still be built from an integral, boolean or
+floating source (rows 350a1b and 346c, `DCC.intoDecimal`). Today `DCC.TWO_LANE_REASON` at the
+head of `intoDecimal` declines it; 597b keeps that decline by calling the same helper there for
+a source that is not a decimal. So every source of a decimal value declines through one method,
+`declinesAtTwoLanes`, which is package-private for that call: `column`, `columnPair`,
+`bigintPair`, and the head of `intoDecimal`. A decimal literal is the one other leaf; an
+expression of literals alone is folded by Spark before Varka sees it.
+
+**What 597b declines that the other parts do not.** "Root" means `KP.hostRefusal`; "arm" means a
+compiler arm's own test.
+
+| shape, as a projection entry | on a two-lane host today | after 597b |
+|---|---|---|
+| a 64-bit decimal value over a column: `x + y`, `x - w`, `x8 * y`, `-x`, `abs(x)`, `IF`, `CASE`, `coalesce`, `greatest`, `least`, a rescaling cast | fuses, 0.18 to 0.40 of the row path | declines, `TWO_LANE_READ_REASON` |
+| a non-decimal value over a 64-bit decimal condition: `CAST(x < y AS INT)`, `CAST(x < y AS DOUBLE)`, `IF(x < y, l, 0)`, `nvl2(x, l, 0)` | fuses, unmeasured | declines, the same |
+| the same over a wide condition: `CAST(x38 < y38 AS INT)`, `IF(x20 < y20, l, 0)` | fuses, unmeasured | declines, the same |
+| class U at one scale under a value root, `CAST(x20 + y20 < z20 AS INT)` (row 360's part 360a, which `VARKA-360.md` 11 leaves to this row) | fuses, unmeasured | declines, the same |
+| `hash(x)`, `xxhash64(x)` over a decimal column | fuses, unmeasured | declines, the same |
+| a `BOOLEAN` output over a decimal column, `x < y AS c` | root, `TWO_LANE_DECIMAL_VALUE_REASON` | arm, `TWO_LANE_READ_REASON`; the root's arm is removed |
+| a decimal output wider than 18 digits over a column, `-x38` | root, `TWO_LANE_DECIMAL_PAIR_OUTPUT_REASON` | arm, `TWO_LANE_READ_REASON`, which fires first; the root's arm stays for a pair that reads no column |
+| a decimal cast to `BIGINT`, to `BOOLEAN`, between decimals | arm, `VarkaDecimalCastCompiler.TWO_LANE_REASON` | reader, `TWO_LANE_READ_REASON`; the arm's test and its constant are removed (step 3b) |
+| a cast into a decimal from an integral, boolean or floating source (350a1b, 346c) | arm, `VarkaDecimalCastCompiler.TWO_LANE_REASON` | the head of `intoDecimal`, `TWO_LANE_READ_REASON` (step 3b) |
+| a new wide arm of rows 360 to 363 | arm, `TWO_LANE_WIDE_REASON` | reader, `TWO_LANE_READ_REASON`; the arm's test and the constant are removed (step 3b) |
+| a filter's decimal conjunct | root, `TWO_LANE_CONDITION_REASON` | unchanged: a predicate's sink has the flag off |
+
+**The reason text**, one constant in `DC`:
+
+    static final String TWO_LANE_READ_REASON = "a DECIMAL operand of a projection entry, on an "
+        + "x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask or "
+        + "two-vector rearrange there, so the decimal slots' load and check, and a lane pair's "
+        + "compares, would run the Vector API's Java fallback, slower than the row engine "
+        + "(VARKA-597)";
+
+**Lifting it later for one shape is a small change, by construction.** The test is one
+package-private method, `declinesAtTwoLanes(Expression at, DeclineSink sink)`, with one call in
+each reader and one in `DCC.intoDecimal`.
+
+- *One load form* (what row 698 of `m9/PLAN.md` may show: a two-word load with no mask that wins):
+  delete the call in `columnPair`, remove the `InterleaveDecimal` arm of `KP.hostRefusal` if the
+  store wins too, and move the pair lines of the test of 11.5 step 5 from "declines" to "fuses".
+  About ten lines.
+- *One expression shape over a load that still loses* (a heavy shape whose row path is
+  `BigDecimal` work): the arm that owns the shape compiles its operands inside a bracket on the
+  sink, as `DeclineSink.enterDecimal` and `exitDecimal` are a bracket: a counter
+  `twoLaneLifted`, and `declinesAtTwoLanes` returns false while it is above zero. About twenty
+  lines, with the shape's 128-bit section as evidence. Not built here: no shape has a win (11.2).
+
+**What does not change.** No IR node, no emitted byte, no proof file. The predicate compile. The
+answers: a declined entry is computed by the row engine. Every compile under
+`VarkaAdmission.NO_HOST_REFUSAL`, which is every committed oracle: `coverage.json`,
+`emitted_bytes.json`, `casts_fused.tsv`, `census.tsv`.
+
+### 11.4 The census and the coverage table: a decline at one width un-counts nothing
+
+- **The census counts under no host refusal.** `dev/varka_census.py` reads `coverage.json`, which
+  `VarkaCoverageSuite` renders by compiling each row under `VarkaAdmission.NO_HOST_REFUSAL`
+  ("so its answers are the same on every machine", the javadoc of that constant). A pair fused on
+  a four-lane host stays counted. The oracle of the part: after the regeneration,
+  `git diff --stat` shows no change in `coverage.json`, `emitted_bytes.json`, `census.tsv` or
+  `casts_fused.tsv`.
+- **The width-dependent record is its own file.**
+  `sql/varka/plans/m8/results/VARKA-612-refused.txt` lists the coverage table's value rows a
+  two-lane host refuses as projection entries; its header on master reads
+  `# 26 of 547 value rows refused; family, row, reason:`. 597b adds every value row that reads a
+  decimal column and re-words the rows row 596 put there. No row leaves the list. The count after
+  the part is read from the regenerated header and recorded in section 10.
+- **`width_audit.json`** is one CPU's record (`host.cpu` in the file). At 128 bits its projection
+  rows compile under the host's admission (`VarkaWidthAuditShapes.hostAdmission`), so on an x86
+  host the decimal value rows move there from a shape with refused calls to a declined row with
+  the new reason. At 256 and 512 bits nothing moves. The regeneration script says where the file
+  is owed on another host.
+- **`docs/sql-varka.md`**: the setting's text in the generated configuration block moves with
+  `SQLConf.scala`.
+
+### 11.5 The build sheet
+
+**Title:** `[VARKA-597] Leave decimal-reading values to Spark at two long lanes`.
+**Branch:** `varka-597b-two-lane-values`, from master. **Builder:** Sonnet-class.
+**Waits on:** nothing. *[Fix round, 28 November 2026, finding 3d of review 1.]* `PLAN.md`'s
+row note says "built after the first parts of rows 360 to 363"; 597b needs none of them to
+compile, and B0 reads which of them are on master. **Order:** 597b may land before or after
+the lead's merge of `varka-360a-bigint-cast` and before or after any part of rows 350 and 360
+to 363; steps 2, 3b and 5 say what each order adds, and the part that lands second adds it.
+
+**Landing the plan.** *[Fix round, finding 2.]* The new text of this file (sections 11 and 12,
+over 500 lines more than master's 449) goes to master first, in its own plan-only pull request
+titled "Plan: re-plan row 597's second half for a Sonnet-class builder"; plan-only pull requests
+are exempt from the 1000-line cap, and the lead opens it. This part's branch starts from a
+master that has it, and its pull request adds only the record of done-when item 5 (section 10).
+
+**B0, the premises.** Each must print what is stated, or the builder stops and reports.
+
+    grep -c 'private static Optional<Scaled> column(' DC                          -> 1
+    grep -c 'private static Optional<Pair> columnPair(' DC                        -> 1
+    grep -c 'TWO_LANE_READ_REASON' DC                                             -> 0
+    grep -c 'readsDecimal' KP                                                     -> 3
+    grep -c 'TWO_LANE_DECIMAL_VALUE_REASON' KP                                    -> 2
+    grep -rl 'TWO_LANE_DECIMAL_VALUE_REASON' sql/catalyst/src sql/core/src | wc -l -> 4
+    grep -c 'bigintPair(' DC          -> 0 (skip step 2's last line) or more (do it)
+    grep -c 'Fusion.WHOLE' BENCH/VarkaDecimalBaselineBenchmark.java               -> 9
+    grep -c 'TWO_LANE_REASON' C/VarkaDecimalCastCompiler.java                     -> 4, or 5 (step 3b)
+    grep -c 'TWO_LANE_WIDE_REASON' DC                                             -> 0 or more (step 3b)
+    grep -c 'static boolean sourceCanOverflow' C/VarkaDecimalCastCompiler.java    -> 0 or 1 (step 5)
+
+The `Fusion.WHOLE` count is master `6dafb8bd2f6`'s; a part of rows 360 to 363 merged since may
+have raised it, which changes nothing below. `TWO_LANE_REASON` prints 4 on `6dafb8bd2f6` (the
+constant and the arms of `toIntegral`, `test` and `intoDecimal`) and 5 once row 350's part 350b1
+merged (`toFloating`).
+
+**Step 1, the helper and the reason, in `DC`**, beside `isDecimal`:
+
+    /**
+     * Whether a decimal operand declines here: on an x86 host whose 64-bit species have two
+     * lanes or fewer every decimal is loaded by two two-vector rearranges and a check of each
+     * slot, none of which C2 lowers there, and each fused decimal value of the 128-bit baseline
+     * ran at 0.18 to 0.40 of the row path (VARKA-597.md 11.2). Only a projection's sink carries
+     * the setting: a filter's condition is refused at its root (VarkaKernelPlan.hostRefusal).
+     */
+    static boolean declinesAtTwoLanes(Expression at, DeclineSink sink) {
+      if (!sink.declinesTwoLaneChecks()) {
+        return false;
+      }
+      sink.decline(TWO_LANE_READ_REASON, at);
+      return true;
+    }
+
+and the constant of 11.3. `sink.decline(String, Expression)` notes the reason and returns an empty
+`Optional`; its result is dropped here on purpose. The method is package-private, not private:
+`VarkaDecimalCastCompiler.intoDecimal` calls it too (step 3b).
+
+**Step 2, the readers.** First statement of `column`:
+
+    if (declinesAtTwoLanes(br, sink)) {
+      return Optional.empty();
+    }
+
+The same first statement in `columnPair`, and, where B0 found it, in `bigintPair` with its cast
+expression as `at`. Nothing else in `DC` changes: `valid` is reached only behind a compiled or
+probed value.
+
+*[Fix round, 28 November 2026, finding 3c of review 1.]* **Who adds `bigintPair`'s call, by
+order.** `bigintPair` reaches master with the lead's merge of `varka-360a-bigint-cast`.
+
+- If B0 found it (`bigintPair(` prints 1 or more): this part adds, as `bigintPair`'s first
+  statement, `if (declinesAtTwoLanes(c, sink)) { return Optional.empty(); }`, and step 5's
+  `pair` list gains `Cast(l, DecimalType(20, 0))`.
+- If B0 printed 0: this part adds neither. Whoever brings `bigintPair` to a master that has
+  597b adds both: the lead, in the merge of master into `varka-360a-bigint-cast` before that
+  pull request merges (`VARKA-360.md` 11.7 says so); and, should that merge have landed without
+  them, part 360b2, whose B0 checks it.
+
+The check either way: on a master with both, `grep -c 'declinesAtTwoLanes(c, sink)' DC` prints
+1 (the other readers pass `br`).
+
+**Step 3, the root's arm goes** (the owner's answer to question 1: "removing 596's `BoolOutput`
+arm"). In `KP`: delete the `BoolOutput` branch of `hostRefusal`, the method `readsDecimal`, the
+constant `TWO_LANE_DECIMAL_VALUE_REASON`, and the `HashSet` import if nothing else uses it. Keep
+the `Cond` branch and the `InterleaveDecimal` branch. In `hostRefusal`'s javadoc replace the
+paragraph that starts "A projection's {@code BOOLEAN} output" by:
+
+    A projection entry that reads a decimal column never reaches this method on such a host:
+    the decimal compiler's readers decline it first (VarkaDecimalCompiler.declinesAtTwoLanes,
+    VARKA-597), a BOOLEAN output over a decimal column among them, which row 596 refused here.
+    A decimal output of the lane pair (InterleaveDecimal) is still refused here, for the pair
+    that reads no column: its store is two two-vector rearranges.
+
+Update the three other texts that describe row 596's refusal as the root's: the `Kind` javadoc of
+`TWO_LANE_CONDITION` in `KP`, the class javadoc of `C/varka/VarkaAdmission.java`, and the doc of
+`VARKA_DECLINE_TWO_LANE_CONDITIONS` in `SQLConf.scala`, whose sentence "A projection's BOOLEAN
+entry over a DECIMAL column, such as x < y AS c, is refused there too, its decimal load being
+slower than the row engine at two lanes." becomes "A projection entry that reads a DECIMAL
+column, such as x + y AS c or x < y AS c, is left to the row engine there too, its decimal load
+being slower than the row engine at two lanes."
+
+**Step 3b, the arm-level two-lane reasons go.** *[Fix round, 28 November 2026: the owner's
+answer (b) to 11.7 question 1.]* The readers of step 2 decline every decimal operand before an
+arm's own test could matter, so the arm tests and their two constants are removed here.
+
+1. `C/VarkaDecimalCastCompiler.java` (`DCC`): delete the constant `TWO_LANE_REASON` with its
+   javadoc (master's lines 95 to 107), and every statement
+
+        if (sink.declinesTwoLaneChecks()) {
+          return sink.decline(TWO_LANE_REASON, c);
+        }
+
+   (three on `6dafb8bd2f6`: in `toIntegral`, `test` and `intoDecimal`; a fourth in
+   `toFloating` once 350b1 merged). `grep -c 'TWO_LANE_REASON' DCC` then prints 0.
+2. In `DCC.intoDecimal`, where its statement was, write:
+
+        // A source that is not a decimal reads no decimal column, so the readers' two-lane test
+        // is made here: an integral or floating source's guard and a boolean's select are
+        // long-lane masks too (VARKA-597).
+        if (!(c.child().dataType() instanceof DecimalType)
+            && VarkaDecimalCompiler.declinesAtTwoLanes(c, sink)) {
+          return Optional.empty();
+        }
+
+   On `6dafb8bd2f6` no source but a decimal reaches `intoDecimal` (`DC.cast` declines the others
+   with "to a decimal is row 350's"), so the line is dead until 350a1b or 346c; it is written now
+   so that neither of them carries a two-lane test of its own. A decimal source reads its column
+   through `value`, whose readers decline.
+3. `DC`, only if B0's `TWO_LANE_WIDE_REASON` line printed 1 or more (a part of rows 360 to 363
+   merged first): list the uses with `grep -rn 'TWO_LANE_WIDE_REASON' sql/catalyst/src/main`.
+   Delete the constant with its javadoc, and each statement of the form
+
+        if (sink.declinesTwoLaneChecks()) {
+          return sink.decline(TWO_LANE_WIDE_REASON, <the arm's expression>);
+        }
+
+   whole, in whichever file holds it. A statement that does more than this decline is not
+   deleted: the builder stops and reports it (the chain plans write none). Then
+   `grep -rc 'TWO_LANE_WIDE_REASON' sql/catalyst/src/main | grep -v ':0$'` prints nothing, and
+   `grep -c 'declinesTwoLaneChecks' DC` prints 1 (the helper of step 1).
+4. **The tests that move.** List them:
+
+        grep -rln 'TWO_LANE_REASON\|TWO_LANE_WIDE_REASON\|a decimal cast on an x86 host\|a decimal rescale, checked sum or product past' \
+            sql/catalyst/src/test sql/core/src/test
+
+   On `6dafb8bd2f6` it prints one file, `CS/VarkaExpressionCompilerSuite.scala`, for the test
+   "a decimal cast's value declines on a two-lane host, and fuses elsewhere" (master's line
+   3599). In every file it prints: an assertion that expects
+   `VarkaDecimalCastCompiler.TWO_LANE_REASON` or `VarkaDecimalCompiler.TWO_LANE_WIDE_REASON`
+   expects `VarkaDecimalCompiler.TWO_LANE_READ_REASON`, with the same expression and admission;
+   one in `sql/core` that compares a reason's text compares `startsWith(READ_REASON_START)`
+   (step 4's constant). A test keeps its name. If such an assertion then fails because the entry
+   fuses on the two-lane admission, the builder prints the expression and stops: it is a source
+   of a decimal value that 11.3's four do not cover.
+5. **What a part of rows 350 or 360 to 363 built after this one does instead.** It reads
+   `grep -c 'TWO_LANE_READ_REASON' C/VarkaDecimalCompiler.java`; `1` or more means 597b merged.
+   Then it adds no `TWO_LANE_REASON`, no `TWO_LANE_WIDE_REASON` and no two-lane statement in an
+   arm: its operands reach the readers, which decline first. In its B0 a line that counts
+   `TWO_LANE_WIDE_REASON` or `TWO_LANE_REASON` is read as `0`, and one that counts
+   `declinesTwoLaneChecks` in `DC` as `1`. Each of its tests that expects either removed reason
+   expects `VarkaDecimalCompiler.TWO_LANE_READ_REASON`, under the same admission; the test
+   counts its sheet states do not change. A part built before 597b merged adds them as its plan
+   writes, and this step removes them. The plans point here: `VARKA-350.md` 11.3 decision 6,
+   `VARKA-346.md` 11.3 decision 7, `VARKA-360.md` 11.7, `VARKA-361.md` 11.3 decision 5,
+   `VARKA-362.md` and `VARKA-363.md` 11.3 decision 8.
+
+The regenerated `sql/varka/width_audit.json` and `VARKA-612-refused.txt` then show the read
+reason where they showed the cast's (`CAST(d9 AS BIGINT)` and its kin); step 9 regenerates them.
+
+**Step 4, the tests that named the old reason.**
+
+- `CT/varka/VarkaTwoLaneConditionSuite.java`, `decimalBooleanOutput`: the plan no longer refuses
+  the IR root. Rename it `decimalBooleanOutputIsTheCompilersToDecline`, keep its four trees, and
+  assert `admit(value, true).isEmpty()` and `admit(value, false).isEmpty()` for each; drop the
+  `Kind` and reason assertions; keep the display name's sense ("a boolean output over a decimal
+  column is no longer the plan's refusal: the decimal readers decline it in the compiler").
+- `CS/VarkaExpressionCompilerSuite.scala`, test "a two-lane admission refuses a checked bigint and
+  a decimal boolean in one projection": `VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON` becomes
+  `VarkaDecimalCompiler.TWO_LANE_READ_REASON`.
+- `sql/core/src/test/java/org/apache/spark/sql/execution/VarkaTwoLaneDefault128Suite.java`,
+  `decimalValuesDecline`: the same replacement (import `VarkaDecimalCompiler` is package-private
+  to catalyst's `codegen` package, so compare with the text instead: declare
+  `private static final String READ_REASON_START = "a DECIMAL operand of a projection entry"`
+  and assert `d.reason().startsWith(READ_REASON_START)`).
+
+**Step 5, the new compiler test**, in `CS/VarkaExpressionCompilerSuite.scala`, after the test "a
+decimal cast's value declines on a two-lane host, and fuses elsewhere". It uses the suite's
+`withLong` columns (`l`, `l2` among them) and its `out` helper, as that test does.
+
+    test("a value that reads a decimal column declines on a two-lane host, and fuses elsewhere") {
+      // VARKA-597. Catches: a reader that forgets the test (the pair's lines fail alone when
+      // columnPair does), a decline that reaches a filter, and a host test other than "x86 at
+      // two long lanes or fewer" (the Arm line).
+      val p = AttributeReference("p", DecimalType(10, 2))()
+      val p2 = AttributeReference("p2", DecimalType(10, 2))()
+      val w = AttributeReference("w", DecimalType(38, 10))()
+      val w2 = AttributeReference("w2", DecimalType(38, 10))()
+      val columns = withLong ++ Seq(p, p2, w, w2)
+      def reasons(e: Expression, admission: VarkaAdmission): Seq[String] =
+        VarkaExpressionCompiler.declines(Seq(out(e)), columns, VarkaEmitOptions.DEFAULTS,
+          admission).asScala.values.map(_.reason).toSeq
+      val x86 = new VarkaHostIsa.Reading("amd64", "avx, avx2", null, 128)
+      val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd", null, 128)
+      def host(reading: VarkaHostIsa.Reading, lanes: Int): VarkaAdmission =
+        new VarkaAdmission(java.util.Set.of(),
+          VarkaKernelPlan.twoLaneMasksFallBack(reading, lanes))
+      val longLane = Seq[Expression](Add(p, p2), Subtract(p, p2), UnaryMinus(p), Abs(p),
+        If(LessThan(p, p2), p, p2), Cast(p, DecimalType(18, 4)), LessThan(p, p2),
+        Cast(LessThan(p, p2), IntegerType), If(LessThan(p, p2), l, l2), IsNull(p),
+        If(IsNotNull(p), l, l2))
+      val pair = Seq[Expression](LessThan(w, w2), Cast(LessThan(w, w2), IntegerType),
+        UnaryMinus(w), If(LessThan(w, w2), l, l2), IsNull(w))
+      for (e <- longLane ++ pair) {
+        withClue(e) {
+          assert(reasons(e, host(x86, 2)) === Seq(VarkaDecimalCompiler.TWO_LANE_READ_REASON))
+          assert(reasons(e, host(x86, 1)) === Seq(VarkaDecimalCompiler.TWO_LANE_READ_REASON))
+          assert(reasons(e, host(x86, 4)).isEmpty)
+          assert(reasons(e, host(arm, 2)).isEmpty)
+          assert(reasons(e, VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
+        }
+      }
+      // No decimal is read: the long lane's own values fuse on every host.
+      for (e <- Seq[Expression](Add(l, l2, EvalMode.LEGACY), If(LessThan(l, l2), l, l2),
+          LessThan(l, l2), Cast(LessThan(l, l2), IntegerType))) {
+        withClue(e)(assert(reasons(e, host(x86, 2)).isEmpty))
+      }
+      // A filter keeps the root's reason: a predicate's sink does not carry the setting.
+      val filter = VarkaExpressionCompiler.explainAndCompilePredicate(LessThan(p, p2), columns,
+        VarkaEmitOptions.DEFAULTS, host(x86, 2)).specs.asScala.toSeq
+      assert(filter.nonEmpty && filter.forall(s =>
+        !s.fused && s.decline.get.reason == VarkaKernelPlan.TWO_LANE_CONDITION_REASON))
+    }
+
+Four rules for this test, so that the builder computes and does not judge:
+
+1. **A line that does not fuse under `NO_HOST_REFUSAL` is not this row's.** Run the test once
+   before steps 1 to 3b are applied, with only the last three assertions of the loop. A line that
+   fails there declines on every host for a reason of its own: remove that line, and record the
+   expression and its reason in section 10. Section 0 marks `CAST(x < y AS INT)` and
+   `IF(x < y, l, 0)` as read from the code and never run, so this can happen (11.8 has the
+   commands that settle it before the build).
+2. **The filter's lines are the suite's own way to classify a predicate**: the test "the
+   two-lane host refuses a DOUBLE conjunct as it does a long one (VARKA-503)" in the same file
+   calls `explainAndCompilePredicate(...).specs` the same way. The suite imports `VarkaAdmission`
+   and `VarkaKernelPlan` from `codegen.varka` already; add `VarkaHostIsa` to that import.
+3. **The planted fault**, by hand, reverted before the commit: delete the call in `columnPair`;
+   the five `pair` lines must fail and no `longLane` line. Record the run in the pull request.
+4. **Two lines that depend on the order** *[fix round, 28 November 2026]*. Where B0's
+   `bigintPair(` line printed 1 or more, `pair` gains `Cast(l, DecimalType(20, 0))` (the planted
+   fault then fails six `pair` lines). Where B0's `sourceCanOverflow` line printed 1 (row 350's
+   part 350a1b merged), `longLane` gains `Cast(l, DecimalType(18, 2))`, which declines at the
+   head of `intoDecimal` (step 3b). Where either printed 0, the part that brings the method adds
+   the line later (`VARKA-350.md` 11.5, and step 2 above for `bigintPair`).
+
+**Step 6, the session's test**, in
+`sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaEvaluatorComponentsSuite.scala`,
+inside the test "a session's two-lane default comes from the host reading its level comes from",
+after its first loop:
+
+    // VARKA-597: the same hosts, through the admission the compiler takes. On x86 at two long
+    // lanes a decimal sum declines; at four lanes and on Arm at two it fuses.
+    val p = AttributeReference("p", DecimalType(10, 2))()
+    val sum = Seq[NamedExpression](Alias(Add(p, p), "c")())
+    for ((host, lanes, refuses) <- Seq((x86, 2, true), (x86, 4, false), (arm, 2, false))) {
+      val declines = VarkaExpressionCompiler.declines(sum, Seq(p), VarkaEmitOptions.DEFAULTS,
+        VarkaSessionEmit.of(conf, host, lanes).admission())
+      assert(declines.isEmpty === !refuses, s"${host.arch} at $lanes long lanes")
+    }
+
+*[Fix round, 28 November 2026, finding 6.]* The suite imports none of the names the snippet
+uses beyond `VarkaEmitOptions` and `VarkaHostIsa`. Add, in the import block's order (java,
+scala, third party, then `org.apache.spark` alphabetically, as `dev/lint-scala` checks):
+
+    import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, NamedExpression}
+    import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
+
+after `import org.apache.spark.{SparkFunSuite, TaskContext}`, and
+`import org.apache.spark.sql.types.DecimalType` after
+`import org.apache.spark.sql.internal.SQLConf`. The first import is 98 columns in the file,
+within the limit of 100. The snippet goes before the loop that sets
+`VARKA_DECLINE_TWO_LANE_CONDITIONS`, so `conf`
+holds no setting there.
+
+**Step 7, the 128-bit suite**, `VarkaTwoLaneDefault128Suite`. Add one test after
+`decimalValuesDecline`, with the same checks that test makes (answers equal to the session with
+Varka off; the declined positions; a fused entry beside them; the task's compile declining the
+same positions; `numVarkaBatches` above zero), over this query, without and with the `n` suffix:
+
+    SELECT p + p2 AS a, CASE WHEN p < p2 THEN p ELSE p2 END AS b, CAST(p < p2 AS INT) AS c,
+           IF(w < w2, l, l2) AS d, greatest(l, 5) AS e, least(l, l2) AS f, greatest(l, l2) AS g,
+           CASE WHEN l < l2 THEN l ELSE l2 END AS h, i + i2 AS k
+    FROM two_lane_default
+
+*[Fix round, 28 November 2026: the query written once, finding 6.]* Positions 0 to 3 decline
+with a reason that starts with `READ_REASON_START`; positions 4 to 8 are `FusedOutput`.
+`greatest` and `least` stand where checked sums would decline by row 104's rule in the view's
+ANSI session. Five fused entries against four declined keep the node under the rule that leaves
+a residual-heavy projection to Spark (row 613), as the suite's `longLaneChecksDecline` explains.
+**Stop rule:** if any of positions 4 to 8 declines, the builder prints `partial.declines()` (or
+the test's own decline list) and stops: the node then falls to Spark under row 613's rule, and
+it is the query that is wrong, not the code. Only a JVM settles whether `i + i2` (an ANSI int
+sum) and the `CASE` over `l` fuse at two lanes in that session (11.8).
+
+**Step 8, the baseline's classes**, in `BENCH/VarkaDecimalBaselineBenchmark.java`,
+`sections(boolean declinesLongConditions)`. Five edits, each a class that no longer depends on
+the lane alone:
+
+| line of code today | becomes |
+|---|---|
+| `p.precision() == 9 ? Fusion.WHOLE : Fusion.NONE` (the cast to `castTo`) | `p.precision() == 9 ? fusedFilter : Fusion.NONE` |
+| `Fusion choice = longLane ? Fusion.WHOLE : fusedFilter;` | `Fusion choice = fusedFilter;` and delete the now unused `longLane` |
+| `" + " + y + " AS a FROM varka_decimal", Fusion.WHOLE` (x + y as a value) | `fusedFilter` |
+| `" - " + w + " AS a FROM varka_decimal", Fusion.WHOLE` (x - w as a value) | `fusedFilter` |
+| `x8 + " * " + y + " AS a FROM varka_decimal", Fusion.WHOLE` (x8 * y as a value) | `fusedFilter` |
+
+If a part of row 350 merged first and turned a section to `addCasts`'s `fused` argument, keep
+its argument and apply this table to the lines that still say `Fusion.WHOLE`. The two `TIME`
+sections stay `Fusion.WHOLE`. Rewrite the three comments above those lines and the
+class javadoc's sentences that say a value root "fuses whole in either session" to say: "a value
+that reads a decimal column fuses whole where the session takes a 64-bit condition and is `NONE`
+where it refuses one, the decimal readers declining there (VARKA-597)". A section added by rows
+360 to 363 since `6dafb8bd2f6` that is `Fusion.WHOLE` and reads a decimal column gets the same
+edit; the queries suite of step 9 names each one that needs it.
+
+**Step 9, the commands, in order, and what each must print.** `<w>` is the worktree.
+
+    build/sbt catalyst/Test/compile sql/Test/compile                  -> [success]
+    grep -c 'TWO_LANE_REASON' C/VarkaDecimalCastCompiler.java         -> 0
+    grep -rc 'TWO_LANE_WIDE_REASON' sql/catalyst/src | grep -v ':0$'   -> prints nothing
+    grep -c 'declinesAtTwoLanes(' DC                                  -> 3, or 4 with bigintPair
+    build/sbt 'catalyst/testOnly *VarkaExpressionCompilerSuite -- -z "two-lane"'
+        -> Tests: succeeded 4 or more, failed 0
+    build/sbt 'catalyst/testOnly *VarkaTwoLaneConditionSuite'         -> Passed: Total 9, Failed 0
+    build/sbt 'sql/testOnly *VarkaEvaluatorComponentsSuite -- -z "two-lane default"'
+        -> Tests: succeeded 1, failed 0
+    build/sbt 'sql/testOnly *VarkaTwoLaneDefault128Suite'             -> Passed: Total 6, Failed 0
+    build/sbt 'sql/testOnly *BaselineQueriesSuite *VarkaTwoLaneLong*Suite *VarkaBooleanOutput*Suite'
+        -> failed 0; a failure names a section whose class must follow the setting (step 8)
+    VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite'
+        -> rewrites VARKA-612-refused.txt; read its header's count
+    dev/varka_regen_generated.sh --all                                -> varka regen: done
+    git diff --stat -- sql/varka/coverage.json sql/varka/emitted_bytes.json \
+        sql/varka/plans/m8/census.tsv sql/varka/plans/m8/casts_fused.tsv   -> prints nothing
+    python3 dev/varka_msg_check.py size                               -> under 1000
+    dev/varka_ops/pre-pr-slot.sh <w>                                  -> pre-pr: passed on <sha>
+
+`VarkaTwoLaneConditionSuite` has nine tests on master (`grep -c '@Test'` prints 9) and
+`VarkaTwoLaneDefault128Suite` five, six after step 7. On a host that is not x86 the 128-bit suite
+checks the default and skips its queries.
+
+**Step 10, the measurement.** After the pull request is open the builder dispatches (the owner's
+answer of 28 November 2026 to question 3 of 11.7; dispatching is approved for any open pull
+request), on the pull request's head:
+
+    gh workflow run benchmark.yml -R vecbricks/varka --ref master -f pr=<the PR> \
+      -f class=VarkaDecimalBaselineBenchmark -f jdk=25 -f generate-tpcds=false \
+      -f expected-cpu="AMD EPYC 7763" -f extra-java-options=-XX:MaxVectorSize=16
+
+The builder splices the twelve sections of 11.2 into `R128` with
+
+    python3 dev/varka_bench_sections.py splice R128 <NEW> --sections "<the twelve titles>" --out R128
+
+where `<NEW>` is the results file the run uploads for this class at 128 bits (the lead
+downloads it and gives its path), and the twelve titles are each first-column entry of 11.2's
+table followed by `, no nulls` and by `, one row in ten null`, as `R128` names its sections
+(`DECIMAL(9, 2) choice, no nulls`, ...). The script's usage, its line 21:
+`splice OLD NEW --sections "title one,title two" [--out FILE]`; a misspelt title is an error
+that lists the titles NEW has. The builder adds the run to the provenance file beside `R128`,
+commits both, and runs the rule:
+
+    python3 two_lane_rule.py R128 | tail -1
+        -> RULE: <n> sections, 0 fused decimal readers: 0 LOSER, 0 TIE, 0 WINNER
+
+`two_lane_rule.py` is committed by this part as
+`sql/varka/plans/m8/results/VARKA-597/two_lane_rule.py`, with the Apache header of a neighbouring
+Python file under `dev/`; its text is the 50 lines kept beside this plan at
+`/home/max/varka-ops/m8-row-plans/scratch-597/two_lane_rule.py`. It parses the header lines that
+end "fuses whole on the varka on arm" and the two rows of each section.
+
+**Done when.**
+
+1. The commands of step 9 print what is stated, the Build is green and the option matrix is
+   green.
+2. In `R128` after the splice, no section that reads a decimal column is listed as fused, and
+   each of the twelve sections of the rule's table reads between 0.9X and 1.1X in the file's
+   `Relative` column, both arms being the row path. Before the part they read 0.2X to 0.4X.
+3. The four `TIME` sections of `R128` are untouched by the splice.
+4. Nothing moves in the 256-bit file, in `coverage.json`, `emitted_bytes.json`, `census.tsv` or
+   `casts_fused.tsv`.
+5. Section 10 records: the header count of `VARKA-612-refused.txt` before and after, the lines
+   rule 1 of step 5 removed if any, the planted fault's run, and the twelve ratios after.
+6. Row 597 in `PLAN.md` opens with `**Done**` for 597b, 597a staying in `m10/SCOPE.md` item 140.
+
+**Not here.** The 36 sections of 597a. Any exemption mechanism. The scalar-loop form S. The
+predicate compile. Any `.smt2` file. `width_audit.json` on a host other than the builder's.
+
+### 11.6 Predictions, registered before the build
+
+1. After the part, at 128 bits on the EPYC 7763, the twelve sections of the rule's table read
+   0.9X to 1.1X.
+2. `VARKA-612-refused.txt`'s count rises from 26 by at least 40: the coverage table has more
+   than 40 value rows over `d9`, `d9s4`, `d16s9`, `d18`, `d38` and their kin, and the pair's
+   output rows are in the 26 already. The header after the regeneration scores it.
+3. No emitted byte moves: `emitted_bytes.json` is unchanged.
+4. The part is under 550 counted lines (*fix round:* 450 before step 3b; the removal adds about
+   40 on master and about 10 more for each chain part merged first).
+
+### 11.7 Questions for the owner
+
+*Questions 1 to 3 were answered by the owner on 28 November 2026; each answer follows its
+question.*
+
+1. **Should 597b also remove the arm-level two-lane tests it makes redundant?** They are the
+   three tests of `VarkaDecimalCastCompiler.TWO_LANE_REASON` and the uses of
+   `TWO_LANE_WIDE_REASON` that rows 360 to 363 add. `VARKA-360.md` 11.7 and the plans of rows 362
+   and 363 say "597 removes them". Options: (a) keep them: each runs before its operand is read
+   and names its arm, a cast into a decimal from an integral type (row 350's next part) reads no
+   decimal column and needs its own test anyway, and the removal would edit reason strings that
+   tests of three rows in flight pin; (b) remove them in 597b, one reason for every decimal
+   operand. **Recommended: (a). Default applied: (a).** **Answered on 28 November 2026: (b),
+   remove them in 597b, since 597b's reader-level decline covers them.** So the chain plans'
+   "597 removes them" is true. 11.5 step 3b writes the removal, the tests that move, and what a
+   chain part built after 597b does instead; the cast into a decimal from a source that is not
+   a decimal, which reads no decimal column, declines through the same helper at the head of
+   `DCC.intoDecimal` (11.3), so option (a)'s first reason no longer holds.
+2. **`bigintPair`, the pair with no decimal column.** Options: (a) it declines with the readers,
+   as the answer of 11 November 2026 to question 1 says; (b) it fuses under a value root until a
+   section measures it. **Recommended: (a)**: its compares and mask joins are the fallback, and
+   decline-by-default is the answered rule. **Default applied: (a).** **Answered on
+   28 November 2026: yes, (a).** The gap of review 1's finding 3c (who adds the call when 597b
+   lands before `bigintPair` does) is closed in 11.5 step 2: the side that lands second adds it.
+3. **The measurement's dispatch** is the builder's (step 10); **answered on 28 November 2026**:
+   the builder dispatches, as recommended, not the lead. If no dispatch is possible before the
+   close, done-when items 2 and 3 are read from `VarkaDecimalBaselineQueriesSuite` instead (the
+   twelve sections are `NONE` under the refusal), and the splice is owed to the next refresh of
+   `R128`. **Recommended and applied:** dispatch.
+
+### 11.8 What only a JVM can settle, and the command for each
+
+The lead may run these before the builder starts; each is one compile, no timing.
+
+| claim | command | settles |
+|---|---|---|
+| `CAST(x < y AS INT)` over two `DECIMAL(9, 2)` columns fuses today | `dev/varka_emit.sh "CAST(x < y AS INT)" --columns x:dec9s2,y:dec9s2` | the line ends `FusedOutput(0)`, or step 5's rule 1 drops it |
+| `IF(x < y, l, l2)` with `BIGINT` branches fuses today | `dev/varka_emit.sh "IF(x < y, l, l2)" --columns x:dec9s2,y:dec9s2,l:bigint,l2:bigint` | the same |
+| the same two over `DECIMAL(38, 10)` | the same commands with `dec38s10` | the same |
+| the count of refused value rows after the part | `VARKA_COVERAGE_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite'` | prediction 2 |
+| what moves in `width_audit.json` at 128 bits | `dev/varka_regen_generated.sh --all` on the file's host | 11.4's third item |
+| every assertion that named a removed reason now sees `TWO_LANE_READ_REASON` (fix round) | `build/sbt 'catalyst/testOnly *VarkaExpressionCompilerSuite'` after step 3b | step 3b item 4's stop rule |
+| the five entries of step 7 fuse beside the four declined (fix round) | `build/sbt 'sql/testOnly *VarkaTwoLaneDefault128Suite'` on an x86 host | step 7's stop rule |
+
+A decimal column is spelled `dec<p>s<s>` there (the `columnType` switch of `VarkaEmitDump.java`),
+since the column list splits on commas. The test of step 5 run under `NO_HOST_REFUSAL` settles
+the first three claims as well.
+
+### 11.9 Where this section replaces sections 0 to 9
+
+| section | what it said | what holds now |
+|---|---|---|
+| 0 items 1, 2, 11 | no decimal value fuses as an output; the decimal-reading values are three nodes that hold a condition | every 64-bit decimal value is an output since #1628; 11.2 lists the kinds |
+| 0 item 7 | the 128-bit file times one fused decimal value, `x < y` | it times twelve more, 11.2 |
+| 0 item 9, 2.1 "Cost", 5 | D2 waits on #1478 and #1484 | both merged; `DeclineSink.declinesTwoLaneChecks` is on master |
+| 2.1 | "about 40 lines of source" | holds; the readers are `column`, `columnPair` and `bigintPair` |
+| 3 items 1 to 3 | a sweep over `coverage.json` and new suites | steps 5 to 7 of the build sheet; the sweep's job is done by `VARKA-612-refused.txt`, which `VarkaCoverageSuite` renders from every value row |
+| 3 item 5 | "the width audit: no row moves" | at 128 bits on x86 the decimal value rows move to declined, 11.4 |
+| 4, 5 item 1, 8 "Measured" | 597a's 36 sections first | 597a stays in `m10/SCOPE.md` item 140; the rule of 11.2 reads the committed file and decides the unmeasured kinds by the owner's answer 2 |
+| 8 "Unchanged elsewhere" | `width_audit.json` does not move | see 3 item 5 above |
+| 5 item 3, 11.7 question 1's default | "whichever of 597b and 360a lands second adds the case"; the arm-level tests stay | the owner's answers of 28 November 2026: the arm-level tests go (11.5 step 3b); the side that lands second adds `bigintPair`'s call (11.5 step 2) |
+
+## 12. The house rules that bind this part
+
+Each is written where named; the builder reads them there.
+
+- Answers equal vanilla Spark's under both ANSI settings: `sql/varka/AGENTS.md`, "House rules
+  that bite here specifically", the ghost fallback. A declined entry is the row engine's.
+- A test pins the configuration it depends on, and the option matrix must pass under every
+  configuration: the root `AGENTS.md`, "Build and Test". The new compiler test passes
+  `VarkaEmitOptions.DEFAULTS` and an explicit admission, so no matrix arm changes it.
+- Benchmarks are committed files: `sql/varka/AGENTS.md`, "Measurements, not adjectives". A ratio
+  within 1.3x of 1.0 is a tie.
+- Never push by hand, and the gate is `pre-pr.sh`: `ADDING_AN_EXPRESSION.md`, "Closing a row".
+- Do not edit a generated file by hand: regenerate.

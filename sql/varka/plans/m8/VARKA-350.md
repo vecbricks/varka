@@ -9,6 +9,19 @@ precision 18. Wherever this plan says the kernel follows the double rule below p
 reads its answer off the `BigDecimal`-backed column, that text is superseded by this note and is
 reworked when the row is built.*
 
+***Changed on 28 November 2026.** Sections 11 to 14 are new: what is left of the row, cut into
+parts for a builder with nobody to ask. Sections 0 to 10 are the plan and its record, kept word
+for word; where section 11 differs it wins, and section 14 lists each difference. On master:
+the baseline (#1572), the casts to `BIGINT`, to `BOOLEAN` and between decimals (#1700) and their
+proofs (#1707).*
+
+***Fix round of 28 November 2026.** Since #1708 (`e52b6bc082a`, SPARK-60843, 25 November 2026)
+vanilla Spark has no double rule at any precision: `Decimal.roundToNumeric` truncates a
+`BigDecimal`-backed value exactly too (`truncatedLong`). So the note above, where it gives the
+double rule to row 364, and every text of this file that has Spark narrow a computed decimal
+through the double, are stale; 11.3's decision 1 and section 14 items 2 and 5 say what holds.
+The owner's answers of 28 November 2026 are in section 12.*
+
 ## 0. What exists now (admission check)
 
 From master at `6e207c226fb` (30 October 2026; Varka paths under
@@ -891,3 +904,985 @@ the defaults; the half-one-less neighbours are stated where each form runs, the 
 precision 15 and the magnitude's half at 18; the divisor suite names `decimal_divide.smt2`; the
 lint's time is restated where the minute was claimed. Kept: the 24 s cvc5 figure, measured with
 nothing else running (only the 24-divisor re-measure overlapped an sbt run).
+
+## 11. What is left, cut into parts a Sonnet-class agent can build (28 November 2026)
+
+*New on 28 November 2026. Code facts were read on master `6dafb8bd2f6` and on the local branches
+named below, in `/home/max/proj/vecbricks-varka`, with no JVM. This section stands alone: a
+builder needs it, the `AGENTS.md` files and `sql/varka/ADDING_AN_EXPRESSION.md`. Where it differs
+from sections 0 to 10 it wins, and section 14 lists each difference. Short names: `C` is
+`sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen`, `CT` the same
+path under `src/test/java`, `CS` under `src/test/scala`, `DCC` is
+`C/VarkaDecimalCastCompiler.java`, `DC` is `C/VarkaDecimalCompiler.java`, `QS` is
+`sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaDecimalCastQuerySuite.scala`, `TS`
+is `CT/VarkaDecimalCastTableSuite.java`, and `BENCH` is
+`sql/core/src/test/java/org/apache/spark/sql/execution/benchmark`.*
+
+### 11.1 The state on 28 November 2026
+
+**On master**, each with its command, run from the repository root:
+
+| what | command | prints |
+|---|---|---|
+| the baseline, forty sections (#1572) | `git log --oneline -1 e0b5fa6d655` | `[VARKA-350] Benchmark the 64-bit decimal casts on the row path first (#1572)` |
+| 350a1: to `BIGINT`, to `BOOLEAN`, between decimals (#1700) | `git log --oneline -1 56a61bf3242` | `[VARKA-350] Fuse 64-bit decimal casts to BIGINT, BOOLEAN and between decimals (#1700)` |
+| 350a2: the proofs of #1700's rules (#1707) | `git log --oneline -1 325511d01a3` | `[VARKA-350] Prove the 64-bit decimal casts' divisions and rescale guards (#1707)` |
+| the narrow targets decline by name | `grep -c 'NARROW_REASON' DCC` | `3` |
+| an integral or boolean source declines by name | `grep -c 'to a decimal is row 350' DC` | `1` |
+| a decimal cast with a floating side declines by name | `grep -c 'a decimal cast with a floating side' C/VarkaNodeCompiler.java` | `1` |
+| the proof file's checks | `grep -c '(check-sat)' sql/varka/proofs/decimal_casts.smt2` | `1109` |
+| the query suite's tests | `grep -c 'test("' QS` | `8` |
+| the table suite's tests | `grep -c '@Test' TS` | `2` |
+
+A cast into a decimal is a projection output of its own since #1628 (`DC.output`), so the
+sentence in `DCC.arm`'s javadoc, "as an output it declines naming row 157's store", is stale;
+part 350a1b corrects it.
+
+**On local branches, never pushed.** `git branch --list 'varka-350*'` prints ten. What each
+holds, and whether a part starts from it:
+
+| branch | tip, date | holds | verdict |
+|---|---|---|---|
+| `varka-350a1n-r2` | `2131486f733`, 25 November | #1700 and #1707's commits, then the narrow targets: `a3c982c766f` (code and tests, 308 lines added, 114 removed), `d61f1802037` (generated files and `decimal_casts.smt2`), `2131486f733` (13 lines) | **part 350a1n starts from it**: its base holds row 489's last part (#1696), so two cherry-picks |
+| `varka-350a1b-integral-sources` | `2b2ee08070b`, 20 November | the integral and `BOOLEAN` sources (531 lines added), on a base of 18 November, before #1628 and row 489 | **part 350a1b re-ports it by hand**: it adds no IR node, so row 489 costs nothing, but its base is ten days old |
+| `varka-350a2-proofs` | `dbf7f8c9c34`, 20 November | the proof part as first written, over 350a1b | superseded by #1707; read only for 350a1b's table test |
+| `varka-350a1n-narrow-targets` | `662afddf5bc`, 25 November | an earlier state of #1700's branch | nothing to take |
+| `varka-350a2-proofs-r2`, `varka-350a1-r2`, `varka-350a2-r2` | 26, 25 and 23 November | the merged pull requests' branches | merged |
+| `varka-350-decimal-casts-64`, `varka-350a-integer-casts`, `varka-350a-wip-backup` | 20 November | the baseline and the first build before its split | merged or superseded |
+
+No branch holds the floating targets (350b), 350c or 350d.
+
+**What moved since the plan was written.** Rows 364 and 366 moved to milestone 9 on
+25 November 2026 (`PLAN.md` 1.1's note), and rows 481 and 504's remainders to `m10/SCOPE.md`
+item 140 on 27 November. So: the floating targets at precision 16 to 18 and the wide precisions
+are not milestone 8's; `LIMB_MAGIC` (350d) needs row 360's `WideMul`, which is not on master; and
+the planted fault's home, row 504's planted-fault harness, left the milestone.
+
+### 11.2 The parts
+
+| part | what | counted lines | builder | starts from | waits on |
+|---|---|---|---|---|---|
+| 350a1n | the casts to `TINYINT`, `SMALLINT` and `INT`; first, the gate test of #1708's answer | about 435 (the picks count 422 and 13; the deleted decline and the new test about even) | Sonnet-class | `varka-350a1n-r2`, two cherry-picks | nothing |
+| 350a1b | the casts into a decimal from the integral types and `BOOLEAN` | about 620 | Sonnet-class | master, by hand from `2b2ee08070b` | 350a1n |
+| 350b1 | the casts to `DOUBLE` at precision 15 or less and to `FLOAT` at 7 or less, and both at scale 0 | about 450 | Sonnet-class | master | 350a1n, and the two checks of 11.9 |
+| 350m | the measurement, the predictions scored, the row marked | about 120, results files apart | Sonnet-class | master | the three above, and row 597's part 597b if it merged |
+
+**The order and its reason.** 350a1n first: it is built, and it rewrites the class javadoc and
+`toIntegral`, which the other two extend. 350a1b second: row 346's part 346c edits the same arm
+of `DC.cast` (the sources that are not a decimal), and `PLAN.md` 12.5 orders "350 before 346c".
+350b1 third: it is independent of 350a1b and may be built beside it.
+
+**Landing the plan.** *[Fix round, 28 November 2026, finding 2 of review 1.]* The new text of
+this file (sections 11 to 14 and the notes at its top, over 700 lines more than master's 893)
+goes to master first, in its own plan-only pull request titled "Plan: re-plan row 350's last
+parts for a Sonnet-class builder"; plan-only pull requests are exempt from the 1000-line cap,
+and the lead opens it. Each part's branch starts from a master that has it, and a part's pull request adds
+only the record its "Done when" names (a subsection of section 10).
+
+**Not planned here, each with its home** (question 1 of section 12 asks the owner to confirm):
+
+- `FLOAT` at precision 8 to 15 with a scale of 1 or more: the round-to-odd form. Its tree is
+  written out and checked in 11.6, but it is a lowering that rounds, so the house rule asks a
+  proof file of it. It declines naming row 366 of `m9/PLAN.md`, whose exact arm covers it.
+- 350c, the floating targets at precision 16 to 18: row 366's, milestone 9.
+- 350d, `LIMB_MAGIC`: `m10/SCOPE.md` item 140, a performance arm for twelve `(p, k)` pairs.
+- The planted fault as an emit option: `m10/SCOPE.md` item 140, with row 504's remainder.
+  `decimal_casts.smt2` refutes the multiply-then-check order meanwhile.
+
+### 11.3 Decisions taken here, each with its evidence
+
+1. **The narrow ANSI and TRY casts follow the exact rule at every precision to 18, with no
+   decline for a computed decimal.** *[Fix round, 28 November 2026: replaces the decision that
+   a computed decimal of 17 or 18 digits declines.]* Since #1708 (`e52b6bc082a`, SPARK-60843)
+   vanilla Spark truncates a `BigDecimal`-backed decimal exactly too, so both backings answer as
+   the kernel does. The evidence, on master `6dafb8bd2f6`:
+
+| fact | where |
+|---|---|
+| #1708 is on master | `git merge-base --is-ancestor e52b6bc082a 6dafb8bd2f6` exits 0 |
+| `roundToByte`, `roundToShort`, `roundToInt` call `roundToNumeric`, which calls `truncatedLong`: `actualLongVal` for a long-backed value, `bd.toBigInteger` for a `BigDecimal`-backed one | `sql/api/src/main/scala/org/apache/spark/sql/types/Decimal.scala` lines 271 to 334 |
+| an ANSI cast of a decimal to a narrow target calls `roundToByte` and its kin, interpreted and in codegen | `Cast.scala` lines 1425, 1493 and 2585 to 2591 |
+| a `try_cast` of a decimal takes the ANSI path: `canUseLegacyCastForTryCast` holds only from a string | `Cast.scala` lines 893 to 895 and 1782 to 1792 |
+| the branch `varka-350a1n-r2` predates #1708 | `git merge-base --is-ancestor e52b6bc082a varka-350a1n-r2` exits 1 |
+
+   So the branch's `COMPUTED_NARROW_REASON` and `DOUBLE_RULE_PRECISION` are a needless decline
+   whose text is false on master, and its query-suite test that expects null from
+   `try_cast(x + z AS TINYINT)` at `127.999999999999999` fails on master, where vanilla answers
+   127. Part 350a1n deletes the decline and that test (11.4 step 4) and adds the test of
+   11.4 step 1, which holds 127 with Varka on and off. A column read from the Arrow cache was
+   long-backed before #1708 too (`VARKA-365.md` 11), so nothing else of 10.3's decision 1
+   changes.
+2. **An integral source's guard is the rescale up's, already proven.** `decimal_casts.smt2`
+   states, for every long `u` and every `1 <= k <= P <= 18`, that `|u| <= 10^(P - k) - 1` holds
+   exactly where `u * 10^k` has `P` digits, with no wrap (`VarkaDecimalCastProofFile.rescales`,
+   "P = ..., k = ...: ... with no wrap"). An integral `v` into `DECIMAL(P, S)` is that claim at
+   `k = S`; at `S = 0` there is no multiply and the guard is the precision check itself. So
+   350a1b adds no proof claim. The guard is dead exactly where the type's widest value fits:
+   `verify_350.py` checks `digits <= P - S` against `|MIN_VALUE| <= 10^(P - S) - 1` for every
+   type and every `(P, S)`, and 350a1b's table test restates it from the code.
+3. **To `DOUBLE` at precision 15 or less: one division of two exact doubles.** `|u| <= 10^15 - 1`
+   is below `2^53`, so `(double) u` is exact; `10^s` is exact for `s <= 22`; IEEE division rounds
+   the exact quotient once, which is `BigDecimal.doubleValue`'s answer (item 0.4).
+   `verify_350.py` compares `float(u) / float(10**s)` with the correctly rounded `u / 10**s` over
+   the bounds and 300 drawn values of every `(p, s)`.
+4. **To `FLOAT` at precision 7 or less: the same double quotient, narrowed.** `|u| <= 10^7 - 1`
+   is below `2^24` and `10^s` is a float for `s <= 7`, so both operands are binary32 values; the
+   binary64 quotient of two binary32 values, narrowed, is their binary32 quotient (the double
+   rounding is innocuous where `53 >= 2 * 24 + 2`). So the tree is the `DOUBLE` tree and one
+   `ConvertLane` to `FLOAT`, with no int lane. This replaces 2.4's int-lane form, whose reason
+   was `L2F`'s cost on the EPYC 7763; the long is converted by `L2D` here, whose default form is
+   exact for every long on every host (`VarkaConversionLowering`, `XOR_SPLIT`). `verify_350.py`
+   checks it against the exact rational rounded once to binary32. The sweep of 11.7 exhausts it
+   in Java: at most `2 * 10^7` values at seven scales.
+5. **At scale 0, both targets are one `ConvertLane` of the unscaled long, at every precision to
+   18.** `L2D` and `L2F` round the exact integer once (`ConvertLane`'s javadoc).
+6. **At two long lanes on x86 the new arms decline as the family's others do.** *[Fix round,
+   28 November 2026: the owner answered `VARKA-597.md` 11.7 question 1 "remove".]* Row 597's
+   part 597b deletes `DCC.TWO_LANE_REASON` and its three tests: a decimal operand declines in
+   the decimal readers (`VarkaDecimalCompiler.TWO_LANE_READ_REASON`), and a cast into a decimal
+   from a source that is not a decimal declines at the head of `DCC.intoDecimal` by the same
+   reason (`VARKA-597.md` 11.5 step 3b). Each part of this row reads which state master is in,
+   with one command:
+
+        grep -c 'TWO_LANE_READ_REASON' C/VarkaDecimalCompiler.java
+
+   `0` (597b not merged): the part writes its two-lane test as this section shows, with
+   `TWO_LANE_REASON`. `1` or more (597b merged): the part writes no two-lane test in its arms;
+   where a step below names `TWO_LANE_REASON`, it is skipped, and a test that expects it expects
+   `VarkaDecimalCompiler.TWO_LANE_READ_REASON`. 597b then needs nothing from this row.
+7. **`PLAN.md` section 3 item 1's "sample of each class against `Cast.eval`" is met by two suites
+   that exist**: `QS` runs every cast against vanilla Spark in LEGACY, ANSI and TRY, and
+   `VarkaCoverageDifferentialSuite` runs each coverage row inside and outside its domain. No
+   third sampler is built.
+
+### 11.4 Part 350a1n: the narrow targets
+
+*[Rewritten in the fix round of 28 November 2026, finding 1 of review 1: #1708 removed the double
+rule from Spark, so the branch's decline of a computed decimal and its test go, and the part
+opens with a gate test on master.]*
+
+**Title:** `[VARKA-350] Fuse 64-bit decimal casts to TINYINT, SMALLINT and INT`.
+**Branch:** `varka-350a1n-r3`, from master (`varka-350a1n-r2` and `varka-350a1n-narrow-targets`
+exist). **Builder:** Sonnet-class.
+
+**B0.** The table of 11.1's rows four, seven, eight and nine must print `3`, `1109`, `8`, `2`,
+and:
+
+    git log --oneline -1 a3c982c766f   -> [VARKA-350] Fuse the decimal casts to TINYINT, SMALLINT and INT again
+    git log --oneline -1 2131486f733   -> [VARKA-350] Seed narrowed outputs off the targets' bounds, and name the decimal casts WHOLE
+    git merge-base --is-ancestor e52b6bc082a HEAD && echo has-1708                 -> has-1708
+    grep -c 'record IntegralRange' C/varka/VarkaTypes.java                        -> 1
+    grep -c 'TWO_LANE_READ_REASON' DC                                             -> 0 or 1 (step 3 reads it)
+
+**Step 1, the gate: master's answer first.** Before any cherry-pick, on the new branch, add this
+test to `QS` after the test "a decimal cast to BIGINT truncates toward zero in every mode", and
+add `import org.apache.spark.sql.execution.VarkaMaybeThrows.Answered` after the `Row` import:
+
+    test("a computed DECIMAL(18, 15) of 127.999999999999999 narrows to 127 under ANSI and TRY, " +
+        "Varka on and off, as vanilla Spark truncates it exactly since SPARK-60843") {
+      // VARKA-350.md 11.4 step 1. x + z is a sum of two scales, which vanilla Spark builds
+      // BigDecimal-backed; before #1708 that value narrowed through the double, 128.0, and the
+      // cast overflowed. Catches a kernel, or a residual cast over a fused sum, that rounds the
+      // fraction up, and a Varka answer that differs from vanilla's.
+      val sums = "varka_decimal_sums"
+      val schema = StructType(Seq(StructField("x", DecimalType(17, 15)),
+        StructField("z", DecimalType(2, 0))))
+      val data = Seq(Row(dec("99.999999999999999"), dec("28")),
+        Row(dec("-99.999999999999999"), dec("-29")), Row(null, dec("0")))
+      Seq(spark, varkaSpark).foreach { session =>
+        session.createDataFrame(session.sparkContext.parallelize(data, 1), schema)
+          .createOrReplaceTempView(sums)
+        session.catalog.cacheTable(sums)
+      }
+      try {
+        val forms = Seq(
+          ("ANSI", true, s"SELECT CAST(x + z AS TINYINT) AS a FROM $sums"),
+          ("TRY", true, s"SELECT try_cast(x + z AS TINYINT) AS a FROM $sums"),
+          ("TRY", false, s"SELECT try_cast(x + z AS TINYINT) AS a FROM $sums"),
+          ("TRY over a fused sum", true,
+            s"SELECT try_cast(s AS TINYINT) AS a, s FROM (SELECT x + z AS s FROM $sums)"))
+        for ((mode, ansi, query) <- forms) {
+          withAnsi(ansi) {
+            withClue(s"$mode, ANSI $ansi: $query") {
+              checkSparkAnswerMaybeThrows(query) match {
+                case Answered(rows) =>
+                  assert(rows.map(_.get(0)).toSet === Set[Any](127.toByte, -128.toByte, null))
+                case r => fail(s"expected 127, -128 and null, both raised $r")
+              }
+            }
+          }
+        }
+      } finally {
+        Seq(spark, varkaSpark).foreach(_.catalog.uncacheTable(sums))
+      }
+    }
+
+`checkSparkAnswerMaybeThrows` runs the query with Varka on (`varkaSpark`) and off (`spark`) and
+fails with both outcomes printed when they differ (`VarkaMaybeThrows.scala` line 74). Run:
+
+    build/sbt 'sql/testOnly *VarkaDecimalCastQuerySuite -- -z "127.999999999999999"'
+        -> Tests: succeeded 1, failed 0
+
+**The stop rule.** If the test fails, the builder stops, commits nothing more, and reports the
+failure text to the lead:
+
+- a failure that prints two different outcomes (Varka on against off) is a wrong answer on
+  master, the finding the owner asked a gate row for; the lead files the row;
+- a failure where both engines agree but answer null, or both raise, means #1708's premise is
+  false on this master, and this section's decision 1 (11.3) is wrong: the plan goes back to its
+  planner.
+
+On a pass, commit the test alone ("Hold a computed decimal's narrowing to vanilla Spark's
+exact answer") and go on.
+
+**Step 2, the picks.** `git cherry-pick a3c982c766f`, then `git cherry-pick 2131486f733`. Do not
+pick `d61f1802037`: it is generated files, which step 5 regenerates.
+
+**Step 3, conflicts.** The rule for each file: take master's side whole, then apply the commit's
+hunks for that file by hand, reading them with `git show a3c982c766f -- <file>`.
+
+- `sql/varka/plans/m8/PLAN.md` and `sql/varka/plans/m8/VARKA-350.md`: take master's side and
+  apply nothing. The record is this file's section 10.5, added at the close of the part.
+- `QS`: keep step 1's test; the import line becomes the commit's
+  `import org.apache.spark.sql.execution.VarkaMaybeThrows.{Answered, Raised}`.
+- `BENCH/VarkaDecimalBaselineBenchmark.java`: the commit turns four sections from
+  `Fusion.NONE` to the `fused` argument of `addCasts`: `CAST(x9 AS INT)` under LEGACY and under
+  ANSI, `try_cast(x9 AS SMALLINT)`, and `CAST(x18 AS INT)` under LEGACY. The two over `x18s14`
+  (`DECIMAL(18, 14)`, ANSI and `try_cast`) fuse too, the column being a bare column. If row
+  597's part 597b merged first, keep its `fusedFilter` edits and apply this table to the lines
+  that still say `Fusion.NONE`.
+- `CS/varka/VarkaCoverageSuite.scala`: five rows join the family "Decimal casts":
+  `CAST(d9 AS INT)`, `CAST(d18 AS INT)` with the domain `d18 > -2147483649 AND d18 <
+  2147483648`, `CAST(d9 AS SMALLINT)` with `d9 > -32769 AND d9 < 32768`, `CAST(d9s4 AS
+  TINYINT)` with `d9s4 > -129 AND d9s4 < 128`, and `try_cast(d18 AS INT)` with the division's
+  domain `abs(d18) * 100 < 18014398509481984`.
+- If B0's last line printed `1` (597b is on master): in `DCC.toIntegral` and `DCC.test`
+  the commit's context lines `if (sink.declinesTwoLaneChecks()) { return
+  sink.decline(TWO_LANE_REASON, c); }` are gone on master; leave them out. In
+  `CS/VarkaExpressionCompilerSuite.scala` the commit's one-line hunk (`Cast(x, IntegerType,
+  evalMode = EvalMode.ANSI)` in the test "a decimal cast's value declines on a two-lane host")
+  is applied to the test as 597b left it, whose expected reason is
+  `VarkaDecimalCompiler.TWO_LANE_READ_REASON`.
+
+**Step 4, the computed decimal's decline goes** (11.3 decision 1). After the picks, in `DCC`:
+
+1. In `toIntegral`, delete the four lines
+
+        if (target != LaneType.LONG && mode != Overflow.WRAP
+            && from.precision() >= DOUBLE_RULE_PRECISION && !(c.child() instanceof BoundReference)) {
+          return sink.decline(COMPUTED_NARROW_REASON, c);
+        }
+
+   and keep the line above them, `Overflow mode = VarkaNodeCompiler.overflowOf(c.evalMode());`,
+   which the guard reads.
+2. Delete the constant `DOUBLE_RULE_PRECISION` with its javadoc, and the constant
+   `COMPUTED_NARROW_REASON` with its javadoc (the commit's text, `git show 2131486f733:<DCC>`
+   lines 116 to 134). Delete `import org.apache.spark.sql.catalyst.expressions.BoundReference;`,
+   which nothing else in `DCC` reads after the deletion (`grep -c BoundReference DCC` prints 0;
+   part 350a1b imports it again).
+3. In the class javadoc, the item "to an integral type" ends at "nulling the lane under TRY;":
+   delete its last sentence, "Under ANSI and TRY a narrowing of a computed decimal of 17 or 18
+   digits declines ({@link #COMPUTED_NARROW_REASON});".
+4. In `QS`, delete the commit's test "an ANSI or TRY narrowing of a computed decimal of 17 or 18
+   digits declines, since Spark narrows its BigDecimal-backed value through the double: x + z
+   at 127.999999999999999" whole (its assertion `rows.head === Row(null)` is the pre-#1708
+   answer). Step 1's test holds the same cells to 127. In the comment above the column `x`,
+   "A mixed-scale sum of these, DECIMAL(18, 15), is BigDecimal-backed in Spark." becomes "A
+   mixed-scale sum of these, DECIMAL(18, 15), is BigDecimal-backed in vanilla Spark, which
+   truncates it exactly since SPARK-60843 (#1708)."
+5. In `QS`'s class javadoc, the first paragraph becomes, word for word:
+
+        The 64-bit decimal casts (VARKA-350) over an Arrow-cached table, Varka against vanilla
+        Spark in LEGACY, ANSI and TRY: the rows both answer, or the error both raise. Each column
+        holds the named cases of `VARKA-350.md` 3 item 2 for its type - the values a range
+        check through a double gets wrong for INT (`0.999999999999999999` as `DECIMAL(18, 18)`,
+        `2147483647.99999999` as `DECIMAL(18, 8)` and the three first differences of item
+        0.14, in `f`, `k` and `m`), each target's bounds and one past them, `-0.5`, `-1.5` and
+        `1.5`, Trino's `184467440737095517` at `(18, 0)` into `(18, 2)`, and `9.99` and `9.95`
+        into `(2, 1)` (the rounding carry that overflows) - with a null beside them. The
+        division guard's boundaries are the coverage rows' domains.
+
+   each line prefixed ` * ` as the file's javadoc is; the second paragraph and the
+   `varka-session-lint` comment are master's.
+6. Step 1's test now also checks the fused form: after its `match`, for the two forms that are
+   not "over a fused sum", add
+
+        val explained = varkaSpark.sql(query).queryExecution
+          .explainString(org.apache.spark.sql.execution.ExplainMode.fromString("formatted"))
+        if (!mode.startsWith("TRY over")) assert(explained.contains("a: fused"), explained)
+
+   If that assertion fails, the builder prints the entry's residual reason from `explained` and
+   stops: the plan claims the computed narrowing fuses once the decline is gone.
+
+In `COMPUTED_NARROW_REASON`'s place nothing is added: with it gone, the change of the old plan's
+step 2 ("(VARKA-350, rows 350c and 366)" to "(row 366 of m9/PLAN.md)") has nothing to change.
+
+**Step 5, regenerate:** `VARKA_PROOFS_REGEN=true build/sbt 'catalyst/testOnly
+*VarkaProofFilesSuite'`, then `dev/varka_regen_generated.sh --all`.
+
+**What the code is, for a reader without the branch.** In `DCC.toIntegral`, after the two-lane
+test (or with none, once 597b merged), with `t = truncated(u, p, s, sink)`; the picks' `fits` is
+a static method of `DCC`, `static boolean fits(DecimalType from, LaneType target)`:
+
+    Overflow mode = VarkaNodeCompiler.overflowOf(c.evalMode());
+    return operand(c, inputs, literals, sink).map(x -> {
+      VarkaVectorIR t = truncated(x.unscaled(), x.type().precision(), x.type().scale(), sink);
+      if (target == LaneType.LONG) {
+        return t;
+      }
+      // A narrow target: the guard only where a value can leave the target's range.
+      VarkaTypes.IntegralRange range = VarkaTypes.integralRange(target);
+      VarkaVectorIR guarded = mode == Overflow.WRAP || fits(x.type(), target)
+          ? t : new GuardedRange(t, range.min(), range.max(), mode);
+      return new NarrowLane(guarded, target);
+    });
+
+    static boolean fits(DecimalType from, LaneType target) {
+      return Decimal.POW_10()[from.precision() - from.scale()] - 1L
+          <= VarkaTypes.integralRange(target).max();
+    }
+
+`fits` is exact: `verify_350.py` checks it against the widest truncated value at every `(p, s)`
+and target, and the first value the guard rejects and the last it admits in both signs.
+
+**The tests the picks bring**, and the failure only each catches: `QS`'s two tests of the narrow
+targets (the bounds of each target and one past, in three modes, and `CAST_OVERFLOW`'s text;
+catches a guard one off); `TS`'s narrow-target table test (the guard kept exactly where the
+source's widest integral part leaves the range; catches a dead guard kept or a live one
+dropped); `VarkaKernelChecks.runLoadedDecimal` laying out a narrowing root (so
+`VarkaDecimalLongConformanceSuite`'s cast row runs the narrow forms against Spark);
+`VarkaConjunctOrderSuite` and `VarkaDifferentialSuite`'s residual casts moved to 19 digits.
+Step 1's test catches a computed 17 or 18 digit narrowing that rounds up, fused or residual.
+
+**The commands, in order.**
+
+    build/sbt catalyst/Test/compile sql/Test/compile                         -> [success]
+    grep -c 'NARROW_REASON\|DOUBLE_RULE_PRECISION' DCC                       -> 0
+    grep -c '(check-sat)' sql/varka/proofs/decimal_casts.smt2                -> 1280
+    build/sbt 'catalyst/testOnly *VarkaDecimalCastTableSuite'                -> Passed: Total 3, Failed 0
+    build/sbt 'sql/testOnly *VarkaDecimalCastQuerySuite'                     -> Tests: succeeded 10, failed 0
+    build/sbt 'catalyst/testOnly *VarkaDecimalLongConformanceSuite *VarkaConjunctOrderSuite *VarkaFamilySwitchSuite *VarkaCoverageSuite'
+        -> failed 0
+    build/sbt 'sql/testOnly *VarkaDecimalBaselineQueriesSuite *VarkaCoverageHarnessSuite *VarkaDifferentialSuite'
+        -> failed 0
+    dev/varka_prove.sh --lint                                                -> exits 0
+    python3 dev/varka_msg_check.py size                                      -> under 1000 (about 435)
+    dev/varka_ops/pre-pr-slot.sh <w>                                         -> pre-pr: passed on <sha>
+
+`QS`'s ten: master's eight, less the row-engine test of the narrow targets the commit deletes,
+plus the commit's three ("each integral type" replaces master's `BIGINT` test in place, so it
+is not counted again: "0.999999999999999999", the computed decimal's, `CAST_OVERFLOW`), plus
+step 1's, less step 4's deletion: `8 - 1 + 3 + 1 - 1 = 10`. If `VarkaDifferentialSuite` fails
+on a computed 17 or 18 digit narrowing with Varka's answer differing from vanilla's, the builder
+stops and reports the case: it is a kernel fault, not a Spark rule, and the decline does not
+come back.
+
+**Done when** the commands print what is stated, the Build and the option matrix are green, and
+section 10 gains "10.5 Step 3, part 350a1n" with the text the branch's commit `a3c982c766f`
+wrote for it (`git show a3c982c766f -- sql/varka/plans/m8/VARKA-350.md`), less its paragraph on
+the computed decimal's decline, plus one sentence: "The decline of a computed decimal of 17 or
+18 digits was dropped, since #1708 Spark truncates both backings exactly; step 1's test holds
+127.999999999999999 to 127 with Varka on and off", dated with the merge.
+
+**Not here.** The integral sources. Any floating target.
+
+### 11.5 Part 350a1b: into a decimal from the integral types and `BOOLEAN`
+
+**Title:** `[VARKA-350] Fuse casts of integral types and BOOLEAN into a 64-bit decimal`.
+**Branch:** `varka-350a1b-r2`, from master after 350a1n. **Builder:** Sonnet-class.
+
+**B0.**
+
+    grep -c 'to a decimal is row 350' DC                                          -> 1
+    grep -c 'static boolean claimsIntoDecimal' DCC                                -> 1
+    grep -c 'private static Optional<VarkaVectorIR> select(' C/VarkaIntegralCastCompiler.java  -> 1
+    grep -c 'case SELECT -> () -> select(c, inputs, literals, sink);' C/VarkaIntegralCastCompiler.java -> 1
+    grep -c 'static Optional<VarkaVectorIR> intOperand' C/VarkaNodeCompiler.java  -> 2
+    grep -c 'COMPUTED_NARROW_REASON' DCC                                          -> 0
+    grep -c 'TWO_LANE_READ_REASON' DC                                             -> 0 or 1 (step 3 reads it)
+    git log --oneline -1 2b2ee08070b   -> [VARKA-350] Fuse the casts into a 64-bit decimal from the integral types and boolean
+
+**What Spark computes** (section 0, items 7 and 8). `CAST(v AS DECIMAL(P, S))` for an integral
+`v` is `v * 10^S` where `|v| <= 10^(P - S) - 1`, and past it null under LEGACY and TRY and
+`NUMERIC_VALUE_OUT_OF_RANGE` under ANSI. For a boolean it is `10^S` or 0, the true overflowing
+only into `DECIMAL(P, P)`. `DecimalType.forType` gives the digits of each type's widest value:
+3 for `TINYINT`, 5 for `SMALLINT`, 10 for `INT`, 20 for `BIGINT`.
+
+**Steps.** The old commit's main-code diff is the reference: `git show 2b2ee08070b -- C`. Apply
+it by hand on master; every hunk still has its anchor but the three named below.
+
+1. `C/VarkaIntegralCastCompiler.java`: `select` becomes package-private and takes the boolean
+   expression and the target lane:
+   `static Optional<VarkaVectorIR> select(Expression bool, LaneType target, Cast c,
+   VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink)`; its first lines read
+   `bool` and `target` in place of `c.child()` and `laneOf(c.dataType())`; the `SELECT` arm
+   calls `select(c.child(), laneOf(c.dataType()), c, inputs, literals, sink)`.
+2. `DCC`, the claims. `claimsIntoDecimal(Cast c)`:
+
+        if (!(c.dataType() instanceof DecimalType to)) {
+          return false;
+        }
+        DataType from = c.child().dataType();
+        if (from instanceof DecimalType f) {
+          return !VarkaDecimalCompiler.keepsDigits(f, to);
+        }
+        // A target wider than 18 digits is the wide rows', whose reason value() names.
+        return to.precision() <= MAX_PRECISION
+            && (integralLane(from).isPresent() || DataTypes.BooleanType.equals(from));
+
+   and two helpers:
+
+        /** The digits of an integral type's widest value, DecimalType.forType's precision. */
+        private static int integralDigits(LaneType lane) {
+          return switch (lane) {
+            case BYTE -> 3;
+            case SHORT -> 5;
+            case INT -> 10;
+            case LONG -> 20;
+            case FLOAT, DOUBLE -> throw VarkaErrors.illegalArgument("no integral type on " + lane);
+          };
+        }
+
+        /** Whether a cast from an integral type or BOOLEAN into `to` can overflow. */
+        static boolean sourceCanOverflow(DataType from, DecimalType to) {
+          if (DataTypes.BooleanType.equals(from)) {
+            return to.precision() == to.scale();
+          }
+          return integralDigits(integralLane(from).orElseThrow()) > to.precision() - to.scale();
+        }
+
+3. `DCC.intoDecimal`, after its two-lane test and its `mode`. *[Fix round, 28 November 2026.]*
+   Which two-lane test is there depends on B0's third line from the end: with `0` (597b not
+   merged) it is master's `if (sink.declinesTwoLaneChecks()) { return
+   sink.decline(TWO_LANE_REASON, c); }`, which declines every source; leave it. With `1` (597b
+   merged) it is 597b's `if (!(c.child().dataType() instanceof DecimalType) &&
+   VarkaDecimalCompiler.declinesAtTwoLanes(c, sink)) { return Optional.empty(); }`, which
+   declines the sources this part adds; leave it too. Either way this part adds no two-lane code.
+   The new lines:
+
+        DataType from = c.child().dataType();
+        if (from instanceof DecimalType) {
+          return VarkaDecimalCompiler.value(c.child(), inputs, literals, sink)
+              .map(x -> rescaled(x, to, mode, sink));
+        }
+        if (DataTypes.BooleanType.equals(from)) {
+          return VarkaIntegralCastCompiler.select(c.child(), LaneType.LONG, c, inputs, literals,
+              sink).map(one -> sourceCanOverflow(from, to)
+                  // Only DECIMAL(P, P) has no integral digit for the 1; its 0 needs no multiply.
+                  ? new Scaled(new GuardedRange(one, 0, 0, mode), to)
+                  : new Scaled(timesPowerOfTen(one, to.scale(), sink), to));
+        }
+        LaneType lane = integralLane(from).orElseThrow();
+        return integralOperand(c, lane, inputs, literals, sink).map(v -> {
+          VarkaVectorIR guarded = sourceCanOverflow(from, to)
+              ? guardDigits(v, to.precision() - to.scale(), mode) : v;
+          return new Scaled(timesPowerOfTen(guarded, to.scale(), sink), to);
+        });
+
+   with
+
+        /** An integral operand on the long lane: the long itself, or the value sign-extended. */
+        private static Optional<VarkaVectorIR> integralOperand(Cast c, LaneType lane,
+            VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+          Optional<VarkaVectorIR> compiled = lane == LaneType.INT
+              ? VarkaNodeCompiler.intOperand(c.child(), inputs, literals, sink)
+              : VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink);
+          return compiled.flatMap(x -> {
+            if (x.laneType() != lane) {
+              return sink.decline("a " + c.child().dataType().simpleString() + " operand on "
+                  + "the " + x.laneType() + " lane, not the " + lane + " one", c);
+            }
+            return Optional.of(lane == LaneType.LONG ? x : new WidenLane(x, LaneType.LONG));
+          });
+        }
+
+   `guardDigits(v, 0, mode)` is `GuardedRange(v, 0, 0, mode)`: into `DECIMAL(P, P)` only zero
+   fits, which is Spark's answer.
+4. `DCC`, the validity. *[Fix round, 28 November 2026: written out, finding 7 of review 1.]*
+   `sourceCanOverflow` throws for a decimal source (`integralLane(from).orElseThrow()`), so
+   master's decimal half stays first. `unguardedIntoDecimal` becomes, whole:
+
+        static boolean unguardedIntoDecimal(Cast c) {
+          if (!(c.dataType() instanceof DecimalType to)) {
+            return false;
+          }
+          DataType from = c.child().dataType();
+          if (from instanceof DecimalType f) {
+            return VarkaDecimalCompiler.keepsDigits(f, to) || !canOverflow(f, to);
+          }
+          return claimsIntoDecimal(c) && !sourceCanOverflow(from, to);
+        }
+
+   and a new method follows it (the old commit's text, `git show 2b2ee08070b --
+   C/VarkaDecimalCastCompiler.java`, its second hunk), with `import
+   org.apache.spark.sql.catalyst.expressions.BoundReference;` and the `IsNotNull` record of
+   `VarkaVectorIR` imported:
+
+        /**
+         * The validity of an unguarded cast into a decimal from an integral column: the column's
+         * own. A computed or boolean operand's null test is left to the row engine.
+         */
+        static Optional<Cond> operandValid(Cast c, VarkaSlotTable inputs, VarkaSlotTable literals,
+            DeclineSink sink) {
+          Optional<LaneType> lane = integralLane(c.child().dataType());
+          if (lane.isEmpty() || !(c.child() instanceof BoundReference)) {
+            return sink.decline("the validity of a cast into a decimal from a computed or boolean "
+                + "operand (VARKA-350)", c);
+          }
+          // The operand is on the long lane already, a narrower column under its widening, which
+          // is the form VarkaConditionCompiler.onLongLane gives a column's null test.
+          return integralOperand(c, lane.get(), inputs, literals, sink).map(IsNotNull::new);
+        }
+5. `DC.cast`, the arm for a source that is not a decimal (**anchor 1**: on master the `if`
+   block that opens `cast`, three lines: `if (!(c.child().dataType() instanceof DecimalType
+   from)) {`, then `return sink.decline("a cast from " + c.child().dataType().simpleString()`
+   and `+ " to a decimal is row 350's", c);` (`DC` lines 1398 and 1399 at `6dafb8bd2f6`), then
+   its closing brace; replace that whole block by this one):
+
+        if (!(c.child().dataType() instanceof DecimalType from)) {
+          if (VarkaDecimalCastCompiler.claimsIntoDecimal(c)) {
+            return VarkaNodeCompiler.inFamily(VarkaFamily.DECIMAL_CAST,
+                () -> VarkaDecimalCastCompiler.intoDecimal(c, to, inputs, literals, sink), c, sink);
+          }
+          DataType source = c.child().dataType();
+          boolean floating = DataTypes.FloatType.equals(source)
+              || DataTypes.DoubleType.equals(source);
+          return sink.decline("a cast from " + source.simpleString() + " to a decimal is "
+              + (floating ? "row 346's" : "not fused; `VARKA-350.md` 7 names its row"), c);
+        }
+
+   Row 346's part 346c later replaces the `floating` half of this arm.
+6. `DC.valid` (**anchor 2**), the arm `case Cast c when
+   VarkaDecimalCastCompiler.unguardedIntoDecimal(c)`: its body becomes
+   `c.child().dataType() instanceof DecimalType ? valid(c.child(), inputs, literals, sink)
+   : VarkaDecimalCastCompiler.operandValid(c, inputs, literals, sink)`.
+7. `DCC.arm` (**anchor 3**, changed by #1628): leave the code; replace the javadoc sentence "but
+   its value is read only by the decimal compiler's readers - a comparison, an `IN`, a choice -
+   and as an output it declines naming row 157's store" by "its value is compiled by the decimal
+   compiler, under a comparison, an `IN`, a choice or as an output (`VarkaDecimalCompiler.output`),
+   which never reaches this arm". Update the class javadoc's list and `VarkaFamily.DECIMAL_CAST`'s
+   description to name the integral and boolean sources, as the old commit does.
+8. Tests, from the old commit, re-typed on master's files:
+   - `QS`: a `BIGINT` column `l` with `0`, `1`, `-1`, `9999999999999999`, `-9999999999999999`,
+     `10000000000000000`, `-10000000000000000`, `Long.MaxValue`, `Long.MinValue`; an `INT`, a
+     `SMALLINT`, a `TINYINT` and a `BOOLEAN` column with their bounds and zero. Three tests:
+     "an integral value into a decimal is guarded by the target's integral digits and scaled"
+     (through `CAST(CAST(v AS DECIMAL(P, S)) AS BIGINT)` and as an output, in three modes, at
+     `(18, 2)`, `(5, 2)`, `(3, 0)`, `(10, 0)`, `(18, 18)`); "a boolean into a decimal is 1 or 0
+     at its scale, true overflowing only into `DECIMAL(P, P)`" (`(3, 2)` and `(2, 2)`); and "at
+     (18, 2), (16, 1), (17, 3) and (18, 7) the division's magnitude is guarded below
+     `2^(52 + k)`" (`2^(52 + k) - 1` and `2^(52 + k)` at each, the batch inside the guard
+     checked to run in the kernel). The old commit's `QS` hunks hold the exact SQL, to be
+     copied, not re-typed: `git show 2b2ee08070b --
+     sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaDecimalCastQuerySuite.scala`
+     (110 lines added): the new columns in its hunks at old lines 61, 77 and 92, the three tests
+     in its hunk at old line 217, and the guard view of the hunk at old line 92. None of the
+     five columns it adds (`l`, `i`, `s`, `y`, `bo`) is a name of master's view after 350a1n
+     (`a` to `h`, `k`, `m`, `x`, `z`). Its two javadoc hunks are not taken: master's class
+     javadoc after 350a1n is the one to keep, with the clause "and the magnitudes either side of
+     `2^(52 + k)`, where the division's guard first fires" added before "- with a null beside
+     them".
+   - `TS`, one new test, written out:
+
+            @Test
+            @DisplayName("an integral or boolean source's guard is kept exactly where its "
+                + "widest value overflows the target")
+            void sourceGuards() {
+              var types = Map.of(DataTypes.ByteType, 1L << 7, DataTypes.ShortType, 1L << 15,
+                  DataTypes.IntegerType, 1L << 31);
+              for (int p = 1; p <= 18; p++) {
+                for (int s = 0; s <= p; s++) {
+                  var to = new DecimalType(p, s);
+                  long bound = Decimal.POW_10()[p - s] - 1L;
+                  for (var e : types.entrySet()) {
+                    assertEquals(e.getValue() > bound,
+                        VarkaDecimalCastCompiler.sourceCanOverflow(e.getKey(), to), to.toString());
+                  }
+                  // |Long.MIN_VALUE| is past every 10^(p - s) - 1 with p <= 18.
+                  assertTrue(VarkaDecimalCastCompiler.sourceCanOverflow(DataTypes.LongType, to));
+                  assertEquals(p == s,
+                      VarkaDecimalCastCompiler.sourceCanOverflow(DataTypes.BooleanType, to));
+                }
+              }
+            }
+
+   - `CS/varka/VarkaCoverageSuite.scala`: `CAST(CAST(l AS DECIMAL(18, 2)) AS BIGINT)` with the
+     domain `l > -10000000000000000 AND l < 10000000000000000` joins "Decimal casts"; `i < d9`,
+     `CAST(y1 AS DECIMAL(5, 2)) < d9`, `CAST(s1 AS DECIMAL(7, 2)) > d9` and
+     `CAST(b AS DECIMAL(3, 2)) < d9` join "Decimal cast predicates". In `familyVerified` add
+     `"Decimal casts" -> Proved("decimal_casts.smt2")` and the same for "Decimal cast
+     predicates"; if `VarkaCoverageSuite` then fails on the two `BOOLEAN` rows, give those two
+     rows `Differential` in `rowVerified`.
+   - `sql/core/src/test/java/org/apache/spark/sql/execution/VarkaAnsiForm.java`: the old commit's
+     eleven lines.
+   - `BENCH/VarkaDecimalBaselineBenchmark.java`: the two sections `BIGINT CAST(l AS
+     DECIMAL(18, 2))`, LEGACY and ANSI, take `addCasts`'s `fused` argument.
+9. Regenerate: `dev/varka_regen_generated.sh --all`. `casts_fused.tsv` gains the integral and
+   boolean sources' `DECIMAL(10, 2)` forms; `decimal_casts.smt2` does not move (decision 2).
+
+**The commands, in order.**
+
+    build/sbt catalyst/Test/compile sql/Test/compile                         -> [success]
+    dev/varka_emit.sh "CAST(l AS DECIMAL(18, 2))" --columns l:bigint         -> the line ends FusedOutput(0)
+    build/sbt 'catalyst/testOnly *VarkaDecimalCastTableSuite'                -> Passed: Total 4, Failed 0
+    build/sbt 'sql/testOnly *VarkaDecimalCastQuerySuite'                     -> Tests: succeeded 13, failed 0
+    build/sbt 'catalyst/testOnly *VarkaExpressionCompilerSuite *VarkaFamilySwitchSuite *VarkaFamilyChainSuite *VarkaDecimalValueSuite *VarkaCoverageSuite *VarkaCastMatrixSuite'
+        -> failed 0
+    build/sbt 'sql/testOnly *VarkaDecimalBaselineQueriesSuite *VarkaCoverageHarnessSuite *VarkaCoverageDifferentialSuite'
+        -> failed 0
+    git diff --stat -- sql/varka/proofs/                                     -> prints nothing
+    python3 dev/varka_msg_check.py size                                      -> under 1000
+    dev/varka_ops/pre-pr-slot.sh <w>                                         -> pre-pr: passed on <sha>
+
+A test of `VarkaExpressionCompilerSuite` that asserts the decline "to a decimal is row 350's"
+for an integral source now sees it fuse: change that assertion to the fused form, and keep the
+decline's assertion for a `DOUBLE` source with the new text ("row 346's"). Before rewording the
+decline, `grep -rn "is row 350" sql/catalyst/src/test sql/core/src/test` lists every test that
+reads it.
+
+**The two-lane test, by order with 597b.** *[Fix round, 28 November 2026.]* If B0's third line
+from the end printed `1` (597b merged first), add `Cast(l, DecimalType(18, 2))` to the
+`longLane` list of `CS/VarkaExpressionCompilerSuite.scala`'s test "a value that reads a decimal
+column declines on a two-lane host, and fuses elsewhere" (597b's): the cast reads no decimal
+column and declines at the head of `intoDecimal`. If it printed `0`, 597b adds that line
+(`VARKA-597.md` 11.5 step 5).
+
+**Done when** the commands print what is stated, the Build and the option matrix are green, and
+section 10 gains "10.6 Step 3, part 350a1b" with what was built, what the tests hold and the
+date.
+
+**Not here.** A target wider than 18 digits (`BIGINT` into `DECIMAL(20, 0)` is row 360's). A
+floating source (row 346's part 346c). A new proof claim.
+
+### 11.6 Part 350b1: to `DOUBLE` and to `FLOAT`, where one division is exact
+
+**Title:** `[VARKA-350] Fuse 64-bit decimal casts to DOUBLE and FLOAT where one division is exact`.
+**Branch:** `varka-350b1-floating-targets`, from master after 350a1n. **Builder:** Sonnet-class,
+after the lead has run the two checks of 11.9.
+
+**B0.**
+
+    grep -c 'a decimal cast with a floating side' C/VarkaNodeCompiler.java        -> 1
+    grep -c 'static LiteralSlot doubleSlot(double v, DeclineSink sink)' C/VarkaNodeCompiler.java -> 1
+    grep -c 'record ConvertLane(VarkaVectorIR child, LaneType target, int hash)' C/varka/VarkaVectorIR.java -> 1
+    grep -c 'enum IntOp { ADD, SUB, MUL, DIV }' C/varka/VarkaVectorIR.java        -> 1
+    grep -c 'COMPUTED_NARROW_REASON' DCC                                          -> 0
+    grep -c 'TWO_LANE_READ_REASON' DC                                             -> 0 or 1 (step 1 reads it)
+
+**The rule, as one table.** `u` is the unscaled long of `value(child)`, of `(p, s)`, `p <= 18`.
+
+| target | where | tree |
+|---|---|---|
+| `DOUBLE` | `s = 0` | `ConvertLane(u, DOUBLE)` |
+| `DOUBLE` | `s >= 1`, `p <= 15` | `q = IntArith(DIV, WRAP, ConvertLane(u, DOUBLE), doubleSlot(10^s))` |
+| `DOUBLE` | `s >= 1`, `p >= 16` | declines, `FLOATING_EXACT_REASON` |
+| `FLOAT` | `s = 0` | `ConvertLane(u, FLOAT)` |
+| `FLOAT` | `s >= 1`, `p <= 7` | `ConvertLane(q, FLOAT)`, `q` as above |
+| `FLOAT` | `s >= 1`, `p >= 8` | declines, `FLOATING_EXACT_REASON` |
+
+No mode changes an answer, and no form raises or nulls: the validity is the operand's.
+`doubleSlot(10^s)` is `VarkaNodeCompiler.doubleSlot((double) Decimal.POW_10()[s], sink)`, exact
+for `s <= 15`. `Overflow.WRAP` on a floating `DIV` means "no zero test", as
+`VarkaFloatingCompiler.divide` uses it for a non-zero literal divisor.
+
+**Steps.**
+
+1. `DCC`, two constants and the arm:
+
+        /** The widest precision whose every unscaled value is an exact double: 10^15 < 2^53. */
+        static final int EXACT_DOUBLE_PRECISION = 15;
+        /** The widest precision whose every unscaled value is an exact float: 10^7 < 2^24. */
+        static final int EXACT_FLOAT_PRECISION = 7;
+
+        static final String FLOATING_EXACT_REASON = "a decimal cast to DOUBLE past 15 digits or "
+            + "to FLOAT past 7, at a scale of 1 or more: the unscaled value is not exact in the "
+            + "target, so one division rounds twice; the exact arm is row 366 of m9/PLAN.md";
+
+        private static Optional<VarkaVectorIR> toFloating(Cast c, DecimalType from,
+            LaneType target, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+          if (from.precision() > MAX_PRECISION) {
+            return sink.decline("a cast of a decimal wider than " + MAX_PRECISION + " digits "
+                + "to a floating type is row 364's", c);
+          }
+          if (sink.declinesTwoLaneChecks()) {
+            return sink.decline(TWO_LANE_REASON, c);
+          }
+          int exact = target == LaneType.DOUBLE ? EXACT_DOUBLE_PRECISION : EXACT_FLOAT_PRECISION;
+          if (from.scale() > 0 && from.precision() > exact) {
+            return sink.decline(FLOATING_EXACT_REASON, c);
+          }
+          return operand(c, inputs, literals, sink).map(x -> {
+            if (x.type().scale() == 0) {
+              return new ConvertLane(x.unscaled(), target);
+            }
+            VarkaVectorIR q = new IntArith(IntOp.DIV, Overflow.WRAP,
+                new ConvertLane(x.unscaled(), LaneType.DOUBLE),
+                VarkaNodeCompiler.doubleSlot((double) Decimal.POW_10()[x.type().scale()], sink));
+            return target == LaneType.DOUBLE ? q : new ConvertLane(q, LaneType.FLOAT);
+          });
+        }
+
+   The test on `from` and the tree on `x.type()` agree: `value` returns a `Scaled` of the
+   operand's own type. *[Fix round, 28 November 2026.]* If B0's last line printed `1` (597b
+   merged), leave out the three lines `if (sink.declinesTwoLaneChecks()) { return
+   sink.decline(TWO_LANE_REASON, c); }`: the constant is gone, and `operand` reaches the decimal
+   readers, which decline first. With `0`, write them as shown; 597b deletes them later.
+   In `arm`, beside the integral branch: where the child is a `DecimalType`
+   and the target is `DataTypes.DoubleType` or `DataTypes.FloatType`, return
+   `() -> toFloating(c, from, lane, inputs, literals, sink)`.
+2. `C/VarkaNodeCompiler.java`, `floatingDecline`: the list of forms that pass gains, beside the
+   floating casts family's line,
+   `|| (e instanceof Cast c && c.child().dataType() instanceof DecimalType
+   && isFloating(c.dataType()))`. The decline text "a decimal cast with a floating side (rows
+   346, 350, 364 and 366)" then names only a floating source: reword it "a cast of a floating
+   value to a decimal (row 346)". Run `grep -rn "a decimal cast with a floating side"
+   sql/catalyst/src/test sql/core/src/test` first and change each test that reads it.
+3. `VarkaFamily.DECIMAL_CAST`'s description and the class javadoc of `DCC` name the two targets.
+4. Tests.
+   - `QS`, two tests, each `checkProjection(s"CAST($c AS DOUBLE)")` and `... AS FLOAT)` in the
+     suite's three modes. Columns: the suite's `c` (`DECIMAL(9, 2)`: `DOUBLE` fuses, `FLOAT`
+     declines), `d` (`DECIMAL(18, 0)`: both fuse, scale 0, and its values `9007199254740991`,
+     `9007199254740992` and `999999999999999999` are the rounding cells), and three new columns:
+     `n7`, `DECIMAL(7, 4)`, with `999.9999`, `-999.9999`, `0.0001`, `-0.0001`, `0`, `838.8608`,
+     `167.7215`; `n15`, `DECIMAL(15, 14)`, with `9.99999999999999`, `-9.99999999999999`,
+     `0.00000000000001`, `1.00000000000001`, `4.50359962737049`; and `n16`, `DECIMAL(16, 14)`,
+     with `64.00001907348633`. The declined pairs (`c` to `FLOAT`, `n15` to `FLOAT`, `n16` to
+     both) are checked with the suite's answer check and `assert(!explained.contains("a:
+     fused"))`. `64.00001907348633` to `FLOAT` is section 2.4's named value: the double
+     quotient narrowed is wrong there, so the test fails if `EXACT_FLOAT_PRECISION` is raised.
+   - `TS`, one test, written out:
+
+            @Test
+            @DisplayName("every unscaled value is exact in the target up to the two precisions "
+                + "the floating casts divide at, and not one digit past them")
+            void exactFloatingPrecisions() {
+              long d = Decimal.POW_10()[VarkaDecimalCastCompiler.EXACT_DOUBLE_PRECISION] - 1L;
+              assertEquals(d, (long) (double) d);
+              long d1 = Decimal.POW_10()[VarkaDecimalCastCompiler.EXACT_DOUBLE_PRECISION + 1] - 1L;
+              assertNotEquals(d1, (long) (double) d1);
+              long f = Decimal.POW_10()[VarkaDecimalCastCompiler.EXACT_FLOAT_PRECISION] - 1L;
+              assertEquals(f, (long) (float) f);
+              long f1 = Decimal.POW_10()[VarkaDecimalCastCompiler.EXACT_FLOAT_PRECISION + 1] - 1L;
+              assertNotEquals(f1, (long) (float) f1);
+              for (int s = 1; s <= VarkaDecimalCastCompiler.EXACT_DOUBLE_PRECISION; s++) {
+                assertEquals(new BigDecimal(Decimal.POW_10()[s]),
+                    new BigDecimal((double) Decimal.POW_10()[s]));
+              }
+            }
+
+   - A sweep, `CT/varka/VarkaDecimalFloatingCastSweepSuite.java`, JUnit 5 under `@VarkaSuite`,
+     scalar Java with no kernel: for every `(p, s)` with `1 <= s <= p <= 7` and every `u` from
+     `-(10^p - 1)` to `10^p - 1`, `(float) ((double) u / (double) POW_10[s])` equals
+     `BigDecimal.valueOf(u, s).floatValue()` by `Float.floatToRawIntBits`; and for every `(p, s)`
+     with `1 <= s <= p <= 15`, over the two bounds and 200000 values drawn from
+     `new SplittableRandom(350)`, `(double) u / (double) POW_10[s]` equals
+     `BigDecimal.valueOf(u, s).doubleValue()` by raw bits. The `FLOAT` half is exhaustive only
+     under `-Dvarka.sweep=true` (register it in `sql/varka/ci/sweeps.tsv` as its neighbours
+     are); without the flag it takes every 97th `u`. It is the proof of decision 4 by
+     exhaustion, which `PLAN.md` section 5 accepts for a source of at most 32 bits.
+   - `CS/varka/VarkaCoverageSuite.scala`: three rows join "Decimal casts": `CAST(d9 AS DOUBLE)`
+     and `CAST(d9s4 AS DOUBLE)`, with no domain, and `CAST(CAST(d9 AS DECIMAL(7, 2)) AS FLOAT)`
+     with the domain `abs(d9) < 100000`, the inner cast's precision check. No fixture column
+     has seven digits or fewer, hence the inner cast. `d18` and `d16s9` to a floating type
+     decline and are no rows.
+   - `BENCH/VarkaDecimalBaselineBenchmark.java`: `DECIMAL(9, 2) CAST(x AS DOUBLE)` takes
+     `addCasts`'s `fused` argument. The other six floating sections stay `Fusion.NONE`: their
+     precisions are 9 to `FLOAT`, 15 to `FLOAT` and 18.
+5. Regenerate: `dev/varka_regen_generated.sh --all`.
+
+**The commands, in order.**
+
+    build/sbt catalyst/Test/compile sql/Test/compile                         -> [success]
+    dev/varka_emit.sh "CAST(x AS DOUBLE)" --columns x:dec9s2                 -> the line ends FusedOutput(0)
+    dev/varka_emit.sh "CAST(x AS FLOAT)" --columns x:dec7s4                  -> the line ends FusedOutput(0)
+    dev/varka_emit.sh "CAST(x AS FLOAT)" --columns x:dec9s2                  -> ResidualOutput - a decimal cast to DOUBLE past 15 digits or ...
+    build/sbt 'catalyst/testOnly *VarkaDecimalCastTableSuite *VarkaDecimalFloatingCastSweepSuite'
+        -> failed 0
+    build/sbt 'sql/testOnly *VarkaDecimalCastQuerySuite'                     -> failed 0, two tests more than before the part
+    build/sbt 'catalyst/testOnly *VarkaExpressionCompilerSuite *VarkaFamilySwitchSuite *VarkaCoverageSuite *VarkaCastMatrixSuite *VarkaWarmupReachSuite'
+        -> failed 0
+    build/sbt 'sql/testOnly *VarkaDecimalBaselineQueriesSuite *VarkaCoverageHarnessSuite *VarkaFloatingLaneSuite'
+        -> failed 0
+    python3 dev/varka_msg_check.py size                                      -> under 1000
+    dev/varka_ops/pre-pr-slot.sh <w>                                         -> pre-pr: passed on <sha>
+
+If the second `dev/varka_emit.sh` line prints `ResidualOutput` with a reason of the kernel plan
+(a conversion it does not lower), stop and report: 11.9's first check should have caught it, and
+the `FLOAT` rows then decline by that reason until the plan lowers the conversion.
+
+**Done when** the commands print what is stated, the Build and the option matrix are green, and
+section 10 gains "10.7 Step 4, part 350b1".
+
+**Not here.** `FLOAT` at precision 8 to 15. Precision 16 to 18. Any new IR node. Any proof file:
+the lowering has no bound of its own beyond the two precisions, which the table test and the
+sweep hold.
+
+**For the record: the round-to-odd form that is not built.** For `FLOAT` at `8 <= p <= 15`,
+`s >= 1`, with `ud = ConvertLane(u, DOUBLE)` and `P = doubleSlot(10^s)`: `q = ud / P`;
+`r = Fma(q, doubleSlot(-10^s), ud)`, the exact remainder `u - q * 10^s`; `qb` and `rb` their
+`ReinterpretLane` to `LONG`; where `(rb << 1) != 0` and `(qb & 1) == 0`, `qb` plus 1 where
+`(rb ^ qb) >= 0` (the remainder has the quotient's sign) and minus 1 otherwise; the result
+viewed as a double and narrowed once. `verify_350.py` checks it against the exact rational
+rounded once to binary32 over every `(p, s)` of that range, binary32 midpoints among the values,
+with no difference; in the same sample the plain narrowing of `q` differs on 4 lanes. Its owner
+is row 366 of `m9/PLAN.md`.
+
+### 11.7 Part 350m: the measurement and the close of the row
+
+**Title:** `[VARKA-350] Measure the 64-bit decimal casts on the EPYC 7763 and score the plan`.
+**Branch:** `varka-350m-measure`. **Builder:** Sonnet-class. The lead dispatches; the builder
+splices, scores and writes.
+
+1. The lead dispatches `benchmark.yml` for `VarkaDecimalBaselineBenchmark` at 256 bits and at
+   128 bits (the second with `-f extra-java-options=-XX:MaxVectorSize=16`), as
+   `VARKA-597.md` 11.5 step 10 writes the command, and `varka-width-audit.yml` for the EPYC 7763
+   and Neoverse N2 columns of the two census cells of 10.1.
+2. The builder splices the cast sections into the two runner files with
+   `python3 dev/varka_bench_sections.py splice`, adds the runs to the provenance files, and
+   scores section 4's predictions in section 10 by these rules, on best times:
+   - prediction 1 holds if every fused integer cast section at 256 bits reads 5.0X or more in
+     the file's `Relative` column;
+   - prediction 2 holds if `DECIMAL(9, 2) CAST(x AS DOUBLE)` at 256 bits takes at most 1.5 times
+     the Varka arm's time of `DECIMAL(9, 2) CAST(x AS BIGINT)`; its `FLOAT` half is "not built
+     in this milestone";
+   - predictions 3 and 4 are "not built in this milestone" (350d, and the double rule that
+     10.3's decision 1 replaced);
+   - prediction 5: at 128 bits every cast section is on the row path on both arms, 0.9X to
+     1.1X, the family declining there (10.3's decision 7);
+   - prediction 6 is scored by `git diff --stat` on `emitted_bytes.json` in each part.
+3. `PLAN.md`: row 350 opens with `**Done**`, naming what moved: the floating targets past the
+   two exact precisions to row 366 of `m9/PLAN.md`, and 350d, the planted fault and the cast
+   rows' refinement in `decimal_refinement.smt2` to `m10/SCOPE.md` item 140 (a line added
+   there, as the 27 November moves are written; the owner's answers 1 and 3 of section 12).
+4. `census_curated.txt` and `casts.tsv`'s semantics column for the decimal pairs say what fuses:
+   the integer rules at every precision to 18, `DOUBLE` to precision 15, `FLOAT` to precision 7,
+   both at scale 0, and name row 366 for the rest. Then `dev/varka_regen_generated.sh --all` and
+   `python3 dev/varka_census.py --check`.
+
+**Done when** both runner files hold the spliced sections with their runs named, section 10
+holds the scored predictions, `python3 dev/varka_plan_lint.py --offline` prints `0 finding(s)`,
+and the Build is green.
+
+### 11.8 What each part moves
+
+| part | fuses after it | census and cast matrix | benchmark sections that become fused at 256 bits |
+|---|---|---|---|
+| 350a1n | decimal to `TINYINT`, `SMALLINT`, `INT` in three modes | `casts_fused.tsv`: the three pairs' `DECIMAL(10, 2)` forms; the census count moves by 0 (section 6) | `DECIMAL(9, 2) CAST(x AS INT)` LEGACY and ANSI, `try_cast(x AS SMALLINT)`, `DECIMAL(18, 4) CAST(x AS INT)` LEGACY, `DECIMAL(18, 14) CAST(x AS INT)` ANSI and `try_cast` |
+| 350a1b | `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `BOOLEAN` into a decimal of 18 digits or fewer; coercion's `i < d9` | five more pairs' forms; 0 | `BIGINT CAST(l AS DECIMAL(18, 2))` LEGACY and ANSI |
+| 350b1 | decimal to `DOUBLE` (`p <= 15`, or scale 0) and `FLOAT` (`p <= 7`, or scale 0); coercion's `d9 < x` over a double | two pairs' forms; 0 | `DECIMAL(9, 2) CAST(x AS DOUBLE)` |
+
+### 11.9 What only a JVM can settle, and the command for each
+
+The lead runs these before 350b1 starts; each is one compile, no timing.
+
+| claim | command | settles |
+|---|---|---|
+| a long-driven kernel admits a `DOUBLE` division root over `L2D` | `dev/varka_emit.sh "CAST(l AS DOUBLE) / 100.0D" --columns l:bigint` | the line ends `FusedOutput(0)`: the `DOUBLE` tree of 350b1 is admitted |
+| the same narrowed to `FLOAT` | `dev/varka_emit.sh "CAST(CAST(l AS DOUBLE) / 100.0D AS FLOAT)" --columns l:bigint` | the same for the `FLOAT` tree; if it declines, 350b1 builds `DOUBLE` and the scale-0 forms only, and `FLOAT` at `s >= 1` declines with the kernel plan's reason |
+| a guarded cast into a decimal is a valid output under LEGACY | `QS`'s test "a cast into a decimal is a decimal output of its own" on master | it passes today; 350a1b's outputs rest on it |
+| the cherry-picks of 350a1n apply | `git cherry-pick a3c982c766f` in the part's worktree | the conflict list of 11.4 step 3 |
+| master answers 127 for a computed `127.999999999999999` narrowed to `TINYINT`, Varka on and off (fix round) | 11.4 step 1's test: `build/sbt 'sql/testOnly *VarkaDecimalCastQuerySuite -- -z "127.999999999999999"'` | 350a1n goes on, or stops by the rule of 11.4 step 1 |
+| a computed 17 or 18 digit narrowing fuses and equals vanilla once the decline is gone (fix round) | 11.4's `VarkaDecimalCastQuerySuite` and `VarkaDifferentialSuite` commands | the stop rules of 11.4 step 4 and of its commands |
+
+### Risks of section 11
+
+1. **350a1n's cherry-pick meets more conflicts than 11.4 lists.** Held by the rule of step 3
+   (master's side, then the commit's hunks by hand) and by the suites of its commands.
+2. **350a1b's validity of an integral operand.** `operandValid` admits a bare column only; a
+   computed operand's null test declines. Held by `QS`'s `IS NULL` cases over the casts and by
+   `VarkaCoverageHarnessSuite`'s null-test forms of the four predicate rows.
+3. **A reworded decline breaks a test that reads it.** Held by the two `grep` lines before each
+   rewording.
+4. **The option matrix under `useAVX=2` and at 128 bits.** `L2D`'s forms differ by level; the
+   query suite runs under every configuration, and the two-lane arm declines first.
+
+## 12. Questions for the owner (28 November 2026)
+
+*The owner answered all three on 28 November 2026; each answer is recorded under its question.*
+
+1. **What of row 350 stays in milestone 8.** Options: (a) the four parts of 11.2, with `FLOAT`
+   at precision 8 to 15 and the precisions 16 to 18 declining to row 366 of `m9/PLAN.md`, and
+   350d and the planted fault moved to `m10/SCOPE.md` item 140; (b) also build the round-to-odd
+   `FLOAT` form here, at full strength, with a proof file (about 400 lines); (c) also build
+   350d after row 360's `WideMul` merges. **Recommended: (a)**: item 3 of `PLAN.md` 1.1 asks
+   each pair to fuse or decline with its reason, and (b) and (c) are a rounding proof and a
+   performance arm. **Default applied: (a).** **Answered on 28 November 2026: (a), the default.**
+   `FLOAT` at precision 8 to 15 and the precisions 16 to 18 go to row 366 of `m9/PLAN.md`; 350d,
+   the planted fault and the `decimal_refinement.smt2` rows (question 3) go to `m10/SCOPE.md`
+   item 140, written there by 350m (11.7 step 3).
+2. **The finding of 14 item 5** (a residual narrowing over a fused decimal sum answers by the
+   exact rule where vanilla Spark answers by the double rule) has no row. Options: (a) a new row
+   of `m8/PLAN.md` that gates the close, since it is a wrong answer; (b) a row of `m9/PLAN.md`.
+   **Recommended: (a).** No default is applied: this plan builds nothing for it.
+   **Answered on 28 November 2026:** the owner asked for a gate row that first checks master.
+   That gate is folded into part 350a1n's first step (11.4 step 1), and no row is filed; the
+   owner confirmed the fold on 28 November 2026. The evidence that the wrong answer is the
+   branch's and not
+   master's: #1708 (`e52b6bc082a`, SPARK-60843) made vanilla Spark truncate a
+   `BigDecimal`-backed decimal exactly (`Decimal.roundToNumeric` and `truncatedLong`,
+   `Decimal.scala` lines 271 to 334 on `6dafb8bd2f6`); a `try_cast` of a decimal takes that
+   path (`Cast.scala` lines 893 to 895, 1493, 2585 to 2591); and `varka-350a1n-r2` does not
+   contain #1708 (`git merge-base --is-ancestor e52b6bc082a varka-350a1n-r2` exits 1). So on
+   master vanilla answers 127, as Varka does, and the branch's test expecting null is what is
+   wrong. Step 1's test holds 127 under ANSI and TRY with Varka on and off, and its stop rule
+   says: an answer that differs with Varka on and off is a wrong answer, and the builder stops
+   and reports it, so that the lead files the row then.
+3. **The cast rows' refinement in `decimal_refinement.smt2`** (10.4, "Owed") is not in the row's
+   done-when. Options: (a) `m10/SCOPE.md` item 140, with row 506's remainder; (b) a part here.
+   **Recommended and applied: (a).** **Answered on 28 November 2026: (a), the default.**
+
+## 13. The house rules that bind every part of section 11
+
+Each is written where named; the builder reads them there.
+
+- Answers equal vanilla Spark's bit for bit under both ANSI settings; a declined batch is the
+  row engine's: `sql/varka/AGENTS.md`, "House rules that bite here specifically".
+- A lowering exact only over a bound ships its proof file: the same section. Parts 350a1n and
+  350a1b rest on `decimal_casts.smt2`; 350b1 has no bound but the two precisions (11.6).
+- A test pins the configuration it depends on, and the option matrix passes under every
+  configuration: the root `AGENTS.md`, "Build and Test".
+- Never weaken a failing test, and never edit a generated file: the root `AGENTS.md`.
+- Benchmarks are committed files, baselines first: `sql/varka/AGENTS.md`, "Measurements, not
+  adjectives". The baseline of this row is on master since #1572.
+- The gate is `pre-pr.sh`, the push is `open-pr.sh`: `ADDING_AN_EXPRESSION.md`, "Closing a row".
+- Java for new code and new suites: `sql/varka/AGENTS.md`, "Java code".
+
+## 14. Stale against the tree, found while planning (28 November 2026)
+
+1. **Section 5's order and section 9's done-when** name 350b to 350d and row 366 as this row's
+   path. Rows 364 and 366 are milestone 9's since 25 November 2026; 11.2 is the order now.
+2. **Section 2.3's double rule at precision 17 and 18** was replaced by 10.3's decision 1 (the
+   exact rule), and the row's text in `PLAN.md` still says "the three narrow ANSI and TRY casts
+   by the double rule". The owner's note of 1 November 2026 at the top of this file is what
+   holds, less its last clause: *[fix round]* since #1708 the double rule is no one's, row 364's
+   included, and vanilla Spark has none (11.3 decision 1).
+3. **Section 2.4's `FLOAT` at precision 7 or less through the int lane** is replaced by 11.3's
+   decision 4.
+4. **`DCC.arm`'s javadoc** says a cast into a decimal declines as an output. It fuses since
+   #1628 (`DC.output`); `VarkaDecimalBaselineBenchmark`'s 256-bit runner file lists
+   `DECIMAL(9, 2) CAST(x AS DECIMAL(9, 0))` as fused. Part 350a1b corrects the sentence.
+5. **A finding recorded only on a branch.** The plan text of `a3c982c766f` on
+   `varka-350a1n-r2` records: under ANSI, `SELECT try_cast(s AS TINYINT) AS a, s FROM (SELECT
+   x + z AS s FROM t)`, with `x` a `DECIMAL(17, 15)` holding `99.999999999999999` and `z` a
+   `DECIMAL(2, 0)` holding `28`, gives null on vanilla Spark and 127 with Varka. The inferred
+   cause: the residual cast reads the fused sum back long-backed and takes the exact rule, where
+   vanilla's codegen hands the cast a `BigDecimal`-backed sum, which takes the double rule. It
+   fails the same way with every narrow target declined, so it is not the narrow kernel's. It
+   has no row in `m8/PLAN.md`, `m9/PLAN.md` or `m10/SCOPE.md`
+   (`grep -n '99.999999999999999' sql/varka/plans/m8/PLAN.md sql/varka/plans/m9/PLAN.md
+   sql/varka/plans/m10/SCOPE.md` prints nothing). Question 2 of section 12.
+   *[Fix round, 28 November 2026: stale since #1708.]* The observation was true on the branch's
+   base, which predates #1708; on master vanilla Spark truncates the `BigDecimal`-backed sum
+   exactly and answers 127, as Varka does (11.3 decision 1 has the code path). 11.4 step 1
+   checks it on master before anything is built.
+6. **The row's note in `PLAN.md`** lists as left "the runner columns, the planted fault, the
+   table test's sample against `Cast.eval`, the cast rows' refinement, 350b to 350d". Section 11
+   gives each a home: 350m, `m10/SCOPE.md` item 140, decision 7 of 11.3, question 3, and 11.2.
+7. **Section 10.3's "State"** names 350a1b as following #1700 "then 350a2"; the order that
+   merged is #1700, #1707, and the order left is 11.2's.
+8. *[Fix round, 28 November 2026.]* **The branch `varka-350a1n-r2` predates #1708**: its
+   `COMPUTED_NARROW_REASON`, `DOUBLE_RULE_PRECISION`, the class javadoc's sentence on them and
+   its query-suite test expecting null at `127.999999999999999` follow the double rule, which
+   master's Spark no longer has. 11.4 step 4 deletes them.
+9. *[Fix round.]* **Section 11.3 decision 6 as first written** ("597b leaves these tests in
+   place") followed the default of `VARKA-597.md` 11.7 question 1; the owner answered "remove".

@@ -37,7 +37,7 @@ production code.
 | 690, 670, 671 | the lead forms `CAST(ntz AS TIMESTAMP)`, `CAST(d AS TIMESTAMP)` and `ts + INTERVAL '1' DAY` over the full grid; the sections of the zone functions and of the arithmetic |
 | 691, the zone kernels measured | every zoned class at 256 and 128 bits, and the `TIMESTAMP_NTZ` twin beside each form |
 | 667 to 669, the fan-out | one section a form at G7's cell, committed before the form's kernel |
-| 662, 673 to 675, the nanosecond rows | the four nanosecond classes and their results (parts F and G) |
+| 699, 673 to 675, the nanosecond rows | the four nanosecond classes and their results (parts F and G) |
 | 691, and 676, the post | the timestamp surface against stock Spark 4.3.0 with its two Arrow-cache arms, and its first, unfused run; row 691 runs it first with the zone kernels on, and row 676 once more at the end (4.10) |
 | milestone 8's rows 338 to 340 | the three `TIMESTAMP_NTZ` files run again with the kernels on (part D) |
 
@@ -53,7 +53,7 @@ how a reader checks the move.
 | :--- | :--- | :--- |
 | "**G7. Speed where a time zone is read.** A fused `TIMESTAMP_LTZ` expression runs significantly faster than vanilla Spark: than the row path of the same build, section by section, and than the newest stock Spark release on a timestamp surface. No fused shape is slower than the row path on a measured host; a shape that would be declines there." | "**G7:** on the AMD EPYC 7763 at 256 bits, in the baseline classes of row 655 under a daylight-saving zone with a year of instants in no order, every `TIMESTAMP_LTZ` section whose kernel reads the zone runs at least five times the row path's rate and every other section at least twice; no section is slower than the row path at 256 or at 128 bits; and the timestamp surface against the newest stock Spark release is committed for the post. The nanosecond `TIMESTAMP_LTZ` sections meet the same bars in phase 2. The bars are the owner's (decision 9)." | the row builds what the item reads: the classes, the cell "`America/Los_Angeles`, a year in no order" in every form (4.3), and the surface. The row moves no ratio: every `TIMESTAMP` section's two arms tie. Check: the files of 4.9 are in `sql/core/benchmarks`, and each holds the section titles of 4.4 |
 | "**G1. `TIMESTAMP_LTZ` at microseconds (phase 1).**" | "**G1:** at least three quarters of `TIMESTAMP_LTZ`'s (entry, type) pairs fused (about 66 entries are expected to admit it)." | only through later rows: a row that fuses an entry reports its speed against this row's file. This row fuses nothing |
-| "**G4. Nanosecond `TIMESTAMP_NTZ` and `TIMESTAMP_LTZ`, precision 7 to 9 (phase 2).**" | "**G4:** at least three quarters of each nanosecond type's pairs fused under the flag" | only through rows 662 and 673 to 675, which measure on the classes of parts F and G. Check for this row: those classes' files are committed before row 662's first kernel |
+| "**G4. Nanosecond `TIMESTAMP_NTZ` and `TIMESTAMP_LTZ`, precision 7 to 9 (phase 2).**" | "**G4:** at least three quarters of each nanosecond type's pairs fused under the flag" | only through rows 699 and 673 to 675, which measure on the classes of parts F and G. Check for this row: those classes' files are committed before row 699's first kernel |
 | "**G6. The post.**" | "**G6:** the post is published." | only through rows 691 and 676, which run the surface with the kernels on; the post quotes those files |
 | G2, G3, G5 | items 2, 3 and 8 | not moved |
 
@@ -921,7 +921,7 @@ interval, `timestampadd`, `date_trunc`, `from_utc_timestamp`, `to_utc_timestamp`
 (`UNSUPPORTED_FEATURE.TIMESTAMP_NANO...`), `months_between`, `timestampdiff` and `time_trunc`,
 and `convert_timezone` over the zoned type. No class holds a rejected form.
 
-**What they can run before row 662.** Everything: the registry does not know the types
+**What they can run before row 699.** Everything: the registry does not know the types
 (`VarkaTypes.idOf` returns null), so every nanosecond section is `Fusion.NONE` and both arms
 run the row path over the cache's struct of two vectors. The classes need no kernel, no
 census type and no decision of row 660.
@@ -994,7 +994,7 @@ builder reports each number it changed:
    are the plan, and section 11 is the record.
 
 If the removed form is a lead form, the class has no lead: that is a stop, since the grid of
-the class is then not what rows 662 and 673 read.
+the class is then not what rows 699 and 673 read.
 
 ### 4.9 The results files, and who does what
 
@@ -1256,7 +1256,8 @@ The rule covers comments too. Each part's commands run the four greps.
 | a section for `IN`, a null test, `least`, `in_set`, `known_not_null`, `try_eval` | row 667 adds each in a baseline pull request before its kernel (the owner, 27 November 2026) |
 | a section for each of the other eleven numeric and boolean cast pairs, and for `TIME` to `TIMESTAMP`, which reads the current date | row 669, each in a baseline pull request before its kernel (the owner, 27 November 2026) |
 | the A/B arms of the zone forms, the laptop's 512 bits | row 691 |
-| the two nanosecond layouts measured | row 662, on parts F and G's classes |
+| the nanosecond representations measured in hand loops | row 662, in a spike class of its own (`VARKA-662.md` 4.7) |
+| the nanosecond kernels measured | row 699, on parts F and G's classes |
 | the surface's runs with the kernels on, and their figures | row 691 first, then row 676 for the post (the owner, 27 November 2026) |
 | a band file (`<C>-jdk25-band.txt`) | the first row that has to read a move in a class, as `sql/varka/AGENTS.md` has it |
 | the stock Arrow-cache arm on the date, `TIME` and math surfaces | `m10/SCOPE.md` item 132 |
@@ -1305,8 +1306,8 @@ first step, and reports the move. Nothing else moves.
 | C | A merged | the arithmetic and the zone functions classes, suites and eight files. Rows 690, 670 and 671 read them | 0 |
 | D | nothing of this row | the twelve `TIMESTAMP_NTZ` files run again. Only milestone 8's record and row 691's twins' reader read it | 0 |
 | E | nothing of this row | the timestamp surface and its first, unfused run. Rows 691 and 676 read it | 0 |
-| F | A merged | the base's nanosecond kinds; the nanosecond zone-free and fields classes, suites and eight files. Row 662 measures its zone-free forms, its field and its seconds on them | 4 |
-| G | F merged | the nanosecond casts and functions classes, suites and eight files. Row 662 measures its cast to microseconds on the casts class, so both F and G merge before row 662's first kernel; rows 674 and 675 read them | 4 |
+| F | A merged | the base's nanosecond kinds; the nanosecond zone-free and fields classes, suites and eight files. Row 699 measures its zone-free forms, its field and its seconds on them | 4 |
+| G | F merged | the nanosecond casts and functions classes, suites and eight files. Row 699 measures its cast to microseconds on the casts class, so both F and G merge before row 699's first kernel; rows 674 and 675 read them | 4 |
 
 B, C, D and E can be built side by side by different agents once A has merged (D and E need
 not wait for A): they share no file but `m9/PLAN.md` and this file's section 11, where each
@@ -2654,7 +2655,7 @@ part A's three); the dry runs print `6`, `4` and `6`, `6`; the four greps print 
 printed before the part. `git status --short` before the first commit: the base class, the trait,
 this file, and four new files.
 
-**Done when** the two classes, their suites and eight files are on master before row 662's
+**Done when** the two classes, their suites and eight files are on master before row 699's
 first kernel. **Not here:** a census type, a registry entry, any reader of the struct.
 
 ### 5.7 Part G: the nanosecond casts and functions
@@ -2968,7 +2969,7 @@ The plans of rows 653, 660 and 690 were written beside this one and could not be
 | row | what this plan assumes | where this plan checks it, or what it gives |
 | :--- | :--- | :--- |
 | 653, the shared files | nothing of its layout: this row appends to no coverage list, census file, cast table or skip list, and regenerates nothing. It edits one cell of `m9/PLAN.md`'s table | part A, B0 line 11; risk 12 |
-| 660, the precisions | nothing: the nanosecond classes use precision 9 and the SQL type names, no census name. If row 660 makes one census type a precision, row 662 adds forms at 7 and 8 by 4.6's rule | 4.8 |
+| 660, the precisions | nothing: the nanosecond classes use precision 9 and the SQL type names, no census name. If row 660 makes one census type a precision, row 699 adds forms at 7 and 8 by 4.6's rule | 4.8 |
 | 690, a local time to an instant | that it measures on this row's lead forms `CAST(ntz AS TIMESTAMP)` and `CAST(d AS TIMESTAMP)` of `VarkaTimestampCastsBaselineBenchmark` and `ts + INTERVAL '1' DAY` of `VarkaTimestampArithmeticBaselineBenchmark`, and turns each by its line of `forms()`; its ten-year cells stay `ALL_FALL_BACK` until row 693 | 4.4, 4.6 |
 
 The plans this row meets that are final, and how it follows each:

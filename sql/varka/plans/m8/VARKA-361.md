@@ -409,3 +409,673 @@ columns' types, every result type, the two filters' comparison types and their o
 null, and the classes with the refusal off and on. Left: the EPYC 7763 runner results at 256
 and 128 bits, committed in the class's two results files; then step 3, the spike loops, and
 361a, which rests on row 360's 360b for the `WideMul` node (5, step 4).
+
+## 11. What is left, cut into parts a Sonnet-class agent can build (28 November 2026)
+
+*New section, written on 28 November 2026 by a planner that built nothing. Sections 0 to 10 above
+are unchanged, word for word. This section replaces section 5's items 3 to 5 (the spike loops, 361a,
+361b) and the two edges of the constant limb in 0 item 7 and 2.3, and says so where it does;
+sections 12 and 13 are new too. Code facts were read on master `6dafb8bd2f6` (worktree
+`/home/max/proj/varka-m9-read-w`) and on the branches named below, in
+`/home/max/proj/vecbricks-varka`. No JVM was started; 11.9 lists what only a JVM settles. Row 360's
+plan, `VARKA-360.md` section 11, is this row's base: its parts 360b1 and 360b2 land the node and the
+compiler helpers this row builds on, and this section restates what it uses of them.*
+
+Paths: `CODEGEN` is `sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen`,
+`VARKA` is `CODEGEN/varka`, `TJ` is
+`sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka` and `TS` the
+same path under `src/test/scala`. `DC` is `CODEGEN/VarkaDecimalCompiler.java`.
+
+### 11.1 The state on 28 November 2026
+
+| piece | where | state |
+|---|---|---|
+| step 1, the reachability reading | master, `results/VARKA-361-reachability.txt` | done; section 10, step 1 |
+| step 2, the baseline's five sections and their runner results | master (#1460, #1475, #1797) | done; 10.2. Every section runs the row path on both arms |
+| step 3, the spike loops 14 to 16 | `varka-361-widening-multiply` | built on 20 November, compiled, never run; not a pull request |
+| 361a, the column product in the compiler | `varka-361a-column-product` | built on 20 November on top of row 362's old stack; one suite run once |
+| the option `decimalWideMulLow` | `varka-361a2-mul-low-option` | built, compiled only; its review found `VarkaEmitOptionSuite` failing |
+| `WideMul` on master | none | `VARKA-360.md` 11, part 360b1, lands it |
+
+The premises, each a command run on 28 November 2026:
+
+    git -C /home/max/proj/vecbricks-varka branch --list 'varka-361*'
+        varka-361-widening-multiply, varka-361a-column-product, varka-361a2-mul-low-option
+    git -C /home/max/proj/varka-m9-read-w grep -c 'wideningProduct\|longValued' -- sql/catalyst/src
+        (prints nothing: neither name is on master)
+    grep -c '^DECIMAL(15, 2) x \* y as a value' \
+      sql/core/benchmarks/VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt
+        4 (two densities, each a title line and a table head)
+
+**The branches.** All three have their merge base at `767dcddce50` (20 November 2026), 164
+first-parent commits behind master `6dafb8bd2f6`, under row 489's node descriptor and under the
+three pull requests of 360a. None can be rebased as it is: each sits on row 362's old branches
+(`varka-362-spike`, `varka-362a-shortcut`, `varka-362a2-pairmul`), which are not on master.
+
+| branch | holds | ahead of its base | use |
+|---|---|---|---|
+| `varka-361-widening-multiply` | spike loops 14 to 16 (420 lines of benchmark, 29 of suite), one commit on `varka-362a2-pairmul` | 25 (1 its own) | **361s takes that one commit's two files' hunks** |
+| `varka-361a-column-product` | `wideningProduct`, `longOperand`, `oneLimb`, `pairWidening` in the compiler; `VarkaWideningProductSuite`; two column tests of `VarkaWideMulSuite`; the column proof layer; coverage rows; 738 counted lines in 2 commits | 27 (2 its own) | **361a and 361p take its hunks**, applied by hand: it reads row 362's `ProductForm`, which this row does not have |
+| `varka-361a2-mul-low-option` | the option `decimalWideMulLow`; 182 counted lines in 3 commits | 30 (3 its own) | **361b takes its hunks**, with the review's three faults fixed |
+
+### 11.2 The parts
+
+| part | what | counted lines | builder | starts from | waits on |
+|---|---|---|---|---|---|
+| 361a | the product of two 64-bit values past 18 digits, in the compiler | 600 to 750 | Sonnet-class | master, hunks of `varka-361a-column-product` | `VARKA-360.md`'s 360b1, 360b2, 360b1p (the totals of `VarkaWideMulSuite`; fix round 3) and, in the compiler file's queue, 360c1 |
+| 361p | the column product's proof layer and its planted carry | 200 to 300 | Sonnet-class | master | 361a, 360b1p |
+| 361b | the options `decimalWideMulLow` and `decimalSignWord` | 300 to 400 | Sonnet-class | master, hunks of `varka-361a2-mul-low-option` | 361p |
+| 361s | the spike loops 14 to 16 | 450 to 550 | Sonnet-class | master, hunks of `varka-361-widening-multiply` | #1799 merged |
+| 361c | the runner readings, the instruction mix, the options' defaults by rule, the row closed | 80 to 150, and results files | Sonnet-class, after the lead's dispatches | master | 361b, 361s |
+
+No part of this row is full strength: the node, its lowering and its registries are row 360's
+360b1, which is; what is left here is a compiler arm over that node, its tests, two options by
+an existing template and a benchmark port.
+
+**The order and why.** 361a first: it is what fuses, and row 362's shortcut product is cut on
+top of it. Then 361p, then 361b, in that order and no other: both add a test to
+`VarkaWideMulSuite`, and the totals the sheets give (8 after 361p, 9 after 361b) hold only so.
+361s is independent of all three and can be built at any time after #1799; it only feeds 361c.
+This departs from section 5, which has the spike before 361a: the spike's verdict names the
+defaults of two options and nothing else, and 361a builds the forms the old branch proved (the
+`ASHR` sign word, the limbs' low word), so the build does not wait for a reading (decision D4
+of section 12).
+
+**The whole chain's order, and the names the rows share,** are stated once, in `VARKA-360.md`:
+11.2, "The whole decimal chain, in order (rows 360 to 363 and row 697)", where this row's parts
+are steps 5 to 7 and the measurements beside the queue; and 11.7, "The names the four rows
+share", which gives the signature of every name this plan takes from row 360 or hands to rows
+362 and 363. Where a spelling here and there differ, that table holds. The three branches row
+360 waits on (`varka-360a-spike`, `varka-360a-sums`, `varka-360a-bigint-cast`) are merged by the
+lead before any part of this row starts; no part here starts from one.
+
+### 11.3 Decisions taken here, each with its evidence
+
+1. **Row 361 lands before row 362, as the close path orders them** (the close path's section of
+   `m8/PLAN.md`), though the old branches were stacked the other way. So this row brings the two
+   predicates it needs, `longValued` and `pairWidening`, and not row 362's enum `ProductForm`; row
+   362 adds the enum and must keep its `WIDENING` case equal to `pairWidening`.
+2. **The node is row 360's `WideMul`, unchanged**: `WideMul(left, right, Word word, boolean
+   rightOneLimb)`, lowered by `VarkaDecimalLowering.productWord(options, x, y, word,
+   rightOneLimb, true, true, faults)`, both operands read signed. `options` is its first
+   argument from 360b1 on (`VARKA-360.md`, decision 3 of its decisions section), so 361b changes
+   no signature.
+   This row adds no IR node. The lowering already handles two column operands: the constant case
+   of 360b1 is the same network with a literal slot as `right`.
+3. **The two edges of the constant limb in 0 item 7 cannot occur, so their rewrites are not
+   built.** Item 7 feared a limb that C2 folds: a zero limb, or one of exactly `0xFFFFFFFF`,
+   written as `broadcast(c).and(0xFFFFFFFF)` with `c` a constant in C2's graph. In the lowering
+   as built the multiplier is never such a constant: a SQL literal and a power of ten are both
+   `LiteralSlot`s (`sink.longSlot(c)`), a broadcast of a load from the kernel's `long[]`
+   argument, which C2 cannot fold; only the mask `0xFFFFFFFF` and the shift counts are
+   `WordConst`s. So each limb is `AndV(x, Replicate(0xFFFFFFFF))` or `URShiftVL(x, 32)` with `x`
+   unknown to C2, the two patterns `MulVLNode::has_uint_inputs` reads, whatever the literal's
+   value. A zero high limb is handled before C2 sees anything: the compiler sets `rightOneLimb`
+   from the literal's value (`oneLimb`, below), which drops two of the four products. The
+   `--asm` reading of 361c confirms it; if it shows an emulated multiply, that is a finding
+   against this decision and the part stops.
+4. **The check is dead and one kernel serves every mode** (section 0 items 4 and 5, restated by
+   `verify_361.py` over every operand pair): for two 64-bit values whose result scale is
+   `s1 + s2`, `|x * y|` is within the result type and below `2^127`. Of 36100 operand pairs
+   (every `DECIMAL(p, s)` with `p <= 18`, and a `BIGINT` under its cast) 5644 are a long
+   multiply (row 349's), and of the rest 30432 keep the scale under precision loss and 30456
+   without it; the 24 that are cut are `BIGINT * DECIMAL(18, s)` for `s` from 7 to 18 in both
+   orders, under precision loss only: row 363's.
+5. **At two long lanes on x86 the arm declines in the compiler**, with row 360's
+   `VarkaDecimalCompiler.TWO_LANE_WIDE_REASON`, tested first by `sink.declinesTwoLaneChecks()`,
+   until row 698 of `m9/PLAN.md` shows a two-lane pair load that wins (`VARKA-360.md` section 11,
+   decision 4 has the argument). Section 2.4's hope that the mask-free network beats the row path
+   there is not tested by this row: the pair's store and every decimal load fall back at two
+   lanes whatever the network. *[28 November 2026.]* Once row 597's part 597b merged, the arm
+   writes no two-lane test and its tests expect `TWO_LANE_READ_REASON`, by the paragraph "The
+   two-lane rule once row 597's part 597b merges" of `VARKA-360.md`, after its table of shared
+   names.
+6. **The options: `decimalWideMulLow` (`LIMBS`, `MULVL`) and `decimalSignWord` (`ASHR`, `NEG_LSHR`,
+   `BLEND`), both `Reason.MACHINE`, defaults `LIMBS` and `ASHR`**, the forms the proof layer of
+   360b1p and 361p covers. The defaults move only by this rule, applied in 361c to the 256-bit EPYC
+   7763 file of the spike with `python3 sql/varka/plans/m8/results/VARKA-360-arm-rule.py <file>
+   "<default arm>" "<other arm>"` (the script of `VARKA-360.md`'s part 360s, which compares
+   `Rate(M/s)` in every loop and rung that has both arms): an arm replaces the default if it leads
+   by 1.3x or more in at least one cell and trails by 1.3x in none. The arm labels are `L ASHR`, `L
+   NEG_LSHR`, `L BLEND` and `L+M` (the spike's section of branch `varka-361-widening-multiply`).
+   `BLEND` never becomes the default, whatever it reads: it is a compare and a blend, a mask, and
+   falls back at two lanes. It is built all the same, as the kept third arm: it costs about 10
+   lines, the plan's text and the spike's loops name it, and the house keeps a losing arm.
+   The rule reads the 256-bit EPYC 7763 file only, the one whose second line is `decimal lane
+   pair hand loops at 256 bits, forms [...]`; the script refuses any other file. A losing arm
+   stays behind its option. The laptop's 512-bit numbers are recorded and move no default in
+   this milestone.
+7. **The heights fit the cap of 16** (`verify_361.py` item 6, by the analysis's rule):
+   `x15 * y15` stored 9, `x15 * y15 < z15` 11, `x15 * (1 - y15)` stored 10, the baseline's chain
+   `(x9 + y9) * z9 - x9` stored 13. So no part of this row waits for row 697.
+8. **The planted carry's witnesses are the committed ones**, from
+   `results/VARKA-361-planted-carry.txt`: `818970913745787777 * -37375742756067484` (one
+   negative operand) and `-122646352919130545 * -34701017952321210` (two), both wrong under the
+   planted order; `-(10^18 - 1)` squared is right under it and is named as not detecting it.
+   `verify_361.py` reads that committed file itself (beside it once the script is committed,
+   or the path given as its first argument) and asserts each: the file's two "first" pairs are
+   wrong under the planted order and right under the real one, and the four pairs the file
+   calls right, `-(10^18 - 1)` squared among them, are right under the planted order. Its own
+   200000 draws within 18 digits, of another seed, find the planted order wrong for 299 of
+   100202 pairs of one negative operand, 23569 of 50099 of two, and none of 49699 of two
+   non-negative ones; the pairs it prints as "pinned witnesses" are the first of that draw and
+   are not the committed ones.
+9. **The census moves by 0 pairs** (section 6). The section on what each part moves lists
+   what does.
+
+### 11.4 The algorithms, each checked on exact integers
+
+Checked by `/home/max/varka-ops/m8-row-plans/scratch-361/verify_361.py` (Python's `int` as the
+reference, words modelled as Java longs that wrap). Its last line on 28 November 2026:
+`OK: 5507920 checks, 0 failures`. 361p commits it as
+`sql/varka/plans/m8/results/VARKA-361-verify.py`.
+
+**The 64 by 64 to 128 product.** With `M = 0xFFFFFFFF`, every operation wrapping, `>>>` the
+logical shift:
+
+    xl = x & M;  xh = x >>> 32;  yl = y & M;  yh = y >>> 32
+    p0 = xl * yl;  p1 = xh * yl;  p2 = xl * yh;  p3 = xh * yh       four limb products
+    t  = p1 + (p0 >>> 32)
+    u  = p2 + (t & M)
+    lo = (u << 32) | (p0 & M)
+    hi = p3 + (t >>> 32) + (u >>> 32) - (y & sign(x)) - (x & sign(y))
+
+    one limb (0 <= y < 2^32):
+    t  = p1 + (p0 >>> 32);  lo = (t << 32) | (p0 & M);  hi = (t >>> 32) - (y & sign(x))
+
+`sign(x)` is all ones where `x` is negative and 0 elsewhere. The value `hi * 2^64 + lo`, `hi` read
+signed and `lo` unsigned, is `x * y` exactly, since `|x * y| <= 2^126`. No intermediate passes
+`2^64`: the script asserts that `p0` to `p3`, `t`, `u` and the high word before the corrections each
+fit a word, on every input. Checked against `x * y` with `x` over 46 edge longs (the ends of a long,
+the limb edges `2^31`, `2^32 - 1`, `2^32`, `+-(10^p - 1)` for `p` of 9, 15, 17 and 18, every `10^k`
+to `10^18`) and 3000 random longs, and `y` over the same edges and 60 random longs, in the two-limb
+form and, for a multiplier in `[0, 2^32)`, the one-limb form.
+
+**The low word, two ways** (`decimalWideMulLow`). `LIMBS`: `lo` above. `MULVL`: `lo = x * y`,
+one wrapping long multiply. Checked equal on every input above, in both limb forms.
+
+**The sign word, three ways** (`decimalSignWord`). `ASHR`: `x >> 63`. `NEG_LSHR`:
+`0 - (x >>> 63)`. `BLEND`: all ones where `x < 0`, else 0. Checked equal on every input.
+
+**The partial products row 362 reads** (`productWord`'s flags, landed by 360b1). An operand read
+unsigned drops its correction: with `x` unsigned the term `y & sign(x)` is not subtracted, with
+`y` unsigned the term `x & sign(y)`. Checked: unsigned by unsigned against `x_u * y_u` read as
+an unsigned 128-bit value, signed by unsigned and unsigned by signed against the exact products,
+over the edge longs and 600 random ones.
+
+**The planted middle column** (row 504's fault, `PlantedFault.MIDDLE_COLUMN_ONE_WORD`):
+`t = p1 + p2 + (p0 >>> 32)`, `lo = (t << 32) | (p0 & M)`, `hi = p3 + (t >>> 32)` less the
+corrections. `p1 + p2` can pass `2^64` and lose its carry. Decision 8 has the witnesses.
+
+**The type rule.** Spark types `x * y` as `(p1 + p2 + 1, s1 + s2)`; past 38 digits
+`adjustPrecisionScale` gives `(38, max(38 - (P - S), min(S, 6)))` when precision loss is allowed
+and `bounded` gives `(38, S)` when not. The cases this row meets, each asserted by the script:
+
+| product | exact type | Spark's type | this row |
+|---|---|---|---|
+| `DECIMAL(15, 2) * DECIMAL(15, 2)` | `(31, 4)` | `(31, 4)` | fuses |
+| `DECIMAL(10, 2) * DECIMAL(9, 2)` (the baseline's chain) | `(20, 4)` | `(20, 4)` | fuses |
+| `DECIMAL(15, 2) * DECIMAL(16, 2)` (`x15 * (1 - y15)`) | `(32, 4)` | `(32, 4)` | fuses |
+| `BIGINT * DECIMAL(18, 4)` | `(39, 4)` | `(38, 4)` | fuses: the scale is kept |
+| `BIGINT * BIGINT`, both under explicit casts | `(41, 0)` | `(38, 0)` | fuses |
+| `BIGINT * DECIMAL(18, 7)` | `(39, 7)` | `(38, 6)` under precision loss | declines naming row 363 |
+| `BIGINT * DECIMAL(18, 7)`, precision loss off | `(39, 7)` | `(38, 7)` | fuses |
+
+### 11.5 The build sheets
+
+Rules for every sheet. Run every command from the worktree's root with
+`JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64` and `SPARK_LOCAL_IP=127.0.0.1` exported. "Passes"
+for an sbt test run means its last `[info] Passed: Total N, Failed 0, Errors 0, Passed N` line
+shows no failure and no error; where the sheet gives `N`, it must match. A sheet's B0 lines are
+premises: if one prints something else, stop and report, do not adapt. Before the pull request,
+run `/code-review high` on the diff, then `dev/varka_ops/pre-pr.sh <worktree>` (it exits 0), then
+`python3 dev/varka_msg_check.py size`, which must print a count under 1000.
+`dev/varka_ops/INDEX.md` says how a pull request is opened and watched.
+
+#### 361a: the widening product in the compiler
+
+Title: `[VARKA-361] Fuse the product of two 64-bit decimals past 18 digits`.
+Branch `varka-361a-widening-product`. Hunks to read first, then apply by hand:
+`git -C /home/max/proj/vecbricks-varka diff varka-361-widening-multiply
+varka-361a-column-product -- <DC>`.
+
+- **B0**, on master after 360b2: `grep -c 'record WideMul' VARKA/VarkaVectorIR.java` prints 1;
+  `grep -c 'TWO_LANE_WIDE_REASON' DC` prints at least 2; `grep -c 'longValued\|pairWidening'
+  DC` prints 0; `grep -c 'arithmeticReason("product"' DC` prints 1; `grep -c 'OptionalLong
+  longLiteralAt' CODEGEN/DeclineSink.java` prints 1.
+  *[Fix round 3.]* `ls sql/varka/plans/m8/results/VARKA-360-verify.py` lists it, and `grep
+  -c 'MIDDLE_COLUMN_ONE_WORD' TJ/VarkaWideMulSuite.java` prints at least 1 (360b1p merged:
+  the suite holds 5 tests).
+- **Step 1, the predicates and the operand** (in `DC`, beside `uncappedSum`), from the old
+  branch, word for word but for `ProductForm`:
+
+        /** A 64-bit value: a decimal within 18 digits, or a BIGINT under coercion's cast to a
+         *  decimal of scale 0, whose value is the long's whatever the precision says. */
+        private static boolean longValued(Expression e) {
+          return e.dataType() instanceof DecimalType t && (t.precision() <= MAX_PRECISION
+              || e instanceof Cast c && DataTypes.LongType.equals(c.child().dataType())
+                  && t.scale() == 0);
+        }
+
+        /** A product of two 64-bit values typed past 18 digits with the scale s1 + s2 kept,
+         *  reached through a TRY form too. */
+        private static boolean pairWidening(Expression e) {
+          Expression at = e instanceof RuntimeReplaceable r ? r.replacement() : e;
+          return at instanceof Multiply m && m.left().dataType() instanceof DecimalType t1
+              && m.right().dataType() instanceof DecimalType t2
+              && m.dataType() instanceof DecimalType type && type.precision() > MAX_PRECISION
+              && type.scale() == t1.scale() + t2.scale()
+              && longValued(m.left()) && longValued(m.right());
+        }
+
+  `longOperand` and `oneLimb` are the old branch's, unchanged (`longOperand`: `value(e)`'s
+  unscaled long, or for a `BIGINT` under its wide cast the compiled long itself, declining if
+  it is not on the long lane; `oneLimb`: a `LiteralSlot` of the long table whose value, read by
+  `sink.longLiteralAt` without interning, is in `[0, 2^32)`).
+- **Step 2, the arm.** `wideningProduct` is the old branch's, with the two-lane test first:
+
+        private static Optional<Pair> wideningProduct(Multiply m, DecimalType type,
+            VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+          if (sink.declinesTwoLaneChecks()) {
+            return sink.decline(TWO_LANE_WIDE_REASON, m);
+          }
+          DecimalType t1 = (DecimalType) m.left().dataType();
+          DecimalType t2 = (DecimalType) m.right().dataType();
+          ResultType rule = ResultType.ofProduct(t1, t2);
+          // The rule's type, capped at 38 with the scale kept, which pairWidening has checked.
+          var capped = new ResultType(Math.min(rule.precision(), DecimalType.MAX_PRECISION()),
+              rule.scale());
+          Optional<String> mistyped = mistyped(m, "product", capped, type);
+          if (mistyped.isPresent()) {
+            return sink.decline(mistyped.get(), m);
+          }
+          Optional<VarkaVectorIR> x = longOperand(m.left(), inputs, literals, sink);
+          if (x.isEmpty()) {
+            return Optional.empty();
+          }
+          Optional<VarkaVectorIR> y = longOperand(m.right(), inputs, literals, sink);
+          if (y.isEmpty()) {
+            return Optional.empty();
+          }
+          // A constant in [0, 2^32) goes on the right as one limb.
+          boolean xOneLimb = oneLimb(x.get(), sink);
+          VarkaVectorIR a = xOneLimb ? y.get() : x.get();
+          VarkaVectorIR b = xOneLimb ? x.get() : y.get();
+          boolean rightOneLimb = xOneLimb || oneLimb(b, sink);
+          return Optional.of(new Pair(new WideMul(a, b, Word.LOW, rightOneLimb),
+              new WideMul(a, b, Word.HIGH, rightOneLimb), type));
+        }
+
+  In `pair`, add `case Multiply m when pairWidening(m) -> wideningProduct(m, type, inputs,
+  literals, sink);` beside the `Add` and `Subtract` arms. Everywhere `uncappedSum(x)` decides
+  that a value is a pair's (`wideReason`, `wideArithmeticBelow`, and with 360c1
+  `cappedKeepingScale`), add `|| pairWidening(x)`. `valid`'s `Multiply` arm already answers
+  "valid where both operands are", which is right here: the check is dead (11.3 decision 4).
+- **Step 3, the reasons.** `productReason` takes the node and its type. Before changing a text,
+  `grep -rn '<a fragment of it>' sql/catalyst/src/test sql/core/src/test sql/varka docs dev`.
+
+| the product | reason on master today | after this part |
+|---|---|---|
+| two 64-bit values, scale kept, under a pair consumer | "a decimal product of 31 digits is row 361's" (the digits vary) | none: it fuses |
+| the same under a consumer of one long (`CAST(a * b AS BIGINT)`) | the same | "a decimal product past 18 digits is two words, which a consumer of one long does not read (row 359's)" |
+| `BIGINT` times a decimal within 18 digits, scale kept | "a decimal product over an operand wider than 18 digits is rows 362 and 363's" (wrong row: the `BIGINT` is a 64-bit value) | none: it fuses |
+| `BIGINT * DECIMAL(18, s)`, `s` from 7 to 18, precision loss on | "a decimal product of 39 digits, capped at 38, is rows 362 and 363's" | "a decimal product of 39 digits, capped at 38 with its scale cut, is row 363's" |
+| an operand that is a pair (`DECIMAL(20, 2) * DECIMAL(17, 2)`) | "a decimal product over an operand wider than 18 digits is rows 362 and 363's" | unchanged (row 362's) |
+| a product past 38 digits over a pair | "a decimal product of 41 digits, capped at 38, is rows 362 and 363's" | unchanged |
+| on a two-lane x86 session | as above | `TWO_LANE_WIDE_REASON` |
+
+- **Step 4, the harness.** `VarkaWideningProductSuite` (old branch) calls `VarkaDecimalPairSuite`'s
+  helpers from outside and passes a `BIGINT` as a column type. On master those helpers are
+  private and take a `DecimalType`. Make these package-private with the column's type a
+  `DataType` (`DecimalType` or `LongType`), each as the branch has it (the command at the end
+  of this step): `record Row(BigInteger a, BigInteger b)`, `static List<BigInteger> edges(DataType
+  t)`, `static BigInteger bound(DataType t)`, `static List<Row> rows(DataType ta, DecimalType tb)`,
+  `static void check(String sql, DataType ta, DecimalType tb, List<Row> rows)` (the three-argument
+  `check` calls it with `rows(ta, tb)`), `static void inMode(boolean ansi, Runnable body)` and
+  `static String decline(String sql, DataType ta, DecimalType tb)`. The old suite also calls
+  `VarkaDecimalValueSuite.compile(String sql, List<Attribute> columns)`, which returns a
+  `CompiledVarkaPredicate` and is package-private on master already. Take the harness changes only,
+  no test of that old file. Give `checkStored` and row 360's `storedOrDeclined` the same widening of
+  the first column's type. *[Fix round 3, 28 November 2026.]* The four-argument `check` takes
+  the options too, as 360b2's overload does: `static void check(String sql, DataType ta,
+  DecimalType tb, List<Row> rows, VarkaEmitOptions options)`, which compiles and emits under
+  `options`; the shorter forms call it with `rows(ta, tb)` and `VarkaMatrixRuns.BASE`.
+
+      git -C /home/max/proj/vecbricks-varka show varka-361a-column-product:sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaDecimalPairSuite.java
+
+- **Step 5, tests.** New `TJ/VarkaWideningProductSuite.java` (JUnit 5 under `@VarkaSuite`), from
+  the old file, six tests. *[Fix round 3, 28 November 2026.]* `VarkaWideningProductSuite` runs
+  every kernel test under the suite's `DEEP`, the constant of `VarkaDecimalPairSuite`
+  (`VarkaDecimalPairSuite.DEEP`, `VARKA-360.md` 11.3 decision 5: `maxChainDepth(64)`,
+  `methodByteBudget` and `cse` pinned, since under the matrix configuration
+  `methodByteBudget=0` a kernel past 64 distinct ops declines on size): tests 1 to 5, test 5's
+  options built as `DEEP.toBuilder().validityByBitmap(false)...`; test 3 too, since "fuses
+  exactly where `pairWidening` holds" must not meet a size decline. Test 6 asserts declines
+  only and keeps `VarkaMatrixRuns.BASE`. The products fit the cap of 16 (11.3 decision 7);
+  the pin is for the other two bounds.
+  1. `wideningProducts`: the old test, with its `FORMS` (`a * b < b`, `a * b >= a`, `a * b > 0`,
+     `a * b = b * a`, `try_multiply(a, b) <= b`, `(a * b) IS NULL`) under `check`, and four
+     stored forms under `checkStored`, which the old branch could not have: `a * b`,
+     `try_multiply(a, b)`, `-(a * b)`, `a * b + a * b`. Type pairs: `(15, 2)` with `(15, 2)`;
+     `(9, 2)` with `(9, 2)` (the narrowest pair, `(19, 4)`); `(18, 2)` with `(18, 2)`; `(17, 0)`
+     with `(18, 4)`; `BIGINT` with `(9, 2)`; `BIGINT` with `(18, 4)` (capped, scale kept).
+     Under ANSI and LEGACY. Rows: the old `rows` (word and limb edges, the three `WITNESSES`, 256
+     seeded pairs, every null pattern).
+  2. `constantMultipliers`: `a * 3`, `a * 100`, `a * 4294967295`, `a * 4294967296`,
+     `a * 999999999999999999`, `a * -7`, `a` a `(18, 2)`: one limb below `2^32` and two
+     otherwise; the test also asserts `rightOneLimb` on the compiled root for the first three.
+  3. `typeRule`: the old test: over every `(p1, s1, p2, s2)` within 18 digits and the `BIGINT`
+     cast, under both settings of `spark.sql.decimalOperations.allowPrecisionLoss`, the compiler
+     fuses exactly where `pairWidening` holds, and each decline names row 363 (the 24 cut pairs)
+     or is row 349's long product. The counts of 11.3 decision 4 are asserted.
+  4. `oneKernelInEveryMode`: the old test.
+  5. `storedProductsWithoutTheBitmapPass`: test 1's first pair, stored, under the options of
+     `VarkaDecimalPairSuite.storedSumsWithoutTheBitmapPass`.
+  6. `productsThatDecline`: each row of step 3's table with its text; and `a * b` stored and
+     `CAST(a * b < b AS INT)` decline with `TWO_LANE_WIDE_REASON` on the two-lane admission.
+  `VarkaWideMulSuite` gains the old branch's two column tests ("a column product's reference and
+  lowered network give BigInteger's two words" and "both words of a column product fuse at every
+  width, length and body"): 5 tests after 360b1p, 7 after this part. Edit
+  `VarkaDecimalArithmeticSuite`'s pinned reasons and type sweep by step 3's table. Planted
+  check, by hand and reverted, recorded in the description: swap `Word.LOW` and `Word.HIGH` in
+  `wideningProduct`; test 1 must fail on its first row.
+- **Step 6, coverage and baseline.** `TS/VarkaCoverageSuite.scala`, two new families beside
+  "DECIMAL wide add": "DECIMAL widening multiply" (predicates) with `d9 * d9b > 0`,
+  `d18 * d18b >= d18 * d9`, `l * d9 < 0`, `CAST(l AS DECIMAL(20, 0)) * CAST(l2 AS
+  DECIMAL(20, 0)) <= 0`, `d18 * 3 > d18`, `try_multiply(d16s9, d9) <= 0`; and "DECIMAL widening
+  multiply values" with `d9 * d9b`, `d18 * d18b`, `l * d18`, `try_multiply(d18, d18b)`,
+  `d18 * 3`. Both are `Proved("decimal128.smt2")` once 361p lands; until then they take the
+  verification the suite's check accepts for a family held by the differential alone, as the
+  pair's null tests do (`pairNulls`). `VarkaDecimalBaselineBenchmark`: the sections of 11.6 take
+  `fused`, the `Fusion fused` parameter `addWidening(out, d, fused)` has since 360a (do not add
+  it a second time; fix round 3) (and the `DECIMAL(9, 2) arithmetic chain` takes it in `sections`'
+  first loop, at precision 9 only); `VarkaDecimalBaselineQueriesSuite` follows. The runner files are
+  not regenerated here (361c).
+- **Commands.**
+
+        build/sbt 'catalyst/testOnly *VarkaWideningProductSuite'   -> Passed: Total 6
+        build/sbt 'catalyst/testOnly *VarkaWideMulSuite'           -> Passed: Total 7
+        build/sbt 'catalyst/testOnly *VarkaDecimal* *VarkaTwoLaneConditionSuite \
+          *VarkaCoverageSuite *VarkaEmittedBytesSuite *VarkaExpressionCompilerSuite \
+          *VarkaCoverageCompositionFuzzSuite *VarkaWarmupReachSuite'    -> passes
+        dev/varka_regen_generated.sh --all                         -> passes
+        build/sbt 'sql/testOnly *VarkaDecimal* *VarkaCoverageDifferentialSuite'   -> passes
+        python3 dev/varka_census.py --check                        -> passes
+        JDK_JAVA_OPTIONS=-XX:UseAVX=2 build/sbt 'catalyst/testOnly *VarkaWideningProductSuite'
+            -> Passed: Total 6
+
+  After the regeneration `emitted_bytes.json` holds new entries only, and the per-option digests
+  move. The description states `typeRule`'s time on the laptop.
+- **Done when** the commands pass, the option matrix passes, and section 10 gains a subsection
+  "361a: the widening product".
+- **Not here:** a pair operand (row 362); a cut scale (row 363); any option; the proofs (361p);
+  `ProductForm`.
+
+#### 361p: the column product's proof, and its planted carry
+
+Title: `[VARKA-361] Prove the column product's carry network and fail its planted carry`.
+Branch `varka-361p-column-proofs`.
+
+- **B0.** `grep -c 'wideningProduct' DC` prints at least 2; `ls
+  sql/varka/plans/m8/results/VARKA-360-verify.py` lists it (360b1p merged).
+- **Steps.** (1) `TJ/VarkaProofFiles.java`: the old branch's column layer of `decimal128.smt2` (`git
+  diff varka-361-widening-multiply varka-361a-column-product -- <TJ>/VarkaProofFiles.java`, 95
+  lines): the ring identity (the four limb products' weighted sum is `x_u * y_u`); the carry layer
+  with `p0` to `p3` free in `[0, (2^32 - 1)^2]`, no wrap in `t`, `u` or the high word; the two sign
+  corrections giving the signed product; and the planted order as a `sat` witness. (2) Regenerate
+  the proof file. (3) `VarkaWideMulSuite`: one test, "the planted middle column fails a column
+  product at a witness of each sign class": through `VarkaLoopEmitter.emitPlantedForTest`, the two
+  committed witnesses of 11.3 decision 8 answer a word unlike `BigInteger`'s and `-(10^18 - 1)`
+  squared answers `BigInteger`'s (8 tests). (4) The two coverage families of 361a become
+  `Proved("decimal128.smt2")`. (5) Add `sql/varka/plans/m8/results/VARKA-361-verify.py`. (6) Section
+  10 gains a subsection "361p: the proofs" with the solver times.
+- **Commands.**
+
+        dev/varka_prove.sh --solver both decimal128.smt2             -> exit status 0, and one line
+            a solver that ends "holds" (a line that ends "FAILED" is a stop)
+        build/sbt 'catalyst/testOnly *VarkaProofFilesSuite *VarkaWideMulSuite *VarkaCoverageSuite'
+            -> passes; VarkaWideMulSuite alone is Total 8
+        python3 sql/varka/plans/m8/results/VARKA-361-verify.py       -> OK: 5507920 checks, 0 failures
+
+- **Done when** they pass. **Not here:** row 362's shortcut and column-sum layers.
+
+#### 361b: the options `decimalWideMulLow` and `decimalSignWord`
+
+Title: `[VARKA-361] Put the wide product's low word and sign word behind emit options`.
+Branch `varka-361b-product-options`. Template: the choice option `decimalStore`; every site is
+`grep -rn 'decimalStore\|DecimalStore' sql/catalyst/src dev sql/varka/matrix` (on master:
+`VarkaEmitOption`, `VarkaEmitOptions`, `VarkaMatrixRuns`, `VarkaSteering`, `VarkaEmitOptionSuite`,
+`VarkaIrFuzzSuite`, `VarkaEmitterBudgetSuite` and the matrix's timing tables, which a matrix run
+regenerates). Hunks of the old option:
+`git diff varka-361a-column-product varka-361a2-mul-low-option`.
+
+- **B0.** `grep -c 'decimalWideMulLow\|decimalSignWord' VARKA/VarkaEmitOptions.java` prints 0;
+  `grep -c 'static VarkaVectorIR productWord' VARKA/VarkaDecimalLowering.java` prints 1.
+- **Step 1, the options.** In `VarkaEmitOptions`: `enum DecimalWideMulLow { LIMBS, MULVL }` and
+  `enum DecimalSignWord { ASHR, NEG_LSHR, BLEND }`, two record components with their builder
+  setters and `with` methods, defaults `LIMBS` and `ASHR`. In `VarkaEmitOption.TABLE`: two
+  `Choice` entries, `Reason.MACHINE`, declared as `decimalStore`'s is.
+- **Step 2, the lowering.** `lowerAll(outputs, options, faults)`, `lower(WideMul, options,
+  faults)` and `productWord(options, x, y, word, rightOneLimb, xSigned, ySigned, faults)` take
+  the options first since 360b1, and `VarkaLoopEmitter.lowered` and the private `emit` pass
+  theirs already; this part changes no signature and no caller. Two changes:
+
+        // in lower(WideMul n, options, faults): the option's subject is WideMul alone
+        if (n.word() == Word.LOW && options.decimalWideMulLow() == DecimalWideMulLow.MULVL) {
+          return mul(n.left(), n.right());
+        }
+
+        // in productWord: the sign word of v, in the option's form
+        private static VarkaVectorIR signWord(VarkaEmitOptions options, VarkaVectorIR v) {
+          return switch (options.decimalSignWord()) {
+            case ASHR -> bit(BitOpKind.SHR, v, SIGN);
+            case NEG_LSHR -> new IntNeg(Overflow.WRAP, bit(BitOpKind.USHR, v, SIGN));
+            case BLEND -> new IfElse(new Compare(CompareOp.LT, v, new WordConst(0)),
+                new WordConst(-1), new WordConst(0));
+          };
+        }
+
+  and the two `bit(BitOpKind.SHR, x, SIGN)` of `productWord` become `signWord(options, x)` and
+  `signWord(options, y)`. `laneCalls` and `WideMul.props()` weigh the default arms
+  (`VarkaEmitOptions.DEFAULTS`).
+- **Step 3, tests.** `VarkaWideMulSuite`: one test, "every arm of the low word and of the sign
+  word gives BigInteger's two words": the six arm pairs, each at the suite's widths and
+  lengths, over a constant product and a column product (9 tests). `VarkaEmitOptionSuite`'s
+  table gains the two entries; `VarkaIrFuzzSuite`'s wide product sequence runs once under each
+  non-default arm by name, beside its drawn options (the old review found `MULVL` never drawn).
+  `VarkaMatrixRuns` gets the options' configurations as `decimalStore` has its own.
+- **Commands.**
+
+        build/sbt 'catalyst/testOnly *VarkaWideMulSuite'             -> Passed: Total 9
+        build/sbt 'catalyst/testOnly *VarkaEmitOptionSuite *VarkaIrFuzzSuite *VarkaMatrixSuite \
+          *VarkaEmittedBytesSuite *VarkaEmitterBudgetSuite *VarkaWideningProductSuite'  -> passes
+        dev/varka_regen_generated.sh --all                           -> passes
+
+  After the regeneration no shape's bytes move in `emitted_bytes.json` (the defaults are the
+  old forms); its `option_arms` digests move.
+- **Done when** the commands pass and the option matrix passes with the new configurations.
+- **Not here:** a default other than `LIMBS` and `ASHR` (361c, by rule); `PairMul`.
+
+#### 361s: the spike loops 14 to 16
+
+Title: `[VARKA-361] Add the widening product's loops to the decimal pair spike`.
+Branch `varka-361s-spike-loops`. Source: the one commit `14ec20087d1` of
+`varka-361-widening-multiply`, files `sql/catalyst/src/test/java/org/apache/spark/sql/
+VarkaDecimalPairSpikeBenchmark.java` and `VarkaDecimalPairSpikeSuite.java`.
+
+- **B0**, on master after #1799, with `<the benchmark>` the first of the two files above:
+  `grep -c '^    ADD_CHECK(' <the benchmark>` prints 1 (loops 8 to 10 are in: the spike's ops
+  are `ADD`, `SUB` and `ADD_CHECK`); `grep -c 'WIDE_BY_LONG' <the benchmark>` prints 0.
+- **Steps.** Apply the commit's hunks by hand: the three `Op`s (`WIDE`, `WIDE_K2` and
+  `WIDE_K12`, `WIDE_BY_LONG`), numbered 14, 15 and 16 as on the branch (11 to 13 are row 362's,
+  not on master: leave the gap), their 24 loop methods, the helper `storeWide`, and the inputs
+  `X15`, `Y15`, `Y18` and `L`. The branch takes `L`, a `BIGINT` column, from row 362's
+  `columns362`; copy that one column's generator into a `columns361` and nothing else of 362's.
+  The old review's one finding (nothing shows that `storeWide` is inlined into each `WIDE`
+  loop) is closed by a sentence, not a test: `VarkaDecimalPairSpikeSuite` has no helper that
+  reads a method's bytecode size (its only inlining tests are those of the `dontinline`
+  command). Add to the class's javadoc, and to section 10's subsection: "whether `storeWide`
+  is inlined into the loops 14 to 16 is read from `-XX:+PrintInlining` in part 361c, and a
+  loop where it is not is not scored". Section 10 gains a
+  subsection "361s: the spike loops" from the branch's "Step 3: the spike loops", with "not
+  run" kept.
+- **Commands.**
+
+        build/sbt 'catalyst/testOnly *VarkaDecimalPairSpikeSuite'    -> passes
+        build/sbt "catalyst/Test/runMain org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark" \
+          with -Dvarka.bench.dryRun=true (as the class's javadoc gives it)  -> every arm built
+
+- **Done when** they pass. **Not here:** any timing; loops 11 to 13; loop 7b.
+
+#### 361c: the readings, the defaults, the close
+
+Title: `[VARKA-361] Measure the widening product and set its options' defaults`.
+Branch `varka-361c-measure`.
+
+- **The lead's steps:** dispatch `benchmark.yml` on vecbricks/varka for
+  `*.VarkaDecimalPairSpikeBenchmark` (with the class's `dontinline` option) and for
+  `*.VarkaDecimalBaselineBenchmark`, each at 256 bits and under `-XX:MaxVectorSize=16`, with
+  `expected-cpu="AMD EPYC 7763"`; download the four artifacts.
+- **Steps.** (1) Replace the two classes' runner files; which artifact is which width is read
+  from each results file's second line (`... at 256 bits ...` or `... at 128 bits ...`), as
+  `VARKA-360.md`'s 360s sheet says. Read `-XX:+PrintInlining` of the spike's 256-bit run for
+  `storeWide` (361s) and name any loop it is not inlined into. (2) Run `python3
+  sql/varka/plans/m8/results/VARKA-360-arm-rule.py <spike 256-bit file> "L ASHR" "L NEG_LSHR"` and
+  the same with `"L ASHR" "L+M"`; by 11.3 decision 6 set the defaults of `decimalSignWord` and
+  `decimalWideMulLow`; if a default moves, regenerate and say which shapes' bytes moved. (3) The
+  instruction mix, on the laptop: `dev/varka_emit.sh "x * y" --columns
+  x:decimal(15,2),y:decimal(15,2) --asm` must show four `vpmuludq` in the dense loop and no
+  `vpmullq`; `"x * 100"` two; `"x * 4294967296"` four. Under `JDK_JAVA_OPTIONS=-XX:UseAVX=2` the
+  same. Paste the mnemonic counts. (4) A subsection of section 10, "The measurement": for each
+  section of 11.6, the row path's and varka's best times at both densities and widths; section 4's
+  predictions 1 to 7 scored by number (prediction 6, the 128-bit win, as "not built: declined at two
+  lanes"). (5) Mark the row done in `PLAN.md` if every section of 11.6 is faster than the row path
+  by 1.3x or more at 256 bits; name any that is not.
+- **Oracle.** The script's `VERDICT:` lines are quoted in that subsection; `python3
+  dev/varka_quote_check.py sql/varka/plans/m8/VARKA-361.md` prints 0 orphans.
+
+### 11.6 What each part moves
+
+**Decline reasons**: 361a step 3's table.
+
+**Census** (`sql/varka/plans/m8/census_curated.txt`, then `python3 dev/varka_census.py
+--check`): no pair is counted. `*` and `try_multiply` gain `dec^` (fused in part) with 361a, and
+their notes change from "fused where the result is within 18 digits (349a, a filter until 157)"
+to name the widening product "(361a), under a comparison or as an output"; "the pair counts with
+361 and 362 at every precision to 38" becomes "with 362 and 363". On master neither entry has
+`dec^`, though row 349's product within 18 digits fuses: section 13 item 4.
+
+**The cast matrix**: no cell moves.
+
+**Coverage families**: "DECIMAL widening multiply" and "DECIMAL widening multiply values", new
+with 361a; `results/VARKA-612-refused.txt` gains the five value rows.
+
+**Baseline sections** of `VarkaDecimalBaselineBenchmark` that turn from the row path to a kernel
+with 361a, each at both densities ("no nulls", "one row in ten null"), and to `NONE` again on a
+session that refuses a 64-bit condition:
+
+| section, by title | what fuses |
+|---|---|
+| "DECIMAL(15, 2) x * y as a value" | the product, stored |
+| "DECIMAL(15, 2) x * (1 - y) as a value" | row 349's difference under the product |
+| "BIGINT l * x as a value, x a DECIMAL(9, 2)" | a `BIGINT` operand, `DECIMAL(30, 2)` |
+| "BIGINT l * x as a value, x a DECIMAL(18, 4)" | capped at `DECIMAL(38, 4)`, scale kept |
+| "DECIMAL(15, 2) x * y < z filter" | the product against `z15` under coercion's rescaling cast (360b2's) |
+| "DECIMAL(9, 2) arithmetic chain" | `(x + y) * z - x`: row 349's sum, this product at `(20, 4)`, row 360's difference |
+
+Not this row's: "DECIMAL(18, 4) arithmetic chain" (its product reads a pair, row 362), the
+`DECIMAL(20, 2) x * y ...` and `DECIMAL(38, 2) ...` product sections (row 362), and every
+section titled "its scale cut" (row 363).
+
+### 11.7 What this row hands to rows 362 and 363
+
+| name | where | what the next rows may rely on |
+|---|---|---|
+| `VarkaVectorIR.WideMul`, `WordConst`, `VarkaDecimalLowering.lowerAll` | `VARKA-360.md`'s 360b1 | the node and the one lowering hook; `PairMul` and `ScaleDown` add their arms to `lowered` |
+| `VarkaDecimalLowering.productWord(options, x, y, word, rightOneLimb, xSigned, ySigned, faults)` | 360b1, with `options` first from the start; 361b adds the reads | the partial-product helper: one word of any 64 by 64 product, each operand signed or unsigned; row 362's sixteen-product network is calls of it |
+| `PlantedFault.MIDDLE_COLUMN_ONE_WORD`, `VarkaLoopEmitter.emitPlantedForTest` | 360b1 | row 504's planted carry, the same argument for `PairMul` |
+| `VarkaDecimalCompiler.longValued`, `pairWidening`, `longOperand`, `oneLimb`, `wideningProduct` | 361a | row 362's `ProductForm.WIDENING` must equal `pairWidening`; its shortcut reads `longValued` to drop a cross term |
+| the reason "a decimal product of 39 digits, capped at 38 with its scale cut, is row 363's" | 361a | the decline row 363 turns into its arm for `BIGINT * DECIMAL(18, s > 6)` |
+| options `decimalWideMulLow` (`LIMBS`, `MULVL`), `decimalSignWord` (`ASHR`, `NEG_LSHR`, `BLEND`) | 361b | `decimalWideMulLow` is `WideMul`'s alone; `decimalSignWord` is read by `productWord`, so by every partial product. Row 362's `decimalWideSign` is its own |
+| coverage families "DECIMAL widening multiply" and "... values" | 361a | row 362 adds its own families beside them |
+| `VarkaDecimalPairSuite`'s package-private harness over a `DataType` column | 361a | `VarkaDecimalProductSuite` (row 362) builds on it |
+
+### 11.8 Risks
+
+1. **361a's arm and row 362's shortcut both edit the `Multiply` case of `pair`.** Held by the
+   order (361a merges first) and by `pairWidening` being a named predicate row 362 tests first.
+2. **The harness widening breaks `VarkaDecimalPairSuite`'s own tests.** Held by running that
+   suite in 361a's commands; no expectation of its tests changes.
+3. **`typeRule` is slow** (72200 compiles). Held by stating its time; if it passes 60 seconds
+   on the laptop, sample every third scale and say so in the test's name.
+4. **A default moved in 361c changes committed bytes.** Held by the regeneration in the same
+   pull request and the matrix.
+5. **The product is slower than the row path at 256 bits on AVX2** (about 25 lane calls a lane
+   group against two scalar multiplies and three allocations a row). Held by 361c: a section
+   under 1.3x is named in the row, and the lead decides.
+
+### 11.9 What only a JVM can settle, and the command for each
+
+1. The instruction mix (11.3 decision 3): 361c step 3's three `dev/varka_emit.sh --asm` runs.
+2. That the two words of one `WideMul` pair share one network in the emitted loop: the same
+   run's assembly holds four `vpmuludq` a lane group, not eight. Eight is a finding for 360b1
+   (the lowered graph's sharing), which its suite's sharing test holds at the IR level only.
+3. Whether `typeRule` fits its time: its run.
+4. Every reading of 361c, and whether a default moves.
+5. The solver times of 361p's layer: `dev/varka_prove.sh --solver both decimal128.smt2`.
+6. Whether `VarkaWarmupReachSuite` needs an entry for the network (section 2.5 says the
+   warm-up's long block gains it): the suite's own failure message names what to add; 361a's
+   commands run it.
+
+## 12. Decisions for the owner (28 November 2026)
+
+*New section.* The decimal chain's owner decisions are numbered across its four plans: D1 to D3
+in `VARKA-360.md` section 12, D4 here, D5 to D7 in `VARKA-362.md` 11.9, D8 in `VARKA-363.md`
+11.9.
+
+- **D4. Building the widening product before its measurement is committed.** Answered by the owner
+  on 28 November 2026: (a), as applied. The shape: `x * y` over two `DECIMAL(15, 2)` columns, a
+  `DECIMAL(31, 4)`: two 64-bit values multiplied into 128 bits. Two details of the kernel have
+  more than one form (how the low word is computed, two forms; how a sign mask is computed, three
+  forms), each behind an emit option. The lead's answer of 30 October 2026 has the runner's
+  measurement of those forms committed before the kernel is built. (a) Part 361a builds the kernel
+  now with the two forms that are already proven as defaults, and part 361c, after the
+  measurement, moves a default by a fixed rule (a form replaces the default if it is 1.3x ahead in
+  a cell and behind in none); the measurement can change two defaults and no answer of any query.
+  (b) The spike's loops (part 361s, about 500 lines) and the lead's runner dispatch come first,
+  and 361a and every step of the chain that waits on it (361p, 361b, 362a2 and the parts after
+  them in 11.2 of `VARKA-360.md`) wait for them. Recommended: (a).
+
+Two former questions are decided in the text and are not the owner's: `BLEND`, a third way to
+compute a sign mask that can never be the default, is kept as an arm (11.3 decision 6); and
+each row lands its own loops of the spike file, 361s here, since 361c's rule needs loops 14 to
+16 only (11.2).
+
+## 13. Stale against the tree, found while planning (28 November 2026)
+
+*New section.*
+
+1. Section 0 item 7's third consequence and 2.3's last sentences (a zero limb and a limb of
+   `0xFFFFFFFF` "lose the pattern"; "the compiler drops a zero limb's products, and the other
+   becomes a shift and a subtraction"): they assume the multiplier is a constant in C2's graph.
+   It is a literal slot (11.3 decision 3). The shift-and-subtract identity is still checked by
+   `verify_361.py`, for the record.
+2. Section 2.2: "the first word a body emits computes both and parks the other in a slot keyed
+   by the pair of children". Row 506's decision of 30 October 2026 replaced that: the node is
+   lowered to primitive nodes and the two words share by the walk's common subexpressions.
+3. Sections 5 and 7 and test 7 say "after 359b's store": #1710 merged the store, so the product
+   is an output the day 361a lands, and "361b" of section 5 is this section's 361c.
+4. `census_curated.txt` on master gives `*` and `try_multiply` no `dec^`, though their notes say
+   the product within 18 digits fuses (row 349a) and the coverage family "DECIMAL arithmetic"
+   holds it: a missing "in part" mark. 361a adds it; if `dev/varka_census.py --check` on master
+   already asks for it, that is a finding for the lead before 361a.
+5. `VarkaDecimalCompiler.productReason` on the 360a branches calls a `BIGINT` under its cast "an
+   operand wider than 18 digits" and names rows 362 and 363 for `l * x9`: wrong row, corrected
+   by 361a's `longValued`.
+6. `/home/max/varka-ops/m8-triage/decimal-chain.md` orders 362a before 361a "by construction of
+   the branches"; this plan restores the close path's order (11.3 decision 1), which costs the
+   two predicates of 361a's step 1 and nothing else.
+7. The row's line in `m8/PLAN.md` says "every constant limb written as
+   `broadcast(c).and(0xFFFFFFFF)` so C2 selects `vpmuludq`": true of the mask, which is the
+   constant; the limb's source is a slot.
+

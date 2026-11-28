@@ -1,5 +1,10 @@
 # VARKA-345: The math family's exact default, and the ULP contract as an opt-in mode
 
+*Changed on 28 November 2026: the paragraphs "345c3, `log1p`" at the end of 10.3 are the record
+of branch `varka-345e-log1p-r`, carried here so that the part that lands it commits this text;
+section 11 is new (what is left of the row for the close, the `log1p` port mapped to the IR, and
+the parts). Sections 0 to 10.3 are otherwise unchanged, word for word.*
+
 ## 0. What exists now (admission check)
 
 From master at `5cdb032b9ef` (30 October 2026; Varka paths under
@@ -1207,3 +1212,405 @@ ports, under 345c1's 86.5 s and 175.1 s for two: the memoized flattening is most
 The suites that also run the reference evaluator (`VarkaEmitterMixedLaneSuite`,
 `VarkaEmitterNarrowSuite`, `VarkaSameAnswerContractSuite`, `VarkaEmitterBoolSuite`) pass beside
 it: 71 tests, one cancelled by its own switch.
+
+**345c3, `log1p` (branch `varka-345e-log1p-r`, built on `varka-345d-log-r`, rebased onto master
+after #1645).**
+
+- `VarkaMathPort.log1p`, node for node `Log1p.log1pBlended`, its words in long lanes: the tests of
+  the C's signed `hx`, two of them against negative words (`hx <= 0xbfd2bec3` and the sign),
+  are signed compares of the raw bits through two new frame helpers, `signedHiBelow` and
+  `signedHiAtLeast` (for any int word, unlike the `|x|` compares); `ax`'s tests are L3's; `u`'s
+  words are read by logical shifts; `k` stays a long lane and `(double)k` is L7's conversion
+  where the library writes `I2D`. s_log1p.c's `Lp1..Lp7` are e_log.c's `Lg1..Lg7`, the same
+  doubles, so the port reads `LG1..LG7`.
+- The domain is kept as the C has it: `x == -1` gives `-two54/zero`, `-Infinity`, and every
+  other `x < -1` gives `NaN`, `StrictMath.log1p`'s answers. Spark's null at `x <= -1` is
+  value-dependent and stays the compiler arm's (row 358's admission note), so the port answers
+  `StrictMath`, not Spark's null.
+- `VarkaMathPortSuite` lists it, with s_log1p.c's words as fixed vectors (`sqrt(2)-1`, the `k = 0`
+  path's negative end, `2^-29`, `2^-54`, `2^53`, and the `x` whose `1+x` sits at `u`'s `sqrt(2)`
+  split or at a power of two, and the library's four L12 witnesses, where the `hu == 0` short
+  path and the general path differ), its four planted faults (the library's three, and its
+  `FOLD_SHORT_PATH`, the new `Fault.FOLD_SHORT_PATH`, which the witnesses catch), and the word
+  of its one new constant. The helper test holds the two signed compares to their definitions
+  at s_log1p.c's words and the int range's ends.
+- Paired `vfdlibm` change: branch `varka-log1p-long-words-r` (worktree
+  `/home/max/proj/vfdlibm-345e2w`, on `vfdlibm` main), `PROOFS.md` L18 "log1p's signed compares
+  and words in long lanes, as Varka emits them" and its hinge tests in `ProofsTest`; the
+  library's code does not move.
+- At two 64-bit lanes the port's blends are masks this JVM boxes, as `exp`'s are (row 636); this
+  part does not change that.
+
+Prediction (written before the run of 23 November): every `log1p` lane bit-identical to the three
+oracles; `log1p`'s expansion within the port cap of 64 (it was 41 deep on 20 November).
+
+Measured (laptop, 23 November 2026, on 345c2's head `754f9fcc348` with `vfdlibm` 0.2.0, in its own
+JVM): the suite passes, 11 tests, every `log1p` lane bit-identical to `StrictMath`, `VFdlibm` and
+the blended arm on 2^24 sampled inputs a function and on the fixed vectors at 2, 4 and 8 lanes, NaN
+payloads included; each of its four planted faults caught; every port within the port cap of 64.
+Both predictions held. The suite took 21.5 s with all five ports, and 20.2 s after the review's
+fixes (a fixed vector at `u`'s `sqrt(2)` split in `[2, 4)`, and a check that every fault is built
+into some port). The first run failed in the planted-fault test only: the fold fault joined a long
+and a double condition in one `And`, which the IR refuses; the fault's `f == 0` test now nests as a
+blend.
+
+Re-run (laptop, 23 November 2026, after the rebase onto master `b1f0bcb2b09`, #1645, with the
+second review's comment fixes, in its own JVM): the suite passes, 11 tests, 0 failed.
+
+## 11. What is left of row 345 for the close, and how it is built (new, 28 November 2026)
+
+*This section is new and stands alone for a builder. The code facts were checked on master
+`6dafb8bd2f6`. No JVM was started for it; 11.6 lists what only a JVM settles, each with its
+command. The paragraph "345c3, `log1p`" that ends 10.3 above is the record of branch
+`varka-345e-log1p-r`, carried here word for word: part 345e lands the code it describes.*
+
+*Revised the same day after review 1: 11.1 (345e's builder), 11.3 (B0's second premise, command
+2), 11.5's fourth row, 11.6 item 2, 11.7 and 11.8.*
+
+### 11.1 What the close asks of this row
+
+By the owner's decision 3 of 27 November 2026 (`m8/PLAN.md` 12.5), item 5 of 1.1 is read as met
+by the per-lane calls and the ports that exist, the eight unbuilt `PORT` arms moved to
+`m10/SCOPE.md` item 140, and row 345 keeps two things: "`log1p`'s port ... and the done-when's
+binding check on the x86 and Arm runners". The row's done-when, clause by clause, on master:
+
+| clause of the row's done-when | state | the command that shows it |
+| :--- | :--- | :--- |
+| with the configuration off no kernel holds a library call | holds: no `LIBRARY` form exists; the emitter's lanewise operator switch names `SQRT` alone | `grep -c 'case SQRT -> "SQRT";'` on `VarkaVectorWalk.java` prints `1` |
+| every exact form admitted is bit-identical by the three tests | holds for what is built: `VarkaMathExactSuite` (calls), `VarkaMathPortSuite` (ports); `log1p`'s port is on a branch | part 345e |
+| with it on, the library operator appears only on a binding with a contract entry | holds: the contract table is empty and no code reads the option | `grep -c 'ENTRIES = List.of();'` on `VarkaMathContract.java` prints `1` |
+| a within-bound comparison catches a lane two steps further out and refuses opposite signs | merged, #1428 | `git ls-files \| grep -c VarkaMathBoundSuite` prints `1` |
+| the binding check passes on the x86 and Arm runners | the suite runs on both; no run is recorded in the tree | part 345f |
+| the dated corrections record the exact default | merged, #1428 | 10.1 above |
+
+So two parts are left:
+
+| part | what | counted lines | builder | starts from |
+| :--- | :--- | ---: | :--- | :--- |
+| 345e | land `log1p`'s port: `VarkaMathPort.log1p` and its tests | about 240 code | Sonnet-class; the 512-bit suite run is the lead's command | branch `varka-345e-log1p-r` |
+| 345f | record the binding check's runs on both runners, and close the row | about 30, plan only | Sonnet-class | master, after 345e |
+
+**Why 345e is Sonnet-class.** The port is built, reviewed twice and proved (lemma L18); the
+part takes two files from the branch as they are, onto a master where neither has moved,
+compiles, runs one suite and one Python check. No step asks for a judgement about the port.
+The one thing a Sonnet-class builder cannot do is run C2's 512-bit code of the port, which
+exists on the laptop alone; that run is command 2's second half, named there as the lead's.
+
+Section 9's wider done-when (the `--asm` check of a `LIBRARY` form, `mathPort` drawn by the
+matrix, the port's speed against `LANE_CALL`) is not asked by the close: no `LIBRARY` form and
+no `mathPort` option exist, the option arm is row 358's 358b, which the close does not hold
+(`VARKA-358.md` section 10, question 2), and the ports' speed is measured by row 635.
+
+### 11.2 The port that is left: `log1p`, from `s_log1p.c`, as IR
+
+The port is built. This subsection is what a builder needs in order to read, review or rebuild
+it: the C source's structure mapped to the frame's helpers and the IR nodes, the constants as
+bit patterns, the branches as blends in the order that keeps the bits, and the special cases.
+The C source is fdlibm 5.3's `s_log1p.c` (`@(#)s_log1p.c 1.3 95/01/18`, Sun's notice, kept in
+`VarkaMathPort.java`'s header); the line numbers below are that file's.
+
+**The helpers and nodes used, all on master** (`VarkaMathPort`, `VarkaVectorIR`):
+
+| C | IR |
+| :--- | :--- |
+| `__HI(x)`, the signed int | no node: the tests read the raw bits `bits(x)` (`ReinterpretLane` to `LONG`) |
+| `hx < h`, `hx >= h` for a signed `hx` | new helpers `signedHiBelow(bits, h)`: `Compare(LT, bits, lit(fromHiBits(h)))`; `signedHiAtLeast(bits, h)`: `Compare(GT, bits, lit(fromHiBits(h) - 1))` |
+| `ax = hx & 0x7fffffff`, `ax < h`, `ax >= h` | `absBits(bits)`, `hiBelow(absBits, h)`, `hiAtLeast(absBits, h)` (lemma L3 of `vfdlibm`'s `PROOFS.md`) |
+| `hu = __HI(u)`, `hu >> 20`, `hu & 0x000fffff` | `BitOp(USHR, bits(u), 32)`, `BitOp(USHR, hu, 20)`, `BitOp(AND, hu, HI_SIGNIFICAND)`, in long lanes |
+| `__HI(u) = w` | `fromBits(BitOp(OR, BitOp(AND, uBits, LOW_WORD), BitOp(SHL, w, 32)))` |
+| `(double) k` | `dk(add(k, lit(DK_MAGIC_BITS)))`: the exact add and subtract of `0x1.8p52` (lemma L7) |
+| `+ - * /` on doubles | `add`, `sub`, `mul`, `div`: `IntArith(op, WRAP, a, b)` at the double lane, one IEEE operation each |
+| `if (c) a else b` | `blend(c, a, b)`: `IfElse`, the condition crossed to the values' lane by `CrossLane` |
+| `&&`, the nested `if` | `VarkaVectorIR.And`, `VarkaVectorIR.Or` over conditions of one lane |
+
+No fused multiply-add node (`Fma`) is used, no `MathUnary`, no per-lane call: the kernel of the
+port holds no call.
+
+**The constants, as bit patterns.**
+
+| C name and text | bits | in the port |
+| :--- | :--- | :--- |
+| `ln2_hi = 6.93147180369123816490e-01` | `0x3fe62e42fee00000` | `LN2HI_0` |
+| `ln2_lo = 1.90821492927058770002e-10` | `0x3dea39ef35793c76` | `LN2LO_0` |
+| `two54 = 1.80143985094819840000e+16` | `0x4350000000000000` | `TWO54` |
+| `Lp1 = 6.666666666666735130e-01` | `0x3FE5555555555593` | `LG1` |
+| `Lp2 = 3.999999999940941908e-01` | `0x3FD999999997FA04` | `LG2` |
+| `Lp3 = 2.857142874366239149e-01` | `0x3FD2492494229359` | `LG3` |
+| `Lp4 = 2.222219843214978396e-01` | `0x3FCC71C51D8E78AF` | `LG4` |
+| `Lp5 = 1.818357216161805012e-01` | `0x3FC7466496CB03DE` | `LG5` |
+| `Lp6 = 1.531383769920937332e-01` | `0x3FC39A09D078C69F` | `LG6` |
+| `Lp7 = 1.479819860511658591e-01` | `0x3FC2F112DF3E5244` | `LG7` |
+| `0.66666666666666666` (line 156) | `0x3fe5555555555555` | `TWO_THIRDS`, new |
+| `0.5`, `1.0`, `2.0` | `0x3fe0000000000000`, `0x3ff0000000000000`, `0x4000000000000000` | literals |
+| the magic of `(double) k` | `0x4338000000000000` | `DK_MAGIC_BITS` |
+
+`Lp1` to `Lp7` are the same doubles as `e_log.c`'s `Lg1` to `Lg7`, so the port reads `LG1` to
+`LG7`. The high words the C compares with:
+
+| word | C test (line) | meaning | new constant |
+| :--- | :--- | :--- | :--- |
+| `0x3FDA827A` | `hx < w` (113) | `x < sqrt(2) - 1` | `HX_BELOW_SQRT2_M1` |
+| `0x3ff00000` | `ax >= w` (114) | `x <= -1.0` among those | `AX_MINUS_ONE` |
+| `0x3e200000` | `ax < w` (118) | `abs(x) < 2^-29` | `AX_TINY` |
+| `0x3c900000` | `ax < w` (120) | `abs(x) < 2^-54` | `AX_TINIEST` |
+| `0xbfd2bec3` | `hx <= (int) w` (125) | with `hx > 0`: the lanes of `k = 0` | `HX_NEGATIVE_K_ZERO` |
+| `0x7ff00000` | `hx >= w` (128) | `+inf` or a NaN with the sign clear | `HX_NON_FINITE`, on master |
+| `0x43400000` | `hx < w` (130) | `x < 2^53` | `HX_HUGE` |
+| `0x6a09e` | `hu < w` (143) | `u`'s significand below `sqrt(2)`'s | `HU_SQRT2` |
+| `0x3fe00000` | `hu \| w` (147) | the high word of a halved `u` | `HALF_HI` |
+
+**The branches as masks, and the order of evaluation.** Every value below is computed in every
+lane; a mask only selects. The order of the arithmetic is the C's, operand for operand, except
+where a product or a sum has its two operands exchanged, which changes no bit.
+
+| step | C (lines) | the port's nodes |
+| :--- | :--- | :--- |
+| 1 | `hx = __HI(x); ax = hx & 0x7fffffff` (109-110) | `bits = bits(x)`, `absBits = absBits(bits)` |
+| 2 | the six tests on `hx` and `ax` | `below = signedHiBelow(bits, 0x3FDA827A)`; `atMostMinusOne = And(below, hiAtLeast(absBits, 0x3ff00000))`; `tiny = And(below, hiBelow(absBits, 0x3e200000))`; `kZeroPath = And(below, Or(signedHiAtLeast(bits, 1), signedHiBelow(bits, 0xbfd2bec3 + 1)))`; `nonFinite = signedHiAtLeast(bits, 0x7ff00000)`; `huge = signedHiAtLeast(bits, 0x43400000)` |
+| 3 | `u = 1.0 + x`, or `u = x` (131, 137) | `u = blend(huge, x, add(1.0, x))` |
+| 4 | `hu = __HI(u); k = (hu >> 20) - 1023` (132-133, 138-139) | `hu = USHR(bits(u), 32)`; `k = sub(USHR(hu, 20), 1023)`, long lanes, logical shifts |
+| 5 | `c = (k > 0) ? 1.0 - (u - x) : x - (u - 1.0); c /= u`, or `c = 0` (134-135, 140) | `c = blend(huge, 0.0, div(blend(k > 0, sub(1.0, sub(u, x)), sub(x, sub(u, 1.0))), u))` |
+| 6 | `hu &= 0x000fffff`; the two normalisations (142-149) | `hum = AND(hu, 0x000fffff)`; `halve = hum >= 0x6a09e`; `k = blend(halve, k + 1, k)`; `uHi = blend(halve, hum \| 0x3fe00000, hum \| 0x3ff00000)`; `huQuarter = blend(halve, USHR(0x00100000 - hum, 2), hum)`; `uNormal` = `u` with its high word set to `uHi` |
+| 7 | `f = u - 1.0`; line 126's `k = 0; f = x; hu = 1` | `f = blend(kZeroPath, x, sub(uNormal, 1.0))`; `k = blend(kZeroPath, 0, k)`; `huFinal = blend(kZeroPath, 1, huQuarter)` |
+| 8 | `hfsq = 0.5 * f * f` (152) | `hfsq = mul(mul(f, 0.5), f)` |
+| 9 | `k * ln2_hi`, `k * ln2_lo + c` | `kLn2Hi = mul(dk, LN2HI_0)`; `kLn2LoPlusC = add(mul(dk, LN2LO_0), c)` |
+| 10 | `s = f / (2.0 + f); z = s * s` (160-161) | `s = div(f, add(2.0, f))`; `z = mul(s, s)` |
+| 11 | `R = z * (Lp1 + z * (Lp2 + ... + z * Lp7))` (162) | `p = add(mul(z, LG7), LG6)`; then for `LG5`, `LG4`, `LG3`, `LG2`, `LG1`: `p = add(mul(z, p), LGi)`; `r = mul(z, p)` |
+| 12 | the general returns (163-164) | `sTimes = mul(s, add(hfsq, r))`; `result = blend(k == 0, sub(f, sub(hfsq, sTimes)), sub(kLn2Hi, sub(sub(hfsq, add(sTimes, kLn2LoPlusC)), f)))` |
+| 13 | the `hu == 0` path (153-159) | `rNear = mul(hfsq, sub(1.0, mul(f, TWO_THIRDS)))`; `near = blend(k == 0, sub(f, rNear), sub(kLn2Hi, sub(sub(rNear, kLn2LoPlusC), f)))`; `exact = blend(k == 0, 0.0, add(kLn2Hi, kLn2LoPlusC))`; `near = blend(f == 0.0, exact, near)`; `result = blend(huFinal == 0, near, result)` |
+| 14 | `return x + x` (128) | `result = blend(nonFinite, add(x, x), result)` |
+| 15 | lines 119-123 | `result = blend(tiny, blend(hiBelow(absBits, 0x3c900000), x, sub(x, mul(mul(x, x), 0.5))), result)` |
+| 16 | lines 115-116 | `return blend(atMostMinusOne, blend(x == -1.0, -inf, Double.NaN), result)` |
+
+Three rules keep the bits:
+
+1. **One IEEE operation a node, no fused multiply-add.** `z * p + LGi` is a `mul` node and an
+   `add` node, rounded twice, as the C rounds it. 11.5 says what guards it against the JIT.
+2. **The later blend wins, in the C's order of early returns.** Steps 14, 15 and 16 are the C's
+   returns; their masks are disjoint (`nonFinite` has the sign clear and `hx >= 0x7ff00000`;
+   `tiny` and `atMostMinusOne` both need `hx < 0x3FDA827A` and split on `ax`), so their order
+   among themselves is free, and all three come after the computed result.
+3. **The words computed from `u` are kept only where the C computes them** (lemma L18's
+   hypotheses H19 and H20). On line 126's lanes the port blends `k = 0`, `f = x`, `hu = 1` over
+   them: without that blend a lane such as `x = 0x3ea5a84adfba2358` takes the `hu == 0` path
+   the C never takes and is one step off. On `x <= -1` and on NaN lanes `u`'s high word is not
+   the C's `hu`, and step 16 or 14 overwrites the result.
+
+**The special cases.**
+
+| input | answer | by |
+| :--- | :--- | :--- |
+| a NaN, sign clear | `x + x`: the same NaN, quieted | step 14 |
+| a NaN, sign set | `Double.NaN`, bits `0x7ff8000000000000` | step 16: `StrictMath.log1p` answers the canonical NaN there, where the C's `(x-x)/(x-x)` would keep a payload; the port follows `StrictMath` |
+| `+inf` | `+inf` (`x + x`) | step 14 |
+| `-inf`, any `x < -1` | `Double.NaN` | step 16 |
+| `-1.0` | `-inf` (`-two54 / zero`) | step 16 |
+| `+0.0`, `-0.0` | the same zero | step 15, `abs(x) < 2^-54` returns `x` |
+| a subnormal, any `abs(x) < 2^-54` | `x` | step 15 |
+| `2^-54 <= abs(x) < 2^-29` | `x - x * x * 0.5` | step 15 |
+| `-0.2929 < x < 0.41422` otherwise | `k = 0`, `f = x` | steps 7, 12 |
+| `x >= 2^53` | `u = x`, `c = 0` | steps 3, 5 |
+| `1 + x` within `2^-20` of a power of two | the `hu == 0` path | step 13 |
+| a null | null | every condition reads `x`, so each blend takes its `otherwise` arm, and that chain ends in the general form, which reads `x` |
+
+The port answers `StrictMath.log1p`, not Spark's `log1p`: Spark's null at `x <= -1.0` is added
+by the compiler arm (`VarkaMathDomain.nullAtOrBelow`), outside the port.
+
+**The tests** (`VarkaMathPortSuite`, JUnit 5, own JVM; the branch adds `log1p` to its list):
+
+| test | inputs | compared with | must pass |
+| :--- | :--- | :--- | :--- |
+| the sampled differential | 2^24 inputs: uniform bit patterns, `[-1, 4)`, `[-2, 2]`, magnitudes down to `2^-60` | `StrictMath.log1p`, `VFdlibm.log1p` and the library's blended arm, by raw bits | every lane: 0 mismatches |
+| the fixed vectors | each word of the table above as a double, in both signs with 64 neighbours each way; the `x` whose `1 + x` sits at `u`'s `sqrt(2)` split below 1, in `[1, 2)` and in `[2, 4)`; `3.0`, `7.0`, `0.5`, `2^52`; four witnesses of lemma L12 (`0x3feffffd05263833`, `0x3ff000016fcd0162`, `0xbfe000012cac6e81`, `0xbfdffffe92ae1567`); the special values and the suite's NaN patterns | the same three, at 2, 4 and 8 lanes over four null patterns and several lengths | every lane |
+| the helpers | the two signed compares at seven words, the ends of the int range among them, 2^21 lanes each | `(int) (bits >> 32) < h` and `>= h` | every lane |
+| the planted faults | `DROP_CORRECTION` (`c = 0`), `CONSTANT_OFF_BY_ONE_ULP` (`Lp1` one step up), `THRESHOLD_MOVED` (`0x43400000` to `0x43300000`), `FOLD_SHORT_PATH` (the `hu == 0` path folded into the general one) | the differential | each must fail it |
+| the reference evaluator | the port's tree | `StrictMath.log1p` | every lane |
+| the depth | the tree's height | the port cap, 64 | at most 64 (41 on 20 November) |
+
+The worst cases of row 367 (`VARKA-367.md`, the handbook's and Gladman's tables) are not in the
+tree and are not this part's: they serve the opt-in bound, and fdlibm is not correctly rounded,
+so a hard-to-round input is no harder for a port than any other. What can break a port is a
+branch edge, which the fixed vectors hold.
+
+### 11.3 The build sheets
+
+Every sbt line is run as
+
+    JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 SPARK_LOCAL_IP=127.0.0.1 build/sbt '<task>'
+
+**Part 345e, `[VARKA-345] Emit fdlibm's log1p as IR nodes in the kernel, exact to StrictMath`**
+(branch `varka-345e-log1p-r2`, from master; `varka-345e-log1p` and `varka-345e-log1p-r` exist).
+
+B0, the premises:
+
+- `git -C /home/max/proj/vecbricks-varka log --oneline b1f0bcb2b09..varka-345e-log1p-r` prints
+  three commits, `d58c44b7d29`, `7513069aeb1` and `dfbc0d6a5e2`.
+- The two code files have not moved on master since the branch's base, so its code applies as
+  it is:
+
+        git diff --stat b1f0bcb2b09 origin/master -- sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaMathPort.java sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaMathPortSuite.java
+
+  prints nothing. If it prints a file, master moved that file after this plan was written: do
+  not take the branch's copy of it in step 1. Apply the branch's change to it instead,
+  `git diff b1f0bcb2b09 varka-345e-log1p-r -- <file> | git apply --3way`, and resolve a conflict
+  by keeping master's lines and adding the branch's `log1p` ones; the commands below then
+  prove the result as they prove the plain copy.
+- `grep -c 'log1p'` on master's `VarkaMathPort.java` prints `0`.
+- `grep -A1 '<artifactId>vfdlibm</artifactId>' sql/catalyst/pom.xml` prints version `0.2.0`,
+  which holds `VFdlibm.log1p` and `Log1p.log1pBlended`. The oracle is not moved by this part.
+
+Steps:
+
+1. Apply the branch's two code files:
+
+        git checkout varka-345e-log1p-r -- sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaMathPort.java sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaMathPortSuite.java
+
+   in the new worktree (about 240 changed lines in the two files).
+2. The plan: this file as it stands here is the new `VARKA-345.md`; fill 11.8. The branch's own
+   edits of `PLAN.md` and `VARKA-345.md` are not taken: they conflict with master, and this
+   file holds their text.
+3. In `PLAN.md`, row 345's text opens with 11.8's line.
+
+The commands, in order:
+
+1. `catalyst/Test/compile`: `[success]`.
+2. `catalyst/testOnly *VarkaMathPortSuite`, on the builder's own host at whatever width it
+   has: `Failed 0, Errors 0`, over as many tests as before the part. The part adds `log1p` to
+   the suite's lists and no test method: `grep -c '^  @Test$'` on the suite's file prints `11`
+   before step 1 and after it. The Build of the pull request runs the same suite at 256 bits.
+
+   **The lead's command, not the builder's:** the same sbt line on the laptop, whose widest
+   species is 512 bits, on the pull request's head, before the merge. This is the run no CI
+   runner makes: the runners are AVX2, so C2's 512-bit code of the port is compiled only
+   there. The builder does not wait for it: it opens the pull request with the sentence "the
+   512-bit run of `VarkaMathPortSuite` is the lead's (`VARKA-345.md` 11.3, command 2)" in its
+   description. The lead posts the summary line on the pull request and copies it into 11.8.
+3. `python3 /home/max/varka-ops/m8-row-plans/scratch-345/log1p_port_check.py` (no JVM): its
+   line reads `blended != C on 0`.
+4. `dev/varka_ops/pre-pr-slot.sh <worktree>`: `pre-pr: passed on <sha>`. No generated file
+   moves: no SQL shape builds the port.
+
+Done when merged with a green Build and a green option matrix. Not here: no compiler arm, no
+emit flag, no change to `MathFn.LOG1P`'s per-lane call, no oracle bump, no `vfdlibm` change
+(lemma L18 is on the library's main branch and in its releases from 0.3.0).
+
+**Part 345f, `[VARKA-345] Plan: record the binding check on both runners and close the row`**
+(branch `varka-345f-binding-record`, from master after 345e; plan only).
+
+1. The x86 run: any green Build of `vecbricks/varka` on a commit that holds 345e. Find the
+   suite in its log:
+
+        gh run view <build-run> -R vecbricks/varka --log | grep -m3 'VarkaMathBindingSuite'
+
+   The line must show the suite's tests passing (3 tests).
+2. The Arm run: the last run of the width audit.
+
+        gh run list -R vecbricks/varka --workflow varka-width-audit.yml --limit 5
+        gh run view <run> -R vecbricks/varka --log | grep -A8 'Check the math library binding'
+
+   The step's tail must show `VarkaMathBindingSuite` with no failure. If the workflow has no
+   run on a commit of the last seven days, dispatch one:
+   `gh workflow run varka-width-audit.yml -R vecbricks/varka`, and wait for it.
+3. Write into 11.8: both run links, the JDK build each printed, the date. If either is red,
+   write the failing lines and stop: the row does not close, and the finding is the lead's.
+4. In `PLAN.md`, row 345 opens with "**Done**", naming #<345e>, the two runs, and what moved to
+   `m10/SCOPE.md` item 140 (the eight ports) and to row 358's 358b (the option arm).
+
+Done when the plan pull request is merged. Not here: no code.
+
+### 11.4 What must be checked in `vfdlibm` before a part starts
+
+Recorded in the tree: the test-scope oracle is `io.github.vecbricks:vfdlibm:0.2.0`
+(`sql/catalyst/pom.xml`); `benchmark.yml` reads the version from that file;
+`VarkaMathPortBenchmark` names the version in its labels and refuses another jar. Read in the
+local clone `/home/max/proj/vfdlibm` (main at `8f852d6`, tags `v0.1.0` to `v0.3.1`): 0.2.0's
+public class holds `exp`, `expm1`, `log`, `log10`, `log1p`, `sinh`, `cosh`, `asin`, `acos`,
+`atan` and `atan2`; 0.3.0 adds `pow` and `hypot`; lemma L18 is in `PROOFS.md` from 0.3.0.
+
+- For 345e the lead checks nothing new: 0.2.0 holds both `log1p` entries the suite calls.
+  One thing to confirm with the network: that the paired `vfdlibm` branch
+  `varka-log1p-long-words-r` is merged (the local main holds L18, so it reads as merged).
+- For any later port (`m10/SCOPE.md` item 140): the pull request that adds the first `pow` or
+  `hypot` arm moves the oracle to 0.3.1, relabels `VarkaMathPortBenchmark` and regenerates both
+  of its results files (row 635's note). 0.3.0 moved `VFdlibm.expm1` and `VFdlibm.log1p` to the
+  finish arm, so after the bump the suite's "library" oracle for those two is another code path
+  with the same bits, and the blended arm is still read by reflection.
+
+### 11.5 Where the bits depend on what the JIT does, and what guards each
+
+| dependence | where | guard that exists | left to do |
+| :--- | :--- | :--- | :--- |
+| C2 must not contract a multiply and an add into one fused instruction | every port: its polynomial is `z * p + c` at each step | C2 makes a vector fused multiply-add only from `Math.fma` (`VARKA-342.md` item 0.6); `VarkaEmitterFloatingArithSuite`'s test "no multiply and add is contracted" and the coverage row `x * x2`; and `VarkaMathPortSuite` itself, whose kernels are C2's and whose 2^24 inputs a function would differ on a large share if a step were fused | the assembly of a port's kernel has never been read for `vfmadd` (`VARKA-356.md` 11, item 7 asks it once a port); 11.6, command 2 |
+| the vector width C2 compiles | 512-bit code runs on the laptop only; the runners are 256-bit, and their 128-bit runs box the vectors (row 636) | the suite's fixed vectors at 2, 4 and 8 lanes | 345e's command 2, on the laptop |
+| the interpreter, C1 and C2 answer one `Math` method from one routine | every per-lane call of `Math` (`sin`, `cos`, `tan`, `cbrt`, and the new members) | `VARKA-345.md` item 0.3, read in the JDK 25 source; the exact suite compares C2's kernel with scalar Java on 2^24 inputs a function; the planted other class shows the compare can fail | none |
+| a later JDK turns a delegating `Math` method into a host routine | `asin`, `acos`, `atan` on master call `StrictMath` where Spark calls `Math` | none: on such a JDK the kernel would differ from Spark without notice | part 356b of `VARKA-356.md` 12.6, built by default |
+| a later JDK changes `StrictMath` itself (JDK-8326547 changes two constants of `pow`) | every port | none in code: `m8/PLAN.md` 2.7.1 says a port "declines on a JDK feature version above 25", and no code does that, since no port is wired to SQL | the part that wires a port (358b or later) adds the decline; not this row's |
+| the payload of a NaN made from two different NaNs | `pow`, `hypot`, `atan2` | `VarkaSameAnswer`'s open-NaN rule (`VARKA-358.md` 4.4) | part 358a2 |
+
+### 11.6 What was checked without a JVM, and what only a JVM settles
+
+**Checked in Python** (`/home/max/varka-ops/m8-row-plans/scratch-345/log1p_port_check.py`): the
+port's sequence of 11.2, every branch computed and blended, against `s_log1p.c` written branch
+for branch, in Python doubles, which are IEEE with one rounding an operation and no fused
+multiply-add. Inputs: 7774 edge values (each word of 11.2 with four low words and 64 neighbours
+each way, the special values, the L12 and H20 witnesses, nine NaN patterns) and 3000000 sampled
+ones over six draws. Last line:
+
+    log1p: 3007774 inputs (7774 edge, 3000000 sampled), blended != C on 0; C form further than 1 step from math.log1p on 0 of 200000 []
+
+Two planted mutations fail it (step 7's `hu = 1` blend dropped: 4 inputs, H20's two witnesses
+among them; `LG6` replaced by `LG5`: 54326 of 207774). A third, step 13's `f == 0` blend
+dropped, does not: the two forms are the same double there. The line's second half compares the
+C form with Python's `math.log1p` within one step on 200000 inputs; it is a sanity check of the
+transcription and not a bit check, since the platform's `log1p` is not known to be fdlibm's.
+
+**Only a JVM settles**, each with its command:
+
+1. That the emitted kernel equals `StrictMath.log1p` bit for bit, the sign-set NaN lanes
+   included: 345e's command 2.
+2. That C2's code of a port holds no fused multiply-add and no call. A starting point, not run
+   and not verified here (`--jvm-arg` puts an option on every test JVM's command line):
+
+        LD_LIBRARY_PATH=$HOME/hsdis dev/varka_matrix.sh --defaults --suites VarkaMathPortSuite --no-sanitizer --out target/port-asm --jvm-arg -XX:+UnlockDiagnosticVMOptions --jvm-arg -XX:CompileCommand=print,*::loopDense0 --jvm-arg -Dvarka.math.samples=1048576
+
+   then, over the test JVM's output under `target/port-asm`, a count of the lines that match
+   `vfmadd`, `vfmsub` or `vfnmadd` must be 0, and the loop must hold no `call`. **This is the
+   lead's task, not a question** (review 1): once, before 1 December, for the five ports, on
+   the laptop, beside the 512-bit run of 345e's command 2. It does not hold 345e's merge: the
+   suite's bit comparison on C2's own code is the guard that does. Its result goes into 11.8;
+   a count above 0 is a finding that reopens the row.
+3. That the binding check passes on both runners: part 345f.
+
+### 11.7 Questions for the owner
+
+The assembly read of 11.6, item 2, was a question here and is none: `VARKA-356.md` 11 item 7
+asks it of every port, so it is done, by the lead (11.6). One question is left.
+
+1. **Row 345's section 9 done-when against the row's.** Section 9 also asks the `--asm` check
+   of a `LIBRARY` form and the option matrix with `mathPort` drawn; neither form exists.
+   *Recommended: the row closes on its `PLAN.md` done-when as 12.5 reads it (11.1's table).*
+   **Default applied: that reading.**
+
+### 11.8 Outcome of the parts of this section
+
+To be written by each part. 345e opens row 345's text in `PLAN.md` with: "**Started**
+(*<date>*: 345e merged as #<n>: `log1p`'s port, `VarkaMathPort.log1p`, bit for bit
+`StrictMath.log1p` and `vfdlibm` 0.2.0 at 2, 4 and 8 lanes; five ports exist; left: the binding
+check's runs recorded, 345f)". The lead adds two lines: the summary of the 512-bit run of
+`VarkaMathPortSuite` on 345e's head (11.3, command 2), and the count of fused multiply-add
+instructions in the five ports' loops (11.6, item 2).
+
+### 11.9 What in this plan and in the row's note is stale against the tree
+
+- 2.2 and 2.6 describe a `MathForm` field on the call node and a set-valued `mathPort` option.
+  Neither exists: a port is a different tree built by `VarkaMathPort` (10.2, decision 6), and
+  the owner chose one flag a port on 22 November 2026, built only on branch
+  `varka-358b-exp-port`.
+- 2.2 and 2.9 describe a `LANE_CALL` that stores lanes to scratch and skips dead lanes. Master's
+  call is unrolled over `lane` and `withLane` and calls every lane (`emitMathLaneCall`).
+- 2.3 names a vectors file a function, `sql/varka/math/<fn>.vectors`. The directory does not
+  exist; the fixed vectors are in the suites.
+- `m8/PLAN.md` 2.7.1 says every `PORT` arm "declines on a JDK feature version above 25". No
+  code reads the JDK's version; no port is wired, so nothing can decline yet.
+- The row's note says `log1p` is "built on `varka-345e-log1p-r` (3 commits)". True; its paired
+  `vfdlibm` lemma L18 is already in the library's releases from 0.3.0.

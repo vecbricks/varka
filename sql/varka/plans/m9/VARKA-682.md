@@ -157,8 +157,9 @@ and `TS` are the `src/test/java` and `src/test/scala` twins of `V`. Every fact w
 11. **One site builds the runner.** `VarkaEvaluatorBase.newRunner` calls the constructor
     `VarkaKernelRunner(entry, lane, inputOrdinals, derived, bounds, numOutputs, scalarArgs,
     longArgs, scratch, accounting, hooks)`. `VarkaKernelRunner.fill` checks input bounds and
-    throws `VarkaBatchDeclined(STATUS_INPUT_BOUND)`. Statuses in use: `1 << 8`, `1 << 9`,
-    `1 << 10`. Command: `grep -n 'STATUS_.* = 1 <<' $E/varka/VarkaKernelRunner.java`.
+    throws `VarkaBatchDeclined(STATUS_INPUT_BOUND)`. Statuses in use: `1 << 10`, `1 << 11`,
+    `1 << 12` once row 346's parts 346b1a and 346a have merged (they take the kernel's bits 8 and
+    9 and move the runner's three bits up by two; before that, `1 << 8` to `1 << 10`). Command: `grep -n 'STATUS_.* = 1 <<' $E/varka/VarkaKernelRunner.java`.
 12. **A status gets its metric from two arrays.** `VarkaFallbackAccounting.STATUS_BITS` and
     `STATUS_NAMES`; `VarkaEvaluatorComponentsSuite` asserts `evaluatorBits.size == 3`.
     Command: `grep -n 'STATUS_BITS\|STATUS_NAMES' $E/varka/VarkaFallbackAccounting.java`.
@@ -395,7 +396,7 @@ jar): it reads `ZoneId.of(id).getRules()`. It compares in whole seconds
 
 ### 4.8 The runner
 
-- `VarkaKernelRunner.STATUS_BATCH_ARGS = 1 << 11`; `VarkaFallbackAccounting` gains the bit and
+- `VarkaKernelRunner.STATUS_BATCH_ARGS = 1 << 13`; `VarkaFallbackAccounting` gains the bit and
   the name `"batch-args"`.
 - The constructor gains `BatchProgram[] programs`. `BatchProgram(Zoned node, int input,
   VarkaZoneData zone, int steps, int first)` is a public record, as `VarkaKernelRunner.Bound`

@@ -20,6 +20,9 @@
 # to its own file, one summary table at the end, non-zero exit if any step
 # failed. Run it from the repository root of the worktree under test.
 #
+# It gates no push: a full local run, also the nightly's --gate step. The gate before a pull
+# request is dev/varka_ops/pre-pr.sh (dev/varka_ops/AGENTS.md).
+#
 #   dev/varka_gate.sh                      # the whole gate
 #   dev/varka_gate.sh --list               # show the steps and stop
 #   dev/varka_gate.sh --only wide,narrow   # a subset, by step name

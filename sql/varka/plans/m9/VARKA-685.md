@@ -536,7 +536,7 @@ second kernel, a per-batch step, the option, any file under `sql/catalyst`, any 
     grep -c 'private static final class Kernel {' $E/VarkaEvaluatorBase.java                  # 1 (part a)
     grep -c 'LongRangeOps.leastAndGreatest' $E/varka/VarkaKernelRunner.java                   # at least 1 (row 682)
     grep -c 'record BatchProgram(' $E/varka/VarkaKernelRunner.java                            # 1
-    grep -c 'STATUS_BATCH_ARGS = 1 << 11' $E/varka/VarkaKernelRunner.java                     # 1
+    grep -c 'STATUS_BATCH_ARGS = 1 << 13' $E/varka/VarkaKernelRunner.java                     # 1
     grep -c 'VarkaKernelRunner kernel = fusedRunner();' $E/VarkaEvaluatorBase.java            # 1
     grep -c 'VarkaKernelRunner runner = fusedRunner();' $E/VarkaFilterEvaluator.java          # 1
     grep -c 'boolean kernelReady(ColumnarBatch input) {' $E/VarkaEvaluatorBase.java           # 1

@@ -1,5 +1,586 @@
 # VARKA-339: The `TIMESTAMP_NTZ` arithmetic
 
+
+## A. What is left of this row, and how it is built (28 November 2026)
+
+*NEW SECTION, written on 28 November 2026 for builders that have only this file and the
+repository's `AGENTS.md` files; revised the same day (the fix round): each part has a build
+sheet in the house form. Its code facts were checked on master `6dafb8bd2f6` (origin/master
+`04bfdd3673d` differs by plan files only). No JVM was started for it; A.13 lists what only a
+JVM settles. Sections 0 to 10 below are the row's record and are unchanged, word for word,
+except that 10.2 (step 4 as built on its branch) is added from that branch, marked. Every build
+sheet says "Follow `BUILD_SHEETS.md`": its rules bind each part in full. A.5.0 of
+`VARKA-343.md` (the names `CG`, `T`, `S`, the output lines of a run, the bytes check) applies
+to these sheets too. Revised again in fix round 2 (28 November 2026, after
+review 1 and the owner's answers of that day): each changed place says "Changed in fix
+round 2" or "fix round 2".*
+
+### A.1 What this row is, and which done-when clause holds it
+
+Row 339 of `m8/PLAN.md` is the arithmetic of `TIMESTAMP_NTZ`: `ntz - ntz`, `ntz +/- dt`,
+`ntz +/- ym`, `timestampadd` and `time_bucket`. The close path (`m8/PLAN.md` 12.5, 27 November
+2026) keeps the row as a gate "under item 2 alone": item 2 of 1.1, "Most of the census is
+fused". So the close holds this row to `m8/census.tsv`, and to nothing else of 1.1.
+
+| census entry | types | fused today | after part 339d2 |
+| :--- | :--- | :--- | :--- |
+| `ntz_minus_ntz`, `ntz_plus_dt`, `ntz_plus_ym`, `timestampadd`, `datetime_sub` | as listed | all | unchanged |
+| `time_bucket` | `ntz, ym, dt` | none | `ntz, dt` fused; `ym` leaves the entry's types, marked `ym!`, its reason row 664 of `m9/PLAN.md` |
+
+That is two pairs and one entry fused for every type it admits. Print the line before and
+after with `awk -F'\t' '$1=="time_bucket"' sql/varka/plans/m8/census.tsv`.
+
+**Merged** (`git log origin/master --format='%h %cs %s' -E --grep='VARKA-339\b'`): the plan
+(#1064), step 1, the baseline class (#1229), step 2, the difference and the day-time sums
+(#1244), step 3, `timestampadd` and the month shifts (#1442, 12 November 2026).
+
+**Left:** step 4, `time_bucket` over a day-time width, and step 5, the measurement.
+
+**Built and not merged:** step 4, on the local branch `varka-339-ntz-arith` of
+`/home/max/proj/vecbricks-varka`, and on the fork as `varka-339-ntz-arith-laptop` (A.12
+question 2) (tip `6476788b31a`, 20 November 2026, merge-base with master
+`0b8be5a33e4`, 534 commits behind `6dafb8bd2f6`). Its record is 10.2 below. It adds no IR
+node, lowering or emit option, so row 489's `props()` descriptor, which merged after it, asks
+nothing of it. It is 908 counted lines (`python3 dev/varka_msg_check.py size --base
+0b8be5a33e4 --head varka-339-ntz-arith`), so A.5 cuts it in two.
+
+**How the branch meets master** (fix round: `scratch-343/merge3.py` of the planning folder, a
+read-only `git merge-file` per file). The code merges clean: `VarkaTimeCompiler`,
+`VarkaFamily`, `VarkaCatalystGrammar`, `VarkaCoverageSuite`, `VarkaDomains`,
+`VarkaTimestampNtzSuite`, `dev/varka_census.py`; the suite is new. Every list file conflicts
+(master grew each since 20 November): `VarkaProofFiles` (`LONG_DIVISORS`, master added the
+divisors of rows 103 and 350 and two lists exempt from a rule), `VarkaDivisorProofSuite`
+(javadoc), `sql/varka/proofs/README.md`, `VarkaAnsiForm`, the benchmark class's javadoc,
+`expected_errors.tsv`, `skips.tsv` and `census_curated.txt`. Taking the branch's side of
+`census_curated.txt` would revert master's `hash` and `xxhash64` lines; the sheets write each
+list edit out. Every generated file conflicts and is regenerated, never merged.
+
+### A.2 What a builder must know
+
+- A `TIMESTAMP_NTZ` value is a count of microseconds from 1970-01-01 00:00:00 with no zone, on
+  the long lane. `D` is the microseconds of a day, 86,400,000,000.
+- `time_bucket(b, t[, o])` is the start of the bucket of width `b` that `t` falls in, on the
+  grid anchored at the origin `o` (the epoch when absent): `o + floorDiv(t - o, b) * b`. The
+  division floors, it does not truncate: a count before the origin belongs to the bucket that
+  starts below it. Spark needs `b` and `o` foldable, and `b` positive.
+- Where Spark raises (`DateTimeUtils.timeBucketFromTimestampDTInterval`, at UTC): on
+  `t - o`, on `k * b`, on `o + k * b`, and, for `b >= D` only, also on `(k + 1) * b` and on
+  `o + (k + 1) * b`, because for such a width Spark steps the index until the bucket holds
+  `t`, which evaluates the next bucket's start. A kernel never raises: a batch with a lane
+  that Spark raises on is declined, and Spark's row code raises on the row.
+- A division on the long lane is `ConstDivide(x, d, bound)`, exact only where `|x| < bound`
+  and `bound <= 2^52` (`ConstDivide.EXACT_DIVIDEND_BOUND`). `VarkaNodeCompiler.floorDivLong(x,
+  D, sink)` is the floor division by a day over every long, and
+  `VarkaNodeCompiler.microsOfDay(x, sink)` is `floorMod(x, D)`; both are on master and proved
+  in `long_divide.smt2`.
+- A tree not of the int lane alone may be at most 16 nodes deep (`VarkaEmitBudget.
+  MAX_CHAIN_DEPTH`). That is why the guards below sit on the leaf `t` and not on the results.
+- A divisor the compiler builds into a coverage row must be in `VarkaProofFiles.LONG_DIVISORS`
+  (`VarkaDivisorProofSuite` fails otherwise, VARKA-496), which renders its checks into
+  `long_divide.smt2`. So the proof part goes first. The same test also holds the other
+  direction (fix round 2): every proof divisor that no compiled kernel divides by is named in
+  its `PROVEN_ONLY` (on master `Set.of(-60L)`), or the test fails as "stale". So between 339d1
+  and 339d2 the three new divisors are named there, and 339d2 takes them out again.
+
+### A.3 The admission check (run each; stop if one prints something else)
+
+The directories, as shell names every command of this file uses (paste them first):
+
+    CG=sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen
+    T=sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka
+    S=sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka
+    CS=sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen
+    BJ=sql/core/src/test/java/org/apache/spark/sql/execution/benchmark
+    BS=sql/core/src/test/scala/org/apache/spark/sql/execution/benchmark
+
+Each command was run on `6dafb8bd2f6` and printed what is written after it.
+
+1. No arm claims the class: `grep -c 'TimeBucket' $CG/VarkaTimeCompiler.java`: `0`.
+2. The helpers exist: `grep -c 'static VarkaVectorIR floorDivLong\|static VarkaVectorIR
+   microsOfDay' $CG/VarkaNodeCompiler.java`: `2`.
+3. Spark's arithmetic is the one A.2 states: `grep -c 'while (boundary(MathUtils.addExact(
+   adjusted, 1L)) <= tsMicros)' sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/util/
+   DateTimeUtils.scala`: `1`. If it prints 0, Spark's raise points moved: stop.
+4. The baseline's two sections are the row path's:
+   `grep -c 'Fusion.NONE' $BJ/
+   VarkaTimestampNtzArithmeticBaselineBenchmark.java`: `2` (the two `time_bucket` sections).
+5. `awk -F'\t' '$1=="time_bucket"' sql/varka/plans/m8/census.tsv` prints the line with types
+   `ntz,ym,dt` and an empty `fused_today`.
+6. `grep -c 'static boolean isNtz' $CG/varka/VarkaTypes.java`: `1`, and its body is
+   `DataTypes.TimestampNTZType.equals(dataType)`: the arm's guard admits no nanosecond type,
+   though `TimeBucket` takes those on master too.
+7. The APIs the branch's suite calls are on master with its signatures:
+   `DateTimeUtils.timeBucketDTInterval(Long, Long, Long, ZoneId)`, `VarkaSqlResolve.column` and
+   `named` (Scala object, `$S/VarkaSqlResolve.scala`), `VarkaExpressionCompiler.compile(Seq,
+   Seq, VarkaEmitOptions)` and `declines(...)`, `VarkaDecline.reason()`, the seven-argument
+   `VarkaLoopEmitter.emit`, `VarkaKernelChecks.runAndCompareLong(String, String, byte[], List,
+   int, long[], int[], LongBatch, boolean, SparkAnswers)`, `SparkAnswers.answer(int, long[],
+   boolean[])` and `sql(int)`, `Answer.Value(long)`, `Answer.Null()`, and
+   `CompiledVarkaProjection`'s `outputs`, `inputOrdinals`, `literals`, `longLiterals`,
+   `numLiterals()` (checked by `grep -n` in each file).
+
+Not checked: that the merged code compiles on master. The first command of each part is the
+compile.
+
+### A.4 The design: `VarkaTimeCompiler.bucketStart`, written out
+
+The arm, in `VarkaTimeCompiler.arm`, beside the `TimestampAdd` case:
+
+    case TimeBucket tb when VarkaTypes.isNtz(tb.ts().dataType()) ->
+        () -> ntzTimeBucket(tb, inputs, literals, sink);
+
+`ntzTimeBucket` declines, in this order and with these texts: a width that is not a day-time
+interval, `"time_bucket by a year-month width, which needs the month of the date (row 664 of
+m9/PLAN.md)"` (the branch cites item 117 of `m9/SCOPE[.]md`, a grep pattern: change it, in the
+code and in the test
+that pins it); a width or origin that folds to null or raises, `"time_bucket's width or origin
+folds to null or raises"`; `b <= 0`, `"time_bucket by a width that is not positive"`; and
+`D % b != 0 && b % D != 0 && b > 2^51`, `"time_bucket by a width past 2^51 microseconds that
+neither divides a day nor is whole days"`. Then `bucketStart(t, b, o, sink)` over the long
+operand `t`:
+
+    windowed = D % b != 0 && b % D != 0
+    [lo, hi] = bucketGuard(b, o, windowed)                 compile-time constants
+    held  = (lo, hi) is the whole long range ? t : GuardedRange(t, lo, hi)      FAIL
+    diff  = o == 0 ? held : IntArith(SUB, FAIL, held, slot(o))
+    r     = floorMod(diff, b), by the arm below
+    kb    = b == 1 ? diff : IntArith(SUB, FAIL, diff, r)
+    start = o == 0 ? kb : IntArith(ADD, FAIL, slot(o), kb)
+
+`kb = diff - r` is `k * b`, so its checked subtraction overflows exactly where Spark's
+`multiplyExact(k, b)` does. The remainder, by width:
+
+| width | `r` | exact over |
+| :--- | :--- | :--- |
+| `b < D`, `b` divides `D` | `r1 = microsOfDay(diff)`; `r = r1 - ConstDivide(r1, b, D) * b`, wrapping | every long: `floorMod(x, b) = floorMod(floorMod(x, D), b)` |
+| `b == D` | `microsOfDay(diff)` | every long |
+| `b = n * D`, `n > 1` | `k = floorDivBounded(floorDivLong(diff, D), n, 106,751,993 + n - 1)`; `r = diff - k * b`, wrapping | every long: the true remainder is in `[0, b)` |
+| any other `b <= 2^51` | `k = floorDivBounded(diff, b, 2^52)`; `r = diff - k * b`, wrapping | `t` within `2^52 - b` of `o`; the guard declines the rest |
+
+    floorDivBounded(x, d, bound) = ConstDivide(x + ((x >> 63) & (1 - d)), d, bound)
+
+A negative `x` moves down by `d - 1`, so that the truncating division floors.
+
+    bucketGuard(b, o, windowed), in BigInteger:
+      lo = Long.MIN_VALUE; hi = Long.MAX_VALUE
+      if windowed:  w = 2^52 - b;  lo = max(lo, o - w);  hi = min(hi, o + w)
+      if b >= D:    top = Long.MAX_VALUE - b
+                    kmax = min(floorDiv(top, b), floorDiv(top - o, b))
+                    hi = min(hi, o + (kmax + 1) * b - 1)
+
+`kmax` is the greatest index whose next start, with and without the origin, is a long; a count
+from `o + (kmax + 1) * b` up is one whose next bucket Spark cannot compute, so Spark raises on
+it and the guard declines it. Edge cases: a null `t` gives null; a batch with no live row is
+answered by the masked driver's shortcut; at two 64-bit lanes the form has no mask of its own
+beyond the guards', which every long-lane guard already has.
+
+**Checked in Python** (`scratch-339/check_bucket.py` of the planning folder; the script models
+Spark's function and this lowering on exact integers, every `ConstDivide` asserting its
+bound): `time_bucket: 630220 (width, origin, value) cells over 504 divisors of a day, 5
+whole-day and 8 other widths, 9 origins: 523753 equal Spark's start, 101714 decline where
+Spark raises, 4753 decline outside the window only, 0 mismatches; 600036 datetime cells from
+year 1 to 9999 equal the cleared datetime`. The last clause is the check against Python's
+`datetime` (proleptic Gregorian, before 1970 included): an hour, a quarter-hour and a day
+bucket from the epoch equal the datetime with its lower fields cleared, which holds only
+because the remainder floors. Three planted faults fail the script: a guard one count too
+wide, a day remainder that truncates, a window one microsecond wider.
+
+### A.5 The parts
+
+Order: 339d1, then 339d2, then 339r. 339d1 goes first because 339d2's coverage rows divide by
+three new divisors, which `VarkaDivisorProofSuite` requires in `LONG_DIVISORS`, and are marked
+`Proved("long_divide.smt2")`.
+
+*Changed in fix round 2 (review 1, finding 1).* `VarkaDivisorProofSuite.everyDivisorProven`
+also fails on a proof divisor that no compiled kernel divides by and `PROVEN_ONLY` does not
+name (master's `VarkaDivisorProofSuite.everyDivisorProven`, its `stale` set against
+`PROVEN_ONLY = Set.of(-60L)`). No coverage row on master divides by `900_000_000`, `30` or
+`25_200_000_000` (`grep -c "INTERVAL '30' DAY\|INTERVAL '15' MINUTE\|INTERVAL '7' HOUR"
+sql/varka/coverage.json` prints `0`), so 339d1 alone would leave that test red. Of the review's
+two fixes this plan takes the first: 339d1 names the three divisors in `PROVEN_ONLY`, with a
+comment that says why, and 339d2 takes them out in the same commit that adds the rows that
+divide by them. Why not merge the two parts: the merged part is about 820 counted lines, over
+`BUILD_SHEETS.md` 8's stop at 900 by the estimate's own error, and it would put a solver run of
+up to 300 s per solver and the kernel's review in one pull request; kept apart, each part is
+green alone, and forgetting the revert in 339d2 fails the same test (`stale` is then `{-60}`,
+`PROVEN_ONLY` four values), so the check is the test itself.
+
+| part | title | size, counted | builder | starts from | waits on |
+| :--- | :--- | ---: | :--- | :--- | :--- |
+| 339d1 | `[VARKA-339] Prove time_bucket's remainders before its kernel` | 120 | Sonnet-class | master; `6476788b31a` | nothing |
+| 339d2 | `[VARKA-339] Fuse time_bucket of a TIMESTAMP_NTZ by a day-time width` | 710 | Sonnet-class | master after 339d1; `6476788b31a` | 339d1 |
+| 339r | `[VARKA-339] Results: TIMESTAMP_NTZ arithmetic on its kernels` | 40 | Sonnet-class | master | 339d2 |
+
+#### Part 339d1: the bucket's proofs (build sheet, fix round)
+
+- **Title:** `[VARKA-339] Prove time_bucket's remainders before its kernel`. **Branch:**
+  `varka-339d1-bucket-proofs` from master. **Builder:** Sonnet-class. **Size:** about 120
+  counted lines; `long_divide.smt2` is generated and not counted. Follow `BUILD_SHEETS.md`.
+
+**B0, the premises.**
+
+1. `grep -c 'timeBucket' $T/VarkaProofFiles.java`: `0`.
+2. `grep -c '^      1_953_125L);$' $T/VarkaProofFiles.java`: `1`, the end of `LONG_DIVISORS`
+   (the unanchored text also matches `DECIMAL_SHIFT_DIVISORS`).
+3. `grep -c 'check-sat' sql/varka/proofs/long_divide.smt2`: `2479`.
+4. `grep -c 'm10/SCOPE.md} item 116' $T/VarkaDivisorProofSuite.java`: `1`.
+5. `git cat-file -t 6476788b31a`: `commit` (where the code comes from: A.12 question 2).
+6. `grep -c 'private static final Set<Long> PROVEN_ONLY = Set.of(-60L);'
+   $T/VarkaDivisorProofSuite.java`: `1` (fix round 2).
+
+**Steps.**
+
+1. `$T/VarkaProofFiles.java`, `LONG_DIVISORS`, by hand: the last element `1_953_125L);` becomes
+
+           1_953_125L,
+           // time_bucket's divisions (VARKA-339): a 15-minute width's remainder of the time of day,
+           // 30 days' division of the day, and a seven-hour width's under its window.
+           15 * DateTimeConstants.MICROS_PER_MINUTE,
+           30L,
+           7 * DateTimeConstants.MICROS_PER_HOUR);
+
+   Do not add them to `DAY_SPLIT_DIVISORS` or `DECIMAL_SHIFT_DIVISORS`: the rule those lists
+   exempt from (where the conversion form first fails past `2^53`) is the one the branch's
+   file passed under both solvers for these three divisors, and master has not changed it.
+   `DateTimeConstants` is imported there already.
+2. Same file: after `truncDivDay(out);` add `timeBucket(out);`, and after the method that holds
+   that call add the method `private static void timeBucket(StringBuilder out)` with its
+   javadoc, word for word from `git show 6476788b31a:$T/VarkaProofFiles.java` (the 80 lines
+   that begin `  /**\n   * {@code time_bucket}'s remainder`). It renders 14 checks: two for a
+   15-minute width, three for each of 7, 30 and 365 days, and three for a seven-hour width,
+   the last of them `sat` (one past the window the moved difference reaches `2^52`). Both hunks
+   merge clean (`git diff 0b8be5a33e4 6476788b31a -- $T/VarkaProofFiles.java`, its second and
+   third hunks).
+3. `$T/VarkaDivisorProofSuite.java`, the class javadoc, by hand: after the line ending `{@code
+   m10/SCOPE.md} item 116.` add the branch's paragraph (`git diff 0b8be5a33e4 6476788b31a --
+   $T/VarkaDivisorProofSuite.java`, its 8 added lines, beginning ` * <p>One long-lane division
+   is open too`), unchanged: its last sentence "A proof for any long divisor is item 116's
+   too." reads against master's `m10/SCOPE.md` item 116.
+   Then, same file, by hand (fix round 2, review 1 finding 1): the javadoc of `PROVEN_ONLY`
+   and its line, which on master read
+
+         /**
+          * The proof's divisors that no compiled kernel divides by, each on purpose: -60 is there for
+          * the sign branch a negative divisor takes and a positive one does not. A proof divisor that
+          * stops being collected and is not named here fails, so the list cannot keep a divisor the
+          * compiler has dropped.
+          */
+         private static final Set<Long> PROVEN_ONLY = Set.of(-60L);
+
+   become
+
+         /**
+          * The proof's divisors that no compiled kernel divides by, each on purpose: -60 is there for
+          * the sign branch a negative divisor takes and a positive one does not. A proof divisor that
+          * stops being collected and is not named here fails, so the list cannot keep a divisor the
+          * compiler has dropped. time_bucket's three divisors (VARKA-339: 15 minutes, 30 days, seven
+          * hours) are proven before the kernel that divides by them; part 339d2 compiles them and
+          * takes them out of this set.
+          */
+         private static final Set<Long> PROVEN_ONLY =
+             Set.of(-60L, 900_000_000L, 30L, 25_200_000_000L);
+4. `sql/varka/proofs/README.md`, the row of `long_divide.smt2`, by hand: master's text, then
+   after `(VARKA-496)` insert `, \`time_bucket\`'s width apart, the query's literal, of which the
+   coverage rows' are proven (VARKA-339)`. The rest of master's row stays.
+5. Regenerate the proof file: `VARKA_PROOFS_REGEN=true flock "$VARKA_HEAVY_LOCK" build/sbt
+   'catalyst/testOnly *VarkaProofFilesSuite'` (README, "Constants that live in the code").
+6. `sql/varka/plans/m8/PLAN.md`, row 339: after `**Started** (` insert `*339d1 built <date>,
+   \`VARKA-339.md\` A.5: time_bucket's three remainder forms proved in long_divide.smt2;* `.
+7. `VARKA-339.md` section 10: `### 339d1 as built (<date>)`, at most 10 lines, with the two
+   solver times.
+
+**Commands, in order.**
+
+1. `flock "$VARKA_HEAVY_LOCK" build/sbt catalyst/Test/compile`: `[success]`.
+2. Step 5's regeneration; then `grep -c 'check-sat' sql/varka/proofs/long_divide.smt2` prints
+   `2841` (2479, plus 116 for each new divisor as every non-exempt divisor has, plus the 14 of
+   the new section; the branch added 362 to its base's 1919, the same count).
+3. `dev/varka_prove.sh --solver both long_divide.smt2`: a line for each solver ending `2841
+   checks <seconds> s  holds`, then `varka_prove: every proof holds under z3 cvc5`. Each
+   solver's run limit is 300 s; on the branch Z3 took 118 to 209 s and cvc5 67 to 81 s on a
+   shared laptop. A run past the limit answers `unknown` and fails: rerun once on an idle
+   machine before reporting it.
+4. `flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaDivisorProofSuite
+   *VarkaProofFilesSuite'`: no test fails. If `everyDivisorProven` fails with "the proof's
+   divisors no compiled kernel divides by should be exactly PROVEN_ONLY" (expected `[-60]`,
+   actual four values), step 3's second edit is missing or mistyped: the set must hold exactly
+   the four values written there.
+5. `BUILD_SHEETS.md` 6, the commit, `python3 dev/varka_push_check.py`.
+
+**Planted fault.** In the method's seven-hour block change `lit(-window - 1)` to `lit(-window)`:
+command 3 fails on "one past the window the moved difference reaches 2^52" (now `unsat`). The
+fault needs the regeneration of step 5 first; revert both.
+
+**Done when** commands 1 to 5 print what they say. **Not here:** `VarkaTimeCompiler`, any
+coverage row, the census. `PROVEN_ONLY` holds the three divisors only until 339d2 merges.
+
+#### Part 339d2: the kernel (build sheet, fix round)
+
+- **Title:** `[VARKA-339] Fuse time_bucket of a TIMESTAMP_NTZ by a day-time width`.
+  **Branch:** `varka-339d2-time-bucket` from master after 339d1 merged. **Builder:**
+  Sonnet-class. **Size:** about 710 counted lines (the suite is 374). Follow `BUILD_SHEETS.md`.
+  Between 901 and 999 counted lines, report the count and go on; do not trim tests.
+
+**B0, the premises.**
+
+1. A.3 items 1 to 6 print what they say.
+2. 339d1 is merged: `grep -c 'timeBucket(out);' $T/VarkaProofFiles.java`: `1`, and
+   `grep -c 'Set.of(-60L, 900_000_000L, 30L, 25_200_000_000L);'
+   $T/VarkaDivisorProofSuite.java`: `1`.
+3. `ls $T/VarkaTimestampNtzBucketSuite.java` fails.
+4. `grep -n '^time_bucket|' sql/varka/plans/m8/census_curated.txt` prints
+   `time_bucket|IVL,ntz|ntz||semantics|339|a floor division of the micros by the bucket`.
+5. `git cat-file -t 6476788b31a`: `commit`. If not, A.12 question 2 (the fork's
+   `varka-339-ntz-arith-laptop`, never its `varka-339-ntz-arith`); if still not, stop: the
+   suite and the session test are quoted from it.
+
+**Steps.**
+
+1. These files merge clean; take each with `git diff 0b8be5a33e4 6476788b31a -- <file> | git
+   apply --3way`, one at a time:
+   - `$CG/VarkaTimeCompiler.java`: the imports (`java.math.BigInteger`, `TimeBucket`,
+     `BitOp`, `BitOpKind`), the class javadoc's sentence, `BUCKET_WINDOW_MAX_WIDTH = 1L << 51`
+     and `DAY_QUOTIENT_MAGNITUDE`, the `case TimeBucket tb` arm after the `TimestampAdd` arm,
+     `foldedQuantity`'s javadoc, and the methods `ntzTimeBucket`, `bucketStart`,
+     `bucketGuard`, `CountRange`, `floorDiv(BigInteger, BigInteger)`, `floorDivBounded` (A.4;
+     the hunks are `git diff 0b8be5a33e4 6476788b31a -- $CG/VarkaTimeCompiler.java`).
+   - `$CG/varka/VarkaFamily.java`: the `TIME` family's description ends "timestampadd of a
+     TIMESTAMP_NTZ by a unit from a microsecond to a week, and time_bucket of a TIMESTAMP_NTZ
+     by a day-time width".
+   - `$T/VarkaCatalystGrammar.java`: three productions after `($0 + INTERVAL '1' MONTH)`:
+     `time_bucket(INTERVAL '15' MINUTE, $0)`, `time_bucket(INTERVAL '1' DAY, $0,
+     TIMESTAMP_NTZ'1970-01-01 06:00:00')`, `time_bucket(INTERVAL '7' HOUR, $0)`.
+   - `$T/VarkaTimestampNtzBucketSuite.java` (new, the branch's file whole).
+   - `$S/VarkaCoverageSuite.scala`: the three helper values `ntzEpoch`, `firstQuarterHour`,
+     `bucketWindow`; the four rows of the table below at the end of the family "TIMESTAMP_NTZ
+     arithmetic" (after `timestampAddMonths("YEAR", 12, "l")`); and the four `Proved` entries
+     after `"CAST(ntz AS TIME(0))" -> Proved("long_divide.smt2")`.
+   - `sql/core/src/test/java/org/apache/spark/sql/execution/VarkaDomains.java`: the entry
+     for `time_bucket(INTERVAL '15' MINUTE, ntz)` with its reason.
+   - `sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaTimestampNtzSuite.scala`:
+     the class javadoc's sentence, `bucketWindow`, four fixtures (`varka_ntz_bucket_last`,
+     `varka_ntz_bucket_least`, `varka_ntz_bucket_window`, `varka_ntz_bucket_past_window`),
+     `bucketForms`, `sevenHours`, and the test "time_bucket runs on the kernel at the date
+     guard's ends, and the seven-hour bucket at its window's; a day bucket whose next start
+     leaves the long raises from the row engine, and an hour bucket of the same value answers".
+   - `dev/varka_census.py`: `"time_bucket": "TimeBucket",` at the end of `VIA`.
+   - (fix round 2, review 1 finding 1) `$T/VarkaDivisorProofSuite.java`, by hand: the two
+     lines `private static final Set<Long> PROVEN_ONLY =` and
+     `Set.of(-60L, 900_000_000L, 30L, 25_200_000_000L);` become the one line
+     `private static final Set<Long> PROVEN_ONLY = Set.of(-60L);`, and in its javadoc the
+     sentence that begins "time_bucket's three divisors (VARKA-339" and ends "takes them out of
+     this set." is deleted, so the javadoc is master's again. The four coverage rows now divide
+     by `900_000_000` (15 minutes), `30` (30 days) and `25_200_000_000` (seven hours); the day
+     row divides by `NTZ_DAY_ODD`, already listed.
+2. The decline text, by hand, in two places of `VarkaTimeCompiler` and one of the suite: in
+   `ntzTimeBucket` the string becomes `"time_bucket by a year-month width, which needs the month
+   of the date (row 664 of m9/PLAN.md)"` and its javadoc's item 117 (grep `SCOPE[.]md`)
+   becomes `(row 664 of {@code m9/PLAN.md})`; in the suite's test `declines`,
+   the `contains` of `SCOPE[.]md item 117` (a grep pattern) becomes `contains("row 664 of
+   m9/PLAN.md")`.
+3. The list files, by hand:
+   1. `sql/core/src/test/java/org/apache/spark/sql/execution/VarkaAnsiForm.java`: in the list
+      that ends `"CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)")) {` add `,
+      "time_bucket(INTERVAL '7' HOUR, ntz)"` after that last element (the false-AND list:
+      each entry gets `FALSE_AND`).
+   2. `$BJ/VarkaTimestampNtzArithmeticBaselineBenchmark.java`:
+      the two `time_bucket` sections' `Fusion.NONE` become `Fusion.WHOLE`; in the class
+      javadoc the three sentences that begin "Step 2 fuses the chain" and end "time the fused
+      code." become "Every section is {@code WHOLE}: the steps of VARKA-339 fuse them all, so
+      the same class and the same labels time the fused code."; the rest of master's javadoc
+      (from "A {@code WHOLE} section must also run as a kernel") stays as it is.
+   3. `sql/varka/fuzz/expected_errors.tsv`: the two `ARITHMETIC_OVERFLOW` lines merge clean
+      from the branch (their family list gains `;TIMESTAMP_NTZ arithmetic`, and the LEGACY
+      line's reason gains "; time_bucket over an NTZ value raises it in every mode where the
+      difference from the origin, the bucket's offset or, under a day, its start leaves the
+      long (VARKA-339)"). The `java.lang.ArithmeticException` line takes the branch's text
+      (its reason gains ", and so does a time_bucket start of a day or more"); master's
+      `INVALID_PARAMETER_VALUE.BIT_POSITION_RANGE` line after it stays.
+   4. `sql/varka/matrix/skips.tsv`: append the branch's two `checkIntOverflow=false` lines at
+      the end of the file, unchanged (`git show 6476788b31a:sql/varka/matrix/skips.tsv | grep
+      'time_bucket\|VarkaTimestampNtzBucketSuite'`).
+   5. `sql/varka/plans/m8/census_curated.txt`: the one line of B0 item 4 becomes
+
+          time_bucket|ym!,dt,ntz|ntz|dt,ntz|done|339|the bucket's remainder by the time of day, the day or one bounded division; a year-month width is out of milestone 8 by the owner's answer of 27 October 2026 (VARKA-339.md 8, row 664 of m9/PLAN.md)
+
+      and no other line moves (master's `hash` and `xxhash64` lines are not the branch's).
+4. Do not take the branch's `docs/sql-varka.md`, `coverage.json`, `emitted_bytes.json`,
+   `width_audit.json`, `census.tsv`, `long_divide.smt2`, `PLAN.md` or `VARKA-339.md` hunks.
+5. `sql/varka/plans/m8/PLAN.md`, row 339: after `**Started** (` insert `*339d2 built <date>,
+   \`VARKA-339.md\` A.5: time_bucket of a TIMESTAMP_NTZ by a day-time width fuses;* `.
+6. `VARKA-339.md` section 10: `### 339d2 as built (<date>)`, at most 15 lines.
+
+**The coverage rows** (family "TIMESTAMP_NTZ arithmetic", `$S/VarkaCoverageSuite.scala` of the
+branch, its hunk at line 1177):
+
+| row | note | domain |
+| :--- | :--- | :--- |
+| `time_bucket(INTERVAL '15' MINUTE, ntz)` | a width that divides a day takes the remainder through the time of day, exact over every long | `ntz >= $ntzEpoch - INTERVAL '$firstQuarterHour' DAY TO SECOND` |
+| `time_bucket(INTERVAL '1' DAY, ntz, TIMESTAMP_NTZ '1970-01-01 06:00:00')` | a width of whole days through the day, an origin's start checked, the next bucket's guarded | `ntz >= CAST(date_from_unix_date(-106751991) AS TIMESTAMP_NTZ) + INTERVAL '6' HOUR AND ntz < CAST(date_from_unix_date(106751990) AS TIMESTAMP_NTZ) + INTERVAL '6' HOUR` |
+| `time_bucket(INTERVAL '30' DAY, ntz)` | the day's floor division by the days | `ntz >= CAST(date_from_unix_date(-106751970) AS TIMESTAMP_NTZ) AND ntz < CAST(date_from_unix_date(106751970) AS TIMESTAMP_NTZ)` |
+| `time_bucket(INTERVAL '7' HOUR, ntz)` | any other width by one division, the difference from the origin held to the window that division is exact over | `ntz - $ntzEpoch BETWEEN INTERVAL '${daySecond(-bucketWindow)}' DAY TO SECOND AND INTERVAL '${daySecond(bucketWindow)}' DAY TO SECOND` |
+
+**The tests.**
+
+| suite | what it holds | the failure only it catches |
+| :--- | :--- | :--- |
+| `VarkaTimestampNtzBucketSuite` (new, JUnit, `@VarkaSuite`) | `scalarForms`: the suite's scalar model of the three forms against Spark's `timeBucketDTInterval` over the 504 divisors of a day, 5 whole-day widths (`D`, 7, 30, 365 and 106,751,991 days) and 5 windowed ones (7 hours, 36 hours, 1,000,003, `D + 1`, `2^51`), at 5 origins (0, 1,622,548,800,000,000, -1, `MIN + 5`, `MAX - 5`), over the long's ends, the buckets' ends around 7 anchors and 120 seeded draws: equal where both answer, declining only where Spark raises or outside the window (more than 100,000 compared, more than 1,000 declined). `emittedForms`: the compiled and emitted kernels of 35 widths (every 23rd divisor, the last one, 15 minutes, an hour, the 5 whole-day and 5 windowed widths) at the 5 origins: one batch of every value Spark answers inside the window, each value Spark raises on or outside the window beside two served ones, which must decline. `declines`: a year-month width (text: row 664), a null width, a null origin ("folds to null"), `2^51 + 1` ("past 2^51"), while `2^51` and 106,751,991 days fuse, and a zoned `TIMESTAMP` declines | a remainder or guard one off (scalar), the compiler's guard too wide or too narrow (emitted), a decline lost |
+| `VarkaTimestampNtzSuite` (Scala) | through a session under both ANSI settings: the four forms at the date guard's ends, the seven-hour window's ends, one past it (one batch declined), and the day bucket of the last day and the hour bucket of the least long raising from the row engine | the session path and the raised error |
+| `VarkaCoverageSuite` and the harness suites | the four rows, `Proved("long_divide.smt2")` | a row that stops fusing |
+
+**Commands, in order.**
+
+1. `flock "$VARKA_HEAVY_LOCK" build/sbt catalyst/Test/compile sql/Test/compile`: `[success]`.
+2. `flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaTimestampNtzBucketSuite'`:
+   `Passed: Total 3, Failed 0, Errors 0, Passed 3` (on the branch 7.7 s).
+3. `flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaExpressionCompilerSuite'`:
+   no test fails.
+4. `dev/varka_regen_generated.sh --all` (bare): last line begins `varka regen: done`. Then
+   `grep -c '"sql" : "time_bucket(' sql/varka/coverage.json` prints `4`; the bytes check of
+   `VARKA-343.md` A.5.0 prints `bytes: 0 committed shapes moved, 8 shapes added`;
+   `git diff --exit-code -- sql/varka/proofs/long_divide.smt2` exits 0 (339d1 rendered it).
+   Then (fix round 2: `VarkaDivisorProofSuite` reads the rows from `coverage.json`, so it runs
+   only after this regeneration) `flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly
+   *VarkaDivisorProofSuite'`: no test fails. If `everyDivisorProven` fails on "should be
+   exactly PROVEN_ONLY" (expected the four values, actual `[-60]`), the `PROVEN_ONLY` edit of
+   step 1 is missing. If a stale set names one of `900000000`, `30`, `25200000000`, the row
+   that divides by it did not compile to a kernel: stop.
+5. `python3 dev/varka_census.py --check`: prints nothing; then
+   `awk -F'\t' '$1=="time_bucket"{print $5 "|" $6 "|" $8 "|" $10}' sql/varka/plans/m8/census.tsv`
+   prints `declined ym: owner's decision, 14 October 2026|ntz,dt|ntz,dt|done`. The reason
+   column's date is the script's fixed text for every `!` type (`DECLINED` in
+   `dev/varka_census.py`); the note carries this decision's own date (A.12, the known limit).
+6. `flock "$VARKA_HEAVY_LOCK" build/sbt 'sql/testOnly *VarkaTimestampNtzSuite
+   *VarkaTimestampNtzArithmeticBaselineQueriesSuite *VarkaCoverageHarnessSuite
+   *VarkaCoverageDifferentialSuite'`: no test fails.
+7. `BUILD_SHEETS.md` 6, the commit, `python3 dev/varka_push_check.py` (size under 900).
+
+**Planted faults.** (a) In `bucketGuard`, `kmax.add(BigInteger.ONE)` becomes
+`kmax.add(BigInteger.TWO)` (the guard one bucket too wide): `emittedForms` fails at a
+whole-day width, a value whose next start leaves the long answering. (b) In
+`floorDivBounded`, return `new ConstDivide(x, divisor, bound)` (no move down): `emittedForms`
+fails at a windowed width over a negative difference. `scalarForms` passes under both: it
+holds the suite's own model, not the compiler's tree; record that in the outcome.
+
+**Done when** commands 1 to 7 print what they say and the two faults fail as said.
+
+**Not here:** a year-month width (row 664 of `m9/PLAN.md`); a zoned `TIMESTAMP` (row 668);
+the nanosecond types; any change to `floorDivLong`, `microsOfDay` or `ConstDivide`.
+
+#### Part 339r: the measurement (build sheet, fix round)
+
+- **Title:** `[VARKA-339] Results: TIMESTAMP_NTZ arithmetic on its kernels`. **Branch:**
+  `varka-339r-results` from master after 339d2 merged. **Builder:** Sonnet-class; the
+  dispatches are the lead's unless the builder has `gh` rights. **Size:** results files (not
+  counted) and about 40 plan lines.
+- **B0:** `grep -c 'Fusion.NONE'
+  $BJ/VarkaTimestampNtzArithmeticBaselineBenchmark.java`
+  prints `0` (every section fuses after 339d2); `git cat-file -t 23a256d0db5` prints `commit`
+  (#1229, the baseline's own results, from before any kernel).
+- **Steps:** the results procedure of `VARKA-343.md` A.5.0 for
+  `VarkaTimestampNtzArithmeticBaselineBenchmark` (`sql/core/benchmarks`), at both widths. Diff
+  against the row path's committed files of #1229, not against master's: `python3
+  dev/varka_bench_diff.py --git 23a256d0db5
+  sql/core/benchmarks/VarkaTimestampNtzArithmeticBaselineBenchmark-jdk25-runner-epyc7763-results.txt
+  --control "spark row path"`, and the same for the `-128bit-results.txt` file.
+- **Score** 4.2 and 4.3 in section 10: the chain at least ten times the row path at 256 bits;
+  the month form at least five times; `time_bucket` at 15 minutes at least twice at 256 bits
+  and within 20% either way at 128.
+- **The two-lane rule, a number:** if a `time_bucket` section's "varka on" rate at 128 bits
+  with no nulls is under its "spark row path" rate, record it and file a row; decline nothing
+  here.
+- **Done when** the four files are committed from EPYC 7763 runs and each prediction carries
+  its score. **Not here:** code.
+
+### A.6 Tests, proofs, fuzzing and coverage
+
+| suite or file | part | what it holds |
+| :--- | :--- | :--- |
+| `long_divide.smt2`, its `time_bucket` section | 339d1 | the three remainder forms at the coverage rows' widths, the window's bound, its refutation one past |
+| `VarkaTimestampNtzBucketSuite` (new) | 339d2 | the forms against Spark, scalar and emitted |
+| `VarkaTimestampNtzSuite` | 339d2 | the session path |
+
+Fuzzing: the Spark fuzzer's grammar gains three forms (339d2); the IR fuzzer needs nothing, no
+node being new. Coverage: four rows. JaCoCo and the mutation run: not applied to this row.
+
+### A.7 Predictions registered before any run
+
+Section 4's stand. Added: the bucket suite under 10 s at the defaults (7.7 s on the branch);
+`long_divide.smt2` under Z3 at most 1.25 times master's time on the same machine (174 s
+against 147 s on the branch).
+
+### A.8 Who builds it
+
+| part | builder | why |
+| :--- | :--- | :--- |
+| 339d1 | Sonnet-class | a list, one generated section, two solver runs |
+| 339d2 | Sonnet-class | the arm merges as a diff and is written out in A.4; six list edits written out |
+| 339r | Sonnet-class | two dispatches, four files, a diff and three scores |
+
+No part is full strength: the one hard thing, the guard on the count and its equivalence to
+Spark's raise points, is built, reviewed twice on the branch, and checked again in A.4.
+
+### A.9 Risks
+
+1. The merged code may not compile on master (helpers renamed since 20 November). Held by
+   each part's first command; A.4 has the code to write it again by hand.
+2. `long_divide.smt2` near its 300 s limit under Z3 on a loaded laptop. Held by 339d1's rule
+   (rerun once on an idle machine) and A.7's prediction.
+3. The branch lived on one laptop. Held: it is on the fork since 28 November 2026 (A.12
+   question 2).
+
+### A.10 The house rules that bind this row
+
+From `sql/varka/AGENTS.md`: "A new bounded lowering comes with its proof file" (339d1 is that
+file's section); generated files are regenerated, never merged; "A pull request stays under
+1000 changed lines". Do not: take a branch's side of a list file whole; edit `census.tsv`,
+`coverage.json` or `long_divide.smt2` by hand; build the year-month or zoned forms.
+
+### A.11 Outcome
+
+To be written when the row closes.
+
+### A.12 Seams with milestone 9, and questions for the owner
+
+Seams (do not build these here):
+
+- Row 664 of `m9/PLAN.md`: the year-month width. Row 668: `time_bucket` over `TIMESTAMP_LTZ`,
+  on this kernel. Rows 660 and 661: the nanosecond types in the census.
+- Row 655 part D runs this row's baseline class again and expects 8 fused sections in the
+  arithmetic class (`VARKA-655.md` 5.4, its table); after 339d2 it is 12. That table needs the
+  number changed; 339r and part D then measure the same class, and part D's run may replace
+  339r's files.
+- Row 656 part A counts nine `isNtz` lines in `VarkaTimeCompiler.arm`; after 339d2 there are
+  ten.
+
+Questions (*changed in fix round 2, review 1 findings 4 and 10: both answered on 28 November
+2026*):
+
+1. **Who runs the measurement.** (a) This row, part 339r, before the close. (b) Row 655 part
+   D of milestone 9, this row scoring from its files; under (b) 339r is dropped, and the close
+   reads row 339 from part D's files, whose table must then read 12 fused sections of the
+   arithmetic class, not 8 (the seam above). *Recommended: (a)*, milestone 9 not having
+   started. **Answered on 28 November 2026: (a), its own part 339r before the close.**
+2. **Push `varka-339-ntz-arith` to the fork** so the parts' starting diff survives the laptop.
+   *Recommended: yes.* **Answered on 28 November 2026: done**, under the name
+   `varka-339-ntz-arith-laptop` (`6476788b31a`). The fork's own `varka-339-ntz-arith` is
+   another, older history (`d14dce887d9`): never use it. The sheets take the code from the
+   local branch `varka-339-ntz-arith` at `6476788b31a`, or, if it is gone, from `git fetch fork
+   varka-339-ntz-arith-laptop` (the one state-changing command a sheet allows for this); then
+   `git cat-file -t 6476788b31a` prints `commit`. The earlier default here, "A.4 carries the
+   code either way", was false (review 1 finding 4): A.4 carries the arm, not the 374-line
+   suite or the session test, which only the branch holds.
+
+A known limit, not a question: the census writes the reason of `time_bucket`'s `ym!` as
+"owner's decision, 14 October 2026", the script's fixed text for every `!` type (`DECLINED` in
+`dev/varka_census.py`), though this decision is of 27 October 2026; the entry's note carries
+the right date.
+
+### A.13 What only a JVM settles
+
+That the emitted kernels equal Spark (`emittedForms`), the solver runs, the regeneration, the
+option matrix, the runner results.
+
 ## 0. What exists now (admission check)
 
 From the code at `a5ed9235723` (27 October 2026; Varka paths under
@@ -528,3 +1109,124 @@ Changed in review: the time family's `timestampadd` arm claimed the month units 
 chain's order kept from the calendar arm, so it now leaves them to it and each node has one
 claimant; `MONTH_COUNT` takes a `NarrowLane` only over a `GuardedRange` inside the int range, so a
 truncating narrowing is refused; a bigint quantity off the long lane declines with a reason.
+
+*Added 28 November 2026 from branch `varka-339-ntz-arith` (`6476788b31a`), unchanged:
+the record of step 4 as built there, not merged. Where it cites item 117 of milestone 9's old scope,
+read row 664 of `m9/PLAN.md` (A.4).*
+
+### 10.2 Step 4: `time_bucket`
+
+Built 20 November 2026 on `varka-339-ntz-arith`, from master at `767dcddce50`, while the owner was
+away (see the decisions below). `varka-339-step3`, the older local branch, holds nothing master
+lacks: its diff from its merge base is #1442's, file for file.
+
+1. **The arm (2.5)** is `VarkaTimeCompiler.ntzTimeBucket` and `bucketStart`: the difference
+   checked, the remainder `floorMod(diff, b)` in one of three forms, `kb = diff - r` checked, which
+   overflows exactly where `multiplyExact(k, b)` does, and the start `o + kb` checked. A width that
+   divides a day takes the time of day (`microsOfDay`, 340's) and one `ConstDivide` under `D`; a day
+   is the time of day itself; `n` whole days take the day (`floorDivLong`), a floor division by `n`
+   under `106,751,993 + n - 1`, and `r = diff - k * b` in wrapping arithmetic, exact because the true
+   remainder is a long; any other width up to `2^51` divides the difference once under `2^52`. An
+   origin of 0 drops the difference and the sum, a width of 1 the remainder. A year-month width
+   declines by name with item 117 of the old m9 scope, as question 1 settled; a null width or
+   origin, and
+   a windowed width past `2^51`, decline. No node, lowering or option is new.
+2. **Where the plan was wrong: the guards sit on the count, not on `kb` and the start.** 2.5 put
+   the next bucket's two overflows under `GuardedRange(_, Long.MIN_VALUE, Long.MAX_VALUE - b)` on
+   `kb` and on the start, and the window on the difference. Built so, the whole-days arm with an
+   origin is 19 ops deep, past `MAX_CHAIN_DEPTH` = 16, and `time_bucket(INTERVAL '7' DAY, ntz, o)`
+   declined as over the fused budget (the emitted test found it). Both are a range of `t` instead,
+   constants of `o` and `b` (`bucketGuard`): the window is `t` within `2^52 - b` of the origin,
+   clamped to the long, and the next start leaves the long exactly where `k` passes
+   `kmax = min(floorDiv(MAX - b, b), floorDiv(MAX - b - o, b))`, which is where `t` reaches
+   `o + (kmax + 1) * b`. One guard on the leaf replaces two on the root path, and the whole-days
+   remainder's wrapping `diff - k * b` replaces 2.5's `(q1 - k * n) * D + r1`, four ops fewer.
+3. **The proofs (3.6).** `long_divide.smt2` gains `LONG_DIVISORS`' three new divisors (15 minutes,
+   30 and seven hours, each proven exact under `2^52` in both division forms, as every long divisor
+   is) and a `time_bucket` section: the divides-a-day remainder at 15 minutes as two linear lemmas
+   (the steps over a time of day wrap nowhere, and `floorMod(floorMod(x, D), b) = floorMod(x, b)`),
+   for 7, 30 and 365 days the quotient, its dividend bound and the wrapping remainder, and at seven
+   hours the window's bound, the quotient and remainder, and the bound refuted one past the window.
+   As first written, four checks stated over the wrapping steps of `x` answered unknown under cvc5
+   (Z3 proved them); restated over the floor quotient the first check proves, as `floorDivDay`
+   states the time of day, all 2,281 checks hold under both, Z3 in 118 s to 209 s for the file on
+   the shared laptop and cvc5 in 67 s to 81 s, the new section 0.2 s of it. The 504 divisors of a
+   day are the JVM's (below), not the solver's.
+4. **`VarkaTimestampNtzBucketSuite`**, new. The scalar form of the three arms is held to Spark's
+   `timeBucketDTInterval` at UTC for every divisor of a day, the whole days 1, 7, 30, 365 and
+   106,751,991 and five windowed widths (seven hours, 36 hours, 1,000,003, a day and one, `2^51`), at
+   five origins (the epoch, a held value, -1 and the long's ends five in), over the long's ends, the
+   ends of the buckets around the origin, the long's ends and the window's, and a seeded draw:
+   equal where both answer, declining exactly where Spark raises or outside the window. The emitted
+   kernels of 35 of those widths at the five origins run the same values: one batch of everything
+   Spark answers inside the window must be served, and each value it raises on, or outside the
+   window, declines in a batch of its own. The third test pins the declines. 7.7 s for the suite
+   at the defaults with bare sbt.
+5. **Coverage (3.3)**: four rows in the NTZ arithmetic family, `time_bucket` at 15 minutes, a day
+   from 06:00, 30 days and seven hours, each `Proved("long_divide.smt2")` and with its domain: the
+   first bucket start that is a long for 15 minutes, whose outside no fixture value reaches, so it
+   is listed as a total domain; for a day from 06:00 and for 30 days the counts below the first
+   bucket whose next start leaves the long (and, at 30 days, above the last whose start is a long),
+   written as `date_from_unix_date` midnights; for seven hours the window. The seven-hour row joins
+   the false-AND list, for the reason `ntz + dt` is on it; the first review put the day and 30-day
+   rows there too, and the harness found both served at that position, their entries stale.
+6. **The edges (3.4)**, in `VarkaTimestampNtzSuite`, LEGACY and ANSI: each form and an hour over
+   the date guard's ends on the kernel; the last day whose midnight is a long, plus a microsecond,
+   whose day bucket starts in range and whose next does not, raising from the row engine, and the
+   same value's hour bucket served; the least long's hour bucket, whose start is below the long,
+   raising.
+7. **The baseline**: both `time_bucket` sections are `WHOLE`, so every section of
+   `VarkaTimestampNtzArithmeticBaselineBenchmark` now fuses and its queries suite holds them to it.
+8. **The Spark fuzzer**'s grammar gains `time_bucket` at 15 minutes, a day from 06:00 and seven
+   hours; `expected_errors.tsv` adds the family to `ARITHMETIC_OVERFLOW`, which Spark raises in
+   every mode where the difference, the offset `k * b` or a start under a day leaves the long
+   (`MathUtils`); a start of a day or more goes through `instantToMicros`, whose bare overflow is
+   the family's listed `java.lang.ArithmeticException`.
+9. **The census** marks `time_bucket` done for `dt` and `ntz`, `ym!` for the declined width, and
+   `dev/varka_census.py` maps the name to `TimeBucket`.
+10. **The option matrix.** Under `checkIntOverflow=false` the checked subtract and add wrap where
+    Spark raises, so the NTZ suite's bucket test and the bucket suite's emitted test take the
+    `ntz + dt` skip line's reason. Which coverage-harness tests of the four rows need one is the
+    dispatched matrix's to say, owed with the measurement.
+
+Changed in review (`/code-review high`, a first round over the work in progress and a second over
+the result): the generated files and the proof file regenerated; the fuzzer's expected error and
+the false-AND list extended (by the seven-hour row only, as the harness then showed); the coverage rows marked proven; the guard's unreachable empty case an
+invariant of a record rather than a decline; a null origin pinned; the NTZ suite's seven-hour form
+served over its window, not the date guard's ends, which lie far outside it; the emitted test's
+declining values set beside two values the kernel serves, not beside 0 and 1, which the far
+origins' windows exclude; and `VarkaDivisorProofSuite` and the proofs' README saying that
+`time_bucket`'s divisor is the query's literal, exact by `ConstDivide`'s bound, a proof for any
+long divisor being item 116's of milestone 9's old scope file.
+
+Predictions: 4.1, no existing shape's bytes move, held for this step: `emitted_bytes.json` gains
+the four rows' shapes and only option-arm digests move. 4.4's "under 20 s" for the differential's
+new rows was not timed apart from the suites; the bucket suite takes 7.7 s and the NTZ suite's new
+test 1.7 s. Unpredicted: `long_divide.smt2` under Z3 takes 19% longer, 174 s against master's 147 s
+run side by side on the shared laptop, for its three new divisors, which leaves less room under
+`dev/varka_prove.sh`'s 300 s run limit per file.
+
+Master at `0b8be5a33e4` is merged. The regeneration after the merge was stopped partway, by the
+owner's order of 20 November 07:30 CET (compiles only from then on). Its coverage and docs steps
+changed nothing; the width audit, bytes and census steps, and the suites on the merged head, are
+owed with the review of the merge.
+
+What is owed: the measurement (step 5, 4.1 to 4.3 scored there), on the runners' EPYC 7763 at 256
+and 128 bits, which the coordinator dispatches; and the option matrix over the new and changed
+suites.
+
+### Decisions taken while the owner was away (20 November 2026)
+
+1. **A new branch from master, not `varka-339-step3`.** Its diff from its merge base is #1442's,
+   file for file, so nothing there is unmerged.
+2. **The guards moved onto the count** (10.2 item 2) rather than raising `MAX_CHAIN_DEPTH` or
+   splitting the output: the budget is the emitter's policy for every shape, and the guard on the
+   leaf is the same predicate, computed once at compile time.
+3. **The coverage rows' widths are the plan's; the origin is 06:00.** A day from the epoch would
+   put its next-start bound past every fixture value; 06:00 brings the last day's afternoon outside
+   the domain, so the row's guard is exercised both ways.
+4. **The year-month decline keeps the census's `!` mark**, whose generated reason carries the
+   decimal decision's date of 14 October; the note gives this one's, 27 October, rather than the
+   script growing a per-entry date for one entry.
+5. **Only the two skip lines the code makes certain are added**; a harness line that might not
+   fail would be stale, so the rest wait for the matrix.

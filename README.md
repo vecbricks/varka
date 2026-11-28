@@ -713,12 +713,12 @@ which live in [`sql/varka/skills/`](sql/varka/skills/)).
 ## Contributing
 
 The work is organised as milestones with a numbered task table each; the
-milestone in flight is
-[`sql/varka/plans/m8/PLAN.md`](sql/varka/plans/m8/PLAN.md),
-and its rows marked **Scoped** or **Planned** are open. Pick one, open an
-issue naming the row, and read [`CONTRIBUTING.md`](CONTRIBUTING.md) for how
+milestone in flight is named in
+[`sql/varka/plans/README.md`](sql/varka/plans/README.md),
+and its rows marked **Scoped** or **Planned** are open. Pick one, say so on
+the row's issue, and read [`CONTRIBUTING.md`](CONTRIBUTING.md) for how
 the work is done here: plans as records, numbers that trace to committed
-files, the one-command gate, and the pull request conventions. Measurements
+files, the gate, and the pull request conventions. Measurements
 from hardware the project does not have, AMD AVX2 machines and Arm in
 particular, are a contribution on their own: run `dev/varka_datapath.sh` and
 open an issue with the "Add my machine" template, and the machine joins
