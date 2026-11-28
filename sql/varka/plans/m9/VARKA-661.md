@@ -54,7 +54,7 @@ census's files, one file an entry) must not have merged: part A's B0 stops if it
 
 | row | what it reads of this row | where |
 | :--- | :--- | :--- |
-| 662, the nanosecond layout | the two registry ids, declined, with three forms each; the 28 entries and the two casts whose cells name row 662 first | `VarkaTypeId`, `VarkaTypes.entry`; `census_curated.txt`, `casts.tsv` |
+| 699, the nanosecond layout | the two registry ids, declined, with three forms each; the 28 entries and the two casts whose cells name row 699 first | `VarkaTypeId`, `VarkaTypes.entry`; `census_curated.txt`, `casts.tsv` |
 | 673, 674, 675 | the cells and the cast pairs that name each as the row that owes them; the band's rule for `timestampadd` and for six cast pairs; for a cell that Spark takes under one ANSI setting alone, the clause that says so and what a fused claim over it owes (4.3) | `census.tsv` columns `rows` and `reason`; `casts.tsv`; `PRECISION`, `reads_precision`, `alone` in `dev/varka_census.py` |
 | 658, the fan-out's template | for one entry and one nanosecond type: whether Spark takes it, under which ANSI settings, and the row that owes it (section 11) | `census.tsv` columns `types` and `reason` |
 | 677, the close | the denominators of item 4 of `m9/PLAN.md` 1.2 | `python3 dev/varka_census.py --summary` |
@@ -76,7 +76,7 @@ census's files, one file an entry) must not have merged: part A's B0 stops if it
   declined band, an owner's decision, a function Spark itself rejects over the type, or a named
   row of the next milestone." After part C a function Spark rejects under both ANSI settings
   carries `Spark rejects <type>: <condition>` in the census's reason column, and every other
-  cell of the two types names row 662, 673, 674 or 675. Check: 5.3, commands 5 and 6.
+  cell of the two types names row 699, 673, 674 or 675. Check: 5.3, commands 5 and 6.
 - **G5**, only through rows 658, 673 and 674: a fan-out task is one entry and one type, and
   this row fixes which (entry, type) cells exist and who owes each.
 - **G6 and G7**, only through later rows: the post quotes the census, and G7's nanosecond bars
@@ -354,16 +354,16 @@ which the interim rule strips.
   `TIMESTAMP_LTZ(9)`; three forms, precision 7, 8 and 9 in this order; no lanes;
   `Conformance.NotLanded`; the admission `Declined`, with the decision text
   `its value is two words, the microseconds and the nanoseconds within one, which no kernel
-  reads before row 662`. A column of the type then declines by name, as `TIMESTAMP` did:
+  reads before row 699`. A column of the type then declines by name, as `TIMESTAMP` did:
   `a timestamp_ntz(7) column: its value is two words, ...`.
 - **`Declined`, not `Owed`.** `VARKA-660.md` 6.4 fixes `declined` in `types.tsv`, and the fuzz
-  descriptor's `declined(id)` needs it (fact 16). Row 662 turns it, as row 656 turned
+  descriptor's `declined(id)` needs it (fact 16). Row 699 turns it, as row 656 turned
   `TIMESTAMP`.
 - **The storage is `plain(64)`.** `VARKA-660.md` 6.6 left the storage to this plan, and its
-  4.9 gives "the registry's storage of the two types, the Arrow struct in and out" to row 662.
+  4.9 gives "the registry's storage of the two types, the Arrow struct in and out" to row 699.
   So this row adds no storage kind. It registers the one layout that Spark's standard mapping
   has, eight bytes (fact 17), which is what `VarkaTypesSuite` checks an entry against, and its
-  comment says that the cache's struct of two vectors is row 662's to register. The docs'
+  comment says that the cache's struct of two vectors is row 699's to register. The docs'
   support table then prints `plain` in the Lanes column of the two types, as it printed for
   `ltz` before row 656. A new `Storage` record now would add a case to `Storage.bits()`, to
   `VarkaTypes.outputWidth` and to `VarkaTypesSuite.storageName` that no kernel and no test
@@ -408,7 +408,7 @@ types: two precisions, two kinds, or a microsecond type beside a nanosecond one.
 one of two things with it. It rejects the call, and then no plan holds it. Or its coercion
 puts a cast over the narrower operand (`findWiderDateTimeType`, fact 28), and then the entry's
 node reads two operands of one type: the plan is the entry's same-type cell behind a cast, and
-the cast is a pair of `casts.tsv`, which row 674 owes. So rows 662, 673 and 675 fuse an entry
+the cast is a pair of `casts.tsv`, which row 674 owes. So rows 699, 673 and 675 fuse an entry
 over one type, and a mixed call fuses when its cell and its cast pair both do; nothing of it
 is a cell of its own. The suite holds the premise in a test of its own, "two timestamps of
 two types reach an entry as one type, behind a cast": it asks the five calls that SPARK-57454
@@ -625,7 +625,7 @@ the parser, so the probe sets it (5.1, step 5).
 20 pairs. A nanosecond type's own pair is no identity: it is a cast between two precisions.
 By proof: the 10 pairs that read the zone are the zone sweep's, `date` to `ntz_ns` is
 exhaustion, the other 9 are SMT. By row: every pair is row 674's, and `ntz_ns` to `ntz` and
-`ltz_ns` to `ltz` read `662,674`. The semantics column of `casts.tsv` is `ns_cast_kind`'s
+`ltz_ns` to `ltz` read `699,674`. The semantics column of `casts.tsv` is `ns_cast_kind`'s
 text, in `VARKA-660.md` 6.1, edit 10. The probe gains 102 lines: 6 within each type, 9 each
 way between the two, 9 each way between each type and `time`'s three forms, and 3 each way
 between each type and each of `date`, `ntz` and `ltz`.
@@ -706,8 +706,8 @@ from part C. The suite's failures are five texts:
 
 | excluded | the row that holds it |
 | :--- | :--- |
-| the Arrow struct in and out, the storage kind of two vectors, the conformance suites, the coverage columns, the layouts | 662 |
-| any fused cell or cast pair of the two types | 662, 673, 674, 675 |
+| the Arrow struct in and out, the storage kind of two vectors, the conformance suites, the coverage columns, the layouts | 699 |
+| any fused cell or cast pair of the two types | 699, 673, 674, 675 |
 | the coverage rows that the band asks for at each precision, and their fixture values | 674, 675 (`VARKA-660.md` section 7) |
 | the nanosecond baseline classes | 655 |
 | the census's files as one file an entry | 696 |
@@ -721,9 +721,9 @@ Four pull requests, one after the other. No two can be built side by side: each 
 
 | part | title | branch | needs | gives | counted lines, estimate |
 | :--- | :--- | :--- | :--- | :--- | ---: |
-| A | `[VARKA-661] Bring the nanosecond timestamps into the type registry and the cast matrix` | `varka-661a-nanos-types` | this plan merged; row 654's parts a and b | the two ids, declined; `ntz_ns` and `ltz_ns` in the census's order; the 20 cast pairs and the 102 probe lines. Rows 662 and 674 read it | 250 |
+| A | `[VARKA-661] Bring the nanosecond timestamps into the type registry and the cast matrix` | `varka-661a-nanos-types` | this plan merged; row 654's parts a and b | the two ids, declined; `ntz_ns` and `ltz_ns` in the census's order; the 20 cast pairs and the 102 probe lines. Rows 699 and 674 read it | 250 |
 | B | `[VARKA-661] Ask Spark which census entries take a nanosecond timestamp` | `varka-661b-nanos-admission` | A | `VarkaSqlResolve.check`, `VarkaNanosAdmissionSuite`, `nanos_admission.tsv`, `--asked`. Only part C reads it | 700 |
-| C | `[VARKA-661] Admit the nanosecond timestamps in the census from Spark's own answers` | `varka-661c-nanos-census` | B | the cells of the two types, each with its row or its reason; the rule that either ANSI setting admits; `timestamp_nanos` and `unix_nanos` in scope. Rows 662, 673, 674, 675, 658 and 677 read it | 280 |
+| C | `[VARKA-661] Admit the nanosecond timestamps in the census from Spark's own answers` | `varka-661c-nanos-census` | B | the cells of the two types, each with its row or its reason; the rule that either ANSI setting admits; `timestamp_nanos` and `unix_nanos` in scope. Rows 699, 673, 674, 675, 658 and 677 read it | 280 |
 | D | `[VARKA-661] Hold a nanosecond claim to each precision where the answer depends on it` | `varka-661d-nanos-band` | C | the band; the upkeep in the skills; the row **Done**. Rows 674 and 675 read it | 330 |
 
 The estimates are file by file. A: the script 125 (116 added, 9 removed on the prototype),
@@ -1165,7 +1165,7 @@ again on this run's states.
 
             // The decision that declines a nanosecond timestamp until its layout is built.
             private static final String NANOS_DECLINED = "its value is two words, the microseconds "
-                + "and the nanoseconds within one, which no kernel reads before row 662";
+                + "and the nanoseconds within one, which no kernel reads before row 699";
 
      And in `entry`, as the switch's last two cases, immediately before the line `    };` that
      closes it (the third line above `  private static Storage plain(int bits) {`), at column 6:
@@ -1174,7 +1174,7 @@ again on this run's states.
             // id a kind, the precision a form (`m9/VARKA-660.md` 4.4). The storage is the eight
             // bytes of Arrow's nanosecond timestamp, which Spark's standard mapping writes
             // (`ArrowUtils.toArrowType`); the cache writes a struct of two vectors, and that
-            // layout is row 662's to register.
+            // layout is row 699's to register.
             case TIMESTAMP_NTZ_NANOS -> new Info(id, "ntz_ns", "TIMESTAMP_NTZ(9)",
                 new Admission.Declined(NANOS_DECLINED), plain(64),
                 List.of(new TimestampNTZNanosType(7), new TimestampNTZNanosType(8),
@@ -1189,13 +1189,13 @@ again on this run's states.
    - `$MJ/VarkaConditionCompiler.java`, in `nullLeaf`: as the last case of the switch over
      `id`, immediately before the line `    });` that closes it, at column 6:
 
-            // A nanosecond timestamp is two words (row 662): no lane holds its null as a value.
+            // A nanosecond timestamp is two words (row 699): no lane holds its null as a value.
             case TIMESTAMP_NTZ_NANOS, TIMESTAMP_LTZ_NANOS -> Optional.empty();
 
    - `$CJ/VarkaLaneArrow.java`: as the last case of the switch that holds the line
      `      case BOOLEAN -> new Vector(id, BitVector.class,`, at column 6:
 
-            // Two Arrow vectors a value in the cache, which no lane reads before row 662.
+            // Two Arrow vectors a value in the cache, which no lane reads before row 699.
             case TIMESTAMP_NTZ_NANOS, TIMESTAMP_LTZ_NANOS -> null;
 
    - `$TJ/VarkaFuzzTypes.java`, in `of`: as the switch's last case, at column 6:
@@ -1231,7 +1231,7 @@ again on this run's states.
             for (int p = 7; p <= 9; p++) {
               assertEquals("a timestamp_ntz(" + p + ") column: its value is two words, the "
                   + "microseconds and the nanoseconds within one, which no kernel reads before row "
-                  + "662", VarkaTypes.declineReason(new TimestampNTZNanosType(p)).orElseThrow());
+                  + "699", VarkaTypes.declineReason(new TimestampNTZNanosType(p)).orElseThrow());
               assertEquals(VarkaTypeId.TIMESTAMP_LTZ_NANOS,
                   VarkaTypes.of(new TimestampLTZNanosType(p)).orElseThrow());
             }
@@ -1437,8 +1437,8 @@ assertion.
     awk -F'\t' '$1 ~ /_ns$/ || $2 ~ /_ns$/ {print substr($8, 1, 4)}' $M9/casts.tsv | LC_ALL=C sort | uniq -c
                                     # three lines, in this order: 9 "SMT ", 1 exha, 10 zone
     awk -F'\t' '($1 ~ /_ns$/ || $2 ~ /_ns$/) && $10 != "674" {print $1, $2, $10}' $M9/casts.tsv
-                                    # ntz_ns ntz 662,674
-                                    # ltz_ns ltz 662,674
+                                    # ntz_ns ntz 699,674
+                                    # ltz_ns ltz 699,674
     grep '^cast pairs' $T/before.txt $T/after.txt   # "over the N types: N*N ordered, L legal", then N+2, its square and L+20 (14, 196, 129, then 16, 256, 149 on the prototype)
     # 5. the probe
     awk -F'\t' '$1 ~ /_ns$/ || $2 ~ /_ns$/' $M9/casts_fused.tsv | wc -l                            # 102
@@ -2584,7 +2584,7 @@ Revert the table and `census.tsv` after it. On the prototype the first command p
                                     # convert_timezone: Spark rejects ltz_ns: DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE
                                     # ntz_minus_ntz: Spark rejects ntz_ns: UNSUPPORTED_FEATURE.TIMESTAMP_NANOS_SUBTRACTION; Spark rejects ltz_ns: UNSUPPORTED_FEATURE.TIMESTAMP_NANOS_SUBTRACTION
     # 6. every cell of the two types names a row of phase 2
-    awk -F'\t' 'NR>1 && $4=="in" && (","$6",") ~ /,(ntz_ns|ltz_ns),/ && $11 !~ /(^|,)(662|67[345])(,|$)/' $M9/census.tsv | wc -l   # 0
+    awk -F'\t' 'NR>1 && $4=="in" && (","$6",") ~ /,(ntz_ns|ltz_ns),/ && $11 !~ /(^|,)(699|67[345])(,|$)/' $M9/census.tsv | wc -l   # 0
     # 7. the two names in scope
     grep -c "nanosecond timestamps, precision 7 to 9" $M9/census.tsv    # 0
     grep -P "^(timestamp_nanos|unix_nanos)\t" $M9/census.tsv | cut -f1,4,6,7,11 | tr '\t' ' '
@@ -2622,7 +2622,7 @@ Command 9's list, each ` M`: `dev/varka_census.py`, `$M9/census_curated.txt`,
   precision: `one_setting`, `alone` and `names_decline` exist, the planted difference passes
   with its clause, the plant of the first version's rule fails `--self-test`, and a note
   with the words `declines under ANSI: ` and no suite and test does not pass a fused claim.
-- [ ] Every cell of the two types names row 662, 673, 674 or 675; three entries carry
+- [ ] Every cell of the two types names row 699, 673, 674 or 675; three entries carry
   `Spark rejects` on the prediction, and none carries `Spark takes`.
 - [ ] What does not change: the cast tables, the probe, the registry, any fused cell.
 - [ ] The description lists each `default:` line, the entries no longer `done`, the day's
@@ -2774,7 +2774,7 @@ admission table or of any cell.
 - **Proof files:** none. The row adds no lowering. The cast table's proof column names row
   684's sweep for the ten pairs that read the zone.
 - **Fuzzing:** no fuzzer draws either type: `sql/varka/fuzz/types.tsv` reads `n/a` for both
-  until row 662.
+  until row 699.
 - **Coverage rows:** none. No IR record, so no registry suite of an IR node applies.
 - **JaCoCo and mutation:** not applied. The row's code is a Python script held by its
   doctests and planted faults, a test suite, a test helper and two declined registry entries.
@@ -2844,7 +2844,7 @@ probe"): the table above stays as registered. The probe and the lead's decision 
 `VARKA-660.md` section 8 registered seven predictions that this row's outcome scores: its 1
 by 5.3's command 3, its 2 by 5.1's command 4, its 3 by 5.2's command 3, its 4 by 5.4's
 commands, its 7 by part A's time of `VarkaCastMatrixSuite`; its 5 and 6 are scored later, by
-row 662 and at the close.
+row 699 and at the close.
 
 ## 8. Who builds it
 
@@ -2902,7 +2902,7 @@ None of the four is a fan-out pull request, so none has a line in row 658's ledg
     copy that is no git repository.** Held by part B's commands 5 and 6, which run the driver.
 14. **The registry says `plain`, 64 bits, for a type the cache stores as a struct.** It is
     the layout of Spark's standard mapping, which the registry's own test checks, and the
-    comment says whose the other is. Row 662 registers the struct with the kernels that read
+    comment says whose the other is. Row 699 registers the struct with the kernels that read
     it.
 15. **The census moves between this plan and the build:** a new asked entry has no call.
     Held by part B's step 7, its first rule.
@@ -3052,11 +3052,14 @@ plan could read. Assumed, each to be checked by row 658's plan:
   it merges before part A, part A stops at premise 8 and this plan is re-cut. If it is
   planned after this row, its plan takes `nanos_admission.tsv` as a sixth file of the census
   and `--asked` as the writer of its lines.
-- **Row 662** has no plan. This row hands it: the two ids, `Declined`, with `plain(64)` and
+- **Row 699** has no plan. This row hands it: the two ids, `Declined`, with `plain(64)` and
   the comment that names the struct as its own; the two cast tests of `VarkaTypeConformance`;
   the coverage column types `timestamp_ntz(7)` to `timestamp_ltz(9)`, which `column_type`
   reads; and `VARKA-660.md` 4.7's rule that a fused cell holds over the type's whole range.
-- **Rows 662, 673, 674 and 675** have no plans. This row hands each two rules of 4.3. A cell
+  *28 November 2026:* this plan named row 662 where it now names row 699. Row 662 became
+  the measurement of the representations alone (`VARKA-662.md`) and touches nothing of
+  this row; row 699 takes the ids, the struct in and out and every cell.
+- **Rows 699, 673, 674 and 675** have no plans. This row hands each two rules of 4.3. A cell
   is the entry over operands of one type: a call over two timestamps of two types reaches the
   entry behind a cast, so it fuses when the entry's cell and the cast's pair in `casts.tsv`
   both do, and the suite's fifth test pins which type Spark brings the operands to. And a
