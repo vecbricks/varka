@@ -393,6 +393,9 @@ adjectives" and "Pull requests").
 
 ## 11. Questions for the owner
 
+**Answered by the owner on 28 November 2026**: question 1 (a), "ok"; question 2 (a),
+"keep". Both are built as written.
+
 1. **The stock Spark 4.3.0 arm.** The row asks for it "through `benchmark.yml`", which builds
    the fork and cannot run a stock release. Options: (a) part 650b, the surface driver's
    `count` benchmark, as row 633 did for the math functions; (b) no stock arm: the fork with

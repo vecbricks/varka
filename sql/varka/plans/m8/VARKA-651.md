@@ -1704,7 +1704,7 @@ To be written when the row closes.
 - *Should a `count(*)` under a `HAVING` use the fused count?* Yes, matched, with a test. The
   question as it was put follows, for the record.
 
-**Open.**
+**Answered on 28 November 2026, (a)**, the question as it was put:
 
 1. **The laptop-measured files whose counted sections the flip moves** (part 3b, step 2: the
    committed files of all five classes of its table; each one's CPU line is the laptop's). A
@@ -1714,7 +1714,7 @@ To be written when the row closes.
    as stale; (b) the lead reruns those classes on the laptop when 3a has merged; (c) the
    class pins the setting off in its counted sections, so the laptop file stays true and
    measures the old plan. Recommendation: (a), then (b) at the lead's convenience: it leaves
-   no number untraceable and blocks no builder. **Default applied: (a).** The same default
+   no number untraceable and blocks no builder. **Answered: (a).** The same default
    leaves the surface files to the milestone's close (part 3b, step 3); say if the surfaces
    must be rerun inside this row.
 

@@ -101,11 +101,14 @@ One pull request: `[VARKA-652] Record the fused count's runs on an EPYC 7763`. B
    counted"; if it says partly fused, stop and report the plan the log prints.
 
 3. **Download and place the files.** `gh run download <run-id> -R vecbricks/varka`, untar.
-   - The class's 256-bit run replaces
-     `sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-results.txt` and its
-     `-provenance.txt`; the 128-bit run replaces the two `-128bit` files. The artifact writes
-     the plain names (`VarkaCountBenchmark-jdk25-results.txt`); copy each over the runner file
-     of the same width. Do not add the plain-named files.
+   - Row 650's four runner files stay as they are. The new run is added beside them under the
+     suffix `-fused-count`, so that both runs are readable without git (the owner's answer of
+     28 November 2026, section 5): the 256-bit run as
+     `sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-fused-count-results.txt` and
+     `...-fused-count-provenance.txt`, the 128-bit run as `...-fused-count-128bit-results.txt` and
+     `...-fused-count-128bit-provenance.txt` (same directory, same prefix). The artifact writes the
+     plain names (`VarkaCountBenchmark-jdk25-results.txt`); copy each to the new name of its
+     width. Do not add the plain-named files.
    - The surface run adds four files under `sql/varka/bench/benchmarks/`:
      `CountSurface-spark-4.3.0-jdk17-zen3-fused-count-results.txt`,
      `CountSurface-spark-4.3.0-jdk25-zen3-fused-count-results.txt`,
@@ -113,17 +116,18 @@ One pull request: `[VARKA-652] Record the fused count's runs on an EPYC 7763`. B
      `CountSurface-varka-jdk25-zen3-fused-count-results.txt`.
 4. **Check what the files are.**
 
-        grep -c 'cpu:.*AMD EPYC 7763' sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-provenance.txt          # 1
-        grep -c 'cpu:.*AMD EPYC 7763' sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-128bit-provenance.txt   # 1
-        grep -c 'varka (SIMD), fused count' sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-results.txt       # 3
-        grep -c 'varka (SIMD), fused count' sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-128bit-results.txt   # 2
-        grep -c 'varka (filter left to Spark)' sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-128bit-results.txt   # 1
+        grep -c 'cpu:.*AMD EPYC 7763' sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-fused-count-provenance.txt          # 1
+        grep -c 'cpu:.*AMD EPYC 7763' sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-fused-count-128bit-provenance.txt   # 1
+        grep -c 'varka (SIMD), fused count' sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-fused-count-results.txt       # 3
+        grep -c 'varka (SIMD), fused count' sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-fused-count-128bit-results.txt   # 2
+        grep -c 'varka (filter left to Spark)' sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-fused-count-128bit-results.txt   # 1
 
 5. **Read the controls before the result.** The two arms row 650 measured are in the new file
    too. Against row 650's run:
 
-        python3 dev/varka_bench_diff.py --git <sha of row 650a's merge> \
-          sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-results.txt
+        python3 dev/varka_bench_diff.py \
+          sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-results.txt \
+          sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-fused-count-results.txt
 
    The `baseline (Janino)` and `varka (SIMD)` rows are the controls: the code under them did
    not change. Two runs on this CPU differ by their own noise ("A benchmark number is
@@ -133,7 +137,7 @@ One pull request: `[VARKA-652] Record the fused count's runs on an EPYC 7763`. B
    Then the before and after inside the one file:
 
         python3 dev/varka_bench_diff.py \
-          --within sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-results.txt \
+          --within sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-fused-count-results.txt \
           --ab "varka (SIMD)" "varka (SIMD), fused count"
 
 6. **Score row 651's four predictions** (`VARKA-651.md` 7) from the 256-bit file, each yes or
@@ -144,33 +148,32 @@ One pull request: `[VARKA-652] Record the fused count's runs on an EPYC 7763`. B
    128 bits on an AMD EPYC 7763, master <sha>; ...)`, with, for each of the three sections,
    the `Relative` of `varka (SIMD)` and of `varka (SIMD), fused count` from the 256-bit file,
    and the sentence that names the figure's source for row 355: the three sections of
-   `VarkaCountBenchmark-jdk25-runner-epyc7763-results.txt`, three arms each, and, where the
-   surface was run, the "filter, counted" row of the four `-zen3-fused-count` files for the
-   bar against stock Spark 4.3.0. Fill this file's section 6.
+   `VarkaCountBenchmark-jdk25-runner-epyc7763-fused-count-results.txt`, three arms each, and,
+   where the surface was run, the "filter, counted" row of the four `-zen3-fused-count` files
+   for the bar against stock Spark 4.3.0. Fill this file's section 6.
 8. **The checks, then the closing flow** (`sql/varka/ADDING_AN_EXPRESSION.md`, "Closing a row").
 
         python3 dev/varka_quote_check.py sql/varka/plans/m8/PLAN.md sql/varka/plans/m8/VARKA-651.md   # 0 orphans
         python3 dev/varka_plan_lint.py --offline                                                     # 0 finding(s)
-        python3 dev/varka_bench_diff.py --git HEAD \
-          sql/core/benchmarks/VarkaCountBenchmark-jdk25-runner-epyc7763-results.txt --requote        # no line left
 
-   The last lists every document line that quotes a number the new run moved; row 650's note
-   quotes its own run on purpose and says so (it names its run id), so those lines stay.
+   No requote step: the run adds files and replaces none, so no number a document quotes moves.
 
-**Done when** the four runner files hold the runs after row 651, each from an EPYC 7763, the
+**Done when** four new runner files with the suffix `-fused-count` hold the runs after row
+651 beside row 650's four, each from an EPYC 7763, the
 256-bit file has three arms in each section, and row 652's note names the figure's source.
 **Not here:** no code; no change of the switch's default; no run on the laptop; no edit of row
 650's note beyond what the requote asks.
 
 ## 5. Questions for the owner
 
-1. **Where the new run goes.** Options: (a) it replaces the content of row 650's four runner
-   files, whose names plans quote; the file then holds before and after from one run, and row
-   650's own run stays in git and in its note; (b) row 650's files stay and the new run is
-   stored beside them as `VarkaCountBenchmark-jdk25-runner-epyc7763-2-results.txt` and its
-   three twins. Recommendation: (a): a before and after from one run on one machine is the
-   stronger figure, and it is how a regeneration is committed elsewhere. **Default applied:
-   (a).**
+**Answered by the owner on 28 November 2026.**
+
+1. **Where the new run goes.** The answer: "should be readable w/o git". So row 650's four
+   runner files stay, and the new run is added beside them under the suffix `-fused-count`
+   (step 3); the before and after of the post's figure are read from two files of one machine
+   model, and the third arm's before and after from the new file alone. The options were (a)
+   replace row 650's files, the baseline then only in git, or (b) new files beside them; (b) is
+   what is built.
 Decided in the text, no longer asked: the figure's source is the files step 7 names; the
 figure itself is row 355's work.
 
