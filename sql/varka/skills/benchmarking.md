@@ -6,6 +6,113 @@ One of Varka's lesson files; the index over all of them is
 [`SKILLS.md`](../../../SKILLS.md) at the repository root, which is generated from
 these files by `dev/varka_toc.py`.
 
+## Start here: which file, which CPU, which threshold, and how to show a kernel got no slower
+
+Read this section first. The sections after it are single lessons in the order they were learned;
+this one says which file, tool and rule a task needs, and names the heading that holds the detail.
+
+**1. Which file is which.** The files are in `sql/catalyst/benchmarks/` and
+`sql/core/benchmarks/`. A *results file* ends in `-results.txt` and holds the tables a benchmark
+class printed. A *provenance file* has the same name ending in `-provenance.txt`: the commit, the
+date, the JDK, the CPU and, for a CI run, the run's URL and inputs. Read its `cpu:` line before
+comparing two results files.
+
+The names after `<Class>-jdk25-` that the tree holds:
+
+* `results.txt`, `128bit-results.txt`, `provenance.txt`: the laptop's run at the default width
+  and at `-XX:MaxVectorSize=16`, written by `dev/varka_bench_regen.sh <module> <Class>`.
+* `runner-epyc7763-results.txt` and `runner-epyc7763-128bit-results.txt`, each with a provenance
+  file: a *runner results file*, a run on a GitHub-hosted runner whose CPU was checked to be an
+  AMD EPYC 7763. **A new runner file takes this spelling.**
+* `runner-7763-...`: the older spelling of the same CPU, on four classes. Kept, not renamed.
+* `runner-9v74-`, `runner-9v45-`, `runner-epyc9v45-`, `runner-8370c-`, `runner-xeon8370c-`,
+  `runner-xeon8573c-`, `runner-arm-128bit-`: a run kept from another runner CPU, named for it,
+  comparable only with a run on that CPU.
+* `runner-results.txt` with no CPU in the name: two older files; the provenance file has the CPU.
+* A number or a tag before `-results.txt` (`-2-`, `-3-`, `-m7-`): one more stored run of that
+  class on that CPU.
+* `laptop-...`: a laptop run named as one, beside runner files of its class.
+* `band.txt`, `128bit-band.txt`: the class's band, see "A band says which moves to read" below.
+
+`ls sql/*/benchmarks | grep <Class>` lists what a class has. The plain name is the laptop's
+unless the provenance file says otherwise (`VarkaCodegenBenchmark`'s holds runner sections); the
+machines are in `sql/varka/HARDWARE.md`. Do not rename a committed file: plans quote the names.
+A CI run always writes the plain name. For a class that has a runner results file, the workflow
+(`dev/varka_bench_sections.py restore`, when `sections` is set) splices the run into the runner
+file, and refuses when the run's CPU check did not pass against that CPU. For a class with no
+runner file yet, no tool names the file: rename the artifact's files by hand when committing.
+
+**2. The expected CPU.** A committed runner baseline is measured on an AMD EPYC 7763, a 256-bit
+(AVX2) machine. A run states the CPU it needs in the workflow's `expected-cpu` input:
+
+    gh workflow run benchmark.yml -R vecbricks/varka -f pr=<n> -f class=<Class> \
+      -f expected-cpu="AMD EPYC 7763" -f sections="<title one>|<title two>"
+
+(add `-f extra-java-options="-XX:MaxVectorSize=16"` for the `128bit` file; `pr` is a pull request
+of `vecbricks/varka`, and the files come back as the run's artifact, to commit by hand). The pool
+hands out other CPUs too. When the runner is another CPU, the job fails before the build, at the
+step "Probe the machine's CPU and vector datapath", with
+`CPU mismatch! Expected '...' but got '...'`. That is not a broken run:
+`.github/workflows/varka-bench-cpu-retry.yml` reruns the failed jobs an hour later, up to six
+attempts of the run in all, and only when the CPU check is the run's only failure. After
+"gave up: attempt 6 of 6 is the cap", dispatch `benchmark.yml` again: the cap counts one run's
+attempts. With `expected-cpu` blank nothing is checked, the run goes on, and the CPU is only
+recorded. A pair run (point 4) may be dispatched that way, since both of its sides run on the
+one machine it got; a run meant for a committed baseline may not. Arm: see "An Arm benchmark is
+a dispatch of `benchmark.yml`" below. Design: `plans/m8/VARKA-591.md`, `plans/m8/VARKA-599.md`.
+
+**3. Three thresholds, three decisions.** They do not compete:
+
+* *Does this claim need more than one run?* `sql/varka/AGENTS.md`, "Measurements, not
+  adjectives": "any claim resting on a ratio under ~1.3x is re-run and compared by minimums
+  before it is written down". This is about a ratio you want to quote (a gain, or a tie).
+  The pair run is that re-run: its `best` column is the comparison by minimums.
+* *Is this row slower?* `dev/varka_bench_pair.sh`: "exits 1 if any row is slower by --threshold
+  percent or more by both" the median and the best run, default 10, and the workflow's
+  `threshold` input has the same default. This decides "no row got slower". Raise it only for a
+  class whose own A/A pair (`base=HEAD`) moves more, and say so.
+* *Which rows of a diff do I read?* `dev/varka_bench_diff.py --threshold`, default 3: it only
+  marks rows, and the tool always exits 0. A class with a band file is read against the band.
+
+**4. Show that a kernel got no slower.** Find the class that times the kernel ("Before pricing a
+shape, look for the benchmark that already priced it"), open the pull request, then:
+
+    gh workflow run benchmark.yml -R vecbricks/varka -f pr=<n> -f pair=true \
+      -f class=<Class> -f rounds=5
+
+`class` is a bare class name (several, separated by commas, are one job each). `base` blank is
+the merge base with `vecbricks/varka` master; `-f base=<sha or branch>` names another base, and
+`-f base=HEAD` pairs the head with itself (an A/A run: the runner's own spread for the class).
+`rounds` defaults to 3; above three the pair stops early once every row is within 3%. The
+verdict is on the job's summary page and in `summary.md` of the artifact
+`benchmark-pair-1-<Class>` (`gh run download <run-id> -R vecbricks/varka`), beside `pair.log` and
+every round's files. Read it so:
+
+* `pass: no row slower by 10% by both the median and the best`: the claim holds.
+* The job ended "failure" and the summary has a table: this is the pair's verdict, not a broken
+  run. A row marked `<-- slower` moved by both measures. Read that row against the class's A/A
+  pair, or run the pair again, before calling it a regression.
+* `no table: the pair did not reach its comparison`: the run is broken; read `pair.log`.
+
+On the laptop the same tool is `dev/varka_bench_pair.sh <module> <Class>` (its header lists the
+options). The detail and the traps: "Regenerate the section you changed, and ask a pair of runs"
+and "A runner pair that fails can still report a pass" below.
+
+**5. Two rules of 28 November 2026.** The evidence is the note of that date in row 348 of
+`plans/m8/PLAN.md`.
+
+* *Before chasing a regression between two committed runs of a class, line up every stored run
+  of that class on that CPU.* One run can be the outlier. Of the five 256-bit EPYC 7763 runs of
+  `VarkaDecimalBaselineBenchmark` stored since 10 November 2026, the run of 19 November was 6% to
+  8% faster than the other four, and no commit divided them: a drop of 21% to 25% read against
+  that one run was the run, not the code. `git log --format='%h %ad' --date=short -- <file>`
+  lists the commits that stored a run, and `dev/varka_bench_diff.py --git <rev> <file>` compares
+  the file at one of them with the one in the tree.
+* *Score a kernel by a pair run, and know the pair's noise.* Two pair runs on an EPYC 7763
+  read the Varka arm 2% to 3% lower by the geometric mean of 166 rows, and the two sides of one
+  of them differed in plan and results files only. So a geometric mean within 3% is the pair's
+  own noise, and one row can move far more (up to 14%, row 705 of the same plan).
+
 ## A benchmark that reuses `repeats` for wall-clock scaling must also scale its declared row count
 
 `Benchmark`'s Rate/Per-Row columns divide the measured time by the row count passed to its
