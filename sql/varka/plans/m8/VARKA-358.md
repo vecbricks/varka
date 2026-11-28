@@ -708,10 +708,6 @@ to score on the EPYC 7763 at 256 and at 128 bits:
    is the one question of the three plans on the matter: `VARKA-356.md` 12.7 and
    `VARKA-357.md` section 10 point here. An answer of (b) reverts 356b and the five new
    members' owners, one token each.
-   **Answered in part on 28 November 2026.** The owner was asked about master's `ASIN`, `ACOS`
-   and `ATAN` and answered (b): they keep `StrictMath`, and 356b is not built. He was not
-   asked about the five new members. Until he is, they name the class Spark's code names, (a),
-   as written in this plan; if he answers (b) for them too, each is one token.
 2. **Is 358b, the per-port emit flags, owed for the close?** (a) No: item 5 is met by the calls
    and the ports that exist; the branch stays. (b) Yes: land `varka-358b-exp-port` rebuilt on
    master, with `mathPortExp` and `mathPortExpm1` off by default. *Recommended: (a)*, since row

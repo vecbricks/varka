@@ -866,7 +866,7 @@ and master lacks stay owed here: `atan2` (356)". Nine of the row's ten functions
 | :--- | :--- | ---: | :--- | :--- |
 | 356a2 | `atan2` as `Math.atan2(y + 0.0, x + 0.0)` over the two-operand call node | about 300 | Sonnet-class | 358a2 of `VARKA-358.md`, which adds `MathBinary` |
 | 356c | the exact suite on the Arm runner | about 25 | Sonnet-class | 356a2 |
-| 356b | NOT BUILT, by the owner's answer of 28 November 2026 (12.7, question 1): `asin`, `acos` and `atan` keep `StrictMath` | 0 | nobody | - |
+| 356b | `asin`, `acos` and `atan` call `Math`, as Spark's code does | about 40 | Sonnet-class | nothing: it starts from master, built by the default of 12.7, question 1 |
 
 The runner measurement of `atan2`'s section is part 358r of `VARKA-358.md`.
 
@@ -1110,10 +1110,6 @@ on the Arm runner; today that job runs `VarkaMathBindingSuite` alone.
   report. A red step on Arm is a result about that host, and what to do with it is the lead's.
 - Not here: no change to the suite, no new runner.
 
-**356b is not built.** On 28 November 2026 the owner answered question 1 of 12.7 with (b): `asin`,
-`acos` and `atan` keep `StrictMath`. The sheet below is kept as the record of what (a) would have
-been; no builder starts it.
-
 **356b, `[VARKA-356] Call Math for asin, acos and atan, as Spark's code does`** (branch
 `varka-356b-math-owner`, from master; it waits on no other part and on no answer: 12.7,
 question 1, applies the default that it is built).
@@ -1140,10 +1136,9 @@ question 1, applies the default that it is built).
    `StrictMath` and rely on the build requiring JDK 25. Evidence for (a): the JDK 26 runtime
    on this laptop holds an intrinsic for `Math.sinh` that JDK 25 lacks (`VARKA-358.md` 4.1),
    so delegation is a fact of one JDK; and JDK 25's own source already names an `atan2`
-   intrinsic it does not yet implement (12.3, line 4). *Recommended: (a).* **Answered on 28 November 2026: (b)
-   for `asin`, `acos` and `atan`, which keep `StrictMath`, so 356b is not built.** Whether the
-   answer also holds for the new members is `VARKA-358.md` section 10, question 1; until the
-   owner says so, the new member `ATAN2` names `Math`, as Spark's code does.
+   intrinsic it does not yet implement (12.3, line 4). *Recommended: (a).* **Default applied:
+   (a): the new member `ATAN2` names `Math`, and 356b is built.** An answer of (b) reverts
+   356b, three tokens.
 2. **Is the Arm runner's cell (356c) part of the close?** Section 9 asks it; item 5 of 1.1 does
    not name a host. (a) Yes, 356c. (b) No, a milestone 10 row. *Recommended: (a)*: it is one
    workflow step, and `tan`, `tanh` and `cbrt` are other routines on aarch64. **Default applied:
