@@ -79,7 +79,10 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // already (VARKA-620.md 9). The lane count is pinned, so the verdicts are the same on any
     // host: four and eight long lanes are 256 and 512 bits, two are 128. The cap is pinned to
     // auto and the baked width to on, since a matrix configuration that sets a cap or bakes no
-    // lane count (the kernel then runs at the host's width) decides the verdicts itself.
+    // lane count (the kernel then runs at the host's width) decides the verdicts itself. So is
+    // the byte budget, to its default: without one (methodByteBudget 0) a kernel is capped at
+    // MAX_FUSED_NODES ops, a size bound and not the depth cap, and it refuses the 65-level chain
+    // first, under its own name (VarkaEmitterContractSuite states that cap).
     val col = new ColumnRef(0, LaneType.LONG)
     val col1 = new ColumnRef(1, LaneType.LONG)
     val lit = new LiteralSlot(0, LaneType.LONG)
@@ -97,6 +100,7 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       }
     val auto = VarkaMatrix.base.withMaxChainDepth(VarkaEmitBudget.AUTO_CHAIN_DEPTH)
       .withValidityByWidth(true).withChainCapLongBits(0)
+      .withMethodByteBudget(VarkaEmitOptions.DEFAULTS.methodByteBudget())
     def fits(root: VarkaVectorIR, options: VarkaEmitOptions): Boolean =
       VarkaLoopEmitter.fitsBudgets(java.util.List.of[VarkaVectorIR](root), 2, options)
     // The emitter and the compiler's mirror both refuse the chain, the emitter naming the cap.
@@ -137,9 +141,12 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // widening) read below the widenings, and the fold's And levels to 16. Catches: the cap
     // taken of the whole fold, a tree of two lanes; the widening or an And level counted
     // against a conjunct; a mixed comparison read as a lifted one; and the analysis and
-    // fitsBudgets drifting apart.
+    // fitsBudgets drifting apart. The byte budget is pinned to its default: the folds here hold
+    // over 130 ops, and without a byte budget a kernel is capped at MAX_FUSED_NODES of them,
+    // whatever its depth.
     val auto = VarkaMatrix.base.withMaxChainDepth(VarkaEmitBudget.AUTO_CHAIN_DEPTH)
       .withValidityByWidth(true).withChainCapLongBits(0)
+      .withMethodByteBudget(VarkaEmitOptions.DEFAULTS.methodByteBudget())
     val lit = new LiteralSlot(0, LaneType.LONG)
     val intLit = new LiteralSlot(1, LaneType.INT)
     def chain(lane: LaneType, column: Int, levels: Int): VarkaVectorIR =

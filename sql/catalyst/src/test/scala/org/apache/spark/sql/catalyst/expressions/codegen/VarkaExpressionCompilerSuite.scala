@@ -2501,7 +2501,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // follows the long vector's width. The lane count is pinned, so the verdicts are the same on
     // any host: four and eight long lanes are 256 and 512 bits, two are 128. The matrix's
     // options, with what the cap's rule reads pinned: the cap to auto, the lane count baked,
-    // and no driver's width in place of it.
+    // and no driver's width in place of it. CSE is pinned on as well: the choice reads the chain
+    // below it twice, and with sharing off the 64-level chain's dense loop is about 10.5 KB, over
+    // the 8000 HotSpot compiles, so it declines on the method budget, which is not the depth cap.
     import org.apache.spark.sql.catalyst.expressions.ShiftRight
     val x = AttributeReference("x", LongType)()
     val y = AttributeReference("y", LongType)()
@@ -2536,7 +2538,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       assert(partial.declines.asScala(0).reason === "exceeds the emitter's fused budget")
     }
     val defaults = VarkaMatrix.base.withMaxChainDepth(0).withValidityByWidth(true)
-      .withChainCapLongBits(0)
+      .withChainCapLongBits(0).withCse(true)
     for (lanes <- Seq(4, 8)) {
       val wide = defaults.withLanesOverride(lanes)
       assert(fuses(17, wide), lanes)
@@ -2577,7 +2579,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // fold's levels counted against a conjunct; and a deep conjunct taking its neighbours with
     // it. The adds wrap, so no conjunct can raise and the order rule (VARKA-380) moves nothing.
     // The cap is pinned to auto, the lane count is pinned and baked, and no driver's width
-    // stands in for it.
+    // stands in for it. The byte budget is pinned to its default: a filter is one kernel, and
+    // without a byte budget (methodByteBudget 0) a kernel is capped at MAX_FUSED_NODES ops, so a
+    // 64-level chain leaves its neighbour no op and the neighbour declines on size, not depth
+    // ("the budget mirror demotes conjuncts past MAX_FUSED_NODES to residual" states that cap).
     val x = AttributeReference("x", LongType)()
     val y = AttributeReference("y", LongType)()
     val j = AttributeReference("j", IntegerType)()
@@ -2590,7 +2595,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val intNear = GreaterThan(i, Literal(5))
     val longNear = GreaterThan(x, Literal(0L))
     val auto = VarkaMatrix.base.withMaxChainDepth(0).withValidityByWidth(true)
-      .withChainCapLongBits(0)
+      .withChainCapLongBits(0).withMethodByteBudget(VarkaEmitOptions.DEFAULTS.methodByteBudget())
     // Which conjuncts fuse, in every order of them, with the reason of each that does not.
     def check(lanes: Int, conjuncts: Seq[Expression], residual: Set[Expression]): Unit =
       for (order <- conjuncts.permutations) {
