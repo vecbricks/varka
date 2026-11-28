@@ -406,6 +406,10 @@ public final class VarkaRangeAnalysis {
       // The bits of a float and a hash step span their whole lanes.
       case VarkaVectorIR.CanonicalBits n -> VarkaValueRange.UNKNOWN;
       case VarkaVectorIR.HashStep n -> VarkaValueRange.UNKNOWN;
+      // Not tracked: a product word spans its whole long lane, and a word constant is a
+      // lowering's mask or count, which no compiled range reads.
+      case VarkaVectorIR.WideMul n -> VarkaValueRange.UNKNOWN;
+      case VarkaVectorIR.WordConst n -> VarkaValueRange.UNKNOWN;
       // A condition as a value is 0 or 1 where it is known; an unknown row is null, whose value
       // no consumer reads.
       case CondValue n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, 1);

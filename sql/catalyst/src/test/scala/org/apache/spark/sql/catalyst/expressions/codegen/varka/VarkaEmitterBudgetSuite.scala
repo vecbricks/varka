@@ -453,6 +453,13 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new IntNeg(Overflow.WRAP, new DecimalWord(0, Word.LOW, 38)), 1, 0, VarkaMatrix.base),
       (new IntNeg(Overflow.WRAP, new DecimalWord(0, Word.HIGH, 38)), 1, 0, VarkaMatrix.base),
       (new WidenDecimal(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base),
+      // A shift by a word constant, written into the code (VARKA-360), and the wide product's
+      // two words by a constant, one limb and two, which emit their lowered networks.
+      (new BitOp(BitOpKind.SHR, lc, new WordConst(63)), 1, 0, VarkaMatrix.base),
+      (new WideMul(lc, new LiteralSlot(0, LaneType.LONG), Word.HIGH, false), 1, 1,
+        VarkaMatrix.base),
+      (new WideMul(lc, new LiteralSlot(0, LaneType.LONG), Word.LOW, true), 1, 1,
+        VarkaMatrix.base),
       // A 128-bit output stored from its two words (VARKA-359).
       (new VarkaVectorIR.InterleaveDecimal(new DecimalWord(0, Word.LOW, 38),
         new DecimalWord(0, Word.HIGH, 38)), 1, 0, VarkaMatrix.base))

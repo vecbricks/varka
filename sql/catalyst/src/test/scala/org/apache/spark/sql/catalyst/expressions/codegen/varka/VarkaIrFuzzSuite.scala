@@ -437,12 +437,14 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    */
   private def drawLong(iteration: Int, drawSeed: Long = longSeed,
       base: VarkaEmitOptions = VarkaMatrix.base, nulling: Boolean = false,
-      decimal: Boolean = false, unsigned: Boolean = false): VarkaFuzzCase = {
+      decimal: Boolean = false, unsigned: Boolean = false,
+      wideProducts: Boolean = false): VarkaFuzzCase = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
     val drawn =
       if (decimal) VarkaIrGrammar.drawDecimalShape(rnd)
       else if (nulling) VarkaIrGrammar.drawNullingLongShape(rnd)
       else if (unsigned) VarkaIrGrammar.drawUnsignedLongShape(rnd)
+      else if (wideProducts) VarkaIrGrammar.drawWideProductShape(rnd)
       else VarkaIrGrammar.drawLongShape(rnd)
     VarkaLaneFuzz.drawCase(drawSeed, iteration, rnd, drawn,
       VarkaLaneFuzz.LaneSource.longLane(edgeOneIn), valueStream(drawSeed, iteration), { r =>
@@ -1222,7 +1224,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
       "BoolOutput" - "DecimalColumn" - "DecimalWord" - "NullValue" - "WidenDecimal" - "MathUnary" -
       "Fma" - "RoundToIntegral" - "InterleaveDecimal" - "CanonicalFloat" - "HashStep" -
-      "CanonicalBits" - "ConvertLane" - "CrossLane" - "ReinterpretLane"
+      "CanonicalBits" - "ConvertLane" - "CrossLane" - "ReinterpretLane" -
+      "WideMul" - "WordConst" // their own long draw (VARKA-360)
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")
@@ -1239,7 +1242,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    */
   private val outOfTheLongCorpora = Set("NullSafeEqual", "BoolColumn", "CondConst",
     "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue", "BoolOutput", "WidenDecimal",
-    "NullValue", "InterleaveDecimal")
+    "NullValue", "InterleaveDecimal",
+    "WideMul", "WordConst") // the wide products' own draw (VARKA-360)
 
   test("the long-lane generator reaches every node type that admits 64-bit lanes") {
     // The same assertion for the second corpus, against the set the IR itself defines: a node
@@ -2364,6 +2368,33 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
     if (only.isEmpty) {
       assert(unsignedDrawn > 0, "the unsigned draw drew no unsigned comparison")
+    }
+    reportSkipped()
+  }
+
+  // The wide product and the word constant (VARKA-360): their own draw at the long lane, run
+  // against the reference evaluator's Math.multiplyHigh; the committed draws hold neither.
+  private val wideProductSeed = sys.props.get("varka.fuzz.seed").map(_.toLong)
+    .getOrElse(VarkaIrGrammar.WIDE_PRODUCT_FUZZ_SEED)
+
+  test(s"random long-lane IR trees with wide products match the reference evaluator " +
+      s"(seed $wideProductSeed, $iterations iterations)") {
+    val ks = only.map(Seq(_)).getOrElse(0 until iterations)
+    var products = 0
+    var constants = 0
+    for (k <- ks) {
+      val c = drawLong(k, wideProductSeed, wideProducts = true)
+      val text = c.roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString
+      if (text.contains("(wmul:")) products += 1
+      if (text.contains("wconst:")) constants += 1
+      runChecked(c)
+    }
+    if (only.isEmpty) {
+      assert(products > 0 && constants > 0, s"drew $products products and $constants constants")
+      val committed = (0 until 200).map(k => drawLong(k)).flatMap(_.roots.asScala)
+        .map(r => VarkaVectorIR.canonical(r))
+      assert(!committed.exists(t => t.contains("(wmul:") || t.contains("wconst:")),
+        "the committed long draw reaches a wide product or a word constant")
     }
     reportSkipped()
   }

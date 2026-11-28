@@ -86,7 +86,7 @@ import org.apache.spark.sql.types.Decimal;
  */
 public sealed interface VarkaVectorIR
     permits VarkaVectorIR.ColumnRef, VarkaVectorIR.DecimalColumn, VarkaVectorIR.DecimalWord,
-            VarkaVectorIR.LiteralSlot,
+            VarkaVectorIR.LiteralSlot, VarkaVectorIR.WordConst,
             VarkaVectorIR.NullValue,
             VarkaVectorIR.AddDays, VarkaVectorIR.SubDays, VarkaVectorIR.DateDiff,
             VarkaVectorIR.IfElse, VarkaVectorIR.CondValue, VarkaVectorIR.BoolOutput,
@@ -94,7 +94,8 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.WeekDay, VarkaVectorIR.DayOfWeekIso,
             VarkaVectorIR.NextDay, VarkaVectorIR.ThursdayOf, VarkaVectorIR.Chrono,
             VarkaVectorIR.AddMonths, VarkaVectorIR.MakeDate,
-            VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
+            VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.WideMul,
+            VarkaVectorIR.ConstDivide,
             VarkaVectorIR.BoundedDivide, VarkaVectorIR.BitOp, VarkaVectorIR.BitCount,
             VarkaVectorIR.MathUnary, VarkaVectorIR.Fma, VarkaVectorIR.RoundToIntegral,
             VarkaVectorIR.Cond, VarkaVectorIR.CanonicalFloat, VarkaVectorIR.CanonicalBits,
@@ -188,7 +189,9 @@ public sealed interface VarkaVectorIR
       case DecimalColumn n -> n.lane();
       case DecimalWord n -> LaneType.LONG;
       case LiteralSlot n -> n.lane();
+      case WordConst n -> n.lane();
       case IntArith n -> n.left().laneType();
+      case WideMul n -> LaneType.LONG;
       case IntNeg n -> n.child().laneType();
       case ConstDivide n -> n.child().laneType();
       case BoundedDivide n -> LaneType.INT;
@@ -368,12 +371,12 @@ public sealed interface VarkaVectorIR
           lanes.add(c.laneType());
         }
       }
-      case LiteralSlot _, BoolColumn _, CondConst _, DecimalColumn _, DecimalWord _,
-          NullValue _ -> { }
+      case LiteralSlot _, WordConst _, BoolColumn _, CondConst _, DecimalColumn _,
+          DecimalWord _, NullValue _ -> { }
       case WidenLane _, NarrowLane _, ConvertLane _, WidenDecimal _, InterleaveDecimal _,
           AddDays _, SubDays _,
           ReinterpretLane _, AddMonths _,
-          MakeDate _, IntArith _, IntNeg _, GuardedDay _, GuardedRange _, NextDay _,
+          MakeDate _, IntArith _, IntNeg _, WideMul _, GuardedDay _, GuardedRange _, NextDay _,
           TruncDateDynamic _,
           DateDiff _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
@@ -416,12 +419,13 @@ public sealed interface VarkaVectorIR
           && needsNarrowSpecies(c, seen);
       case ColumnRef c -> c.laneType().isNarrow();
       case LiteralSlot l -> l.laneType().isNarrow();
-      case BoolColumn _, CondConst _, DecimalColumn _, DecimalWord _, NullValue _ -> false;
+      case BoolColumn _, CondConst _, DecimalColumn _, DecimalWord _, NullValue _,
+          WordConst _ -> false;
       case NarrowLane n -> n.target().isNarrow() || needsNarrowSpecies(n.child(), seen);
       case WidenLane _, ConvertLane _, WidenDecimal _, InterleaveDecimal _, AddDays _, SubDays _,
           AddMonths _,
           ReinterpretLane _, MakeDate _,
-          IntArith _, IntNeg _,
+          IntArith _, IntNeg _, WideMul _,
           GuardedDay _, GuardedRange _, NextDay _, TruncDateDynamic _, DateDiff _, Greatest _,
           Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _, WeekDay _, DayOfWeekIso _,
           ThursdayOf _, Year _,
@@ -509,6 +513,16 @@ public sealed interface VarkaVectorIR
   /** A {@link DecimalWord}'s rendering: {@code decw:<ordinal>:lo:p<precision>}, or {@code :hi:}. */
   private static String wordTag(DecimalWord n) {
     return "decw:" + n.ordinal() + (n.word() == Word.LOW ? ":lo" : ":hi") + ":p" + n.precision();
+  }
+
+  /** A {@link WordConst}'s rendering: {@code wconst:<value>} and its lane's tag. */
+  private static String constTag(WordConst n) {
+    return "wconst:" + n.value() + laneTag(n.lane());
+  }
+
+  /** A {@link WideMul}'s head: {@code wmul:lo} or {@code wmul:hi}, then {@code :1} for one limb. */
+  private static String mulTag(WideMul n) {
+    return "wmul:" + (n.word() == Word.LOW ? "lo" : "hi") + (n.rightOneLimb() ? ":1" : "");
   }
 
   /**
@@ -896,6 +910,35 @@ public sealed interface VarkaVectorIR
       // A leaf: its broadcast is paid once per literal, not per node.
       return new VarkaNodeProps(NEVER, false, ALL_TRUE, 0, getClass().getSimpleName() + '/' + lane,
           VarkaOperandPosition.LITERAL_FILLS, RESTRICTS_NOTHING, LongNarrowReader.NONE);
+    }
+  }
+
+  /**
+   * A constant the emitter writes into the code, not a slot of the literal table: a mask or a
+   * shift count of a lowered network (`VARKA-506.md` 2.1), which must be a constant in C2's graph
+   * for the matcher to see it. A {@link LiteralSlot} is a broadcast of a table load, so a
+   * {@code MulVL} over a limb masked by one is the emulation and not {@code vpmuludq}
+   * (`VARKA-361.md` 0.7). A lowering builds it; no compiler arm does, since a SQL literal is a
+   * slot. Its value is in the shape, as an {@link InRanges} bound is, and it is valid on every
+   * lane. Only the long lane takes one.
+   */
+  record WordConst(long value, LaneType lane) implements VarkaVectorIR {
+    public WordConst {
+      if (lane != LaneType.LONG) {
+        throw VarkaErrors.illegalArgument("a word constant is on the long lane, not " + lane);
+      }
+    }
+
+    public WordConst(long value) {
+      this(value, LaneType.LONG);
+    }
+
+    @Override
+    public VarkaNodeProps props() {
+      // A constant in the code, valid on every lane, an immediate of its operator.
+      return new VarkaNodeProps(NEVER, false, ALL_TRUE, 0,
+          getClass().getSimpleName() + '/' + lane, FILLS_NOTHING, RESTRICTS_NOTHING,
+          LongNarrowReader.NONE);
     }
   }
 
@@ -1462,6 +1505,53 @@ public sealed interface VarkaVectorIR
       return new VarkaNodeProps(new Ring.Arith(mode), checked, mode == Overflow.NULL ? OWN : STRICT,
           weight, getClass().getSimpleName() + '/' + op + '/' + mode + '/' + laneType(),
           VarkaOperandPosition.ARITH_FILLS, RESTRICTS_NOTHING, LongNarrowReader.NONE);
+    }
+  }
+
+  /**
+   * One word of the exact 128-bit product of two long values read as signed 64-bit integers
+   * (`VARKA-361.md` 2.2): {@code LOW} its low 64 bits, {@code HIGH} its high 64 bits, signed, so
+   * {@code left * right = hi * 2^64 + lo} with no wrap, since {@code |left * right| <= 2^126}.
+   * Java has no vector multiply-high, so the node is a composite: {@code VarkaDecimalLowering}
+   * lowers it, before the analysis, to a network of 32-bit limb products C2 selects
+   * {@code vpmuludq} for, and the two words of one product share that network as two nodes
+   * equal by value. The reference answers {@code a * b} and {@code Math.multiplyHigh(a, b)}.
+   *
+   * <p>{@code rightOneLimb} says {@code right} is a non-negative value below {@code 2^32}, so its
+   * high limb and the products and the sign correction it feeds are dropped. Only the compiler
+   * sets it, over a constant it knows ({@code 10^k} for {@code k <= 9}); it is in the shape, and a
+   * right operand outside that range under it answers a wrong product. Row 360 builds the node
+   * over constant multipliers, row 361 over two columns. Null-intolerant; it never overflows.
+   */
+  record WideMul(VarkaVectorIR left, VarkaVectorIR right, Word word, boolean rightOneLimb,
+      int hash) implements VarkaVectorIR {
+    public WideMul {
+      Objects.requireNonNull(word, "word");
+      if (left.laneType() != LaneType.LONG || right.laneType() != LaneType.LONG) {
+        throw VarkaErrors.illegalArgument("a wide product takes long lanes, not "
+            + left.laneType() + " and " + right.laneType());
+      }
+      // The one-limb network drops the right operand's high limb, so a constant must fit in it.
+      if (rightOneLimb && right instanceof WordConst c && (c.value() >>> 32) != 0) {
+        throw VarkaErrors.illegalArgument("a one-limb wide product's constant must be in "
+            + "[0, 2^32), not " + c.value());
+      }
+      hash = hashOf(left, right, word, rightOneLimb);
+    }
+
+    public WideMul(VarkaVectorIR left, VarkaVectorIR right, Word word, boolean rightOneLimb) {
+      this(left, right, word, rightOneLimb, 0);
+    }
+
+    @Override public int hashCode() { return hash; }
+
+    @Override
+    public VarkaNodeProps props() {
+      // Null where an operand is; the weight is its lowered network's lane calls, for a caller
+      // weighing the composite, since the emitter's grouping runs on the lowered graph.
+      return new VarkaNodeProps(NEVER, false, STRICT, VarkaDecimalLowering.laneCalls(this),
+          getClass().getSimpleName() + '/' + word + (rightOneLimb ? "/1" : ""), FILLS_NOTHING,
+          RESTRICTS_NOTHING, LongNarrowReader.NONE);
     }
   }
 
@@ -3115,6 +3205,7 @@ public sealed interface VarkaVectorIR
       case DecimalColumn n -> "dec:" + n.ordinal() + laneTag(n.lane()) + ":p" + n.precision();
       case DecimalWord n -> wordTag(n);
       case LiteralSlot n -> "lit:" + n.index() + laneTag(n.lane());
+      case WordConst n -> constTag(n);
       case AddDays n -> "(addDays " + kid.apply(n.days()) + " " + kid.apply(n.offset()) + ")";
       case SubDays n -> "(subDays " + kid.apply(n.days()) + " " + kid.apply(n.offset()) + ")";
       case GuardedDay n -> "(guardedDay " + kid.apply(n.days()) + ")";
@@ -3176,6 +3267,8 @@ public sealed interface VarkaVectorIR
           + kid.apply(n.year()) + " " + kid.apply(n.month()) + " " + kid.apply(n.day()) + ")";
       case IntArith n -> "(int:" + n.op().name() + ":" + n.mode().name() + " "
           + kid.apply(n.left()) + " " + kid.apply(n.right()) + ")";
+      case WideMul n -> "(" + mulTag(n) + " " + kid.apply(n.left()) + " "
+          + kid.apply(n.right()) + ")";
       case IntNeg n -> "(" + (n.abs() ? "abs:" : "neg:") + n.mode().name() + " "
           + kid.apply(n.child()) + ")";
       case ConstDivide n -> "(divc:" + n.divisor() + " " + kid.apply(n.child()) + ")";
@@ -3223,6 +3316,7 @@ public sealed interface VarkaVectorIR
       case DecimalColumn n -> "dec:" + n.ordinal() + laneTag(n.lane()) + ":p" + n.precision();
       case DecimalWord n -> wordTag(n);
       case LiteralSlot n -> "lit:" + n.index() + laneTag(n.lane());
+      case WordConst n -> constTag(n);
       case AddDays n -> "(addDays " + lineOf.applyAsInt(n.days()) + " "
           + lineOf.applyAsInt(n.offset()) + ")";
       case SubDays n -> "(subDays " + lineOf.applyAsInt(n.days()) + " "
@@ -3298,6 +3392,8 @@ public sealed interface VarkaVectorIR
           + lineOf.applyAsInt(n.day()) + ")";
       case IntArith n -> "(int:" + n.op().name() + ":" + n.mode().name() + " "
           + lineOf.applyAsInt(n.left()) + " " + lineOf.applyAsInt(n.right()) + ")";
+      case WideMul n -> "(" + mulTag(n) + " " + lineOf.applyAsInt(n.left()) + " "
+          + lineOf.applyAsInt(n.right()) + ")";
       case IntNeg n -> "(" + (n.abs() ? "abs:" : "neg:") + n.mode().name() + " "
           + lineOf.applyAsInt(n.child()) + ")";
       case ConstDivide n -> "(divc:" + n.divisor() + " " + lineOf.applyAsInt(n.child()) + ")";
@@ -3555,6 +3651,7 @@ public sealed interface VarkaVectorIR
       case DecimalColumn c -> new VarkaVectorIR[0];
       case DecimalWord c -> new VarkaVectorIR[0];
       case LiteralSlot l -> new VarkaVectorIR[0];
+      case WordConst w -> new VarkaVectorIR[0];
       case AddDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
       case SubDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
       case GuardedDay n -> new VarkaVectorIR[] {n.days()};
@@ -3602,6 +3699,7 @@ public sealed interface VarkaVectorIR
       case IsNotNull n -> new VarkaVectorIR[] {n.child()};
       case InRanges n -> new VarkaVectorIR[] {n.child()};
       case IntArith n -> new VarkaVectorIR[] {n.left(), n.right()};
+      case WideMul n -> new VarkaVectorIR[] {n.left(), n.right()};
       case IntNeg n -> new VarkaVectorIR[] {n.child()};
       case ConstDivide n -> new VarkaVectorIR[] {n.child()};
       case BoundedDivide n -> new VarkaVectorIR[] {n.child()};
@@ -3640,6 +3738,7 @@ public sealed interface VarkaVectorIR
       case DecimalColumn n -> n;
       case DecimalWord n -> n;
       case LiteralSlot n -> n;
+      case WordConst n -> n;
       case AddDays n -> new AddDays(children[0], children[1]);
       case SubDays n -> new SubDays(children[0], children[1]);
       case GuardedDay n -> new GuardedDay(children[0]);
@@ -3687,6 +3786,7 @@ public sealed interface VarkaVectorIR
       case IsNotNull n -> new IsNotNull(children[0]);
       case InRanges n -> new InRanges(children[0], n.bounds());
       case IntArith n -> new IntArith(n.op(), n.mode(), children[0], children[1]);
+      case WideMul n -> new WideMul(children[0], children[1], n.word(), n.rightOneLimb());
       case IntNeg n -> new IntNeg(n.mode(), children[0], n.abs());
       case ConstDivide n -> new ConstDivide(children[0], n.divisor(), n.dividendBound());
       case BoundedDivide n -> new BoundedDivide(

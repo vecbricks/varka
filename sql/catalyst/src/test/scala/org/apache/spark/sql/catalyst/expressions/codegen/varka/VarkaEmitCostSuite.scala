@@ -86,13 +86,14 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // to an integral one (`VARKA-343.md` 2.2.1). The canonicalisation is a floating node too
     // (VARKA-337 2.6), priced per floating lane at that refit, and so are a canonical value's
     // bits and the hash steps, per step, and the reinterpretation, whose one side is floating
-    // too (`VARKA-345.md` 10.2).
+    // too (`VARKA-345.md` 10.2). The word constant and the wide product (VARKA-360): the
+    // grouping walks a product's lowered network, word constants and all.
     val awaitingRefit = Set("NullSafeEqual", "BoolColumn", "CondConst", "BoolCompare", "CondIf",
       "BoolNullSafeEq", "CondValue", "BoolOutput", "DecimalColumn", "DecimalWord", "NullValue",
       "WidenDecimal", "InterleaveDecimal", "MathUnary", "Fma", "RoundToIntegral",
       "CanonicalFloat", "ConvertLane",
       "CrossLane", "CanonicalBits", "HashStep", "ReinterpretLane", "Compare/ULT",
-      "Compare/ULE", "Compare/UGT", "Compare/UGE")
+      "Compare/ULE", "Compare/UGT", "Compare/UGE", "WordConst", "WideMul")
     assert(awaitingRefit.forall(t => !expected.exists(f => f == t || f.startsWith(t + "/"))),
       s"${awaitingRefit.toSeq.sorted} is priced: take it off the list of nodes awaiting a refit")
     val unnamed = irTypes().filterNot(awaitingRefit.contains)

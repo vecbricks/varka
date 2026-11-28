@@ -1023,6 +1023,10 @@ final class Analysis {
         case CanonicalFloat n -> { }
         case CanonicalBits n -> { }
         case HashStep n -> { }
+        // A product never reaches here, lowered first (analyzeRoot throws); a constant checks
+        // nothing.
+        case VarkaVectorIR.WideMul n -> { }
+        case VarkaVectorIR.WordConst n -> { }
         case Compare n -> { }
         case NullSafeEqual n -> { }
         case BoolColumn n -> { }
@@ -1639,6 +1643,12 @@ final class Analysis {
         height.put(node, 0);
         skipping.put(node, false);
       }
+      // A constant in the code, a lowering's mask or count: a literal without a slot.
+      case VarkaVectorIR.WordConst w -> {
+        columns.put(node, 0L);
+        height.put(node, 0);
+        skipping.put(node, false);
+      }
       case AddDays n -> {
         analyzeOp(node, false, n.days(), n.offset());
       }
@@ -1766,6 +1776,8 @@ final class Analysis {
       case CanonicalBits n -> analyzeOp(node, false, n.child());
       // Known over a null word, the seed passing through: a null-skipping node.
       case HashStep n -> analyzeOp(node, true, n.seed(), n.word());
+      case VarkaVectorIR.WideMul n -> throw VarkaErrors.illegalArgument("a wide product reaches "
+          + "the analysis unlowered (VarkaDecimalLowering.lowerAll): " + node);
       case ConstDivide n -> {
         // A division by a non-zero constant cannot overflow or null a lane, so it carries no
         // overflow mode and joins no validity: it is its child's word exactly, the way

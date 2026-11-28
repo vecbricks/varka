@@ -178,10 +178,11 @@ final class VarkaVectorWalk {
     // Under CSE a node visited twice has a shared slot, decided by the body's use count
     // (Slots.bodyUses). A second visit without one means the count ran low, and the walk would
     // quietly emit the node's subtree again; that is a planning error, refused here, as the
-    // word check refuses a word the liveness pass got wrong. A literal and the null of a lane
-    // are never shared (Slots), and are emitted again at each use; nor is a decimal word, whose
-    // later visits read its parked local (emitDecimalWord).
+    // word check refuses a word the liveness pass got wrong. A literal, a word constant and the
+    // null of a lane are never shared (Slots), and are emitted again at each use; nor is a
+    // decimal word, whose later visits read its parked local (emitDecimalWord).
     if (shared == null && analysis.options.cse() && !(node instanceof LiteralSlot)
+        && !(node instanceof VarkaVectorIR.WordConst)
         && !(node instanceof VarkaVectorIR.NullValue) && !(node instanceof DecimalWord)
         && !s.emittedUnshared.add(node)) {
       throw VarkaErrors.illegalState("the body visits " + VarkaVectorIR.canonicalBrief(node)
@@ -265,8 +266,18 @@ final class VarkaVectorWalk {
         emitAndValidatedOp(cb, node, n.days(), n.offset(), "sub", LANEWISE_VV,
             dense, analysis, s, computed);
       }
+      case VarkaVectorIR.WordConst w -> {
+        // A constant in the code, so C2 sees a replicated constant (VarkaDecimalLowering). Its
+        // word is all true, as a literal's is.
+        line(cb, analysis, node);
+        cb.aload(s.species(lane));
+        cb.loadConstant(w.value());
+        cb.invokestatic(lane.vector, "broadcast", lane.broadcast);
+      }
       case IntArith n -> emitIntArith(cb, n, dense, analysis, s, computed);
       case IntNeg n -> emitIntNeg(cb, n, dense, analysis, s, computed);
+      case VarkaVectorIR.WideMul n -> throw VarkaErrors.illegalState(
+          "a wide product reaches the walk unlowered (VarkaDecimalLowering.lowerAll): " + n);
       case ConstDivide n ->
           VarkaDivisionLowering.emitConstDivide(cb, n, dense, analysis, s, computed);
       case BoundedDivide n -> {
@@ -1495,6 +1506,10 @@ final class VarkaVectorWalk {
   private static void emitBitOp(CodeBuilder cb, BitOp n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
     emitValue(cb, n.left(), dense, analysis, s, computed);
+    if (n.right() instanceof VarkaVectorIR.WordConst w) {
+      emitBitOpByConstant(cb, n, w, dense, analysis, s);
+      return;
+    }
     emitValue(cb, n.right(), dense, analysis, s, computed);
     line(cb, analysis, n);
     // The logical operators are declared Associative and the shifts Binary, and a getstatic
@@ -1511,6 +1526,33 @@ final class VarkaVectorWalk {
     cb.swap();
     Lane lane = analysis.laneOf(n);
     cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseBinaryV());
+    if (!dense && s.ownWord.contains(n)) {
+      emitAndWord(cb, s, s.wordRef.get(n), s.wordRef.get(n.left()), s.wordRef.get(n.right()));
+    }
+  }
+
+  /**
+   * A {@link BitOp} whose right operand is a {@link VarkaVectorIR.WordConst}, a lowering's mask
+   * or count, as {@code lanewise(op, long)}: the Vector API takes a shift to its scalar-count
+   * form and a logical operator to a broadcast of the constant. Both leave the constant a
+   * constant in C2's graph, a shift's count an {@code RShiftCntV} of a constant and a mask a
+   * replicated one, the two forms {@code MulVLNode::has_uint_inputs} reads (`VARKA-361.md` 0.7).
+   * The constant's word is all true, so the node's is the left operand's.
+   */
+  private static void emitBitOpByConstant(CodeBuilder cb, BitOp n, VarkaVectorIR.WordConst w,
+      boolean dense, Analysis analysis, Slots s) {
+    line(cb, analysis, n);
+    Lane lane = analysis.laneOf(n);
+    switch (n.op()) {
+      case AND -> cb.getstatic(VECTOR_OPERATORS, "AND", VO_ASSOCIATIVE);
+      case OR -> cb.getstatic(VECTOR_OPERATORS, "OR", VO_ASSOCIATIVE);
+      case XOR -> cb.getstatic(VECTOR_OPERATORS, "XOR", VO_ASSOCIATIVE);
+      case SHL -> cb.getstatic(VECTOR_OPERATORS, "LSHL", VO_BINARY);
+      case SHR -> cb.getstatic(VECTOR_OPERATORS, "ASHR", VO_BINARY);
+      case USHR -> cb.getstatic(VECTOR_OPERATORS, "LSHR", VO_BINARY);
+    }
+    cb.loadConstant(w.value());
+    cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseBinaryI());
     if (!dense && s.ownWord.contains(n)) {
       emitAndWord(cb, s, s.wordRef.get(n), s.wordRef.get(n.left()), s.wordRef.get(n.right()));
     }
