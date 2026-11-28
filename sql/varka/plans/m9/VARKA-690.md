@@ -456,7 +456,8 @@ program of such a node is handed a view:
     public static VarkaZoneData dataOf(VarkaVectorIR.Zoned node, VarkaZoneData zone)
     public static boolean readsLocalLine(List<Program> programs)
 
-- `dataOf` is a switch over `node` with no `default`: `zone` itself for a `ToLocal`; for a
+- `dataOf` is a switch over `node` with no `default`: `zone` itself for a `ToLocal` (row
+  689's part a makes it a view of the instant line, `VARKA-689.md` 4.6); for a
   `ToInstant` or a `ToInstantKept`, `new LocalLine(node, zone)`.
 - `LocalLine` is a private static final nested class of `VarkaBatchArgs` that implements
   `VarkaZoneData` over two final fields:
@@ -562,8 +563,9 @@ loop: right answers, low speed. What follows from 2.6:
 The declines are made by the compiler arms, from `sink.declinesTwoLaneChecks()`. The ladder
 of row 685 stops at `STEPS_2` on such a host. Under UTC and a fixed offset nothing declines:
 the fold holds no step. The owner decided on 27 November 2026 that both rules decline by name
-before any measurement. Row 689 builds their steps with no mask (4.8), and row 691 reads the
-128-bit sections and keeps or lifts the two declines. This row does not lift them.
+before any measurement. Row 689 builds their steps with no mask (4.8), measures the 128-bit
+sections with every conversion fused, and keeps or lifts the two declines by its record
+(`VARKA-689.md` 4.9 and 4.10); row 691 reads again. This row does not lift them.
 
 ### 4.8 The steps with no mask are row 689's
 
@@ -1303,7 +1305,7 @@ test that records each call's name and arguments, answers 7 from `localChanges` 
 | 10 | its program holds 1, 9 and 33 arguments | `VarkaBatchArgs.count(kept, form)` in the three forms | 1, 9, 33 | a program sized as the earlier offset's |
 | 11 | the one-offset kernel subtracts the base and is null where either operand is | `run(kept, options, longArgs, two columns, nulls)`; `longArgs` as test 4; column 0 as test 4's values; column 1 the constant 5; nulls at every seventh row of column 0 and every fifth of column 1 | `in0 - base` and valid where both are live; invalid where either is null | a validity word taken from one operand |
 | 12 | a form with steps over a ToInstantKept is refused by name | as test 5 | as test 5 | as test 5 |
-| 13 | the view of a local node counts windows, fills the node's arguments and refuses a span over LOCAL_MAX_SPAN | the stub; `dataOf(node, stub)` for `node` each of `new ToInstant(col0, 0, EARLIER)` and `kept`; `dataOf(new ToLocal(col0, 0), stub)` | the view's `changes(5, 6)` and `localChanges(5, 6)` are 7 and the stub saw `localChanges(5, 6)` twice; its `toLocalArgs(5, 6, 2, a, 1)` reaches the stub as `toInstantArgs(node, 5, 6, 2, a, 1)`; `changes(-LOCAL_MAX_SPAN / 2 - 1, LOCAL_MAX_SPAN / 2 + 1)` and `changes(Long.MIN_VALUE, Long.MAX_VALUE)` are `MANY` and reach no stub method; `changes(0, LOCAL_MAX_SPAN)` is 7; the view's `toInstantArgs` throws `IllegalArgumentException`; for the `ToLocal` the stub itself comes back; `readsLocalLine` is true for a layout of `kept` and false for one of the `ToLocal` | a local program filled from the instant line |
+| 13 | the view of a local node counts windows, fills the node's arguments and refuses a span over LOCAL_MAX_SPAN | the stub; `dataOf(node, stub)` for `node` each of `new ToInstant(col0, 0, EARLIER)` and `kept`; `dataOf(new ToLocal(col0, 0), stub)` | the view's `changes(5, 6)` and `localChanges(5, 6)` are 7 and the stub saw `localChanges(5, 6)` twice; its `toLocalArgs(5, 6, 2, a, 1)` reaches the stub as `toInstantArgs(node, 5, 6, 2, a, 1)`; `changes(-LOCAL_MAX_SPAN / 2 - 1, LOCAL_MAX_SPAN / 2 + 1)` and `changes(Long.MIN_VALUE, Long.MAX_VALUE)` are `MANY` and reach no stub method; `changes(0, LOCAL_MAX_SPAN)` is 7; the view's `toInstantArgs` throws `IllegalArgumentException`; for the `ToLocal` the stub itself comes back (until row 689's part a, which returns a view of the instant line there and edits this clause: `VARKA-689.md` 5.1); `readsLocalLine` is true for a layout of `kept` and false for one of the `ToLocal` | a local program filled from the instant line |
 | 14 | the production data fills each rule's program as that rule's arguments | `LA`; `least` = 1609459200000000, `greatest` = 1640908800000000 (the local year 2021); 2 steps; arrays filled with -1; `first` = 2 | `LA.toInstantArgs(node, ...)` into a `long[7]` (`EARLIER`), a `long[9]` (`GAP_END`) and a `long[11]` (`kept`) equals `LA.data().toInstantArgs(Rule.EARLIER, GAP_END or KEPT, ...)` into another, entry for entry; entries 0 and 1 stay -1; `args[2]` is -28800000000; `dataOf(node, LA).changes(least, greatest)` is 2; a `ToLocal` node still throws `IllegalArgumentException` | a rule's arguments under another rule's layout |
 | 15 | filled arguments give the one-offset kernels java.time's answers between two windows, and a batch that touches a window is declined | `filled(root, ONE, LA, least, greatest)` and `run`, for the three roots (the kept column the constant -25200000000): the eight values `1615692600000000 + j * 2400000000L`, `j` from 0 to 7 (03:30 to 08:10 local on 14 March 2021); then the pair 1615680000000000 and 1615692600000000 (00:00 and 03:30) | the first: each row is `in + 25200000000`, which `expected` also answers; the second: `filled` returns null | arguments read as an instant's: as instants the eight lie before the change and take -8 hours |
 
@@ -1587,7 +1589,16 @@ with `local` for `instant`.
 3. The column `dy` and the two coverage rows of 4.14, as part d's step 3; the first row's
    note: "the day's midnight less the zone's offset; a midnight that the clocks skipped is
    the instant of the change, as Spark's daysToMicros has it".
-4. Row 655's class, the docs' sentence ("A cast of a `DATE` to `TIMESTAMP` fuses: the day's
+4. The class's sections under the two-lane refusal: the cast declines by name there in a
+   zone with changes (4.7), and the queries suite plans every section with the refusal
+   on, so the form's sections under `America/Los_Angeles` are `Fusion.NONE` in such a
+   session. If `VarkaTimestampBaselineBase` has no `refusing` (`VARKA-689.md` 4.9 gives
+   `TWO_LANE_REFUSED_DST`, `TWO_LANE_REFUSED_FIXED` and `refusing` whole), add the three
+   with `TWO_LANE_REFUSED_DST = List.of("CAST(d@ AS TIMESTAMP)")`, and make the casts
+   class's `timed` return `refusing(grid(VIEW, forms()), declinesLongConditions)`. Part
+   f adds `"ts@ + INTERVAL '1' DAY"` to the list and the same call to the arithmetic
+   class. Then:
+   row 655's class, the docs' sentence ("A cast of a `DATE` to `TIMESTAMP` fuses: the day's
    first instant in the zone."), and the regenerations, as part d's steps 4, 5 and 7.
 5. The tests below.
 
@@ -1680,7 +1691,15 @@ included; the pair reads fused; the faults fail as named.
    of the literal is added to the instant".
 4. The census: the script of 4.14, then `python3 dev/varka_census.py`.
 5. Row 655's class (as part d's step 4, with the sections B0 printed for a literal of whole
-   days), the docs' sentence ("A `TIMESTAMP` plus a literal interval of whole days fuses: the
+   days). The sum declines by name on a two-lane host in a zone with changes (4.7), and
+   the queries suite plans every section with the refusal on, so the form's sections under
+   `America/Los_Angeles` are `Fusion.NONE` in such a session:
+   `VarkaTimestampBaselineBase.TWO_LANE_REFUSED_DST` gains `"ts@ + INTERVAL '1' DAY"` after
+   the cast's form, and the arithmetic class's `timed` returns `refusing(grid(VIEW,
+   forms()), declinesLongConditions)`. Part e's step 4 added the two lists and `refusing`;
+   if the base has none (`grep -c 'refusing(' <the base's file>` prints 0), add the three
+   from `VARKA-689.md` 4.9, whole. Then the docs' sentence ("A `TIMESTAMP` plus a literal
+   interval of whole days fuses: the
    days are calendar days in the zone, and a result in a repeated hour keeps the offset the
    value had."), and `dev/varka_regen_generated.sh --all`.
 6. The tests below. Row 688's test "a literal of a day, of minus two days, a null literal
@@ -2429,4 +2448,5 @@ and `LOCAL_MAX_SPAN` is answered (`Asia/Kathmandu`, `STEPS_2`) and the pair -1 a
 `LOCAL_MAX_SPAN` is declined by the view.
 
 **What stays undecided for row 689 and row 691.** Whether the two-lane declines of 4.7 are
-lifted once the steps with no mask exist: row 691 measures the 128-bit sections and decides.
+lifted once the steps with no mask exist: row 689's part d measures the 128-bit sections and
+its rule decides (`VARKA-689.md` 4.10); row 691 measures again with every form.

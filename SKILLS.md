@@ -15,6 +15,7 @@ the pre-commit hook also checks. Groups below are in file order.
 
 <!-- BEGIN generated contents -->
 #### [Benchmarking method](sql/varka/skills/benchmarking.md)
+* [Start here: which file, which CPU, which threshold, and how to show a kernel got no slower](sql/varka/skills/benchmarking.md#start-here-which-file-which-cpu-which-threshold-and-how-to-show-a-kernel-got-no-slower)
 * [A benchmark that reuses `repeats` for wall-clock scaling must also scale its declared row count](sql/varka/skills/benchmarking.md#a-benchmark-that-reuses-repeats-for-wall-clock-scaling-must-also-scale-its-declared-row-count)
 * [The benchmark controls are necessary and not sufficient](sql/varka/skills/benchmarking.md#the-benchmark-controls-are-necessary-and-not-sufficient)
 * [A `--rounds` probe with no nulls compiles only half the kernel](sql/varka/skills/benchmarking.md#a---rounds-probe-with-no-nulls-compiles-only-half-the-kernel)
