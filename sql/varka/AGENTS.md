@@ -33,6 +33,10 @@ a command whose result says whether the step is done. Its closing section says w
 compiler checks and which it does not; `dev/varka_new_lane.py --check <LANE>` walks the second kind
 and prints each one a lane is missing.
 
+Adding an emit option (a `VarkaEmitOptions` component) has its checklist in `ADDING_AN_OPTION.md`:
+the code edits in order, the hand-kept lists, the regeneration, and a search that shows nothing
+was missed.
+
 ## Open work is recorded, never left as a marker
 
 **The Varka code carries no `TODO` or `FIXME` comments, and should not start.**
