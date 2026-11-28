@@ -179,6 +179,9 @@ varka_docs_regexes = (
     r"\.github/ISSUE_TEMPLATE/varka-",
     r"docs/sql-varka\.md$",
     r"sql/varka/[^/]+\.md$",
+    # The detail files behind the pointers of sql/varka/AGENTS.md, the tool index among them,
+    # which the bare `.agents/*.md` pattern of `ignored_file_patterns` would otherwise drop.
+    r"sql/varka/\.agents/",
     r"sql/varka/plans/",
     r"sql/varka/skills/",
     # The demos' committed outputs are results files the quote check reads.
@@ -297,6 +300,8 @@ def is_varka_doc(filename: str) -> bool:
 
     >>> is_varka_doc("sql/varka/plans/m8/PLAN.md")
     True
+    >>> is_varka_doc("sql/varka/.agents/tools.md")
+    True
     >>> is_varka_doc("dev/varka_matrix.sh")
     False
     """
@@ -360,6 +365,8 @@ def is_ignored_file(filename: str) -> bool:
     >>> is_ignored_file("sql/varka/AGENTS.md")
     False
     >>> is_ignored_file("sql/varka/plans/m4/VARKA-31.md")
+    False
+    >>> is_ignored_file("sql/varka/.agents/tools.md")
     False
 
     Leading slashes anchor at the repository root:

@@ -232,6 +232,7 @@ in seconds from the JDK's one source file and the distribution's capstone
 library, without a JDK build, and checks HotSpot loads it. Worktrees are
 listed and the merged ones removed with `dev/varka_worktree.sh list|gc`. The scripts that gate,
 push and watch a pull request are in `dev/varka_ops/`; read its `INDEX.md` and `AGENTS.md` first.
+Before you look for, run or add a `dev/varka*` tool: read `.agents/tools.md`, the index of them all.
 
 A lesson that will outlive the task that learned it - especially a negative
 result, which is what stops the next person re-litigating a settled question -
