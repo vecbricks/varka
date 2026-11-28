@@ -26,21 +26,22 @@ applies to anything that touches Spark itself.
 
 Development runs in milestones, and each milestone is one file under
 [`sql/varka/plans/`](sql/varka/plans/) with a numbered task table. The
-milestone in flight is the highest-numbered `m<n>/PLAN.md` there,
-[`m8/PLAN.md`](sql/varka/plans/m8/PLAN.md) as this is
-written; a row whose first bold marker begins with **Done** is finished and
+milestone in flight is named in
+[`sql/varka/plans/README.md`](sql/varka/plans/README.md), and nowhere else;
+a row whose first bold marker begins with **Done** is finished and
 carries a pointer to its outcome, **Withdrawn** rows are closed, and every
 other row is open, whether marked **Scoped**, **Planned** or not yet marked.
 Each row names what has to be true before the task starts and what counts as
 done, and every task has, or gets, its own plan in its milestone's folder,
 `m<n>/VARKA-<id>.md`. Every milestone ends
-with a closing task, the last row of its table, that does the housekeeping the
-work leaves behind: every document that names the milestone in flight
-corrected, the lessons in the skills files, the oracles regenerated
+with a closing task, a row of its table, that does the housekeeping the
+work leaves behind: the text that names the milestone in flight
+changed, the lessons in the skills files, the oracles regenerated
 on the closing commit, the milestone's entry in [`CHANGELOG.md`](CHANGELOG.md),
 an annotated tag `varka-m<n>` on the commit that closes the last row, and the
-worktrees and branches of merged pull requests removed; milestone 6's is VARKA-282 (`VARKA-282.md`), and the close is recorded as the plan's last
-section. The same rows
+worktrees and branches of merged pull requests removed; milestone 7's is
+VARKA-261 (`m7/VARKA-261.md`), and the close is recorded as a section of the
+plan. The same rows
 are mirrored as [issues labelled `task`](https://github.com/vecbricks/varka/issues?q=label%3Atask),
 one per open row, by `dev/varka_issues.py` on every change to the plan; the
 ones a newcomer can finish in a day carry `good first issue`. The table is the
@@ -49,12 +50,13 @@ never in the issue. The scope catalogue, the work no milestone has taken yet, is
 [`m10/SCOPE.md`](sql/varka/plans/m10/SCOPE.md), and design
 input there is as welcome as code.
 
-Before writing code for a task, open a GitHub issue with the "Varka: take a
-task" template, so the plan is agreed first. If the work is not in any table,
-say so in the issue: new tasks are added as rows, and a finding made while
-doing one task becomes a new row rather than a note in the old one. A task's
-plan file starts from
-[`sql/varka/plans/PLAN_TASK_TEMPLATE.md`](sql/varka/plans/PLAN_TASK_TEMPLATE.md).
+Before writing code for a task, say on the row's issue that you take it and
+how, so the plan is agreed first. Work that is in no table has no issue yet:
+open one with the "Varka: take a task" template and say so there. New tasks
+are added as rows, and a finding made while doing one task becomes a new row
+rather than a note in the old one. How a task starts, and the one template
+its plan file starts from, are in
+[`sql/varka/plans/README.md`](sql/varka/plans/README.md).
 
 Measurements from hardware the project does not have are a contribution in
 their own right, and need no build: run `dev/varka_datapath.sh` and open an
@@ -90,7 +92,9 @@ shows). The Varka suites live beside Spark's:
 
     ./build/sbt "catalyst/testOnly *Varka*" "sql/testOnly *Varka*"
 
-`dev/varka_gate.sh` is the standing gate in one command: compile, the Varka
+The gate before a pull request is `dev/varka_ops/pre-pr.sh`; its rule and the
+steps around it are in [`dev/varka_ops/AGENTS.md`](dev/varka_ops/AGENTS.md).
+`dev/varka_gate.sh` is not that gate. It is a full local run in one command: compile, the Varka
 suites at the host's vector width and at 128 bits, the javadoc build, the
 linters and the quote check, each step logged, one summary table. After the
 compile its steps run in parallel lanes and the suites are split over several
@@ -115,15 +119,14 @@ removing the label to resume it.
 
 ### Pull requests
 
-Titles read `[VARKA-<id>] <what the change achieves>` for a task's pull request, short and
-goal-oriented, and `[VARKA] <what it achieves>` for one that belongs to no task.
+The title's forms, the branch's name, the remotes and who merges are in
+[`sql/varka/.agents/pull-requests.md`](sql/varka/.agents/pull-requests.md).
 The description follows [`.github/PULL_REQUEST_TEMPLATE`](.github/PULL_REQUEST_TEMPLATE)
 and explains the mechanism in prose, not only the diff. If a generative AI
 tool took part, the last section says so with a `Generated-by:` line naming
 the tool and version, as the
 [ASF generative tooling guidance](https://www.apache.org/legal/generative-tooling.html)
-asks. Pull requests open against `master` of `vecbricks/varka`, from a branch
-on your fork.
+asks.
 
 By contributing you affirm, as for Spark below, that the contribution is your
 original work and that you license it to the project under the project's

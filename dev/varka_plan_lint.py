@@ -52,8 +52,10 @@ The checks, one per line of the row:
     the milestone can tell finished rows from part done ones and from rows that
     left it; a started row says in its text what is left.
 
-The default file is `sql/varka/plans/m8/PLAN.md`; the other milestone plans are
-read for the row numbers a citation may name. The exit status is the number of
+The default file is `sql/varka/plans/m8/PLAN.md`, the plan of the milestone in flight
+(`sql/varka/plans/README.md` names it, and a milestone's close moves `DEFAULT_PLAN`); the
+other milestone plans are read for the row numbers a citation may name, and are checked when
+named with `--check`. The exit status is the number of
 findings, and `--offline` leaves the run-head check to CI, which has `gh`.
 """
 

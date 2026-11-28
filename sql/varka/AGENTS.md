@@ -50,9 +50,9 @@ but unfinished work lives in a plan file instead, where it carries the reason it
 was deferred and what has to be true before it starts:
 
 * **Work that belongs to a task in flight** goes in that task's plan file
-  (`plans/m<n>/VARKA-<id>.md`), under its "explicitly out of" section.
-* **Work with no owner yet - the "we should really..." kind** goes in the current
-  milestone's **debt register** (`plans/m2/PLAN.md` section 8 is the
+  (`plans/m<n>/VARKA-<id>.md`), under "What is deliberately unchanged" or its outcome.
+* **Work with no owner yet - the "we should really..." kind** goes in the **debt register** of
+  the milestone in flight, which `plans/README.md` names (`plans/m2/PLAN.md` section 8 is the
   worked example, written during the task-11 audit). One bullet per debt: what it
   is, why it is a debt, and what closing it would take. A debt with a measurement
   attached is worth ten with an adjective.
@@ -103,14 +103,14 @@ A milestone's plan may only be renamed or renumbered if every inbound reference
 is updated with it. Other plans cite sections and items by number.
 
 **Tasks are called by their id, `VARKA-<n>`**, in plans, skills, code comments, test titles,
-benchmark labels and pull request titles (`[VARKA-<n>] <what it achieves>`); the number is the
+benchmark labels and pull request titles (their form: `.agents/pull-requests.md`); the number is the
 one the task tables have always used, and "task 128" is how the record wrote it before 4 October
 2026, when the plans moved into milestone folders and every reference was rewritten.
 
 ## Measurements, not adjectives
 
 Any performance claim in code comments, plans or docs traces to a committed
-benchmark result file. The methodology is fixed (`VARKA-14.md` 2.1): at least
+benchmark result file. The methodology is fixed (`plans/m2/VARKA-14.md` 2.1): at least
 five iterations over two-second windows, generated on an otherwise idle machine,
 and any claim resting on a ratio under ~1.3x is re-run and compared by minimums
 before it is written down. When a change moves committed numbers, regenerate the
@@ -213,11 +213,8 @@ thousand iterations with the day's seed, the exhaustive sweeps, the guard agains
 the C2 deoptimization cycle, optionally the gate - into a dated log under
 `target/varka-nightly/`.
 
-A task starts with `dev/varka_task_new.sh <n> "<title>"`: the worktree and
-branch off master, the plan file from `plans/TEMPLATE_TASK.md` (the sections
-above, with guidance under each that is deleted as they are filled), and the
-pre-commit hook installed. The first commit is the plan, once its admission
-check is done.
+A task starts with `dev/varka_task_new.sh <n> "<title>"`. What it makes, the one plan
+template, the milestone in flight and the cases the script refuses are in `plans/README.md`.
 
 For an emitter question, `dev/varka_emit.sh "year(d)" "month(d)"` prints what
 a projection compiles to, its shape hash, and per emitted method the bytecode
@@ -308,7 +305,8 @@ catalyst test tree's adapter over Spark's harness (VARKA-224), and a Scala bench
 when a task touches it, the port proving itself by reproducing its committed results; the engine module's tests are JUnit 5 as they are, and no
 new assertion library comes in. A refactor is proven by `emitted_bytes.json` byte-identical, a
 port by the coverage and family-chain oracles. Lines stay within 100 columns, and `dev/lint-java`
-passes; Error Prone and NullAway join the checks when VARKA-266 lands.
+passes, and so does `dev/varka_errorprone.sh`: Error Prone over Varka's Java, and NullAway over
+every class `dev/varka_nullaway_pending.txt` does not list (VARKA-266).
 
 ## Papers are transcribed, not paraphrased from memory
 
@@ -351,6 +349,8 @@ loads, benchmarks. So:
 
 ## Pull requests: reviewed by their author before they open
 
+* **Before naming a branch, writing a pull request's title, pushing or merging: read
+  `.agents/pull-requests.md`** (the remotes, branch names, title forms, the gate, who merges).
 * **Review your own diff before opening the pull request**, with the review the owner runs
   (`/code-review high` on the diff), fix every finding you verify, and say in the description
   what the review found and what you changed. On 13 October 2026 six pull requests were reviewed

@@ -21,8 +21,10 @@
     dev/varka_issues.py --apply          # open, update and close issues through gh
     dev/varka_issues.py --plan sql/varka/plans/m6/PLAN.md --repo vecbricks/varka
 
-The task table in the current milestone's plan (sql/varka/plans/m<n>/PLAN.md for the highest
-<n>, section 3) is the source of truth for what the project is doing;
+The task table in a milestone's plan (sql/varka/plans/m<n>/PLAN.md, section 3) is the source of
+truth for what the project is doing. "The current plan" below is the newest one, the highest
+<n>, which is the next milestone's while the milestone in flight still runs
+(sql/varka/plans/README.md names that one);
 the issues are the view GitHub shows a newcomer. Each open row is one issue titled
 "[VARKA-<n>] <the row's title>", carrying the row's text, its origin and size, and links to
 the plan and to the task's own plan file when it has one. When a row turns done or
@@ -742,7 +744,7 @@ def apply(actions, issues, repo, good_first):
 
 def report(actions, plans_read, current, opening, good_first):
     names = ", ".join(f"{name} ({len(rows)} rows)" for name, _, rows in plans_read)
-    print(f"Plans read: {names}; milestone {current} is current.")
+    print(f"Plans read: {names}; milestone {current}'s is the current, newest, plan.")
     print('The rule: a row\'s state is its first bold marker; "Done..." closes as completed,')
     print('"Withdrawn"/"Moved..." as not planned, any other marker is in progress and stays open,')
     print("no marker is open and not started. The current plan and the one before it open")

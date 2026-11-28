@@ -1,12 +1,13 @@
 # Rules for agents using the operations scripts
 
 These add to `sql/varka/AGENTS.md`. The tools are listed in `INDEX.md` and the flow is in
-`README.md`.
+`README.md`. Branch names, titles and who merges: `sql/varka/.agents/pull-requests.md`.
 
 ## Rules the tools enforce, and why
 
 - **Gate before every push.** `pre-pr.sh` through `pre-pr-slot.sh`, never a hand-picked subset.
-  Three of the red matrices of 22 November 2026 were option arms nobody had run locally.
+  Three of the red matrices of 22 November 2026 were option arms nobody had run locally. It is
+  the one gate: `dev/varka_gate.sh` runs the suites locally and gates no push.
 - **Review once, then stamp.** `/code-review high` with the branch name, one triaged fix round,
   then `mark-reviewed.sh` on the head that round produced. Do not review to zero findings.
 - **Never `git push` by hand.** Use `open-pr.sh`, `push-ci.sh` or `push-no-ci.sh`; they check
