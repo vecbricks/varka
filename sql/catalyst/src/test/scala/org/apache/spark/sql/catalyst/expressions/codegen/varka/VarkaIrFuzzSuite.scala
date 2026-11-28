@@ -297,11 +297,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    *
    * `overTheOpCap` says the emitter's form without a budget cannot hold the shape, by
    * `fitsBudgets`: a variant that grew a draw past `MAX_FUSED_NODES` or `MAX_CHAIN_DEPTH`, which
-   * the grammar's own shapes never are (VARKA-323). It is asked only when the emitter rejects the
-   * shape. Such a shape is counted and skipped, not failed, when the rejection is that cap's and
-   * the form that threw is one the cap applies to: the chain depth in either form, the op count
-   * only without a budget. A draw whose options have no budget is first retried with the
-   * defaults' budget, which has no op cap, so the shape is still checked where that form holds
+   * the grammar's own shapes never are (VARKA-323), or a draw whose composites lower past the op
+   * cap, which the grammar counts a node each (VARKA-360). It is asked only when the emitter
+   * rejects the shape. Such a shape is counted and skipped, not failed, when the rejection is
+   * that cap's and the form that threw is one the cap applies to: the chain depth in either form,
+   * the op count only without a budget. A draw whose options have no budget is first retried with
+   * the defaults' budget, which has no op cap, so the shape is still checked where that form holds
    * it. Any other rejection fails.
    */
   private def emitOrSkip(context: String, options: VarkaEmitOptions,
@@ -465,7 +466,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       s"${if (long) "Long" else ""}${classCounter.addAndGet(1)}"
     def emitWith(o: VarkaEmitOptions): Array[Byte] = VarkaLoopEmitter.emitTraced(
       className, c.roots, c.numInputs, c.lits.length, o, randomTrace)
-    val bytes = emitOrSkip(c.label, c.options)(emitWith) match {
+    // A composite charges the grammar's node budget one node and lowers to as many as 22, so
+    // a draw that holds one may be over the op cap of the form without a budget (VARKA-360).
+    val overTheOpCap = holdsComposite(c.roots) && !fitsWithoutBudget(c.roots, c.numInputs)
+    val bytes = emitOrSkip(c.label, c.options, overTheOpCap)(emitWith) match {
       case Some(b) => b
       case None => return false
     }
@@ -687,6 +691,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private def fitsWithoutBudget(roots: java.util.List[VarkaVectorIR], numInputs: Int): Boolean =
     VarkaLoopEmitter.fitsBudgets(roots, numInputs,
       VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0))
+
+  /** Whether a root reaches a composite: the lowering returns the list itself where none does. */
+  private def holdsComposite(roots: java.util.List[VarkaVectorIR]): Boolean =
+    VarkaDecimalLowering.lowerAll(roots, VarkaEmitOptions.DEFAULTS, java.util.Set.of()) ne roots
 
   private def runVariants(c: VarkaFuzzCase, iteration: Int): Unit = {
     val emit: VarkaVariantCheck.Emit = (roots, numInputs, numLiterals, options, className) =>
@@ -1008,6 +1016,31 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     assert(firstChoiceOver(2026101300002L, 195413, VarkaVariants.Kind.BESIDE_A_STRANGER))
     val (strangerSkips, stranger) = variantsOf(2026101300002L, 195413)
     assert(strangerSkips == 0 && stranger.get("beside a stranger compared").contains(1), stranger)
+  }
+
+  // VARKA-360: a draw of the wide products' sequence, seed 20261113 iteration 232 shrunk, that
+  // failed the methodByteBudget=0 matrix as a shape the emitter rejected. The grammar charges
+  // each product one node and the lowering makes it as many as 22, so the draw is past
+  // MAX_FUSED_NODES once lowered: the form without a budget refuses it and the defaults' budget
+  // form checks it, as it checks a variant past the cap.
+  test("with no byte budget, a draw whose wide products lower past the op cap is checked " +
+      "under the defaults' budget") {
+    val roots = Seq(
+      "(int:MUL:WRAP (bit:SHL (wmul:lo:1 col:1:long wconst:4294967295:long) wconst:32:long) " +
+        "(bit:XOR (wmul:lo lit:1:long lit:0:long) wconst:0:long))",
+      "(if (cmp:EQ (int:MUL:WRAP (int:MUL:WRAP (int:MUL:WRAP lit:1:long col:1:long) " +
+        "wconst:-4874175667742870245:long) (int:MUL:WRAP (wmul:hi col:1:long lit:1:long) " +
+        "(bit:XOR col:1:long wconst:0:long))) (int:MUL:WRAP (wmul:lo col:1:long col:0:long) " +
+        "lit:1:long)) col:0:long col:1:long)").map(VarkaCanonicalIr.parse).asJava
+    val c = new VarkaFuzzCase(LaneType.LONG, roots, 2, Array(799819L, 606427L), 1,
+      Array(Array(false), Array(false)), Array(Array(0L), Array(0L)), false,
+      VarkaEmitOptions.DEFAULTS.withMethodByteBudget(0), -1, -1,
+      "wide products past the op cap (seed 20261113, iteration 232, shrunk)")
+    assert(VarkaLoopEmitter.fitsBudgets(roots, 2, VarkaEmitOptions.DEFAULTS))
+    assert(!fitsWithoutBudget(roots, 2), "the draw no longer lowers past the op cap")
+    skippedPastTheOpCap.set(0)
+    assert(run(c), "the draw was skipped, not compared")
+    assert(skippedPastTheOpCap.get == 0)
   }
 
   test("the duplicated variant of a draw whose root fills a materialized prefix compares") {
