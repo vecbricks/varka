@@ -3,8 +3,10 @@
 *Planned on 28 November 2026, the third writing. The first (27 November) and the second (28
 November) were each read by a builder; sections 16 and 17 say where every finding of the two
 reviews went. A third review (28 November) found seventeen defects of the text and the tools and
-none of the design; section 18 says where each went. The plan stands alone: a builder needs this
-file and the repository's `AGENTS.md` files. The row is not started: milestone 9 waits for the
+none of the design; section 18 says where each went. On 28 November 2026 the owner answered
+seven of section 15's eight questions; section 19 says what each answer changed. The plan
+stands alone: a builder needs this file and the repository's `AGENTS.md` files.
+The row is not started: milestone 9 waits for the
 owner's word (`m9/PLAN.md` decision 18) and for milestone 8's close (the tag `varka-m8`). The
 code facts were checked on master `9e7b1612402`, in `/home/max/proj/varka-m9-read-w`; the edits
 to other plans (section 13) on master `92fd5a62d13`, which differs from it in three plan files
@@ -55,7 +57,9 @@ lanes, and section 12 says how this row meets it.
 3. *The proofs, the cost table and the rule* (parts T1, T2a and T2b). Each conversion between two
    representations as an equality with its exact range, proved, and each guard's lane formula
    proved exact; the numbers as a table a later tool can read; and a rule with no judgement that
-   says which representations row 699 builds and what each class of operation defaults to.
+   says what each class of operation defaults to, by host and width, among the representations
+   row 699 builds: all three that hold the whole range, by the owner's answer of 28 November
+   2026, and one long where it is the fastest (section 19).
 
 **The done-when after this plan's edit** (section 13, edit 1), clause by clause, each a check.
 
@@ -63,7 +67,7 @@ lanes, and section 12 says how this row meets it.
 | ---: | :--- | :--- | :--- |
 | 1 | the candidate representations are measured in hand loops, each held to Spark's methods | the results files of `VarkaNanosRepresentationSpikeBenchmark` are in `sql/catalyst/benchmarks` for the laptop at three widths and the EPYC 7763 at two, with their provenance files; `VarkaNanosRepresentationSpikeSuite` passes | P4, S3 |
 | 2 | the numbers are a cost table, each conversion an equality with its range, proved | `python3 dev/varka_nanos_costs.py check sql/catalyst/benchmarks/VarkaNanosRepresentationSpikeBenchmark-*-results.txt` exits 0; `dev/varka_prove.sh --solver both nanos_representations.smt2 nanos_guards.smt2` and `dev/varka_prove.sh nanos_divisions.smt2` pass | T1, T2b |
-| 3 | a rule names the representations row 699 builds and each class's default | section 11 holds the output of `python3 dev/varka_nanos_costs.py rule sql/varka/plans/m9/results/VARKA-662/nanos_representation_costs.tsv` and the owner's answers to section 15 | T2b |
+| 3 | a rule names each class's default representation by host and width, among those row 699 builds | section 11 holds the output of `python3 dev/varka_nanos_costs.py rule sql/varka/plans/m9/results/VARKA-662/nanos_representation_costs.tsv` and the owner's answers to section 15 | T2b |
 
 **What must be merged before it starts.**
 
@@ -82,7 +86,7 @@ two type ids) and row 655's nanosecond baselines are needed by row 699, not by t
 | 699, the nanosecond storage and kernels | the rule's outcome and the owner's answers (section 11); the cost table; the equalities, the guards and their proof files; the divisions with no divide; the outline of the storage (4.11) | 4.8 to 4.12; `sql/varka/plans/m9/results/VARKA-662/nanos_representation_costs.tsv` |
 | 698, the two-word load with no mask at two long lanes | the 128-bit results files and their `intrinsic check` lines, which name the loops whose masks fall back there; the loads of the two-word forms as generated | section 12; `VarkaNanosSpikeLoopsR1.java`, `R3.java`, `R4.java` |
 | 673 to 675, the nanosecond fields, casts and functions | the same as row 699, through it | the same |
-| 679, the library `vechrono` | the study's numbers for the shapes it holds, and the divisions with no divide (4.2) | `VARKA-679.md` 10.1, by section 13's edit 7 |
+| 679, the library `vechrono` | the study's numbers for the shapes it holds, and the divisions with no divide (4.2) | `VARKA-679.md` 10.1, by section 13's edit 8 |
 | a later chooser of a representation by query and by source (`m10/SCOPE.md` item 11) | the cost table's rows, with what may and may not be concluded from them, and the equalities with their range conditions | 4.8, 4.9 |
 
 **The goals it serves** (`m9/PLAN.md` 1.1), each with the item of 1.2 it moves.
@@ -94,8 +98,8 @@ two type ids) and row 655's nanosecond baselines are needed by row 699, not by t
   each nanosecond type's pairs fused under the flag, and at least two thirds of the nanosecond
   types' cast pairs row 661 adds (20, `VARKA-660.md` 4.2) fused or declined with their reason."
   This row serves G4 only through row 699: it fuses no entry, and `python3 dev/varka_census.py
-  --summary` prints the same before and after every part of it. What it moves is what row 699
-  builds: a reader checks that by section 11's sentence `Row 699 builds ...`.
+  --summary` prints the same before and after every part of it. What it moves is what row 699's
+  kernels default to: a reader checks that by section 11's sentence `Row 699 builds ...`.
 - **G7**, only through row 699: this row times hand loops, not kernels, and no bar of 1.2 is
   read on a hand loop.
 - **G1, G2, G3, G5 and G6** are not served.
@@ -323,8 +327,8 @@ Nothing was timed.
   under Z3 5.1.0 and under cvc5 1.4.1 with `--incremental`, each run well under a second.
   `nanos_divisions.smt2`: 47 checks, each as expected under Z3 in one second; under cvc5 it
   answers four and does not finish the fifth within 60 seconds, so that file is Z3's (4.9).
-- `python3 dev/varka_nanos_costs.py selftest` (appendix D): `selftest: 102 checks, 0 failed`, and
-  its seven planted faults fail it (5.9).
+- `python3 dev/varka_nanos_costs.py selftest` (appendix D): `selftest: 103 checks, 0 failed`, and
+  its fourteen planted faults fail it (5.9).
 - `ruff` 0.14.8 on the five Python appendices, as copies in a directory `dev/` beside a copy of
   the repository's `pyproject.toml`: `ruff check` prints `All checks passed!` and `ruff format
   --check` prints `5 files already formatted`. The appendices are the formatter's output; after
@@ -946,12 +950,19 @@ write (fact 21).
 | a runner with AVX-512, where a dispatch lands on one | 512 | the same dispatch with no `expected-cpu`, kept when its CPU has `avx512dq` | `...-jdk25-runner-avx512-results.txt` |
 
 The laptop's datapath is 256 bits wide, so its 512-bit file is double-pumped, and its header
-says so. The runner pool has EPYC 7763 machines and some with AVX-512 (VARKA-577 read an EPYC
-9V45 there). Part S3 dispatches the class three times with no `expected-cpu`; a run whose
-provenance names a CPU other than the EPYC 7763 and whose `lscpu` flags hold `avx512dq` is
-kept as the AVX-512 file. If none of the three lands on one, section 11 records `no AVX-512
-runner in three dispatches: the 512-bit reading is the laptop's, double-pumped`, and the rule's
-512-bit lines are marked provisional.
+says so. The runner pool has EPYC 7763 machines and some with AVX-512: `sql/varka/HARDWARE.md`
+lists the Intel Xeon Platinum 8573C, the Intel Xeon 6973P-C and the AMD EPYC 9V45 with the full
+`avx512` set (VARKA-577 read an EPYC 9V45 there). Part S3 dispatches the class three times with no
+`expected-cpu`; a run whose provenance names a CPU other than the EPYC 7763 and whose `lscpu`
+flags hold `avx512dq` is kept as the AVX-512 file. If none of the three lands on one, section 11
+records `no AVX-512 runner in three dispatches: the 512-bit reading is the laptop's,
+double-pumped`, and the project's defaults (4.10, step 6) then rest on the laptop's block alone.
+
+*28 November 2026:* the owner gave AVX-512 high priority (section 15, answer 1). The dispatches
+already hold an AVX-512 runner's reading, these three, so none is added: S3 stays at the two
+dispatches on the EPYC 7763 and the three with no `expected-cpu`, each taken as one run, two or
+four by 5.7's table. A dispatch cannot ask for a CPU, so a fourth try would buy a chance and not a
+reading. The EPYC 7763's two readings stay: it is the CPU the committed baselines are read on.
 ### 4.8 The cost table
 
 The file `nanos_representation_costs.tsv`, in `sql/varka/plans/m9/results/VARKA-662/`, written
@@ -1143,156 +1154,178 @@ it builds a node, and its proof is then the line of this table.
 ### 4.10 The decision rule
 
 `python3 dev/varka_nanos_costs.py rule <table>` applies it; this section is its text, and the
-tool's self-test holds the twenty-three made-up tables below to their outcomes. It has no
-judgement.
-What it cannot decide is the owner's, in section 15.
+tool's self-test holds the twenty-nine made-up tables below to their outcomes. It has no
+judgement. What it cannot decide is the owner's, in section 15.
 
-**What it reads.** The `loop` rows of one host and width whose operands arrive and are stored
-as Spark's parts. A ratio of 1.3 or more is beyond the band; under it the two are a tie, as
-the house reads a ratio.
+**What changed on 28 November 2026.** The owner answered section 15 (section 19 has each answer).
+Row 699 builds all three whole-range forms, R1, R3 and R4, whatever the numbers, so the rule
+computes no built set: the third writing's step 4, its 2.0 bar, its choice of the better of R3 and
+R4 and its line for the case that no host decides between them are gone. R2 may be built where it
+is the fastest, so it is a candidate. A scalar loop is a kernel's body where it is the fastest, so
+no class is declined at a width. And the AVX-512 readings come first where one default is named
+for the project. What the rule gives now: each class's default form and layout on each host and
+width, how much every other form loses there, and the project's defaults.
+
+**What it reads.** The `loop` rows of one host and width whose operands arrive and are stored as
+Spark's parts. A ratio of 1.3 or more is beyond the band; under it the two are a tie, as the house
+reads a ratio.
 
 **A fallback is never a time, and a missing time is never a win.** A loop whose `jit` is
-`fallback` has no time. A form with no time in a class has *no data* there, which is not a
-loss: the class is then undecided, nobody wins it, and the output says which form lacks the
+`fallback` has no time. A candidate with no time in a class has *no data* there, which is not a
+loss: the class is then undecided, it has no default, and the output says which form lacks the
 reading. The rule never compares a form with nothing.
 
-**The forms it chooses among** are R1, R3 and R4, the three that hold every value Spark can
-hold. R2's time is printed beside them and takes no part: it never wins a class, never makes
-one a tie, and never keeps another form from winning.
+**The candidates.** R1, R3 and R4 in every class: they hold every value Spark can hold, and row
+699 builds all three. R2 in the four classes where it has loops over Spark's parts (4.1): compare,
+choice, interval and chain. In the other five (clock, date, truncate, zone, stored) R2 has no loop
+over Spark's parts and is no candidate: its work there is R1's with a conversion in front and, for
+a timestamp result, one behind, so it cannot be the fastest.
 
-**The classes.** compare (`LT`), choice (`PICK`), interval (`ADD`, `ADDC`), clock (`HOUR`,
-`SEC`), date (`YEAR`), truncate (`TRUNC`), zone (`ZONE`), stored (`MICROS`, `HASH`), chain
-(`CHAIN`). A class of two loops takes their geometric mean. `ROUND` is in no class: it is
-the base.
+**What R2's time holds, and what it does not.** A loop that computes in R2 over Spark's parts
+loads both of R1's words, tests the first word against R2's range (the window guard of 4.3, ORed
+into the accumulator in every lane group and read once after the last), converts (`m * 1000 + n`),
+computes, and for a timestamp result converts back and stores R1's two words. All of that is
+inside what is timed: `LT R2L 1>1` is, for each operand, two loads, the guard's two subtractions
+and its OR, and the conversion; then the compare. So over Spark's parts R2's time is the whole
+price of an R2 kernel on a batch inside 1677 to 2262, its batch guard included, and its comparison
+with R1, R3 and R4 is fair there as the loops are: no loop is added, and no generated class
+changes (section 19 has the check). Two things the study does not time. The first is in the rule's
+own line: a batch with a value outside the range goes to the row path, after the loop has run over
+it once for nothing, so such a batch costs R2's loop and the row path's time, and how often a
+batch is one is the data's. The second is the guard's AND with the validity word in a batch with
+nulls (4.3), which every guarded loop of every form lacks alike. Both are row 699's to measure, on
+row 655's classes (4.12).
 
-**Step 1, a form's time in a class**: the least over its vector layouts (H, L, M) in which
-every loop of the class is no fallback. A form with no such layout, though its loops were
-timed, has no data in the class. Its scalar loop (S) is kept beside it.
+**The classes.** compare (`LT`), choice (`PICK`), interval (`ADD`, `ADDC`), clock (`HOUR`, `SEC`),
+date (`YEAR`), truncate (`TRUNC`), zone (`ZONE`), stored (`MICROS`, `HASH`), chain (`CHAIN`). A
+class of two loops takes their geometric mean. `ROUND` is in no class: it is the base.
 
-**Step 2, a class with no loop, and a class served by scalar loops.** Where the table holds no
-vector loop of the class, fallback or not, in any of R1, R3 and R4 at the host and width (a part
-of a run that was lost, an operation that was not timed), the class is `undecided: no loop of
-the class in the table`, its default line says the same, and it counts in no step: a class is
-never called scalar for want of rows. Where the loops are there and none of R1, R3 and R4 has a
-vector time (each is a fallback), or the best vector time is 1.3 times the best scalar time or
-more (the vector loop is the slower by the band), the class is `scalar at this width`: no vector
-form is named for it there, and its default is `decline at this width`. This is what is expected
-of the compare, the choice, the zone and the chain at 128 bits, where every vector loop of
-theirs has a mask (4.7).
+**Step 1, a form's reading in a class.** Its vector time is the least over its vector layouts (H,
+L, M) in which every loop of the class is no fallback. Its scalar time is its scalar loop's (S),
+where that is no fallback. Its reading is the vector time; or the scalar time, where no vector
+layout has a time, or where the vector time is 1.3 times the scalar time or more (the vector loop
+is the slower by the band). A reading taken from the scalar loop is *a scalar body*: row 699
+builds a kernel whose body is that loop (4.12), and the output has a line `scalar <class> <form>S
+stands for <form>:` with the reason, `no vector loop without a fallback` or `its best vector loop
+(<form><layout>) takes <ratio> times its time`. A form with neither time has no data in the class.
+A scalar body is what is expected at 128 bits of the compare, the choice, the zone and the chain
+in every form, and of the interval in R3 and R4, where every vector loop has a mask and falls back
+(4.7): each form's scalar loop stands for it there, and the default is the fastest of them by step
+3.
 
-**Step 3, who wins a class.** Where one of R1, R3 and R4 has no data in the class, the class
-is `undecided: no data for <forms>`. Else the form with the least time wins it if each of the
-other two is 1.3 times slower or more; otherwise the class is a tie of the forms within 1.3
-of the best. A class that is won or tied is *decided*.
+**Step 2, an undecided class.** Where the table holds no loop of the class in any candidate at the
+host and width (a part of a run that was lost, an operation that was not timed), the class's line
+is `default <class> undecided: no loop of the class in the table`. Where some candidate has a
+reading and another has none, it is `default <class> undecided: no data for <forms>`, followed by
+the readings there are. An undecided class has no default: nothing is named from a part of the
+data.
 
-**Step 4, (a) the forms row 699 builds: at least two.** Read on the deciding host and width
-(below), over its decided classes.
+**Step 3, the default of a class**, at one host and width. Among the candidates, the forms whose
+reading is within 1.3 of the fastest are *tied*. Where the fastest is tied with no other, it
+*wins* and is the default. Otherwise the default is the first of the tied forms in the order R1,
+R3, R4, R2. R1 is first because it is the storage, pays no conversion and holds every value; R3 is
+the owner's second form and R4 his third; R2 is last because it holds 1677 to 2262 alone. So R2 is
+a default only where it wins: where every other candidate takes 1.3 times its time or more. The
+line is one of
 
-1. R1, always. It is the storage, it holds every value, and in layout H it is the owner's
-   first form.
-2. The better of R3 and R4, always, by the measurements: the one that wins more classes;
-   between equal counts, the one within the band of the best form in more classes; between
-   equal counts again, the one with the lower geometric mean of its class times; and if all
-   three are equal, R3, the second form the owner named. So where neither wins a class the
-   second form is still chosen, by how close it stays to the best.
-3. The other of R3 and R4 too, only if it wins a class by 2.0 times or more over both forms
-   already built.
+    default   <class>   <form><layout> <ns>[, a scalar body,] wins; <each other candidate: its reading and (<ratio> times)>
+    default   <class>   <form><layout> <ns>[, a scalar body,] first of a tie of <forms>; <the same>
 
-So two forms or three, never one. The owner's words were "at least 2", and a rule that ended
-in R1 alone would not be what he said; section 15's question 6 puts the alternative (build one
-form only, where nothing else wins) to him. One case has no second form: where no class is
-decided on the deciding host, because R3 and R4 have no data there. Then the output's line is
-`built R1; the second form is undecided: no class has a reading of R1, R3 and R4`, and every
-other host and width then prints its own set, under a line `built provisional (the deciding
-host is undecided): this host's set`, with its defaults within that set. Row 699 then builds
-the set that the laptop's block at 256 bits prints, and section 11 says so. If that block is
-undecided too, row 699 builds R1 and R3, the owner's own second form, until he names another
-(section 15, question 6(e)). Where no block at all has a second form the tool's last line is
-`no host and width decides the second form: R1 and R3 are built, the owner's own second form,
-until the owner names another (question 6)`. So nothing here is left to a reader's judgement.
+The ratio is the other form's time over the default's, so the line says how much each form loses
+where it is not the default; in a tie a ratio can be under 1. A form's layout is the one that gave
+its reading in step 1, so a default can differ by width, as row 600 allows.
 
-R2 is never built by this step, whatever its times over Spark's parts, because it holds 1677
-to 2262 alone. Where it is 1.3 times the best of R1, R3 and R4 or more in a class, whatever
-that class's verdict (won, tied, undecided or scalar), the output
-has a line `R2 is <ratio> times the best buildable form there`, and the owner decides (section
-15, question 2).
+**Step 4, R2 as a default.** Its line ends `; R2 holds 1677 to 2262 alone: a batch with a value
+outside goes to the row path; of the forms that hold every value: <form><layout>`. The last is
+step 3 applied to R1, R3 and R4 alone: the same class's default for a kernel that must hold every
+value.
 
-**Step 5, (b) the static default of each class**, for a kernel where nothing chooses by query,
-at each host and width, within the built set of step 4: the fastest built form that has a time
-in the class, if it is 1.3 times faster than R1 or more (R1's time is at least 1.3 times its
-time); else R1. Such a default's line ends `(R1 takes <ratio> times its time)`. A tie goes to
-R1, which pays no conversion and holds every value. Where R1 has no data in the class and
-another built form has, that form, and the line ends `(R1: no data)`. Where no built form has a
-time, `decline at this width`. A form's layout is the one that gave its time in step 1, so a
-default can differ by width, as row 600 allows.
+**Step 5, data that arrives as epoch nanoseconds.** For the compare and the chain, from the mirror
+loops: R2's reading, which computes on the data as it is, against the best of R1, R3 and R4, which
+convert first. Where R2 is 1.3 times faster or more the line ends `it wins`. This is the
+measurement behind row 699's item "a column that arrives as epoch nanoseconds" (4.12; the owner's
+answer 3). The mirror loops `HOUR` and `ROUND` are read by no step of the rule: they are rows of
+the cost table, where they give the residual of a clock field and the edges from R2.
 
-**The arithmetic of every step.** The tool compares the times as the cost table holds them,
-three decimals, in binary floating point, and prints each ratio to two decimals beside the
-verdict it gave. A ratio that is 1.30 by hand can fall on either side there (`1.69 / 1.3` is
-under `1.3` in a double), so at a boundary the verdict is the tool's line and not a division
-by hand, and the printed ratio says how near it was.
+**Step 6, the project's defaults: AVX-512 first.** Each host and width takes its own defaults, by
+steps 1 to 4. Where one default must be named for the project (a document, the first kernels
+built, the order in which row 699 builds the forms), the readings are taken in this order, by the
+owner's word that AVX-512 has high priority: the laptop's block at 512 bits (the host whose name
+starts `AMD Ryzen AI 9 HX PRO 370`, as `sql/varka/HARDWARE.md` names it); then a block at 512 bits
+of another host, a runner with AVX-512, several such hosts in the order of their names; then the
+AMD EPYC 7763 at 256 bits. The output's line `the
+project's defaults, each from the first of these readings that has one:` lists the readings the
+table holds, in that order. A class's project default is the default of the first of them that has
+one, and its line names the reading: `project <class> <form><layout> (<host> at <bits> bits)`. A
+class undecided in all of them reads `project <class> undecided: no reading of the order has a
+default`. A table with none of the three readings ends in `the project's defaults: none, for want
+of a reading at 512 bits or of the AMD EPYC 7763 at 256 bits`. Two lines follow the classes.
+`order R1 (the storage; <n> classes), <R3 or R4> (<n>), <the other> (<n>)` is the order in which
+row 699 builds the forms: R1 first, then R3 and R4 by the count of classes each is the project's
+default of, R3 first between equal counts. And `r2` lists every class, host and width where R2 is
+the default, as `a default, behind its batch guard: <class> on <host> at <bits> bits; ...`, or
+says `nowhere a default`: row 699 builds an R2 kernel for the listed classes and for no other.
 
-**Step 6, data that arrives as epoch nanoseconds.** For the compare and the chain, from the
-mirror loops: R2's time against the best of R1, R3 and R4, which convert first. Where R2 is
-1.3 times faster or more the line ends `it wins`. It builds nothing: no source hands a kernel
-epoch nanoseconds today (section 15, question 3). The mirror loops `HOUR` and `ROUND` are
-read by no step of the rule: they are rows of the cost table, where they give the residual of
-a clock field and the edges from R2.
+The EPYC 7763's readings stay, at 256 and at 128 bits. It is the CPU the committed baselines and
+the house's bars are read on; its 256-bit block is the last of the order; and its own `default`
+lines are what a kernel takes on that host.
 
-**Which host decides, and the other widths.** The lines of the AMD EPYC 7763 at 256 bits name
-what row 699 builds, since that is the fleet the house's bars are read on. The tool computes the
-built set there and nowhere else, but for the two cases with no deciding set: step 4's undecided
-deciding host, and a table with no row of it (below). For every other host and width it prints
-step 3's lines, then `built <the set> (the set of AMD EPYC 7763 at 256 bits)`, then the defaults
-of step 5 within that set; and where a form outside the set wins a class there, a line `not
-built <form> wins <class> here`. So a default is never a form row 699 does not build, which is
-question 1's default answer. A table with no row of the EPYC 7763 at 256 bits is answered width
-by width, each with its own set, under a first line that calls every set provisional.
+**The arithmetic of every step.** The tool compares the times as the cost table holds them, three
+decimals, in binary floating point, and prints each ratio to two decimals beside the verdict it
+gave. A ratio that is 1.30 by hand can fall on either side there (`1.69 / 1.3` is under `1.3` in a
+double), so at a boundary the verdict is the tool's line and not a division by hand, and the
+printed ratio says how near it was.
 
-**The rule applied by hand to twenty-three made-up tables** (the tool's `CASES`; times in
-nanoseconds a row; a scalar loop is four times its vector loop; every loop `ok` unless said;
-R1 is 2.0 on every loop in every table). Tables 1 to 4, 6 and 8 are the second writing's six
-(8 was its table 5, and 6 gains R3 at 3.0, since every table now has the three forms); 5 and
-7 are new. A to F, with the review's variants B2, C2 and C3, are the second review's, each
-with the outcome it had under the second writing's rule. G, H, M, Z, U and R are the third
-review's: the layouts H and M, a class with no row, an undecided deciding host, and R2's line
-in an undecided class.
+**The rule applied by hand to twenty-nine made-up tables** (the tool's `CASES`; times in
+nanoseconds a row; a scalar loop is four times its vector loop unless said; every loop `ok` unless
+said; R1 is 2.0 on every loop; a form the table does not name, R2 included, is 3.0 on every loop;
+the host is the EPYC 7763 at 256 bits unless said). Tables 1 to 4, 6, 7, A, B2, C, C2, C3, D, E,
+F, G, H, M, Z and R are the third writing's, each with its outcome under the rule as it now is.
+Table 5 is the third writing's with other times on `YEAR`. Tables 8, N, Q, S, S2, S3, P1, P2 and
+P3 are new. The third writing's tables 8 (the third form built at the 2.0 bar), B (a second copy
+of B2) and U (an undecided deciding host) had nothing left to show and are gone.
 
-| # | the table | step 3 | built, and why | defaults |
-| ---: | :--- | :--- | :--- | :--- |
-| 1 | R2, R3 and R4 are 3.0 everywhere | R1 wins every class, 1.5 times the next | R1, R3: neither wins or is within the band, the means are equal, so R3 | R1 in every class |
-| 2 | R3 2.2, but 1.25 on `HOUR` and `SEC`; R4 3.0, but 2.0 on those two | R3 wins clock, 1.6 times the next; every other class a tie of R1 and R3 | R1, R3: R3 wins one class, R4 none | clock R3; the rest R1 |
-| 3 | R3 2.2, 1.8 on the clock loops; R4 3.0, but 0.5 on `HOUR`, 0.6 on `SEC`, 1.0 on `YEAR`, 0.8 on `TRUNC` | R4 wins clock (3.29 times the next), date (2.0) and truncate (2.5); the rest a tie of R1 and R3 | R1, R4: three classes to none; R3 wins nothing, so it is not the third | clock, date, truncate R4; the rest R1 |
-| 4 | R2 2.4, R3 and R4 3.0; arriving as epoch nanoseconds, `LT` is 1.0 in R2, 3.0 in R1, 3.5 in R3 | R1 wins every class: R2's 2.4 takes no part | R1, R3 | R1 in every class; and `arriving compare as epoch nanoseconds: R2 is 3.00 times the best other: it wins` |
-| 5 | R3 2.2, 1.4 on the clock loops; R4 3.0, 2.0 on the clock loops, 1.4 on `YEAR` | R3 wins clock (1.43), R4 wins date (1.43) | R1, R3: one class each, and R3 is within the band in eight classes to R4's one. Not R4: its win is 1.43 times, under 2.0 | clock R3; date R1, with the line `not built R4 wins date here`; the rest R1 |
-| 6 | R3 3.0; R4 3.0, 1.0 on the clock loops, but its `HOUR` and `SEC` vector loops are `fallback` | clock `undecided: no data for R4`; R1 wins the other eight | R1, R3, over eight decided classes | R1 in every class |
-| 7 | R3 2.5 and R4 2.4 everywhere | every class a tie of R1, R3 and R4 | R1, R4: no wins, nine classes within the band each, and R4's mean is the lower | R1 in every class |
-| 8 | as table 5, but R4 0.8 on `YEAR` | R3 wins clock (1.43), R4 wins date (2.5) | R1, R3, R4: R4 too, since it wins date by 2.5 times over R1 and R3 | clock R3; date R4; the rest R1 |
-| A | R3 2.2, but 1.33 on `HOUR` and `SEC` and 2.8 on `LT`; R4 and R2 3.0 | R3 wins clock (1.5); R1 wins compare (1.4); the rest a tie | R1, R3 (the same under the second writing) | clock R3; the rest R1 |
-| B | R3 2.4, R4 and R2 3.5 | every class a tie of R1 and R3 | R1, R3. The second writing built R1 alone | R1 in every class |
-| B2 | R3 1.6, R4 3.5 | every class a tie of R1 and R3: 1.25 is inside the band | R1, R3. The second writing built R1 alone | R1 in every class |
-| C | R3 1.0, R4 3.0; every vector `ADD` and `ADDC` of R3 a fallback | interval `undecided: no data for R3`; R3 wins the other eight, 2.0 times the next | R1, R3. The second writing printed `interval R1L wins` | interval R1; the rest R3 |
-| C2 | R3 and R4 0.5, every vector loop of both a fallback | every class `undecided: no data for R3, R4` | `built R1; the second form is undecided`. The second writing printed `R1L wins: inf times the next` nine times | R1 in every class |
-| C3 | R3 1.0, R4 3.0; R3's `ADDC` alone a fallback | interval undecided, as in C: a class of two loops needs both | R1, R3. The second writing gave the interval to R1 by `inf` | interval R1; the rest R3 |
-| D | at 256 bits R4 3.0 but 0.5 on the clock, R3 3.0; at 128 bits R3 3.0 but 0.5 on the clock, R4 3.0 | at 256, R4 wins clock; at 128, R3 wins clock | R1, R4, at both widths: the 128-bit lines say `built R1, R4 (the set of AMD EPYC 7763 at 256 bits)` and `not built R3 wins clock here`. The second writing built R1, R3 at 128 | at 256, clock R4; at 128, clock R1 |
-| E | R2 2.2, R3 and R4 3.0; arriving as epoch nanoseconds R2 1.0 on `LT`, 1.5 on `CHAIN`, against R1 3.0 and 6.0 | R1 wins every class | R1, R3 | R1 in every class; the two `arriving` lines end `it wins`, 3.00 and 4.00 times; `HOUR` is read by no step |
-| G | R3 and R4 3.0; R1 also in layout H, 1.0 on every loop | R1 wins every class by its layout H, 3.0 times the next | R1, R3 | R1H in every class |
-| H | as G, but R1's `SEC` in layout H is a fallback | the same, but in clock R1's time is layout L's 2.0, 1.5 times the next: a layout counts where every loop of the class is no fallback | R1, R3 | clock R1L; the rest R1H |
-| M | R3 and R4 3.0; R3 also in layout M, 3.0 but 1.0 on `HOUR` and `SEC` | R3 wins clock by its layout M, 2.0 times the next; R1 wins the rest | R1, R3: one class to none | clock R3M, its line ending `(R1 takes 2.00 times its time)`; the rest R1L |
-| Z | R3 and R4 3.0; no row of `ZONE` in any form | zone `undecided: no loop of the class in the table`; R1 wins the other eight | R1, R3, over eight decided classes | zone `undecided: no loop of the class in the table`; the rest R1 |
-| U | at 256 bits table C2; at 512 bits R3 1.0, R4 3.0 | at 256, every class undecided; at 512, R3 wins every class, 2.0 times the next | at 256, `built R1; the second form is undecided`; the 512-bit block prints `built provisional (the deciding host is undecided): this host's set` and `built R1, R3`, and the last line of table C2's output is absent | at 256, R1; at 512, R3 in every class |
-| R | R3 and R4 3.0; R2 3.0, but 1.0 on the clock loops; R4's `HOUR` vector loop a fallback | clock `undecided: no data for R4`, and under it `R2 is 2.00 times the best buildable form there`; R1 wins the other eight | R1, R3 | R1 in every class |
-| F | R3 2.2, but 1.0 on the clock loops; R2 2.2, but 1.1 there; R4 3.0 | R3 wins clock, 2.0 times the next: R2's 1.1 takes no part | R1, R3. The second writing made the clock a tie of R2 and R3 and built R1 alone | clock R3; the rest R1 |
+| # | the table | what the output holds | what it shows |
+| :--- | :--- | :--- | :--- |
+| 1 | nothing but the common times | every class `R1L 2.000 wins`, each other form `(1.50 times)`; the compare's line lists `R2L` beside `R3L` and `R4L`, the clock's does not; `order R1 (the storage; 9 classes), R3 (0), R4 (0)`; `r2 nowhere a default` | R2 is listed where it is a candidate and nowhere else; with no 512-bit reading the project's defaults are the runner's |
+| 2 | R3 2.2, but 1.25 on `HOUR` and `SEC`; R4 2.0 on those two; no row of R2 | clock `R3L`, a win by 1.6 times; date `R1L 2.000 first of a tie of R1, R3` | a win, and a tie that goes to R1 |
+| 3 | R3 2.2, 1.8 on the clock loops; R4 0.5 on `HOUR`, 0.6 on `SEC`, 1.0 on `YEAR`, 0.8 on `TRUNC` | clock, date and truncate `R4L`; compare `R1L`; `order R1 (the storage; 6 classes), R4 (3), R3 (0)` | the order follows the classes each form defaults |
+| 4 | R2 2.4; arriving as epoch nanoseconds, `LT` is 1.0 in R2, 3.0 in R1, 3.5 in R3 | compare `R1L 2.000 first of a tie of R1, R2`; `arriving compare as epoch nanoseconds: R2L is 3.00 times the best other: it wins` | R2 inside the band of R1 is no default; the arriving line is the owner's own case |
+| 5 | R3 2.2, 1.4 on the clock loops, 1.1 on `YEAR`; R4 2.0 on the clock loops, 1.0 on `YEAR`; no row of R2 | clock `R3L`, a win by 1.43 times; date `R3L 1.100 first of a tie of R3, R4`, though R4 is the faster | a tie without R1 keeps the order too |
+| 6 | R4 1.0 on `HOUR` and `SEC`, and its two vector loops there are `fallback` | clock `R1L 2.000 wins; R3L 3.000 (1.50 times), R4S 4.000 (2.00 times)`; `scalar clock R4S stands for R4: no vector loop without a fallback` | a fallback's 1.0 is never read; the form's scalar loop stands for it |
+| 7 | R3 2.5 and R4 2.4; no row of R2 | clock `R1L 2.000 first of a tie of R1, R3, R4`; compare `undecided: no data for R2; R1L 2.000, R3L 2.500, R4L 2.400` | a tie of all three; a candidate with no row leaves its class undecided |
+| 8 | R2 1.0 on `LT`, 1.6 on `PICK` | compare `R2L 1.000 wins`, its line ending `; R2 holds 1677 to 2262 alone: a batch with a value outside goes to the row path; of the forms that hold every value: R1L`; choice `R1L 2.000 first of a tie of R1, R2`, with no such ending; `r2 a default, behind its batch guard: compare on AMD EPYC 7763 (made up) at 256 bits` | R2 as a default, with its range, its fallback and the whole-range form beside it |
+| A | R3 2.2, but 1.33 on `HOUR` and `SEC` and 2.8 on `LT` | clock `R3L`, a win by 1.50 times; compare `R1L 2.000 wins`, by 1.40; date `R1L` | the band at its edge |
+| B2 | R3 1.6; R4 and R2 3.5 | every class a tie of R1 and R3, so `R1L` | 1.25 is inside the band |
+| C | R3 1.0, but 0.5 on `ADD` and `ADDC`, whose vector loops are `fallback` | interval `R1L 2.000 first of a tie of R1, R3; R3S 2.000 (1.00 times)`; clock `R3L` | the fallback's 0.5 is not read: R3's scalar loop, at 2.0, is |
+| C2 | R3 and R4 0.5, every vector loop of both a `fallback`; no row of R2 | clock `R1L 2.000 first of a tie of R1, R3, R4; R3S 2.000` | the same in every class |
+| C3 | R3 1.0; R3's vector `ADDC` alone a `fallback` | interval `R1L 2.000 wins; R3S 4.000 (2.00 times)` | a class of two loops needs both in one layout |
+| N | R3 1.0; R3's `HOUR` a `fallback` in layout L and in S | clock `undecided: no data for R3; R1L 2.000, R4L 3.000` | no data is no default, whoever else has a time |
+| R | R2 1.0 on `LT`; R4's `LT` a `fallback` in L and in S | compare `undecided: no data for R4; R1L 2.000, R3L 3.000, R2L 1.000`; `project compare undecided: no reading of the order has a default` | R2's time is printed in an undecided class, and wins nothing there |
+| Z | no row of `ZONE` in any form | zone `undecided: no loop of the class in the table`; clock `R1L` | a class with no row is said to have none |
+| D | at 256 bits R4 0.5 on the clock loops; at 128 bits R3 0.5 on them | at 256 bits clock `R4L`; at 128 bits `clock R3L 0.500 wins` | each width has its own default |
+| E | R2 2.2; arriving as epoch nanoseconds R2 1.0 on `LT` and 1.5 on `CHAIN`, against R1's 3.0 and 6.0 | compare `R1L`; `arriving chain as epoch nanoseconds: R2L is 4.00 times the best other: it wins` | the chain's arriving line; the mirror `HOUR` is read by no step |
+| F | R3 2.2, but 1.0 on the clock loops; R2 2.2, but 1.1 there | `clock R3L 1.000 wins; R1L 2.000 (2.00 times), R4L 3.000` | R2's 1.1 takes no part in a class where it is no candidate |
+| Q | R2 0.5 on `HOUR` and `SEC` | clock `R1L` | the same, where R2's row is the fastest of all |
+| G | R1 also in layout H, 1.0 on every loop | `R1H` in every class | layout H is read |
+| H | as G, but R1's `SEC` in layout H is a `fallback` | clock `R1L`; date `R1H` | a layout counts where every loop of the class is no fallback |
+| M | R3 also in layout M, 3.0 but 1.0 on `HOUR` and `SEC` | clock `R3M`; date `R1L` | layout M is read |
+| S | R2 1.0 on `LT`; every vector `LT` of all four forms a `fallback` | compare `R2S 4.000, a scalar body, wins; R1S 8.000 (2.00 times)`, ending `of the forms that hold every value: R1S`; `scalar compare R1S stands for R1: no vector loop without a fallback`; clock `R1L` | the masked classes at 128 bits: the default is a scalar body, of the fastest form |
+| S2 | every scalar loop at 0.7 times its vector loop | clock `R1S 1.400, a scalar body, wins; R3S 2.100 (1.50 times)`; `scalar clock R1S stands for R1: its best vector loop (R1L) takes 1.43 times its time` | a vector loop slower by the band gives way to the scalar loop |
+| S3 | every scalar loop at 0.8 times its vector loop | clock `R1L`; no `scalar` line | 1.25 is inside the band: the vector loop stays |
+| P1 | the runner at 256 bits as table 1; an Intel Xeon Platinum 8573C at 512 bits with R4 1.0; the laptop at 512 bits with R3 1.0 | the order's line ends `one: AMD Ryzen AI 9 HX PRO 370 (made up) at 512 bits; Intel Xeon Platinum 8573C (made up) at 512 bits; AMD EPYC 7763 (made up) at 256 bits`; `project clock R3L (AMD Ryzen AI 9 HX PRO 370 (made up) at 512 bits)`; `order R1 (the storage; 0 classes), R3 (9), R4 (0)`; the runner's own clock `R1L` | AVX-512 first, the laptop before another host; each host keeps its own defaults |
+| P2 | the runner at 256 bits with R4 1.0; the laptop at 512 bits with R3 1.0, its `HOUR` a `fallback` in L and in S | `project clock R4L (AMD EPYC 7763 (made up) at 256 bits)`; `project date R3L (AMD Ryzen AI 9 HX PRO 370 (made up) at 512 bits)`; `order R1 (the storage; 0 classes), R3 (8), R4 (1)` | a class undecided in the first reading takes the next |
+| P3 | the runner at 128 bits alone | `the project's defaults: none, for want of a reading at 512 bits or of the AMD` | no reading of the order, no project default |
 
-Table 4 is the owner's own case: one long wins where the data arrives as one long, and the
-rule says so in a line of its own without changing what is built over Spark's parts. Tables 5
-and 8 show the third form's bar from both sides. Tables 6, C, C2 and C3 show that a fallback
-is no time and a missing time no win. Table D shows one built set for every width. Table F
-shows that R2 vetoes nothing. Tables 1, B, B2 and 7 show the second form chosen where nothing
-wins: by the band, then by the mean, then by the owner's order. Tables G, H and M hold the
-rule to every vector layout; Z shows that a class with no row is not a scalar class; U that
-an undecided deciding host leaves each other host its own set; and table C2's output ends in
-the line that names R1 and R3 where no host decides.
+Table 4 is the owner's own case: one long wins where the data arrives as one long, and the rule
+says so in a line of its own. Table 8 is his answer 2: R2 is a default where it wins, and its line
+carries its range and its fallback. Tables 6, C, C2, C3 and N show that a fallback is no time and
+a missing time no win. Tables F and Q hold R2 to the classes where it has loops. Tables G, H and M
+hold the rule to every vector layout; Z shows that a class with no row is not a decided class; D
+that each width has its own default; S, S2 and S3 the scalar body from both sides of the band; and
+P1 to P3 the project's order. The quoted lines of the third column are the tool's, but for the
+runs of spaces it pads its columns with; the self-test checks each table's defaults and the lines
+its entry in `CASES` names.
 
 ### 4.11 The storage: what the second writing planned here, and what it waits for
 
@@ -1338,16 +1371,18 @@ Not planned here and not sheeted. Each item names what it needs.
 | item | what it is | what it needs |
 | :--- | :--- | :--- |
 | the storage | the cache's struct in and out, the null tests, `coalesce`, the conformance suites and the first census claims (4.11) | row 661 and row 653 built; the three answers of 4.11. Nothing of the study |
-| the conversions as IR nodes | a node an edge of 4.9 between the forms that are built, each with its range condition readable on the node, its lowering, its proof line and its arm in every switch over the IR | the built set (4.10, step 4); the guards' forms of 4.3; the divisions' measured cost, which says whether the lowering is the multiply-high or the house's forms by host |
-| the comparisons, `<=>`, `greatest`, `least` | over the words of the form the compare class defaults to | the compare and choice classes' default at 256 bits; at 128 bits, row 698's answer |
+| the three forms, in order | R1, R3 and R4 are all built, whatever the numbers (the owner's answer 6). R1 first, then R3 and R4 in the order of the rule's `order` line | the rule's step 6 |
+| the conversions as IR nodes | a node an edge of 4.9 among R1, R3 and R4, and the edges to and from R2 where an R2 kernel is built, each with its range condition readable on the node, its lowering, its proof line and its arm in every switch over the IR | the guards' forms of 4.3; the rule's `r2` line; the divisions' measured cost, which says whether the lowering is the multiply-high or the house's forms by host |
+| the comparisons, `<=>`, `greatest`, `least` | over the words of each form; the default by host and width is the compare class's | the compare and choice classes' `default` lines |
 | `IN`, `in_set`, `between`, `equal_null` | `k` equalities, or Spark's rewrites of them | the same |
 | `if`, `when`, `nvl2`, `nullif` | a pick under any fused condition | the choice class |
 | `hash`, `xxhash64` | Spark's steps over R1's two words | the stored class: whether a value computed in another form pays its edge back |
-| the cast to microseconds, `hour`, `minute`, `second` with its fraction, the date fields | over the clock and date classes' defaults | those classes; the cells of R1 against R3 and R4 |
-| the option | how a kernel is told which form to compute in, and the option matrix's arms | the built set; the owner's answer on a default by width |
-| the two-lane refusals | each form that loses to the row path at 128 bits declines there by a recorded refusal | the classes that are `scalar at this width` or undecided at 128 bits; row 698's verdict on whether a two-word value can win there at all; then row 655's 128-bit sections |
-| the measurement on row 655's classes | the built forms on `VarkaTimestampNanosBaselineBenchmark` and its three siblings, at 256 and 128 bits | nothing: it measures kernels, and the study's rule is scored against it |
-| data that arrives as epoch nanoseconds | the load's arriving form, and R2 with the two-word kernel behind it | step 6's line; the owner's answers 2 and 3 |
+| the cast to microseconds, `hour`, `minute`, `second` with its fraction, the date fields | in each form, the clock and date classes' defaults first | those classes; the cells of R1 against R3 and R4 |
+| the option | how a kernel is told which form to compute in. Its default is by host and width, from the rule's `default` lines, and the rule's `project` lines where one default is named; every form that is not a default stays an arm of the option matrix | the rule's output; row 600's word that a default may differ by width |
+| the R2 kernels with their batch guard and fallback | for each class the rule's `r2` line lists: a kernel that computes in one long of nanoseconds. Its guard runs on every batch (4.3's window on the first word), and a batch that holds a value outside 1677 to 2262 goes to the row path (the owner's answer 2, which reverses `VARKA-660.md` 4.7; section 13, edit 10). **Done when** each such kernel answers as the row path does on a batch inside the range and hands every batch with a value outside it to the row path. Not known: how often a real batch is outside; what such a batch costs, the kernel's wasted pass and the row path (the study times neither; 4.10); how the guard counts null lanes (4.3); how the census marks a cell that is fused for 1677 to 2262 alone | the `r2` line; the guards' proofs in `nanos_guards.smt2`; row 655's classes for the two costs |
+| a kernel whose body is a scalar loop | where the rule's default is a scalar body (`<form>S, a scalar body`), as is expected of the masked classes at 128 bits: a kernel that runs the form's scalar loop, not a decline (the owner's answer 5). **Done when** each class whose default at a host and width is a scalar body runs inside a kernel there and answers as the vector kernels do. It is a new kind of kernel, and nothing of it is designed here. Not known: how the emitter emits a scalar loop; whether a scalar body still beats the row path with a kernel's validity, tail and guard around it (the study's scalar loops have none of the three); what it adds to the option matrix | row 698's verdict, read first: a mask-free two-lane vector form that wins there replaces the scalar body. Then the classes whose default at 128 bits is a scalar body, and row 655's 128-bit sections |
+| a column that arrives as epoch nanoseconds | it is admitted as it is, with the form's range: a kernel computes in R2 on the long as it arrives and pays no conversion from Spark's parts (the owner's answer 3). The study's arriving loops (4.1's mirror) are the measurement behind it. Not known: no source hands a Varka node such a column today, and which node admits it is row 699's plan to say | the rule's `arriving` lines (step 5) |
+| the measurement on row 655's classes | R1, R3 and R4, and R2 where it is built, on `VarkaTimestampNanosBaselineBenchmark` and its three siblings, at 256 and 128 bits | nothing: it measures kernels, and the study's rule is scored against it |
 
 **The recommendation: a new row, 699**, filed by this plan's pull request (section 13, edit
 2), and row 662 closes on the three clauses of section 1. The reasons: every item above but
@@ -1361,14 +1396,14 @@ name as "first".
 | excluded | who holds it |
 | :--- | :--- |
 | the cache's struct in and out, the null tests, `coalesce`, the conformance suites, the census claims | row 699 (4.11, 4.12) |
-| every kernel that compares or computes a nanosecond value; the conversion nodes; the option | row 699 (4.12) |
+| every kernel that compares or computes a nanosecond value, in R1, R3, R4 or R2; the conversion nodes; the option | row 699 (4.12) |
 | every field but none, every cast, `timestampadd`, the sums, `date_trunc`, the `unix_*` functions | rows 673, 674, 675, after row 699 |
 | a load, a compare or a carry with no mask at two long lanes | row 698 for a two-word value, row 689 for a zone step (section 12) |
 | an e-graph, an extraction, a rewrite engine, a dependency on jegg | `m10/SCOPE.md` items 11 and 85; this row adds no dependency |
 | the 72-bit form as an arm | none: not built (section 2) |
 | the house's conversion and `2^52` division forms as arms of every loop | none: the control times the first once; question 4 of section 15 |
-| a scalar body in a kernel | `m10/SCOPE.md` item 101; question 5 |
-| a kernel input that arrives as one long of nanoseconds | the Arrow-native datasource's row; question 3 |
+| a scalar body in a kernel | row 699 (4.12), by the owner's answer 5; this row designs none |
+| a kernel input that arrives as one long of nanoseconds | row 699 (4.12), by the owner's answer 3; which node admits it is its plan's to say |
 | a nanosecond timestamp surface against stock Spark | none (`VARKA-655.md` 14: the owner decided that this milestone has none) |
 ## 5. The parts
 
@@ -1383,7 +1418,7 @@ name as "first".
 | S2 | `[VARKA-662] Add the study's loops over seconds and over days` | `varka-662s2-loops` | S1 | 322 loops, tested | 10 | a cheaper model |
 | S3 | `[VARKA-662] Time the nanosecond representations on the laptop and the runners` | `varka-662s3-readings` | S2 | the results and provenance files | 40 | the lead, with a builder |
 | T1 | `[VARKA-662] Prove the conversions and the guards of the nanosecond representations` | `varka-662t1-proofs` | P1b | the three proof files | 531 | a cheaper model |
-| T2a | `[VARKA-662] Add the tool of the representations' cost table and rule` | `varka-662t2a-tool` | this plan merged | `dev/varka_nanos_costs.py`, held by its self-test on made-up tables | 931 | a cheaper model |
+| T2a | `[VARKA-662] Add the tool of the representations' cost table and rule` | `varka-662t2a-tool` | this plan merged | `dev/varka_nanos_costs.py`, held by its self-test on made-up tables | 906 | a cheaper model |
 | T2b | `[VARKA-662] Write the representations' cost table and apply the rule` | `varka-662t2b-costs` | S3, T1, T2a | the cost table, the rule's outcome, section 11; row 699 can be planned | 90 | the lead, with a builder |
 
 Where this plan says T2 with no letter it means T2a and then T2b.
@@ -1403,7 +1438,7 @@ above are of the files as `ruff format` leaves them, which is how the appendices
 (5.0). The second writing's P1 was one file of 771 counted lines with no cut. It
 is now two parts, each checked alone: P1a is `dev/varka_nanos_spike.py` with R1 and R2, whose
 check runs the 112 loops that meet no other form; P1b adds `dev/varka_nanos_spike_r34.py`, and
-the same command then runs all 322. P1a (943) and T2a (931) are the two parts near
+the same command then runs all 322. P1a (943) and T2a (906) are the two parts near
 the cap. Each is one file taken whole from this plan and nothing else (P1a with the two lines
 of the status edit), and a builder changes neither but by the formatter (5.0), so neither
 grows. T2 was one part; the tool and what the lead writes from the numbers together passed
@@ -1496,7 +1531,7 @@ and `sha256sum <where>` must print the file's line below. A sum that differs: st
 | A | `dev/varka_nanos_spike.py` | `dev/varka_nanos_spike.py` | 941 | `bc9c9372b78e2aa09dfd8fb968e96e8f3db632e9b04dd68c5aa66cddecf8903d` |
 | B | `dev/varka_nanos_spike_r34.py` | `dev/varka_nanos_spike_r34.py` | 210 | `fc9716e51d275c5f4ecadadd99ec18c7e650378d1e2972d9e31cfcb9290974b2` |
 | C | `dev/varka_nanos_spike_gen.py` | `dev/varka_nanos_spike_gen.py` | 538 | `7c952667d67e6bb002e3654e544b0b4f949272b11af94d9f178cb49338cf9699` |
-| D | `dev/varka_nanos_costs.py` | `dev/varka_nanos_costs.py` | 931 | `d94977275e892267cb635f06ae407ae84798897bdd383d22662e1c39b032ef06` |
+| D | `dev/varka_nanos_costs.py` | `dev/varka_nanos_costs.py` | 906 | `ac0cb3b6e5fa98c590ec668472266b449b31f94279b8534566862f1b52044d2c` |
 | E | `VarkaNanosSpikeOps.java` | `$TQ/` | 160 | `19775c93da85a4e0ea3e2db75e43da5f2548806ee58b9135d74de36b53b65075` |
 | F | `VarkaNanosSpikeCheck.java` | `$TQ/` | 496 | `fcaf86a39180051d70a29998ee0210e11d5fc04e7088e3b804c155998481bef1` |
 | G | `VarkaNanosRepresentationSpikeSuite.java` | `$TQ/` | 255 | `2eefa2c8a026f372ca89e266213de638a1e9269d94febd0c2d0b0a84891f6384` |
@@ -2077,7 +2112,7 @@ these three, as it does not read `java.smt2`.
 
 **B0** (T2a). `ls dev/varka_nanos_costs.py` fails. **B0** (T2b). `ls
 $B/$C-jdk25-runner-epyc7763-results.txt` prints the path; `python3 dev/varka_nanos_costs.py
-selftest` prints `selftest: 102 checks, 0 failed`.
+selftest` prints `selftest: 103 checks, 0 failed`.
 
 **Steps.** Step 1 is part T2a, whose tests, planted faults and commands are the self-test's
 below. Steps 2 to 6 are part T2b.
@@ -2086,16 +2121,16 @@ below. Steps 2 to 6 are part T2b.
 2. `mkdir -p $M9/results/VARKA-662`; `python3 dev/varka_nanos_costs.py table $B/$C-*-results.txt
    > $M9/results/VARKA-662/nanos_representation_costs.tsv`.
 3. `python3 dev/varka_nanos_costs.py rule $M9/results/VARKA-662/nanos_representation_costs.tsv`:
-   its output, whole, goes into section 11 as an indented block. Where its first block ends
-   `the second form is undecided`, 4.10's step 4 says which block row 699 then follows.
+   its output, whole, goes into section 11 as an indented block. Where a class's `project` line is
+   `undecided`, section 11 names the reading that lacked a time and why.
 4. Section 11 also gets: the `residual` rows of the EPYC 7763 at 256 bits, counted by flag
    (`awk -F'\t' '$1=="residual" && $2 ~ /EPYC 7763/ && $3==256 {n[$15]++} END {for (f in n)
    print f, n[f]}'` over the table), and every such row whose flag is `off`, in full; the count
    of derived rows flagged `within noise` and `not additive`, by host and width (`awk -F'\t'
    '$15=="within noise" || $15=="not additive" {n[$2 ", " $3 " bits, " $15]++} END {for (k in n)
    print k ": " n[k]}'` over the table; no line means none); the answers
-   the owner gives to section 15; and the sentence `Row 699 builds <the built set of the EPYC
-   7763 at 256 bits>`.
+   the owner gives to section 15; and the sentence `Row 699 builds R1, R3 and R4 in the
+   order <the rule's order line>, and R2 for <the rule's r2 line>`.
 5. `docs`: none. `SKILLS.md`, at the repository's root, is written from the files of
    `sql/varka/skills/`. Of those, `sql/varka/skills/vector-api-and-width.md`
    gains a section of what the study found about a mixed-width loop, the guards' forms and
@@ -2103,28 +2138,37 @@ below. Steps 2 to 6 are part T2b.
    sql/varka/skills`.
 6. The status edit of 5.0: `**Started**` to `**Done**`.
 
-**Tests** (T2a). `python3 dev/varka_nanos_costs.py selftest`: `selftest: 102 checks, 0 failed`. It
-parses a made-up results file of one section, two rungs and a fallback table (the first rung
-alone is read; a fast loop's time is taken from its rate; a labelled fallback and a loop over a
-byte a row are both `fallback`; the base has a row of its own; a cell is its loop less half its
-base; an edge less both halves; an edge inside the spread is `within noise` and `0.000`, never
-negative; a cost negative beyond the spread is `not additive`; a residual has its ratio and its
-flag; the table reads back) and applies the rule to 4.10's twenty-three tables. The failure
-only it catches: a rule that reads a fallback's time, counts a missing time as a win, calls a
-class with no row scalar, drops a vector layout, lets R2 veto a form, or names a form the
-table does not favour.
+**Tests** (T2a). `python3 dev/varka_nanos_costs.py selftest`: `selftest: 103 checks, 0 failed`. It
+parses a made-up results file of one section, two rungs and a fallback table (the first rung alone
+is read; a fast loop's time is taken from its rate; a labelled fallback and a loop over a byte a
+row are both `fallback`; the base has a row of its own; a cell is its loop less half its base; an
+edge less both halves; an edge inside the spread is `within noise` and `0.000`, never negative; a
+cost negative beyond the spread is `not additive`; a residual has its ratio and its flag; the
+table reads back) and applies the rule to 4.10's twenty-nine tables. The failure only it catches:
+a rule that reads a fallback's time, counts a missing time as a win, names a default from a part
+of the data, calls a class with no row decided, drops a vector layout, makes R2 a candidate where
+it has no loop or leaves it out where it has, prints an R2 default without its range, passes over
+a scalar loop that is the faster by the band, or reads a runner before an AVX-512 reading.
 
-**Planted faults** (T2a), each run by the planner on the file as the appendix has it:
+**Planted faults** (T2a), each run by the planner on the file as the appendix has it, in memory,
+the self-test's failing checks counted:
 
 | the line | made | the self-test fails in |
 | :--- | :--- | :--- |
-| `BAND = 1.3` | `BAND = 1.0` | 6 checks, among them table B2's defaults, table C's interval and the residual's flag |
-| `CLEAR = 2.0` | `CLEAR = 1.0` | 3, at table 5's built set and its date |
-| `if r["jit"] == "ok":` in `class_times` | `if True:` | 16, at tables 6, C, C2, C3, H, R and U |
+| `BAND = 1.3` | `BAND = 1.01` | 12 checks, at tables 2, 4, 5, 7, 8, B2 and S3 and at the residual's flag. (At `1.0` no form is within the band of itself, and the tool stops on an empty tie) |
+| `if r["jit"] == "ok":` in `class_times` | `if True:` | 21, at tables 6, C, C2, C3, H, N, P2, R and S: a fallback's time is read |
 | `for layout in "LMHS":` in `class_times` | `"LMS"` | 3, at tables G and H: the rule reads no layout H |
 | the same line | `"LHS"` | 1, at table M: the rule reads no layout M |
-| `if not vector and not parts[name]["measured"].intersection(BUILDABLE):` in `judge` | `if False:` | 3, at table Z: a class with no row reads as scalar |
-| `elif open_second:` in `rule` | `elif False:` | 3, at table U: another host does not print its own set |
+| `if not part["seen"].intersection(forms):` in `judge` | `if False:` | 1, at table Z: a class with no row is not said to have none |
+| `if missing:` in `judge` | `if False:` | 9, at tables 7, N, P2 and R: a default is named from a part of the data |
+| `(("R2",) if name in R2_CLASSES else ())` in `judge` | `(("R2",) if True else ())` | 14, at tables 1, 2, 5, 7, C2, F, N and Q: R2 is a candidate in every class |
+| the same line | `(("R2",) if False else ())` | 11, at tables 1, 4, 7, 8, R and S: R2 is a candidate in none |
+| `if vector and (not scalar or vector[0] / scalar[0] < BAND):` in `pick` | `if vector:` | 3, at table S2: a slow vector loop keeps the scalar loop out |
+| `return scalar` in `pick` | `return None` | 16, at tables 6, C, C2, C3, S and S2: no scalar body at all |
+| `ORDER = ("R1", "R3", "R4", "R2")` | `ORDER = ("R2", "R1", "R3", "R4")` | 5, at tables 4, 8 and E: a tie goes to R2 |
+| `if form == "R2":` in `judge` | `if False:` | 2, at tables 8 and S: an R2 default without its range and its fallback |
+| `key=lambda k: not k[0].startswith(LAPTOP))` in `rule` | `key=lambda k: k[0].startswith(LAPTOP))` | 3, at table P1: the laptop's 512 bits are not first |
+| `(k for k in keys if k[1] == "512")` in `rule` | `(k for k in keys if k[1] == "0")` | 5, at tables P1 and P2: the runner is read before AVX-512 |
 
 **Commands** (T2a). The self-test; `ruff check dev/varka_nanos_costs.py` and `ruff format
 --check dev/varka_nanos_costs.py`, which print `All checks passed!` and `1 file already
@@ -2132,8 +2176,8 @@ formatted`; `python3 dev/varka_msg_check.py size`. **Commands** (T2b). `python3
 dev/varka_nanos_costs.py check $B/$C-*-results.txt`, exit 0; `python3 dev/varka_quote_check.py
 $M9/VARKA-662.md`, 0 orphans: every number section 11 quotes is in the table or a results file.
 
-**Done when** (T2a) the self-test passes and the seven faults fail it; (T2b) section 11 holds
-the rule's output and the sentence that names what row 699 builds, or the questions that keep it
+**Done when** (T2a) the self-test passes and the fourteen faults fail it; (T2b) section 11 holds
+the rule's output and the sentence that names what row 699 builds, or the question that keeps it
 open. **Not here:** no kernel; row 699's plan is another pull request.
 ## 6. Tests, proofs, fuzzing and coverage
 
@@ -2144,7 +2188,7 @@ open. **Not here:** no kernel; row 699's plan is another pull request.
 | `dev/varka_scoped_suites.sh`'s line, in the `varka-scoped` job of every Build | `dev`, shell | the committed loop classes are what the generator writes | a generated class edited by hand, which counts nothing toward a pull request's size |
 | the benchmark's own checks | catalyst, Java | each loop against Spark before it is timed and again in compiled code; the intrinsic check; the control | a loop that is right and is not vector code |
 | `nanos_representations.smt2`, `nanos_guards.smt2`, `nanos_divisions.smt2` | `sql/varka/proofs`, Z3 and cvc5 | each conversion's equality at the exact ends of its range; each guard form exact, each guard at its ends; each division constant over its whole range, and each lane product under 2^64 | a range one step too wide; a guard form used where it is not exact |
-| `python3 dev/varka_nanos_costs.py selftest` | `dev`, Python | the results parser, the floor and the flags of the derived rows, and the rule on twenty-three made-up tables | a rule that reads a fallback's time or counts a missing one as a win; a negative cost in the table |
+| `python3 dev/varka_nanos_costs.py selftest` | `dev`, Python | the results parser, the floor and the flags of the derived rows, and the rule on twenty-nine made-up tables | a rule that reads a fallback's time or counts a missing one as a win; an R2 default with no range beside it; a runner read before AVX-512; a negative cost in the table |
 
 **The edges, and where each has a case.** Nulls: the study's loops read no validity (4.3).
 The ends of a long and of every guard: the suite's `ends` batch, whose rows a guard declines
@@ -2200,6 +2244,10 @@ what section 11 scores, and the registered text is scored too, as it reads.
    *Correction, the same day:* the rule no longer ends in R1 alone (4.10, step 4). Restated:
    over Spark's parts no form wins a class over R1 beyond the band, every default is R1, and
    the second form is chosen by the band and the mean: R3.
+   *Correction, 28 November 2026, after the owner's answers:* the rule builds no set now: R1, R3
+   and R4 are all built, and R2 is a candidate in four classes (4.10, section 19). Restated: on
+   the EPYC 7763 at 256 bits R1 is the default of every class, as a win or as the first of a tie,
+   and the rule's `r2` line does not name that host.
 6. The cells say more than the loops over Spark's parts do: R4's `HOUR` cell is at most half
    of R1's, and R3's `HOUR` cell is within the band of R1's. Yes or no, each. (The cost table,
    the EPYC 7763 at 256 bits, layout L.)
@@ -2257,8 +2305,9 @@ go to the lead with a builder (S3, T2b).
    so, and section 11 lists it.
 5. **The study prices R4's and R2's clock fields too high.** A 47-bit dividend takes two
    multiplies and a repair here (4.2). If a cheaper exact form exists, R4's cells move. Held
-   by naming it: section 11 reports R4's `HOUR` cell beside the count of its lane operations,
-   and question 6 keeps the third form's bar the owner's.
+   by naming it: section 11 reports R4's `HOUR` cell beside the count of its lane operations.
+   R4 is built whatever its cell reads (the owner's answer 6), so a cheaper form would move a
+   default and not what is built.
 6. **The study's divisions are not a kernel's.** The house's long lane divides through
    doubles where the host lowers the conversion. Held by the control, and by question 4.
 7. **Costs do not add.** Then cells and edges mispredict a tree. Held by the residual rows,
@@ -2266,18 +2315,13 @@ go to the lead with a builder (S3, T2b).
    conclude.
 8. **A run passes the runner's time limit.** Held by the pilot's scaled minutes and 5.7's
    runs in parts, each whole.
-9. **A run in parts is read across machines.** Every ratio of the rule's steps 2, 3, 5 and 6
-   and every subtraction of the cost table stays inside one part, since no class is split
-   (4.7). One number crosses parts: step 4's third criterion, the geometric mean of a form's
-   class times, whose classes can be of different parts and so of different runner machines.
-   It decides only where R3 and R4 have equal counts of classes won and of classes within the
-   band, which the two `built` lines of the output show. Where a run in parts ends there,
-   section 11 says that the second form was chosen by a mean across machines, and the lead
-   times the loops of R3 and R4 once more in one run of one machine before row 699's plan
-   rests on the choice. What else crosses parts is the counts of classes, which are verdicts
-   and not times.
-10. **No dispatch lands on AVX-512.** Then the 512-bit lines are the laptop's, double-pumped,
-    and say so.
+9. **A run in parts is read across machines.** Every ratio of the rule's steps 1 to 5 and every
+   subtraction of the cost table stays inside one part, since no class is split (4.7). The third
+   writing had one number that crossed parts, the geometric mean that chose between R3 and R4; it
+   is gone with the built set. What crosses parts now is the `order` line's counts of classes,
+   which are verdicts and not times.
+10. **No dispatch lands on AVX-512.** Then the project's first reading is the laptop's 512-bit
+    block alone, double-pumped, and section 11 says so.
 11. **The suite's own JVM picks other species under a width flag** than the timed run. It
     cannot: both read `LongVector.SPECIES_PREFERRED` under the same `MaxVectorSize`.
 12. **Spark's surface moves** (the preview changes weekly). A method of 4.6 that is renamed
@@ -2285,6 +2329,19 @@ go to the lead with a builder (S3, T2b).
     it.
 13. **A hand edit of a generated class.** Held by the line in `dev/varka_scoped_suites.sh`,
     which every Build's catalyst jobs run.
+14. **An R2 default rests on batches inside its range.** The rule's time for R2 is the price of a
+    batch inside 1677 to 2262; a batch outside costs the loop and the row path, and the study
+    times neither that nor how often it happens. Held by the rule's line, which names the range
+    and the fallback beside every R2 default and the whole-range default of the same class; by
+    4.12's item, which lists what is not known; and by row 699's measurement on row 655's classes.
+15. **A scalar body is slower inside a kernel than the study's scalar loop.** The study's scalar
+    loops carry no validity, no tail and no null-aware guard. Held by 4.12's item, which says so,
+    and by row 698's verdict being read first.
+16. **The project's first reading is double-pumped.** The laptop's datapath is 256 bits wide
+    (4.7), so its 512-bit block may name defaults that a full-width AVX-512 CPU would not. Held by
+    the order's second reading, an AVX-512 runner where a dispatch lands on one, whose block is
+    printed beside the laptop's; and by each host keeping its own defaults, so that only the
+    project's named default follows the laptop.
 
 ## 10. The house rules that bind this row
 
@@ -2338,11 +2395,12 @@ Where the two rows meet:
   and never read. This row tries no mask-free form of them: no lane read and lane insert, no
   compare as a subtract and a shift. So this row's 128-bit files say what the masked forms
   cost and which loops need another form; whether another form wins is row 698's verdict.
-- *How the two cannot contradict.* The rule's lines at 128 bits end in `scalar at this width`
-  or `undecided` for every class whose vector loops have a mask. They are labelled as this
-  study's loops, with the masks of four lanes and more, and are not a verdict on a two-lane
-  kernel. Row 699's item "the two-lane refusals" (4.12) and question 5 read row 698's answer
-  before they decide a refusal.
+- *How the two cannot contradict.* The rule's lines at 128 bits name a scalar body as the default
+  of every class whose vector loops have a mask (`<form>S, a scalar body`), or are `undecided`.
+  They are labelled as this study's loops, with the masks of four lanes and more, and are not a
+  verdict on a two-lane kernel. Row 699's item "a kernel whose body is a scalar loop" (4.12) reads
+  row 698's answer first: a mask-free two-lane vector form that wins there replaces the scalar
+  body.
 
 **Row 689** (zone steps at two lanes; its plan is written beside this one and was not read).
 It gives each zone step a form with no mask at two lanes. This row's `ZONE` loop is three
@@ -2353,8 +2411,8 @@ option and no refusal text, so it shares no name with row 689.
 662" (the ids, the declined entries, the census cells that name a row) goes to row 699:
 section 13's edit 6 says so in its plan. **Row 656** fuses `in_set` over `TIMESTAMP` and
 rewords the two-lane text; this row touches neither. **Row 655**: this row reads none of its
-classes; row 699 does (edit 5). **Row 679** (the library): its contract is Spark's two parts
-with one long as an arm, which stands; edit 7 tells it what the study adds. **Rows 673 to
+classes; row 699 does (edit 7). **Row 679** (the library): its contract is Spark's two parts
+with one long as an arm, which stands; edit 8 tells it what the study adds. **Rows 673 to
 675** wait for rows 662 and 699 (edit 3).
 
 **Deviations from the shared names of the zone family:** none; `ZONE` reads no name of it.
@@ -2381,7 +2439,7 @@ Old:
 
 New:
 
-    **Done when**, by the owner's word of 28 November 2026 that the representation be measured for vectors before it is built: the candidate representations (Spark's two parts, one long of nanoseconds, seconds with nanoseconds, days with nanoseconds) are measured in hand loops, each held to Spark's methods; the numbers are a cost table, each conversion an equality with its range, proved; and a rule names the representations row 699 builds and each class's default
+    **Done when**, by the owner's word of 28 November 2026 that the representation be measured for vectors before it is built: the candidate representations (Spark's two parts, one long of nanoseconds, seconds with nanoseconds, days with nanoseconds) are measured in hand loops, each held to Spark's methods; the numbers are a cost table, each conversion an equality with its range, proved; and a rule names each class's default representation by host and width, among those row 699 builds
 
 Old:
 
@@ -2405,7 +2463,7 @@ sql/varka/plans/m9/VARKA-662.md`, run before any edit of this section is made: t
 text and the `sed` commands of edits 3, 6 and 7 are in this file, so they are renumbered with
 it. The number is in prose and in section 13's new texts only, and in no file of an appendix.
 
-    | 699 | The nanosecond timestamps' storage and kernels over the study's forms. **Filed** (28 November 2026, from `VARKA-662.md` 4.11 and 4.12; the admission check: row 662 measures the representations in hand loops and builds nothing a kernel runs) The cache's struct in and out, the null tests and `coalesce`, the two conformance suites and the first census claims; the conversions between the built representations as IR nodes with their range conditions and guards; the comparisons, `IN`, `between`, the choices, the hashes, the cast to microseconds, `hour` and `second` with its fraction over the form each class defaults to; the option that names the form; the two-lane refusals, read after row 698's verdict; the forms measured on row 655's nanosecond classes. Planned after row 662's part T2b and after row 661 is built. **Done when** a nanosecond column is read from the cache's struct and written back; the zone-free entries fuse or decline by name; a field over the microsecond word, a cast to microseconds and `second` with its fraction fuse; each built representation is measured on row 655's classes at 256 and 128 bits, the slower kept as an option arm; and the values at the range's ends answer as `TimestampNanosVal` does | rows 662, 661 and 653 first; row 655's parts F and G; row 698's verdict for 128 bits; `VARKA-662.md` 4.10 to 4.12 | large |
+    | 699 | The nanosecond timestamps' storage and kernels over the study's forms. **Filed** (28 November 2026, from `VARKA-662.md` 4.11 and 4.12; the admission check: row 662 measures the representations in hand loops and builds nothing a kernel runs; *28 November 2026, the owner's answers to `VARKA-662.md` section 15:* all three whole-range representations are built whatever the numbers, one long of nanoseconds where it is the fastest, a scalar body where no vector form wins, and a column that arrives as epoch nanoseconds is admitted) The cache's struct in and out, the null tests and `coalesce`, the two conformance suites and the first census claims; the conversions among Spark's two parts, seconds with nanoseconds and days with nanoseconds as IR nodes with their range conditions and guards; the comparisons, `IN`, `between`, the choices, the hashes, the cast to microseconds, `hour` and `second` with its fraction in all three, each class defaulting by host and width to the form row 662's rule names, the AVX-512 readings first where one default is named for the project; the kernels in one long of nanoseconds for the classes where the rule names it the default, each with its batch guard, a batch that holds a value outside 1677 to 2262 going to the row path; a kernel whose body is a scalar loop where the rule's default is a scalar body, read after row 698's verdict, since a mask-free two-lane form that wins there replaces it; a column that arrives as epoch nanoseconds admitted as it is, with the form's range; the option that names the form; the forms measured on row 655's nanosecond classes. Planned after row 662's part T2b and after row 661 is built. **Done when** a nanosecond column is read from the cache's struct and written back; the zone-free entries fuse or decline by name; a field over the microsecond word, a cast to microseconds and `second` with its fraction fuse; each of the three representations is measured on row 655's classes at 256 and 128 bits, and the one long where it is built, each built form that is not a class's default kept as an option arm; a class whose default is a scalar body runs that body inside a kernel and answers as the vector kernels do; a batch outside the one long's range answers through the row path; and the values at the range's ends answer as `TimestampNanosVal` does | rows 662, 661 and 653 first; row 655's parts F and G; row 698's verdict for 128 bits; `VARKA-662.md` 4.10 to 4.12 and 19 | large |
 
 **Edit 3. The same file, section 3: rows 673, 674 and 675 wait for row 699 too.** The text
 `row 662 first | medium |` ends three lines, so each is changed in its own line:
@@ -2422,16 +2480,17 @@ sql/varka/plans/m9/PLAN.md` prints `3`, and after it `0`.
 (with the file's two spaces before it). The line after it is `  measurement.`, the bullet's
 last; this paragraph is added after that line, each line with the bullet's two spaces:
 
-    *28 November 2026:* the owner asked that the representation be measured for vectors
-    before it is built, as SPARK-56822 analysed it for a scalar engine. Row 662 is now that
-    measurement alone: four representations in hand loops (Spark's two parts, one long,
-    seconds with nanoseconds, days with nanoseconds), their cost table, and their
-    conversions as proved equalities. Row 699 builds the cache's struct in and out and the
-    kernels over what the measurement favours: where this section or a row's line says that
-    row 662 builds the struct, a layout or a kernel, read row 699. The two layouts above are
-    no longer assumed. A representation is not fixed for the type: the table and the
-    equalities are kept so that a choice by query and by source (`m10/SCOPE.md` item 11)
-    stays open.
+    *28 November 2026:* the owner asked that the representation be measured for vectors before it
+    is built, as SPARK-56822 analysed it for a scalar engine. Row 662 is now that measurement
+    alone: four representations in hand loops (Spark's two parts, one long, seconds with
+    nanoseconds, days with nanoseconds), their cost table, and their conversions as proved
+    equalities. Row 699 builds the cache's struct in and out and the kernels: over all three
+    representations that hold the whole range, by the owner's answer of the same day, and over one
+    long where it is the fastest, with the measurement naming each class's default. Where this
+    section or a row's line says that row 662 builds the struct, a layout or a kernel, read row
+    699. The two layouts above are no longer assumed. A representation is not fixed for the type:
+    the table and the equalities are kept so that a choice by query and by source (`m10/SCOPE.md`
+    item 11) stays open.
 
 **Edit 5. The same file, section 3.1, the table of goals and rows.** Old, one line:
 
@@ -2482,12 +2541,13 @@ it):
 New: the same line, then, with the same two spaces:
 
     *28 November 2026:* row 662 now measures four representations in Varka's own harness
-    (`VARKA-662.md` 4.1), with divisions that neither divide nor convert to a double (its
-    4.2) and guards with no minimum or maximum (its 4.3), which the library's kernels can
-    take. The library's contract stands: a caller hands it Spark's two parts, and one long
-    is its arm. Where this plan says that row 662 builds a layout or a kernel, read row 699.
-    If the study's rule builds seconds or days, the forms of 5.3 gain that shape as an arm,
-    by an issue each; the file `shapes` stays the library's own measurement.
+    (`VARKA-662.md` 4.1), with divisions that neither divide nor convert to a double (its 4.2) and
+    guards with no minimum or maximum (its 4.3), which the library's kernels can take. The
+    library's contract stands: a caller hands it Spark's two parts, and one long is its arm. Where
+    this plan says that row 662 builds a layout or a kernel, read row 699. Row 699 builds seconds
+    and days too, by the owner's answer of the same day (`VARKA-662.md` section 19), so the forms
+    of 5.3 gain those two shapes as arms, by an issue each; the file `shapes` stays the library's
+    own measurement.
 
 **Edit 9. `$P/m10/SCOPE.md`, item 11.** Old, one line (the file's two spaces before it):
 
@@ -2502,6 +2562,33 @@ New: the same line, then, with the same two spaces:
     may not conclude from them, and each conversion an equality under a range condition in
     `proofs/nanos_representations.smt2`. No conversion node exists yet: row 699 adds one a
     conversion it builds.
+
+**Edit 10. `$P/m9/VARKA-660.md`, section 4.7: the owner's answer of 28 November 2026.** Added on
+28 November 2026, with the owner's answers (section 19). Old, one line, the last of the paragraph
+that begins `**What follows for a fused cell.**`:
+
+    row 662, which has no plan yet (section 11).
+
+`grep -c -F` of it prints `1` on master `92fd5a62d13` and on master `4e1d1f3a749`. New: the same
+line, then an empty line, then this paragraph:
+
+    *28 November 2026:* the owner changed this for the nanosecond timestamps (`VARKA-662.md` section
+    15, answer 2; the kernels are row 699's). The one long may be built where it is the fastest, and
+    a batch that holds a value outside 1677 to 2262 then goes to the row path: no two-word kernel
+    has to stand behind it. So a cell's default arm may be the one long, and such a cell is fused
+    for the years 1677 to 2262 and answers on the row path outside them. The rule that a fused cell
+    holds over the type's whole range no longer binds these two types; the census rule above stands,
+    a layout is no census type. How the census marks a cell whose default arm is the one long is for
+    row 699's plan to say.
+
+**What the owner's answers changed in edits 1, 2, 4 and 8.** Their new texts above are as the
+owner's answers leave them, and the files of this plan's pull request hold them word for word.
+Edit 1: the done-when's last clause was `a rule names the representations row 699 builds and each
+class's default`. Edit 2: row 699's line names all three forms, the one long, the scalar body and
+the arriving column. Edit 4: the note's sentence on what row 699 builds. Edit 8: the note's last
+sentence, which was a condition on the rule and is now the owner's answer. Not changed, and to be
+read with edit 10: `VARKA-660.md` section 13, question 6, and section 15 record the agreement of
+27 November 2026 as it was made, and `VARKA-661.md` section 11 cites it.
 
 ## 14. What only a JVM can settle, and what the planner's JVM settled
 
@@ -2887,85 +2974,57 @@ the declined type's node) are row 699's now (4.11).
 
 ## 15. Questions for the owner
 
-Each has the options, the recommendation first, and the default the plan applies until he
-answers. Each can be answered from this section alone.
+One question is open. The owner answered the other seven on 28 November 2026; they are kept below
+as a record, and section 19 says what each answer changed in this plan. The questions keep the
+numbers the third writing gave them.
 
-**The words the questions use.** A *form* is a way to hold a nanosecond timestamp in vector
-lanes. *R1* is Spark's own two words: epoch microseconds in a long and the nanoseconds within
-the microsecond, 0 to 999, in a short. *R2* is one long of epoch nanoseconds, which holds the
-years 1677 to 2262 alone. *R3* is epoch seconds in a long and the nanoseconds of the second in
-an int. *R4* is epoch days in an int and the nanoseconds of the day in a long. A *layout* is
-how a form's narrow word sits in vectors; *layout H* keeps R1's short in a short vector. A
-*class* is a group of operations the rule decides together (compare, choice, interval
-arithmetic, clock fields, date fields, truncation, zone conversion, stored conversions, a
-chain of three); a form *wins* a class when the other forms take 1.3 times its time or more.
-The *built set* is the forms row 699, the row that builds the kernels, would build. *The EPYC
-7763 at 256 bits* is the GitHub runner's CPU, the machine the house reads its bars on.
+**The words the questions use.** A *form* is a way to hold a nanosecond timestamp in vector lanes.
+*R1* is Spark's own two words: epoch microseconds in a long and the nanoseconds within the
+microsecond, 0 to 999, in a short. *R2* is one long of epoch nanoseconds, which holds the years
+1677 to 2262 alone. *R3* is epoch seconds in a long and the nanoseconds of the second in an int.
+*R4* is epoch days in an int and the nanoseconds of the day in a long. A *layout* is how a form's
+narrow word sits in vectors; *layout H* keeps R1's short in a short vector. A *class* is a group
+of operations the rule decides together (compare, choice, interval arithmetic, clock fields, date
+fields, truncation, zone conversion, stored conversions, a chain of three); a form *wins* a class
+when the other forms take 1.3 times its time or more. Row 699 is the row that builds the kernels.
+*The EPYC 7763 at 256 bits* is the GitHub runner's CPU, the machine the committed baselines are
+read on.
 
-1. **If the measurements favour different forms at different widths or hosts.** The rule
-   computes one built set, from the runner (the EPYC 7763 at 256 bits). (a) *Recommended, and
-   the default:* row 699 builds that set, and takes each class's default by width within it;
-   the rule's tool prints exactly that, and names a form that wins on another host or width
-   and is not built. (b) The union: every form that is in the built set of any host or width.
-   (c) The set of the laptop (AVX-512) in place of the runner's.
-2. **May R2, one long of epoch nanoseconds, be built over Spark's two words when it is the
-   fastest in a class, though it holds 1677 to 2262 alone?** You agreed on 27 November 2026
-   (`VARKA-660.md` 4.7) that a fused cell holds over the type's whole range, so the plan does
-   not reopen this; it is asked only so that the rule's line about R2 has an owner. (a)
-   *Recommended, and the default:* no, not before the two-word kernel is behind it; the rule
-   prints where R2 is 1.3 times the best of R1, R3 and R4 or more, and row 699's plan files
-   that work as a row of its own. (b) Yes, with a batch outside 1677 to 2262 going to the row
-   path, which that agreement ruled out.
-3. **Data that arrives as epoch nanoseconds.** No source hands a Varka node such a column
-   today. (a) *Recommended, and the default:* the study measures it (4.1's mirror loops, the
-   rule's step 6), and admitting Arrow's nanosecond vector is the Arrow-native datasource's
-   row. (b) Admit it in row 699.
+**Open.**
+
 4. **Asked after the pilot, with its number; nothing waits for it.** The study divides by a
-   constant with multiplies alone (the high half of a 64-bit product, "the multiply-high").
-   One loop, *the control*, computes the hour the house's other way, through a conversion to a
-   double and a division, which is vector code only where the CPU has the long-to-double
-   instruction (AVX-512). If the pilot shows the control 1.3 times faster than the
-   multiply-high or more there: (a) *Recommended, and the default, which the plan builds:*
-   record the ratio; the study stays on one division method for every form, and row 699's
-   lowering picks the division by host, as VARKA-538 does today. (b) Run the study a second
-   time on such hosts with the divisions printed in the conversion form, one more statement
-   form in the generator; the cost table then gains a `division` column.
-5. **A width where scalar loops win a class, or where no vector loop has a reading** (the
-   compare, the choice, the zone and the chain at 128 bits). (a) *Recommended, and the
-   default:* row 699 declines those forms there by a measured refusal, after row 698 says
-   whether a form with no mask can win at two lanes; the finding goes to `m10/SCOPE.md` item
-   101. (b) A scalar body in a kernel, which is a new kind of kernel.
-6. **How many forms.** You guessed "at least 2: micros (Long) + nanos of micros (Short) and
-   seconds (Long) + nanos Of second (Int). Maybe one more date (Int) + time of day (Long) as
-   nanos of day". Those are R1, R3 and R4 above. (a) *Recommended, and the default:* at least
-   two, always. Row 699 builds R1 (your first form, in layout H) and the better of R3 and R4
-   by the measurements, whether or not it wins a class: the one that wins more classes, then
-   the one within 1.3 of the best in more classes, then the one with the lower geometric mean,
-   then R3. It builds the other too only where it wins a class by 2.0 times over both. (b)
-   Build one form only, R1, when nothing else wins a class beyond 1.3 times, and the second
-   only on a win: fewer kernels to carry, and nothing to choose among for the later chooser by
-   query. (c) All three whatever the numbers. (d) A bar other than 2.0 for the third form,
-   which you name. (e) *Applied until you say otherwise:* if no host and width has a reading
-   that decides between R3 and R4 (every vector loop of both falls back to Java everywhere),
-   row 699 builds R1 and R3, your own second form; the alternative is to name R4, or to hold
-   row 699 until a reading exists.
-7. **Row 699.** The plan proposes it; yours to veto. (a) *Recommended, and the default:* a
-   new row for the storage and the kernels, filed by this plan's pull request (edit 2). (b)
-   They stay in row 662, which then needs a second plan file that this plan does not cost
-   (4.11).
-8. **Optional: the plan proceeds on (a) without your word.** Generated Java in the test
-   sources, which the house has not had. The four loop classes
-   are 15562 lines written by `dev/varka_nanos_spike_gen.py` from formulas that are checked on
-   numbers; they count nothing toward a pull request's size, by the size check's own rule
-   (`Generated by` in a file's first lines, fact 14), so the house's rules allow them without
-   your word. What keeps them generated is the line P2 adds to `dev/varka_scoped_suites.sh`,
-   which every Build runs. (a) *Recommended, and the default:* generated. (b) Written by hand:
-   the same text with no `Generated by` line counts. Then P2 is 1377 counted lines and is
-   cut in two: P2a, the generator, `VarkaNanosSpikeOps` and the script's line (705
-   lines), and P2b, the four loop classes of the pilot (672 lines); and S1 and S2, 15562
-   lines less the pilot's, become at least sixteen pull requests of under 1000 lines, a class's
-   loops by arm and arrival. The generator's `check` then compares hand-written text, and the
-   line in CI stays.
+   constant with multiplies alone (the high half of a 64-bit product, "the multiply-high"). One
+   loop, *the control*, computes the hour the house's other way, through a conversion to a double
+   and a division, which is vector code only where the CPU has the long-to-double instruction
+   (AVX-512). If the pilot shows the control 1.3 times faster than the multiply-high or more
+   there: (a) *Recommended, and the default, which the plan builds:* record the ratio; the study
+   stays on one division method for every form, and row 699's lowering picks the division by host,
+   as VARKA-538 does today. (b) Run the study a second time on such hosts with the divisions
+   printed in the conversion form, one more statement form in the generator; the cost table then
+   gains a `division` column.
+
+**Answered on 28 November 2026.**
+
+1. **If the measurements favour different forms at different widths or hosts: which host
+   decides.** The owner: "AVX-512 has high priority". The lead's reading, which the plan applies:
+   since all three forms are built (answer 6), each host and width takes its own default for each
+   class; where one default is named for the project, the AVX-512 readings come first, the
+   laptop's 512-bit block and then an AVX-512 runner's, and then the EPYC 7763 at 256 bits (4.10,
+   step 6). The plan's default had been the EPYC 7763's set for every host.
+2. **May R2, one long of epoch nanoseconds, be built though it holds 1677 to 2262 alone?** Yes,
+   where it is the fastest, with a batch that holds a value outside 1677 to 2262 going to the row
+   path. This reverses, for the nanosecond timestamps, the agreement of 27 November 2026 in
+   `VARKA-660.md` 4.7 that a fused cell holds over the type's whole range (section 13, edit 10).
+   The plan's default had been no.
+3. **Data that arrives as epoch nanoseconds.** Row 699 admits such a column as it is, with the
+   form's range; it is not only measured. The plan's default had been the measurement alone.
+5. **A width where scalar loops win a class, or where no vector loop has a reading.** Row 699
+   builds a scalar body inside a kernel there, not a decline. The plan's default had been a
+   measured refusal.
+6. **How many forms.** All three, R1, R3 and R4, whatever the numbers. The plan's default had been
+   R1 and the better of R3 and R4, with the other at a bar of 2.0 times.
+7. **Row 699.** A new row, as the plan proposed.
+8. **Generated Java in the test sources.** Generated, as the plan proposed.
 
 ## 16. The first review's 35 findings
 
@@ -3066,6 +3125,85 @@ reopened nothing of the design; each finding is a defect of the text or of a too
 
 Not taken from the review's section D, which numbers no finding: the four notes on what a
 later reader of the cost table could over-trust. They are for part T2b's text in section 11.
+
+## 19. The owner's answers of 28 November 2026
+
+The owner answered seven of section 15's questions on 28 November 2026, after this plan's pull
+request was opened. This section lists what each answer changed; the letters are the lead's, the
+numbers the questions'. Nothing of the loops, the formulas, the generator, the checker, the suite,
+the benchmark or the proofs changed.
+
+**A. All three whole-range forms are built (question 6).**
+
+- 4.10: the built set is gone, with the third writing's step 4, the 2.0 bar (`CLEAR`), the choice
+  of the better of R3 and R4 and the line for no host deciding between them. The rule names a
+  default for each class on each host and width, and prints how much each other form loses.
+- Appendix D: `build`, `defaults` and the deciding host are gone; `pick`, `first_of_tie` and the
+  project's block are new. Twenty-nine tables and 103 checks, where there were twenty-three and
+  102.
+- 4.12, 4.13, section 1, 5.9's sentence for section 11, prediction 5 (a dated correction), risks 5
+  and 9, and section 13's edits 1, 2, 4 and 8 with the files they change.
+
+**B. AVX-512 has high priority (question 1).**
+
+- 4.10, step 6: each host and width keeps its own defaults; the project's defaults are read from
+  the laptop's 512-bit block first, then an AVX-512 runner's 512-bit block, then the EPYC 7763 at
+  256 bits; the `order` line gives the order in which row 699 builds the forms.
+- 4.7: the AVX-512 runner CPUs are named from `sql/varka/HARDWARE.md`. No dispatch is added: S3
+  already takes three with no `expected-cpu` for an AVX-512 reading, beside the two on the EPYC
+  7763. The EPYC 7763's readings stay.
+- Risks 10 and 16.
+
+**C. A scalar body in a kernel, not a decline (question 5).**
+
+- 4.10, step 1: a form's reading is its scalar loop where no vector layout has a time or the
+  vector loop is the slower by the band; the default's line then reads `<form>S, a scalar body`,
+  and a `scalar` line gives the reason. The lines `scalar at this width` and `decline at this
+  width` are gone.
+- 4.12: the item "a kernel whose body is a scalar loop" takes the place of "the two-lane
+  refusals", with its done-when, what is not known, and row 698's verdict read first. 4.13,
+  section 12 and risk 15 follow.
+
+**D. R2 may be built where it is the fastest (question 2).**
+
+- 4.10: R2 is a candidate in the four classes where it has loops over Spark's parts, and a default
+  only where it wins; its line carries its range, its fallback to the row path, and the
+  whole-range default of the same class (step 4); the `r2` line lists where it is built.
+- What was checked: an R2 loop over Spark's parts already times the range guard and both
+  conversions (4.10, "What R2's time holds"; `loopLtR2LA1Z1` in the generated
+  `VarkaNanosSpikeLoopsR2.java` was read). So no loop is added. What a batch outside the range
+  costs is not timed, and 4.12's item says so.
+- 4.12: the item "the R2 kernels with their batch guard and fallback". Section 13, edit 10: a
+  dated note in `VARKA-660.md` 4.7. Risk 14.
+
+**E. A column that arrives as epoch nanoseconds is admitted (question 3).**
+
+- 4.12: the item says so, with what is not known; 4.13 moves the kernel input from the
+  Arrow-native datasource's row to row 699. 4.10's step 5 keeps the arriving lines as the
+  measurement behind it. Row 699's line (edit 2).
+
+**Questions 7 and 8** were answered as the plan's defaults, and change nothing. **Question 4**
+stays open, asked after the pilot.
+
+**What sections 16 to 18 say of the rule** is the record of three reviews of the earlier rule.
+Where a line there names the built set, the deciding host, `scalar at this width` or R2's line
+"the owner decides", the protection it records is kept in another form: a fallback is no time
+(tables 6, C, C2, C3); a class with no row is `undecided` (Z); a candidate with no data leaves its
+class undecided (7, N, R); layouts H and M are read (G, H, M); R2 is printed wherever it has a
+time and wins nothing where it is no candidate (F, Q, R).
+
+**The numbers that changed.** `dev/varka_nanos_costs.py`: 906 lines where it had 931, SHA-256
+`ac0cb3b6e5fa98c590ec668472266b449b31f94279b8534566862f1b52044d2c`; part T2a's counted size is the
+same 906, under the cap, so no part is cut anew. The self-test: 103 checks. The planted faults:
+fourteen where there were seven. The tables of 4.10: twenty-nine. The loops (322), the cells
+(442), the dispatches (two on the EPYC 7763 and three with no `expected-cpu`), the laptop's three
+runs and every other part's size are as they were.
+
+**The check that nothing else moved**, run by the planner on this file: appendices A, B, C and J,
+taken by 5.0's command, have the sums of 5.0's table; `python3 dev/varka_nanos_spike_gen.py gen
+pilot`, `gen r12` and `gen study` print the sums that 5.3 and 5.6 list for the generated classes;
+`python3 dev/varka_nanos_spike_proofs.py write` writes the three proof files with the sums of 5.8;
+and `ruff check` and `ruff format --check` (0.14.8) pass on appendix D as on the other four.
 
 ## Appendices: the files of parts P1a to T2
 
@@ -4854,9 +4992,12 @@ Each is taken by 5.0's command and checked against 5.0's table of sums.
     MORE_READS = ("PICK", "ADD", "CHAIN")
     TWO_VALUES = ("LT", "PICK", "CHAIN")  # the loops that convert two arriving operands
     BAND = 1.3  # the house's band: a ratio under it is a tie
-    CLEAR = 2.0  # the margin by which a third representation is built
-    BUILDABLE = ("R1", "R3", "R4")  # the forms that hold every value Spark can hold
-    DECIDING = ("AMD EPYC 7763", "256")  # the host and width whose lines name what is built
+    WHOLE = ("R1", "R3", "R4")  # the forms that hold every value Spark can hold: all three are built
+    ORDER = ("R1", "R3", "R4", "R2")  # a tie keeps this order: its first form is the default
+    R2_CLASSES = ("compare", "choice", "interval", "chain")  # where R2 has loops over Spark's parts
+    R2_RANGE = "R2 holds 1677 to 2262 alone: a batch with a value outside goes to the row path"
+    LAPTOP = "AMD Ryzen AI 9 HX PRO 370"  # its 512-bit block is the project's first reading
+    RUNNER = "AMD EPYC 7763"  # its 256-bit block is the project's last reading
     CLASSES = (
         ("compare", ("LT",)),
         ("choice", ("PICK",)),
@@ -5058,9 +5199,10 @@ Each is taken by 5.0's command and checked against 5.0's table of sums.
 
 
     def class_times(rows, host, width, arrival):
-        """{class: {"vector": {form: (ns, layout)}, "scalar": the same, "measured": the forms with a
-        vector loop of every operation of the class, fallback or not}}. A form's time is its best
-        vector layout whose loops are all `ok`; a class of two loops takes their geometric mean."""
+        """{class: {"vector": {form: (ns, layout)}, "scalar": the same, "seen": the forms with a loop
+        of every operation of the class in some layout, fallback or not}}. A form's vector time is
+        its best vector layout whose loops are all `ok`; a class of two loops takes their geometric
+        mean. A fallback's time is never read."""
         loops, seen = {}, set()
         for r in rows:
             if (
@@ -5074,9 +5216,9 @@ Each is taken by 5.0's command and checked against 5.0's table of sums.
         out = {}
         for name, ops in CLASSES:
             vector, scalar, measured = {}, {}, set()
-            for form in ("R1", "R2", "R3", "R4"):
+            for form in ORDER:
                 for layout in "LMHS":
-                    if layout != "S" and all((form, layout, op) in seen for op in ops):
+                    if all((form, layout, op) in seen for op in ops):
                         measured.add(form)
                     times = [loops.get((form, layout, op)) for op in ops]
                     if None in times:
@@ -5085,217 +5227,164 @@ Each is taken by 5.0's command and checked against 5.0's table of sums.
                     side = scalar if layout == "S" else vector
                     if form not in side or mean < side[form][0]:
                         side[form] = (mean, layout)
-            out[name] = {"vector": vector, "scalar": scalar, "measured": measured}
+            out[name] = {"vector": vector, "scalar": scalar, "seen": measured}
         return out
 
 
+    def pick(part, form):
+        """A form's reading in a class, (ns, layout): its best vector layout, or its scalar loop
+        where no vector layout has a time or the best takes BAND times the scalar loop's time or
+        more. None where the form has neither."""
+        vector, scalar = part["vector"].get(form), part["scalar"].get(form)
+        if vector and (not scalar or vector[0] / scalar[0] < BAND):
+            return vector
+        return scalar
+
+
+    def first_of_tie(have, forms):
+        """The default among `forms`: the first, in ORDER, of those within the band of the fastest."""
+        forms = [f for f in ORDER if f in forms and f in have]
+        best = min(have[f][0] for f in forms)
+        tied = [f for f in forms if have[f][0] / best < BAND]
+        return tied[0], tied
+
+
     def judge(parts):
-        """Steps 1 to 3 for one host and width: {class: (status, detail)} and its text lines. A
-        status is `absent` (the table has no vector loop of the class in a buildable form),
-        `scalar`, `undecided` (a buildable form has no reading), `win` or `tie`."""
-        verdicts, lines = {}, []
+        """One host and width: {class: its default as form and layout, or None where undecided} and
+        the text lines. Every form of WHOLE is a candidate in every class, and R2 in R2_CLASSES."""
+        chosen, lines = {}, []
         for name, _ in CLASSES:
-            vector = {f: t for f, t in parts[name]["vector"].items() if f in BUILDABLE}
-            scalar = [t[0] for f, t in parts[name]["scalar"].items() if f in BUILDABLE]
-            missing = sorted(f for f in BUILDABLE if f not in vector)
-            if not vector and not parts[name]["measured"].intersection(BUILDABLE):
-                verdicts[name] = ("absent", None)
-                lines.append("%-9s undecided: no loop of the class in the table" % name)
-                continue
-            if not vector:
-                verdicts[name] = ("scalar", None)
-                lines.append("%-9s no vector loop without a fallback: scalar at this width" % name)
-                continue
-            best = min(vector, key=lambda f: vector[f][0])
-            r2, r2_lines = parts[name]["vector"].get("R2"), []
-            if r2 and vector[best][0] / r2[0] >= BAND:
-                r2_lines.append(
-                    "%-9s R2 is %.2f times the best buildable form there: it holds 1677 to "
-                    "2262 alone, so the owner decides (question 2)" % (name, vector[best][0] / r2[0])
-                )
-            if scalar and vector[best][0] / min(scalar) >= BAND:
-                verdicts[name] = ("scalar", None)
-                lines.append(
-                    "%-9s the best vector loop (%s%s) takes %.2f times the best scalar loop: "
-                    "scalar at this width"
-                    % (name, best, vector[best][1], vector[best][0] / min(scalar))
-                )
-                lines += r2_lines
-                continue
-            times = ", ".join("%s%s %.3f" % (f, vector[f][1], vector[f][0]) for f in sorted(vector))
-            if missing:
-                verdicts[name] = ("undecided", None)
-                lines.append(
-                    "%-9s undecided: no data for %s (no vector loop without a fallback); %s"
-                    % (name, ", ".join(missing), times)
-                )
-                lines += r2_lines
-                continue
-            margin = (
-                min(vector[f][0] / vector[best][0] for f in vector if f != best)
-                if len(vector) > 1
-                else float("inf")
-            )
-            if margin >= BAND:
-                verdicts[name] = ("win", best)
-                lines.append(
-                    "%-9s %s%s wins: %.2f times the next; %s"
-                    % (name, best, vector[best][1], margin, times)
-                )
-            else:
-                tied = sorted(f for f in vector if vector[f][0] / vector[best][0] < BAND)
-                verdicts[name] = ("tie", tied)
-                lines.append("%-9s a tie of %s; %s" % (name, ", ".join(tied), times))
-            lines += r2_lines
-        return verdicts, lines
-
-
-    def build(parts, verdicts):
-        """Step 4, the built set of the deciding host and width: R1, the better of R3 and R4, and
-        the other at the clear margin. (the set, its text lines)."""
-        decided = [name for name, _ in CLASSES if verdicts[name][0] in ("win", "tie")]
-        if not decided:
-            return ["R1"], [
-                "built     R1; the second form is undecided: no class has a reading of R1, R3 and R4"
-            ]
-        lines, score = [], {}
-        for form in ("R3", "R4"):
-            wins = [n for n in decided if verdicts[n] == ("win", form)]
-            within = [
-                n
-                for n in decided
-                if parts[n]["vector"][form][0] < BAND * min(parts[n]["vector"][f][0] for f in BUILDABLE)
-            ]
-            mean = math.exp(sum(math.log(parts[n]["vector"][form][0]) for n in decided) / len(decided))
-            # More classes won, then more classes within the band of the best, then the lower
-            # geometric mean; a full tie goes to R3, the second form the owner named.
-            score[form] = (-len(wins), -len(within), round(mean, 6), form)
-            lines.append(
-                "built     %s: %d classes won, %d within the band of the best, geometric "
-                "mean %.3f over %d decided classes" % (form, len(wins), len(within), mean, len(decided))
-            )
-        second, third = sorted(("R3", "R4"), key=lambda f: score[f])
-        built = ["R1", second]
-        clear = [
-            n
-            for n in decided
-            if verdicts[n] == ("win", third)
-            and min(parts[n]["vector"][f][0] for f in built) / parts[n]["vector"][third][0] >= CLEAR
-        ]
-        if clear:
-            built.append(third)
-            lines.append(
-                "built     %s too: it wins %s by %.1f times or more over R1 and %s"
-                % (third, ", ".join(clear), CLEAR, second)
-            )
-        else:
-            lines.append(
-                "built     not %s: it wins no class by %.1f times over R1 and %s"
-                % (third, CLEAR, second)
-            )
-        lines.append("built     " + ", ".join(built))
-        return built, lines
-
-
-    def defaults(parts, verdicts, built):
-        """Step 5: each class's static default within the built set, for one host and width."""
-        lines = [
-            "not built %s wins %s here" % (verdicts[name][1], name)
-            for name, _ in CLASSES
-            if verdicts[name][0] == "win" and verdicts[name][1] not in built
-        ]
-        for name, _ in CLASSES:
-            vector = parts[name]["vector"]
-            status = verdicts[name][0]
-            if status == "scalar":
-                lines.append("default   %-9s decline at this width" % name)
-                continue
-            if status == "absent":
+            part = parts[name]
+            forms = WHOLE + (("R2",) if name in R2_CLASSES else ())
+            have = {f: pick(part, f) for f in forms if pick(part, f)}
+            missing = [f for f in forms if f not in have]
+            times = ", ".join("%s%s %.3f" % (f, have[f][1], have[f][0]) for f in have)
+            chosen[name] = None
+            if not part["seen"].intersection(forms):
                 lines.append("default   %-9s undecided: no loop of the class in the table" % name)
                 continue
-            have = [f for f in built if f in vector]
-            if not have:
-                lines.append("default   %-9s decline at this width: no built form has a reading" % name)
+            if missing:
+                lines.append(
+                    "default   %-9s undecided: no data for %s%s"
+                    % (name, ", ".join(missing), "; " + times if times else "")
+                )
                 continue
-            choice = min(have, key=lambda f: vector[f][0])
-            if "R1" in have and vector["R1"][0] / vector[choice][0] < BAND:
-                choice = "R1"
-            if "R1" not in have:
-                note = " (R1: no data)"
-            elif choice != "R1":
-                note = " (R1 takes %.2f times its time)" % (vector["R1"][0] / vector[choice][0])
-            else:
-                note = ""
-            lines.append("default   %-9s %s%s%s" % (name, choice, vector[choice][1], note))
-        return lines
+            form, tied = first_of_tie(have, forms)
+            ns, layout = have[form]
+            chosen[name] = form + layout
+            line = "default   %-9s %s%s %.3f%s%s; %s" % (
+                name,
+                form,
+                layout,
+                ns,
+                ", a scalar body," if layout == "S" else "",
+                " wins" if len(tied) == 1 else " first of a tie of " + ", ".join(tied),
+                ", ".join(
+                    "%s%s %.3f (%.2f times)" % (f, have[f][1], have[f][0], have[f][0] / ns)
+                    for f in have
+                    if f != form
+                ),
+            )
+            if form == "R2":
+                whole = first_of_tie(have, WHOLE)[0]
+                line += "; %s; of the forms that hold every value: %s%s" % (
+                    R2_RANGE,
+                    whole,
+                    have[whole][1],
+                )
+            lines.append(line)
+            for f in have:
+                vector = part["vector"].get(f)
+                if have[f][1] == "S":
+                    lines.append(
+                        "scalar    %-9s %sS stands for %s: %s"
+                        % (
+                            name,
+                            f,
+                            f,
+                            "its best vector loop (%s%s) takes %.2f times its time"
+                            % (f, vector[1], vector[0] / have[f][0])
+                            if vector
+                            else "no vector loop without a fallback",
+                        )
+                    )
+        return chosen, lines
 
 
     def arriving(rows, host, width):
-        """Step 6: data that arrives as epoch nanoseconds, for the compare and the chain."""
+        """Data that arrives as epoch nanoseconds, for the compare and the chain: R2, which computes
+        on it as it is, against the best whole-range form, which converts first."""
         mirror, lines = class_times(rows, host, width, "R2"), []
         for name in ("compare", "chain"):
-            vector = mirror[name]["vector"]
-            others = [vector[f][0] for f in BUILDABLE if f in vector]
-            if "R2" in vector and others:
-                ratio = min(others) / vector["R2"][0]
+            have = {f: pick(mirror[name], f) for f in ORDER if pick(mirror[name], f)}
+            others = [have[f][0] for f in WHOLE if f in have]
+            if "R2" in have and others:
+                ratio = min(others) / have["R2"][0]
                 lines.append(
-                    "arriving  %-9s as epoch nanoseconds: R2 is %.2f times the best other%s"
-                    % (name, ratio, ": it wins" if ratio >= BAND else "")
+                    "arriving  %-9s as epoch nanoseconds: R2%s is %.2f times the best other%s"
+                    % (name, have["R2"][1], ratio, ": it wins" if ratio >= BAND else "")
                 )
-            elif mirror[name]["measured"]:
+            elif mirror[name]["seen"]:
                 lines.append("arriving  %-9s as epoch nanoseconds: no data" % name)
         return lines
 
 
     def rule(rows):
-        """The rule's text for a cost table: the deciding host and width first, then the others."""
+        """The rule's text for a cost table: each host and width's defaults, then the project's."""
         keys = sorted({(r["host"], r["width"]) for r in rows}, key=lambda k: (k[0], int(k[1])))
-        deciding = [k for k in keys if k[0].startswith(DECIDING[0]) and k[1] == DECIDING[1]]
-        out, built, open_second, own_sets = [], None, False, []
-        if deciding:
-            parts = class_times(rows, deciding[0][0], deciding[0][1], "R1")
-            built = build(parts, judge(parts)[0])[0]
-            open_second = built == ["R1"]
-        else:
+        out, chosen = [], {}
+        for host, width in keys:
+            chosen[(host, width)], lines = judge(class_times(rows, host, width, "R1"))
+            out.append("%s at %s bits" % (host, width))
+            out += ["  " + line for line in lines + arriving(rows, host, width)]
+        # AVX-512 first: the laptop's 512-bit block, then another host's, then the runner at 256.
+        first = sorted((k for k in keys if k[1] == "512"), key=lambda k: not k[0].startswith(LAPTOP))
+        first += [k for k in keys if k[0].startswith(RUNNER) and k[1] == "256"]
+        if not first:
             out.append(
-                "no rows of %s at %s bits: each set below is its own width's, provisional" % DECIDING
+                "the project's defaults: none, for want of a reading at 512 bits or of the %s at "
+                "256 bits" % RUNNER
             )
-        for host, width in deciding + [k for k in keys if k not in deciding]:
-            parts = class_times(rows, host, width, "R1")
-            verdicts, lines = judge(parts)
-            own, built_lines = build(parts, verdicts)
-            out.append(
-                "%s at %s bits%s"
-                % (host, width, ": decides what is built" if (host, width) in deciding else "")
-            )
-            if built is None or (host, width) in deciding:
-                lines += built_lines
-            elif open_second:
-                lines.append("built     provisional (the deciding host is undecided): this host's set")
-                lines += built_lines
-                own_sets.append(own)
+            return "\n".join(out) + "\n"
+        out.append(
+            "the project's defaults, each from the first of these readings that has one: "
+            + "; ".join("%s at %s bits" % k for k in first)
+        )
+        count = dict.fromkeys(ORDER, 0)
+        for name, _ in CLASSES:
+            got = next(((chosen[k][name], k) for k in first if chosen[k][name]), None)
+            if got:
+                count[got[0][:2]] += 1
+                out.append("  project   %-9s %s (%s at %s bits)" % (name, got[0], got[1][0], got[1][1]))
             else:
-                lines.append(
-                    "built     %s (the set of %s at %s bits)"
-                    % (", ".join(built), DECIDING[0], DECIDING[1])
-                )
-            mine = own if built is None or open_second else built
-            lines += defaults(parts, verdicts, mine) + arriving(rows, host, width)
-            out += ["  " + line for line in lines]
-        if open_second and all(own == ["R1"] for own in own_sets):
-            out.append(
-                "no host and width decides the second form: R1 and R3 are built, the owner's own "
-                "second form, until the owner names another (question 6)"
-            )
+                out.append("  project   %-9s undecided: no reading of the order has a default" % name)
+        later = sorted(("R3", "R4"), key=lambda f: -count[f])
+        out.append(
+            "  order     R1 (the storage; %d classes), %s"
+            % (count["R1"], ", ".join("%s (%d)" % (f, count[f]) for f in later))
+        )
+        r2 = [
+            "%s on %s at %s bits" % (name, k[0], k[1])
+            for k in keys
+            for name, _ in CLASSES
+            if (chosen[k][name] or "")[:2] == "R2"
+        ]
+        out.append(
+            "  r2        "
+            + ("a default, behind its batch guard: " + "; ".join(r2) if r2 else "nowhere a default")
+        )
         return "\n".join(out) + "\n"
 
 
     # ---- selftest: a made-up results file, and the rule on made-up tables. --------------------------
 
     HOST = "AMD EPYC 7763 (made up)"
+    WIDE = "AMD Ryzen AI 9 HX PRO 370 (made up)"
+    XEON = "Intel Xeon Platinum 8573C (made up)"
+    BOTH = (("L", 1.0), ("S", 4.0))
 
 
-    def made_up(times, mirror=None, fallback=(), width="256", layouts=(("L", 1.0), ("S", 4.0))):
+    def made_up(times, mirror=None, fallback=(), width="256", layouts=BOTH, host=HOST):
         """Loop rows of one host: {form: {operation: ns}} for layouts L and S (S at four times L),
         or for `layouts`, arriving and stored as R1; `mirror` the same for data arriving as R2."""
         rows = []
@@ -5306,7 +5395,7 @@ Each is taken by 5.0's command and checked against 5.0's table of sums.
                         rows.append(
                             {
                                 "kind": "loop",
-                                "host": HOST,
+                                "host": host,
                                 "width": width,
                                 "form": form,
                                 "layout": layout,
@@ -5333,9 +5422,10 @@ Each is taken by 5.0's command and checked against 5.0's table of sums.
         return ops
 
 
-    def every(forms):
-        """Every vector loop of the forms, as fallbacks."""
-        return {(f, "L", op) for f in forms for _, group in CLASSES for op in group}
+    def every(forms, layouts="L", ops=None):
+        """Every loop of the forms in the layouts (of `ops`, or of every class), as fallbacks."""
+        ops = ops or [op for _, group in CLASSES for op in group]
+        return {(f, layout, op) for f in forms for layout in layouts for op in ops}
 
 
     def without(ops, *gone):
@@ -5343,147 +5433,176 @@ Each is taken by 5.0's command and checked against 5.0's table of sums.
 
 
     R1 = flat(2.0)
-    # name -> (rows, the built set, {class: its default, or a line the output must hold}).
+    BASE = {"R1": R1, "R3": flat(3.0), "R4": flat(3.0), "R2": flat(3.0)}
+    R2_TEXT = "; R2 holds 1677 to 2262 alone: a batch with a value outside goes to the row path; of "
+    # name -> (rows, {a class: its default at HOST and 256 bits; another key: a text the output holds,
+    # or, under a key that starts with `no`, a text it must not hold}).
     CASES = {
-        # The plan's eight (4.10).
         "1": (
-            made_up({"R1": R1, "R3": flat(3.0), "R4": flat(3.0), "R2": flat(3.0)}),
-            ["R1", "R3"],
-            {"clock": "R1L", "date": "R1L", "compare": "R1L"},
+            made_up(BASE),
+            {
+                "clock": "R1L",
+                "compare": "R1L",
+                "a": "default   compare   R1L 2.000 wins; R3L 3.000 (1.50 times), R4L 3.000 "
+                "(1.50 times), R2L 3.000 (1.50 times)",
+                "b": "clock     R1L 2.000 wins; R3L 3.000 (1.50 times), R4L 3.000 (1.50 times)\n",
+                "c": "  project   clock     R1L (%s at 256 bits)" % HOST,
+                "d": "  order     R1 (the storage; 9 classes), R3 (0), R4 (0)",
+                "e": "  r2        nowhere a default",
+            },
         ),
         "2": (
             made_up(
                 {"R1": R1, "R3": flat(2.2, HOUR=1.25, SEC=1.25), "R4": flat(3.0, HOUR=2.0, SEC=2.0)}
             ),
-            ["R1", "R3"],
-            {"clock": "R3L", "date": "R1L", "compare": "R1L"},
+            {"clock": "R3L", "date": "R1L", "a": "date      R1L 2.000 first of a tie of R1, R3; "},
         ),
         "3": (
             made_up(
                 {
                     "R1": R1,
+                    "R2": flat(3.0),
                     "R3": flat(2.2, HOUR=1.8, SEC=1.8),
                     "R4": flat(3.0, HOUR=0.5, SEC=0.6, YEAR=1.0, TRUNC=0.8),
                 }
             ),
-            ["R1", "R4"],
-            {"clock": "R4L", "date": "R4L", "truncate": "R4L", "compare": "R1L"},
+            {
+                "clock": "R4L",
+                "date": "R4L",
+                "truncate": "R4L",
+                "compare": "R1L",
+                "a": "  order     R1 (the storage; 6 classes), R4 (3), R3 (0)",
+            },
         ),
         "4": (
             made_up(
-                {"R1": R1, "R2": flat(2.4), "R3": flat(3.0), "R4": flat(3.0)},
+                dict(BASE, R2=flat(2.4)),
                 {
                     "R1": {"LT": 3.0, "CHAIN": 6.0, "ROUND": 1.5},
                     "R2": {"LT": 1.0, "CHAIN": 5.5, "ROUND": 0.2},
                     "R3": {"LT": 3.5, "CHAIN": 7.0, "ROUND": 2.0},
                 },
             ),
-            ["R1", "R3"],
             {
                 "compare": "R1L",
-                "clock": "R1L",
-                "": "arriving  compare   as epoch nanoseconds: R2 is 3.00 times the "
-                "best other: it wins",
+                "a": "compare   R1L 2.000 first of a tie of R1, R2; ",
+                "b": "compare   as epoch nanoseconds: R2L is 3.00 times the best other: it wins\n",
             },
         ),
         "5": (
             made_up(
                 {
                     "R1": R1,
-                    "R3": flat(2.2, HOUR=1.4, SEC=1.4),
-                    "R4": flat(3.0, HOUR=2.0, SEC=2.0, YEAR=1.4),
+                    "R3": flat(2.2, HOUR=1.4, SEC=1.4, YEAR=1.1),
+                    "R4": flat(3.0, HOUR=2.0, SEC=2.0, YEAR=1.0),
                 }
             ),
-            ["R1", "R3"],
-            {"clock": "R3L", "date": "R1L", "compare": "R1L", "": "not built R4 wins date here"},
+            {"clock": "R3L", "date": "R3L", "a": "date      R3L 1.100 first of a tie of R3, R4; "},
         ),
         "6": (
             made_up(
-                {"R1": R1, "R3": flat(3.0), "R4": flat(3.0, HOUR=1.0, SEC=1.0)},
+                dict(BASE, R4=flat(3.0, HOUR=1.0, SEC=1.0)),
                 fallback={("R4", "L", "HOUR"), ("R4", "L", "SEC")},
             ),
-            ["R1", "R3"],
-            {"clock": "R1L", "": "clock     undecided: no data for R4"},
+            {
+                "clock": "R1L",
+                "a": "clock     R1L 2.000 wins; R3L 3.000 (1.50 times), R4S 4.000 (2.00 times)",
+                "b": "scalar    clock     R4S stands for R4: no vector loop without a fallback",
+            },
         ),
         "7": (
             made_up({"R1": R1, "R3": flat(2.5), "R4": flat(2.4)}),
-            ["R1", "R4"],
-            {"clock": "R1L", "compare": "R1L"},
+            {
+                "clock": "R1L",
+                "compare": None,
+                "a": "clock     R1L 2.000 first of a tie of R1, R3, R4; ",
+                "b": "compare   undecided: no data for R2; R1L 2.000, R3L 2.500, R4L 2.400\n",
+            },
         ),
         "8": (
-            made_up(
-                {
-                    "R1": R1,
-                    "R3": flat(2.2, HOUR=1.4, SEC=1.4),
-                    "R4": flat(3.0, HOUR=2.0, SEC=2.0, YEAR=0.8),
-                }
-            ),
-            ["R1", "R3", "R4"],
-            {"clock": "R3L", "date": "R4L", "compare": "R1L"},
+            made_up(dict(BASE, R2=flat(3.0, LT=1.0, PICK=1.6))),
+            {
+                "compare": "R2L",
+                "choice": "R1L",
+                "a": "(3.00 times)" + R2_TEXT + "the forms that hold every value: R1L\n",
+                "b": "  r2        a default, behind its batch guard: compare on %s at 256 bits\n"
+                % HOST,
+                "no": "choice    R1L 2.000 first of a tie of R1, R2; R3L 3.000 (1.50 times), R4L 3.000 "
+                "(1.50 times), R2L 1.600 (0.80 times); R2 holds",
+            },
         ),
-        # The second review's tables.
         "A": (
-            made_up(
-                {
-                    "R1": R1,
-                    "R3": flat(2.2, HOUR=1.33, SEC=1.33, LT=2.8),
-                    "R4": flat(3.0),
-                    "R2": flat(3.0),
-                }
-            ),
-            ["R1", "R3"],
-            {"clock": "R3L", "compare": "R1L", "date": "R1L"},
-        ),
-        "B": (
-            made_up({"R1": R1, "R3": flat(2.4), "R4": flat(3.5), "R2": flat(3.5)}),
-            ["R1", "R3"],
-            {"clock": "R1L", "compare": "R1L"},
+            made_up(dict(BASE, R3=flat(2.2, HOUR=1.33, SEC=1.33, LT=2.8))),
+            {"clock": "R3L", "compare": "R1L", "date": "R1L", "a": "compare   R1L 2.000 wins; "},
         ),
         "B2": (
-            made_up({"R1": R1, "R3": flat(1.6), "R4": flat(3.5)}),
-            ["R1", "R3"],
+            made_up({"R1": R1, "R3": flat(1.6), "R4": flat(3.5), "R2": flat(3.5)}),
             {"clock": "R1L", "compare": "R1L"},
         ),
+        # A fallback is no time: the form's scalar loop stands for it, or it has no data.
         "C": (
             made_up(
-                {"R1": R1, "R3": flat(1.0, ADD=0.5, ADDC=0.5), "R4": flat(3.0)},
+                dict(BASE, R3=flat(1.0, ADD=0.5, ADDC=0.5)),
                 fallback={("R3", "L", "ADD"), ("R3", "L", "ADDC")},
             ),
-            ["R1", "R3"],
-            {"interval": "R1L", "clock": "R3L", "": "interval  undecided: no data for R3"},
+            {
+                "interval": "R1L",
+                "clock": "R3L",
+                "a": "interval  R1L 2.000 first of a tie of R1, R3; R3S 2.000 (1.00 times), ",
+            },
         ),
         "C2": (
             made_up({"R1": R1, "R3": flat(0.5), "R4": flat(0.5)}, fallback=every(("R3", "R4"))),
-            ["R1"],
-            {"clock": "R1L", "": "built     R1; the second form is undecided"},
+            {"clock": "R1L", "a": "clock     R1L 2.000 first of a tie of R1, R3, R4; R3S 2.000"},
         ),
         "C3": (
-            made_up({"R1": R1, "R3": flat(1.0), "R4": flat(3.0)}, fallback={("R3", "L", "ADDC")}),
-            ["R1", "R3"],
-            {"interval": "R1L", "": "interval  undecided: no data for R3"},
+            made_up(dict(BASE, R3=flat(1.0)), fallback={("R3", "L", "ADDC")}),
+            {"interval": "R1L", "a": "interval  R1L 2.000 wins; R3S 4.000 (2.00 times), "},
         ),
+        "N": (
+            made_up(dict(BASE, R3=flat(1.0)), fallback=every(("R3",), "LS", ("HOUR",))),
+            {
+                "clock": None,
+                "a": "default   clock     undecided: no data for R3; R1L 2.000, R4L 3.000\n",
+            },
+        ),
+        "R": (
+            made_up(dict(BASE, R2=flat(3.0, LT=1.0)), fallback=every(("R4",), "LS", ("LT",))),
+            {
+                "compare": None,
+                "a": "compare   undecided: no data for R4; R1L 2.000, R3L 3.000, R2L 1.000\n",
+                "b": "  project   compare   undecided: no reading of the order has a default",
+            },
+        ),
+        "Z": (
+            made_up({f: without(ops, "ZONE") for f, ops in BASE.items()}),
+            {
+                "clock": "R1L",
+                "zone": None,
+                "a": "default   zone      undecided: no loop of the class in the table",
+            },
+        ),
+        # Each width has its own default.
         "D": (
-            made_up({"R1": R1, "R3": flat(3.0), "R4": flat(3.0, HOUR=0.5, SEC=0.5)})
-            + made_up({"R1": R1, "R3": flat(3.0, HOUR=0.5, SEC=0.5), "R4": flat(3.0)}, width="128"),
-            ["R1", "R4"],
-            {"clock": "R4L"},
+            made_up(dict(BASE, R4=flat(3.0, HOUR=0.5, SEC=0.5)))
+            + made_up(dict(BASE, R3=flat(3.0, HOUR=0.5, SEC=0.5)), width="128"),
+            {"clock": "R4L", "a": "default   clock     R3L 0.500 wins"},
         ),
         "E": (
             made_up(
-                {"R1": R1, "R2": flat(2.2), "R3": flat(3.0), "R4": flat(3.0)},
+                dict(BASE, R2=flat(2.2)),
                 {
                     "R1": {"LT": 3.0, "CHAIN": 6.0, "HOUR": 3.0, "ROUND": 1.5},
                     "R2": {"LT": 1.0, "CHAIN": 1.5, "HOUR": 1.0, "ROUND": 0.2},
                     "R3": {"LT": 3.5, "CHAIN": 7.0, "HOUR": 3.0, "ROUND": 2.0},
                 },
             ),
-            ["R1", "R3"],
             {
                 "compare": "R1L",
-                "": "arriving  chain     as epoch nanoseconds: R2 is 4.00 times the "
-                "best other: it wins",
+                "a": "chain     as epoch nanoseconds: R2L is 4.00 times the best other: it wins\n",
             },
         ),
+        # R2 is a candidate where it has loops over Spark's parts, and nowhere else.
         "F": (
             made_up(
                 {
@@ -5493,60 +5612,74 @@ Each is taken by 5.0's command and checked against 5.0's table of sums.
                     "R4": flat(3.0),
                 }
             ),
-            ["R1", "R3"],
-            {"clock": "R3L"},
+            {"clock": "R3L", "a": "clock     R3L 1.000 wins; R1L 2.000 (2.00 times), R4L 3.000"},
         ),
-        # The third review's tables: layouts H and M, an absent class, an undecided deciding host,
-        # R2's line in an undecided class.
+        "Q": (made_up(dict(BASE, R2=flat(3.0, HOUR=0.5, SEC=0.5))), {"clock": "R1L"}),
+        # Every vector layout is read.
         "G": (
-            made_up({"R1": R1, "R3": flat(3.0), "R4": flat(3.0)})
-            + made_up({"R1": flat(1.0)}, layouts=(("H", 1.0),)),
-            ["R1", "R3"],
+            made_up(BASE) + made_up({"R1": flat(1.0)}, layouts=(("H", 1.0),)),
             {"clock": "R1H", "compare": "R1H"},
         ),
         "H": (
-            made_up({"R1": R1, "R3": flat(3.0), "R4": flat(3.0)})
+            made_up(BASE)
             + made_up({"R1": flat(1.0)}, fallback={("R1", "H", "SEC")}, layouts=(("H", 1.0),)),
-            ["R1", "R3"],
             {"clock": "R1L", "date": "R1H"},
         ),
         "M": (
-            made_up({"R1": R1, "R3": flat(3.0), "R4": flat(3.0)})
-            + made_up({"R3": flat(3.0, HOUR=1.0, SEC=1.0)}, layouts=(("M", 1.0),)),
-            ["R1", "R3"],
+            made_up(BASE) + made_up({"R3": flat(3.0, HOUR=1.0, SEC=1.0)}, layouts=(("M", 1.0),)),
             {"clock": "R3M", "date": "R1L"},
         ),
-        "Z": (
-            made_up(
-                {
-                    "R1": without(R1, "ZONE"),
-                    "R3": without(flat(3.0), "ZONE"),
-                    "R4": without(flat(3.0), "ZONE"),
-                }
-            ),
-            ["R1", "R3"],
+        # A scalar body: where no vector loop has a time, and where the vector loop is the slower.
+        "S": (
+            made_up(dict(BASE, R2=flat(3.0, LT=1.0)), fallback=every(ORDER, "L", ("LT",))),
+            {
+                "compare": "R2S",
+                "clock": "R1L",
+                "a": "compare   R2S 4.000, a scalar body, wins; R1S 8.000 (2.00 times), ",
+                "b": "scalar    compare   R1S stands for R1: no vector loop without a fallback",
+                "c": "the forms that hold every value: R1S\n",
+            },
+        ),
+        "S2": (
+            made_up(BASE, layouts=(("L", 1.0), ("S", 0.7))),
+            {
+                "clock": "R1S",
+                "a": "clock     R1S 1.400, a scalar body, wins; R3S 2.100 (1.50 times), ",
+                "b": "scalar    clock     R1S stands for R1: its best vector loop (R1L) takes 1.43 "
+                "times its time",
+            },
+        ),
+        "S3": (made_up(BASE, layouts=(("L", 1.0), ("S", 0.8))), {"clock": "R1L", "no": "scalar  "}),
+        # The project's defaults: AVX-512 first, the laptop before another host, then the runner.
+        "P1": (
+            made_up(BASE)
+            + made_up(dict(BASE, R4=flat(1.0)), width="512", host=XEON)
+            + made_up(dict(BASE, R3=flat(1.0)), width="512", host=WIDE),
             {
                 "clock": "R1L",
-                "": "zone      undecided: no loop of the class in the table",
-                "+": "default   zone      undecided: no loop of the class in the table",
+                "a": "one: %s at 512 bits; %s at 512 bits; %s at 256 bits\n" % (WIDE, XEON, HOST),
+                "b": "  project   clock     R3L (%s at 512 bits)" % WIDE,
+                "c": "  order     R1 (the storage; 0 classes), R3 (9), R4 (0)",
             },
         ),
-        "U": (
-            made_up({"R1": R1, "R3": flat(0.5), "R4": flat(0.5)}, fallback=every(("R3", "R4")))
-            + made_up({"R1": R1, "R3": flat(1.0), "R4": flat(3.0)}, width="512"),
-            ["R1"],
-            {"": "built     provisional (the deciding host is undecided): this host's set"},
-        ),
-        "R": (
-            made_up(
-                {"R1": R1, "R3": flat(3.0), "R4": flat(3.0), "R2": flat(3.0, HOUR=1.0, SEC=1.0)},
-                fallback={("R4", "L", "HOUR")},
+        "P2": (
+            made_up(dict(BASE, R4=flat(1.0)))
+            + made_up(
+                dict(BASE, R3=flat(1.0)),
+                fallback=every(("R3",), "LS", ("HOUR",)),
+                width="512",
+                host=WIDE,
             ),
-            ["R1", "R3"],
             {
-                "": "clock     undecided: no data for R4",
-                "+": "clock     R2 is 2.00 times the best buildable form there",
+                "clock": "R4L",
+                "a": "  project   clock     R4L (%s at 256 bits)" % HOST,
+                "b": "  project   date      R3L (%s at 512 bits)" % WIDE,
+                "c": "  order     R1 (the storage; 0 classes), R3 (8), R4 (1)",
             },
+        ),
+        "P3": (
+            made_up(BASE, width="128"),
+            {"a": "the project's defaults: none, for want of a reading at 512 bits or of the AMD"},
         ),
     }
 
@@ -5642,37 +5775,17 @@ Each is taken by 5.0's command and checked against 5.0's table of sums.
                 "a cost negative beyond the spread",
             )
         )
-        for name, (table, built, wanted) in CASES.items():
+        for name, (table, wanted) in CASES.items():
             text = rule(table)
-            first = text.split("\n" + HOST)[0]  # the deciding host and width's lines
-            line = [l for l in first.splitlines() if l.startswith("  built     R")][-1]
-            got_built = line.split("     ")[1].split(";")[0].split(" (")[0].split(", ")
-            checks.append((got_built, built, name + ": the built set"))
-            for klass, want in wanted.items():
-                if klass in dict(CLASSES):
-                    found = [l for l in first.splitlines() if l.startswith("  default   %-9s " % klass)]
-                    checks.append((found[0].split()[2] if found else None, want, name + ": " + klass))
+            lines = text.splitlines()
+            at = lines.index(HOST + " at 256 bits") + 1 if HOST + " at 256 bits" in lines else 0
+            block = lines[at:]  # from the defaults of the runner at 256 bits on
+            for key, want in wanted.items():
+                if key in dict(CLASSES):
+                    found = [l.split()[2] for l in block if l.startswith("  default   %-9s " % key)]
+                    checks.append((found[0].replace("undecided:", ""), want or "", name + ": " + key))
                 else:
-                    checks.append((want in text, True, name + ": " + want))
-        narrow = rule(CASES["D"][0]).split("\n" + HOST)[1]
-        checks += [
-            (
-                "built     R1, R4 (the set of AMD EPYC 7763 at 256 bits)" in narrow,
-                True,
-                "D: the narrow width takes the deciding set",
-            ),
-            ("not built R3 wins clock here" in narrow, True, "D: and what it does not build"),
-            ("default   clock     R1L" in narrow, True, "D: its default is within the set"),
-        ]
-        wide = rule(CASES["U"][0]).split("\n" + HOST)[1]
-        nobody = "no host and width decides the second form"
-        checks += [
-            ("  built     R1, R3\n" in wide, True, "U: the other width prints its own set"),
-            ("default   clock     R3L (R1 takes 2.00 times" in wide, True, "U: and its own defaults"),
-            (nobody in wide, False, "U: a host decides, so no fallback to the owner's form"),
-            (nobody in rule(CASES["C2"][0]), True, "C2: no host decides: R1 and R3"),
-            ("zone      no vector loop" in rule(CASES["Z"][0]), False, "Z: absent is not scalar"),
-        ]
+                    checks.append((want in text, not key.startswith("no"), name + ": " + want))
         failed = [(want, got_, what) for got_, want, what in checks if got_ != want]
         for want, got_, what in failed:
             print("selftest: %s: got %r, want %r" % (what, got_, want))
