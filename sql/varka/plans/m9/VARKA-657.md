@@ -610,7 +610,7 @@ owner's word (decision 4).
 | 686 | the table form: its lowering with a packed bucket and a clamped index, `zone_bucket.smt2`, and the form as the ladder's last | 685 | 3 |
 | 687 | the cache's statistics reach the evaluator and replace the pass | 657 | 1 |
 | 688 | the range of a computed operand for each batch | 657 | 2 |
-| 689 | steps with no mask at two lanes; the recorded refusal where a form loses | 657 | 1 |
+| 689 | steps with no mask at two lanes; the recorded refusal where a form loses | 657 | 4 |
 | 690 | `ToInstant` and `ToInstantKept`: the records and their registries; `CAST(ntz AS TIMESTAMP)`; `CAST(d AS TIMESTAMP)`; `ts + INTERVAL DAY`; each rule in the sweep, with its planted faults and the there-and-back check | 657, and 688 for the last two | 9 |
 | 691 | each form measured in kernels at 256 and 128 bits; the defaults by width; G7 for `hour` and the cast to `DATE`; the family's outcome, section 9 | 685 to 690 | 1 |
 | 692 | a conversion shared across method groups: measured, and the store and load built only if it pays | 691 | 2 |
