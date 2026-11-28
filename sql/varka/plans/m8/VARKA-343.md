@@ -2062,7 +2062,7 @@ To be written when the row closes.
 
 ### A.12 Questions for the owner
 
-*Changed in fix round 2: the owner answered all three on 28 November 2026; the plan follows
+*Changed in fix round 2: the owner answered the questions on 28 November 2026; the plan follows
 the answers.*
 
 1. **The unknown emit level.** (a) Leave it declining: the four `BIGINT` pairs, and row 342's
