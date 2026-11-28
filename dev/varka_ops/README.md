@@ -125,6 +125,12 @@ checkout, the scripts behave as the copies in the owner's `~/varka-ops` did. Run
 checkout that no gate is merging into, such as the main checkout: `pre-pr.sh` merges master into
 the worktree it gates, and bash reads a script as it runs.
 
+Two defaults to know before the first gate. `common.sh` creates the ops home and its `logs`,
+`stamps`, `locks`, `pids` and `matrix-comments` directories when a script first runs, so a new
+machine needs no setup for it. And the gate signs its own two commits, the merge of master and
+"Regenerate the generated files", with `VARKA_TRAILER`: set it to the tool and model that run
+the gate when they are not the default's.
+
 ## Examples and failures
 
 ```sh
