@@ -1,5 +1,9 @@
 # VARKA-347: The decimal load path
 
+*Changed on 28 November 2026: sections 11 to 14 are new and are the plan of what is left, written
+for a builder with nobody to ask; sections 0 to 10 are kept word for word as the record. Where
+section 11 differs from them it wins, and section 14 lists each difference.*
+
 ## 0. What exists now (admission check)
 
 From the code at `71ef57af282` (27 October 2026; Varka paths under
@@ -749,3 +753,962 @@ family's end-to-end path.
 4. `VarkaWithChildrenSuite` names `DecimalColumn` as drawn by no grammar, with the reason; the
    bound reads Spark's `Decimal.POW_10` and `MAX_LONG_DIGITS`; the stride check runs once after
    the walk.
+
+## 11. What is left, cut into parts a Sonnet-class agent can build (28 November 2026)
+
+*New on 28 November 2026. Code facts were read on master `dbaa94ff498` and on the local branches
+named below, in `/home/max/proj/vecbricks-varka`, with no JVM. This section stands alone: a
+builder needs it, the `AGENTS.md` files and `sql/varka/ADDING_AN_EXPRESSION.md`. Where it differs
+from sections 0 to 10 it wins, and section 14 lists each difference. Short names: `C` is
+`sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen`, `CT` the same
+path under `src/test/java`, `CS` under `src/test/scala`, `W` is `C/varka/VarkaVectorWalk.java`,
+`T` is `CT/varka/VarkaDecimalLoadTables.java`, `R` is `sql/varka/plans/m8/results`, and
+`B` is `sql/catalyst/benchmarks`. Every command runs from the repository root of the part's
+worktree unless it names another directory.*
+
+### 11.1 The state on 28 November 2026
+
+**On master**, each with its command:
+
+| what | command | prints |
+|---|---|---|
+| the plan (#1052) | `git log --oneline -1 475322b11ca` | `[VARKA-347] Plan the decimal load path (#1052)` |
+| step 2, the census cells (#1062) | `git log --oneline -1 08006d9aabf` | `[VARKA-347] Census the decimal load's operators as the load will emit them (#1062)` |
+| step 3, the leaf (#1230) | `git log --oneline -1 bc3fb69ac7d` | `[VARKA-347] Load a DECIMAL column of precision 18 or less on the long lane (#1230)` |
+| step 5, the first reader (#1236) | `git log --oneline -1 baeeaeed732` | `[VARKA-347] Compare DECIMAL columns and test them for null in the kernel (#1236)` |
+| the leaf | `grep -c 'record DecimalColumn(int ordinal, LaneType lane, int precision)' C/varka/VarkaVectorIR.java` | `1` |
+| no load form option yet | `grep -c 'decimalLoad' C/varka/VarkaEmitOptions.java` | `0` |
+| the slot table's tests | `grep -c '@Test' T` | `14` |
+| the runner census columns, EPYC 7763 (128 and 256 bits) | `grep -c '"long.dec_check_rearrange"' R/VARKA-329-census-epyc-7763.json` | `2` |
+| the runner census column, Arm (128 bits) | `grep -c '"long.dec_check_rearrange"' R/VARKA-329-census-ubuntu-24.04-arm.json` | `1` |
+| the fuzz descriptor owes the decimal's Spark site and values to this row | `grep -P '^DECIMAL\t' sql/varka/fuzz/types.tsv` | `DECIMAL LONG present 20261101 dec decimal draw owed:347 - owed:347` (tabs) |
+
+**The runner census columns are in.** The row's note says "the runner columns wait on a
+`varka-width-audit.yml` dispatch". They were committed by #1494 (row 329, 11 November 2026) in
+`R/VARKA-329-census-epyc-7763.json` and `R/VARKA-329-census-ubuntu-24.04-arm.json`. What they read
+for this row's cells, printed by
+
+    python3 -c "import json; d = json.load(open('R/VARKA-329-census-epyc-7763.json')); \
+      print({w: {k: v['verdict'] for k, v in c.items() if 'dec_' in k} for w, c in d['widths'].items()})"
+
+and the same over the Arm file:
+
+| host, width | the ten slot cells (`long.dec_*`, `int.dec_int_splice`) |
+|---|---|
+| EPYC 7763 (AVX2, BMI2), 256 bits | all `I`, `long.dec_compress` and `long.dec_check_compress` included |
+| EPYC 7763, 128 bits | all `F` (beside them `long.dec_zip_segments` reads `I`; it is no slot cell of these forms, and `CELLS` in the verdict script names no `zip` cell) |
+| Arm runner (SVE2), 128 bits | all `I` but `long.dec_selectFrom2`, which is `F` |
+
+So 10.1 item 3's open question is answered: AVX2 with BMI2 lowers both halves of `compress` at
+256 bits. And the two-vector `selectFrom` falls back on the Arm runner where the `rearrange`
+form does not, which 11.3 decision 5 reads.
+
+**On local branches, never pushed.** `git branch --list 'varka-347*'` prints five:
+
+| branch | tip, date | holds | verdict |
+|---|---|---|---|
+| `varka-347d-decimal-int-lane-r` | `dc86eb421c9`, 22 November | ten commits on master `6f6c9dbd171` (21 November): parts 347a, 347b, 347c and 347d of 10.4 to 10.7, rebased, and `dc86eb421c9`, which makes two `emitMaskOfWord` calls compile on master's signature (it takes the lane since #1568) and adds one test | **every code part starts from it**, by cherry-picks onto master |
+| `varka-347-decimal-load` | `a2b02245d56`, 20 November | 347a before the rebase | superseded |
+| `varka-347b-decimal-int` | `22320a61cab`, 20 November | 347b before the rebase | superseded |
+| `varka-347c-decimal-bench` | `04408407f8f`, 20 November | 347c before the rebase | superseded |
+| `varka-347d-decimal-int-lane` | `4876db5433f`, 20 November | 347d before the rebase | superseded |
+
+The ten commits of `varka-347d-decimal-int-lane-r`, oldest first, with what each part takes:
+
+| commit | subject | part |
+|---|---|---|
+| `d20d43315fd` | Load 64-bit decimal columns by compress, selectFrom or a shuffle-free check | 347a |
+| `8beecc18afb` | Warm the decimal load's compress form | 347a |
+| `316ae334866` | Record the warm-up's compress calls in the task file | 347a |
+| `b801ee8d475` | Record the overlap with rows 348 and 349 in the task file | 347a |
+| `e651c2766fb` | Parenthesise the decimal load's constants check | 347a |
+| `a1d3da0e806` | Read a decimal column of up to 9 digits on the int lane | 347b |
+| `48c2136e1f9` | Benchmark the decimal load apart from its compute, and test it end to end | 347c |
+| `52547e17c76` | Check only the answers where the host refuses the decimal kernel | 347c |
+| `ed748a25bd2` | Run literal-free decimal conditions on the int lane under an option | 347d |
+| `dc86eb421c9` | Compile the int arm's mask conversions on the merged signature, and test a long decimal beside an int column | split: one line to 347a, one line to 347b, the test to 347d |
+
+Counted lines of each part on the branch (`python3 dev/varka_msg_check.py size --base <first^>
+--head <last>`): 347a 611, 347b 399, 347c 621, 347d 383. The branch as one pull request is 1976,
+over the cap; the four parts are each under it.
+
+**What master changed under the branch since `6f6c9dbd171`** (`git diff --stat 6f6c9dbd171
+origin/master -- <the branch's files>`): 19 of the branch's 24 files moved, 2070 lines added and
+869 removed. The ones the picks will meet: `Analysis.java`, `Slots.java`, `VarkaEmitBudget.java`
+and `VarkaDescriptors.java` (row 489's descriptor passes, #1693 and #1696), `VarkaVectorWalk.java`
+and `VarkaBodyEmitter.java` (rows 550 and 359, #1686 and #1710), `VarkaEmitOptions.java` and
+`VarkaEmitOption.java` (rows 359, 103, 358, 383), `VarkaMatrixRuns.java`, `VarkaIrFuzzSuite.scala`
+and `VarkaEmitterBudgetSuite.scala`. The branch's own hunks add code; none of them rewrites a line
+master also rewrote, as far as reading the two diffs shows, so the conflicts are expected in the
+context lines only. The table "What only a JVM can settle", after 11.9, has the command that
+settles it.
+
+### 11.2 The parts
+
+| part | what | counted lines | builder | starts from | waits on |
+|---|---|---|---|---|---|
+| 347a | the load's other forms: `decimalLoad` (`COMPRESS`, `SELECT_FROM`) and `decimalCheckShuffleFree` | about 615 | Sonnet-class | master, five picks and one line | nothing |
+| 347b | the int arm at the IR level, precision up to 9 | about 400 | Sonnet-class | master after 347a, one pick and one line | 347a |
+| 347c | `VarkaDecimalLoadBenchmark` and `VarkaDecimalLoadEndToEndSuite` | about 625 | Sonnet-class | master after 347b, two picks | 347b |
+| 347d | the `decimalIntLane` flag: the kernel plan moves literal-free decimal conditions to the int lane | about 385 | Sonnet-class | master after 347c, one pick and one test | 347c |
+| 347m | the measurement on the EPYC 7763, the verdict by 11.8's rule, the predictions scored, the row's record | about 200, results files apart | Sonnet-class; the lead dispatches | master after 347d | 347d |
+| 347f | only if 347m's verdict names a default other than `REARRANGE`: the default flips | about 40, generated files apart | Sonnet-class | master after 347m | 347m |
+
+**No part is full strength**, and none is deferred by the owner's decision E1 of 28 November
+2026: every part but 347f is built code on a branch, picked onto master, and the verdict of 347m
+is a rule a script computes (11.8). No part adds an IR node, a proof or a bounded lowering: the
+load forms are exact over every slot, and their check is the step 3 check, whose digit compare
+`proofs/decimal_slot.smt2` already proves (10.3, the second review's finding 2).
+
+**The order and its reason.** The branch's order. 347b's int arm calls the shuffles 347a's
+`Slots` planning numbers (10.5: "the forms of part 347a are planned only for a long-lane leaf"),
+347c's benchmark emits every form of 347a and the int arm of 347b, and 347d's flag moves leaves
+347b admits. Each part cherry-picks onto master as it then is, so the next part meets no conflict
+the earlier one did not resolve.
+
+**Row 597b** (fix round, review 1, L3): its code is not on master (`git grep -c
+TWO_LANE_READ_REASON` hits plan files only). No part here waits on it, and it waits on none of
+them; 347d's call in `VarkaKernelPlan.of` and 597b's edits of the same file are independent, and
+whichever merges second takes the other's lines as context (11.4 step 2's rule).
+
+**Landing the plan.** The new text of this file (sections 11 to 14, appendix A and the note at the
+top) goes to master first, in a plan-only pull request titled `[VARKA-347] Plan: land the decimal
+load's forms and measure them`, which the lead opens. The same pull request adds the verdict
+script of appendix A as `sql/varka/plans/m8/results/VARKA-347/load_verdict.py` (11.8), so that
+347m finds it on master: copy the appendix's code block into that path, remove the four spaces of
+indentation from every line, and check `python3
+sql/varka/plans/m8/results/VARKA-347/load_verdict.py --selftest` prints `selftest: 5 cases
+passed`. Each part's branch starts from a master that has
+it.
+
+### 11.3 Decisions taken here, each with its evidence
+
+1. **The runner census columns are done** (11.1). Nothing of step 2 is left.
+2. **Question 4 of section 8 (two long lanes) needs nothing of this row.** On a two-lane x86 host
+   a decimal filter is refused at its root (`VarkaKernelPlan.TWO_LANE_CONDITION_REASON`, row 503),
+   a `BOOLEAN` output that reads a decimal is refused at its root (row 596), and row 597's part
+   597b declines every decimal-reading projection value there (`VARKA-597.md` 11). Each loads
+   through this row's leaf, so 347m records the 128-bit verdict and changes no refusal. Check:
+
+        grep -c 'TWO_LANE_CONDITION_REASON' C/varka/VarkaKernelPlan.java     -> 3 on dbaa94ff498
+
+3. **The cache layout is not built in milestone 8**, whatever 347m measures. The owner's answer
+   to question 1 (27 October 2026) builds it "as a row of its own" when the `BIGINT` kernel beats
+   the best sixteen-byte form by 1.5 times past L3 and loses nothing in L2, at both widths. 347m
+   computes that rule (11.8, the `CACHE` lines). If it is met, 347m adds one line to
+   `m10/SCOPE.md` item 140 naming the cache layout and quoting the two ratios; if it is not, 347m
+   records the ratios in section 10 and the layout is dropped. Question 1 of section 12 asks the
+   owner to confirm the home.
+4. **`decimalIntLane` stays off by default in milestone 8.** The flag moves only literal-free
+   decimal conditions (10.7), and 347c's benchmark times the int arm under value chains, not
+   conditions, so no committed measurement can flip it. A losing or unmeasured arm stays behind
+   its option (`sql/varka/AGENTS.md`, "Measurements, not adjectives"). The `INT` lines of 11.8
+   are recorded, and a condition-shaped measurement of the flag is a line of `m10/SCOPE.md` item
+   140, added by 347m.
+5. **The default form follows a rule, not a judgement.** `decimalLoad`'s default stays
+   `REARRANGE` and `decimalCheckShuffleFree` stays false unless 11.8's `DEFAULT` rule names
+   another form. The rule excludes a form whose census cell falls back where `REARRANGE`'s does
+   not; on the committed runner files that excludes both `SELECT_FROM` forms, since
+   `long.dec_selectFrom2` is `F` on the Arm runner at 128 bits where `long.dec_check_rearrange` is
+   `I` (checked in Python, `scratch-347/census_ok.txt`). One default for every width: the
+   two-lane x86 host declines every decimal kernel (decision 2), so the 128-bit EPYC numbers
+   cannot choose a form.
+6. **The fuzzers' decimal sites are row 352's.** `types.tsv` reads `owed:347` for the decimal's
+   Spark site and values. The Spark-level fuzzer's decimal columns and the decimal value source
+   are part 352d of `VARKA-352.md`, which `PLAN.md` 12.5 orders after this row ("347 before 352's
+   decimal cells"). This row does not edit the descriptor (fix round of 28 November 2026, review 1,
+   M1): 352d replaces the whole `DECIMAL` entry, whichever row its `Owed` sites name, and an edit
+   here would conflict with 352d's and change 352b's counted cells.
+7. **Row 347 is marked Done by 347m**, or by 347f where 347f is needed. Its done-when holds then:
+   the forms of 2.2 and 2.3 read a decimal column under the option matrix, with coverage rows
+   (step 5), the slot table covers the bad slots (10.2, 10.4, 10.5), the measurement is committed
+   per width with its verdict, and the arms that lose stay behind their options. The cache layout
+   is question 1's (decision 3).
+
+### 11.4 Part 347a: the load's other forms
+
+**Title:** `[VARKA-347] Load decimal columns by compress, selectFrom or a shuffle-free check`.
+**Branch:** `varka-347a-load-forms`, from master. **Builder:** Sonnet-class.
+
+**B0.** On master, before the branch is made, every line must print what it says, or the builder
+stops and reports:
+
+    git log --oneline -1 d20d43315fd   -> d20d43315fd [VARKA-347] Load 64-bit decimal columns by compress, selectFrom or a shuffle-free check
+    git log --oneline -1 e651c2766fb   -> e651c2766fb [VARKA-347] Parenthesise the decimal load's constants check
+    grep -c 'decimalLoad' C/varka/VarkaEmitOptions.java                          -> 0
+    grep -c 'static void emitMaskOfWord(CodeBuilder cb, Lane lane, Analysis analysis)' W  -> 1
+    grep -c '@Test' T                                                             -> 14
+
+**Step 1, the picks.** In the part's worktree, in this order:
+
+    git cherry-pick d20d43315fd 8beecc18afb 316ae334866 b801ee8d475 e651c2766fb
+
+**Step 2, conflicts.** For each conflicted file: take master's side whole, then apply the
+commit's hunks for that file by hand, reading them with `git show <sha> -- <file>`. The rules
+per file:
+
+- `sql/varka/plans/m8/PLAN.md`: take master's side and apply nothing; 347m edits the row.
+- `sql/varka/plans/m8/VARKA-347.md`: take master's side and apply nothing; step 5 adds the record.
+- `C/varka/VarkaEmitOptions.java` and `C/varka/VarkaEmitOption.java` (*rewritten in the fix round
+  of 28 November 2026, review 1, M2*). The commit splices its two components into the middle of
+  the record, beside `decimalStore`; master has added components since (rows 359, 103, 358, 383,
+  550), `uncountedMainLoop` last (`grep -n 'boolean uncountedMainLoop) {'
+  C/varka/VarkaEmitOptions.java` prints the header's last line). Do not follow the commit's
+  positions: take master's two files whole and add the two options by
+  `sql/varka/ADDING_AN_OPTION.md` steps 1 and 2, appending after `uncountedMainLoop` everywhere,
+  so that every positional list grows only at its end. In `VarkaEmitOptions.java`:
+  - the record's Javadoc: the commit's two `@param` texts (`decimalLoad`, then
+    `decimalCheckShuffleFree`), after `@param uncountedMainLoop`'s text;
+  - the record header: `boolean uncountedMainLoop) {` becomes `boolean uncountedMainLoop,`
+    followed by `DecimalLoad decimalLoad,` and `boolean decimalCheckShuffleFree) {`;
+  - the enum: the commit's Javadoc and `public enum DecimalLoad { REARRANGE, COMPRESS,
+    SELECT_FROM }`, right after `public enum DecimalStore { REARRANGE, SELECT_FROM }`;
+  - `DEFAULTS`: its last line `IntervalFault.NONE, VarkaEmitBudget.AUTO_CHAIN_DEPTH, false);`
+    becomes `IntervalFault.NONE, VarkaEmitBudget.AUTO_CHAIN_DEPTH, false, DecimalLoad.REARRANGE,`
+    and `false);` (wrap within 100 columns);
+  - the compact constructor: after the `decimalStore == null` check, the commit's `decimalLoad ==
+    null` check;
+  - `toBuilder()`: after `b.uncountedMainLoop = uncountedMainLoop;`, the lines
+    `b.decimalLoad = decimalLoad;` and `b.decimalCheckShuffleFree = decimalCheckShuffleFree;`;
+  - `Builder`: after `private boolean uncountedMainLoop;` the two fields, the commit's two
+    setters after the setter `uncountedMainLoop(boolean uncounted)`, and in `build()` the last
+    arguments `..., maxChainDepth, uncountedMainLoop, decimalLoad, decimalCheckShuffleFree);`;
+  - the `with` methods: the commit's `withDecimalLoad(DecimalLoad form)` after
+    `withUncountedMainLoop` (the commit has no `with` method for the flag; none is added).
+
+  In `VarkaEmitOption.java`: the import of `VarkaEmitOptions.DecimalLoad` before that of
+  `DecimalStore`, and the commit's two entries, with their comment, as the last elements of
+  `TABLE`, after the `uncountedMainLoop` entry (its closing `)));` becomes `)),` and the last new
+  entry ends `)));`). Table order then equals record order, which `VarkaEmitOptionSuite` checks.
+  Check: `build/sbt 'catalyst/testOnly *VarkaEmitOptionSuite *VarkaShapeCacheSuite'` passes
+  (step 4 runs the first; add the second to that line).
+- `C/varka/Slots.java`: the commit adds the fields `decimalLaneMasks` and `decimalIndex` after
+  `decimalShuffle`, and their planning inside `if (reasons.contains(Analysis.Refusal.DECIMAL_SLOT))`
+  right after `s.decimalShuffle = new int[] {slot++, slot++};`. If master moved that block
+  (row 489 made the word rules read the node descriptor, #1696), put the planning right after
+  the line that assigns `s.decimalShuffle`, wherever it is now, and nowhere else: the comment's
+  reason is that the default form's locals keep their numbers.
+- `C/varka/VarkaDescriptors.java`, `C/varka/VarkaBodyEmitter.java`, `W`: apply the hunks; if a
+  hunk's context method no longer exists on master, stop and report it (the first line of the
+  table after 11.9 shows where).
+- `CT/varka/VarkaMatrixRuns.java`, `CS/varka/VarkaEmitOptionSuite.scala`,
+  `CS/varka/VarkaIrFuzzSuite.scala`: keep master's entries and add the commit's
+  (`DECIMAL_LOAD_FORMS`, the `readOnlyBy` list entries, the pinned `decimalColumnOptions`).
+
+**Step 3, the one line of `dc86eb421c9` this part needs.** In `W`, in the shuffle-free check's
+block (the loop over the two halves that calls `Long.expand` with `EVEN_LANE_BITS`), the call
+
+    emitMaskOfWord(cb, analysis);
+
+becomes
+
+    emitMaskOfWord(cb, Lane.LONG, analysis);
+
+Check: `grep -c 'emitMaskOfWord(cb, analysis)' W` prints `0`.
+
+**Step 4, compile and test.** With the house's JDK and local address
+(`JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 SPARK_LOCAL_IP=127.0.0.1`):
+
+    build/sbt catalyst/Test/compile                                  -> [success]
+    grep -c '@Test' T                                                -> 16
+    build/sbt 'catalyst/testOnly *VarkaDecimalLoadSuite *VarkaDecimalLoadOneLaneSuite'
+        -> Passed: Total 36, Failed 0, Errors 0 (19 and 17; skipped tests count as passed or
+           skipped, never failed)
+    build/sbt 'catalyst/testOnly *VarkaEmitOptionSuite *VarkaShapeCacheSuite *VarkaMatrixSuite *VarkaWarmupReachSuite'
+        -> every suite passes
+    build/sbt 'catalyst/testOnly *VarkaIrFuzzSuite'                  -> passes
+    dev/varka_regen_generated.sh --all                               -> exits 0
+    python3 dev/varka_bytes_moved.py origin/master                   -> prints nothing, or only keys under option_arms
+
+A moved key outside `option_arms` is a stop: the default form must emit the bytes it did (10.4,
+"the default form's locals and bytes are as they were").
+
+**Commit what the regeneration wrote** (fix round of 28 November 2026, review 1, M3). After the
+regeneration, `git status --short` lists only this part's own edits and generated files (`python3
+dev/varka_generated_merge.py --list` prints every generated path); `git add` all of them and
+commit them in the part's commit, never editing a generated file by hand. Then run the
+regeneration line once more: it changes nothing, and `git status --short` prints nothing. A
+generated file that changes on the second run, or a path in `git status --short` that is neither
+this part's edit nor generated, is a stop: report it.
+
+*The totals* (fix round, review 1, L1): the criterion of every suite line in 11.4 to 11.7 is
+`Failed 0, Errors 0`. The totals quoted (`Total 36`, `38`, `44`) are the branch's run of 20
+November 2026 and informative only; a different total with no failure is recorded, not a stop.
+The `@Test` counts of `T` are exact (they were read from each commit).
+
+**Step 5, the record.** Append to section 10 of `VARKA-347.md`, after 10.3, the text of 10.4 as
+the branch's tip has it:
+
+    git show dc86eb421c9:sql/varka/plans/m8/VARKA-347.md | sed -n '/^### 10.4 /,/^### 10.5 /p' | sed '$d'
+
+followed by one dated line: "*Landed on 28 November 2026 or later by cherry-pick onto master, with
+`dc86eb421c9`'s `Lane.LONG` argument (11.4 step 3).*"
+
+**The gate.** `dev/varka_ops/AGENTS.md`, "Opening or fixing a pull request", steps 1 to 5; the
+lead opens the pull request and dispatches the option matrix on it (`VarkaMatrixRuns` names the
+three new configurations).
+
+**Done when** the commands of step 4 print what they say, the gate passes, the option matrix is
+green under every configuration, and section 10 holds 10.4. **Not here:** the int arm (347b),
+any default change, the benchmark, `PLAN.md`.
+
+### 11.5 Part 347b: the int arm at the IR level
+
+**Title:** `[VARKA-347] Read a decimal column of up to 9 digits on the int lane`.
+**Branch:** `varka-347b-int-arm`, from master after 347a merged. **Builder:** Sonnet-class.
+
+**B0.**
+
+    grep -c 'decimalLoad' C/varka/VarkaEmitOptions.java          -> 3 or more (347a merged)
+    git log --oneline -1 a1d3da0e806   -> a1d3da0e806 [VARKA-347] Read a decimal column of up to 9 digits on the int lane
+    grep -c 'MAX_INT_PRECISION' C/varka/VarkaVectorIR.java       -> 0
+
+**Step 1.** `git cherry-pick a1d3da0e806`. Conflicts: step 2 of 11.4's rules.
+
+**Step 2, the other line of `dc86eb421c9`.** In `W`, in the int arm's load (the block that
+builds `mA.toLong() | mB.toLong() << n / 2` and then calls `emitGuardCollect`), the call
+`emitMaskOfWord(cb, analysis);` becomes `emitMaskOfWord(cb, Lane.INT, analysis);`. Check:
+`grep -c 'emitMaskOfWord(cb, analysis)' W` prints `0`, and
+`grep -c 'emitMaskOfWord(cb, Lane.INT, analysis)' W` prints `1` or more.
+
+**Step 3, commands.**
+
+    build/sbt catalyst/Test/compile                                  -> [success]
+    grep -c '@Test' T                                                -> 17
+    grep -c 'MAX_INT_PRECISION' C/varka/VarkaVectorIR.java           -> 1 or more
+    build/sbt 'catalyst/testOnly *VarkaDecimalLoadSuite *VarkaDecimalLoadOneLaneSuite'
+        -> Passed: Total 38, Failed 0, Errors 0 (20 and 18)
+    build/sbt 'catalyst/testOnly *VarkaReproductionSuite *VarkaEmitterBudgetSuite *VarkaWithChildrenSuite'
+        -> every suite passes
+    dev/varka_regen_generated.sh --all                               -> exits 0
+    python3 dev/varka_bytes_moved.py origin/master                   -> prints nothing
+
+The int arm is reached by no compiled kernel in this part (10.5 departure 1), so no byte moves,
+`option_arms` included.
+
+**Commit what the regeneration wrote** (fix round of 28 November 2026, review 1, M3). After the
+regeneration, `git status --short` lists only this part's own edits and generated files (`python3
+dev/varka_generated_merge.py --list` prints every generated path); `git add` all of them and
+commit them in the part's commit, never editing a generated file by hand. Then run the
+regeneration line once more: it changes nothing, and `git status --short` prints nothing. A
+generated file that changes on the second run, or a path in `git status --short` that is neither
+this part's edit nor generated, is a stop: report it.
+
+**Step 4, the record.** Append 10.5 from the tip, as 11.4 step 5 does with `/^### 10.5 /` and
+`/^### 10.6 /`, and the line "*Landed by cherry-pick, with `dc86eb421c9`'s `Lane.INT` argument
+(11.5 step 2).*"
+
+**Done when** step 3 prints what it says and the gate passes. **Not here:** the flag (347d).
+
+### 11.6 Part 347c: the benchmark class and the end-to-end suite
+
+**Title:** `[VARKA-347] Benchmark the decimal load apart from compute; test it end to end`.
+**Branch:** `varka-347c-bench`, from master after 347b merged. **Builder:** Sonnet-class.
+
+**B0.**
+
+    grep -c 'MAX_INT_PRECISION' C/varka/VarkaVectorIR.java       -> 1 or more (347b merged)
+    git ls-files | grep -c 'VarkaDecimalLoadBenchmark'           -> 0
+
+**Step 1.** `git cherry-pick 48c2136e1f9 52547e17c76`. Conflicts: 11.4 step 2's rules.
+
+**Step 2, commands.**
+
+    build/sbt catalyst/Test/compile sql/Test/compile                 -> [success]
+    dev/varka_bench_ids.sh VarkaDecimalLoadBenchmark                 -> exits 0
+
+The second line is the house's structural dry run of a benchmark (`-Dvarka.bench.dryRun=true`,
+`VarkaBenchmarkBase.dryRun`): every kernel is emitted and its case id claimed, no case is timed,
+and two arms sharing an id fail it. No timing is taken on the laptop: the numbers are 347m's, on
+the runners.
+
+    build/sbt 'sql/testOnly *VarkaDecimalLoadEndToEndSuite'          -> Tests: succeeded 3, failed 0
+    dev/varka_regen_generated.sh --all                               -> exits 0
+
+**Commit what the regeneration wrote** (fix round of 28 November 2026, review 1, M3). After the
+regeneration, `git status --short` lists only this part's own edits and generated files (`python3
+dev/varka_generated_merge.py --list` prints every generated path); `git add` all of them and commit
+them in the part's commit, never editing a generated file by hand. Then run the regeneration line
+once more: it changes nothing, and `git status --short` prints nothing. A generated file that
+changes on the second run, or a path in `git status --short` that is neither this part's edit nor
+generated, is a stop: report it. (This part adds a benchmark class and a suite, so the regeneration
+is expected to change nothing.)
+
+**The stop rule.** If an end-to-end test fails with two different outcomes, Varka on against Varka
+off, that is a wrong answer on master: stop, commit nothing more, and report the failure text to
+the lead, who files a row. If it fails because the batch was served by no kernel where the test
+expects one, read `52547e17c76`'s message (the suite checks only the answers where the host
+refuses the kernel) and report the host: on a two-lane x86 host that is by design.
+
+**Step 3, the record.** Append 10.6 from the tip (`/^### 10.6 /` to `/^### 10.7 /`).
+
+**Done when** step 2 prints what it says and the gate passes. **Not here:** a results file (the
+benchmark's numbers come from the runners in 347m), the flag.
+
+### 11.7 Part 347d: the int arm's flag, the kernel plan's choice
+
+**Title:** `[VARKA-347] Run literal-free decimal conditions on the int lane under an option`.
+**Branch:** `varka-347d-int-lane-flag`, from master after 347c merged. **Builder:** Sonnet-class.
+
+**B0.**
+
+    git ls-files | grep -c 'VarkaDecimalLoadBenchmark.java'      -> 1 (347c merged)
+    git ls-files | grep -c 'VarkaDecimalIntArm.java'             -> 0
+    git log --oneline -1 ed748a25bd2   -> ed748a25bd2 [VARKA-347] Run literal-free decimal conditions on the int lane under an option
+
+**Step 1.** `git cherry-pick ed748a25bd2`. Conflicts: 11.4 step 2's rules. The option files
+take 11.4 step 2's M2 rule: `boolean decimalIntLane` is appended after `boolean
+decimalCheckShuffleFree` in the header, `false` after `DecimalLoad.REARRANGE, false` in
+`DEFAULTS`, the field, setter and last `build()` argument after `decimalCheckShuffleFree`'s, the
+`@param decimalIntLane` text after `decimalCheckShuffleFree`'s, and the commit's `decimalIntLane`
+entry, with its comment, as the last element of `TABLE`. `VarkaKernelPlan.of`
+and `VarkaLoopEmitter.emit` each gain one call of `VarkaDecimalIntArm.apply` on the roots they
+are handed (10.7); if master renamed either method, the call goes at the head of the method
+that builds the plan from the roots, in both, so that the plan's drive and the emitted kernel
+agree.
+
+**Step 2, the test of `dc86eb421c9`.** Add to `T` the test that commit adds, as it is there:
+
+    git show dc86eb421c9 -- sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaDecimalLoadTables.java
+
+applied with `git apply` of that diff, or by hand if the context moved. It pins a
+precision-12 column widened against an int column, at every width and load form, with
+`decimalIntLane` on and off.
+
+**Step 3, commands.**
+
+    build/sbt catalyst/Test/compile                                  -> [success]
+    grep -c '@Test' T                                                -> 20
+    build/sbt 'catalyst/testOnly *VarkaDecimalLoadSuite *VarkaDecimalLoadOneLaneSuite'
+        -> Passed: Total 44, Failed 0, Errors 0 (23 and 21)
+    build/sbt 'catalyst/testOnly *VarkaEmitOptionSuite *VarkaShapeCacheSuite *VarkaMatrixSuite *VarkaIrFuzzSuite'
+        -> every suite passes
+    dev/varka_regen_generated.sh --all                               -> exits 0
+    python3 dev/varka_bytes_moved.py origin/master                   -> prints nothing, or only keys under option_arms
+
+**Commit what the regeneration wrote** (fix round of 28 November 2026, review 1, M3). After the
+regeneration, `git status --short` lists only this part's own edits and generated files (`python3
+dev/varka_generated_merge.py --list` prints every generated path); `git add` all of them and
+commit them in the part's commit, never editing a generated file by hand. Then run the
+regeneration line once more: it changes nothing, and `git status --short` prints nothing. A
+generated file that changes on the second run, or a path in `git status --short` that is neither
+this part's edit nor generated, is a stop: report it.
+
+The flag is off by default, and with it off `VarkaDecimalIntArm.apply` is the identity (10.7), so
+no coverage row's bytes move. 10.7's correction names one thing owed a run, `VarkaIrFuzzSuite`'s
+pinned steering and reachability checks (#1341): the command above is that run; a failure there
+that names a steered sequence is fixed by regenerating the pin the failure prints, as the suite's
+message says, and recorded in the record.
+
+**Step 4, the record.** Append 10.7 from the tip (`/^### 10.7 /` to `/^### Decisions taken/`).
+
+**The gate** as in 11.4, and the lead dispatches the option matrix, which runs
+`decimalIntLane=true` over the precision-9 condition rows.
+
+**Done when** step 3 prints what it says, the gate passes and the matrix is green. **Not here:**
+the flag's default (11.3 decision 4), a literal operand on the int lane (10.7, "a literal operand
+waits on the compiler").
+
+### 11.8 The verdict rule, as numbers, and part 347m
+
+347m computes the verdict with a script this plan writes out in full, in appendix A at the end of
+this file (fix round of 28 November 2026, review 1, M8). It lands on master with this plan: the
+plan-only pull request of 11.2 ("Landing the plan") adds it as
+`sql/varka/plans/m8/results/VARKA-347/load_verdict.py`, the appendix's text exactly, Apache header
+included, mode `0755`. The text passes the house's Python gate as written (`ruff check` and `ruff
+format --check` with the repository's `pyproject.toml`: `All checks passed!` and `1 file already
+formatted`, run on 28 November 2026). It reads the two results files of `VarkaDecimalLoadBenchmark`
+and, optionally, the two runner census files, and prints one line per rule and a last line. Every
+number is a rate, the `Rate(M/s)` column that `dev/varka_bench_diff.py` reads, so a ratio above 1
+means the numerator is faster.
+
+- **DEFAULT.** A form `F` other than `REARRANGE` becomes the default only if, at 256 bits, `F`'s
+  load-only rate is at least 1.3 times `REARRANGE`'s at the L2 and the L3 rungs, and its 4-add
+  rate is at least `REARRANGE`'s at all three rungs, and no census cell of `F` reads `F` on a
+  runner where `long.dec_check_rearrange` reads `I`. Of several such forms, the one with the
+  highest L3 load-only rate. 1.3 is the house's band (`sql/varka/AGENTS.md`, "Measurements, not
+  adjectives").
+- **CACHE.** The cache layout is due as a row of its own if, at both widths, the `BIGINT`
+  load-only rate is at least 1.5 times the best sixteen-byte form's past L3 and at least 1.0
+  times it in L2: the owner's answer to question 1, as numbers.
+- **INT.** The int arm's rate over the best long form's, per rung and chain. It decides nothing
+  (11.3 decision 4).
+
+The last line reads `VERDICT: default=<form> cache=<due|not due>`. The script's own test:
+
+    python3 sql/varka/plans/m8/results/VARKA-347/load_verdict.py --selftest
+        -> selftest: 5 cases passed
+
+#### Part 347m: the measurement, the verdict and the row's record
+
+**Title:** `[VARKA-347] Measure the decimal load on the EPYC 7763 and record its verdict`.
+**Branch:** `varka-347m-measure`, from master after 347d merged. **Builder:** Sonnet-class. The
+lead dispatches; the builder commits the files, runs the script and writes.
+
+**B0** (review 1, M8):
+
+    git ls-files | grep -c 'VarkaDecimalIntArm.java'                          -> 1 (347d merged)
+    ls sql/varka/plans/m8/results/VARKA-347/load_verdict.py                   -> the file
+    python3 sql/varka/plans/m8/results/VARKA-347/load_verdict.py --selftest   -> selftest: 5 cases passed
+
+If the script is missing, the plan's pull request has not landed it: stop and report; do not
+write it from memory.
+
+1. **The dispatches** (the lead), on master's head once 347d merged, as `VARKA-597.md` 11.5 step 10
+   writes the command:
+
+        gh workflow run benchmark.yml -R vecbricks/varka --ref master \
+          -f class=VarkaDecimalLoadBenchmark -f jdk=25 -f generate-tpcds=false \
+          -f expected-cpu="AMD EPYC 7763"
+        gh workflow run benchmark.yml -R vecbricks/varka --ref master \
+          -f class=VarkaDecimalLoadBenchmark -f jdk=25 -f generate-tpcds=false \
+          -f expected-cpu="AMD EPYC 7763" -f extra-java-options=-XX:MaxVectorSize=16
+
+   A run whose CPU check fails is retried as the house's retry rule says
+   (`.github/workflows/varka-bench-cpu-retry.yml`).
+2. **The files.** *Where they come from* (fix round, review 1, M7): `benchmark.yml` is
+   dispatched without `create-commit` (its default, `false`), so each run returns its files as an
+   artifact. The lead downloads each (`gh run download <run-id> -R vecbricks/varka`) and puts its
+   results file, which a CI run writes under the plain name
+   `VarkaDecimalLoadBenchmark-jdk25-results.txt`, into the part's worktree; the class has no
+   runner file yet, so the builder renames it by hand (`sql/varka/skills/benchmarking.md`: "For a
+   class with no runner file yet, no tool names the file: rename the artifact's files by hand
+   when committing"), and writes each provenance file in the fields of
+   `sql/core/benchmarks/VarkaIntegralCastBaselineBenchmark-jdk25-runner-epyc7763-provenance.txt`
+   (`benchmark`, `where`, `run`, `commit`, `date`, `inputs`, `jdk`, `kernel`, `cpu`, `datapath`,
+   `pinned to`), read from the run's page and log. A run whose `cpu` line is not `AMD EPYC 7763
+   64-Core Processor` is not committed; the lead dispatches again. The builder adds the two runs'
+   results and provenance files as
+   `B/VarkaDecimalLoadBenchmark-jdk25-runner-epyc7763-results.txt`,
+   `B/VarkaDecimalLoadBenchmark-jdk25-runner-epyc7763-provenance.txt`,
+   `B/VarkaDecimalLoadBenchmark-jdk25-runner-epyc7763-128bit-results.txt` and
+   `B/VarkaDecimalLoadBenchmark-jdk25-runner-epyc7763-128bit-provenance.txt`, the names
+   `VarkaDecimalStoreBenchmark`'s runner files have, each provenance naming its run id. Check that
+   every arm reached C2: `grep -c 'loops C2 {.*false' <results>` prints `0` for each file; a
+   `false` is a stop, reported with the line.
+3. **The verdict.** The script is on master (B0). Run
+
+        python3 sql/varka/plans/m8/results/VARKA-347/load_verdict.py \
+          B/VarkaDecimalLoadBenchmark-jdk25-runner-epyc7763-results.txt \
+          B/VarkaDecimalLoadBenchmark-jdk25-runner-epyc7763-128bit-results.txt \
+          R/VARKA-329-census-epyc-7763.json R/VARKA-329-census-ubuntu-24.04-arm.json \
+          > R/VARKA-347/verdict.txt
+
+   and quote its last line in the record.
+4. **The descriptor is not edited here** (review 1, M1): 352d fills the `DECIMAL` entry (11.3
+   decision 6). `grep -P '^DECIMAL\t' sql/varka/fuzz/types.tsv` still shows `owed:347` twice
+   when this part merges.
+5. **The record.** Append the tip's decisions block (`/^### Decisions taken while the owner
+   was away/` to the end of the tip's file), then a new subsection 10.8,
+   "The measurement and its verdict", holding: the run ids; the script's `DEFAULT`, `CACHE` and
+   `INT` lines and its last line, quoted; and section 4's predictions scored by these rules, on
+   rates at 256 bits unless named:
+   - 4.2, first clause: holds if `BIGINT` load-only over `REARRANGE` load-only at L2 is between
+     2.0 and 3.0 (the inverse of "rearrange costs 2 to 3 times the BIGINT kernel");
+   - 4.2, second clause: holds if that ratio past L3 is between 1.5 and 2.5 and the six forms'
+     load-only rates past L3 are within 1.3 times of each other;
+   - 4.2, third clause: holds if `COMPRESS` load-only is slower than `REARRANGE` at L2;
+   - 4.3: holds if the int arm's load-only rate is below `REARRANGE`'s at every rung, and its
+     16-add rate at L2 is at or above the best long form's 16-add rate;
+   - 4.4: holds if, at 128 bits, every form's load-only rate is below 0.5 times the `BIGINT`
+     load-only rate at L2 (the fallback loop against a vector one); question 4 is answered by
+     11.3 decision 2 either way;
+   - 4.5: scored by 347a to 347d's `dev/varka_bytes_moved.py` lines;
+   - the 512-bit clause of section 4: "not measured: no full-width runner in the pool".
+6. **What the verdict moves** (lines written out in the fix round, review 1, L4). In
+   `sql/varka/plans/m10/SCOPE.md` item 140, inserted in its table in task order (after the last
+   line whose task is below 347, before the first above it), always this line:
+
+       | 347 | A condition-shaped measurement of `decimalIntLane`, the int arm for literal-free conditions over decimals of up to 9 digits, then its default | `m8/VARKA-347.md` 11.3 decision 4 | `VarkaDecimalLoadBenchmark` times the int arm under value chains only, so no committed number can flip it |
+
+   and, only if the last line reads `cache=due`, this one before it, with the two `CACHE` lines'
+   numbers put in:
+
+       | 347 | The cache layout of 2.6: DECIMAL(p <= 18) cached as 8-byte longs, every reader of the cache changed; due by the owner's rule of 27 October 2026 (`BIGINT` load-only over the best form: <256 past L3> and <256 L2> at 256 bits, <128 past L3> and <128 L2> at 128 bits) | `m8/VARKA-347.md` 2.6, 11.3 decision 3 | a row of its own by the owner's answer to question 1 of section 8 |
+
+   Then the item's opening paragraph gains, at its end, "Row 347's lines are parts of a row that
+   closed in milestone 8 (`m8/VARKA-347.md` 11.8)." If owner question 1 of section 12 is answered
+   (b) or (c), the cache line is not added here. If `default=` names a form other than `REARRANGE`,
+   347f follows; otherwise the row is marked here.
+7. **`PLAN.md`.** Unless 347f follows, row 347 opens with `**Done**`, naming what moved: the
+   cache layout (as step 6 says), the int arm's condition measurement, and the fuzzers' decimal
+   sites to row 352's part 352d.
+
+**Done when** the four runner files and the verdict are committed, 10.8 holds the scored
+predictions, `python3 dev/varka_plan_lint.py --offline` prints `0 finding(s)`, and the Build is
+green. **Not here:** any change to a default (347f), any code.
+
+### 11.9 Part 347f: the default flips, only if the verdict says so
+
+**Title:** `[VARKA-347] Make the measured decimal load form the default`.
+**Branch:** `varka-347f-default`. **Builder:** Sonnet-class. **Only if** the last line of
+`R/VARKA-347/verdict.txt` names a form other than `REARRANGE`.
+
+1. In `C/varka/VarkaEmitOption.java`, the `decimalLoad` entry's default becomes the verdict's
+   `DecimalLoad` value, and, if the verdict's form ends "with the shuffle-free check", the
+   `decimalCheckShuffleFree` entry's default becomes `true`. `REARRANGE` stays an arm.
+2. `dev/varka_regen_generated.sh --all`, then `python3 dev/varka_bytes_moved.py origin/master >
+   R/VARKA-347/moved.txt`: each line is `<key>  <base>  <now>`, and every key is a coverage row that
+   reads a decimal column or lies under `option_arms` (a key that reads no decimal column is a
+   stop). `wc -l < R/VARKA-347/moved.txt` is the count; quote it in 10.9 with the file's path (fix
+   round, review 1, L2). Commit `moved.txt` with the part. **Commit what the regeneration wrote**
+   (fix round of 28 November 2026, review 1, M3). After the regeneration, `git status --short` lists
+   only this part's own edits and generated files (`python3 dev/varka_generated_merge.py --list`
+   prints every generated path); `git add` all of them and commit them in the part's commit, never
+   editing a generated file by hand. Then run the regeneration line once more: it changes nothing,
+   and `git status --short` prints nothing. A generated file that changes on the second run, or a
+   path in `git status --short` that is neither this part's edit nor generated, is a stop: report
+   it.
+3. `build/sbt 'catalyst/testOnly *VarkaDecimalLoadSuite *VarkaDecimalLoadOneLaneSuite
+   *VarkaEmitOptionSuite *VarkaMatrixSuite'` passes; the option matrix runs the old default as
+   an arm.
+4. Section 10 gains 10.9: the flip, its verdict line, the moved keys' count; and `PLAN.md` marks
+   row 347 Done as 347m step 7 (11.8) writes it.
+
+**Done when** the gate passes, the option matrix is green, and the row is marked.
+
+### What only a JVM can settle, and the command for each
+
+| claim | command | settles |
+|---|---|---|
+| the picks of 347a apply with context conflicts only | `git cherry-pick d20d43315fd 8beecc18afb 316ae334866 b801ee8d475 e651c2766fb` in the part's worktree, then `git diff --name-only --diff-filter=U` | the list of files step 2 of 11.4 resolves; a hunk whose method is gone is a stop |
+| the default form's bytes do not move | 11.4 step 4's `dev/varka_bytes_moved.py origin/master` | empty or `option_arms` only |
+| every arm of the benchmark reaches C2 on the runner | 347m step 2's `grep` (11.8) | `0` |
+| the end-to-end suite holds on master | 11.6 step 2's command | `Tests: succeeded 3, failed 0` |
+
+### Risks of section 11
+
+1. **The picks meet more than context conflicts.** Held by 11.4 step 2's stop rule and by the
+   slot table, which runs every form at every width over every bad slot.
+2. **A new option misses an item of `ADDING_AN_OPTION.md`** (the binding policy, the matrix, the
+   fuzzer's pinned list). Held by `VarkaEmitOptionSuite` and `VarkaMatrixSuite`, and by the
+   matrix dispatch on the pull request.
+3. **The benchmark's numbers come from a shared runner pool.** Held by the CPU pin, the tier
+   lines, and the house's retry rule; a verdict near a threshold is still the script's.
+
+## 12. Questions for the owner (28 November 2026)
+
+*Rewritten in the fix round of 28 November 2026 (review 1, L6) to stand alone.*
+
+1. **If the measurement finds the "cache layout" worth building, where does it go?** The cache
+   layout means storing a `DECIMAL` of up to 18 digits in Spark's in-memory cache as 8-byte longs
+   instead of Arrow's 16-byte slots, so a kernel reads it like a `BIGINT` column; it changes every
+   reader of the cache. Your answer of 27 October 2026 said to build it as a row of its own if
+   the `BIGINT` kernel beats the best 16-byte load form by 1.5 times past L3 and loses nothing in
+   L2, at both widths; part 347m computes that rule. Options: (a) a line of milestone 10's
+   catalogue (`m10/SCOPE.md` item 140); (b) a row of milestone 9; (c) drop it whatever the
+   measurement says. *Recommended: (a)*: it is a row of its own, as you asked, and milestone 9's
+   theme is datetime (`m9/PLAN.md`). **Default applied: (a)** (11.3 decision 3, 347m step 6).
+2. **Does the int arm for small-decimal filters stay off by default in milestone 8?** The int arm
+   (option `decimalIntLane`) runs a filter over `DECIMAL` columns of up to 9 digits, with no
+   literal, on 32-bit lanes, twice the rows a register, instead of on 64-bit lanes. It is built
+   (part 347d) and gives the same answers either way, but no committed benchmark times it on a
+   filter, so nothing can choose its default. Options: (a) keep it off in milestone 8 and put a
+   filter-shaped measurement of it in `m10/SCOPE.md` item 140; (b) build that measurement in
+   milestone 8 and set the default from it. *Recommended: (a)*: no gate of the close needs it,
+   and on two-lane x86 hosts those filters decline anyway. **Default applied: (a)** (11.3
+   decision 4).
+
+## 13. The house rules that bind every part of section 11
+
+Each is written in the file named; read it there.
+
+- Results equal vanilla Spark's bit for bit under both ANSI settings (`sql/varka/VISION.md`, and
+  every oracle named here). The end-to-end suite of 347c is that check for a bad slot.
+- A new behaviour goes behind an emit option whose default flips last, and a losing arm stays:
+  `sql/varka/ADDING_AN_OPTION.md`; 347f is the flip.
+- Benchmarks are committed files, measured on the runners, never the laptop:
+  `sql/varka/AGENTS.md`, "Measurements, not adjectives".
+- The option matrix must pass under every configuration, and a test that pins one size bound
+  pins the others: `sql/varka/skills/testing-and-debugging.md`, the paragraph "A test that must
+  hold under every configuration emits with `VarkaMatrix.base`".
+- A pull request under 1000 counted lines, reviewed by its author before it opens:
+  `sql/varka/AGENTS.md`, "Pull requests"; branches, titles and who merges:
+  `sql/varka/.agents/pull-requests.md`; the gate: `dev/varka_ops/AGENTS.md`.
+- What not to do: do not push or open a pull request (the lead does); do not run a benchmark on
+  the laptop; do not edit a generated file by hand (`emitted_bytes.json`, `coverage.json`,
+  `types.tsv`); do not pick `dc86eb421c9` whole into any part.
+
+## 14. Stale against the tree, found while planning (28 November 2026)
+
+1. **The row's note in `PLAN.md`**: "the runner columns wait on a `varka-width-audit.yml`
+   dispatch" is stale; #1494 committed them (11.1). And "left: the runner columns and steps 4, 6
+   and 7" is stale: steps 4 and 6 are built on `varka-347d-decimal-int-lane-r`, and step 7 is
+   question 1's (11.3 decision 3).
+2. **Section 0 item 14**: the baseline "is not yet merged"; it merged as #1055 on 27 October
+   2026 (row 377's note). History, kept as written.
+3. **Section 4.4 and question 4**: the decision they wait on is taken by rows 503, 596 and 597b,
+   not by this row's measurement (11.3 decision 2).
+4. **10.1 item 3**: "whether AVX2 with BMI2 lowers both at 256 bits is the EPYC column's cell":
+   it does (11.1).
+5. **The triage of 27 November** (`m8-triage/part-1.md`, row 347) lists "the Spark fuzzer's
+   decimal column" as this row's; it is row 352's part 352d (11.3 decision 6).
+6. **The verdict script as first written** (found in the fix round of 28 November 2026): two
+   `lambda` assignments failed `ruff check` (E731) and its layout failed `ruff format --check`,
+   both run by the house's pre-commit gate on every Python file; appendix A's text passes both.
+   Its header named the rule's section as 11.7; it is 11.8.
+7. **347m step 4 as first written** moved the descriptor's `DECIMAL` sites to `"352"`, which
+   conflicted with 352d and changed 352b's counted cells (review 1, M1); it is gone.
+
+## Appendix A. The verdict script, `sql/varka/plans/m8/results/VARKA-347/load_verdict.py`
+
+*New in the fix round of 28 November 2026 (review 1, M8).* The whole text of the script 11.8
+names. The plan's own pull request adds it at that path (11.2, "Landing the plan"): copy the
+block below, remove the four spaces that indent every line, keep the Apache header as it is,
+and make it executable. It is the text of
+`/home/max/varka-ops/m8-row-plans/scratch-347/load_verdict.py` on 28 November 2026, which was run
+here: `python3 -I load_verdict.py --selftest` printed the one line `selftest: 5 cases passed`,
+and `ruff check` and `ruff format --check` (the repository's `pyproject.toml`) printed `All
+checks passed!` and `1 file already formatted`. Its regular expressions read the labels of
+`VarkaDecimalLoadBenchmark` as `48c2136e1f9` writes them (`"DECIMAL slots, " + formName`, the
+chains `load only`, `1 add`, `4 adds`, `16 adds`, the tables `the decimal load over N rows -
+every arm in L2|L3|past L3`), which review 1 checked against that commit.
+
+    #!/usr/bin/env python3
+    #
+    # Licensed to the Apache Software Foundation (ASF) under one or more
+    # contributor license agreements.  See the NOTICE file distributed with
+    # this work for additional information regarding copyright ownership.
+    # The ASF licenses this file to You under the Apache License, Version 2.0
+    # (the "License"); you may not use this file except in compliance with
+    # the License.  You may obtain a copy of the License at
+    #
+    #    http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+    #
+    """
+    The verdict of VARKA-347's measurement (VARKA-347.md 11.8), computed from the two results files
+    of VarkaDecimalLoadBenchmark on the AMD EPYC 7763, 256 bits and 128 bits (MaxVectorSize=16).
+
+        python3 load_verdict.py <256-bit results> <128-bit results> [<epyc census> <arm census>]
+        python3 load_verdict.py --selftest
+
+    Every number is a rate, Rate(M/s), the column dev/varka_bench_diff.py reads; a ratio above 1 means
+    the numerator is faster. The rules, in the plan's words:
+
+      DEFAULT   a form F other than REARRANGE becomes decimalLoad's default (and the shuffle-free
+                flag's) only if, at 256 bits, F's load-only rate is at least 1.3 times REARRANGE's
+                at the L2 and the L3 rungs, and F's 4-add rate is at least REARRANGE's at all three
+                rungs, and no census cell of F reads F(allback) on a runner where REARRANGE's reads
+                I(ntrinsic). Of several such forms the one with the highest L3 load-only rate wins.
+      CACHE     the cache layout (question 1 of section 8) is due as a row of its own if, at both
+                widths, the BIGINT load-only rate is at least 1.5 times the best sixteen-byte form's
+                past L3, and at least 1.0 times it in L2.
+      INT       the int arm's ratio to the best long form, per rung and chain, is printed; it decides
+                nothing in this row (VARKA-347.md 11.3 decision 4).
+
+    The last line is "VERDICT: default=<form> cache=<due|not due> ..." and is what the plan quotes.
+    """
+
+    import json
+    import re
+    import sys
+
+    ROW = re.compile(r"^(.*?)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)X\s*$")
+    HEADER = re.compile(r"^the decimal load over (\d+) rows - (.*?):\s+Best Time\(ms\)")
+    RUNGS = {"every arm in L2": "L2", "every arm in L3": "L3", "every arm past L3": "past L3"}
+    FORMS = [
+        "REARRANGE",
+        "COMPRESS",
+        "SELECT_FROM",
+        "REARRANGE with the shuffle-free check",
+        "COMPRESS with the shuffle-free check",
+        "SELECT_FROM with the shuffle-free check",
+    ]
+    CHAINS = {"load only": 0, "1 add": 1, "4 adds": 4, "16 adds": 16}
+    BIGINT = "BIGINT column (the cache layout's kernel)"
+    INT_ARM = "DECIMAL slots on the int lane (the int arm)"
+
+    # The census cells each form's kernel calls (VARKA-347.md 10.1), the check cells first.
+    CELLS = {
+        "REARRANGE": ["long.dec_check_rearrange", "long.dec_check_rearrange_masked"],
+        "COMPRESS": ["long.dec_check_compress", "long.dec_compress"],
+        "SELECT_FROM": ["long.dec_selectFrom2"],
+        "SHUFFLE_FREE": ["long.dec_check_offset", "long.dec_check_offset_masked"],
+    }
+
+
+    def parse(text):
+        """{(rung, arm): rate}. The arm is the label without its chain; the chain is its key too."""
+        out, rung = {}, None
+        for line in text.splitlines():
+            line = re.sub(r"^\[info\] ?", "", line)
+            h = HEADER.match(line)
+            if h:
+                rung = RUNGS[h.group(2).strip()]
+                continue
+            m = ROW.match(line)
+            if m and rung:
+                label = m.group(1).strip()
+                for chain, k in CHAINS.items():
+                    if label.endswith(", " + chain):
+                        out[(rung, label[: -len(chain) - 2], k)] = float(m.group(5))
+        return out
+
+
+    def form_arm(form):
+        return "DECIMAL slots, " + form
+
+
+    def cells_of(form):
+        base = form.replace(" with the shuffle-free check", "")
+        cells = list(CELLS[base])
+        if form.endswith("shuffle-free check"):
+            cells += CELLS["SHUFFLE_FREE"]
+        return cells
+
+
+    def census_ok(form, censuses):
+        """False when a cell of the form reads F where REARRANGE's check cell reads I."""
+        for census in censuses:
+            for width, cells in census["widths"].items():
+                if cells.get("long.dec_check_rearrange", {}).get("verdict") != "I":
+                    continue
+                for cell in cells_of(form):
+                    if cells.get(cell, {}).get("verdict") == "F":
+                        return False
+        return True
+
+
+    def verdict(r256, r128, censuses):
+        lines = []
+
+        def rate(r, rung, arm, k):
+            return r[(rung, arm, k)]
+
+        # DEFAULT
+        base = form_arm("REARRANGE")
+        winners = []
+        for form in FORMS[1:]:
+            arm = form_arm(form)
+            l2 = rate(r256, "L2", arm, 0) / rate(r256, "L2", base, 0)
+            l3 = rate(r256, "L3", arm, 0) / rate(r256, "L3", base, 0)
+            four = min(rate(r256, g, arm, 4) / rate(r256, g, base, 4) for g in RUNGS.values())
+            ok = census_ok(form, censuses)
+            wins = l2 >= 1.3 and l3 >= 1.3 and four >= 1.0 and ok
+            lines.append(
+                f"DEFAULT {form}: L2 {l2:.2f}, L3 {l3:.2f}, 4-add min {four:.2f}, "
+                f"census {'ok' if ok else 'falls back'}: {'WINS' if wins else 'stays'}"
+            )
+            if wins:
+                winners.append((rate(r256, "L3", arm, 0), form))
+        default = max(winners)[1] if winners else "REARRANGE"
+        # CACHE
+        due = True
+        for name, r in (("256", r256), ("128", r128)):
+            best = {g: max(rate(r, g, form_arm(f), 0) for f in FORMS) for g in ("L2", "past L3")}
+            past = rate(r, "past L3", BIGINT, 0) / best["past L3"]
+            l2 = rate(r, "L2", BIGINT, 0) / best["L2"]
+            meets = past >= 1.5 and l2 >= 1.0
+            due = due and meets
+            lines.append(
+                f"CACHE {name}: BIGINT over the best form, past L3 {past:.2f}, "
+                f"L2 {l2:.2f}: {'meets' if meets else 'misses'}"
+            )
+        # INT
+        for name, r in (("256", r256), ("128", r128)):
+            parts = []
+            for g in RUNGS.values():
+                for k in CHAINS.values():
+                    best = max(rate(r, g, form_arm(f), k) for f in FORMS)
+                    parts.append(f"{g}/{k}:{rate(r, g, INT_ARM, k) / best:.2f}")
+            lines.append(f"INT {name}: " + " ".join(parts))
+        lines.append(f"VERDICT: default={default} cache={'due' if due else 'not due'}")
+        return lines
+
+
+    def selftest():
+        def table(rung_rows, level, rates):
+            head = (
+                f"the decimal load over {rung_rows} rows - {level}:"
+                + " " * 40
+                + "Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative"
+            )
+            rows = [head, "-" * 80]
+            for label, r in rates.items():
+                rows.append(f"{label}    10   11   0   {r:.1f}   {1000 / r:.1f}   1.0X")
+            return "\n".join(rows)
+
+        def file(scale):
+            out = []
+            for n, level in (
+                (8192, "every arm in L2"),
+                (262144, "every arm in L3"),
+                (8388608, "every arm past L3"),
+            ):
+                rates = {}
+                for f in FORMS:
+                    for chain in CHAINS:
+                        rates[f"DECIMAL slots, {f}, {chain}"] = scale(f, level, chain)
+                for chain in CHAINS:
+                    rates[f"{BIGINT}, {chain}"] = scale("BIGINT", level, chain)
+                    rates[f"{INT_ARM}, {chain}"] = scale("INT", level, chain)
+                out.append(table(n, level, rates))
+            return "\n".join(out)
+
+        def flat(f, level, chain):
+            return {"BIGINT": 2000, "INT": 500}.get(f, 1000)
+
+        r = verdict(parse(file(flat)), parse(file(flat)), [])
+        assert r[-1] == "VERDICT: default=REARRANGE cache=due", r[-1]
+
+        def compress_wins(f, level, chain):
+            if f == "COMPRESS":
+                return 1400
+            return flat(f, level, chain)
+
+        r = verdict(parse(file(compress_wins)), parse(file(flat)), [])
+        # BIGINT over the best form past L3 is 2000 / 1400 = 1.43 at 256 bits: under 1.5.
+        assert r[-1] == "VERDICT: default=COMPRESS cache=not due", r[-1]
+
+        def select_wins(f, level, chain):
+            return 1400 if f == "SELECT_FROM" else flat(f, level, chain)
+
+        arm = {
+            "widths": {
+                "128": {
+                    "long.dec_check_rearrange": {"verdict": "I"},
+                    "long.dec_selectFrom2": {"verdict": "F"},
+                }
+            }
+        }
+        r = verdict(parse(file(select_wins)), parse(file(flat)), [arm])
+        # SELECT_FROM is 1.4 times faster but falls back on the Arm census: it is not the default.
+        assert r[-1] == "VERDICT: default=REARRANGE cache=not due", r[-1]
+        r = verdict(parse(file(select_wins)), parse(file(flat)), [])
+        assert r[-1] == "VERDICT: default=SELECT_FROM cache=not due", r[-1]
+
+        def close(f, level, chain):
+            return 1400 if f == "BIGINT" else 1000
+
+        r = verdict(parse(file(close)), parse(file(flat)), [])
+        assert r[-1] == "VERDICT: default=REARRANGE cache=not due", r[-1]
+        print("selftest: 5 cases passed")
+
+
+    def main(argv):
+        if argv[:1] == ["--selftest"]:
+            selftest()
+            return 0
+        if len(argv) not in (2, 4):
+            print(__doc__)
+            return 2
+        texts = [open(p, encoding="utf-8").read() for p in argv[:2]]
+        censuses = [json.load(open(p, encoding="utf-8")) for p in argv[2:]]
+        for line in verdict(parse(texts[0]), parse(texts[1]), censuses):
+            print(line)
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main(sys.argv[1:]))
+
+Its self-test, the check after copying:
+
+    python3 sql/varka/plans/m8/results/VARKA-347/load_verdict.py --selftest
+        -> selftest: 5 cases passed

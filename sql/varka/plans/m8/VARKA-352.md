@@ -1,5 +1,9 @@
 # VARKA-352: The fuzzers and the reference evaluator across types
 
+*Changed on 28 November 2026: sections 11 to 14 are new and are the plan of what is left, written
+for a builder with nobody to ask; sections 0 to 10 are kept word for word as the record. Where
+section 11 differs from them it wins, and section 14 lists each difference.*
+
 ## 0. What exists now (admission check)
 
 From master at `9aa6ee74c63` (30 October 2026), with row 481's unmerged step 1 read on
@@ -622,3 +626,549 @@ boolean conformance suites read their values from the descriptor.
 - **No descriptor site moves from `Owed` to `Present` here**: `BYTE`'s and `SHORT`'s IR sites were
   `Present` through the cast sequence and now name their own; the `BOOLEAN`, `BYTE` and `SHORT`
   Spark sites stay owed to this row for the next part.
+
+## 11. What is left, cut into parts a Sonnet-class agent can build (28 November 2026)
+
+*New on 28 November 2026. Code facts were read on master `dbaa94ff498` and on the local branches
+named below, in `/home/max/proj/vecbricks-varka`, with no JVM. This section stands alone: a
+builder needs it, the `AGENTS.md` files and `sql/varka/ADDING_A_TYPE.md`. Where it differs from
+sections 0 to 10 it wins, and section 14 lists each difference. Short names: `CT` is
+`sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka`, `CS` the
+same path under `src/test/scala`, `Q` is `sql/core/src/test/scala/org/apache/spark/sql/execution`,
+`FZ` is `Q/VarkaSparkFuzz.scala`, `FS` is `Q/VarkaSparkFuzzSuite.scala`, `DS` is
+`Q/VarkaCoverageDifferentialSuite.scala`, and `FT` is `CT/VarkaFuzzTypes.java`. Every command runs
+from the root of the part's worktree.*
+
+### 11.1 The state on 28 November 2026
+
+**What `PLAN.md` 1.1 item 1 asks of this row**: each new type drawn by "the IR fuzzer and the
+Spark-level fuzzer (352)". `VARKA-354.md` step 2 reads it off `sql/varka/fuzz/types.tsv`: no
+`Owed` cell. `PLAN.md` 12.5 lists row 352 as a gate under item 1, "347 before 352's decimal
+cells".
+
+**On master**, each with its command:
+
+| what | command | prints |
+|---|---|---|
+| the plan (#1191) | `git log --oneline -1 5cdb032b9ef` | `5cdb032b9ef [VARKA-352] Plan the fuzzers across every type, with one way to add one (#1191)` |
+| step 1, the descriptor (#1403) | `git log --oneline -1 4ca05bf6802` | `4ca05bf6802 [VARKA-352] Describe what the fuzzers draw of each type in one table (#1403)` |
+| step 2's first part, the narrow sequences (#1412) | `git log --oneline -1 2acdd9a25eb` | `2acdd9a25eb [VARKA-352] Fuzz trees of TINYINT and SMALLINT values against the reference (#1412)` |
+| the owed cells | `grep -c 'owed:' sql/varka/fuzz/types.tsv` | `4` (three Spark sites owed to 352, one line owed to 347 twice) |
+| the decimal's line | `grep -P '^DECIMAL\t' sql/varka/fuzz/types.tsv` | `DECIMAL LONG present 20261101 dec decimal draw owed:347 - owed:347` (tabs) |
+| the Spark fuzzer leaves out three kinds of row | `grep -c 'def leftOut(executable: String): Boolean' FZ` | `1` |
+| the column-count test of row 495 (#1564) | `grep -c 'wanted.size === 18' FS` | `1` |
+| the table's columns | `python3 -c "import json; print(len(json.load(open('sql/varka/coverage.json'))['columns']))"` | `35` |
+
+The 35 columns: the 18 the Spark fixture builds today, the six boolean and narrow ones (`b`,
+`b2`, `y1`, `y2`, `s1`, `s2`), and eleven decimals (`d9`, `d9b`, `d18`, `d18b`, `d9s4`, `d16s9`,
+`d8`, `d19`, `d38`, `d38b`, `d3810`), from `coverage.json`'s `columns` object
+(`scratch-352/columns.txt`).
+
+**On local branches, never pushed.** `git branch --list 'varka-352*'` prints five:
+
+| branch | tip, date | holds | verdict |
+|---|---|---|---|
+| `varka-352-fuzz-types` | `c76beb07a6a`, 20 November | on master `767dcddce50`: four commits of row 619 (merged since as #1676), then six of 352a step 2's Spark-level part (10.3 of its plan file): the `TINYINT`, `SMALLINT` and `BOOLEAN` columns in the Spark-level fixture, the catalyst grammar's narrow types and boolean leaves, the TLP shapes held to the view, the descriptor's three Spark sites `Present` | **part 352b starts from it**: the six picks `b0a4f7d7dce` to `c76beb07a6a`, 374 counted lines without 619's commits (`python3 dev/varka_msg_check.py size --base ae476949bcf --head varka-352-fuzz-types`) |
+| `varka-352c-composition` | `5af95aa65e3`, 23 November | on master `f3b97c0b503`: five commits, step 2c (10.4 of its plan file): the composition fuzzer's compile-only tests draw every coverage row | **part 352c starts from it**: five picks, 179 counted lines |
+| `varka-352-fuzz-types-pre-rebase-1120` | `0864573396e`, 20 November | 352b before its rebase onto row 619's branch | superseded |
+| `varka-352a-pre-rebase-1392` | `c5c87132d39`, 8 November | step 1 before its merge | merged as #1403 |
+| `varka-352c-composition-pre-rebase-1123` | `263474a65cd`, 21 November | 352c before its rebase | superseded |
+
+The six commits of 352b, oldest first: `b0a4f7d7dce` (Draw TINYINT, SMALLINT and BOOLEAN columns
+in the Spark-level fuzzer), `2f9cf392c52` (Fix the review's findings, alias the fuzz view, and
+record row 619), `7de852f5ed1` (Plan: record the 700-composition run), `559a7ce2b43` (List the
+narrow overflow, keep hostile narrow cells, and query the shapes), `7bbc5d6c853` (Plan: keep row
+352's text through the rebase onto row 619's branch), `c76beb07a6a` (Fix the review's findings
+after the rebase onto row 619's branch). The five of 352c: `37640940afb`, `118c4456a4e`,
+`e1337f6450d`, `c3e7b091bed`, `5af95aa65e3`.
+
+**What master changed under 352b since `767dcddce50`.** Row 495's #1564 added
+`VarkaCoverageRows.columns`, `VarkaSparkFuzz.leftOut` (the rows over a `BOOLEAN`, narrow or
+`DECIMAL` column) and the test "the fixture holds every column of coverage.json its draws read, at
+its type", which counts 18 columns. The branch predates them and lifts the boolean and narrow
+filter in its own `coverageRows`. 11.4 step 2 reconciles the two. `FS` has two more commits, row
+335's and row 504's; `VarkaCoverageRows.scala` and `expected_errors.tsv` one each.
+
+### 11.2 The parts
+
+| part | what | counted lines | builder | starts from | waits on |
+|---|---|---|---|---|---|
+| 352b | the boolean and narrow columns at the Spark level | about 390 | Sonnet-class | master, six picks; if row 332's part 332c has merged, its seventeen interval-cast rows over the narrow columns are drawn too (11.4's stop rule) | nothing |
+| 352c | the composition fuzzer's compile-only tests over every row | about 180 | Sonnet-class | master, five picks | nothing |
+| 352d | the decimal columns at the Spark level, and the decimal's value source | about 220 | Sonnet-class | master after 352b | 352b, and row 347's part 347d (`VARKA-347.md` 11.2); not 347m, which no longer edits the descriptor |
+| 352z | the row's record and its close: what moved, `types.tsv` with no owed cell | about 60 | Sonnet-class, or the lead | master after 352d | 352d, and question 1 of section 12 |
+
+**No part is full strength**, and none is deferred by the owner's decision E1 of 28 November
+2026: 352b and 352c are built code on branches, 352d is a fixture change with every expression
+written out and checked in Python (11.6), and 352z is a plan edit.
+
+**The order and its reason.** 352b first: 352d adds its columns beside 352b's and lifts the last
+filter 352b leaves. 352c is independent and may land beside 352b; the two touch different blocks
+of `VarkaCoverageRows.scala` (`git diff` of each shows the doc comments of `readsBoolean`,
+`readsNarrow` in 352b and of `Filter` in 352c). 352d after row 347's part 347d, the order of
+`PLAN.md` 12.5, so that the decimal load's forms are on master, under the option matrix, when the
+Spark-level fuzzer first draws decimal columns.
+
+**Landing the plan.** The new text of this file (sections 11 to 14 and the note at the top) goes
+to master first, in a plan-only pull request titled `[VARKA-352] Plan: land the fuzzers' typed
+columns and decide what moves`, which the lead opens.
+
+### 11.3 Decisions taken here, each with its evidence
+
+1. **What gates the close is the descriptor with no owed cell.** Item 1 names the IR fuzzer and the
+   Spark-level fuzzer drawing each type; `VARKA-354.md` step 2 checks `types.tsv` for no `Owed`
+   cell. The IR sites are all `Present` (`types.tsv`'s `ir` column). After 352b the three narrow
+   and boolean Spark sites are `Present`; after 352d the decimal's Spark site and value source.
+2. **Steps 3 to 5 of 352a, refit A and the close's refit B are not gates**, and 352z moves them to
+   `m10/SCOPE.md` item 140 under the default of question 1 of section 12: the TLP oracle's raise
+   rule and its second pool (2.4), the cross-mode properties and the cast productions (2.5, 2.6),
+   the Spark-level fuzzer's CI nightly (2.7), the two refits (2.3), and the generators' sweeps of
+   2.5 (specials beyond the value sources, the decimal shapes sweep, the tie windows). No clause of
+   `PLAN.md` 1.1 names any of them (the triage of 27 November 2026,
+   `~/varka-ops/m8-triage/part-1.md`, row 352: "Moves: TLP's ANSI gap, cross-mode properties, cast
+   draws, which no clause of 1.1 names"). The owner's answer of 1 November 2026 to question 1 of
+   section 8 scheduled refit A in 352a; rows 431 and 432, which it was to take, moved to milestone
+   9 on 23 November 2026 (their notes), so its reason in this milestone is gone.
+3. **The composition fuzzer's kernel tests keep their filters** (step 2d of 10.4). It is a third
+   fuzzer, which item 1 does not name, and teaching its harness narrow, bitmap and sixteen-byte
+   inputs is a part the size of 352b again. It moves with decision 2.
+4. **The decimal columns are derived, as the floating ones are.** The Spark fixture's eleven
+   decimal columns are computed from `l` and `l2` by the expressions the differential suite's
+   fixture uses (`DS`, `fixtureView`'s `decimal` and `pair`), lifted to its companion object so
+   that both fixtures build them from one text. One column differs: `d9s4` reads the row id `rid`
+   in the differential view, which the Spark fixture has not, so the Spark fixture computes it
+   from `l`, `l2` and `i` alone (11.6). Every expression fits its type for every long, so building
+   the view cannot raise under ANSI: checked in Python over the long's ends and a sample,
+   `decimal_columns_check: 3081694 cells of 11 columns fit their types`
+   (`scratch-352/decimal_columns_check.out`).
+5. **The decimal's value source is the long lane's edges at precision 18**: the bounds
+   `+-(10^18 - 1)`, `+-(10^9 - 1)` (precision 9's), `-1`, `0` and `1`, of kind `INTEGRAL`. A
+   lane-pair decimal's values are two words and are drawn by the IR's pair draw, not by this
+   source; the javadoc says so.
+6. **A decimal row's ANSI raise is listed, not avoided.** Two coverage rows cast a decimal to a
+   narrower decimal (`CAST(CAST(d18 AS DECIMAL(12, 2)) AS BIGINT)`,
+   `CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)`), which raise under ANSI where the value does not
+   fit, on both engines. 352d adds the condition both engines raise to `expected_errors.tsv`
+   (11.6 step 5); the safe pool's promise ("every value inside the guards and the ANSI checks",
+   `FZ`'s `drawData`) does not hold for those two rows, and the file's line says so.
+
+### 11.4 Part 352b: the boolean and narrow columns at the Spark level
+
+**Title:** `[VARKA-352] Draw TINYINT, SMALLINT and BOOLEAN columns in the Spark-level fuzzer`.
+**Branch:** `varka-352b-spark-narrow`, from master (`varka-352-fuzz-types` exists).
+**Builder:** Sonnet-class.
+
+**B0.** On master, every line must print what it says, or the builder stops and reports:
+
+    git log --oneline -1 b0a4f7d7dce   -> b0a4f7d7dce [VARKA-352] Draw TINYINT, SMALLINT and BOOLEAN columns in the Spark-level fuzzer
+    git log --oneline -1 079d5553195   -> 079d5553195 [VARKA-619] Fuse a narrow column's null test through any chain of widenings (#1676)
+    grep -c 'def leftOut(executable: String): Boolean' FZ                -> 1
+    grep -c 'wanted.size === 18' FS                                      -> 1
+    grep -c 'owed:352' sql/varka/fuzz/types.tsv                          -> 3
+
+The last count is `3`, and `0` after step 3, whatever row 347 has merged: row 347's part 347m no
+longer edits the descriptor (fix round of 28 November 2026, review 1, M1), so `DECIMAL`'s two cells
+read `owed:347` until 352d fills them. The second line says row 619's fix is on master, so 619's
+four commits on the branch are not picked.
+
+**Step 1, the picks.** In the part's worktree:
+
+    git cherry-pick b0a4f7d7dce 2f9cf392c52 7de852f5ed1 559a7ce2b43 7bbc5d6c853 c76beb07a6a
+
+**Step 2, conflicts.** For each conflicted file: take master's side whole, then apply the
+commit's hunks for that file by hand (`git show <sha> -- <file>`). Per file:
+
+- `FZ`: keep master's `leftOut` and its use in `coverageRows`; make `leftOut` read the decimal
+  columns only:
+
+        def leftOut(executable: String): Boolean = VarkaCoverageRows.readsDecimal(executable)
+
+  and its doc comment: "Whether the draws leave out `executable`: SQL that reads a DECIMAL column,
+  of which the fixture has none yet (`VarkaFuzzTypes` owes the type's columns, VARKA-352 part
+  352d). A column's name is the SQL that reads it, so the fixture's check of its columns asks the
+  same of each name." Apply every other hunk of the commits: the six `VALUES` columns, the
+  `narrowCells` draw from its own stream (`NarrowSalt`), the `FROM fz AS fz` alias, the `own`
+  parameters of `drawData` and `laterData`.
+- `FS`: keep master's test "the fixture holds every column of coverage.json its draws read, at
+  its type", with its count changed from 18 to 24 and its comment's first line to "The draws leave
+  out the rows over a DECIMAL column (`VarkaSparkFuzz.leftOut`)". In it, `drawData(new
+  Random(495), 1, safe = true)` takes the two arguments the commits add: `drawData(new
+  Random(495), 1, safe = true, None, new Random(496))`. Apply the commits' other hunks (the
+  stream test, the shapes' test, the `drawData` and `laterData` call sites).
+- `sql/varka/fuzz/expected_errors.tsv`: apply the commits' two edits to master's file (the
+  families `Integral casts` and `Narrow arithmetic` added to two lines, and the
+  `BINARY_ARITHMETIC_OVERFLOW` line).
+- `sql/varka/fuzz/types.tsv`: take master's side; step 3 regenerates it.
+- `sql/varka/plans/m8/PLAN.md`, `sql/varka/plans/m8/VARKA-352.md`: take master's side and apply
+  nothing; step 4 writes the record.
+
+**Step 3, commands.** With `JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
+SPARK_LOCAL_IP=127.0.0.1`:
+
+    build/sbt catalyst/Test/compile sql/Test/compile                       -> [success]
+    VARKA_FUZZ_TYPES_REGEN=true build/sbt 'catalyst/testOnly *VarkaFuzzTypesSuite'   -> passes
+    grep -c 'owed:352' sql/varka/fuzz/types.tsv                            -> 0
+    grep -c 'owed:347' sql/varka/fuzz/types.tsv                            -> 1 (DECIMAL's line)
+    build/sbt 'sql/testOnly *VarkaSparkFuzzSuite'                          -> every test passes
+    build/sbt -batch "project sql" 'set Test/javaOptions ++= Seq("-Dvarka.sparkfuzz.iterations=700", "-Dspark.test.timeout=170", "-Dvarka.test.watchdog.minutes=170")' 'testOnly *VarkaSparkFuzzSuite -- -z "agree with the row engine (seed"'
+        -> passes
+    build/sbt 'sql/testOnly *VarkaSparkReproducerSuite'                    -> every test passes
+    dev/varka_regen_generated.sh --all                                     -> exits 0
+
+The 700-composition line sets the budget through `Test/javaOptions` (fix round of 28
+November 2026, found beside review 1's H2): sbt passes a `-D` given to `build/sbt` to the forked
+test JVM only for `spark.*` properties (`project/SparkBuild.scala`), so `build/sbt
+-Dvarka.sparkfuzz.iterations=700 ...` would run the default 200 and still pass. The form is
+`dev/varka_nightly.sh`'s sparkfuzz step. The test's printed name shows the budget reached the JVM:
+the log holds `- random compositions agree with the row engine (seed 20261008, 700 of them)`
+(`VarkaSparkFuzzSuite`: the seed's default is `20261008`); `200 of them` is a stop.
+
+**Commit what the regeneration wrote** (fix round of 28 November 2026, review 1, M3). After the
+regeneration, `git status --short` lists only this part's own edits and generated files (`python3
+dev/varka_generated_merge.py --list` prints every generated path); `git add` all of them and
+commit them in the part's commit, never editing a generated file by hand. Then run the
+regeneration line once more: it changes nothing, and `git status --short` prints nothing. A
+generated file that changes on the second run, or a path in `git status --short` that is neither
+this part's edit nor generated, is a stop: report it.
+
+The 700-composition line is 10.3's run at the default seed, which draws each of the
+table's rows at least once; its `-z` text selects the main test, "random compositions agree with
+the row engine (seed $seed, $iterations of them)", and not the warmed arm's. On the branch it
+found row 619 only, now fixed on master.
+
+**The stop rule.** A composition that disagrees, Varka against the row engine, is a finding:
+stop, keep the reproducer the suite writes under `target/varka-sparkfuzz/`, commit nothing more,
+and report it to the lead, who files a row (row 619 was such a finding). A raise both engines
+share whose condition is not listed is not a finding: add its line to `expected_errors.tsv` in
+the file's form, `both`, the modes it was seen in, the family of the row that raised, and a
+reason naming the expression, as the `BINARY_ARITHMETIC_OVERFLOW` line does. That includes a
+`CAST_OVERFLOW` of an integral-interval cast that both engines raise, if row 332's part 332c has
+merged before this part (its rows over `y1`, `s1`, `l`, `ym` and `dt` enter the draws here; fix
+round, review 1, M9): family `Integral casts`, reason "an integral-interval cast whose value
+does not fit the target raises under ANSI and LEGACY on both engines (VARKA-332 part 332c)".
+
+**Step 4, the record.** Append to section 10 of this file the branch's 10.3:
+
+    git show c76beb07a6a:sql/varka/plans/m8/VARKA-352.md | sed -n '/^### 10.3 /,$p'
+
+and one dated line: "*Landed on 28 November 2026 or later by cherry-pick onto master, without row
+619's commits, which merged as #1676; `leftOut` kept and narrowed to the decimal columns
+(`VARKA-352.md` 11.4).*"
+
+**The gate.** `dev/varka_ops/AGENTS.md`, "Opening or fixing a pull request", steps 1 to 5; the
+lead opens the pull request and dispatches the option matrix on it.
+
+**Done when** step 3 prints what it says, the gate passes and the matrix is green. **Not here:**
+the decimal columns (352d), the composition fuzzer (352c).
+
+### 11.5 Part 352c: the composition fuzzer's compile-only tests
+
+**Title:** `[VARKA-352] Draw every coverage row in the composition fuzzer's compile-only tests`.
+**Branch:** `varka-352c-r2`, from master (`varka-352c-composition` exists). **Builder:**
+Sonnet-class.
+
+**B0.**
+
+    git log --oneline -1 37640940afb   -> 37640940afb [VARKA-352] Draw every coverage row in the composition fuzzer's compile-only tests
+    grep -c 'def compositionFilters\|val compositionFilters' CS/VarkaCoverageRows.scala   -> 1
+
+**Step 1.** `git cherry-pick 37640940afb 118c4456a4e e1337f6450d c3e7b091bed 5af95aa65e3`.
+Conflicts: `PLAN.md` and `VARKA-352.md`, master's side and nothing applied; any other file, 11.4
+step 2's rule.
+
+**Step 2, commands.**
+
+    build/sbt catalyst/Test/compile                                        -> [success]
+    build/sbt 'catalyst/testOnly *VarkaCoverageCompositionFuzzSuite'       -> every test passes
+
+*Rewritten in the fix round of 28 November 2026 (review 1, M6).* Its accounting line names the
+table's row count first: on `dbaa94ff498` that is `868`, which `python3 -c "import json;
+print(len(json.load(open('sql/varka/coverage.json'))['expressions']))"` prints (the branch's run
+read 765, 103 rows ago: the decimal casts and pair outputs of rows 350 and 359 to 363, drawn by
+these tests for the first time). The criterion: the first number equals that command's output on
+the part's worktree, and `0 declined alone`. A decline of a narrow value under a bigint or
+floating kernel is accepted by the suite (10.4's "narrow form of the lane rule") and is not
+counted there. A different `declined alone` count, or a failure of either compile-only test, is
+the stop rule of 11.4: keep the failure text, commit nothing more, report it to the lead, who
+files a row.
+
+    dev/varka_regen_generated.sh --all                                     -> exits 0
+
+**Commit what the regeneration wrote** (fix round of 28 November 2026, review 1, M3). After the
+regeneration, `git status --short` lists only this part's own edits and generated files (`python3
+dev/varka_generated_merge.py --list` prints every generated path); `git add` all of them and commit
+them in the part's commit, never editing a generated file by hand. Then run the regeneration line
+once more: it changes nothing, and `git status --short` prints nothing. A generated file that
+changes on the second run, or a path in `git status --short` that is neither this part's edit nor
+generated, is a stop: report it. (This part changes test code only, so the regeneration is expected
+to change nothing.)
+
+**Step 3, the record.** Append the branch's 10.4:
+`git show 5af95aa65e3:sql/varka/plans/m8/VARKA-352.md | sed -n '/^### 10.4 /,$p'`.
+
+**Done when** step 2 passes and the gate passes. **Not here:** the kernel tests' filters (11.3
+decision 3).
+
+### 11.6 Part 352d: the decimal columns at the Spark level
+
+**Title:** `[VARKA-352] Draw DECIMAL columns in the Spark-level fuzzer`.
+**Branch:** `varka-352d-spark-decimal`, from master after 352b merged. **Builder:** Sonnet-class.
+
+**B0.**
+
+    grep -c 'def leftOut(executable: String): Boolean = VarkaCoverageRows.readsDecimal(executable)' FZ  -> 1 (352b merged)
+    grep -c 'wanted.size === 24' FS                                        -> 1
+    git ls-files | grep -c 'VarkaDecimalIntArm.java'                       -> 1 (row 347's part 347d merged)
+    grep -c 'def fixtureView(values: Seq\[String\], where: String = "")' DS   -> 1
+
+**Step 1, one text of the decimal columns.** In `DS`, in `private object
+VarkaCoverageDifferentialSuite`, move the two local functions `decimal` and `pair` out of
+`fixtureView` to the object, unchanged but for their names and visibility, and add the list of
+the eleven columns:
+
+    /**
+     * A DECIMAL(p, s) column (VARKA-347, VARKA-348) from a bigint: its last p digits over 10^s,
+     * an exact product that always fits the type, null where the bigint is, and of both signs.
+     */
+    def decimalColumn(long: String, precision: Int, scale: Int = 2): String =
+      s"CAST(CAST($long % ${BigInt(10).pow(precision)} AS DECIMAL(${precision + 1}, 0)) * " +
+        s"${BigDecimal(1).bigDecimal.movePointLeft(scale).toPlainString} " +
+        s"AS DECIMAL($precision, $scale))"
+
+    /**
+     * A DECIMAL(p, s) of the 128-bit pair (VARKA-359): the unscaled value is `hi * 10^k` plus the
+     * last k digits of `lo`, over 10^s, so both words carry bits and the sign of `hi` leads; `k`
+     * keeps it within `digits`, and `digits + s + 1 <= 38` keeps the product with 10^-s exact at
+     * its own type. Null where `hi` is.
+     */
+    def pairColumn(hi: String, lo: String, k: Int, digits: Int, precision: Int,
+        scale: Int): String = {
+      val p = BigInt(10).pow(k)
+      s"CAST(CAST(CAST($hi AS DECIMAL(19, 0)) * $p + coalesce($lo, 7) % $p " +
+        s"AS DECIMAL($digits, 0)) * " +
+        s"${BigDecimal(1).bigDecimal.movePointLeft(scale).toPlainString} " +
+        s"AS DECIMAL($precision, $scale))"
+    }
+
+    /**
+     * The table's eleven DECIMAL columns, each `<expression> AS <name>`, over `l`, `l2` and the
+     * unscaled value `d9s4` is built from, which each fixture gives: the differential suite's
+     * reads its row id, the Spark-level fuzzer's cannot (VARKA-352 part 352d).
+     */
+    def decimalColumns(d9s4Unscaled: String): Seq[String] = Seq(
+      s"${decimalColumn("l", 9)} AS d9",
+      s"${decimalColumn("l2", 9)} AS d9b",
+      s"${decimalColumn("l", 18)} AS d18",
+      s"${decimalColumn("l2", 18)} AS d18b",
+      s"${decimalColumn(d9s4Unscaled, 9, 4)} AS d9s4",
+      s"${decimalColumn("l2", 16, 9)} AS d16s9",
+      s"${decimalColumn("l2", 8)} AS d8",
+      "CAST(CAST(CAST(l AS DECIMAL(20, 0)) + l DIV 13 AS DECIMAL(19, 0)) * 0.01 " +
+        "AS DECIMAL(19, 2)) AS d19",
+      s"${pairColumn("l", "l2", 16, 35, 38, 2)} AS d38",
+      s"${pairColumn("l2", "l", 16, 35, 38, 2)} AS d38b",
+      s"${pairColumn("l", "l2", 8, 27, 38, 10)} AS d3810")
+
+In `fixtureView`, the eleven lines from `${decimal("l", 9)} AS d9,` to
+`${pair("l", "l2", 8, 27, 38, 10)} AS d3810` become one interpolation,
+`${decimalColumns(d9s4Unscaled).mkString(",\n       ")}`. The view's SQL then differs from
+today's in its whitespace only.
+
+**Step 2, the Spark fixture.** In `FZ`, `fixtureRows`, after the `$floating` line of the `SELECT`
+list, add a comma and `${VarkaCoverageDifferentialSuite.decimalColumns(D9s4Unscaled)
+.mkString(",\n       ")}`, with, beside `NarrowSalt`:
+
+    /**
+     * The unscaled value of `d9s4` in the Spark-level fixture: seven digits of a bigint times 100,
+     * within nine digits, null where `i` is, as the differential suite's is; it has no row id to
+     * vary the factor by (VARKA-352 part 352d).
+     */
+    private val D9s4Unscaled = "CASE WHEN i IS NOT NULL THEN coalesce(l, l2) % 10000000 * 100 END"
+
+The fixture's doc comment gains a sentence: "The eleven DECIMAL columns are derived from `l` and
+`l2` by the differential suite's `decimalColumns`, so a decimal cell moves with the bigint it is
+built from and takes no draw of its own."
+
+**Step 3, no filter left.** In `FZ`, delete `leftOut` and its doc comment, and make
+`coverageRows` read every row (drop its `.filterNot(...)`); the doc comment of `coverageRows`
+becomes "The coverage table's rows: every column the table names is one of the fixture's." In
+`FS`, the test "the fixture holds every column of coverage.json its draws read, at its type"
+drops `.filterNot(a => leftOut(a.name))`, its count becomes `35`, and its comment becomes "Every
+column of the table is one of the fixture's, at its type." Check:
+
+    grep -c 'leftOut' FZ FS                                                -> 0 in both
+
+**Step 4, the descriptor.** In `FT`, after `private static final ValueSource SHORT_VALUES =
+integral(LaneType.SHORT);` and before `BOOLEAN_VALUES`:
+
+    /**
+     * The long lane's edges of a DECIMAL(18, s): the largest unscaled values of precision 18 and
+     * of precision 9, and -1, 0 and 1. A column of a lower precision clamps them to its bound. A
+     * lane-pair decimal's values are two words, which the IR's pair draw makes, not this source.
+     */
+    private static final ValueSource DECIMAL_VALUES = integral(-999999999999999999L,
+        -999999999L, -1, 0, 1, 999999999L, 999999999999999999L);
+
+and the `DECIMAL` entry becomes
+
+    case DECIMAL -> entry(id, new Present<>(DECIMAL_LEAF),
+        columns(derived("d9", "DECIMAL(9,2)"), derived("d9b", "DECIMAL(9,2)"),
+            derived("d18", "DECIMAL(18,2)"), derived("d18b", "DECIMAL(18,2)"),
+            derived("d9s4", "DECIMAL(9,4)"), derived("d16s9", "DECIMAL(16,9)"),
+            derived("d8", "DECIMAL(8,2)"), derived("d19", "DECIMAL(19,2)"),
+            derived("d38", "DECIMAL(38,2)"), derived("d38b", "DECIMAL(38,2)"),
+            derived("d3810", "DECIMAL(38,10)")),
+        new Present<>(DECIMAL_VALUES));
+
+replacing `case DECIMAL -> entry(id, new Present<>(DECIMAL_LEAF), new Owed<>("347"), new
+Owed<>("347"));`, which names row 347 (row 347's plan no longer changes it, review 1, M1).
+The SQL type strings are `DataType.sql` of each, which `FS`'s test "each column the fuzz descriptor
+puts in the fixture is one of the view's, of its type" compares: `DecimalType(9, 2).sql` is
+`DECIMAL(9,2)`, with no space.
+
+**Step 5, commands.**
+
+    build/sbt catalyst/Test/compile sql/Test/compile                       -> [success]
+    VARKA_FUZZ_TYPES_REGEN=true build/sbt 'catalyst/testOnly *VarkaFuzzTypesSuite'   -> passes
+    grep -c 'owed:' sql/varka/fuzz/types.tsv                               -> 0
+    build/sbt 'sql/testOnly *VarkaCoverageDifferentialSuite *VarkaCoverageHarnessSuite'
+        -> every suite passes (the differential view is the same SQL)
+    build/sbt 'sql/testOnly *VarkaSparkFuzzSuite'                          -> every test passes
+    build/sbt -batch "project sql" 'set Test/javaOptions ++= Seq("-Dvarka.sparkfuzz.iterations=700", "-Dspark.test.timeout=170", "-Dvarka.test.watchdog.minutes=170")' 'testOnly *VarkaSparkFuzzSuite -- -z "agree with the row engine (seed"'
+        -> passes, after the expected-errors lines below, and the log names `700 of them`
+    dev/varka_regen_generated.sh --all                                     -> exits 0
+
+The 700 line's form is 11.4 step 3's, for the same reason. **Commit what the regeneration wrote**
+(fix round of 28 November 2026, review 1, M3). After the regeneration, `git status --short` lists
+only this part's own edits and generated files (`python3 dev/varka_generated_merge.py --list` prints
+every generated path); `git add` all of them and commit them in the part's commit, never editing a
+generated file by hand. Then run the regeneration line once more: it changes nothing, and `git
+status --short` prints nothing. A generated file that changes on the second run, or a path in `git
+status --short` that is neither this part's edit nor generated, is a stop: report it.
+
+**Expected errors.** Under ANSI the two narrowing decimal casts of 11.3 decision 6 raise where a
+value does not fit, on both engines. When the 700-composition run stops on an unlisted condition
+raised by `both`, add one line per condition to `sql/varka/fuzz/expected_errors.tsv`, in the
+file's form, with the condition exactly as the failure prints it, `both`, `ANSI`, the family
+`Decimal casts`, and the reason: "A decimal cast to a narrower decimal
+(`CAST(d18 AS DECIMAL(12, 2))`, `CAST(d9 AS DECIMAL(9, 4))`) raises under ANSI where the value
+has more integer digits than the target, on both engines; the fixture's derived decimal columns
+hold such values in every pool, the safe one included (VARKA-352 part 352d)". The stop rule of
+11.4 step 3 holds for everything else.
+
+**Step 6, the record.** Section 10 gains 10.5, "The decimal columns at the Spark level": the
+eleven columns, the moved builder, the value source, the expected-error lines added, the run's
+count of compositions and rows drawn.
+
+**Done when** step 5 prints what it says, the gate passes, the option matrix is green, and
+`types.tsv` has no owed cell. **Not here:** the catalyst grammar's decimal types (2.5's "decimal
+operand types from Spark's rules"), the composition fuzzer's kernel tests (11.3 decision 3).
+
+### 11.7 Part 352z: the row's close
+
+**Title:** `[VARKA-352] Plan: close the fuzzers' type row and move its later steps`.
+**Branch:** `varka-352z-close`. **Builder:** the lead, or Sonnet-class. Plan-only.
+
+1. `sql/varka/plans/m10/SCOPE.md` item 140 gains these eight lines (fix round of 28 November
+   2026, review 1, L4), inserted in its table in task order (after the last line whose task is
+   below 352, before the first above it, after row 332's lines if they are there), each exactly:
+
+       | 352 | The TLP oracle's raise rule under ANSI and its second pool of values | `m8/VARKA-352.md` 2.4 | no item of `m8/PLAN.md` 1.1 names it (11.3 decision 2) |
+       | 352 | The fuzzers' cross-mode properties: one tree under LEGACY, ANSI and TRY, its answers held to each other | `m8/VARKA-352.md` 2.6 | no item of `m8/PLAN.md` 1.1 names it (11.3 decision 2) |
+       | 352 | The IR fuzzer's cast productions between every pair of types | `m8/VARKA-352.md` 2.5 | no item of `m8/PLAN.md` 1.1 names it (11.3 decision 2) |
+       | 352 | The generators' sweeps: specials beyond the value sources, the decimal shapes sweep, the tie windows | `m8/VARKA-352.md` 2.5 | no item of `m8/PLAN.md` 1.1 names it (11.3 decision 2) |
+       | 352 | The Spark-level fuzzer's run in CI's nightly | `m8/VARKA-352.md` 2.7 | no item of `m8/PLAN.md` 1.1 names it (11.3 decision 2) |
+       | 352 | Refits A and B of the committed IR sequences | `m8/VARKA-352.md` 2.3 | rows 431 and 432, which refit A was to take, moved to milestone 9 on 23 November 2026 (11.3 decision 2) |
+       | 352 | The catalyst grammar's decimal operand types, from Spark's rules | `m8/VARKA-352.md` 2.5 | no item of `m8/PLAN.md` 1.1 names it (11.3 decision 2) |
+       | 352 | The composition fuzzer's kernel tests over narrow, boolean and decimal inputs | `m8/VARKA-352.md` 10.4, step 2d | a third fuzzer, which item 1 of `m8/PLAN.md` 1.1 does not name (11.3 decision 3) |
+
+   and the item's opening paragraph gains, at its end, the sentence "Row 352's eight lines are
+   parts of a row that closed in milestone 8 (`m8/VARKA-352.md` 11.7)." If question 1 of section
+   12 is answered (b), the first two lines are left out; if (c), none is added.
+2. `CS/VarkaCoverageRows.scala`'s three `Filter`s name `Some("VARKA-352")` as the row that owes
+   their rows; the accounting test of `VarkaCoverageCompositionFuzzSuite` fails on `None`. They
+   stay as they are; 10.6 says the work moved.
+3. Section 10 gains 10.6, "The close": the descriptor with no owed cell (`grep -c 'owed:'
+   sql/varka/fuzz/types.tsv` prints `0`), what moved and where.
+4. `PLAN.md`: row 352 opens with `**Done**`, naming what moved to `m10/SCOPE.md` item 140.
+
+**Done when** `python3 dev/varka_plan_lint.py --offline` prints `0 finding(s)` and the lead
+merges it green.
+
+### What only a JVM can settle, and the command for each
+
+| claim | command | settles |
+|---|---|---|
+| 352b's picks meet only the conflicts 11.4 step 2 lists | `git cherry-pick ...` (11.4 step 1), then `git diff --name-only --diff-filter=U` | the files resolved |
+| no composition of 700 disagrees with the boolean and narrow columns drawn on master | 11.4 step 3's 700-composition command | a pass, or a finding row |
+| the derived decimal columns analyze at the types the descriptor names | 11.6 step 5's `VarkaSparkFuzzSuite` run | the site test passes |
+| no composition of 700 disagrees with the decimal columns drawn | 11.6 step 5's 700 run | a pass, or a finding row |
+
+### Risks of section 11
+
+1. **352b's picks meet master's `leftOut`.** Held by 11.4 step 2's rule and by the column-count
+   test, whose count (24) fails if the filter is wrong either way.
+2. **A decimal composition finds a real disagreement.** That is the fuzzer's purpose: held by the
+   stop rule, which turns it into a finding row, not a skipped seed.
+3. **The safe pool raises under ANSI on two decimal rows.** Held by the expected-errors line, which
+   names them; the partition check, which takes only the safe pool, then reads their raise as
+   expected.
+
+## 12. Questions for the owner (28 November 2026)
+
+*Rewritten in the fix round of 28 November 2026 (review 1, L6) to stand alone.*
+
+1. **Which unbuilt fuzzer work leaves row 352 for milestone 10?** Row 352 makes the fuzzers draw
+   every new type of milestone 8. What gates the milestone's close is only that each type's
+   entry in `sql/varka/fuzz/types.tsv` (the table of what each fuzzer draws of each type) has no
+   "owed" cell, which parts 352b and 352d achieve. Beside that, the row's plan names further
+   work no item of the close names: a rule for when a query raises under ANSI in the
+   ternary-logic (TLP) oracle and a second value pool for it; properties that hold one query
+   across LEGACY, ANSI and TRY; cast productions in the IR fuzzer; wider generator sweeps; the
+   catalyst grammar's decimal types; the Spark-level fuzzer in the nightly CI run; two refits of
+   the committed random sequences; and the composition fuzzer's kernel tests over narrow,
+   boolean and decimal inputs. Options: (a) move all of that to milestone 10's catalogue
+   (`m10/SCOPE.md` item 140) and mark the row Done when the table has no owed cell; (b) keep the
+   TLP raise rule and the cross-mode properties in milestone 8, a part each, and move the rest;
+   (c) keep all of it in milestone 8. *Recommended: (a)*: no clause of the close
+   (`m8/PLAN.md` 1.1) names any of it, rows 431 and 432, which the first refit was to serve,
+   already moved to milestone 9, and (b) adds two parts the size of 352b to a close that has 33
+   gates. **Default applied: (a)** (11.3 decisions 2 and 3; part 352z writes the lines).
+
+## 13. The house rules that bind every part of section 11
+
+Each is written in the file named; read it there.
+
+- A committed IR sequence is frozen between refits, and a new value kind takes a stream of its
+  own: section 2.2 of this plan, rules 1 and 5. 352b's narrow cells take `NarrowSalt`'s stream;
+  352d's decimal cells take no draw at all.
+- Errors compare by condition and SQLSTATE, never by message text: the row's note in `PLAN.md`
+  (*Added 1 November 2026*).
+- A finding becomes a row; a seed is never skipped to make a run pass: `sql/varka/AGENTS.md`,
+  "Open work is recorded, never left as a marker".
+- The option matrix must pass under every configuration: the paragraph of
+  `sql/varka/skills/testing-and-debugging.md` that opens "A test that must hold under every
+  configuration".
+- A pull request under 1000 counted lines, reviewed by its author before it opens:
+  `sql/varka/AGENTS.md`, "Pull requests"; branches, titles, who merges:
+  `sql/varka/.agents/pull-requests.md`; the gate: `dev/varka_ops/AGENTS.md`.
+- What not to do: do not edit `types.tsv` by hand (`VarkaFuzzTypesSuite` writes it); do not
+  pick row 619's four commits; do not change a committed IR sequence's draws.
+
+## 14. Stale against the tree, found while planning (28 November 2026)
+
+1. **The row's note in `PLAN.md`**: "Left: step 2's Spark-level half, steps 3 to 5 and the close"
+   is stale. The Spark-level half and step 2c are built on branches (11.1), and steps 3 to 5 move
+   by question 1's default.
+2. **Section 0 item 7**: "No decimal column exists anywhere" is history; the coverage table has
+   eleven since rows 347 to 359, and the differential suite's fixture builds them.
+3. **Section 2.4's `DECIMAL` TLP shapes** name columns the table does not have (`d17_7`,
+   `d18_9`, `d38_10`); they move with the TLP oracle (11.3 decision 2).
+4. **10.1's "`Owed` to 347 for `DECIMAL`"** is the state 352d ends.
+5. **The branch's 10.3** says the main test fails on row 619 until it lands; #1676 landed it.
+6. **The 700-composition commands** (found in the fix round of 28 November 2026): the earlier text
+   gave `build/sbt -Dvarka.sparkfuzz.iterations=700 ...`, which sbt does not pass to the forked
+   test JVM (only `spark.*` properties, `project/SparkBuild.scala`); it would run 200 and pass.
+   11.4 step 3 and 11.6 step 5 now use `Test/javaOptions`.
+7. **The composition fuzzer's row count** (review 1, M6): 765 on the branch, 868 on
+   `dbaa94ff498`.

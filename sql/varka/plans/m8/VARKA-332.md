@@ -1,5 +1,9 @@
 # VARKA-332: The integral and boolean casts in the three modes
 
+*Changed on 28 November 2026: sections 11 to 14 are new and are the plan of what is left, written
+for a builder with nobody to ask; sections 0 to 10 are kept word for word as the record. Where
+section 11 differs from them it wins, and section 14 lists each difference.*
+
 ## 0. What exists now (admission check)
 
 From master at `ef32e007d3a` (30 October 2026; Varka paths under
@@ -752,3 +756,1149 @@ two interval casts are 10.3).
   day-time interval to `INT`, `SMALLINT` and `TINYINT`, which need the narrow range checks over
   a quotient; TRY's integral narrowings (row 481's guard, wired by the `try_cast` PR); a
   `YEAR TO MONTH` source to `INT` (the multi-field fix of item 0.5).
+
+## 11. What is left, cut into parts a Sonnet-class agent can build (28 November 2026)
+
+*New on 28 November 2026. Code facts were read on master `dbaa94ff498` and on the local branch
+named below, in `/home/max/proj/vecbricks-varka`, with no JVM. This section stands alone: a
+builder needs it, the `AGENTS.md` files and `sql/varka/ADDING_AN_EXPRESSION.md`. Where it differs
+from sections 0 to 10 it wins, and section 14 lists each difference. Short names: `C` is
+`sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen`, `CT` the same
+path under `src/test/java`, `CS` under `src/test/scala`, `S` is
+`CT/varka/VarkaEmitterIntegralCastSuite.java`, `PF` is `CT/varka/VarkaProofFiles.java`, and `M8`
+is `sql/varka/plans/m8`. Every command runs from the root of the part's worktree.*
+
+### 11.1 The state on 28 November 2026
+
+**What `PLAN.md` 1.1 item 3 asks of this row.** Every legal pair of `M8/casts.tsv` that names
+row 332 fuses in the modes it admits, or declines with its reason, and is proven by exhaustion
+where the source has at most 32 bits and by SMT where it has 64. `PLAN.md` 12.5 lists row 332 as
+a gate under item 3.
+
+**On master**, each with its command:
+
+| what | command | prints |
+|---|---|---|
+| the baseline (#1247) | `git log --oneline -1 f1bd3d23b99` | `f1bd3d23b99 [VARKA-332] Benchmark the integral casts on Spark's row path before they fuse (#1247)` |
+| the pairs of `casts.tsv` naming 332 | `awk -F'\t' 'NR>1 && $10 ~ /332/' M8/casts.tsv \| wc -l` | `43` |
+| of them, fused in no form (`int` to `dt` fuses only as `date_add`'s offset) | `awk -F'\t' 'NR>1 && $10 ~ /332/ && $9=="" && $6!="identity"' M8/casts.tsv \| wc -l` | `13` |
+| fused in part (`ym` to `int`, 2 of 3 forms) | `awk -F'\t' 'NR>1 && $10 ~ /332/ && $9!="" && $11!="all"' M8/casts.tsv \| wc -l` | `1` |
+| the identities, which the census counts fused (`dev/varka_census.py`, `pair_credit`) | `awk -F'\t' 'NR>1 && $10 ~ /332/ && $6=="identity"' M8/casts.tsv \| wc -l` | `6` |
+| the bigint narrowings' proof | `grep -c '(check-sat)' sql/varka/proofs/casts.smt2` | `18` |
+| no interval cast class yet | `ls C/VarkaIntervalCastCompiler.java` | an error ending `No such file or directory` |
+| the weekly sweep list has no cast row | `grep -c 'IntegralCast' sql/varka/ci/sweeps.tsv` | `0` |
+
+The thirteen: `byte`, `short` and `bigint` to `ym`; `byte`, `short`, `int` and `bigint` to `dt`;
+`ym` to `byte`, `short` and `bigint`; `dt` to `byte`, `short` and `int`. With `ym` to `int`'s
+third form (`YEAR TO MONTH`), they are the fourteen the branch below fuses.
+
+**On local branches, never pushed.** `git branch --list 'varka-332*'` prints one:
+
+| branch | tip, date | holds | verdict |
+|---|---|---|---|
+| `varka-332-integral-casts` | `8f8f2ec47ea`, 20 November | one commit on master `767dcddce50`: `VarkaIntervalCastCompiler` (every remaining cast between an integral type and an interval, three modes), the conformance twins over the values Spark answers (3.6's clause of 27 October), seventeen coverage rows, the record 10.4 | **part 332c starts from it**, one cherry-pick; 648 counted lines (`python3 dev/varka_msg_check.py size --base 767dcddce50 --head varka-332-integral-casts`) |
+
+What master changed under the branch's files since `767dcddce50` (`git log --oneline
+767dcddce50..origin/master -- <file> | wc -l`): `CS/varka/VarkaCoverageSuite.scala` 19 commits,
+`sql/core/.../VarkaAnsiForm.java` 6, `CT/varka/VarkaTypeConformance.java` 6,
+`C/VarkaIntervalCompiler.java` 3 (rows 612, 103 and 359), `C/VarkaTimeCompiler.java` 2,
+`dev/varka_census.py` 8, `sql/core/.../VarkaDomains.java` 2. The class itself and `S` did not move.
+
+### 11.2 The parts
+
+| part | what | counted lines | builder | starts from | waits on |
+|---|---|---|---|---|---|
+| 332c | the remaining integral-interval casts and the in-range conformance twins | about 650 | Sonnet-class | master, one cherry-pick | nothing |
+| 332p | `casts.smt2`'s twenty checks of the 64-bit sources' interval guards | about 110 | Sonnet-class | master after 332c | 332c |
+| 332s | the 24 sweeps of 2^32 of the 32-bit sources, opt-in, on the weekly sweep job, with a 2^24 slice of each on every build | about 420 (11.6's code is 406 lines) | Sonnet-class | master after 332c | 332c |
+| 332m | the baseline's sections measured fused on the EPYC 7763 at 256 and 128 bits, the predictions scored, the row's record | about 120, results files apart | Sonnet-class; the lead dispatches | master after 332p and 332s | 332p, 332s |
+
+**No part is full strength**, and none is deferred by the owner's decision E1 of 28 November
+2026. The one proof part, 332p, has every check written out below as SMT-LIB and as the Java that
+renders it, and both solvers were run on the rendered text here: `z3: 20 verdicts, 20 as
+expected, ALL HOLD` and `cvc5: 20 verdicts, 20 as expected, ALL HOLD`
+(`/home/max/varka-ops/m8-row-plans/scratch-332/casts_interval_smt.out`). The sweeps of 332s
+compare against the reference and against Spark's `Cast.eval`, both existing oracles, with the
+answered intervals written out and checked in Python (11.6).
+
+**The order and its reason.** 332c first: the other parts prove and sweep its casts. 332p and
+332s do not touch the same files (`PF` and `casts.smt2`; `S` and `sweeps.tsv`) and may be built
+side by side. 332m last: it measures the code as it lands.
+
+**Landing the plan.** The new text of this file (sections 11 to 14 and the note at the top) goes
+to master first, in a plan-only pull request titled `[VARKA-332] Plan: land, prove and sweep the
+integral-interval casts`, which the lead opens.
+
+### 11.3 Decisions taken here, each with its evidence
+
+1. **The branch's design stands.** Its decision 1 (the interval casts in their families, not in
+   `INTEGRAL_CAST`) and decision 2 (the in-range sets derived, not listed) are kept; its decision
+   3 (no range-analysis removal of the bigint-to-year-month guard) is a missed speed-up, not a
+   wrong answer.
+2. **The 64-bit sources are proven by twenty new checks in `casts.smt2`** (332p), the file the
+   bigint narrowings' proof already is: the `INTERVAL YEAR` guard of a bigint, and the guard of
+   each day-time unit, each held exactly to Spark's overflow condition, its product exact inside
+   it, and both neighbours of each bound wrong. The month-end cast of a bigint is guarded by the
+   int range, which the existing check "the int guard holds exactly where the bigint is not its
+   narrowing" proves; the day-time interval's narrowings to `INT`, `SMALLINT` and `TINYINT` are
+   the target-range guard over the quotient, which the existing narrowing checks prove for any
+   long, over `long_divide.smt2`'s quotient. So no new check is needed for those.
+3. **The 32-bit sources are exhausted by 24 sweeps**, the owner's cut (b) of question 1 (31
+   October 2026): one arm per tree. They run in the weekly sweep job, `varka-sweeps.yml`, as the
+   `SMALLINT` pair sweeps of row 330 do (`sql/varka/ci/sweeps.tsv`), never in a pull request's
+   Build, which runs a 2^24-row slice of each, as 3.2 planned.
+4. **The two gaps of the review of 2 November 2026 leave the row.** Both are declines with their
+   reasons, not wrong answers: a long kernel's narrow root stored under a masked store at two
+   long lanes or with no baked lane count (the Vector API's Java loop on AVX2), and
+   `CAST(y AS BOOLEAN)` or `CAST(b AS TINYINT)` beside a long column, which decline. Item 3 of
+   1.1 accepts a decline with its reason. 332m adds one line for each to `m10/SCOPE.md` item 140
+   (question 1 of section 12).
+5. **The Spark-level fuzzer's cast productions are row 352's** (3.7, the row's note), and row 352's
+   plan moves them on to `m10/SCOPE.md` item 140 by default (`VARKA-352.md` 12).
+6. **The newly fused sections are not added to the baseline class.** A baseline is measured on
+   the unchanged code first (`sql/varka/AGENTS.md`, "Measurements, not adjectives"), and the
+   casts of 332c are on master once it merges. 332m measures the sections the class has; the new
+   casts' speed is a line of `m10/SCOPE.md` item 140.
+7. **Row 332 is marked Done by 332m**, its done-when read so: every pair fuses (332c), the 64-bit
+   sources are proven (332p), the 32-bit ones swept (332s), the conformance twins compare ANSI's
+   in-range answers (332c), and the measurement is committed with its predictions scored (332m).
+
+### 11.4 Part 332c: the remaining integral-interval casts
+
+**Title:** `[VARKA-332] Fuse the integral-interval casts and compare in-range cast answers`.
+**Branch:** `varka-332c-interval-casts`, from master (`varka-332-integral-casts` exists).
+**Builder:** Sonnet-class.
+
+**B0.** On master, every line must print what it says, or the builder stops and reports:
+
+    git log --oneline -1 8f8f2ec47ea   -> 8f8f2ec47ea [VARKA-332] Fuse the integral-interval casts and compare in-range cast answers
+    ls C/VarkaIntervalCastCompiler.java                -> an error: No such file or directory
+    grep -c 'static final long MAX_YEARS = Integer.MAX_VALUE / 12;' C/VarkaIntervalCompiler.java  -> 1
+    grep -c 'static Optional<VarkaVectorIR> dayTimeToLong' C/VarkaTimeCompiler.java             -> 1
+
+The last line may print `0` if master named the method otherwise; then `grep -n 'dayTimeToLong'
+C/VarkaTimeCompiler.java` must print at least one line, or stop.
+
+**Step 1, the pick.** `git cherry-pick 8f8f2ec47ea`.
+
+**Step 2, conflicts.** *Rewritten in the fix round of 28 November 2026 (review 1, H3), in
+master's names as of `dbaa94ff498`.* `git apply --check` of the commit against master (the review
+ran it) fails on `CT/varka/VarkaTypeConformance.java`, `sql/core/.../VarkaAnsiForm.java`,
+`dev/varka_census.py` and the generated files; every other file applies. For each conflicted
+file: take master's side whole (`git checkout --ours <file>`), then apply the commit's hunks for
+that file by hand as written below (`git show 8f8f2ec47ea -- <file>` shows them). Per file:
+
+- Generated files (`docs/sql-varka.md`, `sql/varka/coverage.json`, `sql/varka/emitted_bytes.json`,
+  `sql/varka/width_audit.json`, `M8/casts.tsv`, `M8/casts_fused.tsv`, `M8/census.tsv`): take
+  master's side and apply nothing; step 4 regenerates them.
+- `M8/PLAN.md`, `M8/VARKA-332.md`: take master's side and apply nothing; step 5 writes the record.
+- `CT/varka/VarkaTypeConformance.java`. Master split the commit's `castRow` test into one test a
+  census target, `castTo(String to)`, so the commit's loop hunk has no context. Take master's
+  file, then make these five edits:
+  1. Imports: add `import java.util.LinkedHashSet;` after `import java.util.HashMap;`;
+     `import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes.IntegralRange;`
+     after the `VarkaKernelChecks.SparkAnswers` import; `import
+     org.apache.spark.sql.types.IntegralType;` after `import
+     org.apache.spark.sql.types.DecimalType;`.
+  2. In `castTo`, the loop body's last statement
+     `forms.add(new Form(sql, toBoolean ? Kind.CONDITION : Kind.VALUE, "cast:" + to, mode,
+     false).over(castValues(to)));` becomes:
+
+         Form f = new Form(sql, toBoolean ? Kind.CONDITION : Kind.VALUE, "cast:" + to, mode,
+             false).over(castValues(to));
+         // An ANSI narrowing raises on the type's values, and so does an interval cast under
+         // LEGACY too; TRY never raises.
+         Optional<Form> twin = mode == Mode.TRY ? Optional.empty()
+             : inRange(f, DataType.fromDDL(target));
+         forms.add(twin.isPresent() ? f.raising() : f);
+         twin.ifPresent(forms::add);
+
+  3. After `castTo`, before the Javadoc of `overflow()`, add the commit's method `private
+     Optional<Form> inRange(Form f, DataType target)` with its Javadoc, word for word from
+     `git show 8f8f2ec47ea:CT/varka/VarkaTypeConformance.java` (it calls `type().values()`,
+     `type().spark()`, `type().lane()`, `integralValues`, `resolve`, `columns` and `spark`, all
+     on master under those names: `grep -c 'private Expression resolve(Form f)\|private
+     List<Attribute> columns()\|protected static long\[\] integralValues' CT/varka/VarkaTypeConformance.java`
+     prints `3`).
+  4. The record `Form`: the header becomes `private record Form(String sql, Kind kind, String
+     register, Mode mode, boolean overflowing, boolean raises, boolean inRange, long[] values)`;
+     the five-argument constructor calls `this(sql, kind, register, mode, overflowing, false,
+     false, null)`; each of `in`, `reachingOverflow`, `over` and `asValue` passes `raises,
+     inRange` before its values argument, unchanged otherwise (for example `in` returns `new
+     Form(sql, kind, register, m, overflowing, raises, inRange, values)`); after `over` add the
+     commit's two methods `inRange(long[] v)` (returns `... overflowing, false, true, v)`) and
+     `raising()` (returns `... overflowing, true, inRange, values)`), with their Javadoc.
+  5. In `Form`, `meantToRaise()` returns `overflowing || raises`, with the commit's Javadoc, and
+     `toString()` appends `(inRange ? ", in range" : "")` before the closing `")"`, as the commit
+     has it. No other `new Form(` call changes: `condition` and `value` use the five-argument
+     constructor (`grep -c 'new Form(' CT/varka/VarkaTypeConformance.java` prints `7` on master
+     and `9` after this edit, as on the branch: the two new methods).
+- `sql/core/src/test/java/org/apache/spark/sql/execution/VarkaAnsiForm.java`: take master's file.
+  In the list whose loop puts `sql + "\t" + FALSE_AND`, append after its last element
+  `"CAST(CAST(d9 AS DECIMAL(9, 4)) AS BIGINT)"` the commit's nine: `"CAST(i AS INTERVAL DAY)",
+  "CAST(l AS INTERVAL MONTH)", "CAST(l AS INTERVAL YEAR)", "CAST(l AS INTERVAL SECOND)",
+  "CAST(ymy AS SMALLINT)", "CAST(ym AS TINYINT)", "CAST(dt AS INT)", "CAST(dt AS SMALLINT)",
+  "try_cast(dt AS TINYINT)"`. In the list whose loop puts `sql + "\t" + COALESCE_TAIL` (the one
+  under `String narrowChoice`), append after `"getbit(l, 63)"` the commit's two:
+  `"CAST(dt AS SMALLINT)", "try_cast(dt AS TINYINT)"`, and in the comment above `narrowChoice`
+  change "A bigint narrowed to a narrow type, or the TINYINT bit of a bigint," to "A bigint, or a
+  day-time interval's whole units, narrowed to a narrow type, or the TINYINT bit of a bigint,".
+- `dev/varka_census.py`: in `CONTEXT_CASTS`, delete the one line `("int", "dt"): "only as
+  date_add's offset: d + CAST(i AS INTERVAL DAY)",` and keep master's `("dec", "dec")` entry
+  with its comment as they are.
+- `C/VarkaIntervalCompiler.java`, `C/VarkaTimeCompiler.java`: the commit's hunks apply on master
+  as they are (`git apply --check` reports no failure for them). What they do, so that a builder
+  can check the result: in `VarkaIntervalCompiler`, the constant `MONTH_INTERVAL` and its Javadoc
+  are deleted (`grep -c MONTH_INTERVAL C/VarkaIntervalCompiler.java` prints `0` after); the
+  comment above the `YEAR`-end `CAST(... AS INT)` arm is reworded; the next arm's guard
+  `c.child().dataType().equals(MONTH_INTERVAL)` becomes `c.child().dataType() instanceof
+  YearMonthIntervalType ym && ym.endField() == YearMonthIntervalType.MONTH()` (so `YEAR TO MONTH`
+  relabels too); and one arm `case Cast c when VarkaIntervalCastCompiler.claims(c) && (...
+  YearMonthIntervalType ...) -> () -> VarkaIntervalCastCompiler.compile(c, inputs, literals,
+  sink);` is added after it, before the comment "Group A: the year-month interval algebra". In
+  `VarkaTimeCompiler`, `unitMicros` and `dayTimeToLong` lose `private` (package-private), and one
+  arm of the same shape over `DayTimeIntervalType` is added after the `dayTimeToLong` arm, before
+  the comment "A TIME expression, which arrives as the StaticInvoke". Master's row 612 wraps some
+  day-time arms in `twoLaneMeasured`; these arms are casts, which that list does not hold, so
+  they go in as the commit wrote them.
+- `CS/varka/VarkaCoverageSuite.scala`: it applied cleanly in the review's check; if the pick
+  conflicts there anyway, keep master's rows and add the commit's seventeen rows to the family
+  "Integral casts", each with its domain as the commit has it.
+- **Any file not listed here:** take master's side whole, then apply the commit's hunks for it by
+  hand. A file whose hunk context no longer exists on master is a stop: commit nothing, and report
+  the file with the output of `git show 8f8f2ec47ea -- <file>`.
+
+After step 2, `git diff --name-only --diff-filter=U` prints nothing, and
+`grep -c 'Optional<Form> inRange(Form f, DataType target)' CT/varka/VarkaTypeConformance.java`
+prints `1`.
+
+**Step 3, compile and the suites.** With `JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
+SPARK_LOCAL_IP=127.0.0.1`:
+
+    build/sbt catalyst/Test/compile sql/Test/compile                   -> [success]
+    build/sbt 'catalyst/testOnly *VarkaEmitterIntegralCastSuite *VarkaEmitterIntervalCastSuite'
+        -> Passed: Total N, Failed 0, Errors 0   (N is printed; record it)
+    build/sbt 'catalyst/testOnly *ConformanceSuite *VarkaExpressionCompilerSuite *VarkaFamilySwitchSuite *VarkaCastMatrixSuite'
+        -> every suite passes
+    build/sbt 'sql/testOnly *VarkaCoverageHarnessSuite *VarkaHarnessParitySuite *VarkaCoverageDifferentialSuite'
+        -> every suite passes
+
+**The stop rule.** A failure whose message holds two different answers, Varka's against Spark's,
+is a wrong answer: stop, commit nothing more, report it. A conformance twin that finds no
+in-range value for a form fails by name; record the form and report it, do not drop the twin.
+
+**Step 4, the generated files.**
+
+    dev/varka_regen_generated.sh --all                                 -> exits 0
+    python3 dev/varka_census.py --check                                -> exits 0
+    python3 dev/varka_bytes_moved.py origin/master                     -> prints nothing, or only keys under option_arms
+    awk -F'\t' 'NR>1 && $10 ~ /332/ && $9=="" && $6!="identity"' M8/casts.tsv | wc -l   -> 0
+
+**Commit what the regeneration wrote** (fix round of 28 November 2026, review 1, M3). After the
+regeneration, `git status --short` lists only this part's own edits and generated files (`python3
+dev/varka_generated_merge.py --list` prints every generated path); `git add` all of them and
+commit them in the part's commit, never editing a generated file by hand. Then run the
+regeneration line once more: it changes nothing, and `git status --short` prints nothing. A
+generated file that changes on the second run, or a path in `git status --short` that is neither
+this part's edit nor generated, is a stop: report it.
+
+**Step 5, the record.** Append to section 10, after 10.3, the branch's 10.4:
+
+    git show 8f8f2ec47ea:sql/varka/plans/m8/VARKA-332.md | sed -n '/^### 10.4 /,$p'
+
+and one dated line: "*Landed on 28 November 2026 or later by cherry-pick onto master
+(`VARKA-332.md` 11.4).*"
+
+**The gate.** `dev/varka_ops/AGENTS.md`, "Opening or fixing a pull request", steps 1 to 5; the
+lead opens the pull request and dispatches the option matrix on it.
+
+**Done when** step 3 and step 4 print what they say, the gate passes and the option matrix is
+green. **Not here:** a proof file, a sweep, `PLAN.md`, and the Spark-level fuzzer: until row
+352's part 352b lands that fuzzer leaves the narrow columns' rows out (`VarkaSparkFuzz.leftOut`);
+352b's run meets these seventeen rows and its stop rule handles them (`VARKA-352.md` 11.4).
+
+### 11.5 Part 332p: the 64-bit sources' interval guards in `casts.smt2`
+
+**Title:** `[VARKA-332] Prove the bigint casts to intervals in casts.smt2`.
+**Branch:** `varka-332p-interval-proof`, from master after 332c merged. **Builder:** Sonnet-class.
+
+**B0.**
+
+    ls C/VarkaIntervalCastCompiler.java                  -> the file (332c merged)
+    grep -c '(check-sat)' sql/varka/proofs/casts.smt2    -> 18
+    grep -c 'static String casts()' PF                   -> 1
+    grep -c 'Long.MAX_VALUE / unit' C/VarkaIntervalCastCompiler.java   -> 1 or more
+
+**Step 1, the bound is read from the compiler.** In `C/VarkaIntervalCompiler.java`, the line
+
+    static final long MAX_YEARS = Integer.MAX_VALUE / 12;
+
+becomes `public static final long MAX_YEARS = Integer.MAX_VALUE / 12;` (`PF` is in the package
+`codegen.varka` and already imports `VarkaIntervalCompiler`). The day-time bound is
+`Long.MAX_VALUE / unit` in `VarkaIntervalCastCompiler.toInterval`, and the renderer computes it
+the same way from `DateTimeConstants`, which `PF` imports.
+
+**Step 2, the renderer.** In `PF`, beside `CAST_TARGETS`, add:
+
+    /** The day-time units a bigint casts to, whose guards {@code casts.smt2} states. */
+    private static final List<Map.Entry<String, Long>> DAY_TIME_UNITS = List.of(
+        Map.entry("day", DateTimeConstants.MICROS_PER_DAY),
+        Map.entry("hour", DateTimeConstants.MICROS_PER_HOUR),
+        Map.entry("minute", DateTimeConstants.MICROS_PER_MINUTE),
+        Map.entry("second", DateTimeConstants.MICROS_PER_SECOND));
+
+    /** {@code x} outside {@code [-b, b]}: an interval cast's guard on its bigint operand. */
+    private static String outside(long b) {
+      return "(or (< x " + lit(-b) + ") (> x " + lit(b) + "))";
+    }
+
+In `casts()`, append to the header text block, after its last line ("outside; the neighbours
+move a compare's end by one, which is wrong there."), these lines:
+
+        ;
+        ; The interval casts of a bigint (VARKA-332.md 10.4, VarkaIntervalCastCompiler): Spark
+        ; raises CAST_OVERFLOW where toIntExact or multiplyExact overflows
+        ; (IntervalUtils.longToYearMonthInterval, longToDayTimeInterval), in every mode. The
+        ; kernel guards the operand to [-b, b] and multiplies with wrapping: b is MAX_YEARS
+        ; (VarkaIntervalCompiler) for a YEAR end, and Long.MAX_VALUE / unit for a day-time end.
+        ; The claims: the guard holds exactly where Spark raises, the wrapped product is exact
+        ; inside it, and either bound moved by one is wrong. A MONTH end's guard is the int range,
+        ; which the int guard above proves.
+
+and after the `for (VarkaVectorIR.LaneType target : CAST_TARGETS)` loop, before
+`return out.toString();`, this block:
+
+    String decl = "(declare-const x Int)";
+    String in = "(assert (jlong.in x))";
+    long years = VarkaIntervalCompiler.MAX_YEARS;
+    String yearRaise = "(or (not (jint.in x)) (not (jint.in (* 12 x))))";
+    check(out, "casts: a bigint's INTERVAL YEAR guard holds exactly where Spark raises", "unsat",
+        List.of(decl, in, "(assert (not (= " + outside(years) + " " + yearRaise + ")))"));
+    check(out, "casts: inside the guard the wrapped int product by 12 is the exact month count",
+        "unsat", List.of(decl, in, "(assert (not " + outside(years) + "))",
+            "(assert (not (= (jint.wrap (* 12 (l2i x))) (* 12 x))))"));
+    check(out, "casts: with the year bound one higher the guard is wrong", "sat",
+        List.of(decl, in, "(assert (not (= " + outside(years + 1) + " " + yearRaise + ")))"));
+    check(out, "casts: with the year bound one lower the guard is wrong", "sat",
+        List.of(decl, in, "(assert (not (= " + outside(years - 1) + " " + yearRaise + ")))"));
+    for (Map.Entry<String, Long> e : DAY_TIME_UNITS) {
+      long unit = e.getValue();
+      long b = Long.MAX_VALUE / unit;
+      String raise = "(not (jlong.in (* x " + unit + ")))";
+      check(out, "casts: a bigint's day-time " + e.getKey() + " guard holds exactly where Spark "
+          + "raises", "unsat",
+          List.of(decl, in, "(assert (not (= " + outside(b) + " " + raise + ")))"));
+      check(out, "casts: inside the " + e.getKey() + " guard the wrapped long product is the "
+          + "exact one", "unsat", List.of(decl, in, "(assert (not " + outside(b) + "))",
+              "(assert (not (= (jlong.wrap (* x " + unit + ")) (* x " + unit + "))))"));
+      check(out, "casts: with the " + e.getKey() + " bound one higher the guard is wrong", "sat",
+          List.of(decl, in, "(assert (not (= " + outside(b + 1) + " " + raise + ")))"));
+      check(out, "casts: with the " + e.getKey() + " bound one lower the guard is wrong", "sat",
+          List.of(decl, in, "(assert (not (= " + outside(b - 1) + " " + raise + ")))"));
+    }
+
+The names `decl` and `in` are declared inside the loop above too, in its own scope, so they do
+not clash. `jint.in`, `jlong.in`, `jint.wrap`, `jlong.wrap` and `l2i` are `java.smt2`'s.
+
+**What the block renders**, for checking the regenerated file by eye: the bounds are
+`178956970` (years), `106751991` (day), `2562047788` (hour), `153722867280` (minute) and
+`9223372036854` (second), each checked in Python against Spark's rules over the long's ends and
+a sample of 400041 longs (`scratch-332/bounds_check.out`: `bounds_check: 400041 longs and 440017
+ints agree with Spark's rules`). The first check renders as
+
+    (echo "casts: a bigint's INTERVAL YEAR guard holds exactly where Spark raises: expect unsat")
+    (push 1)
+    (declare-const x Int)
+    (assert (jlong.in x))
+    (assert (not (= (or (< x (- 178956970)) (> x 178956970)) (or (not (jint.in x)) (not (jint.in (* 12 x)))))))
+    (check-sat)
+    (pop 1)
+
+**Step 3, commands.**
+
+    build/sbt catalyst/Test/compile                                          -> [success]
+    VARKA_PROOFS_REGEN=true build/sbt 'catalyst/testOnly *VarkaProofFilesSuite'  -> passes, rewrites casts.smt2
+    grep -c '(check-sat)' sql/varka/proofs/casts.smt2                        -> 38
+    grep -c 'expect unsat' sql/varka/proofs/casts.smt2                       -> 16
+    build/sbt 'catalyst/testOnly *VarkaProofFilesSuite'                      -> passes (no regeneration)
+    dev/varka_prove.sh --solver both casts.smt2                              -> exits 0
+
+The unsat count: the 18 checks on master hold 6 unsat (two for each of three targets), and the
+block adds 2 for the year and 2 for each of four units, 10: 16 in all. If a solver is missing,
+`dev/varka_prove.sh --install-shared both` installs the pinned ones.
+
+**The proofs' README row** (fix round of 28 November 2026, review 1, L5). In
+`sql/varka/proofs/README.md`, the table row that starts `` | `casts.smt2` | ``
+names the bigint narrowings only. In its second cell, after "and the int lane's guard is
+`narrow_range.smt2`'s", add "; and the interval casts of a `BIGINT` (VARKA-332,
+`VarkaIntervalCastCompiler`): the guard of `INTERVAL YEAR` (bound `MAX_YEARS`) and of each
+day-time unit (bound `Long.MAX_VALUE / unit`) holds exactly where Spark raises `CAST_OVERFLOW`,
+the wrapped product is exact inside it, and each bound moved by one is wrong".
+
+**Commit what the regeneration wrote** (review 1, M3). `casts.smt2` is a generated file,
+rewritten by the `VARKA_PROOFS_REGEN=true` run above. `git status --short` then lists exactly
+`PF`, `C/VarkaIntervalCompiler.java`, `sql/varka/proofs/casts.smt2`,
+`sql/varka/proofs/README.md` and, after step 4, `M8/VARKA-332.md`; commit them all. Running the
+`VARKA_PROOFS_REGEN=true` line once more changes nothing (`git status --short` prints nothing).
+Any other path in the list is a stop: report it.
+
+**Step 4.** `M8/casts.tsv`'s `proof` column already names SMT for `bigint` to `ym` and `dt` and
+for `dt` to the integral types: nothing to change. Add to section 10 a subsection 10.5 "The
+64-bit sources' proof": the twenty checks, the two solvers' verdicts, and which existing checks
+cover the month end and the day-time narrowings (11.3 decision 2).
+
+**Done when** step 3 prints what it says and the gate passes. **Not here:** any compiler change
+but the one `public`.
+
+### 11.6 Part 332s: the 32-bit sources, exhausted
+
+*Rewritten in the fix round of 28 November 2026 (review 1, findings H1, H2, M3, M4, M5): the
+sweeps are 24 `@Test` methods, the slice a template, a timing command that selects one sweep in
+the test JVM, an in-range pass for the guarded sweeps, and the native arm named.*
+
+**Title:** `[VARKA-332] Sweep every int and year-month count through the integral casts`.
+**Branch:** `varka-332s-sweeps`, from master after 332c merged. **Builder:** Sonnet-class.
+
+**B0.**
+
+    ls C/VarkaIntervalCastCompiler.java                       -> the file (332c merged)
+    grep -c 'private static Object compile(Expression expr' S -> 1
+    grep -c 'private static int runAll(Kernel k' S            -> 1
+    grep -c 'private static boolean widthDecline(String reason)' S   -> 1
+    grep -c 'new Arm("the native arm"' S                      -> 1
+    grep -c 'opt-in' S                                        -> 0
+    grep -c 'VarkaEmitterNarrowArithSuite' sql/varka/ci/sweeps.tsv   -> 4
+    python3 dev/varka_sweeps.py --check   -> varka_sweeps: 18 rows listed, none missing
+
+**The 24 sweeps** (the owner's cut (b) of question 1, one arm per tree: the native arm,
+`ARMS.get(0)` of `S`, which is `VarkaMatrixRuns.BASE` with `narrowLanes(true)`, so a sweep
+follows the option matrix's configuration as every other test of `S` does). The last column is
+`[lo, hi]`: Spark raises on a valid row exactly when its value is outside it ("all": never).
+
+| # | source column | target | modes swept (one tree each) | `[lo, hi]` of the source |
+|---|---|---|---|---|
+| 1 to 3 | `INT` | `TINYINT` | LEGACY (wrap), ANSI (decline), TRY (null) | ANSI `[-128, 127]`; else all |
+| 4 to 6 | `INT` | `SMALLINT` | LEGACY, ANSI, TRY | ANSI `[-32768, 32767]`; else all |
+| 7 | `INT` | `BOOLEAN` | LEGACY | all |
+| 8, 9 | `INT` | `INTERVAL YEAR` | ANSI (decline; LEGACY's tree is the same), TRY | ANSI `[-178956970, 178956970]`; TRY all |
+| 10, 11 | `INT` | `INTERVAL DAY` | ANSI, TRY | ANSI `[-106751991, 106751991]`; TRY all |
+| 12 to 14 | `INT` | `INTERVAL HOUR`, `MINUTE`, `SECOND` | LEGACY (no guard) | all |
+| 15, 16 | `INTERVAL YEAR` | `TINYINT` | ANSI, TRY | ANSI `[-1547, 1535]` (months); TRY all |
+| 17, 18 | `INTERVAL YEAR` | `SMALLINT` | ANSI, TRY | ANSI `[-393227, 393215]`; TRY all |
+| 19, 20 | `INTERVAL MONTH` | `TINYINT` | ANSI, TRY | ANSI `[-128, 127]`; TRY all |
+| 21, 22 | `INTERVAL MONTH` | `SMALLINT` | ANSI, TRY | ANSI `[-32768, 32767]`; TRY all |
+| 23 | `INTERVAL YEAR` | `BIGINT` | LEGACY | all |
+| 24 | `INTERVAL MONTH` | `BIGINT` | LEGACY | all |
+
+The intervals were checked in Python against Spark's rules (`IntervalUtils`'s truncating
+`v / 12`, `multiplyExact`, the narrowings' range checks) over every int within 30 of each end and
+100000 others: `sweep_intervals: 8 intervals hold against Spark's rules`
+(`scratch-332/sweep_intervals.out`). A year-month column's value is its month count, an int, so
+an `INTERVAL YEAR` column is swept over every int too: a superset of the values Spark writes.
+
+**Why an in-range pass.** The main pass runs 2^16 batches of 2^16 consecutive ints, aligned to
+2^16. Under ANSI the in-range values of a narrowing to `TINYINT` or `SMALLINT` share each batch
+with values Spark raises on, so every main-pass batch declines and no answer is compared
+(`scratch-332/sweep_tests.out`: `every INT value casts to TINYINT in ANSI: full 65536 batches, 0
+answered`). A guarded sweep therefore also runs `[lo, hi]` alone, in batches of up to 2^16 from
+`lo`, each of which must answer and is compared with the reference.
+
+**Step 1, the code in `S`.** Add these imports to `S` beside its others (`S` already imports
+`YearMonthIntervalType`, `DayTimeIntervalType`, `DisplayName`, `Test`, `assumeTrue`, `fail`):
+
+    import java.util.Arrays;
+    import java.util.Set;
+    import java.util.TreeSet;
+    import java.util.stream.Stream;
+    import org.junit.jupiter.params.ParameterizedTest;
+    import org.junit.jupiter.params.provider.MethodSource;
+
+Then add, at the end of the class, after the test `integralIntervalCasts` that 332c brought, this
+section exactly (it reuses `Type`, `type(...)`, `Mode`, `LEGACY`, `ANSI`, `TRY`, `TINYINT`,
+`SMALLINT`, `INT`, `BIGINT`, `BOOLEAN`, `ARMS`, `Kernel`, `compile`, `cast`, `widthDecline`,
+`answers` and `intBatch`, all of `S` after 332c):
+
+      // -------------------------------------------------------------------------------------------
+      // The 32-bit sources, exhausted (opt-in)
+      // -------------------------------------------------------------------------------------------
+
+      /** The sweeps' interval targets; a target's column is never read. */
+      private static final Type TO_YEAR = type("INTERVAL YEAR", new YearMonthIntervalType(
+          YearMonthIntervalType.YEAR(), YearMonthIntervalType.YEAR()), "swty");
+      private static final Type TO_DAY = type("INTERVAL DAY", new DayTimeIntervalType(
+          DayTimeIntervalType.DAY(), DayTimeIntervalType.DAY()), "swtd");
+      private static final Type TO_HOUR = type("INTERVAL HOUR", new DayTimeIntervalType(
+          DayTimeIntervalType.HOUR(), DayTimeIntervalType.HOUR()), "swth");
+      private static final Type TO_MINUTE = type("INTERVAL MINUTE", new DayTimeIntervalType(
+          DayTimeIntervalType.MINUTE(), DayTimeIntervalType.MINUTE()), "swtm");
+      private static final Type TO_SECOND = type("INTERVAL SECOND", new DayTimeIntervalType(
+          DayTimeIntervalType.SECOND(), DayTimeIntervalType.SECOND()), "swts");
+
+      /** The sweeps' year-month sources: a column of month counts, each an int. */
+      private static final Type YEARS = type("INTERVAL YEAR", new YearMonthIntervalType(
+          YearMonthIntervalType.YEAR(), YearMonthIntervalType.YEAR()), "swfy");
+      private static final Type MONTHS = type("INTERVAL MONTH", new YearMonthIntervalType(
+          YearMonthIntervalType.MONTH(), YearMonthIntervalType.MONTH()), "swfm");
+
+      /**
+       * One sweep: a cast tree over every value of a 32-bit source. Spark raises on a valid row
+       * exactly when its value is outside {@code [lo, hi]}; a sweep whose interval is the whole int
+       * range is unguarded.
+       */
+      private record Sweep(Type from, Type to, Mode mode, long lo, long hi) {
+        String name() {
+          return "every " + from.sql() + " value casts to " + to.sql() + " in " + mode.name();
+        }
+
+        boolean raises(long v) {
+          return v < lo || v > hi;
+        }
+
+        boolean guarded() {
+          return lo > Integer.MIN_VALUE || hi < Integer.MAX_VALUE;
+        }
+
+        @Override
+        public String toString() {
+          return name();
+        }
+      }
+
+      private static final List<Sweep> SWEEPS = sweeps();
+
+      private static List<Sweep> sweeps() {
+        long all = Integer.MIN_VALUE;
+        long top = Integer.MAX_VALUE;
+        return List.of(
+            new Sweep(INT, TINYINT, LEGACY, all, top), new Sweep(INT, TINYINT, ANSI, -128, 127),
+            new Sweep(INT, TINYINT, TRY, all, top),
+            new Sweep(INT, SMALLINT, LEGACY, all, top), new Sweep(INT, SMALLINT, ANSI, -32768, 32767),
+            new Sweep(INT, SMALLINT, TRY, all, top),
+            new Sweep(INT, BOOLEAN, LEGACY, all, top),
+            new Sweep(INT, TO_YEAR, ANSI, -178956970, 178956970),
+            new Sweep(INT, TO_YEAR, TRY, all, top),
+            new Sweep(INT, TO_DAY, ANSI, -106751991, 106751991), new Sweep(INT, TO_DAY, TRY, all, top),
+            new Sweep(INT, TO_HOUR, LEGACY, all, top), new Sweep(INT, TO_MINUTE, LEGACY, all, top),
+            new Sweep(INT, TO_SECOND, LEGACY, all, top),
+            new Sweep(YEARS, TINYINT, ANSI, -1547, 1535), new Sweep(YEARS, TINYINT, TRY, all, top),
+            new Sweep(YEARS, SMALLINT, ANSI, -393227, 393215),
+            new Sweep(YEARS, SMALLINT, TRY, all, top),
+            new Sweep(MONTHS, TINYINT, ANSI, -128, 127), new Sweep(MONTHS, TINYINT, TRY, all, top),
+            new Sweep(MONTHS, SMALLINT, ANSI, -32768, 32767),
+            new Sweep(MONTHS, SMALLINT, TRY, all, top),
+            new Sweep(YEARS, BIGINT, LEGACY, all, top), new Sweep(MONTHS, BIGINT, LEGACY, all, top));
+      }
+
+      private static final int SWEEP_ROWS = 1 << 16;
+      private static final int SWEEP_BATCHES = 1 << 16;
+
+      /** {@code length} consecutive values from {@code start}; every seventh row null if masked. */
+      private static LongBatch consecutive(long start, int length, boolean masked) {
+        var data = new long[1][length];
+        var nulls = new boolean[1][length];
+        for (int i = 0; i < length; i++) {
+          data[0][i] = start + i;
+          nulls[0][i] = masked && i % 7 == 3;
+        }
+        return new LongBatch(length, nulls, data, false);
+      }
+
+      /** Batch {@code k} of the main pass: 2^16 ints from MIN_VALUE + k * 2^16; odd ones masked. */
+      private static LongBatch sweepBatch(int k) {
+        return consecutive(Integer.MIN_VALUE + (long) k * SWEEP_ROWS, SWEEP_ROWS, (k & 1) == 1);
+      }
+
+      /**
+       * The batches of a guarded sweep's in-range pass, 0 for an unguarded one. The main pass's
+       * batches are aligned to 2^16, so under ANSI a narrowing's in-range values share each batch
+       * with values Spark raises on and are never answered there; this pass answers them.
+       */
+      private static int inRangeBatches(Sweep s) {
+        return s.guarded() ? (int) ((s.hi() - s.lo()) / SWEEP_ROWS + 1) : 0;
+      }
+
+      /** Batch {@code j} of the in-range pass: up to 2^16 values from lo + j * 2^16, to hi. */
+      private static LongBatch inRangeBatch(Sweep s, int j) {
+        long start = s.lo() + (long) j * SWEEP_ROWS;
+        return consecutive(start, (int) Math.min(SWEEP_ROWS, s.hi() - start + 1), (j & 1) == 1);
+      }
+
+      /** The main-pass batches that hold lo - 1, lo, hi or hi + 1, where those are ints. */
+      private static Set<Integer> endBatches(Sweep s) {
+        var ks = new TreeSet<Integer>();
+        for (long v : new long[] {s.lo() - 1, s.lo(), s.hi(), s.hi() + 1}) {
+          if (v >= Integer.MIN_VALUE && v <= Integer.MAX_VALUE) {
+            ks.add((int) ((v - Integer.MIN_VALUE) / SWEEP_ROWS));
+          }
+        }
+        return ks;
+      }
+
+      /**
+       * One batch of {@code s} through the loaded kernel, compared row by row with the reference,
+       * and with Spark when {@code spark}. It must decline when a valid row holds a value Spark
+       * raises on, and answer when no row holds one; a batch where only a null row does may do
+       * either (the guard reads stored slots, `VARKA-332.md` 10.3). Returns the kernel's status.
+       */
+      private static int sweepOne(Sweep s, Kernel k, VarkaEmitterFixtures.Loaded loaded,
+          LongBatch batch, String where, boolean spark) {
+        boolean must = false;
+        boolean may = false;
+        for (int i = 0; i < batch.length(); i++) {
+          boolean out = s.raises(batch.data()[0][i]);
+          may |= out;
+          must |= out && !batch.nulls()[0][i];
+        }
+        String ctx = s.name() + " " + where;
+        SparkAnswers answers = spark ? answers(k.oracle()) : null;
+        int status = k.longLane()
+            ? VarkaKernelChecks.runLoadedLong(ctx, loaded.kernel(), k.roots(), k.numInputs(),
+                k.longLits(), k.lits(), batch, may, answers, CallHook.NONE)
+            : VarkaKernelChecks.runLoadedNarrow(ctx, loaded.kernel(), k.roots(), k.numInputs(),
+                k.lits(), intBatch(batch), may, answers, CallHook.NONE);
+        if (must) {
+          assertTrue(status != 0, ctx + ": answered a batch holding a value Spark raises on");
+        }
+        if (!may) {
+          assertEquals(0, status, ctx + ": declined a batch Spark answers");
+        }
+        return status;
+      }
+
+      /**
+       * Runs {@code s} at the native arm, every batch when {@code full}, else the slice: every
+       * 256th main-pass batch, the last one and the end batches, and every 256th in-range batch
+       * with the first and the last. Spark checks the end batches, the in-range pass's first and
+       * last, and every 256th batch of a full sweep or every 16384th of a slice. Prints one line.
+       */
+      private static void sweep(Sweep s, boolean full) {
+        Object compiled = compile(cast(s.from().column(), s.to(), s.mode()),
+            List.of(s.from().column()), ARMS.get(0).options());
+        if (compiled instanceof String reason) {
+          // A configuration that cannot load the column at its width cancels, as this class's
+          // other tests do; any other decline is a failure.
+          assumeTrue(!widthDecline(reason), s.name() + ": " + reason);
+          fail(s.name() + " declined: " + reason);
+        }
+        Kernel k = (Kernel) compiled;
+        Set<Integer> ends = endBatches(s);
+        int sparkEvery = full ? 256 : 16384;
+        var loaded = VarkaEmitterFixtures.load(new VarkaEmitterFixtures.Emitted(k.name(),
+            k.bytes()));
+        long started = System.nanoTime();
+        long sparkBefore = VarkaKernelChecks.SPARK_COMPARISONS.get();
+        int run = 0;
+        int answered = 0;
+        int inRange = 0;
+        try {
+          for (int b = 0; b < SWEEP_BATCHES; b++) {
+            boolean end = ends.contains(b);
+            if (!full && b % 256 != 0 && !end && b != SWEEP_BATCHES - 1) {
+              continue;
+            }
+            boolean spark = end || b % sparkEvery == 0;
+            int status = sweepOne(s, k, loaded, sweepBatch(b), "batch " + b, spark);
+            run++;
+            answered += status == 0 ? 1 : 0;
+          }
+          int last = inRangeBatches(s) - 1;
+          for (int j = 0; j <= last; j++) {
+            boolean edge = j == 0 || j == last;
+            if (!full && j % 256 != 0 && !edge) {
+              continue;
+            }
+            boolean spark = edge || (full && j % 256 == 0);
+            sweepOne(s, k, loaded, inRangeBatch(s, j), "in-range batch " + j, spark);
+            inRange++;
+          }
+        } finally {
+          loaded.loader().release();
+        }
+        long seconds = (System.nanoTime() - started) / 1_000_000_000L;
+        long rows = VarkaKernelChecks.SPARK_COMPARISONS.get() - sparkBefore;
+        // Printed rather than logged: an own-JVM class's child prints to the parent's output.
+        System.out.println(s.name() + ": " + run + " batches, " + answered + " answered, "
+            + inRange + " in-range batches, in " + seconds + " s, " + rows
+            + " rows held to Spark");
+      }
+
+      /** Whether {@code -Dvarka.sweep.filter} is unset or holds a text {@code name} contains. */
+      private static boolean selected(String name) {
+        String filters = System.getProperty("varka.sweep.filter");
+        return filters == null || Arrays.stream(filters.split(",")).anyMatch(name::contains);
+      }
+
+      /** The opt-in sweep named {@code name}, over every value of its source. */
+      private static void sweepAll(String name) {
+        assumeTrue("true".equals(System.getProperty("varka.sweep")),
+            "set -Dvarka.sweep=true to sweep every value of the source");
+        assumeTrue(selected(name), "-Dvarka.sweep.filter does not name '" + name + "'");
+        Sweep s = SWEEPS.stream().filter(w -> w.name().equals(name)).findFirst()
+            .orElseThrow(() -> new AssertionError("no sweep is named '" + name + "'"));
+        sweep(s, true);
+      }
+
+      static Stream<Sweep> sweepCases() {
+        return SWEEPS.stream();
+      }
+
+      @ParameterizedTest(name = "{0}")
+      @MethodSource("sweepCases")
+      @DisplayName("a 2^24-row slice:")
+      public void slice(Sweep s) {
+        sweep(s, false);
+      }
+
+      @Test
+      @DisplayName("each sweep has one full-sweep test, named by the sweep")
+      public void eachSweepHasOneFullSweepTest() {
+        String tail = ", all 2^32 (opt-in: -Dvarka.sweep=true)";
+        List<String> tests = Arrays.stream(VarkaEmitterIntegralCastSuite.class.getDeclaredMethods())
+            .map(m -> m.getAnnotation(DisplayName.class))
+            .filter(d -> d != null && d.value().endsWith(tail))
+            .map(d -> d.value().substring(0, d.value().length() - tail.length()))
+            .sorted().toList();
+        List<String> names = SWEEPS.stream().map(Sweep::name).sorted().toList();
+        assertEquals(names, tests);
+      }
+
+      // The 2^32 sweeps stay one method each: dev/varka_sweeps.py's shards select an opt-in test by
+      // the display name in the source, which a template's generated names are not.
+
+and after it the 24 opt-in tests, one a sweep, in this order and with these texts exactly:
+
+      @Test
+      @DisplayName("every INT value casts to TINYINT in LEGACY, all 2^32 (opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToTinyintInLegacyAll() {
+        sweepAll("every INT value casts to TINYINT in LEGACY");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to TINYINT in ANSI, all 2^32 (opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToTinyintInAnsiAll() {
+        sweepAll("every INT value casts to TINYINT in ANSI");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to TINYINT in TRY, all 2^32 (opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToTinyintInTryAll() {
+        sweepAll("every INT value casts to TINYINT in TRY");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to SMALLINT in LEGACY, all 2^32 (opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToSmallintInLegacyAll() {
+        sweepAll("every INT value casts to SMALLINT in LEGACY");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to SMALLINT in ANSI, all 2^32 (opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToSmallintInAnsiAll() {
+        sweepAll("every INT value casts to SMALLINT in ANSI");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to SMALLINT in TRY, all 2^32 (opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToSmallintInTryAll() {
+        sweepAll("every INT value casts to SMALLINT in TRY");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to BOOLEAN in LEGACY, all 2^32 (opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToBooleanInLegacyAll() {
+        sweepAll("every INT value casts to BOOLEAN in LEGACY");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to INTERVAL YEAR in ANSI, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToIntervalYearInAnsiAll() {
+        sweepAll("every INT value casts to INTERVAL YEAR in ANSI");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to INTERVAL YEAR in TRY, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToIntervalYearInTryAll() {
+        sweepAll("every INT value casts to INTERVAL YEAR in TRY");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to INTERVAL DAY in ANSI, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToIntervalDayInAnsiAll() {
+        sweepAll("every INT value casts to INTERVAL DAY in ANSI");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to INTERVAL DAY in TRY, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToIntervalDayInTryAll() {
+        sweepAll("every INT value casts to INTERVAL DAY in TRY");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to INTERVAL HOUR in LEGACY, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToIntervalHourInLegacyAll() {
+        sweepAll("every INT value casts to INTERVAL HOUR in LEGACY");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to INTERVAL MINUTE in LEGACY, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToIntervalMinuteInLegacyAll() {
+        sweepAll("every INT value casts to INTERVAL MINUTE in LEGACY");
+      }
+
+      @Test
+      @DisplayName("every INT value casts to INTERVAL SECOND in LEGACY, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntValueCastsToIntervalSecondInLegacyAll() {
+        sweepAll("every INT value casts to INTERVAL SECOND in LEGACY");
+      }
+
+      @Test
+      @DisplayName("every INTERVAL YEAR value casts to TINYINT in ANSI, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntervalYearValueCastsToTinyintInAnsiAll() {
+        sweepAll("every INTERVAL YEAR value casts to TINYINT in ANSI");
+      }
+
+      @Test
+      @DisplayName("every INTERVAL YEAR value casts to TINYINT in TRY, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntervalYearValueCastsToTinyintInTryAll() {
+        sweepAll("every INTERVAL YEAR value casts to TINYINT in TRY");
+      }
+
+      @Test
+      @DisplayName("every INTERVAL YEAR value casts to SMALLINT in ANSI, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntervalYearValueCastsToSmallintInAnsiAll() {
+        sweepAll("every INTERVAL YEAR value casts to SMALLINT in ANSI");
+      }
+
+      @Test
+      @DisplayName("every INTERVAL YEAR value casts to SMALLINT in TRY, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntervalYearValueCastsToSmallintInTryAll() {
+        sweepAll("every INTERVAL YEAR value casts to SMALLINT in TRY");
+      }
+
+      @Test
+      @DisplayName("every INTERVAL MONTH value casts to TINYINT in ANSI, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntervalMonthValueCastsToTinyintInAnsiAll() {
+        sweepAll("every INTERVAL MONTH value casts to TINYINT in ANSI");
+      }
+
+      @Test
+      @DisplayName("every INTERVAL MONTH value casts to TINYINT in TRY, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntervalMonthValueCastsToTinyintInTryAll() {
+        sweepAll("every INTERVAL MONTH value casts to TINYINT in TRY");
+      }
+
+      @Test
+      @DisplayName("every INTERVAL MONTH value casts to SMALLINT in ANSI, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntervalMonthValueCastsToSmallintInAnsiAll() {
+        sweepAll("every INTERVAL MONTH value casts to SMALLINT in ANSI");
+      }
+
+      @Test
+      @DisplayName("every INTERVAL MONTH value casts to SMALLINT in TRY, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntervalMonthValueCastsToSmallintInTryAll() {
+        sweepAll("every INTERVAL MONTH value casts to SMALLINT in TRY");
+      }
+
+      @Test
+      @DisplayName("every INTERVAL YEAR value casts to BIGINT in LEGACY, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntervalYearValueCastsToBigintInLegacyAll() {
+        sweepAll("every INTERVAL YEAR value casts to BIGINT in LEGACY");
+      }
+
+      @Test
+      @DisplayName("every INTERVAL MONTH value casts to BIGINT in LEGACY, all 2^32 "
+          + "(opt-in: -Dvarka.sweep=true)")
+      public void everyIntervalMonthValueCastsToBigintInLegacyAll() {
+        sweepAll("every INTERVAL MONTH value casts to BIGINT in LEGACY");
+      }
+
+What each piece is for, so that a builder who must adapt one knows what may not change:
+
+- The `@DisplayName` literals of the 24 tests are what `dev/varka_sweeps.py --check` reads
+  (its `DISPLAY` pattern, joined over `+`): each must hold `opt-in`, and the text before
+  `, all 2^32` must equal the sweep's `name()`. The test `eachSweepHasOneFullSweepTest` holds that
+  second rule in every build. No other display name of `S` may hold `opt-in` (that check would
+  then ask a shard to select it).
+- The literal `System.getProperty("varka.sweep")` in `sweepAll` is what the check's `READS`
+  pattern finds; it must stay in that form.
+- `slice` is one template: its key is `a 2^24-row slice: ` and the sweep's name (the house rule
+  for template keys, `sql/varka/skills/testing-and-debugging.md`, "Generated tests"); its
+  argument renders by `Sweep.toString`. The weekly shards' `-z` texts also select the slices
+  whose names they contain, which adds the slices' few seconds to a shard's run; that is accepted.
+- A width decline cancels, as the other tests of `S` do, so the option matrix stays green on a
+  configuration that cannot load a column at its width; any other decline fails.
+- `selected` reads `-Dvarka.sweep.filter`, as `VarkaEmitterNarrowArithSuite.sweeps` does: the
+  one way to run a single 2^32 sweep (step 4).
+
+If `runLoadedLong` or `runLoadedNarrow` takes other arguments on master than `runAll` passes in
+`S`, change `sweepOne`'s two calls to `runAll`'s form, keeping only the batch, the decline flag
+(`may`) and the Spark answers (`answers`, or `null`) as above.
+
+**What each sweep must print**, computed in Python from the batch layout (no JVM;
+`scratch-332/sweep_tests.py`, output `scratch-332/sweep_tests.out`; no batch of any sweep is
+ambiguous, that is, holds a value Spark raises on in null rows only, so every number is exact).
+The line reads `<name>: <run> batches, <answered> answered, <in-range> in-range batches, in <t>
+s, <r> rows held to Spark`:
+
+| sweep | full: run, answered, in-range | slice: run, answered, in-range |
+|---|---|---|
+| every unguarded sweep (LEGACY and TRY, 16 of them) | 65536, 65536, 0 | 257, 257, 0 |
+| `INT` to `TINYINT` or `SMALLINT` in ANSI; `INTERVAL MONTH` to either in ANSI; `INTERVAL YEAR` to `TINYINT` in ANSI | 65536, 0, 1 | 258, 0, 1 |
+| `INT` to `INTERVAL YEAR` in ANSI | 65536, 5460, 5462 | 259, 21, 23 |
+| `INT` to `INTERVAL DAY` in ANSI | 65536, 3256, 3258 | 259, 13, 14 |
+| `INTERVAL YEAR` to `SMALLINT` in ANSI | 65536, 12, 13 | 260, 2, 2 |
+
+**Step 2, the weekly job.** Four rows in `sql/varka/ci/sweeps.tsv`, right after the last
+`VarkaEmitterNarrowArithSuite` row, tab separated:
+
+    VarkaEmitterIntegralCastSuite	java	varka.sweep	shard	every INT value casts to TINYINT|every INT value casts to SMALLINT	varka-sweeps	INT to TINYINT and SMALLINT in three modes: 6 sweeps of 2^32; not yet timed
+    VarkaEmitterIntegralCastSuite	java	varka.sweep	shard	every INT value casts to BOOLEAN|every INT value casts to INTERVAL	varka-sweeps	INT to BOOLEAN and to five intervals: 8 sweeps of 2^32; not yet timed
+    VarkaEmitterIntegralCastSuite	java	varka.sweep	shard	every INTERVAL YEAR value	varka-sweeps	INTERVAL YEAR to TINYINT, SMALLINT and BIGINT: 5 sweeps of 2^32; not yet timed
+    VarkaEmitterIntegralCastSuite	java	varka.sweep	shard	every INTERVAL MONTH value	varka-sweeps	INTERVAL MONTH to TINYINT, SMALLINT and BIGINT: 5 sweeps of 2^32; not yet timed
+
+These rows and the 24 tests above were run through `dev/varka_sweeps.py`'s own `check` (the
+module imported from the reading worktree, over a copy of every test source that reads a sweep
+property with `S` replaced by the branch's `S` plus this part): no finding, and the line `22 rows
+listed`; with the fourth row left out it finds the 5 `INTERVAL MONTH` tests "selected by no
+shard"; with the `BOOLEAN` test left out it finds the text `every INT value casts to BOOLEAN`
+"selects no opt-in test" (`scratch-332/sweep_tests.out`).
+
+**Step 3, commands.** With `JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
+SPARK_LOCAL_IP=127.0.0.1`:
+
+    build/sbt catalyst/Test/compile                                       -> [success]
+    build/sbt 'catalyst/testOnly *VarkaEmitterIntegralCastSuite'
+        -> Failed 0, Errors 0 (record the total; 49 tests are new: 24 slices, the naming
+           test, and the 24 opt-in tests, which are cancelled without -Dvarka.sweep=true),
+           and 24 lines holding ' in-range batches, in ', one a slice, with the slice
+           numbers of the table above
+    python3 dev/varka_sweeps.py --check   -> varka_sweeps: 22 rows listed, none missing
+    grep -c 'opt-in: -Dvarka.sweep=true' S                                -> 25   (the 24 display names and the naming test's tail string)
+    python3 dev/varka_sweeps.py --matrix | grep -o 'VarkaEmitterIntegralCastSuite: ' | wc -l   -> 4
+
+**The slices' cost, and its stop rule.** A registered prediction: the 24 slices add under 120 s
+to the suite on the laptop. Its ground: a slice runs 257 to 260 batches of 2^16 rows through the
+kernel and the reference and Spark-checks 4 of them plus the end batches, the shape of
+`VarkaEmitterNarrowArithSuite`'s 18 slices (Spark on every 64th of 256 operand batches), whose
+whole suite weighs 52.4 s in `sql/varka/ci/suite-times.tsv`. Record the suite's time before and
+after this part in the pull request (`sql/varka/AGENTS.md`, "A change that adds test time says
+so"). If it grows by more than 120 s, change `16384` in `sweep` to `65536` (Spark on batch 0 and
+the end batches only) and run again; if it still grows by more than 120 s, stop and report both
+times.
+
+**Step 4, one sweep at full size, timed.** The lead runs this in an idle window, alone. sbt does
+not pass a `-D` given to `build/sbt` to the forked test JVM (only `spark.*` properties,
+`project/SparkBuild.scala`), so the properties go into `Test/javaOptions`, the form
+`dev/varka_sweeps.py --nightly` prints and `dev/varka_nightly.sh` runs. `-Dvarka.ownJvm=true`
+runs the class's tests in that JVM instead of a child (`VarkaChildJvm.PROPERTY`), so each test
+is timed by itself, and `-Dvarka.sweep.filter` leaves the other 23 sweeps cancelled. sbt's `-z`
+selects no test of a JUnit suite (`dev/varka_sweeps.py`, `nightly`), so it is not used.
+
+    JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 SPARK_LOCAL_IP=127.0.0.1 build/sbt -batch \
+      "project catalyst" \
+      'set Test/javaOptions ++= Seq("-Dvarka.sweep=true", "-Dvarka.sweep.filter=every INT value casts to TINYINT in TRY", "-Dvarka.ownJvm=true", "-Dspark.test.timeout=300", "-Dvarka.test.watchdog.minutes=300")' \
+      "testOnly *VarkaEmitterIntegralCastSuite" 2>&1 | tee ~/varka-ops/varka-332s-timed.log
+
+Done means both: sbt prints `Failed 0, Errors 0`, and exactly one line of the form
+`every INT value casts to TINYINT in TRY: 65536 batches, 65536 answered, 0 in-range batches, in
+T s, R rows held to Spark` (`grep -c ': 65536 batches' ~/varka-ops/varka-332s-timed.log` prints
+`1`). `R` is expected to be 16842752 (257 Spark-checked batches of 2^16 rows, every one
+answered); `R = 0` is a stop. If the
+first count is `0` (the filter did not reach the JVM) or `24`, stop and report the log. This TRY
+sweep is the costliest kind (every batch answered and compared), so `T` bounds every sweep.
+
+**The shard rule, as numbers.** A runner is at most 3.7 times slower than the laptop on any sweep
+timed (`.github/workflows/varka-sweeps.yml`, its header, the calibration of 6 November 2026), and
+a sweep job has 300 minutes per test and 350 per job (`SWEEP_MINUTES` in `dev/varka_sweeps.py`;
+`timeout-minutes` of the `sweep` job). The longest shard holds 8 sweeps, so:
+
+- `T <= 600`: keep the four rows; replace each "not yet timed" by "about <8 x T or 6 x T or
+  5 x T> s on the laptop, from one sweep of <T> s" with that row's sweep count.
+- `600 < T <= 1200`: replace the four rows by these eight (at most 4 sweeps a shard; checked
+  with the same script: no finding, `26 rows listed`), each note "<k> sweeps of 2^32, about
+  <k x T> s on the laptop":
+
+      every INT value casts to TINYINT
+      every INT value casts to SMALLINT
+      every INT value casts to BOOLEAN|every INT value casts to INTERVAL YEAR
+      every INT value casts to INTERVAL DAY|every INT value casts to INTERVAL HOUR
+      every INT value casts to INTERVAL MINUTE|every INT value casts to INTERVAL SECOND
+      every INTERVAL YEAR value casts to TINYINT|every INTERVAL YEAR value casts to SMALLINT
+      every INTERVAL YEAR value casts to BIGINT|every INTERVAL MONTH value casts to BIGINT
+      every INTERVAL MONTH value casts to TINYINT|every INTERVAL MONTH value casts to SMALLINT
+
+  (each a `select` cell; the other six cells as in step 2), then rerun `python3
+  dev/varka_sweeps.py --check` -> `varka_sweeps: 26 rows listed, none missing`.
+- `T > 1200`: stop and report `T`; the lead re-plans the shards.
+
+**After regeneration** (M3): this part regenerates nothing, but run `git status --short` before
+the commit: it lists only `S` and `sql/varka/ci/sweeps.tsv`. Commit both; then `git status
+--short` prints nothing.
+
+**Step 5, the record.** Section 10 gains 10.6, "The 32-bit sources, exhausted": the 24 sweeps,
+the in-range pass and why, the slice and its measured cost, the timed sweep's `T` and `R`, the
+shards. The first scheduled run of `varka-sweeps.yml` after the merge is read by the lead
+(`sql/varka/AGENTS.md`, "Master stays green"), and its jobs' results go into 10.6 by a
+results-only pull request.
+
+**Done when** step 3 prints what it says, the gate passes, and 10.6 names the timed sweep. **Not
+here:** a sweep of a 64-bit source (332p proves those), the other arm (the owner's cut).
+
+### 11.7 Part 332m: the measurement and the row's record
+
+**Title:** `[VARKA-332] Measure the fused integral casts on the EPYC 7763 and score the plan`.
+**Branch:** `varka-332m-measure`. **Builder:** Sonnet-class. The lead dispatches; the builder
+splices, scores and writes.
+
+*Steps 2 and 3 rewritten in the fix round of 28 November 2026 (review 1, M7, L4).*
+
+1. The lead dispatches `benchmark.yml` for `VarkaIntegralCastBaselineBenchmark` at 256 bits and
+   at 128 bits, as `VARKA-597.md` 11.5 step 10 writes the command (`-f class=...
+   -f expected-cpu="AMD EPYC 7763"`, and `-f extra-java-options=-XX:MaxVectorSize=16` for the
+   second), on master's head after 332p and 332s merged, with no `sections` and no
+   `create-commit` (its default, `false`), so each run returns its files as an artifact.
+2. **Where the files come from.** The lead downloads each run's artifact (`gh run download
+   <run-id> -R vecbricks/varka`) and puts its results file, which a CI run writes under the plain
+   name `VarkaIntegralCastBaselineBenchmark-jdk25-results.txt`, into the part's worktree. The
+   builder commits the two runs as new files beside the baseline, which stays (the house's names,
+   `sql/varka/skills/benchmarking.md`, "A number or a tag before `-results.txt`: one more stored
+   run of that class on that CPU"; "Do not rename a committed file"):
+
+       sql/core/benchmarks/VarkaIntegralCastBaselineBenchmark-jdk25-runner-epyc7763-2-results.txt          (256 bits)
+       sql/core/benchmarks/VarkaIntegralCastBaselineBenchmark-jdk25-runner-epyc7763-128bit-2-results.txt   (128 bits)
+
+   each with a provenance file of the same name ending `-2-provenance.txt`, in the fields of the
+   baseline's `VarkaIntegralCastBaselineBenchmark-jdk25-runner-epyc7763-provenance.txt`
+   (`benchmark`, `where`, `run`, `commit`, `date`, `inputs`, `jdk`, `kernel`, `cpu`, `datapath`,
+   `pinned to`), read from the run's page and log. The four baseline files stay as they are: `git
+   status --short` before the commit lists only the four new files and `M8/VARKA-332.md`,
+   `M8/PLAN.md`, `sql/varka/plans/m10/SCOPE.md`. A run whose `cpu` line is not `AMD EPYC 7763
+   64-Core Processor` is not committed; the lead dispatches again.
+3. **Scoring.** Section 4's predictions are scored in a new subsection, the last of section 10, on
+   the `Relative` column of each section's `varka on` line (the row path being `1.0X`), and on `Best
+   Time(ms)` for the ratios. Quote, for each rule, every line it reads, from the new file, beside
+   the same line of the baseline file. The section titles below are the class's, as the baseline
+   file prints them (each comes twice: `, no nulls` and `, one row in ten null`; "both densities"
+   means both):
+   - prediction 1 holds if, at 256 bits, each of `INT CAST(i AS TINYINT), LEGACY`, `INT CAST(j AS
+     TINYINT), ANSI`, `INT try_cast(k AS TINYINT)`, `INT CAST(k AS TINYINT), LEGACY`, `BIGINT
+     CAST(l AS SMALLINT), LEGACY` and `BOOLEAN CAST(b AS INT)` reads 3.0X or more at both
+     densities, and `INT try_cast(k AS TINYINT)`'s best time is at most 1.3 times `INT CAST(k AS
+     TINYINT), LEGACY`'s, at both densities;
+   - prediction 2 holds if, at 256 bits, `INTERVAL DAY TO SECOND CAST(dt AS BIGINT)`'s best time
+     is at most 1.5 times `INT CAST(m AS INTERVAL YEAR)`'s, at both densities;
+   - prediction 3, at 128 bits on the EPYC 7763 (the Arm half is section 10's "The measurement on
+     Arm"), holds if each of the
+     four `INT ... TINYINT` sections named in prediction 1 and `BOOLEAN CAST(b AS INT)` reads 2.0X
+     or more at both densities, and `TINYINT CAST(y AS BIGINT)` reads 1.0X or more at both;
+   - prediction 4 is scored by 332c's `dev/varka_bytes_moved.py` line (step 4 of part 332c), quoted.
+   A section missing from the new file is a stop: report it.
+4. `sql/varka/plans/m10/SCOPE.md` item 140 gains these three lines, inserted in its table in task
+   order (after the last line whose task is below 332, before the first above it), each exactly:
+
+       | 332 | 332's first gap of the review of 2 November 2026: a `BIGINT` narrowed to `TINYINT` or `SMALLINT` at the root of a long kernel, stored under a masked store at two long lanes or with no lane count baked, takes the Vector API's Java loop on AVX2 or declines with its reason | `m8/VARKA-332.md` 11.3 decision 4 | a decline or slow path with its reason, which item 3 of `m8/PLAN.md` 1.1 accepts |
+       | 332 | 332's second gap of the review of 2 November 2026: `CAST(y AS BOOLEAN)` or `CAST(b AS TINYINT)` beside a `BIGINT` column declines the kernel, with its reason | `m8/VARKA-332.md` 11.3 decision 4 | a decline with its reason, which item 3 of `m8/PLAN.md` 1.1 accepts |
+       | 332 | The speed of the integral-interval casts 332c fused, which no section of `VarkaIntegralCastBaselineBenchmark` times: a baseline of them on code before 332c, then the fused run | `m8/VARKA-332.md` 11.3 decision 6 | item 3 asks that the pairs fuse and are proven, not a speed |
+
+   and its opening paragraph gains, at its end, the sentence "Row 332's three lines are parts of
+   a row that closed in milestone 8 (`m8/VARKA-332.md` 11.7)." If owner question 1 (section 12)
+   is answered (b), the first two lines are left out and the row stays open for them.
+5. `PLAN.md`: row 332 opens with `**Done**`, naming what moved: the two review gaps and the new
+   casts' measurement to `m10/SCOPE.md` item 140, the Spark-level fuzzer's cast productions to row
+   352.
+
+**Done when** the runner files are committed with their runs named, 10.7 holds the scored
+predictions, `python3 dev/varka_plan_lint.py --offline` prints `0 finding(s)`, and the Build is
+green.
+
+### What only a JVM can settle, and the command for each
+
+| claim | command | settles |
+|---|---|---|
+| 332c's pick meets context conflicts only | `git cherry-pick 8f8f2ec47ea`, then `git diff --name-only --diff-filter=U` | the list 11.4 step 2 resolves |
+| the renderer's block of 332p renders the twenty checks as verified here | 11.5 step 3's `grep -c` lines after the regeneration | `38` and `16` |
+| the slices fit the suite's budget | 11.6 step 3's run | the printed times, against the stop rule of 11.6 |
+| the sweeps compile and print the counts of 11.6's table | 11.6 step 3's run | the 24 slice lines |
+| `-Dvarka.sweep.filter` set through `Test/javaOptions` reaches the test JVM and leaves one sweep | 11.6 step 4's command | one line `: 65536 batches`, and `T`, which picks the shard rows |
+
+### Risks of section 11
+
+1. **332c's pick meets the 19 commits of `VarkaCoverageSuite.scala`.** Held by step 2's rule
+   (master's side, the commit's rows added) and by the coverage suite, which fails on a row it
+   cannot compile or render.
+2. **A sweep's decline rule is too strict where the guard reads null slots.** Held by the `may`
+   flag, which allows a decline only where a stored value is outside the interval, and by the
+   assertion that a batch with every value inside is answered.
+3. **The weekly job's budget.** Held by step 4's timed sweep before the shards are trusted.
+
+## 12. Questions for the owner (28 November 2026)
+
+*Rewritten in the fix round of 28 November 2026 (review 1, L6) to stand alone.*
+
+1. **Do two known slow-or-declining cases of the integral casts move to milestone 10?** The
+   review of 2 November 2026 found two cases that give correct answers but no fast kernel:
+   (1) a `BIGINT` narrowed to `TINYINT` or `SMALLINT` at a kernel's output, inside a kernel that
+   writes its output under a mask at two 64-bit lanes (AVX2 machines) or with no lane count fixed
+   at emit time, runs the Vector API's slow Java fallback or declines to the row engine; (2)
+   `CAST(y AS BOOLEAN)` or `CAST(b AS TINYINT)` in the same projection as a `BIGINT` column
+   declines the whole kernel to Spark's row engine. Options: (a) move both to milestone 10's
+   catalogue (`m10/SCOPE.md` item 140) and close row 332 without them; (b) build both in
+   milestone 8 before row 332 closes. *Recommended: (a)*: both give Spark's answers, the
+   milestone's done-when list (item 3 of `m8/PLAN.md` 1.1) accepts a decline that states its
+   reason, and neither is on a machine or a query shape the project optimises for. **Default
+   applied: (a)** (11.3 decision 4; part 332m writes the two lines).
+
+## 13. The house rules that bind every part of section 11
+
+Each is written in the file named; read it there.
+
+- Results equal vanilla Spark's under both ANSI settings; a kernel never raises, a batch Spark
+  raises on declines (section 0 item 3 of this plan; `sql/varka/VISION.md`).
+- A new bounded lowering comes with its proof file, rendered from the code's constants:
+  `sql/varka/AGENTS.md`, "House rules that bite here specifically"; 332p is that file's addition.
+- Every exhaustive sweep is listed once, the way a job selects it: `dev/varka_sweeps.py`'s header.
+- The option matrix must pass under every configuration: the paragraph of
+  `sql/varka/skills/testing-and-debugging.md` that opens "A test that must hold under every
+  configuration".
+- A pull request under 1000 counted lines, reviewed by its author before it opens:
+  `sql/varka/AGENTS.md`, "Pull requests"; branches, titles, who merges:
+  `sql/varka/.agents/pull-requests.md`; the gate: `dev/varka_ops/AGENTS.md`.
+- What not to do: do not edit a generated file by hand (`casts.tsv`, `casts_fused.tsv`,
+  `census.tsv`, `coverage.json`, `emitted_bytes.json`, `casts.smt2`); do not run the 2^32 sweeps
+  beside another heavy job; do not push or open a pull request (the lead does).
+
+## 14. Stale against the tree, found while planning (28 November 2026)
+
+1. **The row's note in `PLAN.md`** lists as left "332b's in-range value sets" and "the other
+   interval casts": both are built on `varka-332-integral-casts` (11.1), not merged.
+2. **Section 10 has two subsections numbered 10.2** ("The measurement on Arm" and "332b, the TRY
+   narrowings"). History, kept as written; the new subsections are 10.4 (the branch's) to 10.7.
+3. **Section 0 item 14 and question 1's context**: the sweep budget "is not in `PLAN.md` yet"; row
+   330 is Done and its budget is in `PLAN.md` 10.3 item 5 (row 330's note).
+4. **The triage of 27 November** (`m8-triage/part-1.md`, row 332) counts "six identity pairs
+   unmarked": the census credits an identity as fused (`dev/varka_census.py`, `pair_credit`), so
+   they are not a gap.
+5. **10.3's "Still declining" list** is answered by 332c, which fuses every pair it names.
+6. **The branch's conformance hunk** (found in the fix round of 28 November 2026). The branch
+   edits a test `castRow`, one loop over every cast of a type; master has split it into one test
+   a census target, `castTo(String to)` (`grep -c 'private void castTo(String to)'
+   CT/varka/VarkaTypeConformance.java` prints `1`), so the hunk is applied by hand (11.4 step 2).
+7. **The first 11.6** (found in the fix round): with 2^16-aligned batches an ANSI narrowing to
+   `TINYINT` or `SMALLINT` answers no batch, so the sweep compared no ANSI answer; 11.6 now adds
+   the in-range pass.
